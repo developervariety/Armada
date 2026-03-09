@@ -579,7 +579,6 @@
                             <th class="sortable" @click="sortBy('status', allMissions)">Status<span x-text="sortIcon('status')"></span></th>
                             <th>Vessel</th>
                             <th>Captain</th>
-                            <th class="sortable" @click="sortBy('priority', allMissions)">Priority<span x-text="sortIcon('priority')"></span></th>
                             <th>Branch</th>
                             <th class="sortable" @click="sortBy('createdUtc', allMissions)">Created<span x-text="sortIcon('createdUtc')"></span></th>
                             <th></th>
@@ -592,7 +591,6 @@
                                 <td><span class="tag" :class="(m.status || '').toLowerCase()" x-text="m.status"></span></td>
                                 <td x-text="vesselName(m.vesselId)"></td>
                                 <td x-text="captainName(m.captainId)"></td>
-                                <td x-text="m.priority"></td>
                                 <td class="text-dim" x-text="m.branchName || '-'"></td>
                                 <td class="text-dim" x-text="formatTime(m.createdUtc)" :title="formatTimeAbsolute(m.createdUtc)"></td>
                                 <td @click.stop>
