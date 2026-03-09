@@ -45,6 +45,11 @@ namespace Armada.Core.Services
 
             _Logging.Info(_Header + "cloning bare: " + repoUrl + " -> " + localPath);
             await RunGitAsync(null, "clone", "--bare", repoUrl, localPath).ConfigureAwait(false);
+
+            // Bare clones do not configure a fetch refspec by default, so git fetch
+            // will not update local branch refs. Configure the refspec so that every
+            // fetch keeps local branches in sync with the remote.
+            await RunGitAsync(localPath, "config", "remote.origin.fetch", "+refs/heads/*:refs/heads/*").ConfigureAwait(false);
         }
 
         /// <summary>
@@ -82,6 +87,21 @@ namespace Armada.Core.Services
         public async Task FetchAsync(string repoPath, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(repoPath)) throw new ArgumentNullException(nameof(repoPath));
+
+            // Ensure the fetch refspec is configured (bare repos cloned before the fix may lack it)
+            try
+            {
+                string currentRefspec = await RunGitAsync(repoPath, "config", "--get", "remote.origin.fetch").ConfigureAwait(false);
+                if (String.IsNullOrWhiteSpace(currentRefspec))
+                {
+                    await RunGitAsync(repoPath, "config", "remote.origin.fetch", "+refs/heads/*:refs/heads/*").ConfigureAwait(false);
+                }
+            }
+            catch
+            {
+                // Config key missing entirely — set it
+                await RunGitAsync(repoPath, "config", "remote.origin.fetch", "+refs/heads/*:refs/heads/*").ConfigureAwait(false);
+            }
 
             _Logging.Debug(_Header + "fetching: " + repoPath);
             await RunGitAsync(repoPath, "fetch", "--all", "--prune").ConfigureAwait(false);
