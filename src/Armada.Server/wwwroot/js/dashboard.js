@@ -728,7 +728,7 @@ function dashboard() {
         },
 
         async deleteMission(missionId) {
-            if (!confirm('Permanently delete mission ' + missionId + '? This cannot be undone.')) return;
+            if (!await this.showConfirm('Permanently delete mission ' + missionId + '? This cannot be undone.')) return;
             try {
                 await this.api('DELETE', '/api/v1/missions/' + missionId + '/purge');
                 this.toast('Mission deleted');
@@ -832,7 +832,7 @@ function dashboard() {
         },
 
         async deleteVoyage(voyageId) {
-            if (!confirm('Permanently delete voyage ' + voyageId + ' and all its missions? This cannot be undone.')) return;
+            if (!await this.showConfirm('Permanently delete voyage ' + voyageId + ' and all its missions? This cannot be undone.')) return;
             try {
                 await this.api('DELETE', '/api/v1/voyages/' + voyageId + '/purge');
                 this.toast('Voyage deleted');
