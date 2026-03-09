@@ -1374,6 +1374,16 @@
                 </div>
             </form>
         </div>
+
+        <!-- Confirm Dialog -->
+        <div class="modal-box" x-show="modal === 'confirm'">
+            <h3>Confirm</h3>
+            <p style="margin: 1rem 0; color: var(--text-secondary);" x-text="confirmMessage"></p>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-sm" @click="modal = null; confirmCallback = null; confirmMessage = '';">Cancel</button>
+                <button type="button" class="btn btn-danger btn-sm" @click="executeConfirm()">Confirm</button>
+            </div>
+        </div>
     </div>
 
     <script src="/dashboard/js/dashboard.js"></script>

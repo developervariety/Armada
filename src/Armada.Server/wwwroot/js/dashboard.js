@@ -83,6 +83,10 @@ function dashboard() {
         modalData: {},
         modalLoading: false,
 
+        // Confirm dialog
+        confirmMessage: '',
+        confirmCallback: null,
+
         // Mission restart
         restartTarget: null,
         restartTitle: '',
@@ -628,37 +632,59 @@ function dashboard() {
         },
 
         // ============================================================
+        // Confirm dialog helper
+        // ============================================================
+        showConfirm(message, callback) {
+            this.confirmMessage = message;
+            this.confirmCallback = callback;
+            this.modal = 'confirm';
+        },
+
+        async executeConfirm() {
+            if (this.confirmCallback) {
+                let cb = this.confirmCallback;
+                this.modal = null;
+                this.confirmCallback = null;
+                this.confirmMessage = '';
+                await cb();
+            }
+        },
+
+        // ============================================================
         // Captain actions
         // ============================================================
-        async recallCaptain(captainId) {
-            if (!confirm('Recall captain ' + captainId + '? This will stop their current mission.')) return;
-            try {
-                await this.api('POST', '/api/v1/captains/' + captainId + '/stop');
-                this.toast('Captain recalled');
-                await this.refresh();
-            } catch (e) { this.toast('Failed to recall captain: ' + e.message, 'error'); }
+        recallCaptain(captainId) {
+            this.showConfirm('Recall captain ' + captainId + '? This will stop their current mission.', async () => {
+                try {
+                    await this.api('POST', '/api/v1/captains/' + captainId + '/stop');
+                    this.toast('Captain recalled');
+                    await this.refresh();
+                } catch (e) { this.toast('Failed to recall captain: ' + e.message, 'error'); }
+            });
         },
 
-        async stopAllCaptains() {
-            if (!confirm('Stop ALL working captains? This will halt all active missions.')) return;
-            try {
-                let working = this.captains.filter(c => c.state === 'Working' || c.state === 'Stalled');
-                for (let cpt of working) {
-                    await this.api('POST', '/api/v1/captains/' + cpt.id + '/stop');
-                }
-                this.toast('All captains stopped (' + working.length + ')');
-                await this.refresh();
-            } catch (e) { this.toast('Failed: ' + e.message, 'error'); }
+        stopAllCaptains() {
+            this.showConfirm('Stop ALL working captains? This will halt all active missions.', async () => {
+                try {
+                    let working = this.captains.filter(c => c.state === 'Working' || c.state === 'Stalled');
+                    for (let cpt of working) {
+                        await this.api('POST', '/api/v1/captains/' + cpt.id + '/stop');
+                    }
+                    this.toast('All captains stopped (' + working.length + ')');
+                    await this.refresh();
+                } catch (e) { this.toast('Failed: ' + e.message, 'error'); }
+            });
         },
 
-        async removeCaptain(captainId) {
-            if (!confirm('Remove captain ' + captainId + '? This cannot be undone.')) return;
-            try {
-                await this.api('DELETE', '/api/v1/captains/' + captainId);
-                this.toast('Captain removed');
-                await this.refresh();
-                if (this.detailView === 'captain-detail' && this.detailId === captainId) this.goBack();
-            } catch (e) { this.toast('Failed: ' + e.message, 'error'); }
+        removeCaptain(captainId) {
+            this.showConfirm('Remove captain ' + captainId + '? This cannot be undone.', async () => {
+                try {
+                    await this.api('DELETE', '/api/v1/captains/' + captainId);
+                    this.toast('Captain removed');
+                    await this.refresh();
+                    if (this.detailView === 'captain-detail' && this.detailId === captainId) this.goBack();
+                } catch (e) { this.toast('Failed: ' + e.message, 'error'); }
+            });
         },
 
         // ============================================================
@@ -688,14 +714,15 @@ function dashboard() {
             }
         },
 
-        async cancelMission(missionId) {
-            if (!confirm('Cancel mission ' + missionId + '?')) return;
-            try {
-                await this.api('DELETE', '/api/v1/missions/' + missionId);
-                this.toast('Mission cancelled');
-                await this.refresh();
-                if (this.detailView === 'mission-detail') this.loadDetail('mission-detail', missionId);
-            } catch (e) { this.toast('Failed: ' + e.message, 'error'); }
+        cancelMission(missionId) {
+            this.showConfirm('Cancel mission ' + missionId + '?', async () => {
+                try {
+                    await this.api('DELETE', '/api/v1/missions/' + missionId);
+                    this.toast('Mission cancelled');
+                    await this.refresh();
+                    if (this.detailView === 'mission-detail') this.loadDetail('mission-detail', missionId);
+                } catch (e) { this.toast('Failed: ' + e.message, 'error'); }
+            });
         },
 
         restartMissionPrompt(mission) {
@@ -782,35 +809,37 @@ function dashboard() {
             this.voyageForm.missions.splice(index, 1);
         },
 
-        async cancelVoyage(voyageId) {
-            if (!confirm('Cancel voyage ' + voyageId + '? All pending missions will be cancelled.')) return;
-            try {
-                await this.api('DELETE', '/api/v1/voyages/' + voyageId);
-                this.toast('Voyage cancelled');
-                await this.refresh();
-                if (this.detailView === 'voyage-detail') this.loadDetail('voyage-detail', voyageId);
-            } catch (e) { this.toast('Failed: ' + e.message, 'error'); }
+        cancelVoyage(voyageId) {
+            this.showConfirm('Cancel voyage ' + voyageId + '? All pending missions will be cancelled.', async () => {
+                try {
+                    await this.api('DELETE', '/api/v1/voyages/' + voyageId);
+                    this.toast('Voyage cancelled');
+                    await this.refresh();
+                    if (this.detailView === 'voyage-detail') this.loadDetail('voyage-detail', voyageId);
+                } catch (e) { this.toast('Failed: ' + e.message, 'error'); }
+            });
         },
 
-        async retryVoyageMissions(voyageId) {
-            if (!confirm('Retry all failed missions in this voyage?')) return;
-            try {
-                let result = await this.api('GET', '/api/v1/voyages/' + voyageId);
-                let missions = result.missions || [];
-                let failed = missions.filter(m => m.status === 'Failed');
-                for (let m of failed) {
-                    await this.api('POST', '/api/v1/missions', {
-                        title: m.title,
-                        description: m.description,
-                        vesselId: m.vesselId,
-                        voyageId: m.voyageId,
-                        priority: m.priority
-                    });
-                }
-                this.toast('Retried ' + failed.length + ' failed missions');
-                await this.refresh();
-                if (this.detailView === 'voyage-detail') this.loadDetail('voyage-detail', voyageId);
-            } catch (e) { this.toast('Failed: ' + e.message, 'error'); }
+        retryVoyageMissions(voyageId) {
+            this.showConfirm('Retry all failed missions in this voyage?', async () => {
+                try {
+                    let result = await this.api('GET', '/api/v1/voyages/' + voyageId);
+                    let missions = result.missions || [];
+                    let failed = missions.filter(m => m.status === 'Failed');
+                    for (let m of failed) {
+                        await this.api('POST', '/api/v1/missions', {
+                            title: m.title,
+                            description: m.description,
+                            vesselId: m.vesselId,
+                            voyageId: m.voyageId,
+                            priority: m.priority
+                        });
+                    }
+                    this.toast('Retried ' + failed.length + ' failed missions');
+                    await this.refresh();
+                    if (this.detailView === 'voyage-detail') this.loadDetail('voyage-detail', voyageId);
+                } catch (e) { this.toast('Failed: ' + e.message, 'error'); }
+            });
         },
 
         // ============================================================
@@ -845,14 +874,15 @@ function dashboard() {
             finally { this.modalLoading = false; }
         },
 
-        async deleteFleet(fleetId) {
-            if (!confirm('Delete fleet ' + fleetId + '? This cannot be undone.')) return;
-            try {
-                await this.api('DELETE', '/api/v1/fleets/' + fleetId);
-                this.toast('Fleet deleted');
-                await this.loadFleets();
-                if (this.detailView === 'fleet-detail' && this.detailId === fleetId) this.goBack();
-            } catch (e) { this.toast('Failed: ' + e.message, 'error'); }
+        deleteFleet(fleetId) {
+            this.showConfirm('Delete fleet ' + fleetId + '? This cannot be undone.', async () => {
+                try {
+                    await this.api('DELETE', '/api/v1/fleets/' + fleetId);
+                    this.toast('Fleet deleted');
+                    await this.loadFleets();
+                    if (this.detailView === 'fleet-detail' && this.detailId === fleetId) this.goBack();
+                } catch (e) { this.toast('Failed: ' + e.message, 'error'); }
+            });
         },
 
         // ============================================================
@@ -893,15 +923,16 @@ function dashboard() {
             finally { this.modalLoading = false; }
         },
 
-        async deleteVessel(vesselId) {
-            if (!confirm('Delete vessel ' + vesselId + '? This cannot be undone.')) return;
-            try {
-                await this.api('DELETE', '/api/v1/vessels/' + vesselId);
-                this.toast('Vessel deleted');
-                await this.loadFleets();
-                await this.loadVessels();
-                if (this.detailView === 'vessel-detail' && this.detailId === vesselId) this.goBack();
-            } catch (e) { this.toast('Failed: ' + e.message, 'error'); }
+        deleteVessel(vesselId) {
+            this.showConfirm('Delete vessel ' + vesselId + '? This cannot be undone.', async () => {
+                try {
+                    await this.api('DELETE', '/api/v1/vessels/' + vesselId);
+                    this.toast('Vessel deleted');
+                    await this.loadFleets();
+                    await this.loadVessels();
+                    if (this.detailView === 'vessel-detail' && this.detailId === vesselId) this.goBack();
+                } catch (e) { this.toast('Failed: ' + e.message, 'error'); }
+            });
         },
 
         // ============================================================
@@ -975,33 +1006,36 @@ function dashboard() {
             finally { this.modalLoading = false; }
         },
 
-        async cancelMergeEntry(entryId) {
-            if (!confirm('Cancel merge entry ' + entryId + '?')) return;
-            try {
-                await this.api('DELETE', '/api/v1/merge-queue/' + entryId);
-                this.toast('Merge entry cancelled');
-                await this.loadMergeQueue();
-            } catch (e) { this.toast('Failed: ' + e.message, 'error'); }
+        cancelMergeEntry(entryId) {
+            this.showConfirm('Cancel merge entry ' + entryId + '?', async () => {
+                try {
+                    await this.api('DELETE', '/api/v1/merge-queue/' + entryId);
+                    this.toast('Merge entry cancelled');
+                    await this.loadMergeQueue();
+                } catch (e) { this.toast('Failed: ' + e.message, 'error'); }
+            });
         },
 
-        async processMergeQueue() {
-            if (!confirm('Process the merge queue now?')) return;
-            try {
-                await this.api('POST', '/api/v1/merge-queue/process');
-                this.toast('Merge queue processing triggered');
-                await this.loadMergeQueue();
-            } catch (e) { this.toast('Failed: ' + e.message, 'error'); }
+        processMergeQueue() {
+            this.showConfirm('Process the merge queue now?', async () => {
+                try {
+                    await this.api('POST', '/api/v1/merge-queue/process');
+                    this.toast('Merge queue processing triggered');
+                    await this.loadMergeQueue();
+                } catch (e) { this.toast('Failed: ' + e.message, 'error'); }
+            });
         },
 
         // ============================================================
         // Server
         // ============================================================
-        async stopServer() {
-            if (!confirm('Stop the Admiral server? This will shut down everything.')) return;
-            try {
-                await this.api('POST', '/api/v1/server/stop');
-                this.toast('Server shutting down...');
-            } catch (e) { this.toast('Failed: ' + e.message, 'error'); }
+        stopServer() {
+            this.showConfirm('Stop the Admiral server? This will shut down everything.', async () => {
+                try {
+                    await this.api('POST', '/api/v1/server/stop');
+                    this.toast('Server shutting down...');
+                } catch (e) { this.toast('Failed: ' + e.message, 'error'); }
+            });
         },
 
         // ============================================================
