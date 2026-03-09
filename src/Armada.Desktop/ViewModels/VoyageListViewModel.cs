@@ -22,6 +22,7 @@ namespace Armada.Desktop.ViewModels
         private ArmadaConnectionService _Connection;
         private Voyage? _SelectedVoyage;
         private string _StatusFilter = "All";
+        private string _VesselFilter = "All";
         private bool _IsLoading;
         private int _PageNumber = 1;
         private int _TotalPages;
@@ -83,8 +84,22 @@ namespace Armada.Desktop.ViewModels
             }
         }
 
+        /// <summary>Vessel filter.</summary>
+        public string VesselFilter
+        {
+            get => _VesselFilter;
+            set
+            {
+                this.RaiseAndSetIfChanged(ref _VesselFilter, value);
+                RefreshList();
+            }
+        }
+
         /// <summary>Available status filters.</summary>
         public List<string> StatusFilters { get; } = new List<string> { "All", "Open", "InProgress", "Complete", "Cancelled" };
+
+        /// <summary>Available vessel filters (populated dynamically).</summary>
+        public ObservableCollection<string> VesselFilters { get; } = new ObservableCollection<string> { "All" };
 
         /// <summary>Whether an async operation is in progress.</summary>
         public bool IsLoading
@@ -328,6 +343,7 @@ namespace Armada.Desktop.ViewModels
         {
             Dispatcher.UIThread.Post(() =>
             {
+                RefreshLookups();
                 _ = LoadPageAsync();
                 this.RaisePropertyChanged(nameof(CanRetryFailed));
                 this.RaisePropertyChanged(nameof(CanCancelVoyage));
@@ -335,8 +351,20 @@ namespace Armada.Desktop.ViewModels
             });
         }
 
+        private void RefreshLookups()
+        {
+            List<string> currentVessels = new List<string> { "All" };
+            foreach (Vessel v in _Connection.Vessels) currentVessels.Add(v.Name);
+            if (!currentVessels.SequenceEqual(VesselFilters))
+            {
+                VesselFilters.Clear();
+                foreach (string name in currentVessels) VesselFilters.Add(name);
+            }
+        }
+
         private void RefreshList()
         {
+            RefreshLookups();
             PageNumber = 1;
             _ = LoadPageAsync();
         }
@@ -358,14 +386,31 @@ namespace Armada.Desktop.ViewModels
 
                 if (result != null)
                 {
+                    // Determine vessel ID for client-side filtering
+                    string? filterVesselId = null;
+                    if (VesselFilter != "All")
+                    {
+                        Vessel? filterVessel = _Connection.Vessels.FirstOrDefault(v => v.Name == VesselFilter);
+                        if (filterVessel != null)
+                            filterVesselId = filterVessel.Id;
+                    }
+
                     Dispatcher.UIThread.Post(() =>
                     {
                         TotalPages = result.TotalPages;
                         TotalRecords = result.TotalRecords;
                         PageNumber = result.PageNumber;
 
+                        // Filter voyages client-side by vessel if selected
+                        List<Voyage> filtered = result.Objects.ToList();
+                        if (filterVesselId != null)
+                        {
+                            filtered = filtered.Where(v =>
+                                _Connection.Missions.Any(m => m.VoyageId == v.Id && m.VesselId == filterVesselId)).ToList();
+                        }
+
                         Voyages.Clear();
-                        foreach (Voyage v in result.Objects)
+                        foreach (Voyage v in filtered)
                         {
                             int total = _Connection.Missions.Count(m => m.VoyageId == v.Id);
                             int complete = _Connection.Missions.Count(m => m.VoyageId == v.Id && m.Status == MissionStatusEnum.Complete);
