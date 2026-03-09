@@ -1,0 +1,417 @@
+namespace Armada.Core.Services
+{
+    using SyslogLogging;
+    using Armada.Core.Database;
+    using Armada.Core.Enums;
+    using Armada.Core.Models;
+    using Armada.Core.Settings;
+    using Armada.Core.Services.Interfaces;
+
+    /// <summary>
+    /// Top-level orchestration service for coordinating missions and captains.
+    /// Delegates domain logic to CaptainService, MissionService, VoyageService, and DockService.
+    /// </summary>
+    public class AdmiralService : IAdmiralService
+    {
+        #region Public-Members
+
+        /// <inheritdoc />
+        public Func<Captain, Mission, Dock, Task<int>>? OnLaunchAgent
+        {
+            get => _Captains.OnLaunchAgent;
+            set => _Captains.OnLaunchAgent = value;
+        }
+
+        /// <inheritdoc />
+        public Func<Captain, Task>? OnStopAgent
+        {
+            get => _Captains.OnStopAgent;
+            set => _Captains.OnStopAgent = value;
+        }
+
+        /// <inheritdoc />
+        public Func<Mission, Dock, Task>? OnMissionComplete
+        {
+            get => _Missions.OnMissionComplete;
+            set => _Missions.OnMissionComplete = value;
+        }
+
+        #endregion
+
+        #region Private-Members
+
+        private string _Header = "[AdmiralService] ";
+        private LoggingModule _Logging;
+        private DatabaseDriver _Database;
+        private ArmadaSettings _Settings;
+        private ICaptainService _Captains;
+        private IMissionService _Missions;
+        private IVoyageService _Voyages;
+        private IEscalationService? _Escalation;
+
+        #endregion
+
+        #region Constructors-and-Factories
+
+        /// <summary>
+        /// Instantiate.
+        /// </summary>
+        /// <param name="logging">Logging module.</param>
+        /// <param name="database">Database driver.</param>
+        /// <param name="settings">Application settings.</param>
+        /// <param name="captains">Captain service.</param>
+        /// <param name="missions">Mission service.</param>
+        /// <param name="voyages">Voyage service.</param>
+        /// <param name="escalation">Optional escalation service.</param>
+        public AdmiralService(
+            LoggingModule logging,
+            DatabaseDriver database,
+            ArmadaSettings settings,
+            ICaptainService captains,
+            IMissionService missions,
+            IVoyageService voyages,
+            IEscalationService? escalation = null)
+        {
+            _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
+            _Database = database ?? throw new ArgumentNullException(nameof(database));
+            _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
+            _Captains = captains ?? throw new ArgumentNullException(nameof(captains));
+            _Missions = missions ?? throw new ArgumentNullException(nameof(missions));
+            _Voyages = voyages ?? throw new ArgumentNullException(nameof(voyages));
+            _Escalation = escalation;
+        }
+
+        #endregion
+
+        #region Public-Methods
+
+        /// <inheritdoc />
+        public async Task<Voyage> DispatchVoyageAsync(
+            string title,
+            string description,
+            string vesselId,
+            List<MissionDescription> missionDescriptions,
+            CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(title)) throw new ArgumentNullException(nameof(title));
+            if (String.IsNullOrEmpty(vesselId)) throw new ArgumentNullException(nameof(vesselId));
+            if (missionDescriptions == null || missionDescriptions.Count == 0)
+                throw new ArgumentException("At least one mission is required", nameof(missionDescriptions));
+
+            // Verify vessel exists
+            Vessel? vessel = await _Database.Vessels.ReadAsync(vesselId, token).ConfigureAwait(false);
+            if (vessel == null) throw new InvalidOperationException("Vessel not found: " + vesselId);
+
+            // Create voyage
+            Voyage voyage = new Voyage(title, description);
+            voyage.Status = VoyageStatusEnum.Open;
+            voyage = await _Database.Voyages.CreateAsync(voyage, token).ConfigureAwait(false);
+            _Logging.Info(_Header + "created voyage " + voyage.Id + ": " + title);
+
+            // Create missions
+            foreach (MissionDescription md in missionDescriptions)
+            {
+                Mission mission = new Mission(md.Title, md.Description);
+                mission.VoyageId = voyage.Id;
+                mission.VesselId = vesselId;
+                mission = await _Database.Missions.CreateAsync(mission, token).ConfigureAwait(false);
+                _Logging.Info(_Header + "created mission " + mission.Id + ": " + md.Title);
+
+                // Try to auto-assign
+                await _Missions.TryAssignAsync(mission, vessel, token).ConfigureAwait(false);
+            }
+
+            // Update voyage status
+            voyage.Status = VoyageStatusEnum.InProgress;
+            voyage.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.Voyages.UpdateAsync(voyage, token).ConfigureAwait(false);
+
+            return voyage;
+        }
+
+        /// <inheritdoc />
+        public async Task<Mission> DispatchMissionAsync(Mission mission, CancellationToken token = default)
+        {
+            if (mission == null) throw new ArgumentNullException(nameof(mission));
+
+            mission = await _Database.Missions.CreateAsync(mission, token).ConfigureAwait(false);
+            _Logging.Info(_Header + "created mission " + mission.Id + ": " + mission.Title);
+
+            if (!String.IsNullOrEmpty(mission.VesselId))
+            {
+                Vessel? vessel = await _Database.Vessels.ReadAsync(mission.VesselId, token).ConfigureAwait(false);
+                if (vessel != null)
+                {
+                    await _Missions.TryAssignAsync(mission, vessel, token).ConfigureAwait(false);
+                }
+            }
+
+            return mission;
+        }
+
+        /// <inheritdoc />
+        public async Task<ArmadaStatus> GetStatusAsync(CancellationToken token = default)
+        {
+            ArmadaStatus status = new ArmadaStatus();
+
+            // Captain counts
+            List<Captain> allCaptains = await _Database.Captains.EnumerateAsync(token).ConfigureAwait(false);
+            status.TotalCaptains = allCaptains.Count;
+            status.IdleCaptains = allCaptains.Count(c => c.State == CaptainStateEnum.Idle);
+            status.WorkingCaptains = allCaptains.Count(c => c.State == CaptainStateEnum.Working);
+            status.StalledCaptains = allCaptains.Count(c => c.State == CaptainStateEnum.Stalled);
+
+            // Mission counts by status
+            List<Mission> allMissions = await _Database.Missions.EnumerateAsync(token).ConfigureAwait(false);
+            foreach (MissionStatusEnum missionStatus in Enum.GetValues<MissionStatusEnum>())
+            {
+                int count = allMissions.Count(m => m.Status == missionStatus);
+                if (count > 0) status.MissionsByStatus[missionStatus.ToString()] = count;
+            }
+
+            // Active voyages
+            List<Voyage> activeVoyages = await _Database.Voyages.EnumerateByStatusAsync(VoyageStatusEnum.InProgress, token).ConfigureAwait(false);
+            List<Voyage> openVoyages = await _Database.Voyages.EnumerateByStatusAsync(VoyageStatusEnum.Open, token).ConfigureAwait(false);
+            status.ActiveVoyages = activeVoyages.Count + openVoyages.Count;
+
+            foreach (Voyage voyage in activeVoyages.Concat(openVoyages))
+            {
+                VoyageProgress? progress = await _Voyages.GetProgressAsync(voyage.Id, token).ConfigureAwait(false);
+                if (progress != null) status.Voyages.Add(progress);
+            }
+
+            // Recent signals
+            status.RecentSignals = await _Database.Signals.EnumerateRecentAsync(10, token).ConfigureAwait(false);
+
+            return status;
+        }
+
+        /// <inheritdoc />
+        public async Task RecallCaptainAsync(string captainId, CancellationToken token = default)
+        {
+            await _Captains.RecallAsync(captainId, token).ConfigureAwait(false);
+        }
+
+        /// <inheritdoc />
+        public async Task RecallAllAsync(CancellationToken token = default)
+        {
+            _Logging.Warn(_Header + "RECALLING ALL CAPTAINS");
+
+            List<Captain> workingCaptains = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Working, token).ConfigureAwait(false);
+
+            foreach (Captain captain in workingCaptains)
+            {
+                try
+                {
+                    await _Captains.RecallAsync(captain.Id, token).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "error recalling captain " + captain.Id + ": " + ex.Message);
+                }
+            }
+        }
+
+        /// <inheritdoc />
+        public async Task HealthCheckAsync(CancellationToken token = default)
+        {
+            List<Captain> workingCaptains = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Working, token).ConfigureAwait(false);
+
+            foreach (Captain captain in workingCaptains)
+            {
+                if (captain.ProcessId == null) continue;
+
+                // Check if process is still alive
+                bool isAlive = false;
+                int exitCode = -1;
+                try
+                {
+                    System.Diagnostics.Process process = System.Diagnostics.Process.GetProcessById(captain.ProcessId.Value);
+                    if (process.HasExited)
+                    {
+                        isAlive = false;
+                        try { exitCode = process.ExitCode; }
+                        catch { }
+                    }
+                    else
+                    {
+                        isAlive = true;
+                    }
+                }
+                catch (ArgumentException)
+                {
+                    // Process no longer exists in process table — treat as clean exit
+                    isAlive = false;
+                    exitCode = 0;
+                }
+
+                if (!isAlive)
+                {
+                    if (exitCode == 0 && !String.IsNullOrEmpty(captain.CurrentMissionId))
+                    {
+                        // Clean exit = mission complete
+                        _Logging.Info(_Header + "captain " + captain.Id + " process completed successfully");
+                        await _Missions.HandleCompletionAsync(captain, token).ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        _Logging.Warn(_Header + "captain " + captain.Id + " process " + captain.ProcessId + " exited with code " + exitCode);
+
+                        // Attempt auto-recovery if under the limit
+                        if (captain.RecoveryAttempts < _Settings.MaxRecoveryAttempts && !String.IsNullOrEmpty(captain.CurrentMissionId))
+                        {
+                            await _Captains.TryRecoverAsync(captain, token).ConfigureAwait(false);
+                        }
+                        else
+                        {
+                            await _Database.Captains.UpdateStateAsync(captain.Id, CaptainStateEnum.Stalled, token).ConfigureAwait(false);
+
+                            // Mark the mission as Failed so the voyage can complete
+                            if (!String.IsNullOrEmpty(captain.CurrentMissionId))
+                            {
+                                Mission? stalledMission = await _Database.Missions.ReadAsync(captain.CurrentMissionId, token).ConfigureAwait(false);
+                                if (stalledMission != null && stalledMission.Status != MissionStatusEnum.Complete)
+                                {
+                                    stalledMission.Status = MissionStatusEnum.Failed;
+                                    stalledMission.CompletedUtc = DateTime.UtcNow;
+                                    stalledMission.LastUpdateUtc = DateTime.UtcNow;
+                                    await _Database.Missions.UpdateAsync(stalledMission, token).ConfigureAwait(false);
+                                    _Logging.Warn(_Header + "mission " + stalledMission.Id + " marked failed (captain recovery exhausted)");
+                                }
+                            }
+
+                            if (_Escalation != null)
+                                await _Escalation.FireAsync(EscalationTriggerEnum.RecoveryExhausted, captain.Id, "Captain " + captain.Id + " recovery exhausted (exit code " + exitCode + ")", token).ConfigureAwait(false);
+
+                            Signal signal = new Signal(SignalTypeEnum.Error, "Captain process exited with code " + exitCode + " (recovery exhausted)");
+                            signal.FromCaptainId = captain.Id;
+                            await _Database.Signals.CreateAsync(signal, token).ConfigureAwait(false);
+                        }
+                    }
+                }
+                else
+                {
+                    // Update heartbeat
+                    await _Database.Captains.UpdateHeartbeatAsync(captain.Id, token).ConfigureAwait(false);
+
+                    // Check for stall (no heartbeat update for too long)
+                    if (captain.LastHeartbeatUtc.HasValue)
+                    {
+                        TimeSpan elapsed = DateTime.UtcNow - captain.LastHeartbeatUtc.Value;
+                        if (elapsed.TotalMinutes > _Settings.StallThresholdMinutes)
+                        {
+                            _Logging.Warn(_Header + "captain " + captain.Id + " appears stalled (" + elapsed.TotalMinutes.ToString("F1") + " min since last heartbeat)");
+
+                            // Attempt auto-recovery if under the limit
+                            if (captain.RecoveryAttempts < _Settings.MaxRecoveryAttempts && !String.IsNullOrEmpty(captain.CurrentMissionId))
+                            {
+                                // Kill the stalled process first
+                                if (_Captains.OnStopAgent != null)
+                                {
+                                    try { await _Captains.OnStopAgent.Invoke(captain).ConfigureAwait(false); }
+                                    catch { }
+                                }
+
+                                await _Captains.TryRecoverAsync(captain, token).ConfigureAwait(false);
+                            }
+                            else
+                            {
+                                await _Database.Captains.UpdateStateAsync(captain.Id, CaptainStateEnum.Stalled, token).ConfigureAwait(false);
+
+                                // Mark the mission as Failed so the voyage can complete
+                                if (!String.IsNullOrEmpty(captain.CurrentMissionId))
+                                {
+                                    Mission? stalledMission = await _Database.Missions.ReadAsync(captain.CurrentMissionId, token).ConfigureAwait(false);
+                                    if (stalledMission != null && stalledMission.Status != MissionStatusEnum.Complete)
+                                    {
+                                        stalledMission.Status = MissionStatusEnum.Failed;
+                                        stalledMission.CompletedUtc = DateTime.UtcNow;
+                                        stalledMission.LastUpdateUtc = DateTime.UtcNow;
+                                        await _Database.Missions.UpdateAsync(stalledMission, token).ConfigureAwait(false);
+                                        _Logging.Warn(_Header + "mission " + stalledMission.Id + " marked failed (captain stalled, recovery exhausted)");
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Check for completed voyages
+            await _Voyages.CheckCompletionsAsync(token).ConfigureAwait(false);
+
+            // Dispatch pending missions to idle captains
+            await DispatchPendingMissionsAsync(token).ConfigureAwait(false);
+
+            // Captain pool management: auto-spawn if below minimum idle count
+            if (_Settings.MinIdleCaptains > 0)
+            {
+                await MaintainCaptainPoolAsync(token).ConfigureAwait(false);
+            }
+
+            // Evaluate escalation rules
+            if (_Escalation != null)
+            {
+                await _Escalation.EvaluateAsync(token).ConfigureAwait(false);
+            }
+        }
+
+        #endregion
+
+        #region Private-Methods
+
+        private async Task DispatchPendingMissionsAsync(CancellationToken token)
+        {
+            List<Captain> idleCaptains = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Idle, token).ConfigureAwait(false);
+            if (idleCaptains.Count == 0) return;
+
+            List<Mission> pendingMissions = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Pending, token).ConfigureAwait(false);
+            if (pendingMissions.Count == 0) return;
+
+            foreach (Mission mission in pendingMissions)
+            {
+                idleCaptains = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Idle, token).ConfigureAwait(false);
+                if (idleCaptains.Count == 0) break;
+
+                if (string.IsNullOrEmpty(mission.VesselId)) continue;
+
+                Vessel? vessel = await _Database.Vessels.ReadAsync(mission.VesselId, token).ConfigureAwait(false);
+                if (vessel == null) continue;
+
+                await _Missions.TryAssignAsync(mission, vessel, token).ConfigureAwait(false);
+            }
+        }
+
+        private async Task MaintainCaptainPoolAsync(CancellationToken token)
+        {
+            List<Captain> allCaptains = await _Database.Captains.EnumerateAsync(token).ConfigureAwait(false);
+            int idleCount = allCaptains.Count(c => c.State == CaptainStateEnum.Idle);
+            int totalCount = allCaptains.Count;
+
+            int needed = _Settings.MinIdleCaptains - idleCount;
+            if (needed <= 0) return;
+
+            // Respect max captains cap
+            if (_Settings.MaxCaptains > 0)
+            {
+                int headroom = _Settings.MaxCaptains - totalCount;
+                if (headroom <= 0) return;
+                needed = Math.Min(needed, headroom);
+            }
+
+            _Logging.Info(_Header + "captain pool: " + idleCount + " idle, need " + needed + " more to reach minimum of " + _Settings.MinIdleCaptains);
+
+            for (int i = 0; i < needed; i++)
+            {
+                // Name captains sequentially based on total count
+                string name = "captain-" + (totalCount + i + 1);
+                Captain captain = new Captain(name);
+                captain.State = CaptainStateEnum.Idle;
+                await _Database.Captains.CreateAsync(captain, token).ConfigureAwait(false);
+                _Logging.Info(_Header + "auto-spawned captain " + captain.Id + " (" + name + ")");
+            }
+        }
+
+        #endregion
+    }
+}

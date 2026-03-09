@@ -1,0 +1,24 @@
+namespace Armada.Core.Services.Interfaces
+{
+    using Armada.Core.Models;
+
+    /// <summary>
+    /// Service for voyage lifecycle management.
+    /// </summary>
+    public interface IVoyageService
+    {
+        /// <summary>
+        /// Check all active voyages and mark complete if all child missions are done.
+        /// </summary>
+        /// <param name="token">Cancellation token.</param>
+        Task CheckCompletionsAsync(CancellationToken token = default);
+
+        /// <summary>
+        /// Get progress details for a specific voyage.
+        /// </summary>
+        /// <param name="voyageId">Voyage identifier.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Voyage progress or null if not found.</returns>
+        Task<VoyageProgress?> GetProgressAsync(string voyageId, CancellationToken token = default);
+    }
+}

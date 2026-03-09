@@ -1,0 +1,28 @@
+namespace Armada.Server.Mcp
+{
+    /// <summary>
+    /// MCP tool arguments for updating a vessel.
+    /// </summary>
+    public class VesselUpdateArgs
+    {
+        /// <summary>
+        /// Vessel ID (vsl_ prefix).
+        /// </summary>
+        public string VesselId { get; set; } = "";
+
+        /// <summary>
+        /// New display name.
+        /// </summary>
+        public string? Name { get; set; }
+
+        /// <summary>
+        /// New repository URL.
+        /// </summary>
+        public string? RepoUrl { get; set; }
+
+        /// <summary>
+        /// New default branch.
+        /// </summary>
+        public string? DefaultBranch { get; set; }
+    }
+}

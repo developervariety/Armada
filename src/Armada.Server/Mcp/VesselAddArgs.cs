@@ -1,0 +1,28 @@
+namespace Armada.Server.Mcp
+{
+    /// <summary>
+    /// MCP tool arguments for adding a vessel.
+    /// </summary>
+    public class VesselAddArgs
+    {
+        /// <summary>
+        /// Display name for the vessel.
+        /// </summary>
+        public string Name { get; set; } = "";
+
+        /// <summary>
+        /// Git repository URL (HTTPS or SSH).
+        /// </summary>
+        public string RepoUrl { get; set; } = "";
+
+        /// <summary>
+        /// Fleet ID to add the vessel to.
+        /// </summary>
+        public string FleetId { get; set; } = "";
+
+        /// <summary>
+        /// Default branch name (defaults to main).
+        /// </summary>
+        public string? DefaultBranch { get; set; }
+    }
+}
