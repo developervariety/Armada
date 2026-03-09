@@ -2012,6 +2012,17 @@ namespace Armada.Server
 
         private async Task HealthCheckLoopAsync(CancellationToken token)
         {
+            // Reset captains left in Working state with dead processes from previous server run
+            try
+            {
+                await _Admiral.CleanupStaleCaptainsAsync(token).ConfigureAwait(false);
+                _Logging.Info(_Header + "startup stale captain cleanup completed");
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "startup stale captain cleanup error: " + ex.Message);
+            }
+
             // Run an immediate health check on startup to dispatch any pending missions
             try
             {

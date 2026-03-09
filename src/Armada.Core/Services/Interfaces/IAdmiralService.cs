@@ -79,5 +79,13 @@ namespace Armada.Core.Services.Interfaces
         /// </summary>
         /// <param name="token">Cancellation token.</param>
         Task HealthCheckAsync(CancellationToken token = default);
+
+        /// <summary>
+        /// Reset captains left in Working state with dead processes after a server restart.
+        /// Resets orphaned captains to Idle, transitions their active missions back to Pending,
+        /// and dispatches any pending missions.
+        /// </summary>
+        /// <param name="token">Cancellation token.</param>
+        Task CleanupStaleCaptainsAsync(CancellationToken token = default);
     }
 }

@@ -294,6 +294,74 @@ namespace Armada.Core.Services
             }
         }
 
+        /// <inheritdoc />
+        public async Task CleanupStaleCaptainsAsync(CancellationToken token = default)
+        {
+            List<Captain> workingCaptains = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Working, token).ConfigureAwait(false);
+            if (workingCaptains.Count == 0) return;
+
+            int resetCount = 0;
+
+            foreach (Captain captain in workingCaptains)
+            {
+                bool processAlive = false;
+
+                if (captain.ProcessId != null)
+                {
+                    try
+                    {
+                        System.Diagnostics.Process process = System.Diagnostics.Process.GetProcessById(captain.ProcessId.Value);
+                        processAlive = !process.HasExited;
+                    }
+                    catch (ArgumentException)
+                    {
+                        // Process no longer exists
+                    }
+                }
+
+                if (processAlive) continue;
+
+                // Reset active missions back to Pending for re-dispatch
+                List<Mission> captainMissions = await _Database.Missions.EnumerateByCaptainAsync(captain.Id, token).ConfigureAwait(false);
+                List<Mission> activeMissions = captainMissions.Where(m =>
+                    m.Status == MissionStatusEnum.InProgress ||
+                    m.Status == MissionStatusEnum.Assigned).ToList();
+
+                foreach (Mission mission in activeMissions)
+                {
+                    mission.Status = MissionStatusEnum.Pending;
+                    mission.CaptainId = null;
+                    mission.BranchName = null;
+                    mission.ProcessId = null;
+                    mission.StartedUtc = null;
+                    mission.LastUpdateUtc = DateTime.UtcNow;
+
+                    // Reclaim dock if assigned
+                    if (!String.IsNullOrEmpty(mission.DockId))
+                    {
+                        string dockId = mission.DockId;
+                        mission.DockId = null;
+                    }
+
+                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                    _Logging.Info(_Header + "reset stale mission " + mission.Id + " to Pending (was " + (activeMissions.Contains(mission) ? "active" : "assigned") + " on captain " + captain.Id + ")");
+                }
+
+                // Reset captain to Idle
+                await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
+                resetCount++;
+                _Logging.Info(_Header + "reset stale captain " + captain.Id + " to Idle on startup (process " + (captain.ProcessId?.ToString() ?? "null") + " not running)");
+            }
+
+            if (resetCount > 0)
+            {
+                _Logging.Info(_Header + "startup cleanup: reset " + resetCount + " stale captain(s) to Idle");
+
+                // Dispatch any pending missions that were freed up
+                await DispatchPendingMissionsAsync(token).ConfigureAwait(false);
+            }
+        }
+
         #endregion
 
         #region Private-Methods
