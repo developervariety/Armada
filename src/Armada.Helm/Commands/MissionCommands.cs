@@ -469,7 +469,7 @@ namespace Armada.Helm.Commands
             }
 
             string title = settings.Title ?? mission.Title;
-            string description = settings.Description ?? mission.Description;
+            string description = settings.Description ?? mission.Description ?? "";
 
             AnsiConsole.MarkupLine($"[dodgerblue1]Mission:[/]  {Markup.Escape(missionId)}");
             AnsiConsole.MarkupLine($"[dodgerblue1]Title:[/]    {Markup.Escape(title)}");
