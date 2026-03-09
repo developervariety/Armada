@@ -34,7 +34,8 @@
                                         </MultiBinding>
                                     </Border.Background>
                                     <TextBlock Text="{Binding StatusText}" FontSize="11" FontWeight="Bold"
-                                               Foreground="White" HorizontalAlignment="Center" />
+                                               Foreground="White" HorizontalAlignment="Center"
+                                               ToolTip.Tip="Check result: PASS, WARN, or FAIL" />
                                 </Border>
 
                                 <!-- Check name -->

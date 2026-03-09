@@ -24,25 +24,33 @@
                     <TextBlock Text="NEW MISSION" FontSize="11" FontWeight="SemiBold"
                                Foreground="{DynamicResource TextDimBrush}" />
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                        <TextBox Watermark="Title" Text="{Binding NewMissionTitle}" Width="250" />
+                        <TextBox Watermark="Title" Text="{Binding NewMissionTitle}" Width="250"
+                                 ToolTip.Tip="Short title describing the work" />
                         <ComboBox PlaceholderText="Vessel"
                                   ItemsSource="{Binding AvailableVessels}" SelectedValue="{Binding NewMissionVesselId}"
-                                  SelectedValueBinding="{Binding Id}" DisplayMemberBinding="{Binding Name}" Width="180" />
+                                  SelectedValueBinding="{Binding Id}" DisplayMemberBinding="{Binding Name}" Width="180"
+                                  ToolTip.Tip="Target repository for this mission" />
                         <NumericUpDown Watermark="Priority" Value="{Binding NewMissionPriority}"
-                                       Minimum="1" Maximum="1000" Width="100" />
+                                       Minimum="1" Maximum="1000" Width="100"
+                                       ToolTip.Tip="Higher priority missions are assigned first (default: 100)" />
                     </StackPanel>
                     <TextBox Watermark="Description (optional)" Text="{Binding NewMissionDescription}"
-                             AcceptsReturn="True" TextWrapping="Wrap" Height="60" />
+                             AcceptsReturn="True" TextWrapping="Wrap" Height="60"
+                             ToolTip.Tip="Detailed instructions for the AI agent" />
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <ComboBox PlaceholderText="Attach to Voyage (optional)"
                                   ItemsSource="{Binding AvailableVoyages}" SelectedValue="{Binding NewMissionVoyageId}"
-                                  SelectedValueBinding="{Binding Id}" DisplayMemberBinding="{Binding Title}" Width="250" />
+                                  SelectedValueBinding="{Binding Id}" DisplayMemberBinding="{Binding Title}" Width="250"
+                                  ToolTip.Tip="Attach this mission to an existing voyage" />
                         <TextBlock Text="or" FontSize="12" Foreground="{DynamicResource TextDimBrush}" VerticalAlignment="Center" />
-                        <TextBox Watermark="New Voyage Title" Text="{Binding NewMissionNewVoyageTitle}" Width="200" />
+                        <TextBox Watermark="New Voyage Title" Text="{Binding NewMissionNewVoyageTitle}" Width="200"
+                                 ToolTip.Tip="Create a new voyage and attach this mission to it" />
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                        <Button Content="Create" Classes="action" Click="OnCreateMissionClick" />
-                        <Button Content="Cancel" Click="OnCancelCreateMissionClick" />
+                        <Button Content="Create" Classes="action" Click="OnCreateMissionClick"
+                                ToolTip.Tip="Create the new mission" />
+                        <Button Content="Cancel" Click="OnCancelCreateMissionClick"
+                                ToolTip.Tip="Cancel mission creation" />
                     </StackPanel>
                 </StackPanel>
             </Border>
@@ -84,15 +92,18 @@
                                FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center"
                                Foreground="{DynamicResource TextSecondaryBrush}" />
                     <TextBlock Text="Show:" FontSize="12" Foreground="{DynamicResource TextDimBrush}" VerticalAlignment="Center" Margin="12,0,0,0" />
-                    <ComboBox ItemsSource="{Binding PageSizeOptions}" SelectedItem="{Binding PageSize}" MinWidth="70" FontSize="12" />
+                    <ComboBox ItemsSource="{Binding PageSizeOptions}" SelectedItem="{Binding PageSize}" MinWidth="70" FontSize="12"
+                              ToolTip.Tip="Number of records per page" />
                 </StackPanel>
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" Margin="16,0,0,0">
                     <Button Content="Prev" Click="OnPreviousPageClick"
-                            IsEnabled="{Binding CanGoPrevious}" Padding="8,4" FontSize="12" />
+                            IsEnabled="{Binding CanGoPrevious}" Padding="8,4" FontSize="12"
+                            ToolTip.Tip="Go to previous page" />
                     <TextBlock Text="{Binding PaginationText}" VerticalAlignment="Center" Margin="8,0"
                                FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}" />
                     <Button Content="Next" Click="OnNextPageClick"
-                            IsEnabled="{Binding CanGoNext}" Padding="8,4" FontSize="12" />
+                            IsEnabled="{Binding CanGoNext}" Padding="8,4" FontSize="12"
+                            ToolTip.Tip="Go to next page" />
                     <Button Content="Refresh" Click="OnRefreshPageClick" Padding="8,4" FontSize="12"
                             ToolTip.Tip="Refresh current page" Margin="8,0,0,0" />
                 </StackPanel>
@@ -106,21 +117,29 @@
                     <!-- Column headers -->
                     <Grid ColumnDefinitions="*,90,120,120,140,160,60,100" Margin="8,0,8,4">
                         <TextBlock Grid.Column="0" Text="Title" FontSize="11" FontWeight="SemiBold"
-                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" />
+                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left"
+                                   ToolTip.Tip="Mission name or description" />
                         <TextBlock Grid.Column="1" Text="Status" FontSize="11" FontWeight="SemiBold"
-                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" />
+                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left"
+                                   ToolTip.Tip="Current status: Pending, Assigned, InProgress, Complete, Failed, or Cancelled" />
                         <TextBlock Grid.Column="2" Text="Captain" FontSize="11" FontWeight="SemiBold"
-                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" />
+                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left"
+                                   ToolTip.Tip="Captain assigned to work on this mission" />
                         <TextBlock Grid.Column="3" Text="Vessel" FontSize="11" FontWeight="SemiBold"
-                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" />
+                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left"
+                                   ToolTip.Tip="Target git repository" />
                         <TextBlock Grid.Column="4" Text="Voyage" FontSize="11" FontWeight="SemiBold"
-                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" />
+                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left"
+                                   ToolTip.Tip="Parent voyage batch (if any)" />
                         <TextBlock Grid.Column="5" Text="Branch" FontSize="11" FontWeight="SemiBold"
-                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" />
+                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left"
+                                   ToolTip.Tip="Git branch created for this mission's changes" />
                         <TextBlock Grid.Column="6" Text="Pri" FontSize="11" FontWeight="SemiBold"
-                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" />
+                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left"
+                                   ToolTip.Tip="Priority level — higher values are assigned first" />
                         <TextBlock Grid.Column="7" Text="Created" FontSize="11" FontWeight="SemiBold"
-                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" />
+                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left"
+                                   ToolTip.Tip="Date and time the mission was created" />
                     </Grid>
 
                     <ItemsControl ItemsSource="{Binding Missions}">
