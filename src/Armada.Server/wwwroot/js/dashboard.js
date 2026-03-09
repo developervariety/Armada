@@ -83,6 +83,11 @@ function dashboard() {
         modalData: {},
         modalLoading: false,
 
+        // Mission restart
+        restartTarget: null,
+        restartTitle: '',
+        restartDescription: '',
+
         // Voyage creation
         voyageForm: { title: '', description: '', vesselId: '', missions: [{ title: '', description: '' }] },
 
@@ -672,20 +677,29 @@ function dashboard() {
             } catch (e) { this.toast('Failed: ' + e.message, 'error'); }
         },
 
-        async retryMission(mission) {
-            if (!confirm('Retry mission? A new mission will be created with the same details.')) return;
+        restartMissionPrompt(mission) {
+            this.restartTarget = mission;
+            this.restartTitle = mission.title || '';
+            this.restartDescription = mission.description || '';
+            this.modal = 'restart-mission';
+        },
+
+        async restartMission() {
+            if (!this.restartTarget) return;
             try {
-                let body = {
-                    title: mission.title,
-                    description: mission.description,
-                    vesselId: mission.vesselId,
-                    priority: mission.priority
-                };
-                if (mission.voyageId) body.voyageId = mission.voyageId;
-                let newMission = await this.api('POST', '/api/v1/missions', body);
-                this.toast('Retry mission created: ' + newMission.id);
+                this.modalLoading = true;
+                let body = {};
+                if (this.restartTitle !== this.restartTarget.title) body.title = this.restartTitle;
+                if (this.restartDescription !== this.restartTarget.description) body.description = this.restartDescription;
+                let missionId = this.restartTarget.id;
+                await this.api('POST', '/api/v1/missions/' + missionId + '/restart', body);
+                this.toast('Mission restarted: ' + missionId);
+                this.modal = null;
+                this.restartTarget = null;
                 await this.refresh();
+                if (this.detailView === 'mission-detail') this.loadDetail('mission-detail', missionId);
             } catch (e) { this.toast('Failed: ' + e.message, 'error'); }
+            finally { this.modalLoading = false; }
         },
 
         async transitionMissionStatus(missionId, newStatus) {

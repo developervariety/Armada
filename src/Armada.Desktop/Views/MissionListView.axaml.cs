@@ -23,7 +23,20 @@ namespace Armada.Desktop.Views
         {
             if (DataContext is MissionListViewModel vm && vm.SelectedMission != null)
             {
-                await vm.RetryMissionAsync(vm.SelectedMission.Id);
+                Window? owner = this.FindAncestorOfType<Window>();
+                if (owner != null)
+                {
+                    RestartMissionDialog dialog = new RestartMissionDialog(
+                        vm.SelectedMission.Title,
+                        vm.SelectedMission.Description ?? "");
+                    bool confirmed = await dialog.ShowRestartAsync(owner);
+                    if (!confirmed) return;
+
+                    await vm.RestartMissionAsync(
+                        vm.SelectedMission.Id,
+                        dialog.ResultTitle,
+                        dialog.ResultDescription);
+                }
             }
         }
 

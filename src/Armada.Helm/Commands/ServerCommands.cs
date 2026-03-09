@@ -151,6 +151,27 @@ namespace Armada.Helm.Commands
             string? projectDir = FindServerProject();
             if (projectDir == null) return null;
 
+            string builtExe = Path.GetFullPath(Path.Combine(projectDir, "bin", "Debug", "net10.0", "Armada.Server.exe"));
+
+            // If the exe exists and is locked by a recently-stopped server, wait for it to be released
+            if (File.Exists(builtExe))
+            {
+                for (int attempt = 0; attempt < 10; attempt++)
+                {
+                    try
+                    {
+                        using FileStream probe = new FileStream(builtExe, FileMode.Open, FileAccess.Write, FileShare.None);
+                        break; // File is unlocked
+                    }
+                    catch (IOException)
+                    {
+                        if (attempt == 0)
+                            AnsiConsole.MarkupLine("[dim]Waiting for previous server process to release...[/]");
+                        Thread.Sleep(1000);
+                    }
+                }
+            }
+
             AnsiConsole.MarkupLine("[dim]Building server...[/]");
 
             ProcessStartInfo buildInfo = new ProcessStartInfo
@@ -181,7 +202,6 @@ namespace Armada.Helm.Commands
                 return null;
             }
 
-            string builtExe = Path.GetFullPath(Path.Combine(projectDir, "bin", "Debug", "net10.0", "Armada.Server.exe"));
             return File.Exists(builtExe) ? builtExe : null;
         }
 
@@ -256,13 +276,37 @@ namespace Armada.Helm.Commands
             {
                 using HttpClient client = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
                 await client.PostAsync(GetBaseUrl() + "/api/v1/server/stop", null, cancellationToken).ConfigureAwait(false);
-                AnsiConsole.MarkupLine("[green]Admiral server is shutting down.[/]");
+                AnsiConsole.MarkupLine("[green]Admiral server is shutting down...[/]");
             }
             catch (HttpRequestException)
             {
                 AnsiConsole.MarkupLine("[gold1]Admiral server is not reachable (may already be stopped).[/]");
                 return 1;
             }
+
+            // Wait for the process to fully exit so the exe is unlocked for subsequent builds
+            bool exited = false;
+            for (int i = 0; i < 15; i++)
+            {
+                await Task.Delay(1000, cancellationToken).ConfigureAwait(false);
+
+                try
+                {
+                    using HttpClient pollClient = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
+                    await pollClient.GetAsync(GetBaseUrl() + "/api/v1/status/health", cancellationToken).ConfigureAwait(false);
+                    // Still responding — keep waiting
+                }
+                catch
+                {
+                    exited = true;
+                    break;
+                }
+            }
+
+            if (exited)
+                AnsiConsole.MarkupLine("[green]Admiral server stopped.[/]");
+            else
+                AnsiConsole.MarkupLine("[gold1]Server is still shutting down. Wait a moment before restarting.[/]");
 
             return 0;
         }

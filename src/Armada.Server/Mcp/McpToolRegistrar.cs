@@ -711,6 +711,48 @@ namespace Armada.Server.Mcp
                 });
 
             register(
+                "armada_restart_mission",
+                "Restart a failed or cancelled mission, resetting it to Pending for re-dispatch. Optionally update title and description (instructions) before restarting.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        missionId = new { type = "string", description = "Mission ID (msn_ prefix)" },
+                        title = new { type = "string", description = "Optional new title. Omit to keep original." },
+                        description = new { type = "string", description = "Optional new description/instructions. Omit to keep original." }
+                    },
+                    required = new[] { "missionId" }
+                },
+                async (args) =>
+                {
+                    MissionRestartArgs request = JsonSerializer.Deserialize<MissionRestartArgs>(args!.Value, _JsonOptions)!;
+                    string missionId = request.MissionId;
+                    Mission? mission = await database.Missions.ReadAsync(missionId).ConfigureAwait(false);
+                    if (mission == null) return (object)new { Error = "Mission not found" };
+
+                    if (mission.Status != MissionStatusEnum.Failed && mission.Status != MissionStatusEnum.Cancelled)
+                        return (object)new { Error = "Only Failed or Cancelled missions can be restarted (current: " + mission.Status + ")" };
+
+                    if (!String.IsNullOrEmpty(request.Title)) mission.Title = request.Title;
+                    if (!String.IsNullOrEmpty(request.Description)) mission.Description = request.Description;
+
+                    mission.Status = MissionStatusEnum.Pending;
+                    mission.CaptainId = null;
+                    mission.BranchName = null;
+                    mission.PrUrl = null;
+                    mission.StartedUtc = null;
+                    mission.CompletedUtc = null;
+                    mission.LastUpdateUtc = DateTime.UtcNow;
+                    mission = await database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+
+                    Signal signal = new Signal(SignalTypeEnum.Progress, "Mission " + missionId + " restarted");
+                    await database.Signals.CreateAsync(signal).ConfigureAwait(false);
+
+                    return (object)mission;
+                });
+
+            register(
                 "armada_transition_mission_status",
                 "Transition a mission to a new status with validation. Valid transitions: Pending->Assigned, Assigned->InProgress, InProgress->Testing/Review/Complete/Failed, Testing->Review/InProgress/Complete/Failed, Review->Complete/InProgress/Failed. Most states allow ->Cancelled.",
                 new

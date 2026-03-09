@@ -316,6 +316,21 @@ namespace Armada.Core.Client
         }
 
         /// <summary>
+        /// Restart a failed or cancelled mission, resetting it to Pending for re-dispatch.
+        /// Optionally update the title and description before restarting.
+        /// </summary>
+        /// <param name="id">Mission ID.</param>
+        /// <param name="title">Optional new title. Pass null to keep the original.</param>
+        /// <param name="description">Optional new description. Pass null to keep the original.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The restarted mission, or null on failure.</returns>
+        public async Task<Mission?> RestartMissionAsync(string id, string? title = null, string? description = null, CancellationToken token = default)
+        {
+            object body = new { Title = title, Description = description };
+            return await PostAsync<Mission, object>("/api/v1/missions/" + id + "/restart", body, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
         /// Get the unified diff for a mission's changes against the base branch.
         /// Only available while the captain's worktree exists.
         /// </summary>

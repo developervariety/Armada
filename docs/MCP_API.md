@@ -46,6 +46,7 @@
     - [armada_create_mission](#armada_create_mission)
     - [armada_update_mission](#armada_update_mission)
     - [armada_cancel_mission](#armada_cancel_mission)
+    - [armada_restart_mission](#armada_restart_mission)
     - [armada_transition_mission_status](#armada_transition_mission_status)
     - [armada_get_mission_diff](#armada_get_mission_diff)
     - [armada_get_mission_log](#armada_get_mission_log)
@@ -887,6 +888,45 @@ Cancel a specific mission.
 Sets the mission status to `Cancelled`. Returns `{"error": "Mission not found"}` if the ID does not exist.
 
 **Response:** The updated [Mission](#mission) object with status `Cancelled`.
+
+---
+
+### armada_restart_mission
+
+Restart a failed or cancelled mission, resetting it to `Pending` for re-dispatch. Optionally update the title and description (instructions) before restarting. Clears captain assignment, branch, PR URL, and timing fields.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "missionId": {
+      "type": "string",
+      "description": "Mission ID to restart"
+    },
+    "title": {
+      "type": "string",
+      "description": "Optional new title. Omit to keep original."
+    },
+    "description": {
+      "type": "string",
+      "description": "Optional new description/instructions. Omit to keep original."
+    }
+  },
+  "required": ["missionId"]
+}
+```
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `missionId` | string | Yes | Mission ID to restart (prefix `msn_`) |
+| `title` | string | No | New mission title. Omit to keep the original. |
+| `description` | string | No | New description/instructions. Omit to keep the original. |
+
+Only `Failed` or `Cancelled` missions can be restarted. Returns `{"error": "..."}` if the mission is not found or is in an invalid status.
+
+**Response:** The updated [Mission](#mission) object with status `Pending`.
 
 ---
 

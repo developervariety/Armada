@@ -593,8 +593,8 @@
                             <button class="btn btn-sm" @click="openEditMission(detail)">Edit</button>
                             <button class="btn btn-sm btn-danger" @click="cancelMission(detail.id)"
                                 x-show="detail.status !== 'Complete' && detail.status !== 'Cancelled'">Cancel</button>
-                            <button class="btn btn-sm" @click="retryMission(detail)"
-                                x-show="detail.status === 'Failed' || detail.status === 'Cancelled'">Retry</button>
+                            <button class="btn btn-sm" @click="restartMissionPrompt(detail)"
+                                x-show="detail.status === 'Failed' || detail.status === 'Cancelled'">Restart</button>
                         </div>
                     </div>
                     <div class="detail-grid">
@@ -1269,6 +1269,20 @@
                 <div class="modal-actions">
                     <button type="button" class="btn btn-sm" @click="modal = null">Cancel</button>
                     <button type="submit" class="btn btn-primary btn-sm" :disabled="modalLoading">Save</button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Restart Mission -->
+        <div class="modal-box" x-show="modal === 'restart-mission'">
+            <h3>Restart Mission</h3>
+            <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 12px;">Modify the instructions before restarting, or leave as-is.</p>
+            <form @submit.prevent="restartMission()">
+                <div class="form-group"><label>Title</label><input type="text" x-model="restartTitle" required></div>
+                <div class="form-group"><label>Description</label><textarea x-model="restartDescription" rows="4"></textarea></div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-sm" @click="modal = null">Cancel</button>
+                    <button type="submit" class="btn btn-primary btn-sm" :disabled="modalLoading">Restart Mission</button>
                 </div>
             </form>
         </div>

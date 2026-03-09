@@ -696,6 +696,36 @@ Cancel a mission by setting its status to `Cancelled`. Returns the full updated 
 
 ---
 
+#### POST /api/v1/missions/{id}/restart
+
+Restart a failed or cancelled mission by resetting it to `Pending` for re-dispatch. Clears captain assignment, branch, PR URL, and timing fields. Optionally update the title and description (instructions) before restarting.
+
+**Path Parameters:**
+| Parameter | Description |
+|---|---|
+| `id` | Mission ID (`msn_` prefix) |
+
+**Request Body (optional):**
+```json
+{
+  "Title": "Updated mission title",
+  "Description": "Updated instructions for the captain"
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `Title` | string | No | New mission title. Omit to keep the original. |
+| `Description` | string | No | New mission description/instructions. Omit to keep the original. |
+
+**Response:** `200 OK` - [Mission](#mission) (with `Status: "Pending"`)
+
+**Errors:**
+- `400` - Mission is not in `Failed` or `Cancelled` status
+- `404` - Mission not found
+
+---
+
 #### GET /api/v1/missions/{id}/diff
 
 Returns the git diff of changes made by a captain in the mission's worktree. Checks for a saved diff file first (captured at completion), then falls back to a live worktree diff.
@@ -1888,28 +1918,29 @@ Response from `GET /api/v1/captains/{id}/log`.
 | 26 | PUT | `/api/v1/missions/{id}` | Update mission | Yes |
 | 27 | PUT | `/api/v1/missions/{id}/status` | Transition mission status | Yes |
 | 28 | DELETE | `/api/v1/missions/{id}` | Cancel mission | Yes |
-| 29 | GET | `/api/v1/missions/{id}/diff` | Get mission diff | Yes |
-| 30 | GET | `/api/v1/missions/{id}/log` | Get mission log | Yes |
-| 31 | GET | `/api/v1/captains` | List captains (paginated) | Yes |
-| 32 | POST | `/api/v1/captains/enumerate` | Enumerate captains | Yes |
-| 33 | POST | `/api/v1/captains` | Create captain | Yes |
-| 34 | GET | `/api/v1/captains/{id}` | Get captain | Yes |
-| 35 | PUT | `/api/v1/captains/{id}` | Update captain | Yes |
-| 36 | POST | `/api/v1/captains/{id}/stop` | Stop captain | Yes |
-| 37 | POST | `/api/v1/captains/stop-all` | Stop all captains | Yes |
-| 38 | GET | `/api/v1/captains/{id}/log` | Get captain current log | Yes |
-| 39 | DELETE | `/api/v1/captains/{id}` | Delete captain | Yes |
-| 40 | GET | `/api/v1/signals` | List signals (paginated) | Yes |
-| 41 | POST | `/api/v1/signals/enumerate` | Enumerate signals | Yes |
-| 42 | POST | `/api/v1/signals` | Send signal | Yes |
-| 43 | GET | `/api/v1/events` | List events (paginated) | Yes |
-| 44 | POST | `/api/v1/events/enumerate` | Enumerate events | Yes |
-| 45 | GET | `/api/v1/merge-queue` | List merge queue (paginated) | Yes |
-| 46 | POST | `/api/v1/merge-queue/enumerate` | Enumerate merge queue | Yes |
-| 47 | POST | `/api/v1/merge-queue` | Enqueue branch | Yes |
-| 48 | GET | `/api/v1/merge-queue/{id}` | Get merge entry | Yes |
-| 49 | DELETE | `/api/v1/merge-queue/{id}` | Cancel merge entry | Yes |
-| 50 | POST | `/api/v1/merge-queue/process` | Process merge queue | Yes |
+| 29 | POST | `/api/v1/missions/{id}/restart` | Restart failed/cancelled mission | Yes |
+| 30 | GET | `/api/v1/missions/{id}/diff` | Get mission diff | Yes |
+| 31 | GET | `/api/v1/missions/{id}/log` | Get mission log | Yes |
+| 32 | GET | `/api/v1/captains` | List captains (paginated) | Yes |
+| 33 | POST | `/api/v1/captains/enumerate` | Enumerate captains | Yes |
+| 34 | POST | `/api/v1/captains` | Create captain | Yes |
+| 35 | GET | `/api/v1/captains/{id}` | Get captain | Yes |
+| 36 | PUT | `/api/v1/captains/{id}` | Update captain | Yes |
+| 37 | POST | `/api/v1/captains/{id}/stop` | Stop captain | Yes |
+| 38 | POST | `/api/v1/captains/stop-all` | Stop all captains | Yes |
+| 39 | GET | `/api/v1/captains/{id}/log` | Get captain current log | Yes |
+| 40 | DELETE | `/api/v1/captains/{id}` | Delete captain | Yes |
+| 41 | GET | `/api/v1/signals` | List signals (paginated) | Yes |
+| 42 | POST | `/api/v1/signals/enumerate` | Enumerate signals | Yes |
+| 43 | POST | `/api/v1/signals` | Send signal | Yes |
+| 44 | GET | `/api/v1/events` | List events (paginated) | Yes |
+| 45 | POST | `/api/v1/events/enumerate` | Enumerate events | Yes |
+| 46 | GET | `/api/v1/merge-queue` | List merge queue (paginated) | Yes |
+| 47 | POST | `/api/v1/merge-queue/enumerate` | Enumerate merge queue | Yes |
+| 48 | POST | `/api/v1/merge-queue` | Enqueue branch | Yes |
+| 49 | GET | `/api/v1/merge-queue/{id}` | Get merge entry | Yes |
+| 50 | DELETE | `/api/v1/merge-queue/{id}` | Cancel merge entry | Yes |
+| 51 | POST | `/api/v1/merge-queue/process` | Process merge queue | Yes |
 
 ---
 

@@ -838,6 +838,52 @@ namespace Armada.Server
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
+            _App.Rest.Post<MissionRestartRequest>("/api/v1/missions/{id}/restart", async (AppRequest req) =>
+            {
+                string id = req.Parameters["id"];
+                Mission? mission = await _Database.Missions.ReadAsync(id).ConfigureAwait(false);
+                if (mission == null) return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found" };
+
+                if (mission.Status != MissionStatusEnum.Failed && mission.Status != MissionStatusEnum.Cancelled)
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Only Failed or Cancelled missions can be restarted" };
+
+                try
+                {
+                    MissionRestartRequest body = req.GetData<MissionRestartRequest>();
+                    if (!String.IsNullOrEmpty(body.Title)) mission.Title = body.Title;
+                    if (!String.IsNullOrEmpty(body.Description)) mission.Description = body.Description;
+                }
+                catch { }
+
+                mission.Status = MissionStatusEnum.Pending;
+                mission.CaptainId = null;
+                mission.BranchName = null;
+                mission.PrUrl = null;
+                mission.StartedUtc = null;
+                mission.CompletedUtc = null;
+                mission.LastUpdateUtc = DateTime.UtcNow;
+                mission = await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+
+                Signal signal = new Signal(SignalTypeEnum.Progress, "Mission " + id + " restarted");
+                await _Database.Signals.CreateAsync(signal).ConfigureAwait(false);
+
+                await EmitEventAsync("mission.restarted", "Mission " + id + " restarted",
+                    entityType: "mission", entityId: id,
+                    missionId: id, vesselId: mission.VesselId, voyageId: mission.VoyageId).ConfigureAwait(false);
+
+                return (object)mission;
+            },
+            api => api
+                .WithTag("Missions")
+                .WithSummary("Restart a failed or cancelled mission")
+                .WithDescription("Resets a Failed or Cancelled mission back to Pending so it can be re-dispatched. Optionally update the title and description (instructions) before restarting. Clears captain assignment, branch, PR URL, and timing fields.")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Mission ID (msn_ prefix)"))
+                .WithRequestBody(OpenApiRequestBodyMetadata.Json<MissionRestartRequest>("Optional updated instructions", false))
+                .WithResponse(200, OpenApiResponseMetadata.Json<Mission>("Restarted mission"))
+                .WithResponse(400, OpenApiResponseMetadata.BadRequest())
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithSecurity("ApiKey"));
+
             _App.Rest.Get("/api/v1/missions/{id}/diff", async (AppRequest req) =>
             {
                 string id = req.Parameters["id"];
@@ -1853,5 +1899,21 @@ namespace Armada.Server
         /// Target status name (e.g. "Testing", "Review", "Complete").
         /// </summary>
         public string Status { get; set; } = "";
+    }
+
+    /// <summary>
+    /// Request model for restarting a failed or cancelled mission with optional instruction changes.
+    /// </summary>
+    public class MissionRestartRequest
+    {
+        /// <summary>
+        /// Optional new title. If null or empty, the original title is preserved.
+        /// </summary>
+        public string? Title { get; set; }
+
+        /// <summary>
+        /// Optional new description/instructions. If null or empty, the original description is preserved.
+        /// </summary>
+        public string? Description { get; set; }
     }
 }

@@ -765,6 +765,36 @@
 					]
 				},
 				{
+					"name": "Restart Mission",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"Title\": \"Updated mission title\",\n  \"Description\": \"Updated instructions for the captain\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/missions/{{missionId}}/restart",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "missions", "{{missionId}}", "restart"]
+						},
+						"description": "Restarts a failed or cancelled mission by resetting it to Pending. Optionally update title and description before restarting. Body is optional."
+					},
+					"response": [
+						{
+							"name": "Restarted",
+							"status": "OK",
+							"code": 200,
+							"body": "{\n  \"Id\": \"msn_abc123\",\n  \"Status\": \"Pending\",\n  \"Title\": \"Updated mission title\"\n}"
+						}
+					]
+				},
+				{
 					"name": "Get Mission Diff",
 					"request": {
 						"method": "GET",

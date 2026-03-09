@@ -258,23 +258,14 @@ namespace Armada.Desktop.ViewModels
         }
 
         /// <summary>
-        /// Retry a mission.
+        /// Restart a failed or cancelled mission with optional instruction edits.
         /// </summary>
-        public async Task RetryMissionAsync(string missionId)
+        public async Task RestartMissionAsync(string missionId, string? title = null, string? description = null)
         {
             Dispatcher.UIThread.Post(() => IsLoading = true);
             try
             {
-                Mission? original = _Connection.Missions.FirstOrDefault(m => m.Id == missionId);
-                if (original == null) return;
-
-                Mission retry = new Mission(original.Title, original.Description)
-                {
-                    VesselId = original.VesselId,
-                    VoyageId = original.VoyageId,
-                    Priority = original.Priority
-                };
-                await _Connection.GetApiClient().CreateMissionAsync(retry).ConfigureAwait(false);
+                await _Connection.GetApiClient().RestartMissionAsync(missionId, title, description).ConfigureAwait(false);
                 await _Connection.RefreshAsync().ConfigureAwait(false);
             }
             catch { }

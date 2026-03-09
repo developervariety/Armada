@@ -525,6 +525,39 @@ namespace Armada.Server.WebSocket
                             }
                             break;
 
+                        case "restart_mission":
+                            string rmId = command.Id ?? "";
+                            Mission? rmMission = await _Database.Missions.ReadAsync(rmId).ConfigureAwait(false);
+                            if (rmMission == null)
+                                result = new { type = "command.error", action = "restart_mission", error = "Mission not found" };
+                            else if (rmMission.Status != MissionStatusEnum.Failed && rmMission.Status != MissionStatusEnum.Cancelled)
+                                result = new { type = "command.error", action = "restart_mission", error = "Only Failed or Cancelled missions can be restarted" };
+                            else
+                            {
+                                WebSocketDataCommand<MissionRestartData>? rmData = null;
+                                try { rmData = JsonSerializer.Deserialize<WebSocketDataCommand<MissionRestartData>>(body, _JsonOptions); } catch { }
+                                if (rmData?.Data != null)
+                                {
+                                    if (!String.IsNullOrEmpty(rmData.Data.Title)) rmMission.Title = rmData.Data.Title;
+                                    if (!String.IsNullOrEmpty(rmData.Data.Description)) rmMission.Description = rmData.Data.Description;
+                                }
+
+                                rmMission.Status = MissionStatusEnum.Pending;
+                                rmMission.CaptainId = null;
+                                rmMission.BranchName = null;
+                                rmMission.PrUrl = null;
+                                rmMission.StartedUtc = null;
+                                rmMission.CompletedUtc = null;
+                                rmMission.LastUpdateUtc = DateTime.UtcNow;
+                                rmMission = await _Database.Missions.UpdateAsync(rmMission).ConfigureAwait(false);
+
+                                Signal rmSignal = new Signal(SignalTypeEnum.Progress, "Mission " + rmId + " restarted");
+                                await _Database.Signals.CreateAsync(rmSignal).ConfigureAwait(false);
+
+                                result = new { type = "command.result", action = "restart_mission", data = (object)rmMission };
+                            }
+                            break;
+
                         case "get_mission_diff":
                             string mdId = command.Id ?? "";
                             Mission? mdMission = await _Database.Missions.ReadAsync(mdId).ConfigureAwait(false);
@@ -931,5 +964,21 @@ namespace Armada.Server.WebSocket
         }
 
         #endregion
+    }
+
+    /// <summary>
+    /// Data payload for the restart_mission WebSocket command.
+    /// </summary>
+    public class MissionRestartData
+    {
+        /// <summary>
+        /// Optional new title. If null or empty, the original title is preserved.
+        /// </summary>
+        public string? Title { get; set; }
+
+        /// <summary>
+        /// Optional new description/instructions. If null or empty, the original description is preserved.
+        /// </summary>
+        public string? Description { get; set; }
     }
 }

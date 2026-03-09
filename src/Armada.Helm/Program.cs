@@ -108,8 +108,10 @@ namespace Armada.Helm
                         .WithDescription("Show mission details (accepts name or ID)");
                     mission.AddCommand<MissionCancelCommand>("cancel")
                         .WithDescription("Cancel a mission");
+                    mission.AddCommand<MissionRestartCommand>("restart")
+                        .WithDescription("Restart a failed mission (with optional instruction edits)");
                     mission.AddCommand<MissionRetryCommand>("retry")
-                        .WithDescription("Retry a failed mission");
+                        .WithDescription("Retry a failed mission (creates a new copy)");
                 });
 
                 config.AddBranch("voyage", voyage =>

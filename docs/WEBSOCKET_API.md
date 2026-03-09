@@ -303,6 +303,7 @@ Commands are sent via the `command` route. Each command returns a `command.resul
 | | `update_mission` | Update mission | `id`, `data` |
 | | `transition_mission_status` | Transition mission status | `id`, `status` |
 | | `cancel_mission` | Cancel mission | `id` |
+| | `restart_mission` | Restart failed/cancelled mission | `id`, optional `data.title`, `data.description` |
 | **Captain** | `list_captains` | List/enumerate captains | optional `query` |
 | | `get_captain` | Get captain by ID | `id` |
 | | `create_captain` | Create captain | `data` |
@@ -1082,6 +1083,50 @@ Cancel a mission.
 |---|---|---|---|
 | `action` | string | Yes | `"cancel_mission"` |
 | `id` | string | Yes | Mission ID (prefix `msn_`) |
+
+---
+
+#### restart_mission
+
+Restart a failed or cancelled mission, resetting it to `Pending` for re-dispatch. Optionally update the title and description before restarting.
+
+**Request:**
+
+```json
+{
+  "Route": "command",
+  "action": "restart_mission",
+  "id": "msn_abc123",
+  "data": {
+    "title": "Updated title",
+    "description": "Updated instructions"
+  }
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `action` | string | Yes | `"restart_mission"` |
+| `id` | string | Yes | Mission ID (prefix `msn_`) |
+| `data.title` | string | No | New title. Omit to keep original. |
+| `data.description` | string | No | New description. Omit to keep original. |
+
+**Response:**
+
+```json
+{
+  "type": "command.result",
+  "action": "restart_mission",
+  "data": {
+    "id": "msn_abc123",
+    "status": "Pending",
+    "title": "Updated title",
+    "..."
+  }
+}
+```
+
+**Errors:** `command.error` if mission not found or not in `Failed`/`Cancelled` status.
 
 ---
 
