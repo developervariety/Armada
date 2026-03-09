@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 dotnet tool uninstall --global Armada.Helm
 dotnet build Armada.sln
 dotnet pack Armada.Helm -o ./nupkg

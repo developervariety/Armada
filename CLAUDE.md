@@ -3,6 +3,55 @@
 You are an Armada captain executing a mission. Follow these instructions carefully.
 
 ## Mission
+- **Title:** Fix shell scripts for Linux/Mac compatibility (CRLF line endings)
+- **ID:** msn_mmjh22y1_B2WXcAFLu0y
+
+## Description
+The .sh shell scripts in the repository have Windows-style CRLF line endings, causing "bad interpreter: /bin/bash^M: no such file or directory" errors on Linux and Mac (including Apple Silicon).
+
+Requirements:
+
+1) Find ALL .sh files in the repository (recursively) and convert them from CRLF to LF line endings. The ^M (carriage return) characters must be removed.
+
+2) Ensure all .sh files have proper Unix line endings (LF only, no CR).
+
+3) Ensure all .sh files have correct shebang lines (#!/bin/bash or #!/usr/bin/env bash) — prefer #!/usr/bin/env bash for maximum portability across Linux and Mac.
+
+4) Ensure all .sh files are executable (chmod +x). Note: git tracks the executable bit, so use 'git update-index --chmod=+x' for each .sh file.
+
+5) Add a .gitattributes file (or update the existing one) at the repo root to ensure .sh files always use LF line endings, even on Windows checkouts:
+   *.sh text eol=lf
+
+6) Verify the scripts are syntactically valid bash after the fix.
+
+The source code is at c:\code\armada\armada.
+
+## Repository
+- **Name:** Armada
+- **Branch:** armada/claude-code-2/msn_mmjh22y1_B2WXcAFLu0y
+- **Default Branch:** main
+
+## Rules
+- Work only within this worktree directory
+- Commit all changes to the current branch
+- Commit and push your changes — the Admiral will also push if needed
+- If you encounter a blocking issue, commit what you have and exit
+- Exit with code 0 on success
+
+## Progress Signals (Optional)
+You can report progress to the Admiral by printing these lines to stdout:
+- `[ARMADA:PROGRESS] 50` — report completion percentage (0-100)
+- `[ARMADA:STATUS] Testing` — transition mission to Testing status
+- `[ARMADA:STATUS] Review` — transition mission to Review status
+- `[ARMADA:MESSAGE] your message here` — send a progress message
+
+## Existing Project Instructions
+
+# Mission Instructions
+
+You are an Armada captain executing a mission. Follow these instructions carefully.
+
+## Mission
 - **Title:** Parallelism
 - **ID:** msn_mmitgf5m_GShq9bWq5Ey
 - **Voyage:** vyg_mmitgf5f_3yiBR0jgkKL
