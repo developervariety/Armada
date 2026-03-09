@@ -136,5 +136,23 @@ namespace Armada.Core.Services.Interfaces
         /// <param name="token">Cancellation token.</param>
         /// <returns>True if the PR has been merged.</returns>
         Task<bool> IsPrMergedAsync(string workingDirectory, string prUrl, CancellationToken token = default);
+
+        /// <summary>
+        /// Check if a local branch exists in the repository.
+        /// </summary>
+        /// <param name="repoPath">Path to the repository.</param>
+        /// <param name="branchName">Branch name to check.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True if the branch exists.</returns>
+        Task<bool> BranchExistsAsync(string repoPath, string branchName, CancellationToken token = default);
+
+        /// <summary>
+        /// Check if a path is registered as a git worktree.
+        /// </summary>
+        /// <param name="repoPath">Path to the repository.</param>
+        /// <param name="worktreePath">Path to check.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True if the path is a registered worktree.</returns>
+        Task<bool> IsWorktreeRegisteredAsync(string repoPath, string worktreePath, CancellationToken token = default);
     }
 }
