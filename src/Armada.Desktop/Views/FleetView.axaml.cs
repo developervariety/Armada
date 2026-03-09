@@ -1,5 +1,6 @@
 namespace Armada.Desktop.Views
 {
+    using System.Collections.Generic;
     using System.Linq;
     using Avalonia.Controls;
     using Avalonia.Interactivity;
@@ -86,8 +87,19 @@ namespace Armada.Desktop.Views
                 Window? owner = this.FindAncestorOfType<Window>();
                 if (owner == null) return;
 
-                EditCaptainDialog dialog = new EditCaptainDialog(captain);
+                List<Mission> recentMissions = await vm.LoadRecentMissionsForCaptainAsync(captainId);
+
+                EditCaptainDialog dialog = new EditCaptainDialog(captain, recentMissions);
                 bool saved = await dialog.ShowEditAsync(owner);
+
+                if (dialog.SelectedMissionId != null)
+                {
+                    if (owner.DataContext is MainWindowViewModel mainVm)
+                    {
+                        mainVm.NavigateTo("Missions");
+                    }
+                }
+
                 if (!saved) return;
 
                 captain.Name = dialog.EditedName;

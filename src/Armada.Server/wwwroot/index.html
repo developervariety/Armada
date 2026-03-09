@@ -827,26 +827,27 @@
                             <p class="text-dim" x-text="'Log unavailable: ' + detailLog.error"></p>
                         </template>
                     </div>
-                    <template x-if="detailMissions.length > 0">
-                        <div>
-                            <h3>Mission History</h3>
+                    <div style="margin-top:1rem">
+                        <h3>Recent Missions</h3>
+                        <template x-if="detailMissions.length > 0">
                             <div class="table-wrap">
                                 <table>
-                                    <thead><tr><th>Mission</th><th>Status</th><th>Branch</th><th>Created</th></tr></thead>
+                                    <thead><tr><th>Mission</th><th>Status</th><th>Branch</th><th>Date</th></tr></thead>
                                     <tbody>
                                         <template x-for="m in detailMissions" :key="m.id">
                                             <tr class="clickable" @click="navigate('missions', 'mission-detail', m.id)">
                                                 <td><strong x-text="m.title"></strong><div class="text-dim id-display"><span class="mono" x-text="m.id"></span><button class="copy-btn" @click.stop="copyId(m.id, $event)" title="Copy ID"></button></div></td>
                                                 <td><span class="tag" :class="(m.status || '').toLowerCase()" x-text="m.status"></span></td>
                                                 <td class="text-dim" x-text="m.branchName || '-'"></td>
-                                                <td class="text-dim" x-text="formatTime(m.createdUtc)"></td>
+                                                <td class="text-dim" :title="formatTimeAbsolute(m.completedUtc || m.createdUtc)" x-text="formatTime(m.completedUtc || m.createdUtc)"></td>
                                             </tr>
                                         </template>
                                     </tbody>
                                 </table>
                             </div>
-                        </div>
-                    </template>
+                        </template>
+                        <p x-show="detailMissions.length === 0" class="text-dim" style="margin-top:0.5rem">No missions yet</p>
+                    </div>
                 </div>
             </template>
         </div>

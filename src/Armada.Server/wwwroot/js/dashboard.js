@@ -513,13 +513,11 @@ function dashboard() {
                     this.detailMissions = result.missions || [];
                 } else if (detailView === 'captain-detail') {
                     this.detail = await this.api('GET', '/api/v1/captains/' + id);
-                    if (this.detail.currentMissionId) {
-                        try {
-                            let missionResult = await this.api('GET', '/api/v1/missions?captainId=' + id + '&pageSize=1000');
-                            this.detailMissions = (missionResult && missionResult.objects) ? missionResult.objects : [];
-                            if (!Array.isArray(this.detailMissions)) this.detailMissions = [];
-                        } catch (_) { }
-                    }
+                    try {
+                        let missionResult = await this.api('GET', '/api/v1/missions?captainId=' + id + '&pageSize=10&order=CreatedDescending');
+                        this.detailMissions = (missionResult && missionResult.objects) ? missionResult.objects : [];
+                        if (!Array.isArray(this.detailMissions)) this.detailMissions = [];
+                    } catch (_) { }
                 } else if (detailView === 'vessel-detail') {
                     this.detail = await this.api('GET', '/api/v1/vessels/' + id);
                     try {

@@ -10,6 +10,7 @@ namespace Armada.Desktop.Views
 
     /// <summary>
     /// Dialog for editing captain properties including name, runtime, and parallelism.
+    /// Displays recent missions assigned to the captain.
     /// </summary>
     public partial class EditCaptainDialog : Window
     {
@@ -17,6 +18,7 @@ namespace Armada.Desktop.Views
 
         private bool _Saved;
         private Captain _Captain;
+        private string? _SelectedMissionId;
 
         #endregion
 
@@ -51,6 +53,11 @@ namespace Armada.Desktop.Views
                 return (int)(input?.Value ?? 1);
             }
         }
+
+        /// <summary>
+        /// The mission ID selected by the user, or null if none was clicked.
+        /// </summary>
+        public string? SelectedMissionId => _SelectedMissionId;
 
         #endregion
 
@@ -94,6 +101,27 @@ namespace Armada.Desktop.Views
             if (parallelismInput != null) parallelismInput.Value = captain.MaxParallelism;
         }
 
+        /// <summary>
+        /// Instantiate with captain data and recent missions.
+        /// </summary>
+        /// <param name="captain">Captain to edit.</param>
+        /// <param name="recentMissions">Recent missions for this captain.</param>
+        public EditCaptainDialog(Captain captain, List<Mission> recentMissions) : this(captain)
+        {
+            ItemsControl? missionsControl = this.FindControl<ItemsControl>("MissionsListControl");
+            TextBlock? noMissionsText = this.FindControl<TextBlock>("NoMissionsText");
+
+            if (recentMissions != null && recentMissions.Count > 0)
+            {
+                if (missionsControl != null) missionsControl.ItemsSource = recentMissions;
+                if (noMissionsText != null) noMissionsText.IsVisible = false;
+            }
+            else
+            {
+                if (noMissionsText != null) noMissionsText.IsVisible = true;
+            }
+        }
+
         #endregion
 
         #region Public-Methods
@@ -123,6 +151,14 @@ namespace Armada.Desktop.Views
         {
             _Saved = false;
             Close();
+        }
+
+        private void OnMissionRowClick(object? sender, RoutedEventArgs e)
+        {
+            if (sender is Button button && button.Tag is string missionId)
+            {
+                _SelectedMissionId = missionId;
+            }
         }
 
         #endregion

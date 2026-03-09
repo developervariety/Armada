@@ -417,6 +417,26 @@ namespace Armada.Desktop.ViewModels
         }
 
         /// <summary>
+        /// Load the most recent missions for a captain.
+        /// </summary>
+        /// <param name="captainId">Captain identifier.</param>
+        /// <returns>Up to 10 most recent missions.</returns>
+        public async Task<List<Mission>> LoadRecentMissionsForCaptainAsync(string captainId)
+        {
+            try
+            {
+                EnumerationQuery query = new EnumerationQuery();
+                query.CaptainId = captainId;
+                query.PageSize = 10;
+                query.Order = EnumerationOrderEnum.CreatedDescending;
+                EnumerationResult<Mission>? result = await _Connection.GetApiClient().EnumerateMissionsAsync(query).ConfigureAwait(false);
+                if (result != null && result.Objects != null) return result.Objects;
+            }
+            catch { }
+            return new List<Mission>();
+        }
+
+        /// <summary>
         /// Update a fleet's name and description.
         /// </summary>
         public async Task UpdateFleetAsync(FleetDisplayItem item)
