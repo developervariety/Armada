@@ -44,6 +44,25 @@ That's it. Armada auto-initializes, detects your installed agent runtime (Claude
 - **Desktop notifications** -- OS-native alerts when missions complete or fail
 - **Cross-platform** -- Windows, macOS, Linux (C#/.NET)
 
+## Screenshots
+
+<details>
+<summary>Click to expand screenshots</summary>
+
+<br />
+
+![Screenshot 1](assets/screenshot-1.png)
+
+![Screenshot 2](assets/screenshot-2.png)
+
+![Screenshot 3](assets/screenshot-3.png)
+
+![Screenshot 4](assets/screenshot-4.png)
+
+![Screenshot 5](assets/screenshot-5.png)
+
+</details>
+
 ## Quick Start
 
 ### Prerequisites
