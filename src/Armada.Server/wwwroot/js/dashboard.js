@@ -1226,6 +1226,23 @@ function dashboard() {
             return f ? f.name : fleetId;
         },
 
+        /// <summary>
+        /// Returns navigation info for an entity ID based on its prefix, or null if no detail view exists.
+        /// </summary>
+        entityNav(entityId) {
+            if (!entityId) return null;
+            let prefix = entityId.substring(0, 4);
+            let map = {
+                'flt_': { view: 'fleets', detail: 'fleet-detail' },
+                'vsl_': { view: 'vessels', detail: 'vessel-detail' },
+                'cpt_': { view: 'captains', detail: 'captain-detail' },
+                'msn_': { view: 'missions', detail: 'mission-detail' },
+                'vyg_': { view: 'voyages', detail: 'voyage-detail' },
+                'sig_': { view: 'signals', detail: 'signal-detail' }
+            };
+            return map[prefix] || null;
+        },
+
         // Client-side text search filter
         filterRows(rows) {
             if (!this.listSearch) return rows;

@@ -1034,11 +1034,17 @@
                             <span class="detail-label">Entity Type</span><span x-text="detail.entityType"></span>
                         </div>
                         <div class="detail-field" x-show="detail.entityId">
-                            <span class="detail-label">Entity ID</span><span class="id-display"><span class="mono" x-text="detail.entityId"></span><button class="copy-btn" @click.stop="copyId(detail.entityId, $event)" title="Copy ID"></button></span>
+                            <span class="detail-label">Entity ID</span>
+                            <template x-if="entityNav(detail.entityId)">
+                                <span class="id-display"><a class="mono" href="#" @click.prevent="navigate(entityNav(detail.entityId).view, entityNav(detail.entityId).detail, detail.entityId)" x-text="detail.entityId"></a><button class="copy-btn" @click.stop="copyId(detail.entityId, $event)" title="Copy ID"></button></span>
+                            </template>
+                            <template x-if="!entityNav(detail.entityId)">
+                                <span class="id-display"><span class="mono" x-text="detail.entityId"></span><button class="copy-btn" @click.stop="copyId(detail.entityId, $event)" title="Copy ID"></button></span>
+                            </template>
                         </div>
                         <div class="detail-field" x-show="detail.captainId">
                             <span class="detail-label">Captain</span>
-                            <a href="#" @click.prevent="navigate('captains', 'captain-detail', detail.captainId)" x-text="captainName(detail.captainId)"></a>
+                            <span class="id-display"><a href="#" @click.prevent="navigate('captains', 'captain-detail', detail.captainId)" x-text="captainName(detail.captainId)"></a><button class="copy-btn" @click.stop="copyId(detail.captainId, $event)" title="Copy ID"></button></span>
                         </div>
                         <div class="detail-field" x-show="detail.missionId">
                             <span class="detail-label">Mission</span>
@@ -1046,7 +1052,7 @@
                         </div>
                         <div class="detail-field" x-show="detail.vesselId">
                             <span class="detail-label">Vessel</span>
-                            <a href="#" @click.prevent="navigate('vessels', 'vessel-detail', detail.vesselId)" x-text="vesselName(detail.vesselId)"></a>
+                            <span class="id-display"><a href="#" @click.prevent="navigate('vessels', 'vessel-detail', detail.vesselId)" x-text="vesselName(detail.vesselId)"></a><button class="copy-btn" @click.stop="copyId(detail.vesselId, $event)" title="Copy ID"></button></span>
                         </div>
                         <div class="detail-field" x-show="detail.voyageId">
                             <span class="detail-label">Voyage</span>
