@@ -25,6 +25,7 @@ namespace Armada.Desktop.ViewModels
         private Mission? _SelectedMission;
         private string _StatusFilter = "All";
         private string _VesselFilter = "All";
+        private string _CaptainFilter = "All";
         private bool _IsLoading;
         private bool _ShowCreateMission;
         private string _NewMissionTitle = "";
@@ -92,11 +93,25 @@ namespace Armada.Desktop.ViewModels
             }
         }
 
+        /// <summary>Captain filter.</summary>
+        public string CaptainFilter
+        {
+            get => _CaptainFilter;
+            set
+            {
+                this.RaiseAndSetIfChanged(ref _CaptainFilter, value);
+                RefreshList();
+            }
+        }
+
         /// <summary>Available status filters.</summary>
         public List<string> StatusFilters { get; } = new List<string> { "All", "Pending", "Assigned", "InProgress", "Testing", "Review", "Complete", "Failed", "Cancelled" };
 
         /// <summary>Available vessel filters (populated dynamically).</summary>
         public ObservableCollection<string> VesselFilters { get; } = new ObservableCollection<string> { "All" };
+
+        /// <summary>Available captain filters (populated dynamically).</summary>
+        public ObservableCollection<string> CaptainFilters { get; } = new ObservableCollection<string> { "All" };
 
         /// <summary>Whether an async operation is in progress.</summary>
         public bool IsLoading
@@ -447,6 +462,15 @@ namespace Armada.Desktop.ViewModels
                 VesselFilters.Clear();
                 foreach (string name in currentVessels) VesselFilters.Add(name);
             }
+
+            // Update captain filters
+            List<string> currentCaptains = new List<string> { "All" };
+            foreach (Captain c in _Connection.Captains) currentCaptains.Add(c.Name);
+            if (!currentCaptains.SequenceEqual(CaptainFilters))
+            {
+                CaptainFilters.Clear();
+                foreach (string name in currentCaptains) CaptainFilters.Add(name);
+            }
         }
 
         private void RefreshList()
@@ -473,6 +497,13 @@ namespace Armada.Desktop.ViewModels
                     Vessel? filterVessel = _Connection.Vessels.FirstOrDefault(v => v.Name == VesselFilter);
                     if (filterVessel != null)
                         query.VesselId = filterVessel.Id;
+                }
+
+                if (CaptainFilter != "All")
+                {
+                    Captain? filterCaptain = _Connection.Captains.FirstOrDefault(c => c.Name == CaptainFilter);
+                    if (filterCaptain != null)
+                        query.CaptainId = filterCaptain.Id;
                 }
 
                 ArmadaApiClient client = _Connection.GetApiClient();

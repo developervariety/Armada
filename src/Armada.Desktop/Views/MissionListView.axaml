@@ -53,14 +53,24 @@
                                VerticalAlignment="Center" />
                     <ComboBox ItemsSource="{Binding StatusFilters}"
                               SelectedItem="{Binding StatusFilter}"
-                              MinWidth="120" FontSize="12" />
+                              MinWidth="120" FontSize="12"
+                              ToolTip.Tip="Filter missions by status" />
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Spacing="6">
                     <TextBlock Text="Vessel:" FontSize="12" Foreground="{DynamicResource TextDimBrush}"
                                VerticalAlignment="Center" />
                     <ComboBox ItemsSource="{Binding VesselFilters}"
                               SelectedItem="{Binding VesselFilter}"
-                              MinWidth="140" FontSize="12" />
+                              MinWidth="140" FontSize="12"
+                              ToolTip.Tip="Filter missions by target vessel" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBlock Text="Captain:" FontSize="12" Foreground="{DynamicResource TextDimBrush}"
+                               VerticalAlignment="Center" />
+                    <ComboBox ItemsSource="{Binding CaptainFilters}"
+                              SelectedItem="{Binding CaptainFilter}"
+                              MinWidth="140" FontSize="12"
+                              ToolTip.Tip="Filter missions by assigned captain" />
                 </StackPanel>
             </StackPanel>
         </StackPanel>

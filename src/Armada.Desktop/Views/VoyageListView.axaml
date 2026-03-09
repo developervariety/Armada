@@ -12,11 +12,18 @@
             <DockPanel>
                 <TextBlock Text="Voyages" Classes="page-title" DockPanel.Dock="Left" />
                 <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" VerticalAlignment="Top">
-                    <TextBlock Text="Filter:" FontSize="12" Foreground="{DynamicResource TextDimBrush}"
+                    <TextBlock Text="Status:" FontSize="12" Foreground="{DynamicResource TextDimBrush}"
                                VerticalAlignment="Center" />
                     <ComboBox ItemsSource="{Binding StatusFilters}"
                               SelectedItem="{Binding StatusFilter}"
-                              MinWidth="120" FontSize="12" />
+                              MinWidth="120" FontSize="12"
+                              ToolTip.Tip="Filter voyages by status" />
+                    <TextBlock Text="Vessel:" FontSize="12" Foreground="{DynamicResource TextDimBrush}"
+                               VerticalAlignment="Center" />
+                    <ComboBox ItemsSource="{Binding VesselFilters}"
+                              SelectedItem="{Binding VesselFilter}"
+                              MinWidth="140" FontSize="12"
+                              ToolTip.Tip="Filter voyages by vessel (shows voyages with missions targeting this vessel)" />
                     <Button Content="New Voyage" Classes="action"
                             Click="OnToggleCreateVoyageClick" ToolTip.Tip="Create a new voyage batch" />
                 </StackPanel>
