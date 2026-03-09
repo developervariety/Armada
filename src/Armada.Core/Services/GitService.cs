@@ -335,6 +335,57 @@ namespace Armada.Core.Services
             }
         }
 
+        /// <summary>
+        /// Check if a local branch exists in the repository.
+        /// </summary>
+        public async Task<bool> BranchExistsAsync(string repoPath, string branchName, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(repoPath)) throw new ArgumentNullException(nameof(repoPath));
+            if (String.IsNullOrEmpty(branchName)) throw new ArgumentNullException(nameof(branchName));
+
+            try
+            {
+                string result = await RunGitAsync(repoPath, "branch", "--list", branchName).ConfigureAwait(false);
+                return !String.IsNullOrWhiteSpace(result);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Check if a path is registered as a git worktree.
+        /// </summary>
+        public async Task<bool> IsWorktreeRegisteredAsync(string repoPath, string worktreePath, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(repoPath)) throw new ArgumentNullException(nameof(repoPath));
+            if (String.IsNullOrEmpty(worktreePath)) throw new ArgumentNullException(nameof(worktreePath));
+
+            try
+            {
+                string result = await RunGitAsync(repoPath, "worktree", "list", "--porcelain").ConfigureAwait(false);
+                string normalizedTarget = Path.GetFullPath(worktreePath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+                foreach (string line in result.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    if (line.StartsWith("worktree "))
+                    {
+                        string registeredPath = line.Substring("worktree ".Length).Trim();
+                        string normalizedRegistered = Path.GetFullPath(registeredPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                        if (String.Equals(normalizedRegistered, normalizedTarget, StringComparison.OrdinalIgnoreCase))
+                            return true;
+                    }
+                }
+
+                return false;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         #endregion
 
         #region Private-Methods
@@ -374,7 +425,18 @@ namespace Armada.Core.Services
             if (process.ExitCode != 0)
             {
                 string errorMessage = command + " failed (exit " + process.ExitCode + "): " + stderr.Trim();
-                _Logging.Warn(_Header + errorMessage);
+
+                // Demote expected "not found" messages during cleanup to Debug level
+                bool isExpectedFailure =
+                    stderr.Contains("not a working tree", StringComparison.OrdinalIgnoreCase) ||
+                    stderr.Contains("not found", StringComparison.OrdinalIgnoreCase) ||
+                    stderr.Contains("is not a git repository", StringComparison.OrdinalIgnoreCase);
+
+                if (isExpectedFailure)
+                    _Logging.Debug(_Header + errorMessage);
+                else
+                    _Logging.Warn(_Header + errorMessage);
+
                 throw new InvalidOperationException(errorMessage);
             }
 

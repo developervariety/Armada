@@ -85,12 +85,21 @@ namespace Armada.Core.Services
                     // Simple heuristic: if it's a git worktree but not for any active captain, clean it up
                     if (File.Exists(Path.Combine(existingDir, ".git")))
                     {
-                        _Logging.Info(_Header + "cleaning up stale worktree from previous captain: " + existingDir);
-                        try
+                        // Only attempt git worktree remove if the path is actually registered
+                        bool isRegistered = await _Git.IsWorktreeRegisteredAsync(repoPath, existingDir, token).ConfigureAwait(false);
+                        if (isRegistered)
                         {
-                            await _Git.RemoveWorktreeAsync(existingDir, token).ConfigureAwait(false);
+                            _Logging.Info(_Header + "cleaning up stale worktree from previous captain: " + existingDir);
+                            try
+                            {
+                                await _Git.RemoveWorktreeAsync(existingDir, token).ConfigureAwait(false);
+                            }
+                            catch { }
                         }
-                        catch { }
+                        else
+                        {
+                            _Logging.Debug(_Header + "removing unregistered worktree directory: " + existingDir);
+                        }
 
                         if (Directory.Exists(existingDir))
                         {
@@ -111,12 +120,20 @@ namespace Armada.Core.Services
             // Clean up stale worktree directory if it exists from a previous run
             if (Directory.Exists(worktreePath))
             {
-                _Logging.Info(_Header + "removing stale dock directory: " + worktreePath);
-                try
+                bool isRegistered = await _Git.IsWorktreeRegisteredAsync(repoPath, worktreePath, token).ConfigureAwait(false);
+                if (isRegistered)
                 {
-                    await _Git.RemoveWorktreeAsync(worktreePath, token).ConfigureAwait(false);
+                    _Logging.Info(_Header + "removing stale dock directory: " + worktreePath);
+                    try
+                    {
+                        await _Git.RemoveWorktreeAsync(worktreePath, token).ConfigureAwait(false);
+                    }
+                    catch { }
                 }
-                catch { }
+                else
+                {
+                    _Logging.Debug(_Header + "removing unregistered dock directory: " + worktreePath);
+                }
 
                 if (Directory.Exists(worktreePath))
                 {
@@ -125,12 +142,17 @@ namespace Armada.Core.Services
                 }
             }
 
-            // Delete stale branch if it exists from a previous failed attempt
-            try
+            // Delete stale branch only if it actually exists
+            bool branchExists = await _Git.BranchExistsAsync(repoPath, branchName, token).ConfigureAwait(false);
+            if (branchExists)
             {
-                await _Git.DeleteLocalBranchAsync(repoPath, branchName, token).ConfigureAwait(false);
+                _Logging.Debug(_Header + "deleting stale branch: " + branchName);
+                try
+                {
+                    await _Git.DeleteLocalBranchAsync(repoPath, branchName, token).ConfigureAwait(false);
+                }
+                catch { }
             }
-            catch { }
 
             // Create worktree
             try
