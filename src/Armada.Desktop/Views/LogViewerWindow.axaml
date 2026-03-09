@@ -23,12 +23,15 @@
                         <TextBlock Text="Lines:" FontSize="12" Foreground="{DynamicResource TextDimBrush}"
                                    VerticalAlignment="Center" />
                         <NumericUpDown Value="{Binding LineCount}" Minimum="10" Maximum="1000"
-                                       Increment="50" Width="100" FontSize="12" />
+                                       Increment="50" Width="100" FontSize="12"
+                                       ToolTip.Tip="Number of log lines to display" />
                     </StackPanel>
                     <CheckBox Content="Follow" IsChecked="{Binding IsFollowing}" FontSize="12"
-                              Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center" />
+                              Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"
+                              ToolTip.Tip="Automatically scroll to the latest log entries" />
                     <Button Content="Copy" Classes="action" Click="OnCopyClick" ToolTip.Tip="Copy log to clipboard" />
-                    <Button Content="Refresh" Classes="action" Click="OnRefreshClick" />
+                    <Button Content="Refresh" Classes="action" Click="OnRefreshClick"
+                            ToolTip.Tip="Reload log from server" />
                 </StackPanel>
             </DockPanel>
         </Border>

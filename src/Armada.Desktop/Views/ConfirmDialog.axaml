@@ -23,10 +23,12 @@
                 <Button Content="Cancel" Click="OnCancelClick"
                         Background="{DynamicResource SurfaceHoverBrush}"
                         Foreground="{DynamicResource TextSecondaryBrush}"
-                        CornerRadius="6" Padding="16,8" FontSize="13" />
+                        CornerRadius="6" Padding="16,8" FontSize="13"
+                        ToolTip.Tip="Cancel this action" />
                 <Button x:Name="ConfirmButton" Content="Confirm" Click="OnConfirmClick"
                         Background="{StaticResource StatusRedBrush}" Foreground="White"
-                        CornerRadius="6" Padding="16,8" FontWeight="SemiBold" FontSize="13" />
+                        CornerRadius="6" Padding="16,8" FontWeight="SemiBold" FontSize="13"
+                        ToolTip.Tip="Proceed with this action" />
             </StackPanel>
         </StackPanel>
     </Border>

@@ -16,7 +16,7 @@
                                VerticalAlignment="Center" />
                     <ComboBox ItemsSource="{Binding StatusFilters}"
                               SelectedItem="{Binding StatusFilter}"
-                              MinWidth="120" FontSize="12" />
+                              MinWidth="120" FontSize="12" ToolTip.Tip="Filter voyages by status" />
                     <Button Content="New Voyage" Classes="action"
                             Click="OnToggleCreateVoyageClick" ToolTip.Tip="Create a new voyage batch" />
                 </StackPanel>
@@ -32,13 +32,17 @@
                     <TextBlock Text="NEW VOYAGE" FontSize="11" FontWeight="SemiBold"
                                Foreground="{DynamicResource TextDimBrush}" />
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                        <TextBox Watermark="Title" Text="{Binding NewVoyageTitle}" Width="300" />
+                        <TextBox Watermark="Title" Text="{Binding NewVoyageTitle}" Width="300"
+                                 ToolTip.Tip="Name for this voyage batch" />
                     </StackPanel>
                     <TextBox Watermark="Description (optional)" Text="{Binding NewVoyageDescription}"
-                             AcceptsReturn="True" TextWrapping="Wrap" Height="60" />
+                             AcceptsReturn="True" TextWrapping="Wrap" Height="60"
+                             ToolTip.Tip="Optional description of the voyage's purpose" />
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                        <Button Content="Create" Classes="action" Click="OnCreateVoyageClick" />
-                        <Button Content="Cancel" Click="OnCancelCreateVoyageClick" />
+                        <Button Content="Create" Classes="action" Click="OnCreateVoyageClick"
+                                ToolTip.Tip="Create the new voyage" />
+                        <Button Content="Cancel" Click="OnCancelCreateVoyageClick"
+                                ToolTip.Tip="Cancel voyage creation" />
                     </StackPanel>
                 </StackPanel>
             </Border>
@@ -53,15 +57,18 @@
                                FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center"
                                Foreground="{DynamicResource TextSecondaryBrush}" />
                     <TextBlock Text="Show:" FontSize="12" Foreground="{DynamicResource TextDimBrush}" VerticalAlignment="Center" Margin="12,0,0,0" />
-                    <ComboBox ItemsSource="{Binding PageSizeOptions}" SelectedItem="{Binding PageSize}" MinWidth="70" FontSize="12" />
+                    <ComboBox ItemsSource="{Binding PageSizeOptions}" SelectedItem="{Binding PageSize}" MinWidth="70" FontSize="12"
+                              ToolTip.Tip="Number of records per page" />
                 </StackPanel>
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" Margin="16,0,0,0">
                     <Button Content="Prev" Click="OnPreviousPageClick"
-                            IsEnabled="{Binding CanGoPrevious}" Padding="8,4" FontSize="12" />
+                            IsEnabled="{Binding CanGoPrevious}" Padding="8,4" FontSize="12"
+                            ToolTip.Tip="Go to previous page" />
                     <TextBlock Text="{Binding PaginationText}" VerticalAlignment="Center" Margin="8,0"
                                FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}" />
                     <Button Content="Next" Click="OnNextPageClick"
-                            IsEnabled="{Binding CanGoNext}" Padding="8,4" FontSize="12" />
+                            IsEnabled="{Binding CanGoNext}" Padding="8,4" FontSize="12"
+                            ToolTip.Tip="Go to next page" />
                     <Button Content="Refresh" Click="OnRefreshPageClick" Padding="8,4" FontSize="12"
                             ToolTip.Tip="Refresh current page" Margin="8,0,0,0" />
                 </StackPanel>
@@ -145,13 +152,17 @@
                         <!-- Mission headers -->
                         <Grid ColumnDefinitions="*,90,140,160" Margin="0,0,0,4">
                             <TextBlock Grid.Column="0" Text="Title" FontSize="11" FontWeight="SemiBold"
-                                       Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" />
+                                       Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left"
+                                       ToolTip.Tip="Mission name or description" />
                             <TextBlock Grid.Column="1" Text="Status" FontSize="11" FontWeight="SemiBold"
-                                       Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" />
+                                       Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left"
+                                       ToolTip.Tip="Current mission status: Pending, Assigned, InProgress, Complete, Failed, or Cancelled" />
                             <TextBlock Grid.Column="2" Text="Captain" FontSize="11" FontWeight="SemiBold"
-                                       Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" />
+                                       Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left"
+                                       ToolTip.Tip="Captain assigned to this mission" />
                             <TextBlock Grid.Column="3" Text="Branch" FontSize="11" FontWeight="SemiBold"
-                                       Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" />
+                                       Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left"
+                                       ToolTip.Tip="Git branch created for this mission" />
                         </Grid>
                         <ScrollViewer MaxHeight="400" VerticalScrollBarVisibility="Auto">
                             <ItemsControl ItemsSource="{Binding SelectedVoyageMissions}">

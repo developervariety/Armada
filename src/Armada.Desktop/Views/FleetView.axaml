@@ -47,12 +47,12 @@
                                        Foreground="{DynamicResource TextDimBrush}" />
                             <StackPanel Spacing="8">
                                 <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <TextBox Watermark="Fleet Name" Text="{Binding NewFleetName}" Width="200" />
-                                    <TextBox Watermark="Description (optional)" Text="{Binding NewFleetDescription}" Width="300" />
+                                    <TextBox Watermark="Fleet Name" Text="{Binding NewFleetName}" Width="200" ToolTip.Tip="A short name for this fleet grouping" />
+                                    <TextBox Watermark="Description (optional)" Text="{Binding NewFleetDescription}" Width="300" ToolTip.Tip="Optional description of the fleet's purpose" />
                                 </StackPanel>
                                 <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <Button Content="Create" Classes="action" Click="OnAddFleetClick" />
-                                    <Button Content="Cancel" Click="OnCancelAddFleetClick" />
+                                    <Button Content="Create" Classes="action" Click="OnAddFleetClick" ToolTip.Tip="Create the new fleet" />
+                                    <Button Content="Cancel" Click="OnCancelAddFleetClick" ToolTip.Tip="Cancel fleet creation" />
                                 </StackPanel>
                             </StackPanel>
                         </StackPanel>
@@ -61,15 +61,15 @@
                     <!-- Column headers -->
                     <Grid ColumnDefinitions="150,*,70,200,150" Margin="8,0,8,4">
                         <TextBlock Grid.Column="0" Text="Name" FontSize="11" FontWeight="SemiBold"
-                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" />
+                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" ToolTip.Tip="Display name for this fleet" />
                         <TextBlock Grid.Column="1" Text="Description" FontSize="11" FontWeight="SemiBold"
-                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" />
+                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" ToolTip.Tip="Optional notes about this fleet" />
                         <TextBlock Grid.Column="2" Text="Active" FontSize="11" FontWeight="SemiBold"
-                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" />
+                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" ToolTip.Tip="Whether this fleet is currently active" />
                         <TextBlock Grid.Column="3" Text="ID" FontSize="11" FontWeight="SemiBold"
-                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" />
+                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" ToolTip.Tip="Unique fleet identifier (flt_ prefix)" />
                         <TextBlock Grid.Column="4" Text="Actions" FontSize="11" FontWeight="SemiBold"
-                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" />
+                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" ToolTip.Tip="Edit or remove this fleet" />
                     </Grid>
 
                     <ItemsControl ItemsSource="{Binding Fleets}">
@@ -107,7 +107,7 @@
                                                     IsVisible="{Binding IsEditing}" ToolTip.Tip="Save changes" />
                                             <Button Content="Cancel" FontSize="11" Padding="8,2"
                                                     Click="OnCancelEditFleetClick" Tag="{Binding Fleet.Id}"
-                                                    IsVisible="{Binding IsEditing}" />
+                                                    IsVisible="{Binding IsEditing}" ToolTip.Tip="Discard changes" />
                                             <Button Content="Remove" Classes="danger" FontSize="11" Padding="8,2"
                                                     Click="OnRemoveFleetClick" Tag="{Binding Fleet.Id}" ToolTip.Tip="Permanently remove"
                                                     IsVisible="{Binding !IsEditing}" />
@@ -141,18 +141,18 @@
                                        Foreground="{DynamicResource TextDimBrush}" />
                             <StackPanel Spacing="8">
                                 <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <TextBox Watermark="Name" Text="{Binding NewVesselName}" Width="200" />
-                                    <TextBox Watermark="Repo URL" Text="{Binding NewVesselRepoUrl}" Width="300" />
+                                    <TextBox Watermark="Name" Text="{Binding NewVesselName}" Width="200" ToolTip.Tip="A short name for this vessel" />
+                                    <TextBox Watermark="Repo URL" Text="{Binding NewVesselRepoUrl}" Width="300" ToolTip.Tip="Git remote URL for cloning the repository (e.g., https://github.com/org/repo)" />
                                 </StackPanel>
                                 <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <TextBox Watermark="Branch (default: main)" Text="{Binding NewVesselBranch}" Width="200" />
+                                    <TextBox Watermark="Branch (default: main)" Text="{Binding NewVesselBranch}" Width="200" ToolTip.Tip="Default branch name (e.g., main)" />
                                     <ComboBox PlaceholderText="Fleet (optional)"
                                               ItemsSource="{Binding Fleets}" SelectedValue="{Binding NewVesselFleetId}"
-                                              SelectedValueBinding="{Binding Fleet.Id}" DisplayMemberBinding="{Binding Fleet.Name}" Width="200" />
+                                              SelectedValueBinding="{Binding Fleet.Id}" DisplayMemberBinding="{Binding Fleet.Name}" Width="200" ToolTip.Tip="Optionally assign this vessel to a fleet" />
                                 </StackPanel>
                                 <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <Button Content="Create" Classes="action" Click="OnAddVesselClick" />
-                                    <Button Content="Cancel" Click="OnCancelAddVesselClick" />
+                                    <Button Content="Create" Classes="action" Click="OnAddVesselClick" ToolTip.Tip="Register the new vessel" />
+                                    <Button Content="Cancel" Click="OnCancelAddVesselClick" ToolTip.Tip="Cancel vessel creation" />
                                 </StackPanel>
                             </StackPanel>
                         </StackPanel>
@@ -161,15 +161,15 @@
                     <!-- Column headers -->
                     <Grid ColumnDefinitions="150,*,100,60,200,120" Margin="8,0,8,4">
                         <TextBlock Grid.Column="0" Text="Name" FontSize="11" FontWeight="SemiBold"
-                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" />
+                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" ToolTip.Tip="Display name for this vessel" />
                         <TextBlock Grid.Column="1" Text="Repo URL" FontSize="11" FontWeight="SemiBold"
-                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" />
+                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" ToolTip.Tip="Git remote URL for cloning" />
                         <TextBlock Grid.Column="2" Text="Branch" FontSize="11" FontWeight="SemiBold"
-                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" />
+                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" ToolTip.Tip="Default branch for this repository" />
                         <TextBlock Grid.Column="3" Text="Config" FontSize="11" FontWeight="SemiBold"
-                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" />
+                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" ToolTip.Tip="Configuration indicators (CTX=Project Context, STY=Style Guide)" />
                         <TextBlock Grid.Column="4" Text="ID" FontSize="11" FontWeight="SemiBold"
-                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" />
+                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" ToolTip.Tip="Unique vessel identifier (vsl_ prefix)" />
                     </Grid>
 
                     <ItemsControl ItemsSource="{Binding Vessels}">
@@ -235,16 +235,16 @@
                             <TextBlock Text="NEW CAPTAIN" FontSize="11" FontWeight="SemiBold"
                                        Foreground="{DynamicResource TextDimBrush}" />
                             <StackPanel Orientation="Horizontal" Spacing="8">
-                                <TextBox Watermark="Captain Name" Text="{Binding NewCaptainName}" Width="200" />
+                                <TextBox Watermark="Captain Name" Text="{Binding NewCaptainName}" Width="200" ToolTip.Tip="A unique name for this captain" />
                                 <ComboBox ItemsSource="{Binding RuntimeOptions}"
-                                          SelectedItem="{Binding NewCaptainRuntime}" Width="160" />
+                                          SelectedItem="{Binding NewCaptainRuntime}" Width="160" ToolTip.Tip="AI agent runtime to use (e.g., claude-code)" />
                                 <NumericUpDown Value="{Binding NewCaptainMaxParallelism}" Minimum="1" Maximum="64"
                                                Increment="1" Width="120" Watermark="Parallelism"
                                                ToolTip.Tip="Maximum concurrent missions (minimum 1)" />
                             </StackPanel>
                             <StackPanel Orientation="Horizontal" Spacing="8">
-                                <Button Content="Create" Classes="action" Click="OnAddCaptainClick" />
-                                <Button Content="Cancel" Click="OnCancelAddCaptainClick" />
+                                <Button Content="Create" Classes="action" Click="OnAddCaptainClick" ToolTip.Tip="Create the new captain" />
+                                <Button Content="Cancel" Click="OnCancelAddCaptainClick" ToolTip.Tip="Cancel captain creation" />
                             </StackPanel>
                         </StackPanel>
                     </Border>
@@ -252,19 +252,19 @@
                     <!-- Column headers -->
                     <Grid ColumnDefinitions="140,100,70,80,200,60,150,Auto" Margin="8,0,8,4">
                         <TextBlock Grid.Column="0" Text="Name" FontSize="11" FontWeight="SemiBold"
-                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" />
+                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" ToolTip.Tip="Captain display name" />
                         <TextBlock Grid.Column="1" Text="Runtime" FontSize="11" FontWeight="SemiBold"
-                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" />
+                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" ToolTip.Tip="AI agent runtime (e.g., claude-code, codex)" />
                         <TextBlock Grid.Column="2" Text="Parallel" FontSize="11" FontWeight="SemiBold"
-                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" />
+                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" ToolTip.Tip="Maximum concurrent missions this captain can handle" />
                         <TextBlock Grid.Column="3" Text="State" FontSize="11" FontWeight="SemiBold"
-                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" />
+                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" ToolTip.Tip="Current captain state: Idle (waiting), Working (executing), or Stalled (unresponsive)" />
                         <TextBlock Grid.Column="4" Text="Mission" FontSize="11" FontWeight="SemiBold"
-                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" />
+                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" ToolTip.Tip="Currently assigned mission ID" />
                         <TextBlock Grid.Column="5" Text="PID" FontSize="11" FontWeight="SemiBold"
-                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" />
+                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" ToolTip.Tip="Operating system process ID of the agent" />
                         <TextBlock Grid.Column="6" Text="Last Heartbeat" FontSize="11" FontWeight="SemiBold"
-                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" />
+                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" ToolTip.Tip="Last time this captain reported activity" />
                     </Grid>
 
                     <ItemsControl ItemsSource="{Binding Captains}">

@@ -14,27 +14,32 @@
                 <StackPanel Spacing="12">
                     <TextBlock Text="PATHS" Classes="section-header" Margin="0" />
                     <StackPanel Spacing="4">
-                        <TextBlock Text="Data Directory" FontSize="11" Foreground="{DynamicResource TextDimBrush}" />
+                        <TextBlock Text="Data Directory" FontSize="11" Foreground="{DynamicResource TextDimBrush}"
+                                   ToolTip.Tip="Root directory for all Armada data" />
                         <TextBlock Text="{Binding DataDirectory}" FontSize="12" FontFamily="Consolas,monospace"
                                    Foreground="{DynamicResource TextSecondaryBrush}" />
                     </StackPanel>
                     <StackPanel Spacing="4">
-                        <TextBlock Text="Database" FontSize="11" Foreground="{DynamicResource TextDimBrush}" />
+                        <TextBlock Text="Database" FontSize="11" Foreground="{DynamicResource TextDimBrush}"
+                                   ToolTip.Tip="SQLite database file storing all Armada state" />
                         <TextBlock Text="{Binding DatabasePath}" FontSize="12" FontFamily="Consolas,monospace"
                                    Foreground="{DynamicResource TextSecondaryBrush}" />
                     </StackPanel>
                     <StackPanel Spacing="4">
-                        <TextBlock Text="Logs" FontSize="11" Foreground="{DynamicResource TextDimBrush}" />
+                        <TextBlock Text="Logs" FontSize="11" Foreground="{DynamicResource TextDimBrush}"
+                                   ToolTip.Tip="Directory for Admiral and captain log files" />
                         <TextBlock Text="{Binding LogDirectory}" FontSize="12" FontFamily="Consolas,monospace"
                                    Foreground="{DynamicResource TextSecondaryBrush}" />
                     </StackPanel>
                     <StackPanel Spacing="4">
-                        <TextBlock Text="Docks" FontSize="11" Foreground="{DynamicResource TextDimBrush}" />
+                        <TextBlock Text="Docks" FontSize="11" Foreground="{DynamicResource TextDimBrush}"
+                                   ToolTip.Tip="Directory for git worktrees used by captains" />
                         <TextBlock Text="{Binding DocksDirectory}" FontSize="12" FontFamily="Consolas,monospace"
                                    Foreground="{DynamicResource TextSecondaryBrush}" />
                     </StackPanel>
                     <StackPanel Spacing="4">
-                        <TextBlock Text="Repos" FontSize="11" Foreground="{DynamicResource TextDimBrush}" />
+                        <TextBlock Text="Repos" FontSize="11" Foreground="{DynamicResource TextDimBrush}"
+                                   ToolTip.Tip="Directory for cloned git repositories" />
                         <TextBlock Text="{Binding ReposDirectory}" FontSize="12" FontFamily="Consolas,monospace"
                                    Foreground="{DynamicResource TextSecondaryBrush}" />
                     </StackPanel>
@@ -49,19 +54,22 @@
                         <TextBlock Text="Admiral Port" FontSize="12" FontWeight="SemiBold"
                                    Foreground="{DynamicResource TextSecondaryBrush}" />
                         <NumericUpDown Value="{Binding AdmiralPort}" Minimum="1" Maximum="65535"
-                                       FormatString="0" FontSize="13" />
+                                       FormatString="0" FontSize="13"
+                                       ToolTip.Tip="TCP port for the Admiral REST API" />
                     </StackPanel>
                     <StackPanel Spacing="4">
                         <TextBlock Text="MCP Port" FontSize="12" FontWeight="SemiBold"
                                    Foreground="{DynamicResource TextSecondaryBrush}" />
                         <NumericUpDown Value="{Binding McpPort}" Minimum="1" Maximum="65535"
-                                       FormatString="0" FontSize="13" />
+                                       FormatString="0" FontSize="13"
+                                       ToolTip.Tip="TCP port for the MCP (Model Context Protocol) server" />
                     </StackPanel>
                     <StackPanel Spacing="4">
                         <TextBlock Text="Refresh Interval (seconds)" FontSize="12" FontWeight="SemiBold"
                                    Foreground="{DynamicResource TextSecondaryBrush}" />
                         <NumericUpDown Value="{Binding RefreshInterval}" Minimum="1" Maximum="60"
-                                       FormatString="0" FontSize="13" />
+                                       FormatString="0" FontSize="13"
+                                       ToolTip.Tip="How often the desktop app polls the server for updates" />
                     </StackPanel>
                 </StackPanel>
             </Border>
@@ -74,35 +82,41 @@
                         <TextBlock Text="Max Captains (0 = unlimited)" FontSize="12" FontWeight="SemiBold"
                                    Foreground="{DynamicResource TextSecondaryBrush}" />
                         <NumericUpDown Value="{Binding MaxCaptains}" Minimum="0" Maximum="50"
-                                       FormatString="0" FontSize="13" />
+                                       FormatString="0" FontSize="13"
+                                       ToolTip.Tip="Maximum number of captains allowed (0 = no limit)" />
                     </StackPanel>
                     <StackPanel Spacing="4">
                         <TextBlock Text="Default Runtime" FontSize="12" FontWeight="SemiBold"
                                    Foreground="{DynamicResource TextSecondaryBrush}" />
-                        <TextBox Text="{Binding DefaultRuntime}" Watermark="auto-detect" FontSize="13" />
+                        <TextBox Text="{Binding DefaultRuntime}" Watermark="auto-detect" FontSize="13"
+                                 ToolTip.Tip="AI agent runtime used when none is specified (e.g., claude-code)" />
                     </StackPanel>
                     <StackPanel Spacing="4">
                         <TextBlock Text="Heartbeat Interval (seconds)" FontSize="12" FontWeight="SemiBold"
                                    Foreground="{DynamicResource TextSecondaryBrush}" />
                         <NumericUpDown Value="{Binding HeartbeatIntervalSeconds}" Minimum="5" Maximum="300"
-                                       FormatString="0" FontSize="13" />
+                                       FormatString="0" FontSize="13"
+                                       ToolTip.Tip="How often captains send heartbeat signals to the Admiral" />
                     </StackPanel>
                     <StackPanel Spacing="4">
                         <TextBlock Text="Stall Threshold (minutes)" FontSize="12" FontWeight="SemiBold"
                                    Foreground="{DynamicResource TextSecondaryBrush}" />
                         <NumericUpDown Value="{Binding StallThresholdMinutes}" Minimum="1" Maximum="60"
-                                       FormatString="0" FontSize="13" />
+                                       FormatString="0" FontSize="13"
+                                       ToolTip.Tip="Minutes without a heartbeat before a captain is marked as stalled" />
                     </StackPanel>
                     <StackPanel Spacing="4">
                         <TextBlock Text="Idle Captain Timeout (seconds, 0 = disabled)" FontSize="12" FontWeight="SemiBold"
                                    Foreground="{DynamicResource TextSecondaryBrush}" />
                         <NumericUpDown Value="{Binding IdleCaptainTimeoutSeconds}" Minimum="0" Maximum="3600"
-                                       FormatString="0" FontSize="13" />
+                                       FormatString="0" FontSize="13"
+                                       ToolTip.Tip="Seconds before an idle captain is automatically stopped (0 = never)" />
                     </StackPanel>
                     <StackPanel Spacing="4">
                         <TextBlock Text="API Key" FontSize="12" FontWeight="SemiBold"
                                    Foreground="{DynamicResource TextSecondaryBrush}" />
-                        <TextBox Text="{Binding ApiKey}" PasswordChar="*" Watermark="(not set)" FontSize="13" />
+                        <TextBox Text="{Binding ApiKey}" PasswordChar="*" Watermark="(not set)" FontSize="13"
+                                 ToolTip.Tip="Authentication key for the Admiral API (leave blank for no auth)" />
                     </StackPanel>
                 </StackPanel>
             </Border>
@@ -116,7 +130,8 @@
                                    VerticalAlignment="Center" />
                         <ComboBox ItemsSource="{Binding ThemeModeOptions}"
                                   SelectedItem="{Binding ThemeMode}"
-                                  MinWidth="140" FontSize="13" />
+                                  MinWidth="140" FontSize="13"
+                                  ToolTip.Tip="Choose between dark, light, or system-default theme" />
                     </StackPanel>
                 </StackPanel>
             </Border>
@@ -126,9 +141,11 @@
                 <StackPanel Spacing="16">
                     <TextBlock Text="NOTIFICATIONS" Classes="section-header" Margin="0" />
                     <CheckBox Content="Desktop Notifications" IsChecked="{Binding Notifications}"
-                              Foreground="{DynamicResource TextPrimaryBrush}" FontSize="13" />
+                              Foreground="{DynamicResource TextPrimaryBrush}" FontSize="13"
+                              ToolTip.Tip="Show system notifications for mission completions, failures, and alerts" />
                     <CheckBox Content="Auto-Create Pull Requests" IsChecked="{Binding AutoCreatePr}"
-                              Foreground="{DynamicResource TextPrimaryBrush}" FontSize="13" />
+                              Foreground="{DynamicResource TextPrimaryBrush}" FontSize="13"
+                              ToolTip.Tip="Automatically create a pull request when a mission completes successfully" />
                 </StackPanel>
             </Border>
 
@@ -157,13 +174,15 @@
                         <TextBlock Text="HTTP Config" FontSize="11" Foreground="{DynamicResource TextDimBrush}" />
                         <TextBox Text="{Binding McpConfigHttp}" IsReadOnly="True"
                                  FontFamily="Consolas,monospace" FontSize="11"
-                                 AcceptsReturn="True" Height="80" />
+                                 AcceptsReturn="True" Height="80"
+                                 ToolTip.Tip="MCP configuration for HTTP transport — copy into your client's settings" />
                     </StackPanel>
                     <StackPanel Spacing="4">
                         <TextBlock Text="Stdio Config" FontSize="11" Foreground="{DynamicResource TextDimBrush}" />
                         <TextBox Text="{Binding McpConfigStdio}" IsReadOnly="True"
                                  FontFamily="Consolas,monospace" FontSize="11"
-                                 AcceptsReturn="True" Height="80" />
+                                 AcceptsReturn="True" Height="80"
+                                 ToolTip.Tip="MCP configuration for stdio transport — copy into your client's settings" />
                     </StackPanel>
                     <Button Content="Install to Claude Code" Classes="action" Click="OnInstallMcpClick" ToolTip.Tip="Add Armada as an MCP server in Claude Code settings" />
                 </StackPanel>

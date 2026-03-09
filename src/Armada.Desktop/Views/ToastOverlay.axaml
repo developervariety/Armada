@@ -31,7 +31,8 @@
                         <Button Grid.Column="2" Content="X" FontSize="10"
                                 Background="Transparent" Foreground="{DynamicResource TextDimBrush}"
                                 Padding="4,2" VerticalAlignment="Top"
-                                Click="OnDismissClick" />
+                                Click="OnDismissClick"
+                                ToolTip.Tip="Dismiss this notification" />
                     </Grid>
                 </Border>
             </DataTemplate>
