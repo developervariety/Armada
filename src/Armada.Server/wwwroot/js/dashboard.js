@@ -205,6 +205,27 @@ function dashboard() {
             ]);
         },
 
+        async dashboardRefresh(event) {
+            let btn = event.currentTarget;
+            btn.disabled = true;
+            btn.classList.add('refreshing');
+            try {
+                await this.refresh();
+                btn.innerHTML = '&#x2714;';
+                btn.classList.add('refresh-success');
+                setTimeout(() => {
+                    btn.innerHTML = '&#x21bb;';
+                    btn.classList.remove('refresh-success');
+                }, 1500);
+            } catch (e) {
+                console.warn('Dashboard refresh failed:', e);
+                btn.innerHTML = '&#x21bb;';
+            } finally {
+                btn.disabled = false;
+                btn.classList.remove('refreshing');
+            }
+        },
+
         async loadRecentMissions() {
             try {
                 let result = await this.api('GET', '/api/v1/missions?pageSize=10&order=CreatedDescending');
