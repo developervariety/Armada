@@ -637,7 +637,7 @@ function dashboard() {
                 if (this.detail) {
                     label = this.detail.title || this.detail.name || this.detail.id || this.detailId;
                 }
-                this.breadcrumbs.push({ label: label });
+                this.breadcrumbs.push({ label: label, id: this.detailId });
             }
         },
 

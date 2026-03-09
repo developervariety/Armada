@@ -173,6 +173,9 @@ h3 { font-size: 1.1rem; margin-bottom: 0.5rem; font-weight: 600; margin-top: 1re
 .breadcrumbs a { color: var(--accent); text-decoration: none; }
 .breadcrumbs a:hover { text-decoration: underline; }
 .bc-sep { margin: 0 0.4rem; }
+.bc-copy-btn { opacity: 0.3; vertical-align: middle; margin-left: 0.15rem; }
+.breadcrumbs:hover .bc-copy-btn { opacity: 0.5; }
+.breadcrumbs .bc-copy-btn:hover { opacity: 1; }
 
 /* View header with actions */
 .view-header {
