@@ -103,8 +103,39 @@ namespace Armada.Core.Services
                 await RunGitAsync(repoPath, "config", "remote.origin.fetch", "+refs/heads/*:refs/heads/*").ConfigureAwait(false);
             }
 
+            // Prune stale worktree registrations before fetching to avoid
+            // "refusing to fetch into branch checked out at ..." errors
+            // from worktrees that no longer exist on disk.
+            try
+            {
+                await RunGitAsync(repoPath, "worktree", "prune").ConfigureAwait(false);
+            }
+            catch
+            {
+                // Best effort — don't let prune failure block fetch
+            }
+
             _Logging.Debug(_Header + "fetching: " + repoPath);
-            await RunGitAsync(repoPath, "fetch", "--all", "--prune").ConfigureAwait(false);
+            try
+            {
+                await RunGitAsync(repoPath, "fetch", "--all", "--prune").ConfigureAwait(false);
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("refusing to fetch"))
+            {
+                // A checked-out worktree is blocking the full fetch.
+                // Fall back to fetching just the remote refs without updating local branches.
+                _Logging.Warn(_Header + "full fetch blocked by checked-out worktree, trying fetch origin: " + ex.Message);
+                try
+                {
+                    await RunGitAsync(repoPath, "fetch", "origin").ConfigureAwait(false);
+                }
+                catch (Exception fallbackEx)
+                {
+                    _Logging.Warn(_Header + "fallback fetch also failed: " + fallbackEx.Message);
+                    // Continue without fetch — worktree creation may still succeed
+                    // if the base branch is already available locally.
+                }
+            }
         }
 
         /// <summary>

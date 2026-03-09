@@ -1830,6 +1830,17 @@ namespace Armada.Server
 
         private async Task HealthCheckLoopAsync(CancellationToken token)
         {
+            // Run an immediate health check on startup to dispatch any pending missions
+            try
+            {
+                await _Admiral.HealthCheckAsync(token).ConfigureAwait(false);
+                _Logging.Info(_Header + "startup health check completed — pending missions dispatched");
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "startup health check error: " + ex.Message);
+            }
+
             while (!token.IsCancellationRequested)
             {
                 try

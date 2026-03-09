@@ -110,14 +110,17 @@ namespace Armada.Core.Services
             await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
 
             // Provision dock (worktree)
+            _Logging.Info(_Header + "provisioning dock for mission " + mission.Id + " on vessel " + vessel.Id + " with captain " + captain.Id);
             Dock? dock = await _Docks.ProvisionAsync(vessel, captain, branchName, token).ConfigureAwait(false);
             if (dock == null)
             {
                 // Provisioning failed — revert mission assignment
+                _Logging.Warn(_Header + "dock provisioning failed for mission " + mission.Id + " — reverting to Pending");
                 mission.Status = MissionStatusEnum.Pending;
                 mission.CaptainId = null;
                 mission.BranchName = null;
                 mission.DockId = null;
+                mission.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
                 return;
             }
@@ -163,10 +166,42 @@ namespace Armada.Core.Services
                 {
                     _Logging.Warn(_Header + "failed to launch agent for captain " + captain.Id + ": " + ex.Message);
 
+                    // Rollback captain state — release back to idle so it can accept future work
+                    await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
+
+                    // Rollback mission state — revert to Pending for re-dispatch
+                    mission.Status = MissionStatusEnum.Pending;
+                    mission.CaptainId = null;
+                    mission.BranchName = null;
+                    mission.DockId = null;
+                    mission.ProcessId = null;
+                    mission.StartedUtc = null;
+                    mission.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+
                     Signal errorSignal = new Signal(SignalTypeEnum.Error, "Failed to launch agent: " + ex.Message);
                     errorSignal.FromCaptainId = captain.Id;
                     await _Database.Signals.CreateAsync(errorSignal, token).ConfigureAwait(false);
+
+                    return;
                 }
+            }
+            else
+            {
+                // No launch handler configured — rollback assignment
+                _Logging.Warn(_Header + "no OnLaunchAgent handler configured — cannot launch agent for captain " + captain.Id);
+
+                await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
+
+                mission.Status = MissionStatusEnum.Pending;
+                mission.CaptainId = null;
+                mission.BranchName = null;
+                mission.DockId = null;
+                mission.ProcessId = null;
+                mission.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+
+                return;
             }
 
             _Logging.Info(_Header + "assigned mission " + mission.Id + " to captain " + captain.Id + " at " + dock.WorktreePath);

@@ -235,7 +235,10 @@ namespace Armada.Core.Services
 
                 if (activeMissions.Count == 0 && captain.ProcessId == null)
                 {
-                    // No missions and no process — skip (may be newly created or transitioning)
+                    // Orphaned captain — Working state but no missions and no process.
+                    // Release back to Idle so it can accept new work.
+                    _Logging.Warn(_Header + "captain " + captain.Id + " is Working but has no active missions or process — releasing to Idle");
+                    await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
                     continue;
                 }
 

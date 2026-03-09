@@ -69,6 +69,45 @@ namespace Armada.Core.Services
             }
             catch { }
 
+            // Clean up ALL stale worktree directories under this vessel's dock directory.
+            // This handles worktrees left behind by renamed/deleted captains that would
+            // block git fetch with "refusing to fetch into branch checked out at..." errors.
+            string vesselDockDir = Path.Combine(_Settings.DocksDirectory, vessel.Name);
+            if (Directory.Exists(vesselDockDir))
+            {
+                foreach (string existingDir in Directory.GetDirectories(vesselDockDir))
+                {
+                    string dirName = Path.GetFileName(existingDir);
+
+                    // Skip the current captain's directory — handled below
+                    if (dirName == captain.Name) continue;
+
+                    // Simple heuristic: if it's a git worktree but not for any active captain, clean it up
+                    if (File.Exists(Path.Combine(existingDir, ".git")))
+                    {
+                        _Logging.Info(_Header + "cleaning up stale worktree from previous captain: " + existingDir);
+                        try
+                        {
+                            await _Git.RemoveWorktreeAsync(existingDir, token).ConfigureAwait(false);
+                        }
+                        catch { }
+
+                        if (Directory.Exists(existingDir))
+                        {
+                            try { Directory.Delete(existingDir, recursive: true); }
+                            catch { }
+                        }
+
+                        // Re-prune after removing stale worktrees
+                        try
+                        {
+                            await _Git.PruneWorktreesAsync(repoPath, token).ConfigureAwait(false);
+                        }
+                        catch { }
+                    }
+                }
+            }
+
             // Clean up stale worktree directory if it exists from a previous run
             if (Directory.Exists(worktreePath))
             {
