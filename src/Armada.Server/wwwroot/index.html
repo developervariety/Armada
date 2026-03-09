@@ -89,7 +89,9 @@
                     <p class="text-dim view-subtitle">Overview of fleet health, active missions, and recent activity.</p>
                 </div>
                 <div class="view-actions">
-                    <button class="btn btn-sm" @click="refresh()" title="Refresh">&#x21bb;</button>
+                    <button class="btn btn-primary btn-sm" @click="openCreateVoyage()">+ Voyage</button>
+                    <button class="btn btn-primary btn-sm" @click="showDispatchForm = true; navigate('missions'); loadMissions()">+ Mission</button>
+                    <button class="btn btn-sm refresh-btn" @click="dashboardRefresh($event)" title="Refresh">&#x21bb;</button>
                 </div>
             </div>
             <div class="cards">
