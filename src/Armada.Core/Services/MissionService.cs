@@ -28,6 +28,11 @@ namespace Armada.Core.Services
         private IDockService _Docks;
         private ICaptainService _Captains;
 
+        /// <summary>
+        /// Tracks in-flight mission complete handler operations by mission ID.
+        /// </summary>
+        private System.Collections.Concurrent.ConcurrentDictionary<string, Task> _InFlightCompletions = new System.Collections.Concurrent.ConcurrentDictionary<string, Task>();
+
         #endregion
 
         #region Constructors-and-Factories
@@ -258,17 +263,30 @@ namespace Armada.Core.Services
                 dock = await _Database.Docks.ReadAsync(dockId, token).ConfigureAwait(false);
             }
 
-            // Invoke OnMissionComplete for push/PR handling
+            // Invoke OnMissionComplete for push/PR handling (fire-and-forget to avoid blocking health check loop)
             if (dock != null && OnMissionComplete != null)
             {
-                try
+                Func<Mission, Dock, Task> handler = OnMissionComplete;
+                string completionMissionId = mission.Id;
+                _Logging.Info(_Header + "queuing background merge/push for mission " + completionMissionId);
+
+                Task completionTask = Task.Run(async () =>
                 {
-                    await OnMissionComplete.Invoke(mission, dock).ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    _Logging.Warn(_Header + "error in mission complete handler for " + mission.Id + ": " + ex.Message);
-                }
+                    try
+                    {
+                        await handler.Invoke(mission, dock).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        _Logging.Warn(_Header + "error in mission complete handler for " + completionMissionId + ": " + ex.Message);
+                    }
+                    finally
+                    {
+                        _InFlightCompletions.TryRemove(completionMissionId, out _);
+                    }
+                });
+
+                _InFlightCompletions.TryAdd(completionMissionId, completionTask);
             }
 
             // Log completion signal

@@ -72,6 +72,11 @@ namespace Armada.Server
         /// </summary>
         private Dictionary<int, string> _ProcessToMission = new Dictionary<int, string>();
 
+        /// <summary>
+        /// Per-vessel semaphores to prevent concurrent merge operations on the same repository.
+        /// </summary>
+        private System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim> _VesselMergeLocks = new System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim>();
+
         #endregion
 
         #region Constructors-and-Factories
@@ -1750,91 +1755,108 @@ namespace Armada.Server
             bool effectivePr = voyage?.AutoCreatePullRequests ?? _Settings.AutoCreatePullRequests;
             bool effectiveMerge = voyage?.AutoMergePullRequests ?? _Settings.AutoMergePullRequests;
 
-            if (effectivePr)
+            // Acquire per-vessel merge lock to prevent concurrent git operations on the same repo
+            string vesselLockKey = mission.VesselId ?? dock.VesselId ?? "unknown";
+            SemaphoreSlim vesselLock = _VesselMergeLocks.GetOrAdd(vesselLockKey, _ => new SemaphoreSlim(1, 1));
+
+            _Logging.Info(_Header + "acquiring merge lock for vessel " + vesselLockKey + " (mission " + mission.Id + ")");
+            await vesselLock.WaitAsync().ConfigureAwait(false);
+
+            try
             {
-                // Push + PR flow
-                try
+                _Logging.Info(_Header + "merge lock acquired for vessel " + vesselLockKey + " (mission " + mission.Id + ")");
+
+                if (effectivePr)
                 {
-                    await _Git.PushBranchAsync(dock.WorktreePath).ConfigureAwait(false);
-                    _Logging.Info(_Header + "pushed branch " + dock.BranchName);
-
-                    string prBody = "## Mission\n" +
-                        "**" + mission.Title + "**\n\n" +
-                        (mission.Description ?? "");
-
-                    // Append PR metadata template
-                    Dictionary<string, string> prContext = _TemplateService.BuildContext(mission, null, vessel, voyage, dock);
-                    prBody = _TemplateService.RenderPrDescription(_Settings.MessageTemplates, prBody, prContext);
-
-                    string prUrl = await _Git.CreatePullRequestAsync(
-                        dock.WorktreePath,
-                        mission.Title,
-                        prBody).ConfigureAwait(false);
-
-                    mission.PrUrl = prUrl;
-                    await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
-                    _Logging.Info(_Header + "created PR: " + prUrl);
-
-                    // Auto-merge if enabled
-                    if (effectiveMerge && !String.IsNullOrEmpty(prUrl))
+                    // Push + PR flow
+                    try
                     {
-                        try
-                        {
-                            await _Git.EnableAutoMergeAsync(dock.WorktreePath, prUrl).ConfigureAwait(false);
-                            _Logging.Info(_Header + "enabled auto-merge for PR: " + prUrl);
+                        await _Git.PushBranchAsync(dock.WorktreePath).ConfigureAwait(false);
+                        _Logging.Info(_Header + "pushed branch " + dock.BranchName);
 
-                            // Poll for merge completion, then pull into the user's working directory
-                            if (vessel != null && !String.IsNullOrEmpty(vessel.WorkingDirectory))
+                        string prBody = "## Mission\n" +
+                            "**" + mission.Title + "**\n\n" +
+                            (mission.Description ?? "");
+
+                        // Append PR metadata template
+                        Dictionary<string, string> prContext = _TemplateService.BuildContext(mission, null, vessel, voyage, dock);
+                        prBody = _TemplateService.RenderPrDescription(_Settings.MessageTemplates, prBody, prContext);
+
+                        string prUrl = await _Git.CreatePullRequestAsync(
+                            dock.WorktreePath,
+                            mission.Title,
+                            prBody).ConfigureAwait(false);
+
+                        mission.PrUrl = prUrl;
+                        await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                        _Logging.Info(_Header + "created PR: " + prUrl);
+
+                        // Auto-merge if enabled
+                        if (effectiveMerge && !String.IsNullOrEmpty(prUrl))
+                        {
+                            try
                             {
-                                _ = PollAndPullAfterMergeAsync(vessel.WorkingDirectory, dock.WorktreePath, prUrl, mission.Id);
+                                await _Git.EnableAutoMergeAsync(dock.WorktreePath, prUrl).ConfigureAwait(false);
+                                _Logging.Info(_Header + "enabled auto-merge for PR: " + prUrl);
+
+                                // Poll for merge completion, then pull into the user's working directory
+                                if (vessel != null && !String.IsNullOrEmpty(vessel.WorkingDirectory))
+                                {
+                                    _ = PollAndPullAfterMergeAsync(vessel.WorkingDirectory, dock.WorktreePath, prUrl, mission.Id);
+                                }
+                            }
+                            catch (Exception mergeEx)
+                            {
+                                _Logging.Warn(_Header + "failed to enable auto-merge for " + prUrl + ": " + mergeEx.Message);
                             }
                         }
-                        catch (Exception mergeEx)
-                        {
-                            _Logging.Warn(_Header + "failed to enable auto-merge for " + prUrl + ": " + mergeEx.Message);
-                        }
                     }
-                }
-                catch (Exception ex)
-                {
-                    _Logging.Warn(_Header + "error pushing/creating PR for mission " + mission.Id + ": " + ex.Message);
-                }
-            }
-            else if (vessel != null && !String.IsNullOrEmpty(vessel.WorkingDirectory) && !String.IsNullOrEmpty(vessel.LocalPath))
-            {
-                // Local merge flow: fetch captain's branch from bare repo and merge into user's working directory
-                try
-                {
-                    // Render merge commit message from template
-                    string? mergeMessage = null;
-                    Dictionary<string, string> mergeContext = _TemplateService.BuildContext(mission, null, vessel, voyage, dock);
-                    mergeMessage = _TemplateService.RenderMergeCommitMessage(_Settings.MessageTemplates, mergeContext);
-
-                    await _Git.MergeBranchLocalAsync(vessel.WorkingDirectory, vessel.LocalPath, dock.BranchName, mergeMessage).ConfigureAwait(false);
-                    _Logging.Info(_Header + "merged branch " + dock.BranchName + " into " + vessel.WorkingDirectory);
-
-                    // Push the merged changes to the remote
-                    if (effectivePush)
+                    catch (Exception ex)
                     {
-                        try
-                        {
-                            await _Git.PushBranchAsync(vessel.WorkingDirectory).ConfigureAwait(false);
-                            _Logging.Info(_Header + "pushed merged changes from " + vessel.WorkingDirectory);
-                        }
-                        catch (Exception pushEx)
-                        {
-                            _Logging.Warn(_Header + "local merge succeeded but push failed for mission " + mission.Id + ": " + pushEx.Message);
-                        }
+                        _Logging.Warn(_Header + "error pushing/creating PR for mission " + mission.Id + ": " + ex.Message);
                     }
                 }
-                catch (Exception ex)
+                else if (vessel != null && !String.IsNullOrEmpty(vessel.WorkingDirectory) && !String.IsNullOrEmpty(vessel.LocalPath))
                 {
-                    _Logging.Warn(_Header + "error merging locally for mission " + mission.Id + ": " + ex.Message + " — branch " + dock.BranchName + " is still available in the bare repo");
+                    // Local merge flow: fetch captain's branch from bare repo and merge into user's working directory
+                    try
+                    {
+                        // Render merge commit message from template
+                        string? mergeMessage = null;
+                        Dictionary<string, string> mergeContext = _TemplateService.BuildContext(mission, null, vessel, voyage, dock);
+                        mergeMessage = _TemplateService.RenderMergeCommitMessage(_Settings.MessageTemplates, mergeContext);
+
+                        await _Git.MergeBranchLocalAsync(vessel.WorkingDirectory, vessel.LocalPath, dock.BranchName, mergeMessage).ConfigureAwait(false);
+                        _Logging.Info(_Header + "merged branch " + dock.BranchName + " into " + vessel.WorkingDirectory);
+
+                        // Push the merged changes to the remote
+                        if (effectivePush)
+                        {
+                            try
+                            {
+                                await _Git.PushBranchAsync(vessel.WorkingDirectory).ConfigureAwait(false);
+                                _Logging.Info(_Header + "pushed merged changes from " + vessel.WorkingDirectory);
+                            }
+                            catch (Exception pushEx)
+                            {
+                                _Logging.Warn(_Header + "local merge succeeded but push failed for mission " + mission.Id + ": " + pushEx.Message);
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _Logging.Warn(_Header + "error merging locally for mission " + mission.Id + ": " + ex.Message + " — branch " + dock.BranchName + " is still available in the bare repo");
+                    }
+                }
+                else
+                {
+                    _Logging.Info(_Header + "mission " + mission.Id + " completed — branch " + dock.BranchName + " available in bare repo (no auto-PR or local merge configured)");
                 }
             }
-            else
+            finally
             {
-                _Logging.Info(_Header + "mission " + mission.Id + " completed — branch " + dock.BranchName + " available in bare repo (no auto-PR or local merge configured)");
+                vesselLock.Release();
+                _Logging.Info(_Header + "merge lock released for vessel " + vesselLockKey + " (mission " + mission.Id + ")");
             }
 
             // Note: mission.completed event is emitted by MissionService.HandleCompletionAsync
