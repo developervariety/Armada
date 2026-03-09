@@ -206,7 +206,8 @@ function dashboard() {
                 this.loadVoyages(),
                 this.loadCaptains(),
                 this.loadVessels(),
-                this.loadRecentMissions()
+                this.loadRecentMissions(),
+                this.loadMergeQueue()
             ]);
         },
 
