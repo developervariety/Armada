@@ -217,6 +217,7 @@ namespace Armada.Desktop.Views
                 vessel.Name = dialog.EditedName;
                 vessel.RepoUrl = dialog.EditedRepoUrl;
                 vessel.DefaultBranch = dialog.EditedBranch;
+                vessel.WorkingDirectory = dialog.EditedWorkingDirectory;
                 vessel.ProjectContext = dialog.EditedProjectContext;
                 vessel.StyleGuide = dialog.EditedStyleGuide;
                 await vm.UpdateVesselAsync(vessel);

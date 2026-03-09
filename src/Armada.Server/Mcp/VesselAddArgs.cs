@@ -34,5 +34,10 @@ namespace Armada.Server.Mcp
         /// Style guide describing naming conventions, patterns, and library preferences.
         /// </summary>
         public string? StyleGuide { get; set; }
+
+        /// <summary>
+        /// Optional local working directory where completed mission changes will be pulled after merge.
+        /// </summary>
+        public string? WorkingDirectory { get; set; }
     }
 }

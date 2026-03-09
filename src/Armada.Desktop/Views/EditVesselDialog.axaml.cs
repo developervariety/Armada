@@ -58,6 +58,18 @@ namespace Armada.Desktop.Views
             }
         }
 
+        /// <summary>
+        /// The edited working directory.
+        /// </summary>
+        public string? EditedWorkingDirectory
+        {
+            get
+            {
+                string? val = this.FindControl<TextBox>("WorkingDirectoryInput")?.Text;
+                return string.IsNullOrWhiteSpace(val) ? null : val;
+            }
+        }
+
         #endregion
 
         #region Constructors-and-Factories
@@ -83,12 +95,14 @@ namespace Armada.Desktop.Views
             TextBox? branchInput = this.FindControl<TextBox>("BranchInput");
             TextBox? projectContextInput = this.FindControl<TextBox>("ProjectContextInput");
             TextBox? styleGuideInput = this.FindControl<TextBox>("StyleGuideInput");
+            TextBox? workingDirectoryInput = this.FindControl<TextBox>("WorkingDirectoryInput");
 
             if (nameInput != null) nameInput.Text = vessel.Name;
             if (repoUrlInput != null) repoUrlInput.Text = vessel.RepoUrl ?? "";
             if (branchInput != null) branchInput.Text = vessel.DefaultBranch ?? "main";
             if (projectContextInput != null) projectContextInput.Text = vessel.ProjectContext ?? "";
             if (styleGuideInput != null) styleGuideInput.Text = vessel.StyleGuide ?? "";
+            if (workingDirectoryInput != null) workingDirectoryInput.Text = vessel.WorkingDirectory ?? "";
         }
 
         #endregion

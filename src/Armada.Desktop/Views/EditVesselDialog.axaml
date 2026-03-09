@@ -1,7 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="Armada.Desktop.Views.EditVesselDialog"
-        Width="620" Height="680"
+        Width="620" Height="760"
         CanResize="False"
         WindowStartupLocation="CenterOwner"
         SystemDecorations="BorderOnly"
@@ -34,6 +34,13 @@
                         <TextBlock Text="Default Branch" FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}" />
                         <TextBox x:Name="BranchInput" Watermark="main"
                                  ToolTip.Tip="Default branch name (e.g., main)" />
+                    </StackPanel>
+
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Working Directory" FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}" />
+                        <TextBlock Text="Optional local directory where completed mission changes will be pulled after merge."
+                                   FontSize="11" Foreground="{DynamicResource TextDimBrush}" TextWrapping="Wrap" />
+                        <TextBox x:Name="WorkingDirectoryInput" Watermark="e.g. C:\code\my-project" />
                     </StackPanel>
 
                     <StackPanel Spacing="4">

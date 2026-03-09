@@ -34,5 +34,10 @@ namespace Armada.Server.Mcp
         /// New style guide.
         /// </summary>
         public string? StyleGuide { get; set; }
+
+        /// <summary>
+        /// New local working directory where completed mission changes will be pulled after merge.
+        /// </summary>
+        public string? WorkingDirectory { get; set; }
     }
 }

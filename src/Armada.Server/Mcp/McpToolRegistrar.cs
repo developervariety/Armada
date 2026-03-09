@@ -339,7 +339,8 @@ namespace Armada.Server.Mcp
                         fleetId = new { type = "string", description = "Fleet ID to add the vessel to" },
                         defaultBranch = new { type = "string", description = "Default branch name (defaults to main)" },
                         projectContext = new { type = "string", description = "Project context describing architecture, key files, and dependencies" },
-                        styleGuide = new { type = "string", description = "Style guide describing naming conventions, patterns, and library preferences" }
+                        styleGuide = new { type = "string", description = "Style guide describing naming conventions, patterns, and library preferences" },
+                        workingDirectory = new { type = "string", description = "Optional local directory where completed mission changes will be pulled after merge" }
                     },
                     required = new[] { "name", "repoUrl", "fleetId" }
                 },
@@ -353,6 +354,7 @@ namespace Armada.Server.Mcp
                     vessel.DefaultBranch = request.DefaultBranch ?? "main";
                     vessel.ProjectContext = request.ProjectContext;
                     vessel.StyleGuide = request.StyleGuide;
+                    vessel.WorkingDirectory = request.WorkingDirectory;
                     vessel = await database.Vessels.CreateAsync(vessel).ConfigureAwait(false);
                     return (object)vessel;
                 });
@@ -370,7 +372,8 @@ namespace Armada.Server.Mcp
                         repoUrl = new { type = "string", description = "New repository URL" },
                         defaultBranch = new { type = "string", description = "New default branch" },
                         projectContext = new { type = "string", description = "New project context" },
-                        styleGuide = new { type = "string", description = "New style guide" }
+                        styleGuide = new { type = "string", description = "New style guide" },
+                        workingDirectory = new { type = "string", description = "New local directory where completed mission changes will be pulled after merge" }
                     },
                     required = new[] { "vesselId" }
                 },
@@ -390,6 +393,8 @@ namespace Armada.Server.Mcp
                         vessel.ProjectContext = request.ProjectContext;
                     if (request.StyleGuide != null)
                         vessel.StyleGuide = request.StyleGuide;
+                    if (request.WorkingDirectory != null)
+                        vessel.WorkingDirectory = request.WorkingDirectory;
                     vessel = await database.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
                     return (object)vessel;
                 });
