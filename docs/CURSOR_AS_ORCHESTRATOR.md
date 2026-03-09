@@ -28,6 +28,10 @@ This shows the MCP configuration snippets for all supported tools including Curs
 
 Use `--dry-run` to preview without writing.
 
+## Default Permission Mode
+
+Armada runs Cursor in `--agent` mode with no explicit permission gate — all tool calls proceed without approval prompts. There is no configurable permission property for Cursor.
+
 ## Using Cursor Agent Mode
 
 Cursor's Agent mode (the default Composer mode) is the natural fit for orchestration. In Agent mode, Cursor calls MCP tools autonomously, reasons about results, and chains operations together.

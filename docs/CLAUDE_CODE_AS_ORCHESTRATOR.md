@@ -36,6 +36,10 @@ The `armada` agent is a standalone Claude Code instance that:
 - Is restricted to Armada tools only — no file editing, no bash
 - Works from any directory, not tied to a project
 
+## Default Permission Mode
+
+Armada runs Claude Code captains with `--dangerously-skip-permissions` by default, so all tool calls are auto-approved without user prompts. This is configurable via the captain's `SkipPermissions` property.
+
 ## Verify It Works
 
 In the agent session, type:

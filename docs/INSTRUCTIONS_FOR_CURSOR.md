@@ -274,5 +274,5 @@ If you were launched by Armada as a worker agent (not the orchestrator), these r
 - Make **focused, minimal changes** — only what the mission asks
 - **Commit your work** with clear messages — the admiral tracks your progress via commits
 - Do NOT push, create PRs, switch branches, or modify git config — Armada handles all of that
-- You run in `--agent` mode — use your codebase tools (search, edit, terminal) to complete the mission
+- You run in `--agent` mode with no explicit permission gate — all tool calls proceed without approval prompts. Use your codebase tools (search, edit, terminal) to complete the mission.
 - If you hit a blocking error, describe it clearly in your output and exit — the orchestrator will see the failure and can redispatch

@@ -29,6 +29,10 @@ This shows the MCP configuration snippets for all supported tools. For Codex, ad
 
 Use `--dry-run` to preview without writing.
 
+## Default Permission Mode
+
+Armada runs Codex captains with `--approval-mode full-auto` by default, so all commands are auto-approved without user prompts. This is configurable via the captain's `ApprovalMode` property.
+
 ## Verify It Works
 
 Start the Admiral server (`armada server start`), then:

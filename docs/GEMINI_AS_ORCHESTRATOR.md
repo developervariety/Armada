@@ -28,6 +28,10 @@ This shows the MCP configuration snippets for all supported tools including Gemi
 
 Use `--dry-run` to preview without writing.
 
+## Default Permission Mode
+
+Armada runs Gemini captains with `--sandbox none` by default, giving them full filesystem access without approval prompts. This is configurable via the captain's `SandboxMode` property.
+
 ## Sandbox Modes
 
 Gemini CLI supports three sandbox modes:
