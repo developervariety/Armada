@@ -52,128 +52,136 @@ namespace Armada.Core.Services
             string repoPath = vessel.LocalPath ?? Path.Combine(_Settings.ReposDirectory, vessel.Name + ".git");
             string worktreePath = Path.Combine(_Settings.DocksDirectory, vessel.Name, captain.Name);
 
-            // Ensure bare clone exists
-            if (!await _Git.IsRepositoryAsync(repoPath, token).ConfigureAwait(false))
-            {
-                if (String.IsNullOrEmpty(vessel.RepoUrl))
-                    throw new InvalidOperationException("Vessel " + vessel.Name + " has no remote URL configured");
-                await _Git.CloneBareAsync(vessel.RepoUrl, repoPath, token).ConfigureAwait(false);
-                vessel.LocalPath = repoPath;
-                await _Database.Vessels.UpdateAsync(vessel, token).ConfigureAwait(false);
-            }
-
-            // Prune stale worktree registrations (handles "missing but registered" entries)
             try
             {
-                await _Git.PruneWorktreesAsync(repoPath, token).ConfigureAwait(false);
-            }
-            catch { }
-
-            // Clean up ALL stale worktree directories under this vessel's dock directory.
-            // This handles worktrees left behind by renamed/deleted captains that would
-            // block git fetch with "refusing to fetch into branch checked out at..." errors.
-            string vesselDockDir = Path.Combine(_Settings.DocksDirectory, vessel.Name);
-            if (Directory.Exists(vesselDockDir))
-            {
-                foreach (string existingDir in Directory.GetDirectories(vesselDockDir))
+                // Ensure bare clone exists
+                if (!await _Git.IsRepositoryAsync(repoPath, token).ConfigureAwait(false))
                 {
-                    string dirName = Path.GetFileName(existingDir);
+                    if (String.IsNullOrEmpty(vessel.RepoUrl))
+                        throw new InvalidOperationException("Vessel " + vessel.Name + " has no remote URL configured");
+                    await _Git.CloneBareAsync(vessel.RepoUrl, repoPath, token).ConfigureAwait(false);
+                    vessel.LocalPath = repoPath;
+                    await _Database.Vessels.UpdateAsync(vessel, token).ConfigureAwait(false);
+                }
 
-                    // Skip the current captain's directory — handled below
-                    if (dirName == captain.Name) continue;
+                // Prune stale worktree registrations (handles "missing but registered" entries)
+                try
+                {
+                    await _Git.PruneWorktreesAsync(repoPath, token).ConfigureAwait(false);
+                }
+                catch { }
 
-                    // Simple heuristic: if it's a git worktree but not for any active captain, clean it up
-                    if (File.Exists(Path.Combine(existingDir, ".git")))
+                // Clean up ALL stale worktree directories under this vessel's dock directory.
+                // This handles worktrees left behind by renamed/deleted captains that would
+                // block git fetch with "refusing to fetch into branch checked out at..." errors.
+                string vesselDockDir = Path.Combine(_Settings.DocksDirectory, vessel.Name);
+                if (Directory.Exists(vesselDockDir))
+                {
+                    foreach (string existingDir in Directory.GetDirectories(vesselDockDir))
                     {
-                        // Only attempt git worktree remove if the path is actually registered
-                        bool isRegistered = await _Git.IsWorktreeRegisteredAsync(repoPath, existingDir, token).ConfigureAwait(false);
-                        if (isRegistered)
+                        string dirName = Path.GetFileName(existingDir);
+
+                        // Skip the current captain's directory — handled below
+                        if (dirName == captain.Name) continue;
+
+                        // Simple heuristic: if it's a git worktree but not for any active captain, clean it up
+                        if (File.Exists(Path.Combine(existingDir, ".git")))
                         {
-                            _Logging.Info(_Header + "cleaning up stale worktree from previous captain: " + existingDir);
+                            // Only attempt git worktree remove if the path is actually registered
+                            bool isRegistered = await _Git.IsWorktreeRegisteredAsync(repoPath, existingDir, token).ConfigureAwait(false);
+                            if (isRegistered)
+                            {
+                                _Logging.Info(_Header + "cleaning up stale worktree from previous captain: " + existingDir);
+                                try
+                                {
+                                    await _Git.RemoveWorktreeAsync(existingDir, token).ConfigureAwait(false);
+                                }
+                                catch { }
+                            }
+                            else
+                            {
+                                _Logging.Debug(_Header + "removing unregistered worktree directory: " + existingDir);
+                            }
+
+                            if (Directory.Exists(existingDir))
+                            {
+                                try { Directory.Delete(existingDir, recursive: true); }
+                                catch { }
+                            }
+
+                            // Re-prune after removing stale worktrees
                             try
                             {
-                                await _Git.RemoveWorktreeAsync(existingDir, token).ConfigureAwait(false);
+                                await _Git.PruneWorktreesAsync(repoPath, token).ConfigureAwait(false);
                             }
                             catch { }
                         }
-                        else
-                        {
-                            _Logging.Debug(_Header + "removing unregistered worktree directory: " + existingDir);
-                        }
+                    }
+                }
 
-                        if (Directory.Exists(existingDir))
-                        {
-                            try { Directory.Delete(existingDir, recursive: true); }
-                            catch { }
-                        }
-
-                        // Re-prune after removing stale worktrees
+                // Clean up stale worktree directory if it exists from a previous run
+                if (Directory.Exists(worktreePath))
+                {
+                    bool isRegistered = await _Git.IsWorktreeRegisteredAsync(repoPath, worktreePath, token).ConfigureAwait(false);
+                    if (isRegistered)
+                    {
+                        _Logging.Info(_Header + "removing stale dock directory: " + worktreePath);
                         try
                         {
-                            await _Git.PruneWorktreesAsync(repoPath, token).ConfigureAwait(false);
+                            await _Git.RemoveWorktreeAsync(worktreePath, token).ConfigureAwait(false);
                         }
                         catch { }
                     }
-                }
-            }
+                    else
+                    {
+                        _Logging.Debug(_Header + "removing unregistered dock directory: " + worktreePath);
+                    }
 
-            // Clean up stale worktree directory if it exists from a previous run
-            if (Directory.Exists(worktreePath))
-            {
-                bool isRegistered = await _Git.IsWorktreeRegisteredAsync(repoPath, worktreePath, token).ConfigureAwait(false);
-                if (isRegistered)
+                    if (Directory.Exists(worktreePath))
+                    {
+                        try { Directory.Delete(worktreePath, recursive: true); }
+                        catch { }
+                    }
+                }
+
+                // Delete stale branch only if it actually exists
+                bool branchExists = await _Git.BranchExistsAsync(repoPath, branchName, token).ConfigureAwait(false);
+                if (branchExists)
                 {
-                    _Logging.Info(_Header + "removing stale dock directory: " + worktreePath);
+                    _Logging.Debug(_Header + "deleting stale branch: " + branchName);
                     try
                     {
-                        await _Git.RemoveWorktreeAsync(worktreePath, token).ConfigureAwait(false);
+                        await _Git.DeleteLocalBranchAsync(repoPath, branchName, token).ConfigureAwait(false);
                     }
                     catch { }
                 }
-                else
-                {
-                    _Logging.Debug(_Header + "removing unregistered dock directory: " + worktreePath);
-                }
 
+                // Create worktree
+                await _Git.CreateWorktreeAsync(repoPath, worktreePath, branchName, vessel.DefaultBranch, token).ConfigureAwait(false);
+
+                // Create dock record
+                Dock dock = new Dock(vessel.Id);
+                dock.CaptainId = captain.Id;
+                dock.WorktreePath = worktreePath;
+                dock.BranchName = branchName;
+                dock = await _Database.Docks.CreateAsync(dock, token).ConfigureAwait(false);
+
+                _Logging.Info(_Header + "provisioned dock " + dock.Id + " at " + worktreePath);
+                return dock;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "provisioning failed for vessel " + vessel.Id + " captain " + captain.Id + " repo " + (vessel.RepoUrl ?? "unknown") + ": " + ex.Message);
+
+                // Clean up partial state — remove worktree directory if it was partially created
                 if (Directory.Exists(worktreePath))
                 {
                     try { Directory.Delete(worktreePath, recursive: true); }
                     catch { }
                 }
-            }
 
-            // Delete stale branch only if it actually exists
-            bool branchExists = await _Git.BranchExistsAsync(repoPath, branchName, token).ConfigureAwait(false);
-            if (branchExists)
-            {
-                _Logging.Debug(_Header + "deleting stale branch: " + branchName);
-                try
-                {
-                    await _Git.DeleteLocalBranchAsync(repoPath, branchName, token).ConfigureAwait(false);
-                }
-                catch { }
-            }
-
-            // Create worktree
-            try
-            {
-                await _Git.CreateWorktreeAsync(repoPath, worktreePath, branchName, vessel.DefaultBranch, token).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _Logging.Warn(_Header + "failed to create worktree for branch " + branchName + ": " + ex.Message);
                 return null;
             }
-
-            // Create dock record
-            Dock dock = new Dock(vessel.Id);
-            dock.CaptainId = captain.Id;
-            dock.WorktreePath = worktreePath;
-            dock.BranchName = branchName;
-            dock = await _Database.Docks.CreateAsync(dock, token).ConfigureAwait(false);
-
-            _Logging.Info(_Header + "provisioned dock " + dock.Id + " at " + worktreePath);
-            return dock;
         }
 
         /// <inheritdoc />
