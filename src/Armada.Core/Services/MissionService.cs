@@ -117,9 +117,31 @@ namespace Armada.Core.Services
             mission.LastUpdateUtc = DateTime.UtcNow;
             await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
 
-            // Provision dock (worktree)
-            _Logging.Info(_Header + "provisioning dock for mission " + mission.Id + " on vessel " + vessel.Id + " with captain " + captain.Id);
-            Dock? dock = await _Docks.ProvisionAsync(vessel, captain, branchName, token).ConfigureAwait(false);
+            // Provision dock (worktree) and launch agent
+            Dock? dock;
+            try
+            {
+                _Logging.Info(_Header + "provisioning dock for mission " + mission.Id + " on vessel " + vessel.Id + " with captain " + captain.Id);
+                dock = await _Docks.ProvisionAsync(vessel, captain, branchName, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "dock provisioning threw for mission " + mission.Id + " vessel " + vessel.Id + " captain " + captain.Id + ": " + ex.Message);
+
+                // Revert mission to Pending
+                mission.Status = MissionStatusEnum.Pending;
+                mission.CaptainId = null;
+                mission.BranchName = null;
+                mission.DockId = null;
+                mission.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+
+                // Release captain back to Idle
+                await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
+
+                return false;
+            }
+
             if (dock == null)
             {
                 // Provisioning failed — revert mission assignment
