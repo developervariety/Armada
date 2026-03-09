@@ -3,6 +3,62 @@
 You are an Armada captain executing a mission. Follow these instructions carefully.
 
 ## Mission
+- **Title:** Fix mission completion detection for parallel captains
+- **ID:** msn_mmjhcaqw_1AQywwoIOUm
+
+## Description
+When multiple captains complete missions around the same time, the server sometimes fails to detect one or more completions. The health check loop processes captain completions sequentially, and if the auto-merge/push for one captain takes time, subsequent captain completions in the same cycle can be missed.
+
+Observed behavior:
+- Captain 1 (claude-code-1) agent exited at 17:46:34, server detected and completed the mission at 17:46:50 ✅
+- Captain 2 (claude-code-2) agent exited at 17:46:44 (10 seconds later), server NEVER detected the exit ❌
+- The mission stayed InProgress with no mission.completed event, despite the agent process having exited with code 0
+- Both captains reported [ARMADA:PROGRESS] 100 in their logs
+
+Root cause analysis areas to investigate:
+1. HealthCheckAsync in AdmiralService.cs — does it process all captains in a single pass? If one captain's completion handling (auto-merge, push, diff capture) throws an exception or takes too long, does it skip remaining captains?
+2. HandleMissionCompleteAsync in ArmadaServer.cs — is this called synchronously within the health check loop? If it fails (e.g. git merge conflict), does it prevent other completions from being processed?
+3. Process exit detection — is it purely poll-based (health check every 30s) or does it use Process.Exited events? Poll-based detection with sequential processing is fragile for parallel captains.
+
+Required fixes:
+1. Ensure ALL captain process exits are detected reliably, even when multiple captains complete simultaneously
+2. Consider using async Process.Exited event handlers (or Process.WaitForExitAsync) per captain instead of relying solely on the health check poll loop
+3. If keeping the poll-based approach, ensure exception handling in one captain's completion flow does NOT prevent processing of other captains — use try/catch around each captain's completion handling
+4. Add a mission.completed (or mission.failed) event to the event log for every mission that finishes, so there's an audit trail
+5. Add a captain.completed event when a captain's process exits
+6. Ensure the health check loop does NOT skip captains if one captain's completion takes a long time — process completions concurrently or queue them
+
+The source code is at c:\code\armada\armada. Key files:
+- src/Armada.Core/Services/AdmiralService.cs (HealthCheckAsync, DispatchPendingMissionsAsync)
+- src/Armada.Server/ArmadaServer.cs (HandleMissionCompleteAsync, health check loop)
+- src/Armada.Core/Services/CaptainService.cs (ReleaseAsync)
+
+## Repository
+- **Name:** Armada
+- **Branch:** armada/claude-code-4/msn_mmjhcaqw_1AQywwoIOUm
+- **Default Branch:** main
+
+## Rules
+- Work only within this worktree directory
+- Commit all changes to the current branch
+- Commit and push your changes — the Admiral will also push if needed
+- If you encounter a blocking issue, commit what you have and exit
+- Exit with code 0 on success
+
+## Progress Signals (Optional)
+You can report progress to the Admiral by printing these lines to stdout:
+- `[ARMADA:PROGRESS] 50` — report completion percentage (0-100)
+- `[ARMADA:STATUS] Testing` — transition mission to Testing status
+- `[ARMADA:STATUS] Review` — transition mission to Review status
+- `[ARMADA:MESSAGE] your message here` — send a progress message
+
+## Existing Project Instructions
+
+# Mission Instructions
+
+You are an Armada captain executing a mission. Follow these instructions carefully.
+
+## Mission
 - **Title:** Parallelism
 - **ID:** msn_mmitgf5m_GShq9bWq5Ey
 - **Voyage:** vyg_mmitgf5f_3yiBR0jgkKL
