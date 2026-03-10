@@ -1258,6 +1258,29 @@ function dashboard() {
         },
 
         /// <summary>
+        /// Returns a tooltip description for a given status value.
+        /// </summary>
+        statusTooltip(status) {
+            let tooltips = {
+                'Idle': 'Captain is available and waiting for mission assignment',
+                'Working': 'Captain is actively executing a mission',
+                'Stalled': 'Captain process is unresponsive — may need intervention',
+                'Pending': 'Mission created, waiting to be assigned to a captain',
+                'Assigned': 'Mission has been assigned to a captain but not yet started',
+                'InProgress': 'Captain is actively working on this mission',
+                'Testing': 'Mission work is being tested or validated',
+                'Review': 'Mission work is awaiting code review',
+                'Complete': 'Mission finished successfully',
+                'Failed': 'Mission encountered an error and did not complete',
+                'Cancelled': 'Mission was cancelled before completion',
+                'Open': 'Voyage is open and accepting missions',
+                'Queued': 'Merge entry is queued and waiting to be processed',
+                'Merged': 'Branch has been successfully merged',
+            };
+            return tooltips[status] || status;
+        },
+
+        /// <summary>
         /// Returns navigation info for an entity ID based on its prefix, or null if no detail view exists.
         /// </summary>
         entityNav(entityId) {
