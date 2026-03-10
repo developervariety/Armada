@@ -25,7 +25,7 @@ namespace Armada.Desktop.Views
         public DiffViewerWindow(DiffViewerViewModel viewModel) : this()
         {
             DataContext = viewModel;
-            Title = "Diff: " + viewModel.MissionTitle;
+            Title = "Armada - Diff: " + viewModel.MissionTitle;
         }
 
         private async void OnRefreshClick(object? sender, RoutedEventArgs e)
@@ -54,6 +54,24 @@ namespace Armada.Desktop.Views
                 if (sender is Button button)
                     await ShowCopiedFeedbackAsync(button);
             }
+        }
+
+        /// <summary>
+        /// Handle Ctrl+Shift+C to copy full content.
+        /// </summary>
+        protected override async void OnKeyDown(KeyEventArgs e)
+        {
+            if (e.Key == Key.C && e.KeyModifiers == (KeyModifiers.Control | KeyModifiers.Shift))
+            {
+                if (DataContext is DiffViewerViewModel vm && Clipboard != null)
+                {
+                    string content = vm.HasParsedDiff ? vm.ParsedDiffContent : vm.DiffContent;
+                    await Clipboard.SetTextAsync(content);
+                }
+                e.Handled = true;
+                return;
+            }
+            base.OnKeyDown(e);
         }
 
         private async void OnCopyAllClick(object? sender, RoutedEventArgs e)

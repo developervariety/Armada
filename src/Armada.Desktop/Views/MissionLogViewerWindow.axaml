@@ -3,7 +3,7 @@
         xmlns:vm="using:Armada.Desktop.ViewModels"
         x:Class="Armada.Desktop.Views.MissionLogViewerWindow"
         x:DataType="vm:MissionLogViewerViewModel"
-        Width="1000" Height="700"
+        Width="900" Height="600"
         MinWidth="500" MinHeight="300"
         WindowStartupLocation="CenterOwner"
         Background="{DynamicResource SurfaceDarkBrush}"
@@ -42,7 +42,7 @@
                           x:Name="LogScroller">
                 <TextBlock Text="{Binding LogContent}" FontFamily="Consolas,Courier New,monospace"
                            FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}"
-                           TextWrapping="Wrap" />
+                           TextWrapping="NoWrap" />
             </ScrollViewer>
         </Border>
     </Grid>
