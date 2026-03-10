@@ -58,6 +58,7 @@ function dashboard() {
         recentMissionFilters: { status: '', vesselId: '', captainId: '' },
         voyageFilters: { status: '' },
         voyageVesselFilter: '',
+        voyageMissionMap: {},
         vesselFilters: { fleetId: '' },
         eventFilters: { type: '', captainId: '', missionId: '', vesselId: '', voyageId: '', limit: 50 },
         listSearch: '',
@@ -350,6 +351,21 @@ function dashboard() {
             } catch (e) { console.warn('Failed to load voyages:', e); }
         },
 
+        async loadVoyageMissionMap() {
+            try {
+                let result = await this.api('GET', '/api/v1/missions?pageSize=1000');
+                let missions = (result && result.objects) ? result.objects : [];
+                let map = {};
+                for (let m of missions) {
+                    if (m.voyageId) {
+                        if (!map[m.voyageId]) map[m.voyageId] = [];
+                        if (m.vesselId && !map[m.voyageId].includes(m.vesselId)) map[m.voyageId].push(m.vesselId);
+                    }
+                }
+                this.voyageMissionMap = map;
+            } catch (e) { console.warn('Failed to load voyage mission map:', e); }
+        },
+
         async loadCaptains() {
             try {
                 let params = [];
@@ -503,6 +519,7 @@ function dashboard() {
             if (view === 'merge-queue') this.loadMergeQueue();
             if (view === 'server') this.loadHealth();
             if (view === 'missions') this.loadMissions();
+            if (view === 'voyages') this.loadVoyageMissionMap();
 
             if (detailView) this.loadDetail(detailView, detailId);
         },
@@ -1364,12 +1381,10 @@ function dashboard() {
             let rows = this.filterRows(this.voyages);
             if (!this.voyageVesselFilter) return rows;
             let vesselId = this.voyageVesselFilter;
+            let map = this.voyageMissionMap || {};
             return rows.filter(v => {
-                if (v.vesselId === vesselId) return true;
-                if (v.missions && Array.isArray(v.missions)) {
-                    return v.missions.some(m => m.vesselId === vesselId);
-                }
-                return false;
+                if (!(v.id in map)) return true; // show if map not yet loaded for this voyage
+                return map[v.id].includes(vesselId);
             });
         },
 
