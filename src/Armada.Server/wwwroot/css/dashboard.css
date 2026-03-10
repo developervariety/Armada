@@ -880,6 +880,79 @@ a:hover { text-decoration: underline; }
     margin: 0;
 }
 
+/* Viewer modal */
+.viewer-modal-box {
+    max-width: 90vw;
+    width: 1200px;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+}
+
+.viewer-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 1.25rem;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+
+.viewer-title {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+.viewer-actions {
+    display: flex;
+    gap: 0.4rem;
+    flex-shrink: 0;
+}
+
+.viewer-body-wrap {
+    flex: 1;
+    overflow: hidden;
+    min-height: 0;
+}
+
+.viewer-pre {
+    max-height: none;
+    height: 100%;
+    border: none;
+    border-radius: 0;
+    margin: 0;
+}
+
+/* Diff syntax highlighting */
+.diff-line-add {
+    background: rgba(34, 197, 94, 0.15);
+    display: inline;
+}
+
+.diff-line-remove {
+    background: rgba(239, 68, 68, 0.15);
+    display: inline;
+}
+
+.diff-line-section {
+    color: var(--accent);
+    display: inline;
+}
+
+[data-theme="dark"] .diff-line-add {
+    background: rgba(34, 197, 94, 0.12);
+}
+
+[data-theme="dark"] .diff-line-remove {
+    background: rgba(248, 113, 113, 0.12);
+}
+
 /* Responsive */
 @media (max-width: 768px) {
     .header { flex-wrap: wrap; gap: 0.5rem; }
