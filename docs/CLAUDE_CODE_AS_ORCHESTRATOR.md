@@ -66,7 +66,7 @@ If you want Claude Code to orchestrate Armada from within a specific project (no
 ## Armada Integration
 
 This project is managed by Armada. When asked to perform large tasks:
-1. Use `armada_list_vessels` to find this repository's vessel ID
+1. Use `armada_enumerate({ entityType: "vessels" })` to find this repository's vessel ID
 2. Decompose work into missions that touch non-overlapping files
 3. Use `armada_dispatch` to create a voyage with parallel missions
 4. Monitor with `armada_voyage_status` until complete
