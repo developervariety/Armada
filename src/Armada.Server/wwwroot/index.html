@@ -243,6 +243,7 @@
                     <p class="text-dim view-subtitle">Manage repository groups and their vessels. Each fleet organizes related repos for coordinated work.</p>
                 </div>
                 <div class="view-actions">
+                    <input type="text" class="filter-input" x-model="listSearch" placeholder="Search..." title="Search fleets and vessels by name, ID, repo URL, or branch">
                     <button class="btn btn-primary btn-sm" @click="openCreateFleet()" title="Create a new fleet to group repositories">+ Fleet</button>
                     <button class="btn btn-primary btn-sm" @click="openCreateVessel()" title="Add a new vessel (repository) to a fleet">+ Vessel</button>
                     <button class="btn btn-sm" @click="loadFleets()" title="Refresh fleet and vessel data">&#x21bb;</button>
@@ -251,7 +252,7 @@
             <template x-if="fleets.length === 0">
                 <p class="text-dim">No fleets configured.</p>
             </template>
-            <template x-for="fleet in fleets" :key="fleet.id">
+            <template x-for="fleet in filteredFleets()" :key="fleet.id">
                 <div class="fleet-card">
                     <div class="fleet-card-header">
                         <div class="clickable" @click="navigate('fleets', 'fleet-detail', fleet.id)">
@@ -263,7 +264,7 @@
                             <button class="btn btn-sm btn-danger" @click.stop="deleteFleet(fleet.id)" title="Permanently delete this fleet">Delete</button>
                         </div>
                     </div>
-                    <template x-if="fleet.vessels && fleet.vessels.length > 0">
+                    <template x-if="fleet._filteredVessels && fleet._filteredVessels.length > 0">
                         <div class="table-wrap">
                             <table class="vessel-table">
                                 <colgroup>
@@ -275,7 +276,7 @@
                                 </colgroup>
                                 <thead><tr><th title="Vessel name and unique identifier">Vessel</th><th title="Git repository URL for this vessel">Repo URL</th><th title="Default branch used for merging (e.g. main)">Branch</th><th title="Context and style guide indicators"></th><th class="text-right">Actions</th></tr></thead>
                                 <tbody>
-                                    <template x-for="v in fleet.vessels" :key="v.id">
+                                    <template x-for="v in fleet._filteredVessels" :key="v.id">
                                         <tr>
                                             <td class="clickable" @click="navigate('fleets', 'vessel-detail', v.id)"><strong x-text="v.name"></strong><div class="text-dim id-display"><span class="mono" x-text="v.id"></span><button class="copy-btn" @click.stop="copyId(v.id, $event)" title="Copy ID"></button></div></td>
                                             <td class="text-dim vessel-repo-cell" x-text="v.repoUrl"></td>

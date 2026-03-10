@@ -1308,6 +1308,38 @@ function dashboard() {
             return rows.filter(r => JSON.stringify(r).toLowerCase().includes(q));
         },
 
+        // Client-side filter for Fleets & Vessels
+        filteredFleets() {
+            if (!this.listSearch) {
+                return this.fleets.map(f => {
+                    f._filteredVessels = f.vessels || [];
+                    return f;
+                });
+            }
+            let q = this.listSearch.toLowerCase();
+            let result = [];
+            for (let fleet of this.fleets) {
+                let fleetNameMatch = (fleet.name || '').toLowerCase().includes(q) ||
+                                     (fleet.id || '').toLowerCase().includes(q);
+                if (fleetNameMatch) {
+                    fleet._filteredVessels = fleet.vessels || [];
+                    result.push(fleet);
+                } else {
+                    let matchingVessels = (fleet.vessels || []).filter(v =>
+                        (v.name || '').toLowerCase().includes(q) ||
+                        (v.id || '').toLowerCase().includes(q) ||
+                        (v.repoUrl || '').toLowerCase().includes(q) ||
+                        (v.defaultBranch || '').toLowerCase().includes(q)
+                    );
+                    if (matchingVessels.length > 0) {
+                        fleet._filteredVessels = matchingVessels;
+                        result.push(fleet);
+                    }
+                }
+            }
+            return result;
+        },
+
         // Client-side filter for Recent Missions on dashboard home
         filteredRecentMissions() {
             let rows = this.recentMissions;
