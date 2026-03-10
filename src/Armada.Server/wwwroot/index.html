@@ -358,6 +358,8 @@
                         <div class="detail-field"><span class="detail-label">Fleet</span><a href="#" @click.prevent="navigate('fleets', 'fleet-detail', detail.fleetId)" x-text="fleetName(detail.fleetId)"></a></div>
                         <div class="detail-field"><span class="detail-label">Repo URL</span><span class="mono" x-text="detail.repoUrl || '-'"></span></div>
                         <div class="detail-field"><span class="detail-label">Default Branch</span><span x-text="detail.defaultBranch || 'main'"></span></div>
+                        <div class="detail-field"><span class="detail-label">Local Path</span><span class="mono" x-text="detail.localPath || '-'" title="Path to the bare git repository clone used by Armada"></span></div>
+                        <div class="detail-field"><span class="detail-label">Working Directory</span><span class="mono" x-text="detail.workingDirectory || '-'" title="Your local checkout where completed missions are merged"></span></div>
                         <div class="detail-field"><span class="detail-label">Active</span><span x-text="detail.active !== false ? 'Yes' : 'No'"></span></div>
                         <div class="detail-field"><span class="detail-label">Created</span><span x-text="formatTimeAbsolute(detail.createdUtc)"></span></div>
                     </div>
@@ -1276,6 +1278,8 @@
                 <div class="form-group"><label>Name</label><input type="text" x-model="modalData.name" required autofocus title="A descriptive name for this vessel"></div>
                 <div class="form-group"><label>Repo URL</label><input type="text" x-model="modalData.repoUrl" placeholder="https://github.com/..." title="Git repository URL (HTTPS or SSH)"></div>
                 <div class="form-group"><label>Default Branch</label><input type="text" x-model="modalData.defaultBranch" placeholder="main" title="The branch to merge completed work into (e.g. main)"></div>
+                <div class="form-group"><label>Local Path (Bare Repo)</label><input type="text" x-model="modalData.localPath" placeholder="e.g. C:\armada\repos\my-project.git" title="Path to the bare git repository clone used by Armada for worktrees"></div>
+                <div class="form-group"><label>Working Directory</label><input type="text" x-model="modalData.workingDirectory" placeholder="e.g. C:\code\my-project" title="Path to your local checkout — completed missions are merged here automatically"></div>
                 <div class="form-group">
                     <label>Fleet</label>
                     <select x-model="modalData.fleetId" title="Optionally assign this vessel to a fleet">
@@ -1309,6 +1313,8 @@
                 <div class="form-group"><label>Name</label><input type="text" x-model="modalData.name" required title="Vessel name"></div>
                 <div class="form-group"><label>Repo URL</label><input type="text" x-model="modalData.repoUrl" title="Git repository URL (HTTPS or SSH)"></div>
                 <div class="form-group"><label>Default Branch</label><input type="text" x-model="modalData.defaultBranch" title="The branch to merge completed work into (e.g. main)"></div>
+                <div class="form-group"><label>Local Path (Bare Repo)</label><input type="text" x-model="modalData.localPath" placeholder="e.g. C:\armada\repos\my-project.git" title="Path to the bare git repository clone used by Armada for worktrees"></div>
+                <div class="form-group"><label>Working Directory</label><input type="text" x-model="modalData.workingDirectory" placeholder="e.g. C:\code\my-project" title="Path to your local checkout — completed missions are merged here automatically"></div>
                 <div class="form-group">
                     <label>Fleet</label>
                     <select x-model="modalData.fleetId" title="Assign this vessel to a fleet">
