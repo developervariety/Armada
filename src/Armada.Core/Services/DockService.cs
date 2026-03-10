@@ -64,6 +64,19 @@ namespace Armada.Core.Services
                     await _Database.Vessels.UpdateAsync(vessel, token).ConfigureAwait(false);
                 }
 
+                // Fetch latest from remote to ensure worktrees branch from current main
+                if (!String.IsNullOrEmpty(vessel.RepoUrl))
+                {
+                    try
+                    {
+                        await _Git.FetchAsync(repoPath, token).ConfigureAwait(false);
+                    }
+                    catch (Exception fetchEx)
+                    {
+                        _Logging.Warn(_Header + "fetch failed for " + vessel.Name + ", continuing with local state: " + fetchEx.Message);
+                    }
+                }
+
                 // Prune stale worktree registrations (handles "missing but registered" entries)
                 try
                 {
