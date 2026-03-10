@@ -90,6 +90,8 @@ function dashboard() {
         // Viewer modal
         viewerTitle: '',
         viewerContent: '',
+        viewerRawContent: '',
+        viewerIsHtml: false,
         viewerLoading: false,
 
         // Confirm dialog
@@ -585,8 +587,25 @@ function dashboard() {
             }
         },
 
+        formatDiffHtml(text) {
+            if (!text) return '';
+            let escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            return escaped.split('\n').map(line => {
+                if (line.startsWith('@@')) return '<span class="diff-line-section">' + line + '</span>';
+                if (line.startsWith('+')) return '<span class="diff-line-add">' + line + '</span>';
+                if (line.startsWith('-')) return '<span class="diff-line-remove">' + line + '</span>';
+                return line;
+            }).join('\n');
+        },
+
         async loadMissionDiff(missionId) {
-            this.detailDiff = null;
+            let title = 'Diff: ' + (this.detail ? this.detail.title : missionId);
+            this.viewerTitle = title;
+            this.viewerContent = '';
+            this.viewerRawContent = '';
+            this.viewerIsHtml = true;
+            this.viewerLoading = true;
+            this.modal = 'viewer';
             this.detailDiffLoading = true;
             try {
                 let controller = new AbortController();
@@ -606,15 +625,18 @@ function dashboard() {
                     throw new Error(errMsg);
                 }
                 let text = await resp.text();
-                this.detailDiff = text ? this.toCamel(JSON.parse(text)) : null;
+                let result = text ? this.toCamel(JSON.parse(text)) : null;
+                let rawDiff = (result && result.diff) ? result.diff : 'No changes';
+                this.viewerRawContent = rawDiff;
+                this.viewerContent = this.formatDiffHtml(rawDiff);
             } catch (e) {
-                if (e.name === 'AbortError') {
-                    this.detailDiff = { error: 'Request timed out after 30 seconds' };
-                } else {
-                    this.detailDiff = { error: e.message };
-                }
+                let errMsg = e.name === 'AbortError' ? 'Request timed out after 30 seconds' : e.message;
+                this.viewerRawContent = 'Error: ' + errMsg;
+                this.viewerContent = 'Error: ' + errMsg;
+                this.viewerIsHtml = false;
             } finally {
                 this.detailDiffLoading = false;
+                this.viewerLoading = false;
             }
         },
 
@@ -632,20 +654,24 @@ function dashboard() {
             let captainName = this.detail ? this.detail.name : captainId;
             this.viewerTitle = 'Log: ' + captainName;
             this.viewerContent = '';
+            this.viewerRawContent = '';
+            this.viewerIsHtml = false;
             this.viewerLoading = true;
             this.modal = 'viewer';
             try {
                 let result = await this.api('GET', '/api/v1/captains/' + captainId + '/log?lines=500');
                 this.viewerContent = result.log || 'No log output';
+                this.viewerRawContent = this.viewerContent;
             } catch (e) {
                 this.viewerContent = 'Log unavailable: ' + e.message;
+                this.viewerRawContent = this.viewerContent;
             } finally {
                 this.viewerLoading = false;
             }
         },
 
         copyViewerContent() {
-            let text = this.viewerContent;
+            let text = this.viewerRawContent || this.viewerContent;
             if (!text) return;
             if (navigator.clipboard && window.isSecureContext) {
                 navigator.clipboard.writeText(text).catch(() => this.fallbackCopy(text));

@@ -673,7 +673,7 @@
                             <button class="btn btn-sm" @click="restartMissionPrompt(detail)"
                                 x-show="detail.status === 'Failed' || detail.status === 'Cancelled'" title="Restart this mission with optional changes to the instructions">Restart</button>
                             <button class="btn btn-sm btn-danger" @click="deleteMission(detail.id)" title="Permanently delete this mission">Delete</button>
-                            <button class="btn btn-sm" @click="loadMissionDiff(detail.id)" x-show="!detailDiff && !detailDiffLoading" title="Load the git diff showing changes made by this mission">Diff</button>
+                            <button class="btn btn-sm" @click="loadMissionDiff(detail.id)" x-show="!detailDiffLoading" title="View the git diff showing changes made by this mission">Diff</button>
                             <button class="btn btn-sm" @click="loadMissionLog(detail.id)" x-show="!detailLog" title="Load the captain's execution log for this mission">Log</button>
                         </div>
                     </div>
@@ -724,29 +724,6 @@
                                 <button class="btn btn-sm" @click="transitionMissionStatus(detail.id, 'InProgress')" title="Send back to active work">InProgress</button>
                                 <button class="btn btn-sm btn-danger" @click="transitionMissionStatus(detail.id, 'Failed')" title="Mark as failed">Failed</button>
                             </span>
-                        </template>
-                    </div>
-
-                    <!-- Diff viewer -->
-                    <div style="margin-top:1rem">
-                        <template x-if="detailDiffLoading">
-                            <div style="display:flex;align-items:center;gap:0.5rem;padding:0.5rem 0">
-                                <span class="spinner" style="width:16px;height:16px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;display:inline-block;animation:spin 0.8s linear infinite"></span>
-                                <span class="text-dim">Loading diff…</span>
-                            </div>
-                        </template>
-                        <template x-if="detailDiff && !detailDiff.error">
-                            <div>
-                                <h3>Diff <span class="text-dim" x-text="'(' + (detailDiff.branch || '') + ')'"></span></h3>
-                                <pre class="diff-viewer" x-text="detailDiff.diff || 'No changes'"></pre>
-                            </div>
-                        </template>
-                        <template x-if="detailDiff && detailDiff.error">
-                            <div style="padding:0.75rem;border:1px solid var(--danger, #e74c3c);border-radius:4px;background:rgba(231,76,60,0.1);margin-top:0.5rem">
-                                <strong style="color:var(--danger, #e74c3c)">Diff Error</strong>
-                                <p style="margin:0.25rem 0 0;color:var(--text-dim, #999)" x-text="detailDiff.error"></p>
-                                <button class="btn btn-sm" style="margin-top:0.5rem" @click="detailDiff = null">Retry</button>
-                            </div>
                         </template>
                     </div>
 
@@ -1496,22 +1473,27 @@
         </div>
 
         <!-- Viewer Modal (reusable read-only content viewer) -->
-        <div class="modal-box modal-large" x-show="modal === 'viewer'">
-            <h3 x-text="viewerTitle"></h3>
-            <div style="margin:0.75rem 0">
+        <div class="modal-box viewer-modal-box" x-show="modal === 'viewer'">
+            <div class="viewer-header">
+                <h3 x-text="viewerTitle" class="viewer-title"></h3>
+                <div class="viewer-actions">
+                    <button type="button" class="btn btn-sm" @click="copyViewerContent()" title="Copy full content to clipboard">Copy</button>
+                    <button type="button" class="btn btn-sm" @click="modal = null" title="Close viewer">Close</button>
+                </div>
+            </div>
+            <div class="viewer-body-wrap">
                 <template x-if="viewerLoading">
-                    <div style="display:flex;align-items:center;gap:0.5rem;padding:0.5rem 0">
+                    <div style="display:flex;align-items:center;gap:0.5rem;padding:1rem">
                         <span class="spinner" style="width:16px;height:16px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;display:inline-block;animation:spin 0.8s linear infinite"></span>
                         <span class="text-dim">Loading…</span>
                     </div>
                 </template>
-                <template x-if="!viewerLoading">
-                    <pre class="diff-viewer" x-text="viewerContent"></pre>
+                <template x-if="!viewerLoading && viewerIsHtml">
+                    <pre class="diff-viewer viewer-pre" x-html="viewerContent"></pre>
                 </template>
-            </div>
-            <div class="modal-actions">
-                <button type="button" class="btn btn-sm" @click="copyViewerContent()" title="Copy full content to clipboard">Copy</button>
-                <button type="button" class="btn btn-sm" @click="modal = null" title="Close viewer">Close</button>
+                <template x-if="!viewerLoading && !viewerIsHtml">
+                    <pre class="diff-viewer viewer-pre" x-text="viewerContent"></pre>
+                </template>
             </div>
         </div>
 
