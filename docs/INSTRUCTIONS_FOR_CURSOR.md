@@ -27,10 +27,10 @@ Every orchestration follows this pattern: **Research → Decompose → Dispatch 
 Before dispatching work, understand what exists:
 
 ```
-armada_status()                    → overview of captains, missions, voyages
-armada_list_fleets()               → find available fleets
-armada_get_fleet({ fleetId })      → see vessels in a fleet
-armada_list_vessels()              → find the vessel ID for the target repo
+armada_status()                                                    → overview of captains, missions, voyages
+armada_enumerate({ entityType: "fleets" })                         → find available fleets
+armada_get_fleet({ fleetId })                                      → see vessels in a fleet
+armada_enumerate({ entityType: "vessels", fleetId: "flt_..." })    → find vessels in a fleet
 ```
 
 Use your own codebase tools (search, file reading, indexing) to understand the codebase and identify what needs to change.
@@ -105,6 +105,12 @@ armada_get_mission_log({ missionId: "msn_...", lines: 50 })   → mission sessio
 armada_get_mission_diff({ missionId: "msn_..." })              → git diff of changes
 ```
 
+To find all in-progress missions for a specific vessel:
+
+```
+armada_enumerate({ entityType: "missions", vesselId: "vsl_...", status: "InProgress" })
+```
+
 For a quick system-wide overview:
 
 ```
@@ -130,7 +136,14 @@ When missions fail:
    - Captain hit a dependency issue → add setup instructions to the description
    - Files overlapped with another mission → narrow the scope
 
+   For broader event queries (e.g. all events for a voyage), use enumerate instead of `armada_list_events`:
+   ```
+   armada_enumerate({ entityType: "events", voyageId: "vyg_..." })
+   ```
+
 ## Tool Reference
+
+> **Prefer `armada_enumerate` for querying entities.** The `armada_list_*` tools return all entities with minimal filtering and no pagination. For filtered, paginated, or sorted queries, use `armada_enumerate` with the appropriate `entityType` and filters. The `armada_list_*` tools are retained for convenience when you know the result set is small.
 
 ### Status & Control
 
