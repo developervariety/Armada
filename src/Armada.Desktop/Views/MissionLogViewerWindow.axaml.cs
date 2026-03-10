@@ -25,8 +25,25 @@ namespace Armada.Desktop.Views
         public MissionLogViewerWindow(MissionLogViewerViewModel viewModel) : this()
         {
             DataContext = viewModel;
-            Title = "Mission Log: " + viewModel.MissionTitle;
+            Title = "Armada - Mission Log: " + viewModel.MissionTitle;
             Closed += (s, e) => viewModel.Dispose();
+        }
+
+        /// <summary>
+        /// Handle Ctrl+Shift+C to copy full content.
+        /// </summary>
+        protected override async void OnKeyDown(KeyEventArgs e)
+        {
+            if (e.Key == Key.C && e.KeyModifiers == (KeyModifiers.Control | KeyModifiers.Shift))
+            {
+                if (DataContext is MissionLogViewerViewModel vm && Clipboard != null)
+                {
+                    await Clipboard.SetTextAsync(vm.LogContent);
+                }
+                e.Handled = true;
+                return;
+            }
+            base.OnKeyDown(e);
         }
 
         private async void OnRefreshClick(object? sender, RoutedEventArgs e)
