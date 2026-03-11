@@ -488,6 +488,14 @@ namespace Armada.Server.WebSocket
                                     }
                                 }
                                 int cvCancelled = cvMissions.Count(m => m.Status == MissionStatusEnum.Cancelled);
+                                BroadcastVoyageChange(cvId, VoyageStatusEnum.Cancelled.ToString(), cvVoyage.Title);
+                                foreach (Mission cvCm in cvMissions)
+                                {
+                                    if (cvCm.Status == MissionStatusEnum.Cancelled)
+                                    {
+                                        BroadcastMissionChange(cvCm.Id, MissionStatusEnum.Cancelled.ToString(), cvCm.Title);
+                                    }
+                                }
                                 result = new { type = "command.result", action = "cancel_voyage", data = (object)new { Voyage = cvVoyage, CancelledMissions = cvCancelled } };
                             }
                             break;
@@ -587,6 +595,7 @@ namespace Armada.Server.WebSocket
                                 Signal tmSignal = new Signal(SignalTypeEnum.Progress, "Mission " + tmId + " transitioned to " + tmNewStatus);
                                 if (!String.IsNullOrEmpty(tmMission.CaptainId)) tmSignal.FromCaptainId = tmMission.CaptainId;
                                 await _Database.Signals.CreateAsync(tmSignal).ConfigureAwait(false);
+                                BroadcastMissionChange(tmId, tmNewStatus.ToString(), tmMission.Title);
                                 result = new { type = "command.result", action = "transition_mission_status", data = (object)tmMission };
                             }
                             break;
@@ -622,6 +631,7 @@ namespace Armada.Server.WebSocket
                                 cmMission.CompletedUtc = DateTime.UtcNow;
                                 cmMission.LastUpdateUtc = DateTime.UtcNow;
                                 cmMission = await _Database.Missions.UpdateAsync(cmMission).ConfigureAwait(false);
+                                BroadcastMissionChange(cmId, MissionStatusEnum.Cancelled.ToString(), cmMission.Title);
                                 result = new { type = "command.result", action = "cancel_mission", data = (object)cmMission };
                             }
                             break;
@@ -667,6 +677,7 @@ namespace Armada.Server.WebSocket
                                 Signal rmSignal = new Signal(SignalTypeEnum.Progress, "Mission " + rmId + " restarted");
                                 await _Database.Signals.CreateAsync(rmSignal).ConfigureAwait(false);
 
+                                BroadcastMissionChange(rmId, MissionStatusEnum.Pending.ToString(), rmMission.Title);
                                 result = new { type = "command.result", action = "restart_mission", data = (object)rmMission };
                             }
                             break;
