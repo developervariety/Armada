@@ -132,6 +132,7 @@ function dashboard() {
         // Confirm dialog
         confirmMessage: '',
         confirmResolve: null,
+        confirmWidth: null,
 
         // Mission restart
         restartTarget: null,
@@ -987,8 +988,9 @@ function dashboard() {
         // ============================================================
         // Confirm dialog (replaces native browser confirm())
         // ============================================================
-        showConfirm(message) {
+        showConfirm(message, options) {
             this.confirmMessage = message;
+            this.confirmWidth = (options && options.width) || null;
             this.modal = 'confirm-dialog';
             return new Promise((resolve) => {
                 this.confirmResolve = resolve;
@@ -1000,6 +1002,7 @@ function dashboard() {
             this.confirmResolve = null;
             this.modal = null;
             this.confirmMessage = '';
+            this.confirmWidth = null;
         },
 
         confirmNo() {
@@ -1007,6 +1010,7 @@ function dashboard() {
             this.confirmResolve = null;
             this.modal = null;
             this.confirmMessage = '';
+            this.confirmWidth = null;
         },
 
         // ============================================================
@@ -1544,7 +1548,7 @@ function dashboard() {
                 + 'Branch: ' + (entry.branchName || '(none)') + '\n'
                 + 'Repo: ' + vessel + '\n\n'
                 + 'This will delete the branch from both local and remote repositories.';
-            if (!await this.showConfirm(msg)) return;
+            if (!await this.showConfirm(msg, { width: '880px' })) return;
             try {
                 await this.api('DELETE', '/api/v1/merge-queue/' + entry.id);
                 this.toast('Merge entry and branch deleted');

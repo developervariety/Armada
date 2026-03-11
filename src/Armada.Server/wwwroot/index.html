@@ -1703,7 +1703,7 @@
         </div>
 
         <!-- Confirm Dialog (replaces native browser confirm()) -->
-        <div class="modal-box" x-show="modal === 'confirm-dialog'">
+        <div class="modal-box" x-show="modal === 'confirm-dialog'" :style="confirmWidth ? 'max-width:' + confirmWidth : ''">
             <h3>Confirm</h3>
             <p x-text="confirmMessage" style="margin:1rem 0;white-space:pre-wrap"></p>
             <div class="modal-actions">
