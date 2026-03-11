@@ -1,10 +1,13 @@
 namespace Armada.Desktop.ViewModels
 {
     using System;
+    using System.Collections.Generic;
+    using System.Collections.ObjectModel;
     using System.Text.Json;
     using System.Threading.Tasks;
     using ReactiveUI;
     using Avalonia.Threading;
+    using Armada.Desktop.Models;
     using Armada.Desktop.Services;
 
     /// <summary>
@@ -22,6 +25,10 @@ namespace Armada.Desktop.ViewModels
         private string _DiffContent = "";
         private string _ParsedDiffContent = "";
         private bool _HasParsedDiff;
+        private ObservableCollection<DiffFile> _ParsedFiles = new ObservableCollection<DiffFile>();
+        private DiffFile? _SelectedFile;
+        private ObservableCollection<DiffLine> _CurrentLines = new ObservableCollection<DiffLine>();
+        private bool _HasParsedFiles;
 
         #endregion
 
@@ -69,6 +76,38 @@ namespace Armada.Desktop.ViewModels
             set => this.RaiseAndSetIfChanged(ref _ErrorMessage, value);
         }
 
+        /// <summary>Parsed diff files for the file navigator.</summary>
+        public ObservableCollection<DiffFile> ParsedFiles
+        {
+            get => _ParsedFiles;
+            set => this.RaiseAndSetIfChanged(ref _ParsedFiles, value);
+        }
+
+        /// <summary>Currently selected file in the file navigator.</summary>
+        public DiffFile? SelectedFile
+        {
+            get => _SelectedFile;
+            set
+            {
+                this.RaiseAndSetIfChanged(ref _SelectedFile, value);
+                UpdateCurrentLines();
+            }
+        }
+
+        /// <summary>Lines for the currently selected file's diff display.</summary>
+        public ObservableCollection<DiffLine> CurrentLines
+        {
+            get => _CurrentLines;
+            set => this.RaiseAndSetIfChanged(ref _CurrentLines, value);
+        }
+
+        /// <summary>Whether structured parsed files are available for two-pane display.</summary>
+        public bool HasParsedFiles
+        {
+            get => _HasParsedFiles;
+            set => this.RaiseAndSetIfChanged(ref _HasParsedFiles, value);
+        }
+
         #endregion
 
         #region Constructors-and-Factories
@@ -104,6 +143,10 @@ namespace Armada.Desktop.ViewModels
                 DiffContent = "";
                 ParsedDiffContent = "";
                 HasParsedDiff = false;
+                HasParsedFiles = false;
+                ParsedFiles.Clear();
+                CurrentLines.Clear();
+                SelectedFile = null;
             });
 
             try
@@ -136,6 +179,7 @@ namespace Armada.Desktop.ViewModels
                                 {
                                     ParsedDiffContent = diffValue;
                                     HasParsedDiff = true;
+                                    ParseStructuredDiff(diffValue);
                                 }
                             }
 
@@ -147,7 +191,16 @@ namespace Armada.Desktop.ViewModels
                         }
                     }
 
+                    // Treat as raw diff text
                     DiffContent = diff;
+
+                    // Try to parse as unified diff directly
+                    if (diff.Contains("diff --git") || diff.Contains("---"))
+                    {
+                        ParsedDiffContent = diff;
+                        HasParsedDiff = true;
+                        ParseStructuredDiff(diff);
+                    }
                 });
             }
             catch (Exception ex)
@@ -161,38 +214,43 @@ namespace Armada.Desktop.ViewModels
         }
 
         #endregion
-    }
 
-    /// <summary>
-    /// A single line in a diff display.
-    /// </summary>
-    public class DiffLine
-    {
-        /// <summary>Line text.</summary>
-        public string Text { get; set; } = "";
+        #region Private-Methods
 
-        /// <summary>Line type for coloring.</summary>
-        public DiffLineType LineType { get; set; } = DiffLineType.Context;
-    }
+        /// <summary>
+        /// Parse the diff text into structured file/hunk/line models.
+        /// </summary>
+        private void ParseStructuredDiff(string diffText)
+        {
+            List<DiffFile> files = UnifiedDiffParser.Parse(diffText);
+            if (files.Count > 0)
+            {
+                ParsedFiles = new ObservableCollection<DiffFile>(files);
+                HasParsedFiles = true;
 
-    /// <summary>
-    /// Type of diff line for color coding.
-    /// </summary>
-    public enum DiffLineType
-    {
-        /// <summary>Context (unchanged) line.</summary>
-        Context,
+                // Auto-select first file
+                SelectedFile = files[0];
+            }
+        }
 
-        /// <summary>Added line (+).</summary>
-        Added,
+        /// <summary>
+        /// Update the CurrentLines collection based on the selected file.
+        /// </summary>
+        private void UpdateCurrentLines()
+        {
+            CurrentLines.Clear();
+            if (_SelectedFile == null)
+                return;
 
-        /// <summary>Removed line (-).</summary>
-        Removed,
+            foreach (DiffHunk hunk in _SelectedFile.Hunks)
+            {
+                foreach (DiffLine line in hunk.Lines)
+                {
+                    CurrentLines.Add(line);
+                }
+            }
+        }
 
-        /// <summary>Hunk header (@@).</summary>
-        Hunk,
-
-        /// <summary>File header (diff, index, ---, +++).</summary>
-        Header
+        #endregion
     }
 }

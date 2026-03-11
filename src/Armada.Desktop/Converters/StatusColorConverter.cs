@@ -5,7 +5,7 @@ namespace Armada.Desktop.Converters
     using Avalonia.Data.Converters;
     using Avalonia.Media;
     using Armada.Core.Enums;
-    using Armada.Desktop.ViewModels;
+    using Armada.Desktop.Models;
 
     /// <summary>
     /// Converts mission status to a color brush.
@@ -145,27 +145,25 @@ namespace Armada.Desktop.Converters
     }
 
     /// <summary>
-    /// Converts DiffLineType to a foreground color for syntax highlighting.
+    /// Converts DiffLineTypeEnum to a foreground color for syntax highlighting.
     /// </summary>
     public class DiffLineColorConverter : IValueConverter
     {
         private static readonly SolidColorBrush _Green = new SolidColorBrush(Color.Parse("#4CAF50"));
         private static readonly SolidColorBrush _Red = new SolidColorBrush(Color.Parse("#EF5350"));
         private static readonly SolidColorBrush _Cyan = new SolidColorBrush(Color.Parse("#26C6DA"));
-        private static readonly SolidColorBrush _Yellow = new SolidColorBrush(Color.Parse("#FFB300"));
         private static readonly SolidColorBrush _Gray = new SolidColorBrush(Color.Parse("#B0B0B0"));
 
         /// <inheritdoc />
         public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
         {
-            if (value is DiffLineType lineType)
+            if (value is DiffLineTypeEnum lineType)
             {
                 return lineType switch
                 {
-                    DiffLineType.Added => _Green,
-                    DiffLineType.Removed => _Red,
-                    DiffLineType.Hunk => _Cyan,
-                    DiffLineType.Header => _Yellow,
+                    DiffLineTypeEnum.Addition => _Green,
+                    DiffLineTypeEnum.Deletion => _Red,
+                    DiffLineTypeEnum.Hunk => _Cyan,
                     _ => _Gray
                 };
             }
@@ -180,7 +178,7 @@ namespace Armada.Desktop.Converters
     }
 
     /// <summary>
-    /// Converts DiffLineType to a subtle background color.
+    /// Converts DiffLineTypeEnum to a subtle background color.
     /// </summary>
     public class DiffLineBgConverter : IValueConverter
     {
@@ -192,13 +190,13 @@ namespace Armada.Desktop.Converters
         /// <inheritdoc />
         public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
         {
-            if (value is DiffLineType lineType)
+            if (value is DiffLineTypeEnum lineType)
             {
                 return lineType switch
                 {
-                    DiffLineType.Added => _GreenBg,
-                    DiffLineType.Removed => _RedBg,
-                    DiffLineType.Hunk => _HunkBg,
+                    DiffLineTypeEnum.Addition => _GreenBg,
+                    DiffLineTypeEnum.Deletion => _RedBg,
+                    DiffLineTypeEnum.Hunk => _HunkBg,
                     _ => _Transparent
                 };
             }
