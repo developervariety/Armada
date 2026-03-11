@@ -45,7 +45,6 @@ That's it. Armada auto-initializes, detects your installed agent runtime (Claude
 - **Broad-scope detection** -- prevents concurrent mutations to the same files across agents
 - **REST API + WebSocket** -- programmatic access and real-time status updates
 - **MCP server** -- 18 tools let Claude Code, Codex, or any MCP client orchestrate Armada (see [AI-powered orchestration](#ai-powered-orchestration))
-- **Desktop notifications** -- OS-native alerts when missions complete or fail
 - **Cross-platform** -- Windows, macOS, Linux (C#/.NET)
 
 ## Benefits
@@ -58,7 +57,7 @@ That's it. Armada auto-initializes, detects your installed agent runtime (Claude
 - **Automated merge queues** -- Completed missions are queued for merge automatically, reducing manual branch management and keeping your integration pipeline flowing.
 - **Auditable event trails** -- Every mission dispatch, status transition, completion, and failure is recorded in a structured event log you can query at any time.
 - **Reproducible workflows** -- Voyages capture a batch of missions as a reusable unit; retry a failed voyage or re-dispatch it against a new branch with a single command.
-- **Team visibility** -- Real-time WebSocket updates, a REST API, and desktop notifications keep everyone informed of agent progress without polling or asking around.
+- **Team visibility** -- Real-time WebSocket updates and a REST API keep everyone informed of agent progress without polling or asking around.
 
 ## Screenshots
 
@@ -357,7 +356,6 @@ armada config init              # Interactive setup (optional)
 | `AutoPush` | true | Push branches to remote on mission completion |
 | `AutoCreatePullRequests` | false | Create PRs on mission completion |
 | `AutoMergePullRequests` | false | Auto-merge PRs after creation |
-| `Notifications` | true | Desktop notifications on completion/failure |
 | `TerminalBell` | true | Ring terminal bell during `armada watch` |
 | `DefaultRuntime` | null (auto-detect) | Default agent runtime |
 

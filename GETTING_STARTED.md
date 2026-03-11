@@ -178,7 +178,7 @@ armada mcp     install|stdio
 
 **Configuration** — `armada config show` to see all settings. Key ones: `MaxCaptains` (concurrent agents), `StallThresholdMinutes` (stall detection), `AutoPush`, `AutoCreatePullRequests`, `DefaultRuntime`.
 
-**Desktop app** — Cross-platform GUI with live dashboards, diff viewer, log viewer, and settings editor. See `src/Armada.Desktop`.
+**Web dashboard** — Built-in web UI with live dashboards, diff viewer, log viewer, and settings editor. Served by the Admiral server at `http://localhost:7890/dashboard/`.
 
 **REST API** — Full CRUD on port 7890 under `/api/v1/`. See `docs/REST_API.md`.
 
