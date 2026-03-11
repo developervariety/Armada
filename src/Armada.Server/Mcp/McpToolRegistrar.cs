@@ -177,11 +177,8 @@ namespace Armada.Server.Mcp
                         case "merge_queue":
                         case "merge-queue":
                         case "mergequeue":
-                            if (mergeQueue == null) return (object)new { Error = "Merge queue service not available" };
-                            List<MergeEntry> mqAll = await mergeQueue.ListAsync().ConfigureAwait(false);
-                            int mqTotal = mqAll.Count;
-                            List<MergeEntry> mqPage = mqAll.Skip(query.Offset).Take(query.PageSize).ToList();
-                            EnumerationResult<MergeEntry> mqResult = EnumerationResult<MergeEntry>.Create(query, mqPage, mqTotal);
+                        case "merge_entries":
+                            EnumerationResult<MergeEntry> mqResult = await database.MergeEntries.EnumerateAsync(query).ConfigureAwait(false);
                             return (object)mqResult;
                         default:
                             return (object)new { Error = "Unknown entity type: " + entityType + ". Valid types: fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue" };
