@@ -1156,6 +1156,12 @@
                 </div>
                 <div class="view-actions">
                     <input type="text" class="filter-input" x-model="listSearch" placeholder="Search..." title="Search merge queue entries by branch or ID">
+                    <select class="page-size-select" x-model="mergeQueueVoyageFilter" title="Filter by voyage">
+                        <option value="">All Voyages</option>
+                        <template x-for="v in mergeQueueVoyages" :key="v.id">
+                            <option :value="v.id" x-text="v.name"></option>
+                        </template>
+                    </select>
                     <button class="btn btn-primary btn-sm" @click="openEnqueueMerge()" title="Add a branch to the merge queue">+ Enqueue</button>
                     <button class="btn btn-sm" @click="processMergeQueue()" title="Process all queued entries and merge branches">Process Queue</button>
                 </div>
@@ -1185,7 +1191,7 @@
                 </div>
             </div>
             <div class="cards merge-queue-cards" x-show="mergeQueue.length > 0">
-                <template x-for="entry in filterRows(mergeQueue)" :key="entry.id">
+                <template x-for="entry in filteredMergeQueue()" :key="entry.id">
                     <div class="card merge-queue-card">
                         <div class="mq-card-header">
                             <span class="tag" :class="(entry.status || '').toLowerCase()" x-text="entry.status" :title="statusTooltip(entry.status)"></span>

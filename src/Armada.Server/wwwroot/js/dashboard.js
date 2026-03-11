@@ -86,6 +86,8 @@ function dashboard() {
         signalPaging: { pageNumber: 1, totalPages: 0, totalRecords: 0, pageSize: 25, totalMs: 0 },
         eventPaging: { pageNumber: 1, totalPages: 0, totalRecords: 0, pageSize: 50, totalMs: 0 },
         mergeQueuePaging: { pageNumber: 1, totalPages: 0, totalRecords: 0, pageSize: 25, totalMs: 0 },
+        mergeQueueVoyageFilter: '',
+        mergeQueueVoyages: [],
 
         // Sorting
         sortColumn: null,
@@ -546,13 +548,24 @@ function dashboard() {
                     if (entry.missionId && missionMap[entry.missionId]) {
                         let mission = missionMap[entry.missionId];
                         entry._missionTitle = mission.title || null;
+                        entry._voyageId = mission.voyageId || null;
                         let voyage = mission.voyageId ? voyageMap[mission.voyageId] : null;
                         entry._voyageName = voyage ? (voyage.title || null) : null;
                     } else {
                         entry._missionTitle = null;
+                        entry._voyageId = null;
                         entry._voyageName = null;
                     }
                 }
+
+                // Build unique voyage list for filter dropdown
+                let voyageSet = {};
+                for (let entry of this.mergeQueue) {
+                    if (entry._voyageId && entry._voyageName) {
+                        voyageSet[entry._voyageId] = entry._voyageName;
+                    }
+                }
+                this.mergeQueueVoyages = Object.keys(voyageSet).map(id => ({ id: id, name: voyageSet[id] }));
             } catch (e) { console.warn('Failed to load merge queue:', e); }
         },
 
@@ -1921,6 +1934,14 @@ function dashboard() {
             if (f.vesselId) rows = rows.filter(m => m.vesselId === f.vesselId);
             if (f.captainId) rows = rows.filter(m => m.captainId === f.captainId);
             return rows;
+        },
+
+        // Client-side voyage filter for Merge Queue view
+        filteredMergeQueue() {
+            let rows = this.filterRows(this.mergeQueue);
+            if (!this.mergeQueueVoyageFilter) return rows;
+            let voyageId = this.mergeQueueVoyageFilter;
+            return rows.filter(entry => entry._voyageId === voyageId);
         },
 
         // Client-side vessel filter for Voyages view
