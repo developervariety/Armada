@@ -1184,32 +1184,26 @@
                     <button class="btn btn-sm" @click="loadMergeQueue()" title="Refresh">&#x21bb;</button>
                 </div>
             </div>
-            <div class="table-wrap" x-show="mergeQueue.length > 0">
-                <table>
-                    <thead><tr><th title="Unique merge queue entry identifier">ID</th><th title="Source branch to be merged">Branch</th><th title="Target branch to merge into (e.g. main)">Target</th><th title="Merge entry status (Queued, Testing, Merged, Failed, Cancelled)">Status</th><th title="Associated mission, if any">Mission</th><th title="Merge priority — higher values are processed first">Priority</th><th title="When this entry was added to the queue">Created</th><th>Actions</th></tr></thead>
-                    <tbody>
-                        <template x-for="entry in filterRows(mergeQueue)" :key="entry.id">
-                            <tr>
-                                <td class="mono text-dim"><span class="id-display"><span x-text="entry.id"></span><button class="copy-btn" @click.stop="copyId(entry.id, $event)" title="Copy ID"></button></span></td>
-                                <td class="mono" x-text="entry.branchName"></td>
-                                <td x-text="entry.targetBranch"></td>
-                                <td><span class="tag" :class="(entry.status || '').toLowerCase()" x-text="entry.status" :title="statusTooltip(entry.status)"></span></td>
-                                <td class="text-dim">
-                                    <span x-show="entry.missionId" class="id-display"><a class="mono" href="#" @click.prevent="navigate('missions', 'mission-detail', entry.missionId)" x-text="entry.missionId"></a><button class="copy-btn" @click.stop="copyId(entry.missionId, $event)" title="Copy ID"></button></span>
-                                    <span x-show="!entry.missionId">-</span>
-                                </td>
-                                <td x-text="entry.priority"></td>
-                                <td class="text-dim" x-text="formatTime(entry.createdUtc)" :title="formatTimeAbsolute(entry.createdUtc)"></td>
-                                <td>
-                                    <button class="btn btn-sm btn-primary" @click.stop="mergeSingleEntry(entry.id)"
-                                        x-show="entry.status === 'Queued'" title="Merge this entry now">Merge</button>
-                                    <button class="btn btn-sm btn-danger" @click.stop="cancelMergeEntry(entry.id)"
-                                        x-show="entry.status === 'Queued' || entry.status === 'Testing'" title="Cancel this merge queue entry">Cancel</button>
-                                </td>
-                            </tr>
-                        </template>
-                    </tbody>
-                </table>
+            <div class="cards merge-queue-cards" x-show="mergeQueue.length > 0">
+                <template x-for="entry in filterRows(mergeQueue)" :key="entry.id">
+                    <div class="card merge-queue-card">
+                        <div class="mq-card-header">
+                            <span class="tag" :class="(entry.status || '').toLowerCase()" x-text="entry.status" :title="statusTooltip(entry.status)"></span>
+                            <span class="text-dim" style="font-size:0.8rem" x-text="'Priority: ' + entry.priority"></span>
+                        </div>
+                        <div x-show="entry._voyageName" class="text-dim" style="font-size:0.8rem; margin-bottom:0.25rem">Voyage: <span x-text="entry._voyageName"></span></div>
+                        <div class="mq-card-title" x-show="entry._missionTitle" x-text="entry._missionTitle"></div>
+                        <div class="mq-card-title text-dim" x-show="!entry._missionTitle" style="font-style:italic">&mdash; No mission assigned &mdash;</div>
+                        <div class="mono" style="font-size:0.85rem; margin-top:0.5rem"><span x-text="entry.branchName"></span> &rarr; <span x-text="entry.targetBranch"></span></div>
+                        <div class="text-dim" style="font-size:0.8rem; margin-top:0.25rem" x-text="formatTime(entry.createdUtc)" :title="formatTimeAbsolute(entry.createdUtc)"></div>
+                        <div class="mq-card-actions">
+                            <button class="btn btn-sm" @click.stop="viewMissionLog(entry.missionId)" x-show="entry.missionId" title="View mission log">Log</button>
+                            <button class="btn btn-sm" @click.stop="viewMissionDiff(entry.missionId)" x-show="entry.missionId" title="View mission diff">Diff</button>
+                            <button class="btn btn-sm btn-primary" @click.stop="mergeSingleEntry(entry.id)" x-show="entry.status === 'Queued'" title="Merge this entry now">Merge</button>
+                            <button class="btn btn-sm btn-danger" @click.stop="cancelMergeEntry(entry.id)" x-show="entry.status === 'Queued' || entry.status === 'Testing'" title="Cancel this merge queue entry">Cancel</button>
+                        </div>
+                    </div>
+                </template>
             </div>
             <p class="text-dim" x-show="mergeQueue.length === 0">Merge queue is empty.</p>
         </div>

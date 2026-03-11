@@ -522,6 +522,37 @@ function dashboard() {
                     this.mergeQueuePaging.totalRecords = result.totalRecords || 0;
                     this.mergeQueuePaging.totalMs = result.totalMs || 0;
                 }
+
+                // Enrich entries with mission titles and voyage names
+                let missionIds = [...new Set(this.mergeQueue.filter(e => e.missionId).map(e => e.missionId))];
+                let missionMap = {};
+                await Promise.all(missionIds.map(async (mid) => {
+                    try {
+                        let mission = this.toCamel(await this.api('GET', '/api/v1/missions/' + mid));
+                        missionMap[mid] = mission;
+                    } catch (e) { console.warn('Failed to load mission ' + mid, e); }
+                }));
+
+                let voyageIds = [...new Set(Object.values(missionMap).filter(m => m && m.voyageId).map(m => m.voyageId))];
+                let voyageMap = {};
+                await Promise.all(voyageIds.map(async (vid) => {
+                    try {
+                        let voyage = this.toCamel(await this.api('GET', '/api/v1/voyages/' + vid));
+                        voyageMap[vid] = voyage;
+                    } catch (e) { console.warn('Failed to load voyage ' + vid, e); }
+                }));
+
+                for (let entry of this.mergeQueue) {
+                    if (entry.missionId && missionMap[entry.missionId]) {
+                        let mission = missionMap[entry.missionId];
+                        entry._missionTitle = mission.title || null;
+                        let voyage = mission.voyageId ? voyageMap[mission.voyageId] : null;
+                        entry._voyageName = voyage ? (voyage.title || null) : null;
+                    } else {
+                        entry._missionTitle = null;
+                        entry._voyageName = null;
+                    }
+                }
             } catch (e) { console.warn('Failed to load merge queue:', e); }
         },
 
