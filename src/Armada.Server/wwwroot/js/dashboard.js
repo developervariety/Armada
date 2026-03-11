@@ -1538,11 +1538,16 @@ function dashboard() {
             } catch (e) { this.toast('Failed: ' + e.message, 'error'); }
         },
 
-        async deleteMergeEntry(entryId) {
-            if (!await this.showConfirm('Permanently delete merge entry ' + entryId + '?')) return;
+        async deleteMergeEntry(entry) {
+            let vessel = entry.vesselId ? this.vesselName(entry.vesselId) : 'unknown repo';
+            let msg = 'Permanently delete this merge entry?\n\n'
+                + 'Branch: ' + (entry.branchName || '(none)') + '\n'
+                + 'Repo: ' + vessel + '\n\n'
+                + 'This will delete the branch from both local and remote repositories.';
+            if (!await this.showConfirm(msg)) return;
             try {
-                await this.api('DELETE', '/api/v1/merge-queue/' + entryId);
-                this.toast('Merge entry deleted');
+                await this.api('DELETE', '/api/v1/merge-queue/' + entry.id);
+                this.toast('Merge entry and branch deleted');
                 await this.loadMergeQueue();
             } catch (e) { this.toast('Failed: ' + e.message, 'error'); }
         },
