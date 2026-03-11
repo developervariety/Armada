@@ -179,6 +179,26 @@ namespace Armada.Desktop.ViewModels
             }
         }
 
+        /// <summary>
+        /// Navigate to the Missions page and select a specific mission.
+        /// </summary>
+        /// <param name="missionId">Mission ID to select.</param>
+        public void NavigateToMission(string missionId)
+        {
+            NavigateTo("Missions");
+            MissionListVm.SelectMission(missionId);
+        }
+
+        /// <summary>
+        /// Navigate to the Voyages page and select a specific voyage.
+        /// </summary>
+        /// <param name="voyageId">Voyage ID to select.</param>
+        public void NavigateToVoyage(string voyageId)
+        {
+            NavigateTo("Voyages");
+            VoyageListVm.SelectVoyage(voyageId);
+        }
+
         #endregion
     }
 }

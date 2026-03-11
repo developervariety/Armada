@@ -255,6 +255,19 @@ namespace Armada.Desktop.ViewModels
         public ArmadaConnectionService GetConnection() => _Connection;
 
         /// <summary>
+        /// Select a mission by ID from the cached data.
+        /// </summary>
+        /// <param name="missionId">Mission ID to select.</param>
+        public void SelectMission(string missionId)
+        {
+            Mission? mission = _Connection.Missions.FirstOrDefault(m => m.Id == missionId);
+            if (mission != null)
+            {
+                SelectedMission = mission;
+            }
+        }
+
+        /// <summary>
         /// Cancel a mission.
         /// </summary>
         public async Task CancelMissionAsync(string missionId)

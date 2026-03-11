@@ -194,8 +194,28 @@ namespace Armada.Desktop
                         DataContext = mainVm
                     };
 
+                    // Wire navigation callbacks for toast click-to-navigate
+                    _NotificationService!.NavigateToMission = (missionId) =>
+                    {
+                        Dispatcher.UIThread.Post(() =>
+                        {
+                            _MainWindow.Show();
+                            _MainWindow.Activate();
+                            mainVm.NavigateToMission(missionId);
+                        });
+                    };
+                    _NotificationService.NavigateToVoyage = (voyageId) =>
+                    {
+                        Dispatcher.UIThread.Post(() =>
+                        {
+                            _MainWindow.Show();
+                            _MainWindow.Activate();
+                            mainVm.NavigateToVoyage(voyageId);
+                        });
+                    };
+
                     // Bind toast notifications
-                    _MainWindow.BindNotifications(_NotificationService!);
+                    _MainWindow.BindNotifications(_NotificationService);
 
                     // Sync notification settings
                     _NotificationService!.Enabled = _ConnectionService.GetSettings().Notifications;

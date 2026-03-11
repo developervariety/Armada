@@ -1,6 +1,7 @@
 namespace Armada.Desktop.Views
 {
     using Avalonia.Controls;
+    using Avalonia.Input;
     using Avalonia.Interactivity;
     using Armada.Desktop.Services;
 
@@ -52,6 +53,15 @@ namespace Armada.Desktop.Views
             if (sender is Button button && button.DataContext is ToastNotification toast && _Service != null)
             {
                 _Service.Dismiss(toast);
+            }
+        }
+
+        private void OnToastBodyClick(object? sender, PointerPressedEventArgs e)
+        {
+            if (sender is Border border && border.DataContext is ToastNotification toast)
+            {
+                toast.OnClick?.Invoke();
+                _Service?.Dismiss(toast);
             }
         }
 

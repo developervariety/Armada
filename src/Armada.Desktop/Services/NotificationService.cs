@@ -14,8 +14,8 @@ namespace Armada.Desktop.Services
     {
         #region Private-Members
 
-        private HashSet<string> _SeenCompletedIds = new HashSet<string>();
-        private HashSet<string> _SeenFailedIds = new HashSet<string>();
+        private Dictionary<string, MissionStatusEnum> _SeenMissionStates = new Dictionary<string, MissionStatusEnum>();
+        private Dictionary<string, VoyageStatusEnum> _SeenVoyageStates = new Dictionary<string, VoyageStatusEnum>();
         private HashSet<string> _SeenStalledIds = new HashSet<string>();
         private bool _FirstPoll = true;
         private bool _Enabled = true;
@@ -58,6 +58,16 @@ namespace Armada.Desktop.Services
         /// </summary>
         public event EventHandler<int>? UnreadCountChanged;
 
+        /// <summary>
+        /// Navigation callback for mission toasts. Receives mission ID.
+        /// </summary>
+        public Action<string>? NavigateToMission { get; set; }
+
+        /// <summary>
+        /// Navigation callback for voyage toasts. Receives voyage ID.
+        /// </summary>
+        public Action<string>? NavigateToVoyage { get; set; }
+
         #endregion
 
         #region Public-Methods
@@ -72,11 +82,11 @@ namespace Armada.Desktop.Services
         {
             if (_FirstPoll)
             {
-                // Seed tracking sets on first poll -- don't alert for existing state
-                foreach (Mission m in missions.Where(m => m.Status == MissionStatusEnum.Complete))
-                    _SeenCompletedIds.Add(m.Id);
-                foreach (Mission m in missions.Where(m => m.Status == MissionStatusEnum.Failed))
-                    _SeenFailedIds.Add(m.Id);
+                // Seed tracking on first poll -- don't alert for existing state
+                foreach (Mission m in missions)
+                    _SeenMissionStates[m.Id] = m.Status;
+                foreach (Voyage v in voyages)
+                    _SeenVoyageStates[v.Id] = v.Status;
                 foreach (Captain c in captains.Where(c => c.State == CaptainStateEnum.Stalled))
                     _SeenStalledIds.Add(c.Id);
                 _FirstPoll = false;
@@ -85,32 +95,42 @@ namespace Armada.Desktop.Services
 
             if (!_Enabled) return;
 
-            // Detect new completions
-            foreach (Mission m in missions.Where(m => m.Status == MissionStatusEnum.Complete))
+            // Detect mission state transitions
+            foreach (Mission m in missions)
             {
-                if (_SeenCompletedIds.Add(m.Id))
+                bool isNew = !_SeenMissionStates.TryGetValue(m.Id, out MissionStatusEnum previousStatus);
+                if (isNew || previousStatus != m.Status)
                 {
+                    _SeenMissionStates[m.Id] = m.Status;
+
+                    string capturedMissionId = m.Id;
                     AddNotification(new ToastNotification
                     {
-                        Severity = ToastSeverity.Success,
-                        Title = "Mission Complete",
+                        Severity = GetMissionSeverity(m.Status),
+                        Title = "Mission " + m.Status.ToString(),
                         Message = Truncate(m.Title, 80),
-                        MissionId = m.Id
+                        MissionId = m.Id,
+                        OnClick = () => NavigateToMission?.Invoke(capturedMissionId)
                     });
                 }
             }
 
-            // Detect new failures
-            foreach (Mission m in missions.Where(m => m.Status == MissionStatusEnum.Failed))
+            // Detect voyage state transitions
+            foreach (Voyage v in voyages)
             {
-                if (_SeenFailedIds.Add(m.Id))
+                bool isNew = !_SeenVoyageStates.TryGetValue(v.Id, out VoyageStatusEnum previousStatus);
+                if (isNew || previousStatus != v.Status)
                 {
+                    _SeenVoyageStates[v.Id] = v.Status;
+
+                    string capturedVoyageId = v.Id;
                     AddNotification(new ToastNotification
                     {
-                        Severity = ToastSeverity.Error,
-                        Title = "Mission Failed",
-                        Message = Truncate(m.Title, 80),
-                        MissionId = m.Id
+                        Severity = GetVoyageSeverity(v.Status),
+                        Title = "Voyage " + v.Status.ToString(),
+                        Message = Truncate(v.Title, 80),
+                        VoyageId = v.Id,
+                        OnClick = () => NavigateToVoyage?.Invoke(capturedVoyageId)
                     });
                 }
             }
@@ -136,21 +156,6 @@ namespace Armada.Desktop.Services
                 .ToList();
             foreach (string id in recoveredCaptains)
                 _SeenStalledIds.Remove(id);
-
-            // Check for completed voyages
-            foreach (Voyage v in voyages.Where(v => v.Status == VoyageStatusEnum.Complete))
-            {
-                // Use CompletedUtc to detect newly completed voyages
-                if (v.CompletedUtc.HasValue && (DateTime.UtcNow - v.CompletedUtc.Value).TotalSeconds < 10)
-                {
-                    AddNotification(new ToastNotification
-                    {
-                        Severity = ToastSeverity.Success,
-                        Title = "Voyage Complete",
-                        Message = Truncate(v.Title, 80)
-                    });
-                }
-            }
         }
 
         /// <summary>
@@ -215,13 +220,13 @@ namespace Armada.Desktop.Services
             UnreadCountChanged?.Invoke(this, UnreadCount);
             NotificationAdded?.Invoke(this, toast);
 
-            // Auto-dismiss after 8 seconds
+            // Auto-dismiss after 5 seconds
             _ = AutoDismissAsync(toast);
         }
 
         private async System.Threading.Tasks.Task AutoDismissAsync(ToastNotification toast)
         {
-            await System.Threading.Tasks.Task.Delay(8000).ConfigureAwait(false);
+            await System.Threading.Tasks.Task.Delay(5000).ConfigureAwait(false);
             Avalonia.Threading.Dispatcher.UIThread.Post(() => ActiveToasts.Remove(toast));
         }
 
@@ -230,6 +235,27 @@ namespace Armada.Desktop.Services
             if (string.IsNullOrEmpty(value)) return "";
             if (value.Length <= maxLength) return value;
             return value.Substring(0, maxLength - 3) + "...";
+        }
+
+        private ToastSeverity GetMissionSeverity(MissionStatusEnum status)
+        {
+            return status switch
+            {
+                MissionStatusEnum.Complete => ToastSeverity.Success,
+                MissionStatusEnum.Failed => ToastSeverity.Error,
+                MissionStatusEnum.Cancelled => ToastSeverity.Warning,
+                _ => ToastSeverity.Info
+            };
+        }
+
+        private ToastSeverity GetVoyageSeverity(VoyageStatusEnum status)
+        {
+            return status switch
+            {
+                VoyageStatusEnum.Complete => ToastSeverity.Success,
+                VoyageStatusEnum.Cancelled => ToastSeverity.Warning,
+                _ => ToastSeverity.Info
+            };
         }
 
         #endregion
@@ -260,6 +286,12 @@ namespace Armada.Desktop.Services
 
         /// <summary>Associated captain ID.</summary>
         public string? CaptainId { get; set; }
+
+        /// <summary>Associated voyage ID.</summary>
+        public string? VoyageId { get; set; }
+
+        /// <summary>Navigation callback invoked when the toast body is clicked.</summary>
+        public Action? OnClick { get; set; }
     }
 
     /// <summary>
