@@ -47,6 +47,7 @@ function dashboard() {
         events: [],
         mergeQueue: [],
         healthInfo: null,
+        backupLoading: false,
         serverSettings: null,
         doctorResults: [],
         doctorRunning: false,
@@ -1563,6 +1564,62 @@ function dashboard() {
                 let result = await this.api('POST', '/api/v1/server/reset');
                 this.toast(result.message || 'Factory reset complete', 'success');
             } catch (e) { this.toast('Factory reset failed: ' + e.message, 'error'); }
+        },
+
+        async backupNow() {
+            this.backupLoading = true;
+            try {
+                let opts = { method: 'GET', headers: {} };
+                if (this.apiKey) opts.headers['X-Api-Key'] = this.apiKey;
+                let resp = await fetch(API + '/api/v1/backup', opts);
+                if (!resp.ok) {
+                    let errText = await resp.text();
+                    let errMsg = 'HTTP ' + resp.status;
+                    try { let e = JSON.parse(errText); errMsg = e.Message || e.message || e.Error || e.error || errMsg; } catch (_) { }
+                    throw new Error(errMsg);
+                }
+                let disposition = resp.headers.get('Content-Disposition') || '';
+                let filename = 'armada-backup.zip';
+                let match = disposition.match(/filename="?([^";\s]+)"?/);
+                if (match) filename = match[1];
+                let blob = await resp.blob();
+                let url = URL.createObjectURL(blob);
+                let a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                this.toast('Backup downloaded: ' + filename, 'success');
+            } catch (e) { this.toast('Backup failed: ' + e.message, 'error'); }
+            finally { this.backupLoading = false; }
+        },
+
+        restoreFromBackup() {
+            this.$refs.restoreFileInput.value = '';
+            this.$refs.restoreFileInput.click();
+        },
+
+        async handleRestoreFile(event) {
+            let file = event.target.files[0];
+            if (!file) return;
+            if (!await this.showConfirm('This will replace the current database with the backup. A safety backup will be created first. The server should be restarted after restore. Continue?')) return;
+            try {
+                let formData = new FormData();
+                formData.append('file', file);
+                let opts = { method: 'POST', headers: {}, body: formData };
+                if (this.apiKey) opts.headers['X-Api-Key'] = this.apiKey;
+                let resp = await fetch(API + '/api/v1/restore', opts);
+                if (!resp.ok) {
+                    let errText = await resp.text();
+                    let errMsg = 'HTTP ' + resp.status;
+                    try { let e = JSON.parse(errText); errMsg = e.Message || e.message || e.Error || e.error || errMsg; } catch (_) { }
+                    throw new Error(errMsg);
+                }
+                let result = await resp.json();
+                this.toast(result.Message || result.message || 'Restore complete', 'success');
+            } catch (e) { this.toast('Restore failed: ' + e.message, 'error'); }
         },
 
         getMcpConfigHttp() {

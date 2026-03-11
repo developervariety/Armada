@@ -1369,8 +1369,14 @@
                 <h3 class="settings-section-title">Server Actions</h3>
                 <div class="settings-actions">
                     <button class="btn btn-sm" @click="healthCheck()" title="Run a health check and display the result">Health Check</button>
+                    <button class="btn btn-sm" @click="backupNow()" :disabled="backupLoading" title="Create a backup ZIP of the database and download it">
+                        <span x-show="!backupLoading">Backup Now</span>
+                        <span x-show="backupLoading">Backing up...</span>
+                    </button>
+                    <button class="btn btn-danger btn-sm" @click="restoreFromBackup()" title="Restore the database from a backup ZIP file">Restore from Backup</button>
                     <button class="btn btn-danger btn-sm" @click="stopServer()" title="Shut down the admiral server process">Stop Server</button>
                     <button class="btn btn-danger btn-sm" @click="factoryReset()" title="Delete all data and reset to factory defaults">Factory Reset</button>
+                    <input type="file" x-ref="restoreFileInput" accept=".zip" style="display:none" @change="handleRestoreFile($event)">
                 </div>
             </div>
         </div>
