@@ -157,6 +157,36 @@ namespace Armada.Core.Services
                 return false;
             }
 
+            // Clean up git branches associated with this entry
+            if (!String.IsNullOrEmpty(entry.BranchName))
+            {
+                string? repoPath = await GetRepoPathAsync(entry, token).ConfigureAwait(false);
+                if (!String.IsNullOrEmpty(repoPath))
+                {
+                    // Delete remote branch
+                    try
+                    {
+                        await RunGitAsync(repoPath, "push origin --delete " + entry.BranchName, token).ConfigureAwait(false);
+                        _Logging.Info(_Header + "deleted remote branch " + entry.BranchName);
+                    }
+                    catch (Exception ex)
+                    {
+                        _Logging.Debug(_Header + "remote branch delete for " + entry.BranchName + " skipped: " + ex.Message);
+                    }
+
+                    // Delete local branch
+                    try
+                    {
+                        await _Git.DeleteLocalBranchAsync(repoPath, entry.BranchName, token).ConfigureAwait(false);
+                        _Logging.Info(_Header + "deleted local branch " + entry.BranchName);
+                    }
+                    catch (Exception ex)
+                    {
+                        _Logging.Debug(_Header + "local branch delete for " + entry.BranchName + " skipped: " + ex.Message);
+                    }
+                }
+            }
+
             await _Database.MergeEntries.DeleteAsync(entryId, token).ConfigureAwait(false);
             _Logging.Info(_Header + "deleted " + entryId);
             return true;
