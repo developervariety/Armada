@@ -48,6 +48,18 @@ That's it. Armada auto-initializes, detects your installed agent runtime (Claude
 - **Desktop notifications** -- OS-native alerts when missions complete or fail
 - **Cross-platform** -- Windows, macOS, Linux (C#/.NET)
 
+## Benefits
+
+- **Single pane of glass** -- Monitor and manage all AI agent work across every project from one unified dashboard, eliminating the need to juggle multiple terminals and windows.
+- **Reduced context-switching** -- Full mission history, logs, diffs, and signals are preserved, so you can pick up exactly where you left off without losing your train of thought.
+- **Scale across more projects** -- Dispatch parallel missions across multiple repositories simultaneously, letting you take on more work than a single developer normally could.
+- **Project management meets conversational AI** -- Integrate task tracking, prioritization, and workflow orchestration directly into AI coding agents like Claude Code, bridging the gap between planning and execution.
+- **Safe isolated worktrees** -- Every agent operates in its own git worktree, so parallel work never collides and your main branch stays clean until you're ready to merge.
+- **Automated merge queues** -- Completed missions are queued for merge automatically, reducing manual branch management and keeping your integration pipeline flowing.
+- **Auditable event trails** -- Every mission dispatch, status transition, completion, and failure is recorded in a structured event log you can query at any time.
+- **Reproducible workflows** -- Voyages capture a batch of missions as a reusable unit; retry a failed voyage or re-dispatch it against a new branch with a single command.
+- **Team visibility** -- Real-time WebSocket updates, a REST API, and desktop notifications keep everyone informed of agent progress without polling or asking around.
+
 ## Screenshots
 
 <details>
