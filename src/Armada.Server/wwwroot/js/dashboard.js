@@ -99,6 +99,15 @@ function dashboard() {
         viewerRawText: '',
         viewerLoading: false,
 
+        // Diff viewer state
+        diffViewerOpen: false,
+        diffViewerTitle: '',
+        diffViewerRawDiff: '',
+        diffViewerFiles: [],
+        diffViewerSelectedFile: null,
+        diffViewerLoading: false,
+        diffViewerCopied: false,
+
         // Confirm dialog
         confirmMessage: '',
         confirmResolve: null,
@@ -603,14 +612,143 @@ function dashboard() {
             }).join('\n');
         },
 
+        parseDiffFiles(rawDiff) {
+            if (!rawDiff || rawDiff === 'No changes') return [];
+            let files = [];
+            let lines = rawDiff.split('\n');
+            let currentFile = null;
+            for (let i = 0; i < lines.length; i++) {
+                let line = lines[i];
+                if (line.startsWith('diff --git ')) {
+                    if (currentFile) files.push(currentFile);
+                    let match = line.match(/diff --git a\/(.*?) b\/(.*)/);
+                    let name = match ? match[2] : line.substring(11);
+                    currentFile = { name: name, additions: 0, deletions: 0, startLine: i };
+                } else if (currentFile) {
+                    if (line.startsWith('+') && !line.startsWith('+++')) currentFile.additions++;
+                    else if (line.startsWith('-') && !line.startsWith('---')) currentFile.deletions++;
+                }
+            }
+            if (currentFile) files.push(currentFile);
+            return files;
+        },
+
+        renderFileDiff(rawDiff, fileName) {
+            if (!rawDiff) return '';
+            let lines = rawDiff.split('\n');
+            let inFile = false;
+            let fileLines = [];
+            for (let i = 0; i < lines.length; i++) {
+                let line = lines[i];
+                if (line.startsWith('diff --git ')) {
+                    if (inFile) break;
+                    let match = line.match(/diff --git a\/(.*?) b\/(.*)/);
+                    let name = match ? match[2] : '';
+                    if (name === fileName) inFile = true;
+                }
+                if (inFile) fileLines.push(line);
+            }
+            return this.renderDiffLines(fileLines);
+        },
+
+        renderAllDiffs(rawDiff) {
+            if (!rawDiff) return '';
+            return this.renderDiffLines(rawDiff.split('\n'));
+        },
+
+        renderDiffLines(lines) {
+            let html = '';
+            let oldNum = 0, newNum = 0;
+            for (let i = 0; i < lines.length; i++) {
+                let line = lines[i];
+                let escaped = line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                if (line.startsWith('diff --git ')) {
+                    html += '<div class="diff-file-header">' + escaped + '</div>';
+                } else if (line.startsWith('@@')) {
+                    let hunkMatch = line.match(/@@ -(\d+)/);
+                    if (hunkMatch) { oldNum = parseInt(hunkMatch[1]); }
+                    let newMatch = line.match(/@@ -\d+(?:,\d+)? \+(\d+)/);
+                    if (newMatch) { newNum = parseInt(newMatch[1]); }
+                    html += '<div class="diff-hunk-header">' + escaped + '</div>';
+                } else if (line.startsWith('---') || line.startsWith('+++') || line.startsWith('index ') || line.startsWith('new file') || line.startsWith('deleted file') || line.startsWith('old mode') || line.startsWith('new mode') || line.startsWith('similarity index') || line.startsWith('rename from') || line.startsWith('rename to') || line.startsWith('Binary files')) {
+                    html += '<div class="diff-meta-line">' + escaped + '</div>';
+                } else if (line.startsWith('+')) {
+                    html += '<div class="diff-line diff-line-add"><span class="diff-line-num diff-line-num-old"></span><span class="diff-line-num diff-line-num-new">' + newNum + '</span><span class="diff-line-content">' + escaped + '</span></div>';
+                    newNum++;
+                } else if (line.startsWith('-')) {
+                    html += '<div class="diff-line diff-line-del"><span class="diff-line-num diff-line-num-old">' + oldNum + '</span><span class="diff-line-num diff-line-num-new"></span><span class="diff-line-content">' + escaped + '</span></div>';
+                    oldNum++;
+                } else {
+                    html += '<div class="diff-line diff-line-ctx"><span class="diff-line-num diff-line-num-old">' + (oldNum || '') + '</span><span class="diff-line-num diff-line-num-new">' + (newNum || '') + '</span><span class="diff-line-content">' + escaped + '</span></div>';
+                    if (oldNum) oldNum++;
+                    if (newNum) newNum++;
+                }
+            }
+            return html;
+        },
+
+        openDiffViewer(title, rawDiff) {
+            this.diffViewerTitle = title;
+            this.diffViewerRawDiff = rawDiff;
+            this.diffViewerFiles = this.parseDiffFiles(rawDiff);
+            this.diffViewerSelectedFile = null;
+            this.diffViewerCopied = false;
+            this.diffViewerOpen = true;
+            this.$nextTick(() => {
+                let el = document.getElementById('diff-content-area');
+                if (el) el.innerHTML = this.renderAllDiffs(rawDiff);
+            });
+        },
+
+        closeDiffViewer() {
+            this.diffViewerOpen = false;
+            this.diffViewerRawDiff = '';
+            this.diffViewerFiles = [];
+            this.diffViewerSelectedFile = null;
+        },
+
+        selectDiffFile(fileName) {
+            if (this.diffViewerSelectedFile === fileName) {
+                this.diffViewerSelectedFile = null;
+                this.$nextTick(() => {
+                    let el = document.getElementById('diff-content-area');
+                    if (el) el.innerHTML = this.renderAllDiffs(this.diffViewerRawDiff);
+                });
+            } else {
+                this.diffViewerSelectedFile = fileName;
+                this.$nextTick(() => {
+                    let el = document.getElementById('diff-content-area');
+                    if (el) el.innerHTML = this.renderFileDiff(this.diffViewerRawDiff, fileName);
+                });
+            }
+        },
+
+        copyDiffRaw() {
+            let text = this.diffViewerRawDiff;
+            if (!text) return;
+            let onSuccess = () => {
+                this.diffViewerCopied = true;
+                setTimeout(() => { this.diffViewerCopied = false; }, 2000);
+            };
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(text).then(onSuccess).catch(() => {
+                    this.fallbackCopy(text);
+                    onSuccess();
+                });
+            } else {
+                this.fallbackCopy(text);
+                onSuccess();
+            }
+        },
+
         async loadMissionDiff(missionId) {
             let title = 'Diff: ' + (this.detail ? this.detail.title : missionId);
-            this.viewerTitle = title;
-            this.viewerContent = '';
-            this.viewerRawContent = '';
-            this.viewerIsHtml = true;
-            this.viewerLoading = true;
-            this.modal = 'viewer';
+            this.diffViewerTitle = title;
+            this.diffViewerLoading = true;
+            this.diffViewerOpen = true;
+            this.diffViewerFiles = [];
+            this.diffViewerSelectedFile = null;
+            this.diffViewerRawDiff = '';
             this.detailDiffLoading = true;
             try {
                 let controller = new AbortController();
@@ -632,16 +770,18 @@ function dashboard() {
                 let text = await resp.text();
                 let result = text ? this.toCamel(JSON.parse(text)) : null;
                 let rawDiff = (result && result.diff) ? result.diff : 'No changes';
-                this.viewerRawContent = rawDiff;
-                this.viewerContent = this.formatDiffHtml(rawDiff);
+                this.openDiffViewer(title, rawDiff);
             } catch (e) {
                 let errMsg = e.name === 'AbortError' ? 'Request timed out after 30 seconds' : e.message;
-                this.viewerRawContent = 'Error: ' + errMsg;
-                this.viewerContent = 'Error: ' + errMsg;
-                this.viewerIsHtml = false;
+                this.diffViewerRawDiff = 'Error: ' + errMsg;
+                this.diffViewerFiles = [];
+                this.$nextTick(() => {
+                    let el = document.getElementById('diff-content-area');
+                    if (el) el.textContent = 'Error: ' + errMsg;
+                });
             } finally {
                 this.detailDiffLoading = false;
-                this.viewerLoading = false;
+                this.diffViewerLoading = false;
             }
         },
 
@@ -1507,21 +1647,34 @@ function dashboard() {
             }
         },
         async viewMissionDiff(missionId) {
-            this.openViewer('Loading diff...', '');
+            this.diffViewerTitle = 'Loading diff...';
+            this.diffViewerLoading = true;
+            this.diffViewerOpen = true;
+            this.diffViewerFiles = [];
+            this.diffViewerSelectedFile = null;
+            this.diffViewerRawDiff = '';
             try {
                 let response = await this.api('GET', '/api/v1/missions/' + missionId + '/diff', null, 30000);
                 let diff = response ? this.toCamel(response) : null;
                 if (diff && !diff.error) {
                     let title = 'Mission Diff' + (diff.branch ? ' (' + diff.branch + ')' : '');
-                    this.viewer.title = title;
-                    this.viewer.content = diff.diff || 'No changes';
+                    let rawDiff = diff.diff || 'No changes';
+                    this.openDiffViewer(title, rawDiff);
                 } else {
-                    this.viewer.title = 'Diff Error';
-                    this.viewer.content = (diff && diff.error) || 'Failed to load diff';
+                    this.diffViewerTitle = 'Diff Error';
+                    this.$nextTick(() => {
+                        let el = document.getElementById('diff-content-area');
+                        if (el) el.textContent = (diff && diff.error) || 'Failed to load diff';
+                    });
                 }
             } catch (e) {
-                this.viewer.title = 'Diff Error';
-                this.viewer.content = e.message || 'Request failed';
+                this.diffViewerTitle = 'Diff Error';
+                this.$nextTick(() => {
+                    let el = document.getElementById('diff-content-area');
+                    if (el) el.textContent = e.message || 'Request failed';
+                });
+            } finally {
+                this.diffViewerLoading = false;
             }
         },
         async viewMissionLog(missionId) {
@@ -1583,6 +1736,7 @@ function dashboard() {
         // Keyboard shortcuts
         handleKeyboard(e) {
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+            if (this.diffViewerOpen && e.key === 'Escape') { this.closeDiffViewer(); return; }
             if (this.viewer.open && e.key === 'Escape') { this.closeViewer(); return; }
             if (this.modal) {
                 if (e.key === 'Escape') this.modal = null;

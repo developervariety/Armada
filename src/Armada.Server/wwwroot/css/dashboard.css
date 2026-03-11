@@ -995,6 +995,232 @@ a:hover { text-decoration: underline; }
     background: rgba(248, 113, 113, 0.12);
 }
 
+/* ========== GitHub-style Diff Viewer Modal ========== */
+.diff-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: var(--modal-overlay);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 700;
+    padding: 1rem;
+}
+
+.diff-modal {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    width: 100%;
+    max-width: 96vw;
+    height: 92vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.diff-modal-header {
+    display: flex;
+    align-items: center;
+    padding: 0.75rem 1.25rem;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.diff-modal-header .viewer-title {
+    margin: 0;
+    min-width: 0;
+}
+
+.diff-modal-stats {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    font-size: 0.8rem;
+    margin-right: auto;
+}
+
+.diff-stat-files { color: var(--text-dim); }
+.diff-stat-add { color: var(--green); font-weight: 600; font-family: var(--mono); }
+.diff-stat-del { color: var(--red); font-weight: 600; font-family: var(--mono); }
+
+.diff-modal-body {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+    min-height: 0;
+}
+
+/* File navigator sidebar */
+.diff-file-nav {
+    width: 280px;
+    min-width: 200px;
+    max-width: 360px;
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    flex-shrink: 0;
+    background: var(--bg);
+}
+
+.diff-file-nav-header {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    background: var(--bg);
+    z-index: 1;
+}
+
+.diff-file-nav-item {
+    display: flex;
+    flex-direction: column;
+    padding: 0.45rem 0.75rem;
+    cursor: pointer;
+    border-bottom: 1px solid var(--border);
+    transition: background 0.1s;
+    position: relative;
+}
+
+.diff-file-nav-item:hover { background: var(--bg-hover); }
+.diff-file-nav-item.active {
+    background: var(--bg-hover);
+    border-left: 3px solid var(--accent);
+    padding-left: calc(0.75rem - 3px);
+}
+
+.diff-file-nav-name {
+    font-size: 0.82rem;
+    font-weight: 500;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.diff-file-nav-path {
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.diff-file-nav-counts {
+    display: flex;
+    gap: 0.4rem;
+    font-size: 0.72rem;
+    font-family: var(--mono);
+    margin-top: 0.15rem;
+}
+
+.diff-file-nav-add { color: var(--green); font-weight: 600; }
+.diff-file-nav-del { color: var(--red); font-weight: 600; }
+
+/* Diff content area */
+.diff-content-wrap {
+    flex: 1;
+    overflow: auto;
+    min-width: 0;
+    background: var(--diff-bg);
+}
+
+.diff-content-area {
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    line-height: 1.5;
+}
+
+/* Diff file header (diff --git line) */
+.diff-file-header {
+    padding: 0.5rem 1rem;
+    background: var(--bg-hover);
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    font-weight: 600;
+    color: var(--text);
+    font-size: 0.8rem;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+}
+
+/* Hunk header (@@ lines) */
+.diff-hunk-header {
+    padding: 0.3rem 1rem;
+    background: var(--bg);
+    color: var(--accent);
+    border-bottom: 1px solid var(--border);
+    font-size: 0.78rem;
+}
+
+/* Meta lines (---, +++, index, etc.) */
+.diff-meta-line {
+    padding: 0.1rem 1rem;
+    color: var(--text-dim);
+    font-size: 0.78rem;
+}
+
+/* Individual diff lines */
+.diff-line {
+    display: flex;
+    min-height: 1.5em;
+}
+
+.diff-line-num {
+    display: inline-block;
+    width: 50px;
+    min-width: 50px;
+    text-align: right;
+    padding: 0 0.5rem;
+    color: var(--text-dim);
+    opacity: 0.5;
+    user-select: none;
+    font-size: 0.75rem;
+    border-right: 1px solid var(--border);
+    flex-shrink: 0;
+}
+
+.diff-line-num-old { border-right: none; }
+
+.diff-line-content {
+    flex: 1;
+    padding: 0 0.75rem;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    min-width: 0;
+}
+
+.diff-line.diff-line-add {
+    background: rgba(34, 197, 94, 0.1);
+}
+
+.diff-line.diff-line-add .diff-line-content { color: var(--text); }
+
+.diff-line.diff-line-del {
+    background: rgba(239, 68, 68, 0.1);
+}
+
+.diff-line.diff-line-del .diff-line-content { color: var(--text); }
+
+.diff-line.diff-line-ctx {
+    background: transparent;
+}
+
+[data-theme="dark"] .diff-line.diff-line-add {
+    background: rgba(34, 197, 94, 0.08);
+}
+
+[data-theme="dark"] .diff-line.diff-line-del {
+    background: rgba(248, 113, 113, 0.08);
+}
+
 /* Responsive */
 @media (max-width: 768px) {
     .header { flex-wrap: wrap; gap: 0.5rem; }
@@ -1008,4 +1234,9 @@ a:hover { text-decoration: underline; }
     .viewer-overlay { padding: 0.5rem; }
     .viewer-modal { max-width: 100vw; height: 95vh; }
     .viewer-header { flex-wrap: wrap; }
+    .diff-modal-overlay { padding: 0.25rem; }
+    .diff-modal { max-width: 100vw; height: 96vh; }
+    .diff-modal-body { flex-direction: column; }
+    .diff-file-nav { width: 100%; max-width: 100%; max-height: 30vh; border-right: none; border-bottom: 1px solid var(--border); }
+    .diff-modal-header { flex-wrap: wrap; }
 }

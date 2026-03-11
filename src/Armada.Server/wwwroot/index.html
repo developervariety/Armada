@@ -1523,6 +1523,55 @@
         </div>
     </div>
 
+    <!-- ========== Diff Viewer Modal (GitHub-style two-pane diff) ========== -->
+    <div class="diff-modal-overlay" x-show="diffViewerOpen" @click.self="closeDiffViewer()" x-cloak
+         x-transition:enter="viewer-enter" x-transition:leave="viewer-leave">
+        <div class="diff-modal">
+            <div class="diff-modal-header">
+                <h3 class="viewer-title" x-text="diffViewerTitle"></h3>
+                <div class="diff-modal-stats" x-show="diffViewerFiles.length > 0">
+                    <span class="diff-stat-files" x-text="diffViewerFiles.length + ' file' + (diffViewerFiles.length !== 1 ? 's' : '') + ' changed'"></span>
+                    <span class="diff-stat-add" x-text="'+' + diffViewerFiles.reduce((s, f) => s + f.additions, 0)"></span>
+                    <span class="diff-stat-del" x-text="'-' + diffViewerFiles.reduce((s, f) => s + f.deletions, 0)"></span>
+                </div>
+                <div class="viewer-actions">
+                    <button class="btn btn-sm" @click="copyDiffRaw()"
+                            x-text="diffViewerCopied ? 'Copied!' : 'Copy Raw'"
+                            :class="{ 'viewer-copied': diffViewerCopied }"
+                            title="Copy raw diff to clipboard"></button>
+                    <button class="btn btn-sm" @click="closeDiffViewer()" title="Close diff viewer (Esc)">Close</button>
+                </div>
+            </div>
+            <div class="diff-modal-body">
+                <!-- File navigator sidebar -->
+                <div class="diff-file-nav" x-show="diffViewerFiles.length > 0">
+                    <div class="diff-file-nav-header">Files</div>
+                    <template x-for="f in diffViewerFiles" :key="f.name">
+                        <div class="diff-file-nav-item" :class="{ active: diffViewerSelectedFile === f.name }"
+                             @click="selectDiffFile(f.name)" :title="f.name">
+                            <span class="diff-file-nav-name" x-text="f.name.split('/').pop()"></span>
+                            <span class="diff-file-nav-path" x-text="f.name.includes('/') ? f.name.substring(0, f.name.lastIndexOf('/') + 1) : ''"></span>
+                            <span class="diff-file-nav-counts">
+                                <span class="diff-file-nav-add" x-show="f.additions > 0" x-text="'+' + f.additions"></span>
+                                <span class="diff-file-nav-del" x-show="f.deletions > 0" x-text="'-' + f.deletions"></span>
+                            </span>
+                        </div>
+                    </template>
+                </div>
+                <!-- Diff content area -->
+                <div class="diff-content-wrap">
+                    <template x-if="diffViewerLoading">
+                        <div style="display:flex;align-items:center;gap:0.5rem;padding:1.5rem">
+                            <span class="spinner" style="width:16px;height:16px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;display:inline-block;animation:spin 0.8s linear infinite"></span>
+                            <span class="text-dim">Loading diff...</span>
+                        </div>
+                    </template>
+                    <div id="diff-content-area" class="diff-content-area" x-show="!diffViewerLoading"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="/dashboard/js/dashboard.js"></script>
 </body>
 </html>
