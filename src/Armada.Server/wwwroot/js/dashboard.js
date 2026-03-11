@@ -1668,9 +1668,7 @@ function dashboard() {
             if (!file) return;
             if (!await this.showConfirm('This will replace the current database with the backup. A safety backup will be created first. The server should be restarted after restore. Continue?')) return;
             try {
-                let formData = new FormData();
-                formData.append('file', file);
-                let opts = { method: 'POST', headers: {}, body: formData };
+                let opts = { method: 'POST', headers: { 'Content-Type': 'application/zip', 'X-Original-Filename': file.name }, body: file };
                 if (this.apiKey) opts.headers['X-Api-Key'] = this.apiKey;
                 let resp = await fetch(API + '/api/v1/restore', opts);
                 if (!resp.ok) {

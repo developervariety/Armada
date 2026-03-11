@@ -1288,7 +1288,14 @@ curl -H "X-Api-Key: your-key" http://localhost:7890/api/v1/backup -o backup.zip
 
 Restore Armada from a previously created backup ZIP file.
 
-**Request:** Binary ZIP file in the request body (`Content-Type: application/octet-stream`).
+**Request:** Binary ZIP file in the request body (`Content-Type: application/zip`).
+
+**Headers:**
+
+| Header | Required | Description |
+|---|---|---|
+| `Content-Type` | Yes | `application/zip` |
+| `X-Original-Filename` | No | Original filename of the uploaded backup (used in the response message). If omitted, the server's temp filename is used. |
 
 **Validation:**
 - ZIP must contain `armada.db` with a valid `schema_migrations` table
@@ -1301,7 +1308,7 @@ Restore Armada from a previously created backup ZIP file.
   "Status": "restored",
   "SafetyBackupPath": "~/.armada/backups/armada-safety-backup-20260311T120000Z.zip",
   "SchemaVersion": 9,
-  "Message": "Server restart recommended"
+  "Message": "Database restored from backup.zip. Restart the server to reload the restored data."
 }
 ```
 
@@ -1309,12 +1316,13 @@ Restore Armada from a previously created backup ZIP file.
 
 ```bash
 curl -X POST -H "X-Api-Key: your-key" \
-  -H "Content-Type: application/octet-stream" \
+  -H "Content-Type: application/zip" \
+  -H "X-Original-Filename: backup.zip" \
   --data-binary @backup.zip \
   http://localhost:7890/api/v1/restore
 ```
 
-> **Note:** A server restart is recommended after restoring to ensure all in-memory state is refreshed.
+> **Note:** Restart the server after restoring to ensure all in-memory state is refreshed.
 
 ---
 

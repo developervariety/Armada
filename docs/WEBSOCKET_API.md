@@ -1746,12 +1746,12 @@ Restore Armada from a previously created backup ZIP file.
     "Status": "restored",
     "SafetyBackupPath": "~/.armada/backups/armada-safety-backup-20260311T120000Z.zip",
     "SchemaVersion": 9,
-    "Message": "Server restart recommended"
+    "Message": "Database restored from armada-backup-20260311T120000Z.zip. Restart the server to reload the restored data."
   }
 }
 ```
 
-> **Note:** A safety backup is automatically created before overwriting. A server restart is recommended after restoring.
+> **Note:** A safety backup is automatically created before overwriting. Restart the server after restoring.
 
 ---
 

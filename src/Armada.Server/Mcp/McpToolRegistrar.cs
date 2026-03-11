@@ -1645,7 +1645,7 @@ namespace Armada.Server.Mcp
         /// <summary>
         /// Restore the database and settings from a ZIP backup file.
         /// </summary>
-        internal static async Task<object> PerformRestoreAsync(DatabaseDriver database, ArmadaSettings settings, string filePath)
+        internal static async Task<object> PerformRestoreAsync(DatabaseDriver database, ArmadaSettings settings, string filePath, string? originalFilename = null)
         {
             if (!File.Exists(filePath))
                 throw new FileNotFoundException("Backup file not found: " + filePath);
@@ -1721,10 +1721,11 @@ namespace Armada.Server.Mcp
                     schemaVersion = await sqliteDriver.GetSchemaVersionAsync().ConfigureAwait(false);
                 }
 
-                string message = "Database restored successfully from " + filePath + ". ";
+                string displayName = !String.IsNullOrEmpty(originalFilename) ? originalFilename : Path.GetFileName(filePath);
+                string message = "Database restored from " + displayName + ". ";
                 if (!settingsRestored)
                     message += "Warning: settings.json was not found in the backup ZIP. ";
-                message += "Server restart is recommended to reload the restored data.";
+                message += "Restart the server to reload the restored data.";
 
                 return new
                 {

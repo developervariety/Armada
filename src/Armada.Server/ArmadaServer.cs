@@ -1880,7 +1880,8 @@ namespace Armada.Server
                 try
                 {
                     await File.WriteAllBytesAsync(tempZipPath, body).ConfigureAwait(false);
-                    object result = await McpToolRegistrar.PerformRestoreAsync(_Database, _Settings, tempZipPath).ConfigureAwait(false);
+                    string? originalFilename = req.Http.Request.Headers.Get("X-Original-Filename");
+                    object result = await McpToolRegistrar.PerformRestoreAsync(_Database, _Settings, tempZipPath, originalFilename).ConfigureAwait(false);
                     return result;
                 }
                 finally
