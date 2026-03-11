@@ -52,6 +52,7 @@
             <button :class="{ active: view === 'missions' }" @click="navigate('missions'); loadMissions()" title="Individual work units assigned to captains">Missions</button>
             <button :class="{ active: view === 'signals' }" @click="navigate('signals')" title="Messages exchanged between the admiral and captains">Signals</button>
             <button :class="{ active: view === 'events' }" @click="navigate('events')" title="System event log of state changes and activity">Events</button>
+            <button :class="{ active: view === 'notifications' }" @click="navigate('notifications')" title="Notification history for state changes" style="position: relative;">Notifications<span x-show="unreadNotificationCount > 0" class="notif-badge" x-text="unreadNotificationCount"></span></button>
             <button :class="{ active: view === 'merge-queue' }" @click="navigate('merge-queue')" title="Completed mission branches awaiting merge into main">Merge Queue</button>
             <button :class="{ active: view === 'server' }" @click="navigate('server')" title="Admiral server health, configuration, and controls">Server</button>
         </nav>
@@ -1166,6 +1167,38 @@
                 </table>
             </div>
             <p class="text-dim" x-show="mergeQueue.length === 0">Merge queue is empty.</p>
+        </div>
+
+        <!-- ========== Notifications View ========== -->
+        <div x-show="view === 'notifications' && !detailView" class="view">
+            <div class="view-header">
+                <div>
+                    <h2>Notifications</h2>
+                    <p class="text-dim view-subtitle">History of state change notifications for missions, voyages, and captains.</p>
+                </div>
+                <div class="view-actions">
+                    <button class="btn btn-sm" @click="markAllNotificationsRead()" :disabled="unreadNotificationCount === 0" title="Mark all notifications as read">Mark All Read</button>
+                    <button class="btn btn-sm btn-danger" @click="clearNotificationHistory()" :disabled="notificationHistory.length === 0" title="Clear all notification history">Clear History</button>
+                </div>
+            </div>
+            <div x-show="notificationHistory.length > 0" class="table-wrap">
+                <table>
+                    <thead><tr><th style="width: 2.5rem;"></th><th>Title</th><th>Message</th><th>Time</th></tr></thead>
+                    <tbody>
+                        <template x-for="ntf in notificationHistory" :key="ntf.id">
+                            <tr class="clickable" :class="{ 'notif-unread': !ntf.read }" @click="markNotificationRead(ntf)">
+                                <td>
+                                    <span class="notif-severity-dot" :class="'notif-' + ntf.severity"></span>
+                                </td>
+                                <td :style="!ntf.read ? 'font-weight: 600;' : ''" x-text="ntf.title"></td>
+                                <td x-text="ntf.message"></td>
+                                <td class="text-dim" x-text="formatTime(ntf.timestampUtc)" :title="formatTimeAbsolute(ntf.timestampUtc)" style="white-space: nowrap;"></td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
+            <p class="text-dim" x-show="notificationHistory.length === 0">No notifications yet. State changes for missions, voyages, and captains will appear here.</p>
         </div>
 
         <!-- ========== Server View ========== -->

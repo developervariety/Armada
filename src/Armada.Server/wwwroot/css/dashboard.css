@@ -730,6 +730,40 @@ tr.clickable { cursor: pointer; }
     to { opacity: 1; transform: translateX(0); }
 }
 
+/* Notification badge */
+.notif-badge {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    background: var(--red);
+    color: #fff;
+    font-size: 0.65rem;
+    font-weight: 700;
+    min-width: 16px;
+    height: 16px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 4px;
+    line-height: 1;
+}
+
+/* Notification history */
+.notif-unread td { background: var(--bg-hover); }
+
+.notif-severity-dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--accent);
+}
+.notif-severity-dot.notif-success { background: var(--green); }
+.notif-severity-dot.notif-error { background: var(--red); }
+.notif-severity-dot.notif-warning { background: var(--yellow); }
+.notif-severity-dot.notif-info { background: var(--accent); }
+
 /* Links */
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }

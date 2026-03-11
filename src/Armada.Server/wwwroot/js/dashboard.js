@@ -32,6 +32,10 @@ function dashboard() {
         toastCounter: 0,
         _lastSeenStates: {},
 
+        // Notification history
+        notificationHistory: [],
+        unreadNotificationCount: 0,
+
         // Data
         status: {},
         fleets: [],
@@ -949,13 +953,66 @@ function dashboard() {
             if (this._lastSeenStates[key] === newStatus) return;
             this._lastSeenStates[key] = newStatus;
             let label = name || id;
-            let message = assetType + ' "' + label + '" — ' + newStatus;
+            let truncatedLabel = label.length > 80 ? label.substring(0, 80) + '...' : label;
+            let title = assetType + ' ' + newStatus;
+            let message = assetType + ' "' + truncatedLabel + '" — ' + newStatus;
             let severity = this._stateToastSeverity(newStatus);
-            let detailView = assetType === 'Mission' ? 'mission-detail' : 'voyage-detail';
-            let parentView = assetType === 'Mission' ? 'missions' : 'voyages';
+            let detailView = assetType === 'Mission' ? 'mission-detail' : (assetType === 'Voyage' ? 'voyage-detail' : 'captain-detail');
+            let parentView = assetType === 'Mission' ? 'missions' : (assetType === 'Voyage' ? 'voyages' : 'captains');
             this.toast(message, severity, () => {
                 this.navigate(parentView, detailView, id);
             });
+            this._pushNotification({
+                severity: severity,
+                title: title,
+                message: message,
+                missionId: assetType === 'Mission' ? id : null,
+                voyageId: assetType === 'Voyage' ? id : null,
+                captainId: assetType === 'Captain' ? id : null,
+            });
+        },
+
+        _pushNotification(opts) {
+            let notification = {
+                id: 'ntf_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6),
+                severity: opts.severity || 'info',
+                title: opts.title || '',
+                message: opts.message || '',
+                timestampUtc: new Date().toISOString(),
+                missionId: opts.missionId || null,
+                voyageId: opts.voyageId || null,
+                captainId: opts.captainId || null,
+                read: false,
+            };
+            this.notificationHistory.unshift(notification);
+            if (this.notificationHistory.length > 100) {
+                this.notificationHistory = this.notificationHistory.slice(0, 100);
+            }
+            this.unreadNotificationCount = this.notificationHistory.filter(n => !n.read).length;
+        },
+
+        markNotificationRead(notification) {
+            if (!notification.read) {
+                notification.read = true;
+                this.unreadNotificationCount = this.notificationHistory.filter(n => !n.read).length;
+            }
+            if (notification.missionId) {
+                this.navigate('missions', 'mission-detail', notification.missionId);
+            } else if (notification.voyageId) {
+                this.navigate('voyages', 'voyage-detail', notification.voyageId);
+            } else if (notification.captainId) {
+                this.navigate('captains', 'captain-detail', notification.captainId);
+            }
+        },
+
+        markAllNotificationsRead() {
+            this.notificationHistory.forEach(n => n.read = true);
+            this.unreadNotificationCount = 0;
+        },
+
+        clearNotificationHistory() {
+            this.notificationHistory = [];
+            this.unreadNotificationCount = 0;
         },
 
         // ============================================================
