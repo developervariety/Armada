@@ -17,15 +17,18 @@
                         <Border Grid.Column="0" Width="4" CornerRadius="2" Margin="0,0,10,0"
                                 VerticalAlignment="Stretch" x:Name="SeverityBar" />
 
-                        <!-- Content -->
-                        <StackPanel Grid.Column="1" Spacing="2">
-                            <TextBlock Text="{Binding Title}" FontSize="12" FontWeight="SemiBold"
-                                       Foreground="{DynamicResource TextPrimaryBrush}" />
-                            <TextBlock Text="{Binding Message}" FontSize="11"
-                                       Foreground="{DynamicResource TextSecondaryBrush}" TextTrimming="CharacterEllipsis" />
-                            <TextBlock Text="{Binding TimestampText}" FontSize="9"
-                                       Foreground="{DynamicResource TextDimBrush}" />
-                        </StackPanel>
+                        <!-- Clickable content area -->
+                        <Border Grid.Column="1" Background="Transparent" Cursor="Hand"
+                                PointerPressed="OnToastBodyClick">
+                            <StackPanel Spacing="2">
+                                <TextBlock Text="{Binding Title}" FontSize="12" FontWeight="SemiBold"
+                                           Foreground="{DynamicResource TextPrimaryBrush}" />
+                                <TextBlock Text="{Binding Message}" FontSize="11"
+                                           Foreground="{DynamicResource TextSecondaryBrush}" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{Binding TimestampText}" FontSize="9"
+                                           Foreground="{DynamicResource TextDimBrush}" />
+                            </StackPanel>
+                        </Border>
 
                         <!-- Dismiss button -->
                         <Button Grid.Column="2" Content="X" FontSize="10"

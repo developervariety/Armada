@@ -3,6 +3,48 @@
 You are an Armada captain executing a mission. Follow these instructions carefully.
 
 ## Mission
+- **Title:** Desktop App: Toast notifications for voyage/mission state changes
+- **ID:** msn_mmlflbln_eTosTykrhEm
+- **Voyage:** vyg_mmlfl8mu_aru5OxnrPkC
+
+## Description
+In the Avalonia desktop application (src/Armada.Desktop/), enhance the existing DesktopNotificationService and ToastOverlay to show a toast on every voyage or mission state change. Requirements:
+
+1. **Auto-dismiss in 5 seconds** — change the current 8-second timeout to 5 seconds.
+2. **Dismissable via X button** — verify the existing X button works correctly on the ToastOverlay.
+3. **No duplicate notifications** — the existing ProcessUpdate() in NotificationService.cs already tracks completed/failed missions and stalled captains via HashSets. Expand this tracking to cover ALL mission state transitions (Pending, Assigned, InProgress, Testing, Review, Complete, Failed, Cancelled) and voyage state changes. Ensure no duplicate toasts fire for the same state transition. Integrate cleanly with the existing tracking so today's notifications (completion, failure, stall) are not duplicated.
+4. **Click-to-navigate** — clicking the body of a toast (not the X) should navigate the user to the relevant view in the desktop app. For mission state changes, navigate to the mission detail or mission list filtered to that mission. For voyage state changes, navigate to the voyage detail view. This will require adding a navigation callback or command to the ToastNotification model and wiring it through the ToastOverlay.axaml click handler.
+5. **Tasteful and simple styling** — ensure toasts are minimal and clean. Use appropriate severity levels (Info for in-progress transitions, Success for completions, Error for failures, Warning for stalls/cancellations).
+6. **Toast content** — include the asset type (Mission/Voyage), its name or title, and the new state in the toast message.
+
+Key files: src/Armada.Desktop/Services/NotificationService.cs, src/Armada.Desktop/Views/ToastOverlay.axaml, src/Armada.Desktop/Views/ToastOverlay.axaml.cs, src/Armada.Desktop/App.axaml.cs, src/Armada.Desktop/ViewModels/MainWindowViewModel.cs
+
+## Repository
+- **Name:** Armada
+- **Branch:** armada/claude-code-3/msn_mmlflbln_eTosTykrhEm
+- **Default Branch:** main
+
+## Rules
+- Work only within this worktree directory
+- Commit all changes to the current branch
+- Commit and push your changes — the Admiral will also push if needed
+- If you encounter a blocking issue, commit what you have and exit
+- Exit with code 0 on success
+
+## Progress Signals (Optional)
+You can report progress to the Admiral by printing these lines to stdout:
+- `[ARMADA:PROGRESS] 50` — report completion percentage (0-100)
+- `[ARMADA:STATUS] Testing` — transition mission to Testing status
+- `[ARMADA:STATUS] Review` — transition mission to Review status
+- `[ARMADA:MESSAGE] your message here` — send a progress message
+
+## Existing Project Instructions
+
+# Mission Instructions
+
+You are an Armada captain executing a mission. Follow these instructions carefully.
+
+## Mission
 - **Title:** Fix mission completion detection for parallel captains
 - **ID:** msn_mmjhcaqw_1AQywwoIOUm
 
