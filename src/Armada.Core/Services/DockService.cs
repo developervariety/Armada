@@ -118,8 +118,7 @@ namespace Armada.Core.Services
 
                             if (Directory.Exists(existingDir))
                             {
-                                try { Directory.Delete(existingDir, recursive: true); }
-                                catch { }
+                                await ForceRemoveDirectoryAsync(existingDir, token).ConfigureAwait(false);
                             }
 
                             // Re-prune after removing stale worktrees
@@ -143,18 +142,17 @@ namespace Armada.Core.Services
                         {
                             await _Git.RemoveWorktreeAsync(worktreePath, token).ConfigureAwait(false);
                         }
-                        catch { }
+                        catch (Exception rmEx)
+                        {
+                            _Logging.Warn(_Header + "git worktree remove failed for " + worktreePath + ": " + rmEx.Message);
+                        }
                     }
                     else
                     {
                         _Logging.Debug(_Header + "removing unregistered dock directory: " + worktreePath);
                     }
 
-                    if (Directory.Exists(worktreePath))
-                    {
-                        try { Directory.Delete(worktreePath, recursive: true); }
-                        catch { }
-                    }
+                    await ForceRemoveDirectoryAsync(worktreePath, token).ConfigureAwait(false);
                 }
 
                 // Delete stale branch only if it actually exists
@@ -189,8 +187,7 @@ namespace Armada.Core.Services
                 // Clean up partial state — remove worktree directory if it was partially created
                 if (Directory.Exists(worktreePath))
                 {
-                    try { Directory.Delete(worktreePath, recursive: true); }
-                    catch { }
+                    await ForceRemoveDirectoryAsync(worktreePath, CancellationToken.None).ConfigureAwait(false);
                 }
 
                 return null;
@@ -216,6 +213,10 @@ namespace Armada.Core.Services
                 {
                     _Logging.Warn(_Header + "error removing worktree for dock " + dockId + ": " + ex.Message);
                 }
+
+                // Ensure the directory is actually removed — on Windows, file handles
+                // from the just-exited agent process can linger and block deletion.
+                await ForceRemoveDirectoryAsync(dock.WorktreePath, token).ConfigureAwait(false);
             }
         }
 
@@ -231,6 +232,60 @@ namespace Armada.Core.Services
             {
                 await _Git.RepairWorktreeAsync(dock.WorktreePath, token).ConfigureAwait(false);
                 _Logging.Info(_Header + "repaired dock " + dockId);
+            }
+        }
+
+        #endregion
+
+        #region Private-Methods
+
+        /// <summary>
+        /// Forcefully remove a directory with retry logic to handle locked files.
+        /// On Windows, file handles from recently-exited processes can linger and
+        /// cause Directory.Delete to fail. This method retries with increasing delays
+        /// to give the OS time to release handles.
+        /// </summary>
+        private async Task ForceRemoveDirectoryAsync(string path, CancellationToken token)
+        {
+            const int maxAttempts = 5;
+            int[] delayMs = { 0, 500, 1000, 2000, 3000 };
+
+            for (int attempt = 0; attempt < maxAttempts; attempt++)
+            {
+                if (!Directory.Exists(path)) return;
+
+                if (attempt > 0)
+                {
+                    _Logging.Debug(_Header + "retry " + attempt + "/" + (maxAttempts - 1) + " removing directory: " + path);
+                    await Task.Delay(delayMs[attempt], token).ConfigureAwait(false);
+                }
+
+                try
+                {
+                    // Clear read-only attributes that can block deletion on Windows
+                    foreach (string file in Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories))
+                    {
+                        try
+                        {
+                            FileAttributes attrs = File.GetAttributes(file);
+                            if ((attrs & FileAttributes.ReadOnly) != 0)
+                                File.SetAttributes(file, attrs & ~FileAttributes.ReadOnly);
+                        }
+                        catch { }
+                    }
+
+                    Directory.Delete(path, recursive: true);
+                }
+                catch (Exception ex) when (attempt < maxAttempts - 1)
+                {
+                    _Logging.Debug(_Header + "directory delete attempt " + (attempt + 1) + " failed for " + path + ": " + ex.Message);
+                    continue;
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "failed to remove directory after " + maxAttempts + " attempts: " + path + ": " + ex.Message);
+                    return;
+                }
             }
         }
 

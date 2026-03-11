@@ -307,6 +307,7 @@ namespace Armada.Core.Services
             {
                 Func<Mission, Dock, Task> handler = OnMissionComplete;
                 string completionMissionId = mission.Id;
+                string? completionDockId = dock.Id;
                 _Logging.Info(_Header + "queuing background merge/push for mission " + completionMissionId);
 
                 Task completionTask = Task.Run(async () =>
@@ -322,10 +323,36 @@ namespace Armada.Core.Services
                     finally
                     {
                         _InFlightCompletions.TryRemove(completionMissionId, out _);
+
+                        // Reclaim the dock (remove worktree directory) now that push/PR is done.
+                        // This prevents stale directories from blocking future provisioning.
+                        if (!String.IsNullOrEmpty(completionDockId))
+                        {
+                            try
+                            {
+                                await _Docks.ReclaimAsync(completionDockId, CancellationToken.None).ConfigureAwait(false);
+                            }
+                            catch (Exception reclaimEx)
+                            {
+                                _Logging.Warn(_Header + "error reclaiming dock " + completionDockId + " after mission " + completionMissionId + ": " + reclaimEx.Message);
+                            }
+                        }
                     }
                 });
 
                 _InFlightCompletions.TryAdd(completionMissionId, completionTask);
+            }
+            else if (dock != null)
+            {
+                // No completion handler — reclaim the dock immediately
+                try
+                {
+                    await _Docks.ReclaimAsync(dock.Id, token).ConfigureAwait(false);
+                }
+                catch (Exception reclaimEx)
+                {
+                    _Logging.Warn(_Header + "error reclaiming dock " + dock.Id + " after mission " + mission.Id + ": " + reclaimEx.Message);
+                }
             }
 
             // Log completion signal
