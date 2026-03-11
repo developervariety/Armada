@@ -443,7 +443,7 @@ tr.clickable { cursor: pointer; }
     font-family: var(--mono);
     font-size: 0.8rem;
     line-height: 1.6;
-    overflow-x: auto;
+    overflow-x: hidden;
     max-height: 500px;
     overflow-y: auto;
     white-space: pre-wrap;
@@ -459,7 +459,7 @@ tr.clickable { cursor: pointer; }
     font-family: var(--mono);
     font-size: 0.8rem;
     line-height: 1.6;
-    overflow-x: auto;
+    overflow-x: hidden;
     max-height: 400px;
     overflow-y: auto;
     white-space: pre-wrap;
@@ -965,7 +965,8 @@ a:hover { text-decoration: underline; }
     font-family: var(--mono);
     font-size: 0.8rem;
     line-height: 1.6;
-    white-space: pre;
+    white-space: pre-wrap;
+    word-wrap: break-word;
     color: var(--text);
     margin: 0;
     background: var(--diff-bg);

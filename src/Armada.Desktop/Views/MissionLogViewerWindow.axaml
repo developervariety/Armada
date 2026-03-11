@@ -38,11 +38,11 @@
 
         <!-- Log content -->
         <Border Grid.Row="1" Margin="8" Background="{DynamicResource SurfaceMidBrush}" CornerRadius="4" Padding="8">
-            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
                           x:Name="LogScroller">
                 <TextBlock Text="{Binding LogContent}" FontFamily="Consolas,Courier New,monospace"
                            FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}"
-                           TextWrapping="NoWrap" />
+                           TextWrapping="Wrap" />
             </ScrollViewer>
         </Border>
     </Grid>
