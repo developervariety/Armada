@@ -783,7 +783,6 @@
                             <th class="sortable" @click="sortBy('name', captains)" title="Captain name and unique identifier — click to sort">Name<span x-text="sortIcon('name')"></span></th>
                             <th class="sortable" @click="sortBy('state', captains)" title="Idle, Working, or Stalled — click to sort">State<span x-text="sortIcon('state')"></span></th>
                             <th title="AI agent runtime type (e.g. Claude Code, Codex)">Runtime</th>
-                            <th title="Maximum concurrent missions this captain can handle">Parallel</th>
                             <th title="Currently assigned mission, if any">Mission</th>
                             <th title="Operating system process ID of the captain agent">PID</th>
                             <th title="Last time this captain reported activity">Heartbeat</th>
@@ -799,7 +798,6 @@
                                 </td>
                                 <td><span class="tag" :class="(cpt.state || '').toLowerCase()" x-text="cpt.state" :title="statusTooltip(cpt.state)"></span></td>
                                 <td x-text="cpt.runtime || 'ClaudeCode'"></td>
-                                <td x-text="cpt.maxParallelism ?? 1"></td>
                                 <td>
                                     <span x-show="cpt.currentMissionId" class="id-display"><a class="mono" href="#" @click.prevent="navigate('missions', 'mission-detail', cpt.currentMissionId)" x-text="cpt.currentMissionId"></a><button class="copy-btn" @click.stop="copyId(cpt.currentMissionId, $event)" title="Copy ID"></button></span>
                                     <span x-show="!cpt.currentMissionId">-</span>
@@ -829,7 +827,7 @@
                     <div class="detail-header">
                         <h2 x-text="detail.name"></h2>
                         <div class="inline-actions">
-                            <button class="btn btn-sm" @click="openEditCaptain(detail)" title="Edit captain name, runtime, and parallelism">Edit</button>
+                            <button class="btn btn-sm" @click="openEditCaptain(detail)" title="Edit captain name and runtime">Edit</button>
                             <button class="btn btn-sm btn-danger" @click="recallCaptain(detail.id)"
                                 x-show="detail.state === 'Working' || detail.state === 'Stalled'" title="Stop this captain's current process">Stop</button>
                             <button class="btn btn-sm btn-danger" @click="removeCaptain(detail.id)"
@@ -840,7 +838,6 @@
                         <div class="detail-field"><span class="detail-label">ID</span><span class="id-display"><span class="mono" x-text="detail.id"></span><button class="copy-btn" @click.stop="copyId(detail.id, $event)" title="Copy ID"></button></span></div>
                         <div class="detail-field"><span class="detail-label">State</span><span class="tag" :class="(detail.state || '').toLowerCase()" x-text="detail.state" :title="statusTooltip(detail.state)"></span></div>
                         <div class="detail-field"><span class="detail-label">Runtime</span><span x-text="detail.runtime || 'ClaudeCode'"></span></div>
-                        <div class="detail-field"><span class="detail-label">Max Parallelism</span><span x-text="detail.maxParallelism ?? 1"></span></div>
                         <div class="detail-field"><span class="detail-label">Process ID</span><span x-text="detail.processId || '-'"></span></div>
                         <div class="detail-field"><span class="detail-label">Current Mission</span>
                             <span x-show="detail.currentMissionId" class="id-display"><a class="mono" href="#" @click.prevent="navigate('missions', 'mission-detail', detail.currentMissionId)" x-text="detail.currentMissionId"></a><button class="copy-btn" @click.stop="copyId(detail.currentMissionId, $event)" title="Copy ID"></button></span>
@@ -1446,12 +1443,6 @@
                         <option value="Custom">Custom</option>
                     </select>
                 </div>
-                <div class="form-group">
-                    <label>Max Parallelism</label>
-                    <input type="number" x-model.number="modalData.maxParallelism" min="1" max="64" step="1"
-                           style="width: 80px;" title="Maximum concurrent missions this captain can handle (minimum 1)">
-                    <small style="color: var(--text-dim); margin-top: 2px; display: block;">Minimum 1 (sequential)</small>
-                </div>
                 <div class="modal-actions">
                     <button type="button" class="btn btn-sm" @click="modal = null" title="Cancel without adding">Cancel</button>
                     <button type="submit" class="btn btn-primary btn-sm" :disabled="modalLoading" title="Register the captain">Add</button>
@@ -1473,12 +1464,6 @@
                         <option value="Cursor">Cursor</option>
                         <option value="Custom">Custom</option>
                     </select>
-                </div>
-                <div class="form-group">
-                    <label>Max Parallelism</label>
-                    <input type="number" x-model.number="modalData.maxParallelism" min="1" max="64" step="1"
-                           style="width: 80px;" title="Maximum concurrent missions this captain can handle (minimum 1)">
-                    <small style="color: var(--text-dim); margin-top: 2px; display: block;">Minimum 1 (sequential)</small>
                 </div>
                 <div class="modal-actions">
                     <button type="button" class="btn btn-sm" @click="modal = null" title="Cancel without saving">Cancel</button>

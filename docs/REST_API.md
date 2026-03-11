@@ -1422,7 +1422,6 @@ A worker AI agent instance executing missions.
   "Id": "cpt_abc123",
   "Name": "captain-1",
   "Runtime": "ClaudeCode",
-  "MaxParallelism": 1,
   "State": "Idle",
   "CurrentMissionId": null,
   "CurrentDockId": null,
@@ -1439,7 +1438,6 @@ A worker AI agent instance executing missions.
 | `Id` | string | auto-generated | Unique ID with `cpt_` prefix |
 | `Name` | string | `"Captain"` | Captain name |
 | `Runtime` | [AgentRuntimeEnum](#agentruntimeenum) | `ClaudeCode` | Agent runtime type |
-| `MaxParallelism` | int | 1 | Maximum concurrent missions (minimum 1) |
 | `State` | [CaptainStateEnum](#captainstateenum) | `Idle` | Current state |
 | `CurrentMissionId` | string? | null | Currently assigned mission ID |
 | `CurrentDockId` | string? | null | Currently assigned dock (worktree) ID |

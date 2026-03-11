@@ -20,9 +20,5 @@ namespace Armada.Server.Mcp
         /// </summary>
         public string? Runtime { get; set; }
 
-        /// <summary>
-        /// Maximum number of concurrent missions (minimum 1).
-        /// </summary>
-        public int? MaxParallelism { get; set; }
     }
 }

@@ -64,8 +64,7 @@ namespace Armada.Test.Unit.Suites.Services
         private async Task<TestFixture> SetupFixtureAsync(
             SqliteDatabaseDriver db,
             int captainCount,
-            int missionCount,
-            int maxParallelism = 1)
+            int missionCount)
         {
             Fleet fleet = new Fleet("TestFleet");
             await db.Fleets.CreateAsync(fleet);
@@ -83,7 +82,6 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 Captain captain = new Captain("captain-" + (i + 1));
                 captain.State = CaptainStateEnum.Idle;
-                captain.MaxParallelism = maxParallelism;
                 await db.Captains.CreateAsync(captain);
                 captains.Add(captain);
             }
@@ -137,7 +135,7 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(CaptainStateEnum.Working, captainAfterM1!.State, "Captain should be Working");
                     AssertEqual(m1.Id, captainAfterM1.CurrentMissionId, "Captain should track mission 1");
 
-                    // Step 2: Try to assign mission 2 — captain is working with MaxParallelism=1, should NOT be assigned
+                    // Step 2: Try to assign mission 2 — captain is working, should NOT be assigned
                     await missionService.TryAssignAsync(missions[1], vessel);
 
                     Mission? m2 = await db.Missions.ReadAsync(missions[1].Id);
@@ -449,7 +447,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("MaxParallelism1_BlocksConcurrentAssignment", async () =>
+            await RunTest("WorkingCaptain_NeverEligibleForAdditionalAssignment", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
@@ -460,21 +458,21 @@ namespace Armada.Test.Unit.Suites.Services
                     ServiceSet services = CreateServices(logging, db, settings, git);
                     MissionService missionService = services.Missions;
 
-                    TestFixture fixture = await SetupFixtureAsync(db, captainCount: 1, missionCount: 2, maxParallelism: 1);
+                    TestFixture fixture = await SetupFixtureAsync(db, captainCount: 1, missionCount: 2);
                     Captain captain = fixture.Captains[0];
                     Vessel vessel = fixture.Vessel;
 
-                    // Assign mission 1 — should succeed
+                    // Assign mission 1 - should succeed
                     await missionService.TryAssignAsync(fixture.Missions[0], vessel);
 
                     Mission? m1 = await db.Missions.ReadAsync(fixture.Missions[0].Id);
                     AssertEqual(MissionStatusEnum.InProgress, m1!.Status, "Mission 1 should be InProgress");
 
-                    // Try to assign mission 2 — should fail due to MaxParallelism=1
+                    // Try to assign mission 2 - should fail because the only captain is working
                     await missionService.TryAssignAsync(fixture.Missions[1], vessel);
 
                     Mission? m2 = await db.Missions.ReadAsync(fixture.Missions[1].Id);
-                    AssertEqual(MissionStatusEnum.Pending, m2!.Status, "Mission 2 should remain Pending with MaxParallelism=1");
+                    AssertEqual(MissionStatusEnum.Pending, m2!.Status, "Mission 2 should remain Pending - working captain is not eligible");
 
                     // Captain should still be working on mission 1 only
                     Captain? captainAfter = await db.Captains.ReadAsync(captain.Id);

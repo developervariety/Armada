@@ -1376,8 +1376,7 @@ Register a new captain (AI agent).
   "type": "object",
   "properties": {
     "name": { "type": "string", "description": "Captain display name" },
-    "runtime": { "type": "string", "description": "Agent runtime: ClaudeCode, Codex" },
-    "maxParallelism": { "type": "integer", "description": "Maximum concurrent missions (default 1, minimum 1)" }
+    "runtime": { "type": "string", "description": "Agent runtime: ClaudeCode, Codex" }
   },
   "required": ["name"]
 }
@@ -1387,7 +1386,6 @@ Register a new captain (AI agent).
 |---|---|---|---|
 | `name` | string | Yes | Captain display name |
 | `runtime` | string | No | Agent runtime: `ClaudeCode`, `Codex` |
-| `maxParallelism` | integer | No | Maximum concurrent missions (default 1, minimum 1) |
 
 **Response:** [Captain](#captain) object.
 
@@ -1425,8 +1423,7 @@ Update a captain's name or runtime. Operational fields (state, process, mission)
   "properties": {
     "captainId": { "type": "string", "description": "Captain ID (cpt_ prefix)" },
     "name": { "type": "string", "description": "New display name" },
-    "runtime": { "type": "string", "description": "New agent runtime: ClaudeCode, Codex" },
-    "maxParallelism": { "type": "integer", "description": "Maximum concurrent missions (minimum 1)" }
+    "runtime": { "type": "string", "description": "New agent runtime: ClaudeCode, Codex" }
   },
   "required": ["captainId"]
 }
@@ -1437,7 +1434,6 @@ Update a captain's name or runtime. Operational fields (state, process, mission)
 | `captainId` | string | Yes | Captain ID (prefix `cpt_`) |
 | `name` | string | No | New display name |
 | `runtime` | string | No | New agent runtime: `ClaudeCode`, `Codex` |
-| `maxParallelism` | integer | No | Maximum concurrent missions (minimum 1) |
 
 **Response:** Updated [Captain](#captain) object, or `{ "Error": "Captain not found" }`.
 
@@ -1753,7 +1749,6 @@ Paginated result wrapper returned by `armada_enumerate`.
 | `id` | string | Captain ID (prefix `cpt_`) |
 | `name` | string | Display name |
 | `runtime` | string | [AgentRuntimeEnum](#agentruntimeenum) value |
-| `maxParallelism` | int | Maximum concurrent missions (default 1, minimum 1) |
 | `state` | string | [CaptainStateEnum](#captainstateenum) value |
 | `currentMissionId` | string \| null | Currently assigned mission ID |
 | `currentDockId` | string \| null | Currently assigned dock (worktree) ID |

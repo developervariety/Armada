@@ -238,9 +238,6 @@
                                 <TextBox Watermark="Captain Name" Text="{Binding NewCaptainName}" Width="200" ToolTip.Tip="A unique name for this captain" />
                                 <ComboBox ItemsSource="{Binding RuntimeOptions}"
                                           SelectedItem="{Binding NewCaptainRuntime}" Width="160" ToolTip.Tip="AI agent runtime to use (e.g., claude-code)" />
-                                <NumericUpDown Value="{Binding NewCaptainMaxParallelism}" Minimum="1" Maximum="64"
-                                               Increment="1" Width="120" Watermark="Parallelism"
-                                               ToolTip.Tip="Maximum concurrent missions (minimum 1)" />
                             </StackPanel>
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <Button Content="Create" Classes="action" Click="OnAddCaptainClick" ToolTip.Tip="Create the new captain" />
@@ -250,20 +247,18 @@
                     </Border>
 
                     <!-- Column headers -->
-                    <Grid ColumnDefinitions="140,100,70,80,200,60,150,Auto" Margin="8,0,8,4">
+                    <Grid ColumnDefinitions="140,100,80,200,60,150,Auto" Margin="8,0,8,4">
                         <TextBlock Grid.Column="0" Text="Name" FontSize="11" FontWeight="SemiBold"
                                    Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" ToolTip.Tip="Captain display name" />
                         <TextBlock Grid.Column="1" Text="Runtime" FontSize="11" FontWeight="SemiBold"
                                    Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" ToolTip.Tip="AI agent runtime (e.g., claude-code, codex)" />
-                        <TextBlock Grid.Column="2" Text="Parallel" FontSize="11" FontWeight="SemiBold"
-                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" ToolTip.Tip="Maximum concurrent missions this captain can handle" />
-                        <TextBlock Grid.Column="3" Text="State" FontSize="11" FontWeight="SemiBold"
+                        <TextBlock Grid.Column="2" Text="State" FontSize="11" FontWeight="SemiBold"
                                    Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" ToolTip.Tip="Current captain state: Idle (waiting), Working (executing), or Stalled (unresponsive)" />
-                        <TextBlock Grid.Column="4" Text="Mission" FontSize="11" FontWeight="SemiBold"
+                        <TextBlock Grid.Column="3" Text="Mission" FontSize="11" FontWeight="SemiBold"
                                    Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" ToolTip.Tip="Currently assigned mission ID" />
-                        <TextBlock Grid.Column="5" Text="PID" FontSize="11" FontWeight="SemiBold"
+                        <TextBlock Grid.Column="4" Text="PID" FontSize="11" FontWeight="SemiBold"
                                    Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" ToolTip.Tip="Operating system process ID of the agent" />
-                        <TextBlock Grid.Column="6" Text="Last Heartbeat" FontSize="11" FontWeight="SemiBold"
+                        <TextBlock Grid.Column="5" Text="Last Heartbeat" FontSize="11" FontWeight="SemiBold"
                                    Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Left" ToolTip.Tip="Last time this captain reported activity" />
                     </Grid>
 
@@ -273,29 +268,26 @@
                                 <Border Padding="8,6" Margin="0,2"
                                         Background="{DynamicResource SurfaceHoverBrush}"
                                         CornerRadius="4">
-                                    <Grid ColumnDefinitions="140,100,70,80,200,60,150,Auto">
+                                    <Grid ColumnDefinitions="140,100,80,200,60,150,Auto">
                                         <TextBlock Grid.Column="0" Text="{Binding Name}" FontSize="13" FontWeight="SemiBold"
                                                    Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center"
                                                    HorizontalAlignment="Left" />
                                         <TextBlock Grid.Column="1" Text="{Binding Runtime}" FontSize="12"
                                                    Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"
                                                    HorizontalAlignment="Left" />
-                                        <TextBlock Grid.Column="2" Text="{Binding MaxParallelism}" FontSize="12"
+                                        <TextBlock Grid.Column="2" Text="{Binding State}" FontSize="12"
                                                    Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"
                                                    HorizontalAlignment="Left" />
-                                        <TextBlock Grid.Column="3" Text="{Binding State}" FontSize="12"
-                                                   Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"
-                                                   HorizontalAlignment="Left" />
-                                        <TextBlock Grid.Column="4" Text="{Binding CurrentMissionId}" FontSize="11"
+                                        <TextBlock Grid.Column="3" Text="{Binding CurrentMissionId}" FontSize="11"
                                                    Foreground="{DynamicResource TextDimBrush}" VerticalAlignment="Center"
                                                    TextTrimming="CharacterEllipsis" TextAlignment="Left" />
-                                        <TextBlock Grid.Column="5" Text="{Binding ProcessId}" FontSize="12"
+                                        <TextBlock Grid.Column="4" Text="{Binding ProcessId}" FontSize="12"
                                                    Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"
                                                    HorizontalAlignment="Left" />
-                                        <TextBlock Grid.Column="6" Text="{Binding LastHeartbeatUtc}" FontSize="11"
+                                        <TextBlock Grid.Column="5" Text="{Binding LastHeartbeatUtc}" FontSize="11"
                                                    Foreground="{DynamicResource TextDimBrush}" VerticalAlignment="Center"
                                                    HorizontalAlignment="Left" />
-                                        <StackPanel Grid.Column="7" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center"
+                                        <StackPanel Grid.Column="6" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center"
                                                     HorizontalAlignment="Left">
                                             <Button Content="Edit" Classes="action" FontSize="11" Padding="8,2"
                                                     Click="OnEditCaptainClick" Tag="{Binding Id}" ToolTip.Tip="Edit captain settings" />

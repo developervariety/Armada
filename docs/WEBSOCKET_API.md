@@ -1962,7 +1962,6 @@ If a message is sent without a route:
 | `id` | string | Captain ID (prefix `cpt_`) |
 | `name` | string | Display name |
 | `runtime` | string | [AgentRuntimeEnum](#agentruntimeenum) value |
-| `maxParallelism` | int | Maximum concurrent missions (default 1, minimum 1) |
 | `state` | string | [CaptainStateEnum](#captainstateenum) value |
 | `currentMissionId` | string \| null | Currently assigned mission |
 | `currentDockId` | string \| null | Currently assigned dock (worktree) |

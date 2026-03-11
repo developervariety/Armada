@@ -104,7 +104,6 @@ namespace Armada.Desktop.Views
 
                 captain.Name = dialog.EditedName;
                 captain.Runtime = dialog.EditedRuntime;
-                captain.MaxParallelism = dialog.EditedParallelism;
                 await vm.UpdateCaptainAsync(captain);
             }
         }

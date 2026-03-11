@@ -341,6 +341,9 @@ namespace Armada.Core.Database.Sqlite
                 ),
                 new SchemaMigration(7, "Add diff_snapshot to missions for persisting diffs before worktree reclamation",
                     @"ALTER TABLE missions ADD COLUMN diff_snapshot TEXT;"
+                ),
+                new SchemaMigration(8, "Remove max_parallelism from captains",
+                    @"ALTER TABLE captains DROP COLUMN max_parallelism;"
                 )
             };
         }
@@ -426,7 +429,6 @@ namespace Armada.Core.Database.Sqlite
             captain.Id = reader["id"].ToString()!;
             captain.Name = reader["name"].ToString()!;
             captain.Runtime = Enum.Parse<AgentRuntimeEnum>(reader["runtime"].ToString()!);
-            captain.MaxParallelism = Convert.ToInt32(reader["max_parallelism"]);
             captain.State = Enum.Parse<CaptainStateEnum>(reader["state"].ToString()!);
             captain.CurrentMissionId = NullableString(reader["current_mission_id"]);
             captain.CurrentDockId = NullableString(reader["current_dock_id"]);
@@ -1020,12 +1022,11 @@ namespace Armada.Core.Database.Sqlite
                     await conn.OpenAsync(token).ConfigureAwait(false);
                     using (SqliteCommand cmd = conn.CreateCommand())
                     {
-                        cmd.CommandText = @"INSERT INTO captains (id, name, runtime, max_parallelism, state, current_mission_id, current_dock_id, process_id, recovery_attempts, last_heartbeat_utc, created_utc, last_update_utc)
-                            VALUES (@id, @name, @runtime, @max_parallelism, @state, @current_mission_id, @current_dock_id, @process_id, @recovery_attempts, @last_heartbeat_utc, @created_utc, @last_update_utc);";
+                        cmd.CommandText = @"INSERT INTO captains (id, name, runtime, state, current_mission_id, current_dock_id, process_id, recovery_attempts, last_heartbeat_utc, created_utc, last_update_utc)
+                            VALUES (@id, @name, @runtime, @state, @current_mission_id, @current_dock_id, @process_id, @recovery_attempts, @last_heartbeat_utc, @created_utc, @last_update_utc);";
                         cmd.Parameters.AddWithValue("@id", captain.Id);
                         cmd.Parameters.AddWithValue("@name", captain.Name);
                         cmd.Parameters.AddWithValue("@runtime", captain.Runtime.ToString());
-                        cmd.Parameters.AddWithValue("@max_parallelism", captain.MaxParallelism);
                         cmd.Parameters.AddWithValue("@state", captain.State.ToString());
                         cmd.Parameters.AddWithValue("@current_mission_id", (object?)captain.CurrentMissionId ?? DBNull.Value);
                         cmd.Parameters.AddWithValue("@current_dock_id", (object?)captain.CurrentDockId ?? DBNull.Value);
@@ -1098,7 +1099,6 @@ namespace Armada.Core.Database.Sqlite
                         cmd.CommandText = @"UPDATE captains SET
                             name = @name,
                             runtime = @runtime,
-                            max_parallelism = @max_parallelism,
                             state = @state,
                             current_mission_id = @current_mission_id,
                             current_dock_id = @current_dock_id,
@@ -1110,7 +1110,6 @@ namespace Armada.Core.Database.Sqlite
                         cmd.Parameters.AddWithValue("@id", captain.Id);
                         cmd.Parameters.AddWithValue("@name", captain.Name);
                         cmd.Parameters.AddWithValue("@runtime", captain.Runtime.ToString());
-                        cmd.Parameters.AddWithValue("@max_parallelism", captain.MaxParallelism);
                         cmd.Parameters.AddWithValue("@state", captain.State.ToString());
                         cmd.Parameters.AddWithValue("@current_mission_id", (object?)captain.CurrentMissionId ?? DBNull.Value);
                         cmd.Parameters.AddWithValue("@current_dock_id", (object?)captain.CurrentDockId ?? DBNull.Value);

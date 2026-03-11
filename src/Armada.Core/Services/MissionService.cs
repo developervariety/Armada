@@ -101,11 +101,11 @@ namespace Armada.Core.Services
                 _Logging.Warn(_Header + "vessel " + vessel.Id + " already has " + concurrentCount + " active mission(s) — potential for conflicts");
             }
 
-            // Find a captain with available capacity (idle or working with room for more)
+            // Find an idle captain
             Captain? captain = await FindAvailableCaptainAsync(token).ConfigureAwait(false);
             if (captain == null)
             {
-                _Logging.Warn(_Header + "no captains with available capacity for mission " + mission.Id);
+                _Logging.Warn(_Header + "no idle captains available for mission " + mission.Id);
                 return false;
             }
 
@@ -333,33 +333,8 @@ namespace Armada.Core.Services
             signal.FromCaptainId = captain.Id;
             await _Database.Signals.CreateAsync(signal, token).ConfigureAwait(false);
 
-            // Check if captain has remaining active missions
-            List<Mission> activeMissions = await _Database.Missions.EnumerateByCaptainAsync(captain.Id, token).ConfigureAwait(false);
-            int remainingActive = activeMissions.Count(m =>
-                m.Status == MissionStatusEnum.InProgress ||
-                m.Status == MissionStatusEnum.Assigned);
-
-            if (remainingActive == 0)
-            {
-                // No more active missions — release the captain to idle
-                await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
-            }
-            else
-            {
-                // Captain still has active missions — update CurrentMissionId/CurrentDockId to another active one
-                Mission? nextActive = activeMissions.FirstOrDefault(m =>
-                    m.Status == MissionStatusEnum.InProgress || m.Status == MissionStatusEnum.Assigned);
-                if (nextActive != null)
-                {
-                    captain.CurrentMissionId = nextActive.Id;
-                    captain.CurrentDockId = nextActive.DockId;
-                    captain.ProcessId = nextActive.ProcessId;
-                    captain.LastUpdateUtc = DateTime.UtcNow;
-                    await _Database.Captains.UpdateAsync(captain, token).ConfigureAwait(false);
-                }
-
-                _Logging.Info(_Header + "captain " + captain.Id + " still has " + remainingActive + " active mission(s)");
-            }
+            // Release the captain to idle
+            await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
 
             // Try to pick up next pending mission
             List<Mission> pendingMissions = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Pending, token).ConfigureAwait(false);
@@ -486,28 +461,10 @@ namespace Armada.Core.Services
 
         private async Task<Captain?> FindAvailableCaptainAsync(CancellationToken token)
         {
-            // First check idle captains (always have capacity)
+            // Only idle captains are eligible for assignment
             List<Captain> idleCaptains = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Idle, token).ConfigureAwait(false);
             if (idleCaptains.Count > 0)
                 return idleCaptains[0];
-
-            // Then check working captains that have capacity (MaxParallelism > 1)
-            List<Captain> workingCaptains = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Working, token).ConfigureAwait(false);
-            foreach (Captain captain in workingCaptains)
-            {
-                if (captain.MaxParallelism <= 1) continue;
-
-                List<Mission> captainMissions = await _Database.Missions.EnumerateByCaptainAsync(captain.Id, token).ConfigureAwait(false);
-                int activeCount = captainMissions.Count(m =>
-                    m.Status == MissionStatusEnum.InProgress ||
-                    m.Status == MissionStatusEnum.Assigned);
-
-                if (activeCount < captain.MaxParallelism)
-                {
-                    _Logging.Info(_Header + "captain " + captain.Id + " has capacity (" + activeCount + "/" + captain.MaxParallelism + ")");
-                    return captain;
-                }
-            }
 
             return null;
         }

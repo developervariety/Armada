@@ -43,18 +43,6 @@ namespace Armada.Desktop.Views
         }
 
         /// <summary>
-        /// The edited parallelism value.
-        /// </summary>
-        public int EditedParallelism
-        {
-            get
-            {
-                NumericUpDown? input = this.FindControl<NumericUpDown>("ParallelismInput");
-                return (int)(input?.Value ?? 1);
-            }
-        }
-
-        /// <summary>
         /// The mission ID selected by the user, or null if none was clicked.
         /// </summary>
         public string? SelectedMissionId => _SelectedMissionId;
@@ -82,8 +70,6 @@ namespace Armada.Desktop.Views
 
             TextBox? nameInput = this.FindControl<TextBox>("NameInput");
             ComboBox? runtimeInput = this.FindControl<ComboBox>("RuntimeInput");
-            NumericUpDown? parallelismInput = this.FindControl<NumericUpDown>("ParallelismInput");
-
             if (nameInput != null) nameInput.Text = captain.Name;
 
             if (runtimeInput != null)
@@ -98,7 +84,6 @@ namespace Armada.Desktop.Views
                 runtimeInput.SelectedItem = captain.Runtime;
             }
 
-            if (parallelismInput != null) parallelismInput.Value = captain.MaxParallelism;
         }
 
         /// <summary>

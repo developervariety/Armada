@@ -378,167 +378,125 @@ namespace Armada.Core.Services
         /// </summary>
         private async Task HealthCheckCaptainAsync(Captain captain, CancellationToken token)
         {
-            // Get all active missions for this captain (supports parallelism)
-            List<Mission> captainMissions = await _Database.Missions.EnumerateByCaptainAsync(captain.Id, token).ConfigureAwait(false);
-
-            // Fallback: include captain.CurrentMissionId if not already found via captain_id query
-            if (!String.IsNullOrEmpty(captain.CurrentMissionId) && !captainMissions.Any(m => m.Id == captain.CurrentMissionId))
+            // Look up the captain's single active mission
+            Mission? mission = null;
+            if (!String.IsNullOrEmpty(captain.CurrentMissionId))
             {
-                Mission? currentMission = await _Database.Missions.ReadAsync(captain.CurrentMissionId, token).ConfigureAwait(false);
-                if (currentMission != null) captainMissions.Add(currentMission);
+                mission = await _Database.Missions.ReadAsync(captain.CurrentMissionId, token).ConfigureAwait(false);
             }
 
-            List<Mission> activeMissions = captainMissions.Where(m =>
-                m.Status == MissionStatusEnum.InProgress ||
-                m.Status == MissionStatusEnum.Assigned).ToList();
-
-            if (activeMissions.Count == 0 && captain.ProcessId == null)
+            // Check for terminal mission state (e.g. server restart between completion and release)
+            if (mission != null &&
+                (mission.Status == MissionStatusEnum.Complete ||
+                 mission.Status == MissionStatusEnum.Failed ||
+                 mission.Status == MissionStatusEnum.Cancelled))
             {
-                // Orphaned captain - Working state but no missions and no process.
-                // Release back to Idle so it can accept new work.
-                _Logging.Warn(_Header + "captain " + captain.Id + " is Working but has no active missions or process - releasing to Idle");
+                _Logging.Warn(_Header + "captain " + captain.Id + " has terminal mission " + captain.CurrentMissionId + " (status: " + mission.Status + ") - releasing to Idle");
                 await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
                 return;
             }
 
-            // If captain has a ProcessId but no active missions with processes,
-            // use the captain-level process check (legacy single-mission behavior)
-            if (activeMissions.Count == 0 && captain.ProcessId != null)
-            {
-                // First check if the captain's current mission is already in a terminal state.
-                // This handles the case where a mission completed but the captain wasn't released
-                // (e.g. server restart between mission completion and captain release).
-                if (!String.IsNullOrEmpty(captain.CurrentMissionId))
-                {
-                    Mission? currentMission = await _Database.Missions.ReadAsync(captain.CurrentMissionId, token).ConfigureAwait(false);
-                    if (currentMission != null &&
-                        (currentMission.Status == MissionStatusEnum.Complete ||
-                         currentMission.Status == MissionStatusEnum.Failed ||
-                         currentMission.Status == MissionStatusEnum.Cancelled))
-                    {
-                        _Logging.Warn(_Header + "captain " + captain.Id + " has stale ProcessId with terminal mission " + captain.CurrentMissionId + " (status: " + currentMission.Status + ") - releasing to Idle");
-                        await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
-                        return;
-                    }
-                }
+            bool isActive = mission != null &&
+                (mission.Status == MissionStatusEnum.InProgress ||
+                 mission.Status == MissionStatusEnum.Assigned);
 
-                // Synthesize a check using captain.CurrentMissionId
-                Mission syntheticMission = new Mission("legacy-check");
-                syntheticMission.ProcessId = captain.ProcessId;
-                if (!String.IsNullOrEmpty(captain.CurrentMissionId))
-                    syntheticMission.Id = captain.CurrentMissionId;
-                activeMissions.Add(syntheticMission);
+            if (!isActive && captain.ProcessId == null)
+            {
+                // Orphaned captain - Working state but no active mission and no process.
+                _Logging.Warn(_Header + "captain " + captain.Id + " is Working but has no active mission or process - releasing to Idle");
+                await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
+                return;
             }
 
-            // Check each active mission's process
-            foreach (Mission mission in activeMissions)
+            // Determine the process ID to check
+            int? processId = captain.ProcessId ?? mission?.ProcessId;
+            if (processId == null) return;
+
+            bool isAlive = false;
+            int exitCode = -1;
+            try
             {
-                int? missionProcessId = mission.ProcessId ?? (activeMissions.Count == 1 ? captain.ProcessId : null);
-                if (missionProcessId == null) continue;
-
-                bool isAlive = false;
-                int exitCode = -1;
-                try
+                System.Diagnostics.Process process = System.Diagnostics.Process.GetProcessById(processId.Value);
+                if (process.HasExited)
                 {
-                    System.Diagnostics.Process process = System.Diagnostics.Process.GetProcessById(missionProcessId.Value);
-                    if (process.HasExited)
-                    {
-                        isAlive = false;
-                        try { exitCode = process.ExitCode; }
-                        catch { }
-                    }
-                    else
-                    {
-                        isAlive = true;
-                    }
-                }
-                catch (ArgumentException)
-                {
-                    // Process no longer exists in process table - treat as clean exit
                     isAlive = false;
-                    exitCode = 0;
+                    try { exitCode = process.ExitCode; }
+                    catch { }
                 }
-
-                if (!isAlive)
+                else
                 {
-                    if (exitCode == 0)
+                    isAlive = true;
+                }
+            }
+            catch (ArgumentException)
+            {
+                // Process no longer exists in process table - treat as clean exit
+                isAlive = false;
+                exitCode = 0;
+            }
+
+            string missionId = captain.CurrentMissionId ?? "unknown";
+
+            if (!isAlive)
+            {
+                if (exitCode == 0)
+                {
+                    // Clean exit = mission complete
+                    _Logging.Info(_Header + "captain " + captain.Id + " process " + processId + " completed successfully for mission " + missionId);
+
+                    // Emit captain.completed event
+                    await EmitEventAsync("captain.completed", "Captain " + captain.Id + " process " + processId + " exited successfully",
+                        entityType: "captain", entityId: captain.Id,
+                        captainId: captain.Id, missionId: missionId, token: token).ConfigureAwait(false);
+
+                    await _Missions.HandleCompletionAsync(captain, missionId, token).ConfigureAwait(false);
+                }
+                else
+                {
+                    _Logging.Warn(_Header + "captain " + captain.Id + " process " + processId + " exited with code " + exitCode + " for mission " + missionId);
+
+                    // Emit captain.completed event (process exited, even if non-zero)
+                    await EmitEventAsync("captain.completed", "Captain " + captain.Id + " process " + processId + " exited with code " + exitCode,
+                        entityType: "captain", entityId: captain.Id,
+                        captainId: captain.Id, missionId: missionId, token: token).ConfigureAwait(false);
+
+                    // Attempt auto-recovery if under the limit
+                    if (captain.RecoveryAttempts < _Settings.MaxRecoveryAttempts)
                     {
-                        // Clean exit = mission complete
-                        _Logging.Info(_Header + "captain " + captain.Id + " process " + missionProcessId + " completed successfully for mission " + mission.Id);
-
-                        // Emit captain.completed event
-                        await EmitEventAsync("captain.completed", "Captain " + captain.Id + " process " + missionProcessId + " exited successfully",
-                            entityType: "captain", entityId: captain.Id,
-                            captainId: captain.Id, missionId: mission.Id, token: token).ConfigureAwait(false);
-
-                        await _Missions.HandleCompletionAsync(captain, mission.Id, token).ConfigureAwait(false);
+                        await _Captains.TryRecoverAsync(captain, token).ConfigureAwait(false);
                     }
                     else
                     {
-                        _Logging.Warn(_Header + "captain " + captain.Id + " process " + missionProcessId + " exited with code " + exitCode + " for mission " + mission.Id);
-
-                        // Emit captain.completed event (process exited, even if non-zero)
-                        await EmitEventAsync("captain.completed", "Captain " + captain.Id + " process " + missionProcessId + " exited with code " + exitCode,
-                            entityType: "captain", entityId: captain.Id,
-                            captainId: captain.Id, missionId: mission.Id, token: token).ConfigureAwait(false);
-
-                        // Attempt auto-recovery if under the limit
-                        if (captain.RecoveryAttempts < _Settings.MaxRecoveryAttempts)
+                        // Mark the mission as Failed
+                        if (mission != null)
                         {
-                            await _Captains.TryRecoverAsync(captain, token).ConfigureAwait(false);
-                        }
-                        else
-                        {
-                            // Mark this specific mission as Failed
                             mission.Status = MissionStatusEnum.Failed;
                             mission.ProcessId = null;
                             mission.CompletedUtc = DateTime.UtcNow;
                             mission.LastUpdateUtc = DateTime.UtcNow;
                             await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
-                            _Logging.Warn(_Header + "mission " + mission.Id + " marked failed (captain recovery exhausted)");
+                            _Logging.Warn(_Header + "mission " + missionId + " marked failed (captain recovery exhausted)");
 
                             // Emit mission.failed event
                             await EmitEventAsync("mission.failed", "Mission failed: " + mission.Title + " (captain recovery exhausted, exit code " + exitCode + ")",
                                 entityType: "mission", entityId: mission.Id,
                                 captainId: captain.Id, missionId: mission.Id, token: token).ConfigureAwait(false);
-
-                            // Check if captain has any remaining active missions
-                            List<Mission> remaining = (await _Database.Missions.EnumerateByCaptainAsync(captain.Id, token).ConfigureAwait(false))
-                                .Where(m => m.Status == MissionStatusEnum.InProgress || m.Status == MissionStatusEnum.Assigned).ToList();
-
-                            if (remaining.Count == 0)
-                            {
-                                await _Database.Captains.UpdateStateAsync(captain.Id, CaptainStateEnum.Stalled, token).ConfigureAwait(false);
-                            }
-
-                            if (_Escalation != null)
-                                await _Escalation.FireAsync(EscalationTriggerEnum.RecoveryExhausted, captain.Id, "Captain " + captain.Id + " recovery exhausted for mission " + mission.Id + " (exit code " + exitCode + ")", token).ConfigureAwait(false);
-
-                            Signal signal = new Signal(SignalTypeEnum.Error, "Captain process exited with code " + exitCode + " for mission " + mission.Id + " (recovery exhausted)");
-                            signal.FromCaptainId = captain.Id;
-                            await _Database.Signals.CreateAsync(signal, token).ConfigureAwait(false);
                         }
+
+                        await _Database.Captains.UpdateStateAsync(captain.Id, CaptainStateEnum.Stalled, token).ConfigureAwait(false);
+
+                        if (_Escalation != null)
+                            await _Escalation.FireAsync(EscalationTriggerEnum.RecoveryExhausted, captain.Id, "Captain " + captain.Id + " recovery exhausted for mission " + missionId + " (exit code " + exitCode + ")", token).ConfigureAwait(false);
+
+                        Signal signal = new Signal(SignalTypeEnum.Error, "Captain process exited with code " + exitCode + " for mission " + missionId + " (recovery exhausted)");
+                        signal.FromCaptainId = captain.Id;
+                        await _Database.Signals.CreateAsync(signal, token).ConfigureAwait(false);
                     }
                 }
             }
-
-            // For missions that are still alive, update heartbeat
-            bool anyAlive = false;
-            foreach (Mission mission in activeMissions)
+            else
             {
-                int? missionProcessId = mission.ProcessId ?? (activeMissions.Count == 1 ? captain.ProcessId : null);
-                if (missionProcessId == null) continue;
-
-                try
-                {
-                    System.Diagnostics.Process process = System.Diagnostics.Process.GetProcessById(missionProcessId.Value);
-                    if (!process.HasExited) anyAlive = true;
-                }
-                catch (ArgumentException) { }
-            }
-
-            if (anyAlive)
-            {
+                // Process is alive - update heartbeat
                 await _Database.Captains.UpdateHeartbeatAsync(captain.Id, token).ConfigureAwait(false);
 
                 // Check for stall (no heartbeat update for too long)
@@ -550,7 +508,7 @@ namespace Armada.Core.Services
                         _Logging.Warn(_Header + "captain " + captain.Id + " appears stalled (" + elapsed.TotalMinutes.ToString("F1") + " min since last heartbeat)");
 
                         // Attempt auto-recovery if under the limit
-                        if (captain.RecoveryAttempts < _Settings.MaxRecoveryAttempts && activeMissions.Count > 0)
+                        if (captain.RecoveryAttempts < _Settings.MaxRecoveryAttempts)
                         {
                             // Kill the stalled process first
                             if (_Captains.OnStopAgent != null)
@@ -565,23 +523,20 @@ namespace Armada.Core.Services
                         {
                             await _Database.Captains.UpdateStateAsync(captain.Id, CaptainStateEnum.Stalled, token).ConfigureAwait(false);
 
-                            // Mark all active missions as Failed
-                            foreach (Mission stalledMission in activeMissions)
+                            // Mark the active mission as Failed
+                            if (mission != null && mission.Status != MissionStatusEnum.Complete)
                             {
-                                if (stalledMission.Status != MissionStatusEnum.Complete)
-                                {
-                                    stalledMission.Status = MissionStatusEnum.Failed;
-                                    stalledMission.ProcessId = null;
-                                    stalledMission.CompletedUtc = DateTime.UtcNow;
-                                    stalledMission.LastUpdateUtc = DateTime.UtcNow;
-                                    await _Database.Missions.UpdateAsync(stalledMission, token).ConfigureAwait(false);
-                                    _Logging.Warn(_Header + "mission " + stalledMission.Id + " marked failed (captain stalled, recovery exhausted)");
+                                mission.Status = MissionStatusEnum.Failed;
+                                mission.ProcessId = null;
+                                mission.CompletedUtc = DateTime.UtcNow;
+                                mission.LastUpdateUtc = DateTime.UtcNow;
+                                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                                _Logging.Warn(_Header + "mission " + mission.Id + " marked failed (captain stalled, recovery exhausted)");
 
-                                    // Emit mission.failed event
-                                    await EmitEventAsync("mission.failed", "Mission failed: " + stalledMission.Title + " (captain stalled, recovery exhausted)",
-                                        entityType: "mission", entityId: stalledMission.Id,
-                                        captainId: captain.Id, missionId: stalledMission.Id, token: token).ConfigureAwait(false);
-                                }
+                                // Emit mission.failed event
+                                await EmitEventAsync("mission.failed", "Mission failed: " + mission.Title + " (captain stalled, recovery exhausted)",
+                                    entityType: "mission", entityId: mission.Id,
+                                    captainId: captain.Id, missionId: mission.Id, token: token).ConfigureAwait(false);
                             }
                         }
                     }
@@ -629,7 +584,7 @@ namespace Armada.Core.Services
                 _Logging.Info(_Header + "retrying dispatch for pending missions that previously could not be assigned");
             }
 
-            // Check for any captains with available capacity (idle or working with room)
+            // Check for any idle captains with available capacity
             bool hasCapacity = await HasAvailableCapacityAsync(token).ConfigureAwait(false);
             if (!hasCapacity) return;
 
@@ -658,24 +613,9 @@ namespace Armada.Core.Services
 
         private async Task<bool> HasAvailableCapacityAsync(CancellationToken token)
         {
+            // Only idle captains have capacity for new assignments
             List<Captain> idleCaptains = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Idle, token).ConfigureAwait(false);
-            if (idleCaptains.Count > 0) return true;
-
-            // Check working captains with MaxParallelism > 1
-            List<Captain> workingCaptains = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Working, token).ConfigureAwait(false);
-            foreach (Captain captain in workingCaptains)
-            {
-                if (captain.MaxParallelism <= 1) continue;
-
-                List<Mission> captainMissions = await _Database.Missions.EnumerateByCaptainAsync(captain.Id, token).ConfigureAwait(false);
-                int activeCount = captainMissions.Count(m =>
-                    m.Status == MissionStatusEnum.InProgress ||
-                    m.Status == MissionStatusEnum.Assigned);
-
-                if (activeCount < captain.MaxParallelism) return true;
-            }
-
-            return false;
+            return idleCaptains.Count > 0;
         }
 
         private async Task MaintainCaptainPoolAsync(CancellationToken token)
