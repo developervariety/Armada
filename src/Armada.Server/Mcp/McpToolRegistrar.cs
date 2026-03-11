@@ -1567,8 +1567,10 @@ namespace Armada.Server.Mcp
             try
             {
                 // Use SQLite online backup API for a consistent snapshot
+                // Pooling=False ensures Windows releases the file handle when the connection is disposed,
+                // so that ZipFile.Open can read the temp file without "used by another process" errors.
                 string sourceConnStr = "Data Source=" + settings.DatabasePath;
-                string destConnStr = "Data Source=" + tempDbPath;
+                string destConnStr = "Data Source=" + tempDbPath + ";Pooling=False";
 
                 using (SqliteConnection sourceConn = new SqliteConnection(sourceConnStr))
                 using (SqliteConnection destConn = new SqliteConnection(destConnStr))
