@@ -1353,4 +1353,73 @@ a:hover { text-decoration: underline; }
     .diff-modal-body { flex-direction: column; }
     .diff-file-nav { width: 100%; max-width: 100%; max-height: 30vh; border-right: none; border-bottom: 1px solid var(--border); }
     .diff-modal-header { flex-wrap: wrap; }
+    .settings-grid { grid-template-columns: 1fr; }
+}
+
+/* Settings Page */
+.settings-section {
+    margin-top: 1.5rem;
+    padding: 1.25rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+}
+
+.settings-section-title {
+    margin: 0 0 1rem 0;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text);
+}
+
+.settings-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.settings-checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+    padding-top: 1.5rem;
+}
+
+.settings-checkbox-label input[type="checkbox"] {
+    width: 1rem;
+    height: 1rem;
+}
+
+.settings-config-block {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+
+.settings-config-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.settings-config-code {
+    margin: 0;
+    padding: 0.75rem;
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    line-height: 1.5;
+    white-space: pre;
+    overflow-x: auto;
+    color: var(--text);
+}
+
+.settings-actions {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
 }

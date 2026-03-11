@@ -344,6 +344,126 @@ namespace Armada.Server
                 .WithDescription("Initiates a graceful shutdown of the Admiral server.")
                 .WithSecurity("ApiKey"));
 
+            // Settings
+            _App.Rest.Get("/api/v1/settings", async (AppRequest req) =>
+            {
+                return new
+                {
+                    AdmiralPort = _Settings.AdmiralPort,
+                    McpPort = _Settings.McpPort,
+                    MaxCaptains = _Settings.MaxCaptains,
+                    HeartbeatIntervalSeconds = _Settings.HeartbeatIntervalSeconds,
+                    StallThresholdMinutes = _Settings.StallThresholdMinutes,
+                    IdleCaptainTimeoutSeconds = _Settings.IdleCaptainTimeoutSeconds,
+                    AutoCreatePr = _Settings.AutoCreatePullRequests,
+                    DataDirectory = _Settings.DataDirectory,
+                    DatabasePath = _Settings.DatabasePath,
+                    LogDirectory = _Settings.LogDirectory,
+                    DocksDirectory = _Settings.DocksDirectory,
+                    ReposDirectory = _Settings.ReposDirectory
+                };
+            },
+            api => api
+                .WithTag("Settings")
+                .WithSummary("Get server settings")
+                .WithDescription("Returns current server settings including ports, agent configuration, and system paths.")
+                .WithSecurity("ApiKey"));
+
+            _App.Rest.Put<SettingsUpdateRequest>("/api/v1/settings", async (AppRequest req) =>
+            {
+                SettingsUpdateRequest body = req.GetData<SettingsUpdateRequest>();
+
+                if (body.AdmiralPort.HasValue)
+                    _Settings.AdmiralPort = body.AdmiralPort.Value;
+
+                if (body.McpPort.HasValue)
+                    _Settings.McpPort = body.McpPort.Value;
+
+                if (body.MaxCaptains.HasValue)
+                    _Settings.MaxCaptains = body.MaxCaptains.Value;
+
+                if (body.HeartbeatIntervalSeconds.HasValue)
+                    _Settings.HeartbeatIntervalSeconds = body.HeartbeatIntervalSeconds.Value;
+
+                if (body.StallThresholdMinutes.HasValue)
+                    _Settings.StallThresholdMinutes = body.StallThresholdMinutes.Value;
+
+                if (body.IdleCaptainTimeoutSeconds.HasValue)
+                    _Settings.IdleCaptainTimeoutSeconds = body.IdleCaptainTimeoutSeconds.Value;
+
+                if (body.AutoCreatePr.HasValue)
+                    _Settings.AutoCreatePullRequests = body.AutoCreatePr.Value;
+
+                await _Settings.SaveAsync().ConfigureAwait(false);
+                _Logging.Info(_Header + "settings updated via API");
+
+                return new
+                {
+                    AdmiralPort = _Settings.AdmiralPort,
+                    McpPort = _Settings.McpPort,
+                    MaxCaptains = _Settings.MaxCaptains,
+                    HeartbeatIntervalSeconds = _Settings.HeartbeatIntervalSeconds,
+                    StallThresholdMinutes = _Settings.StallThresholdMinutes,
+                    IdleCaptainTimeoutSeconds = _Settings.IdleCaptainTimeoutSeconds,
+                    AutoCreatePr = _Settings.AutoCreatePullRequests,
+                    DataDirectory = _Settings.DataDirectory,
+                    DatabasePath = _Settings.DatabasePath,
+                    LogDirectory = _Settings.LogDirectory,
+                    DocksDirectory = _Settings.DocksDirectory,
+                    ReposDirectory = _Settings.ReposDirectory
+                };
+            },
+            api => api
+                .WithTag("Settings")
+                .WithSummary("Update server settings")
+                .WithDescription("Accepts partial update of editable settings. Validates values and persists to settings file.")
+                .WithSecurity("ApiKey"));
+
+            _App.Rest.Post("/api/v1/server/reset", async (AppRequest req) =>
+            {
+                _Logging.Warn(_Header + "factory reset requested via API");
+
+                List<string> deleted = new List<string>();
+
+                if (Directory.Exists(_Settings.LogDirectory))
+                {
+                    Directory.Delete(_Settings.LogDirectory, true);
+                    deleted.Add("logs");
+                }
+
+                if (Directory.Exists(_Settings.DocksDirectory))
+                {
+                    Directory.Delete(_Settings.DocksDirectory, true);
+                    deleted.Add("docks");
+                }
+
+                if (Directory.Exists(_Settings.ReposDirectory))
+                {
+                    Directory.Delete(_Settings.ReposDirectory, true);
+                    deleted.Add("repos");
+                }
+
+                if (File.Exists(_Settings.DatabasePath))
+                {
+                    File.Delete(_Settings.DatabasePath);
+                    deleted.Add("database");
+                }
+
+                _Settings.InitializeDirectories();
+
+                return new
+                {
+                    Status = "reset_complete",
+                    Message = "Factory reset complete. Deleted: " + String.Join(", ", deleted) + ". Settings file preserved.",
+                    Deleted = deleted
+                };
+            },
+            api => api
+                .WithTag("Settings")
+                .WithSummary("Factory reset")
+                .WithDescription("Deletes database, logs, docks, and repos directories. Preserves settings file.")
+                .WithSecurity("ApiKey"));
+
             // Fleets
             _App.Rest.Get("/api/v1/fleets", async (AppRequest req) =>
             {
@@ -2261,5 +2381,46 @@ namespace Armada.Server
         /// Optional new description/instructions. If null or empty, the original description is preserved.
         /// </summary>
         public string? Description { get; set; }
+    }
+
+    /// <summary>
+    /// Request model for partial update of server settings.
+    /// </summary>
+    public class SettingsUpdateRequest
+    {
+        /// <summary>
+        /// Admiral REST API port (1-65535).
+        /// </summary>
+        public int? AdmiralPort { get; set; }
+
+        /// <summary>
+        /// MCP server port (1-65535).
+        /// </summary>
+        public int? McpPort { get; set; }
+
+        /// <summary>
+        /// Maximum captains allowed (0 = unlimited).
+        /// </summary>
+        public int? MaxCaptains { get; set; }
+
+        /// <summary>
+        /// Heartbeat check interval in seconds (>= 5).
+        /// </summary>
+        public int? HeartbeatIntervalSeconds { get; set; }
+
+        /// <summary>
+        /// Stall detection threshold in minutes (>= 1).
+        /// </summary>
+        public int? StallThresholdMinutes { get; set; }
+
+        /// <summary>
+        /// Idle captain timeout in seconds (0 = disabled).
+        /// </summary>
+        public int? IdleCaptainTimeoutSeconds { get; set; }
+
+        /// <summary>
+        /// Whether to auto-create pull requests on mission completion.
+        /// </summary>
+        public bool? AutoCreatePr { get; set; }
     }
 }

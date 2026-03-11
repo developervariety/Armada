@@ -47,6 +47,7 @@ function dashboard() {
         events: [],
         mergeQueue: [],
         healthInfo: null,
+        serverSettings: null,
         recentMissions: [],
         selectedVoyage: null,
         voyageMissions: [],
@@ -546,7 +547,7 @@ function dashboard() {
             if (view === 'signals') this.loadSignals();
             if (view === 'events') this.loadEvents();
             if (view === 'merge-queue') this.loadMergeQueue();
-            if (view === 'server') this.loadHealth();
+            if (view === 'server') { this.loadHealth(); this.loadSettings(); }
             if (view === 'missions') this.loadMissions();
             if (view === 'voyages') this.loadVoyageMissionMap();
 
@@ -1431,6 +1432,66 @@ function dashboard() {
                 await this.api('POST', '/api/v1/server/stop');
                 this.toast('Server shutting down...');
             } catch (e) { this.toast('Failed: ' + e.message, 'error'); }
+        },
+
+        async loadSettings() {
+            try { this.serverSettings = await this.api('GET', '/api/v1/settings'); } catch (e) { console.warn('Failed to load settings:', e); }
+        },
+
+        async saveServerConfig() {
+            try {
+                this.serverSettings = await this.api('PUT', '/api/v1/settings', {
+                    admiralPort: this.serverSettings.admiralPort,
+                    mcpPort: this.serverSettings.mcpPort,
+                    maxCaptains: this.serverSettings.maxCaptains
+                });
+                this.toast('Server configuration saved');
+            } catch (e) { this.toast('Failed: ' + e.message, 'error'); }
+        },
+
+        async saveAgentSettings() {
+            try {
+                this.serverSettings = await this.api('PUT', '/api/v1/settings', {
+                    heartbeatIntervalSeconds: this.serverSettings.heartbeatIntervalSeconds,
+                    stallThresholdMinutes: this.serverSettings.stallThresholdMinutes,
+                    idleCaptainTimeoutSeconds: this.serverSettings.idleCaptainTimeoutSeconds,
+                    autoCreatePr: this.serverSettings.autoCreatePr
+                });
+                this.toast('Agent settings saved');
+            } catch (e) { this.toast('Failed: ' + e.message, 'error'); }
+        },
+
+        async healthCheck() {
+            try {
+                let result = await this.api('GET', '/api/v1/status/health');
+                this.healthInfo = result;
+                this.toast('Health: ' + result.status + ' | Uptime: ' + result.uptime);
+            } catch (e) { this.toast('Health check failed: ' + e.message, 'error'); }
+        },
+
+        async factoryReset() {
+            if (!await this.showConfirm('WARNING: Factory reset will delete ALL data including the database, logs, docks, and repos. Settings will be preserved. This cannot be undone. Continue?')) return;
+            try {
+                let result = await this.api('POST', '/api/v1/server/reset');
+                this.toast(result.message || 'Factory reset complete', 'success');
+            } catch (e) { this.toast('Factory reset failed: ' + e.message, 'error'); }
+        },
+
+        getMcpConfigHttp() {
+            let port = this.serverSettings?.mcpPort || 8001;
+            return JSON.stringify({ type: 'http', url: 'http://localhost:' + port }, null, 2);
+        },
+
+        getMcpConfigStdio() {
+            return JSON.stringify({ type: 'stdio', command: 'armada', args: ['mcp', 'stdio'] }, null, 2);
+        },
+
+        async copyMcpConfig(type) {
+            let text = type === 'http' ? this.getMcpConfigHttp() : this.getMcpConfigStdio();
+            try {
+                await navigator.clipboard.writeText(text);
+                this.toast('Copied to clipboard');
+            } catch (e) { this.toast('Failed to copy', 'error'); }
         },
 
         // ============================================================
