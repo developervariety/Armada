@@ -1205,8 +1205,9 @@
                         <div class="mq-card-actions">
                             <button class="btn btn-sm" @click.stop="viewMissionLog(entry.missionId)" x-show="entry.missionId" title="View mission log">Log</button>
                             <button class="btn btn-sm" @click.stop="viewMissionDiff(entry.missionId)" x-show="entry.missionId" title="View mission diff">Diff</button>
-                            <button class="btn btn-sm btn-primary" @click.stop="mergeSingleEntry(entry.id)" x-show="entry.status === 'Queued'" title="Merge this entry now">Merge</button>
+                            <button class="btn btn-sm btn-primary" @click.stop="mergeSingleEntry(entry.id)" x-show="entry.status === 'Queued'" title="Process this entry now">Process</button>
                             <button class="btn btn-sm btn-danger" @click.stop="cancelMergeEntry(entry.id)" x-show="entry.status === 'Queued' || entry.status === 'Testing'" title="Cancel this merge queue entry">Cancel</button>
+                            <button class="btn btn-sm btn-danger" @click.stop="deleteMergeEntry(entry.id)" x-show="entry.status === 'Cancelled' || entry.status === 'Landed' || entry.status === 'Failed'" title="Permanently delete this entry">Delete</button>
                         </div>
                     </div>
                 </template>

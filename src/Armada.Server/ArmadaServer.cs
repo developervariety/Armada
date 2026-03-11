@@ -1808,14 +1808,19 @@ namespace Armada.Server
             _App.Rest.Delete("/api/v1/merge-queue/{id}", async (AppRequest req) =>
             {
                 string id = req.Parameters["id"];
-                await _MergeQueue.CancelAsync(id).ConfigureAwait(false);
+                bool deleted = await _MergeQueue.DeleteAsync(id).ConfigureAwait(false);
+                if (!deleted)
+                {
+                    // Fall back to cancel if not in a terminal state
+                    await _MergeQueue.CancelAsync(id).ConfigureAwait(false);
+                }
                 req.Http.Response.StatusCode = 204;
                 return null;
             },
             api => api
                 .WithTag("MergeQueue")
-                .WithSummary("Cancel a merge queue entry")
-                .WithDescription("Cancels a queued merge entry by ID.")
+                .WithSummary("Delete or cancel a merge queue entry")
+                .WithDescription("Permanently deletes a terminal merge entry (Cancelled, Landed, Failed) or cancels an active one.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Merge entry ID (mrg_ prefix)"))
                 .WithResponse(204, OpenApiResponseMetadata.NoContent())
                 .WithSecurity("ApiKey"));

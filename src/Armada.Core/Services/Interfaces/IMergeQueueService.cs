@@ -47,5 +47,14 @@ namespace Armada.Core.Services.Interfaces
         /// <param name="token">Cancellation token.</param>
         /// <returns>The merge entry or null.</returns>
         Task<MergeEntry?> GetAsync(string entryId, CancellationToken token = default);
+
+        /// <summary>
+        /// Permanently delete a merge entry from the database.
+        /// Only entries in terminal states (Cancelled, Landed, Failed) can be deleted.
+        /// </summary>
+        /// <param name="entryId">Merge entry identifier.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True if deleted, false if not found or not in a terminal state.</returns>
+        Task<bool> DeleteAsync(string entryId, CancellationToken token = default);
     }
 }

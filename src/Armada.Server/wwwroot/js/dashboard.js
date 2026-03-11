@@ -1538,6 +1538,15 @@ function dashboard() {
             } catch (e) { this.toast('Failed: ' + e.message, 'error'); }
         },
 
+        async deleteMergeEntry(entryId) {
+            if (!await this.showConfirm('Permanently delete merge entry ' + entryId + '?')) return;
+            try {
+                await this.api('DELETE', '/api/v1/merge-queue/' + entryId);
+                this.toast('Merge entry deleted');
+                await this.loadMergeQueue();
+            } catch (e) { this.toast('Failed: ' + e.message, 'error'); }
+        },
+
         async mergeSingleEntry(entryId) {
             if (!await this.showConfirm('Merge this entry now?')) return;
             try {

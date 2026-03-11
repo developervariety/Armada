@@ -140,6 +140,28 @@ namespace Armada.Core.Services
             return entry;
         }
 
+        /// <inheritdoc />
+        public async Task<bool> DeleteAsync(string entryId, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(entryId)) throw new ArgumentNullException(nameof(entryId));
+
+            MergeEntry? entry = await _Database.MergeEntries.ReadAsync(entryId, token).ConfigureAwait(false);
+            if (entry == null) return false;
+
+            // Only allow deletion of terminal entries
+            if (entry.Status != MergeStatusEnum.Cancelled &&
+                entry.Status != MergeStatusEnum.Landed &&
+                entry.Status != MergeStatusEnum.Failed)
+            {
+                _Logging.Warn(_Header + "cannot delete " + entryId + " in non-terminal status " + entry.Status);
+                return false;
+            }
+
+            await _Database.MergeEntries.DeleteAsync(entryId, token).ConfigureAwait(false);
+            _Logging.Info(_Header + "deleted " + entryId);
+            return true;
+        }
+
         #endregion
 
         #region Private-Methods
