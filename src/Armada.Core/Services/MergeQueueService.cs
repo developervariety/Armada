@@ -1,6 +1,5 @@
 namespace Armada.Core.Services
 {
-    using System.Collections.Concurrent;
     using System.Diagnostics;
     using SyslogLogging;
     using Armada.Core.Database;
@@ -23,7 +22,6 @@ namespace Armada.Core.Services
         private ArmadaSettings _Settings;
         private IGitService _Git;
 
-        private ConcurrentDictionary<string, MergeEntry> _Entries = new ConcurrentDictionary<string, MergeEntry>();
         private bool _Processing = false;
         private readonly object _ProcessLock = new object();
 
@@ -51,17 +49,17 @@ namespace Armada.Core.Services
         #region Public-Methods
 
         /// <inheritdoc />
-        public Task<MergeEntry> EnqueueAsync(MergeEntry entry, CancellationToken token = default)
+        public async Task<MergeEntry> EnqueueAsync(MergeEntry entry, CancellationToken token = default)
         {
             if (entry == null) throw new ArgumentNullException(nameof(entry));
 
             entry.Status = MergeStatusEnum.Queued;
             entry.CreatedUtc = DateTime.UtcNow;
             entry.LastUpdateUtc = DateTime.UtcNow;
-            _Entries[entry.Id] = entry;
+            await _Database.MergeEntries.CreateAsync(entry, token).ConfigureAwait(false);
 
             _Logging.Info(_Header + "enqueued " + entry.Id + " branch " + entry.BranchName + " -> " + entry.TargetBranch);
-            return Task.FromResult(entry);
+            return entry;
         }
 
         /// <inheritdoc />
@@ -75,12 +73,8 @@ namespace Armada.Core.Services
 
             try
             {
-                // Group queued entries by vessel + target branch
-                List<MergeEntry> queued = _Entries.Values
-                    .Where(e => e.Status == MergeStatusEnum.Queued)
-                    .OrderBy(e => e.Priority)
-                    .ThenBy(e => e.CreatedUtc)
-                    .ToList();
+                // Get all queued entries from database ordered by priority then created_utc
+                List<MergeEntry> queued = await _Database.MergeEntries.EnumerateByStatusAsync(MergeStatusEnum.Queued, token).ConfigureAwait(false);
 
                 if (queued.Count == 0) return;
 
@@ -101,28 +95,26 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
-        public Task CancelAsync(string entryId, CancellationToken token = default)
+        public async Task CancelAsync(string entryId, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(entryId)) throw new ArgumentNullException(nameof(entryId));
 
-            if (_Entries.TryGetValue(entryId, out MergeEntry? entry))
+            MergeEntry? entry = await _Database.MergeEntries.ReadAsync(entryId, token).ConfigureAwait(false);
+            if (entry != null)
             {
                 entry.Status = MergeStatusEnum.Cancelled;
                 entry.LastUpdateUtc = DateTime.UtcNow;
                 entry.CompletedUtc = DateTime.UtcNow;
+                await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
                 _Logging.Info(_Header + "cancelled " + entryId);
             }
-
-            return Task.CompletedTask;
         }
 
         /// <inheritdoc />
-        public Task<List<MergeEntry>> ListAsync(CancellationToken token = default)
+        public async Task<List<MergeEntry>> ListAsync(CancellationToken token = default)
         {
-            List<MergeEntry> result = _Entries.Values
-                .OrderBy(e => e.CreatedUtc)
-                .ToList();
-            return Task.FromResult(result);
+            List<MergeEntry> results = await _Database.MergeEntries.EnumerateAsync(token).ConfigureAwait(false);
+            return results;
         }
 
         /// <inheritdoc />
@@ -130,22 +122,22 @@ namespace Armada.Core.Services
         {
             if (String.IsNullOrEmpty(entryId)) throw new ArgumentNullException(nameof(entryId));
 
-            if (!_Entries.TryGetValue(entryId, out MergeEntry? entry))
-                return null;
-
-            if (entry.Status != MergeStatusEnum.Queued)
-                return null;
+            MergeEntry? entry = await _Database.MergeEntries.ReadAsync(entryId, token).ConfigureAwait(false);
+            if (entry == null) return null;
+            if (entry.Status != MergeStatusEnum.Queued) return null;
 
             _Logging.Info(_Header + "processing single entry " + entryId);
             await ProcessBatchAsync(new List<MergeEntry> { entry }, token).ConfigureAwait(false);
-            return entry;
+
+            // Re-read from DB to get updated state
+            return await _Database.MergeEntries.ReadAsync(entryId, token).ConfigureAwait(false);
         }
 
         /// <inheritdoc />
-        public Task<MergeEntry?> GetAsync(string entryId, CancellationToken token = default)
+        public async Task<MergeEntry?> GetAsync(string entryId, CancellationToken token = default)
         {
-            _Entries.TryGetValue(entryId, out MergeEntry? entry);
-            return Task.FromResult(entry);
+            MergeEntry? entry = await _Database.MergeEntries.ReadAsync(entryId, token).ConfigureAwait(false);
+            return entry;
         }
 
         #endregion
@@ -169,6 +161,7 @@ namespace Armada.Core.Services
                     entry.TestOutput = "Unable to resolve repository path for vessel " + first.VesselId;
                     entry.CompletedUtc = DateTime.UtcNow;
                     entry.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
                 }
                 return;
             }
@@ -182,6 +175,7 @@ namespace Armada.Core.Services
                 entry.BatchId = batchId;
                 entry.TestStartedUtc = DateTime.UtcNow;
                 entry.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
             }
 
             // Create integration branch
@@ -209,6 +203,7 @@ namespace Armada.Core.Services
                         entry.TestOutput = "Merge conflict with " + first.TargetBranch;
                         entry.CompletedUtc = DateTime.UtcNow;
                         entry.LastUpdateUtc = DateTime.UtcNow;
+                        await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
 
                         // Remove conflicting entry and retry batch without it
                         List<MergeEntry> remaining = batch.Where(e => e.Id != entry.Id && e.Status == MergeStatusEnum.Testing).ToList();
@@ -223,6 +218,7 @@ namespace Armada.Core.Services
                                 r.BatchId = null;
                                 r.TestStartedUtc = null;
                                 r.LastUpdateUtc = DateTime.UtcNow;
+                                await _Database.MergeEntries.UpdateAsync(r, token).ConfigureAwait(false);
                             }
                         }
                         return;
@@ -260,6 +256,7 @@ namespace Armada.Core.Services
                             single.TestOutput = TruncateOutput(testResult.Output);
                             single.CompletedUtc = DateTime.UtcNow;
                             single.LastUpdateUtc = DateTime.UtcNow;
+                            await _Database.MergeEntries.UpdateAsync(single, token).ConfigureAwait(false);
                         }
                     }
                 }
@@ -282,6 +279,7 @@ namespace Armada.Core.Services
                     entry.TestOutput = "Queue processing error: " + ex.Message;
                     entry.CompletedUtc = DateTime.UtcNow;
                     entry.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
                 }
             }
         }
@@ -308,6 +306,7 @@ namespace Armada.Core.Services
                 entry.BatchId = null;
                 entry.TestStartedUtc = null;
                 entry.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
             }
 
             // Process each half separately (recursive — will further bisect if needed)
@@ -341,6 +340,7 @@ namespace Armada.Core.Services
                     entry.Status = MergeStatusEnum.Landed;
                     entry.CompletedUtc = DateTime.UtcNow;
                     entry.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
                     _Logging.Info(_Header + "landed " + entry.Id + " branch " + entry.BranchName);
                 }
             }
@@ -353,6 +353,7 @@ namespace Armada.Core.Services
                     entry.TestOutput = "Landing failed: " + ex.Message;
                     entry.CompletedUtc = DateTime.UtcNow;
                     entry.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
                 }
             }
         }

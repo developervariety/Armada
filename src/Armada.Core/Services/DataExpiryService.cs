@@ -118,6 +118,14 @@ namespace Armada.Core.Services
                     AND captain_id IS NULL
                     AND created_utc < @cutoff;",
                     cutoffStr, token).ConfigureAwait(false);
+
+                // Delete old merge entries that are Landed, Cancelled, or Failed
+                totalDeleted += await ExecuteDeleteAsync(conn,
+                    @"DELETE FROM merge_entries
+                    WHERE status IN ('Landed', 'Cancelled', 'Failed')
+                    AND completed_utc IS NOT NULL
+                    AND completed_utc < @cutoff;",
+                    cutoffStr, token).ConfigureAwait(false);
             }
 
             if (totalDeleted > 0)

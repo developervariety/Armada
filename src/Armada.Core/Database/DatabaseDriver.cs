@@ -49,6 +49,11 @@ namespace Armada.Core.Database
         /// </summary>
         public IEventMethods Events { get; protected set; } = null!;
 
+        /// <summary>
+        /// Merge entry operations.
+        /// </summary>
+        public IMergeEntryMethods MergeEntries { get; protected set; } = null!;
+
         #endregion
 
         #region Constructors-and-Factories
