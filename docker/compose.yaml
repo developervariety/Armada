@@ -5,7 +5,5 @@ services:
       - "7890:7890"
       - "7891:7891"
     volumes:
-      - armada-data:/app/data
-
-volumes:
-  armada-data:
+      - ./server:/app/data
+      - ./server/logs:/app/data/logs
