@@ -159,13 +159,33 @@ namespace Armada.Core.Services
             mission.DockId = dock.Id;
             await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
 
-            // Update captain
+            // Atomically claim the captain — only succeeds if captain is still Idle.
+            // This prevents a race where two concurrent TryAssignAsync calls both find
+            // the same idle captain and overwrite each other's mission assignment.
+            bool claimed = await _Database.Captains.TryClaimAsync(captain.Id, mission.Id, dock.Id, token).ConfigureAwait(false);
+            if (!claimed)
+            {
+                _Logging.Warn(_Header + "captain " + captain.Id + " was claimed by another mission before we could assign " + mission.Id + " — reverting to Pending");
+
+                mission.Status = MissionStatusEnum.Pending;
+                mission.CaptainId = null;
+                mission.BranchName = null;
+                mission.DockId = null;
+                mission.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+
+                // Reclaim the dock we provisioned since we can't use it
+                await _Docks.ReclaimAsync(dock.Id, token).ConfigureAwait(false);
+
+                return false;
+            }
+
+            // Refresh in-memory captain state to match the atomic update
             captain.State = CaptainStateEnum.Working;
             captain.CurrentMissionId = mission.Id;
             captain.CurrentDockId = dock.Id;
             captain.LastHeartbeatUtc = DateTime.UtcNow;
             captain.LastUpdateUtc = DateTime.UtcNow;
-            await _Database.Captains.UpdateAsync(captain, token).ConfigureAwait(false);
 
             // Create assignment signal
             Signal signal = new Signal(SignalTypeEnum.Assignment, mission.Title);

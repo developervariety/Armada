@@ -274,6 +274,11 @@ namespace Armada.Core.Services
                 _Logging.Info(_Header + "completed parallel health checks for " + workingCaptains.Count + " working captain(s)");
             }
 
+            // Safety net: detect orphaned InProgress missions whose captain has moved on.
+            // This catches any mission that was left InProgress due to a captain being
+            // reassigned before the health check could detect the old process exit.
+            await RecoverOrphanedMissionsAsync(token).ConfigureAwait(false);
+
             // Check for completed voyages
             List<Voyage> completedVoyages = await _Voyages.CheckCompletionsAsync(token).ConfigureAwait(false);
             if (OnVoyageComplete != null)
@@ -567,6 +572,69 @@ namespace Armada.Core.Services
             catch (Exception ex)
             {
                 _Logging.Warn(_Header + "error emitting event " + eventType + ": " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Detect and recover orphaned missions — missions stuck in InProgress or Assigned
+        /// whose captain has moved on to a different mission. This handles the edge case where
+        /// a captain was reassigned before the health check could detect the old process exit.
+        /// </summary>
+        private async Task RecoverOrphanedMissionsAsync(CancellationToken token)
+        {
+            List<Mission> inProgressMissions = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.InProgress, token).ConfigureAwait(false);
+            List<Mission> assignedMissions = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Assigned, token).ConfigureAwait(false);
+            List<Mission> activeMissions = inProgressMissions.Concat(assignedMissions).ToList();
+
+            foreach (Mission mission in activeMissions)
+            {
+                if (String.IsNullOrEmpty(mission.CaptainId)) continue;
+
+                Captain? captain = await _Database.Captains.ReadAsync(mission.CaptainId, token).ConfigureAwait(false);
+                if (captain == null) continue;
+
+                // If the captain's current mission is different, this mission is orphaned
+                if (captain.CurrentMissionId != mission.Id)
+                {
+                    _Logging.Warn(_Header + "orphaned mission detected: " + mission.Id + " is " + mission.Status +
+                        " but captain " + captain.Id + " is working on " + (captain.CurrentMissionId ?? "nothing") +
+                        " — checking if work was completed");
+
+                    // Check if the mission's process exited (work may already be done)
+                    bool processAlive = false;
+                    if (mission.ProcessId.HasValue)
+                    {
+                        try
+                        {
+                            System.Diagnostics.Process process = System.Diagnostics.Process.GetProcessById(mission.ProcessId.Value);
+                            processAlive = !process.HasExited;
+                        }
+                        catch (ArgumentException)
+                        {
+                            // Process no longer exists
+                        }
+                    }
+
+                    if (!processAlive)
+                    {
+                        // Process exited — check if there are commits on the branch (work was done)
+                        Dock? dock = null;
+                        if (!String.IsNullOrEmpty(mission.DockId))
+                        {
+                            dock = await _Database.Docks.ReadAsync(mission.DockId, token).ConfigureAwait(false);
+                        }
+
+                        // Complete the mission — the agent finished its work but the status was never updated
+                        _Logging.Info(_Header + "completing orphaned mission " + mission.Id + " (agent process exited, captain moved on)");
+                        await _Missions.HandleCompletionAsync(captain, mission.Id, token).ConfigureAwait(false);
+
+                        await EmitEventAsync("mission.orphan_recovered",
+                            "Orphaned mission recovered: " + mission.Title + " (captain " + captain.Id + " had moved on)",
+                            entityType: "mission", entityId: mission.Id,
+                            captainId: captain.Id, missionId: mission.Id,
+                            vesselId: mission.VesselId, voyageId: mission.VoyageId, token: token).ConfigureAwait(false);
+                    }
+                }
             }
         }
 

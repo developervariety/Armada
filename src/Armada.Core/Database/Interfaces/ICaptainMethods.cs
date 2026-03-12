@@ -62,5 +62,12 @@ namespace Armada.Core.Database.Interfaces
         /// Check if a captain exists by identifier.
         /// </summary>
         Task<bool> ExistsAsync(string id, CancellationToken token = default);
+
+        /// <summary>
+        /// Atomically claim a captain for a mission. Sets state to Working and assigns
+        /// mission/dock IDs, but only if the captain is currently Idle.
+        /// Returns true if the claim succeeded, false if the captain was no longer Idle.
+        /// </summary>
+        Task<bool> TryClaimAsync(string captainId, string missionId, string dockId, CancellationToken token = default);
     }
 }

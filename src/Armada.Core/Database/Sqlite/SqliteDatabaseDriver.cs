@@ -1341,6 +1341,38 @@ namespace Armada.Core.Database.Sqlite
                     }
                 }
             }
+
+            public async Task<bool> TryClaimAsync(string captainId, string missionId, string dockId, CancellationToken token = default)
+            {
+                if (string.IsNullOrEmpty(captainId)) throw new ArgumentNullException(nameof(captainId));
+                if (string.IsNullOrEmpty(missionId)) throw new ArgumentNullException(nameof(missionId));
+                if (string.IsNullOrEmpty(dockId)) throw new ArgumentNullException(nameof(dockId));
+
+                DateTime now = DateTime.UtcNow;
+
+                using (SqliteConnection conn = new SqliteConnection(_ConnectionString))
+                {
+                    await conn.OpenAsync(token).ConfigureAwait(false);
+                    using (SqliteCommand cmd = conn.CreateCommand())
+                    {
+                        cmd.CommandText = @"UPDATE captains SET
+                            state = @state,
+                            current_mission_id = @current_mission_id,
+                            current_dock_id = @current_dock_id,
+                            last_heartbeat_utc = @last_heartbeat_utc,
+                            last_update_utc = @last_update_utc
+                            WHERE id = @id AND state = 'Idle';";
+                        cmd.Parameters.AddWithValue("@id", captainId);
+                        cmd.Parameters.AddWithValue("@state", CaptainStateEnum.Working.ToString());
+                        cmd.Parameters.AddWithValue("@current_mission_id", missionId);
+                        cmd.Parameters.AddWithValue("@current_dock_id", dockId);
+                        cmd.Parameters.AddWithValue("@last_heartbeat_utc", ToIso8601(now));
+                        cmd.Parameters.AddWithValue("@last_update_utc", ToIso8601(now));
+                        int rowsAffected = await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                        return rowsAffected > 0;
+                    }
+                }
+            }
         }
 
         private class SqliteMissionMethods : IMissionMethods
