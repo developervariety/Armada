@@ -502,12 +502,18 @@ namespace Armada.Core.Services
             if (!String.IsNullOrEmpty(entry.VesselId))
             {
                 Vessel? vessel = await _Database.Vessels.ReadAsync(entry.VesselId, token).ConfigureAwait(false);
-                if (vessel == null || String.IsNullOrEmpty(vessel.LocalPath))
+                if (vessel == null)
                 {
-                    _Logging.Warn(_Header + "vessel not found or LocalPath is empty for vessel ID " + entry.VesselId);
+                    _Logging.Warn(_Header + "vessel not found for vessel ID " + entry.VesselId);
                     return null;
                 }
-                return vessel.LocalPath;
+                if (!String.IsNullOrEmpty(vessel.LocalPath))
+                    return vessel.LocalPath;
+
+                // Fallback to default path, same as DockService
+                string defaultPath = Path.Combine(_Settings.ReposDirectory, vessel.Name + ".git");
+                _Logging.Warn(_Header + "vessel LocalPath is empty for vessel " + vessel.Name + ", falling back to default: " + defaultPath);
+                return defaultPath;
             }
             return _Settings.ReposDirectory;
         }

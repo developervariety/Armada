@@ -63,6 +63,12 @@ namespace Armada.Core.Services
                     vessel.LocalPath = repoPath;
                     await _Database.Vessels.UpdateAsync(vessel, token).ConfigureAwait(false);
                 }
+                else if (String.IsNullOrEmpty(vessel.LocalPath))
+                {
+                    _Logging.Info(_Header + "bare repo exists but vessel LocalPath is empty for " + vessel.Name + ", updating to " + repoPath);
+                    vessel.LocalPath = repoPath;
+                    await _Database.Vessels.UpdateAsync(vessel, token).ConfigureAwait(false);
+                }
 
                 // Fetch latest from remote to ensure worktrees branch from current main
                 if (!String.IsNullOrEmpty(vessel.RepoUrl))
