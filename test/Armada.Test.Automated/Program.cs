@@ -2,6 +2,7 @@ namespace Armada.Test.Automated
 {
     using System.Net;
     using System.Net.Sockets;
+    using Armada.Core.Enums;
     using Armada.Core.Settings;
     using Armada.Server;
     using Armada.Test.Automated.Suites;
@@ -12,11 +13,48 @@ namespace Armada.Test.Automated
     {
         public static async Task<int> Main(string[] args)
         {
-            bool noCleanup = args.Contains("--no-cleanup");
+            CommandLineOptions options;
 
-            // Create temp directory for test database and server files
+            try
+            {
+                options = CommandLineOptions.Parse(args);
+            }
+            catch (ArgumentException ex)
+            {
+                Console.WriteLine("Error: " + ex.Message);
+                Console.WriteLine();
+                CommandLineOptions.PrintUsage("Armada.Test.Automated");
+                return 1;
+            }
+
+            if (options.Help)
+            {
+                CommandLineOptions.PrintUsage("Armada.Test.Automated");
+                return 0;
+            }
+
+            // Create temp directory for test server files
             string tempDir = Path.Combine(Path.GetTempPath(), "armada_test_automated_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tempDir);
+
+            // Build database settings
+            string defaultSqlitePath = Path.Combine(tempDir, "armada.db");
+            DatabaseSettings dbSettings;
+
+            try
+            {
+                dbSettings = options.BuildDatabaseSettings(defaultSqlitePath);
+            }
+            catch (ArgumentException ex)
+            {
+                Console.WriteLine("Error: " + ex.Message);
+                Console.WriteLine();
+                CommandLineOptions.PrintUsage("Armada.Test.Automated");
+                return 1;
+            }
+
+            // Print database info at startup
+            PrintDatabaseInfo(dbSettings);
 
             // Allocate random ports
             int restPort = GetAvailablePort();
@@ -24,14 +62,13 @@ namespace Armada.Test.Automated
             int wsPort = GetAvailablePort();
             string apiKey = "test-key-" + Guid.NewGuid().ToString("N");
 
-            string dbPath = Path.Combine(tempDir, "armada.db");
-
             LoggingModule logging = new LoggingModule();
             logging.Settings.EnableConsole = false;
 
             ArmadaSettings settings = new ArmadaSettings();
             settings.DataDirectory = tempDir;
-            settings.DatabasePath = dbPath;
+            settings.DatabasePath = dbSettings.Filename;
+            settings.Database = dbSettings;
             settings.LogDirectory = Path.Combine(tempDir, "logs");
             settings.DocksDirectory = Path.Combine(tempDir, "docks");
             settings.ReposDirectory = Path.Combine(tempDir, "repos");
@@ -92,14 +129,46 @@ namespace Armada.Test.Automated
                 try { server.Stop(); } catch { }
                 await Task.Delay(200).ConfigureAwait(false);
 
-                if (!noCleanup)
+                if (!options.NoCleanup)
                 {
-                    try
+                    if (options.IsTempSqlite)
                     {
-                        if (Directory.Exists(tempDir))
-                            Directory.Delete(tempDir, true);
+                        // Default behavior: delete entire temp directory including database
+                        try
+                        {
+                            if (Directory.Exists(tempDir))
+                                Directory.Delete(tempDir, true);
+                        }
+                        catch { }
                     }
-                    catch { }
+                    else
+                    {
+                        // Non-default database: only delete temp subdirectories (logs/docks/repos), not the database
+                        string[] tempSubDirs = new string[]
+                        {
+                            Path.Combine(tempDir, "logs"),
+                            Path.Combine(tempDir, "docks"),
+                            Path.Combine(tempDir, "repos")
+                        };
+
+                        foreach (string subDir in tempSubDirs)
+                        {
+                            try
+                            {
+                                if (Directory.Exists(subDir))
+                                    Directory.Delete(subDir, true);
+                            }
+                            catch { }
+                        }
+
+                        // Try to clean up the temp directory if it's now empty
+                        try
+                        {
+                            if (Directory.Exists(tempDir) && Directory.GetFileSystemEntries(tempDir).Length == 0)
+                                Directory.Delete(tempDir);
+                        }
+                        catch { }
+                    }
                 }
                 else
                 {
@@ -108,6 +177,31 @@ namespace Armada.Test.Automated
             }
 
             return exitCode;
+        }
+
+        private static void PrintDatabaseInfo(DatabaseSettings dbSettings)
+        {
+            switch (dbSettings.Type)
+            {
+                case DatabaseTypeEnum.Sqlite:
+                    Console.WriteLine("Database: SQLite (" + dbSettings.Filename + ")");
+                    break;
+
+                case DatabaseTypeEnum.Postgresql:
+                    int pgPort = dbSettings.Port > 0 ? dbSettings.Port : 5432;
+                    Console.WriteLine("Database: PostgreSQL (" + dbSettings.Hostname + ":" + pgPort + "/" + dbSettings.DatabaseName + ")");
+                    break;
+
+                case DatabaseTypeEnum.SqlServer:
+                    int sqlPort = dbSettings.Port > 0 ? dbSettings.Port : 1433;
+                    Console.WriteLine("Database: SQL Server (" + dbSettings.Hostname + ":" + sqlPort + "/" + dbSettings.DatabaseName + ")");
+                    break;
+
+                case DatabaseTypeEnum.Mysql:
+                    int myPort = dbSettings.Port > 0 ? dbSettings.Port : 3306;
+                    Console.WriteLine("Database: MySQL (" + dbSettings.Hostname + ":" + myPort + "/" + dbSettings.DatabaseName + ")");
+                    break;
+            }
         }
 
         private static int GetAvailablePort()
