@@ -22,6 +22,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new DockDatabaseTests());
             runner.AddSuite(new SignalDatabaseTests());
             runner.AddSuite(new EventDatabaseTests());
+            runner.AddSuite(new EventTests());
             runner.AddSuite(new EnumerationTests());
             runner.AddSuite(new ForeignKeyTests());
             runner.AddSuite(new ConcurrentAccessTests());
