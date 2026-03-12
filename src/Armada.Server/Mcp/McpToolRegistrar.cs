@@ -109,7 +109,7 @@ namespace Armada.Server.Mcp
         {
             register(
                 "armada_enumerate",
-                "Paginated enumeration of any entity type with filtering and sorting. Supports: fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue. Returns paginated results with total counts.",
+                "PREFERRED tool for finding and browsing entities. Use this instead of armada_list_* tools to avoid context bloat. Supports paginated, filtered, and sorted access to: fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue. Returns paginated results with total counts. Filter by vesselId, fleetId, captainId, voyageId, status, date range, and more.",
                 new
                 {
                     type = "object",
@@ -190,7 +190,7 @@ namespace Armada.Server.Mcp
         {
             register(
                 "armada_list_fleets",
-                "List all registered fleets",
+                "List all registered fleets. NOTE: prefer armada_enumerate with entityType='fleets' for paginated results that conserve context.",
                 new { type = "object", properties = new { } },
                 async (args) =>
                 {
@@ -298,7 +298,7 @@ namespace Armada.Server.Mcp
         {
             register(
                 "armada_list_vessels",
-                "List all registered vessels (repositories)",
+                "List all registered vessels (repositories). WARNING: returns ALL vessels unfiltered. Prefer armada_enumerate with entityType='vessels' for paginated/filtered results that conserve context.",
                 new { type = "object", properties = new { } },
                 async (args) =>
                 {
@@ -494,7 +494,7 @@ namespace Armada.Server.Mcp
 
             register(
                 "armada_list_voyages",
-                "List all voyages, optionally filtered by status",
+                "List all voyages, optionally filtered by status. WARNING: returns ALL matching voyages and can produce very large responses. Prefer armada_enumerate with entityType='voyages' for paginated/filtered results that conserve context.",
                 new
                 {
                     type = "object",
@@ -643,7 +643,7 @@ namespace Armada.Server.Mcp
         {
             register(
                 "armada_list_missions",
-                "List all missions, optionally filtered by status",
+                "List all missions, optionally filtered by status. WARNING: returns ALL matching missions and can produce very large responses. Prefer armada_enumerate with entityType='missions' for paginated/filtered results that conserve context.",
                 new
                 {
                     type = "object",
@@ -1039,7 +1039,7 @@ namespace Armada.Server.Mcp
         {
             register(
                 "armada_list_captains",
-                "List all captains with their current state",
+                "List all captains with their current state. NOTE: prefer armada_enumerate with entityType='captains' for paginated results that conserve context.",
                 new { type = "object", properties = new { } },
                 async (args) =>
                 {
@@ -1240,7 +1240,7 @@ namespace Armada.Server.Mcp
         {
             register(
                 "armada_list_signals",
-                "List signals (messages between admiral and captains)",
+                "List signals (messages between admiral and captains). WARNING: can return large result sets. Prefer armada_enumerate with entityType='signals' for paginated/filtered results that conserve context.",
                 new
                 {
                     type = "object",
@@ -1290,7 +1290,7 @@ namespace Armada.Server.Mcp
         {
             register(
                 "armada_list_events",
-                "Query the event audit trail with optional filters",
+                "Query the event audit trail with optional filters. WARNING: can return large result sets. Prefer armada_enumerate with entityType='events' for paginated/filtered results that conserve context.",
                 new
                 {
                     type = "object",
@@ -1331,7 +1331,7 @@ namespace Armada.Server.Mcp
         {
             register(
                 "armada_list_docks",
-                "List all docks (git worktrees) with their status, optionally filtered by vessel",
+                "List all docks (git worktrees) with their status, optionally filtered by vessel. NOTE: prefer armada_enumerate with entityType='docks' for paginated/filtered results that conserve context.",
                 new
                 {
                     type = "object",
@@ -1357,7 +1357,7 @@ namespace Armada.Server.Mcp
         {
             register(
                 "armada_list_merge_queue",
-                "List all entries in the merge queue",
+                "List all entries in the merge queue. NOTE: prefer armada_enumerate with entityType='merge_queue' for paginated/filtered results that conserve context.",
                 new { type = "object", properties = new { } },
                 async (args) =>
                 {
