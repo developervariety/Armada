@@ -2381,8 +2381,48 @@ namespace Armada.Server
                         await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
                         _Logging.Info(_Header + "created PR: " + prUrl);
 
-                        // PR created successfully — mark landing as succeeded
-                        landingSucceeded = true;
+                        // PR created — transition to PullRequestOpen (not Complete).
+                        // Complete is reserved for when the PR is actually merged.
+                        mission.Status = MissionStatusEnum.PullRequestOpen;
+                        mission.LastUpdateUtc = DateTime.UtcNow;
+                        await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                        _Logging.Info(_Header + "mission " + mission.Id + " PR created, status set to PullRequestOpen");
+
+                        // Emit mission.pull_request_open event
+                        try
+                        {
+                            ArmadaEvent prEvent = new ArmadaEvent("mission.pull_request_open", "Pull request opened: " + mission.Title);
+                            prEvent.EntityType = "mission";
+                            prEvent.EntityId = mission.Id;
+                            prEvent.CaptainId = mission.CaptainId;
+                            prEvent.MissionId = mission.Id;
+                            prEvent.VesselId = mission.VesselId;
+                            prEvent.VoyageId = mission.VoyageId;
+                            await _Database.Events.CreateAsync(prEvent).ConfigureAwait(false);
+                        }
+                        catch (Exception evtEx)
+                        {
+                            _Logging.Warn(_Header + "error emitting mission.pull_request_open event for " + mission.Id + ": " + evtEx.Message);
+                        }
+
+                        // Broadcast PullRequestOpen via WebSocket
+                        if (_WebSocketHub != null)
+                        {
+                            _WebSocketHub.BroadcastEvent("mission.pull_request_open", "Pull request opened: " + mission.Title, new
+                            {
+                                entityType = "mission",
+                                entityId = mission.Id,
+                                captainId = mission.CaptainId,
+                                missionId = mission.Id,
+                                vesselId = mission.VesselId,
+                                voyageId = mission.VoyageId
+                            });
+                            _WebSocketHub.BroadcastMissionChange(mission.Id, MissionStatusEnum.PullRequestOpen.ToString(), mission.Title);
+                        }
+
+                        // PR path handles its own status — skip the generic landing result block below
+                        landingSucceeded = false;
+                        landingAttempted = false;
 
                         // Auto-merge if enabled
                         if (effectiveMerge && !String.IsNullOrEmpty(prUrl))
@@ -2392,7 +2432,7 @@ namespace Armada.Server
                                 await _Git.EnableAutoMergeAsync(dock.WorktreePath, prUrl).ConfigureAwait(false);
                                 _Logging.Info(_Header + "enabled auto-merge for PR: " + prUrl);
 
-                                // Poll for merge completion, then pull into the user's working directory
+                                // Poll for merge completion, then transition to Complete
                                 if (vessel != null && !String.IsNullOrEmpty(vessel.WorkingDirectory) && !String.IsNullOrEmpty(vessel.LocalPath) && !String.IsNullOrEmpty(dock.BranchName))
                                 {
                                     _ = PollAndPullAfterMergeAsync(vessel.WorkingDirectory, vessel.LocalPath, dock.BranchName, prUrl, mission.Id);
@@ -2401,7 +2441,7 @@ namespace Armada.Server
                             catch (Exception mergeEx)
                             {
                                 _Logging.Warn(_Header + "failed to enable auto-merge for " + prUrl + ": " + mergeEx.Message);
-                                // PR was created, so landing still counts as succeeded even if auto-merge enablement fails
+                                // PR was created, so mission stays PullRequestOpen even if auto-merge enablement fails
                             }
                         }
                     }
@@ -2586,6 +2626,56 @@ namespace Armada.Server
                         await _Git.PullAsync(workingDirectory).ConfigureAwait(false);
                         _Logging.Info(_Header + "pulled latest into " + workingDirectory + " after PR merge");
 
+                        // Transition mission from PullRequestOpen to Complete
+                        try
+                        {
+                            Mission? mission = await _Database.Missions.ReadAsync(missionId).ConfigureAwait(false);
+                            if (mission != null && mission.Status == MissionStatusEnum.PullRequestOpen)
+                            {
+                                mission.Status = MissionStatusEnum.Complete;
+                                mission.CompletedUtc = DateTime.UtcNow;
+                                mission.LastUpdateUtc = DateTime.UtcNow;
+                                await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                                _Logging.Info(_Header + "mission " + missionId + " PR merged, status set to Complete");
+
+                                // Emit mission.completed event
+                                try
+                                {
+                                    ArmadaEvent completedEvent = new ArmadaEvent("mission.completed", "Mission completed (PR merged): " + mission.Title);
+                                    completedEvent.EntityType = "mission";
+                                    completedEvent.EntityId = mission.Id;
+                                    completedEvent.CaptainId = mission.CaptainId;
+                                    completedEvent.MissionId = mission.Id;
+                                    completedEvent.VesselId = mission.VesselId;
+                                    completedEvent.VoyageId = mission.VoyageId;
+                                    await _Database.Events.CreateAsync(completedEvent).ConfigureAwait(false);
+                                }
+                                catch (Exception evtEx)
+                                {
+                                    _Logging.Warn(_Header + "error emitting mission.completed event for " + missionId + ": " + evtEx.Message);
+                                }
+
+                                // Broadcast via WebSocket
+                                if (_WebSocketHub != null)
+                                {
+                                    _WebSocketHub.BroadcastEvent("mission.completed", "Mission completed (PR merged): " + mission.Title, new
+                                    {
+                                        entityType = "mission",
+                                        entityId = mission.Id,
+                                        captainId = mission.CaptainId,
+                                        missionId = mission.Id,
+                                        vesselId = mission.VesselId,
+                                        voyageId = mission.VoyageId
+                                    });
+                                    _WebSocketHub.BroadcastMissionChange(mission.Id, MissionStatusEnum.Complete.ToString(), mission.Title);
+                                }
+                            }
+                        }
+                        catch (Exception statusEx)
+                        {
+                            _Logging.Warn(_Header + "error transitioning mission " + missionId + " to Complete after PR merge: " + statusEx.Message);
+                        }
+
                         // Clean up the mission branch from the bare repo
                         try
                         {
@@ -2601,7 +2691,7 @@ namespace Armada.Server
                     }
                 }
 
-                _Logging.Info(_Header + "PR " + prUrl + " not merged within 5 minutes, skipping auto-pull for mission " + missionId);
+                _Logging.Info(_Header + "PR " + prUrl + " not merged within 5 minutes — mission " + missionId + " stays PullRequestOpen until merge is confirmed");
             }
             catch (Exception ex)
             {
@@ -2659,9 +2749,13 @@ namespace Armada.Server
                 (MissionStatusEnum.InProgress, MissionStatusEnum.Complete) => true,
                 (MissionStatusEnum.InProgress, MissionStatusEnum.Failed) => true,
                 (MissionStatusEnum.InProgress, MissionStatusEnum.Cancelled) => true,
+                (MissionStatusEnum.WorkProduced, MissionStatusEnum.PullRequestOpen) => true,
                 (MissionStatusEnum.WorkProduced, MissionStatusEnum.Complete) => true,
                 (MissionStatusEnum.WorkProduced, MissionStatusEnum.LandingFailed) => true,
                 (MissionStatusEnum.WorkProduced, MissionStatusEnum.Cancelled) => true,
+                (MissionStatusEnum.PullRequestOpen, MissionStatusEnum.Complete) => true,
+                (MissionStatusEnum.PullRequestOpen, MissionStatusEnum.LandingFailed) => true,
+                (MissionStatusEnum.PullRequestOpen, MissionStatusEnum.Cancelled) => true,
                 (MissionStatusEnum.Testing, MissionStatusEnum.Review) => true,
                 (MissionStatusEnum.Testing, MissionStatusEnum.InProgress) => true,
                 (MissionStatusEnum.Testing, MissionStatusEnum.Complete) => true,

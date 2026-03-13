@@ -35,6 +35,14 @@ namespace Armada.Core.Enums
         WorkProduced,
 
         /// <summary>
+        /// A pull request has been created for this mission's work, but the PR
+        /// has not yet been merged. The mission is considered active until the
+        /// PR is confirmed merged, at which point it transitions to Complete.
+        /// </summary>
+        [EnumMember(Value = "PullRequestOpen")]
+        PullRequestOpen,
+
+        /// <summary>
         /// Mission work complete, under testing.
         /// </summary>
         [EnumMember(Value = "Testing")]

@@ -88,7 +88,8 @@ namespace Armada.Core.Services
                     m.Status == MissionStatusEnum.InProgress ||
                     m.Status == MissionStatusEnum.Assigned ||
                     m.Status == MissionStatusEnum.Testing ||
-                    m.Status == MissionStatusEnum.WorkProduced)
+                    m.Status == MissionStatusEnum.WorkProduced ||
+                    m.Status == MissionStatusEnum.PullRequestOpen)
             };
 
             return progress;
