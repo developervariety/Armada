@@ -1175,12 +1175,34 @@ namespace Armada.Server
                 mission.Status = newStatus;
                 mission.LastUpdateUtc = DateTime.UtcNow;
 
-                if (newStatus == MissionStatusEnum.Complete || newStatus == MissionStatusEnum.Failed || newStatus == MissionStatusEnum.Cancelled)
+                if (newStatus == MissionStatusEnum.Complete || newStatus == MissionStatusEnum.Failed ||
+                    newStatus == MissionStatusEnum.LandingFailed || newStatus == MissionStatusEnum.Cancelled)
                 {
                     mission.CompletedUtc = DateTime.UtcNow;
                 }
 
                 await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+
+                // If manually transitioning to Complete, capture diff if dock is still available
+                if (newStatus == MissionStatusEnum.Complete && _Admiral.OnCaptureDiff != null)
+                {
+                    string? dockId = mission.DockId;
+                    if (!String.IsNullOrEmpty(dockId))
+                    {
+                        Dock? completionDock = await _Database.Docks.ReadAsync(dockId).ConfigureAwait(false);
+                        if (completionDock != null)
+                        {
+                            try
+                            {
+                                await _Admiral.OnCaptureDiff.Invoke(mission, completionDock).ConfigureAwait(false);
+                            }
+                            catch (Exception diffEx)
+                            {
+                                _Logging.Warn(_Header + "error capturing diff during manual completion of " + id + ": " + diffEx.Message);
+                            }
+                        }
+                    }
+                }
 
                 Signal signal = new Signal(SignalTypeEnum.Progress, "Mission " + id + " transitioned to " + newStatus);
                 if (!String.IsNullOrEmpty(mission.CaptainId)) signal.FromCaptainId = mission.CaptainId;
