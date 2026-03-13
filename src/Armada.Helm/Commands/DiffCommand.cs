@@ -6,43 +6,6 @@ namespace Armada.Helm.Commands
     using Armada.Core.Models;
     using Armada.Core.Services;
 
-    #region Settings
-
-    /// <summary>
-    /// Settings for diff command.
-    /// </summary>
-    public class DiffSettings : BaseSettings
-    {
-        /// <summary>
-        /// Mission identifier or title substring.
-        /// </summary>
-        [Description("Mission ID or title")]
-        [CommandArgument(0, "[mission]")]
-        public string? Id { get; set; }
-    }
-
-    #endregion
-
-    /// <summary>
-    /// Response from the mission diff API endpoint.
-    /// </summary>
-    public class MissionDiffResponse
-    {
-        /// <summary>Mission identifier.</summary>
-        public string MissionId { get; set; } = "";
-
-        /// <summary>Branch name.</summary>
-        public string Branch { get; set; } = "";
-
-        /// <summary>Worktree path.</summary>
-        public string WorktreePath { get; set; } = "";
-
-        /// <summary>Unified diff output.</summary>
-        public string Diff { get; set; } = "";
-    }
-
-    #region Commands
-
     /// <summary>
     /// Show the git diff of a mission's changes.
     /// </summary>
@@ -158,6 +121,4 @@ namespace Armada.Helm.Commands
             return identifier;
         }
     }
-
-    #endregion
 }

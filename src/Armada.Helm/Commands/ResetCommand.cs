@@ -7,19 +7,6 @@ namespace Armada.Helm.Commands
     using Armada.Core.Settings;
 
     /// <summary>
-    /// Settings for the reset command.
-    /// </summary>
-    public class ResetSettings : BaseSettings
-    {
-        /// <summary>
-        /// Skip confirmation prompt.
-        /// </summary>
-        [Description("Skip confirmation prompt")]
-        [CommandOption("--force|-f")]
-        public bool Force { get; set; } = false;
-    }
-
-    /// <summary>
     /// Destructively reset Armada back to zero: delete database, logs, docks, and bare repos.
     /// Preserves settings file.
     /// </summary>

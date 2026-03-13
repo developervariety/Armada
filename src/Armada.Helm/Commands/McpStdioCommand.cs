@@ -17,13 +17,6 @@ namespace Armada.Helm.Commands
     using Armada.Server.Mcp;
 
     /// <summary>
-    /// Settings for MCP stdio command.
-    /// </summary>
-    public class McpStdioSettings : CommandSettings
-    {
-    }
-
-    /// <summary>
     /// Run Armada as an MCP server over stdio (stdin/stdout).
     /// Designed to be launched by Claude Code or other MCP clients as a subprocess.
     /// </summary>

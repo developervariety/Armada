@@ -11,13 +11,6 @@ namespace Armada.Helm.Commands
     using Armada.Core.Settings;
 
     /// <summary>
-    /// Settings for doctor command.
-    /// </summary>
-    public class DoctorSettings : BaseSettings
-    {
-    }
-
-    /// <summary>
     /// System health check with actionable diagnostics.
     /// </summary>
     [Description("Check system health and report issues with fixes")]

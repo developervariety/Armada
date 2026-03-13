@@ -1129,20 +1129,4 @@ namespace Armada.Server.WebSocket
 
         #endregion
     }
-
-    /// <summary>
-    /// Data payload for the restart_mission WebSocket command.
-    /// </summary>
-    public class MissionRestartData
-    {
-        /// <summary>
-        /// Optional new title. If null or empty, the original title is preserved.
-        /// </summary>
-        public string? Title { get; set; }
-
-        /// <summary>
-        /// Optional new description/instructions. If null or empty, the original description is preserved.
-        /// </summary>
-        public string? Description { get; set; }
-    }
 }

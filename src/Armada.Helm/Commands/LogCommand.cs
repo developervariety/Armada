@@ -8,39 +8,6 @@ namespace Armada.Helm.Commands
     using Armada.Core.Models;
     using Armada.Core.Services;
 
-    #region Settings
-
-    /// <summary>
-    /// Settings for log command.
-    /// </summary>
-    public class LogSettings : BaseSettings
-    {
-        /// <summary>
-        /// Captain or mission identifier.
-        /// </summary>
-        [Description("Captain name/ID, mission ID, or mission title")]
-        [CommandArgument(0, "<identifier>")]
-        public string Id { get; set; } = string.Empty;
-
-        /// <summary>
-        /// Number of lines to show from end of log.
-        /// </summary>
-        [Description("Number of lines to show (default: 50)")]
-        [CommandOption("--lines|-n")]
-        public int? Lines { get; set; }
-
-        /// <summary>
-        /// Follow the log file for live output.
-        /// </summary>
-        [Description("Follow log for live output")]
-        [CommandOption("--follow|-f")]
-        public bool Follow { get; set; } = false;
-    }
-
-    #endregion
-
-    #region Commands
-
     /// <summary>
     /// Tail a captain or mission session log.
     /// </summary>
@@ -227,6 +194,4 @@ namespace Armada.Helm.Commands
             }
         }
     }
-
-    #endregion
 }

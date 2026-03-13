@@ -10,32 +10,6 @@ namespace Armada.Helm.Commands
     using Armada.Core.Settings;
     using Armada.Helm.Rendering;
 
-    #region Settings
-
-    /// <summary>
-    /// Settings for watch command.
-    /// </summary>
-    public class WatchSettings : BaseSettings
-    {
-        /// <summary>
-        /// Refresh interval in seconds.
-        /// </summary>
-        [Description("Refresh interval in seconds (default: 5)")]
-        [CommandOption("--interval|-i")]
-        public int? Interval { get; set; }
-
-        /// <summary>
-        /// Filter to a specific captain.
-        /// </summary>
-        [Description("Filter to a specific captain")]
-        [CommandOption("--captain|-c")]
-        public string? Captain { get; set; }
-    }
-
-    #endregion
-
-    #region Commands
-
     /// <summary>
     /// Live-updating status dashboard with action-required alerts.
     /// </summary>
@@ -488,6 +462,4 @@ namespace Armada.Helm.Commands
             return value.Substring(0, maxLength - 3) + "...";
         }
     }
-
-    #endregion
 }

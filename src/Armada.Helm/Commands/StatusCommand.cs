@@ -10,19 +10,6 @@ namespace Armada.Helm.Commands
     using Armada.Helm.Rendering;
 
     /// <summary>
-    /// Settings for status command.
-    /// </summary>
-    public class StatusSettings : BaseSettings
-    {
-        /// <summary>
-        /// Show status for all vessels, not just the current directory.
-        /// </summary>
-        [Description("Show status for all vessels")]
-        [CommandOption("--all|-a")]
-        public bool All { get; set; } = false;
-    }
-
-    /// <summary>
     /// Show Armada dashboard status.
     /// Contextual: when run inside a git repo, focuses on that vessel.
     /// </summary>
