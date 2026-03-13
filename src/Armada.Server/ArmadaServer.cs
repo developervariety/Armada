@@ -1174,6 +1174,59 @@ namespace Armada.Server
                 if (!valid)
                     return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Invalid transition from " + mission.Status + " to " + newStatus };
 
+                // If manually transitioning to Complete and an active dock exists, route through
+                // the full landing pipeline (PR creation, merge, branch cleanup, dock reclaim)
+                // instead of just mutating the status. This ensures manual completion has the
+                // same semantics as agent-driven completion.
+                if (newStatus == MissionStatusEnum.Complete && !String.IsNullOrEmpty(mission.DockId))
+                {
+                    Dock? landingDock = await _Database.Docks.ReadAsync(mission.DockId).ConfigureAwait(false);
+                    if (landingDock != null && landingDock.Active)
+                    {
+                        // Capture diff before landing
+                        if (_Admiral.OnCaptureDiff != null)
+                        {
+                            try
+                            {
+                                await _Admiral.OnCaptureDiff.Invoke(mission, landingDock).ConfigureAwait(false);
+                            }
+                            catch (Exception diffEx)
+                            {
+                                _Logging.Warn(_Header + "error capturing diff during manual completion of " + id + ": " + diffEx.Message);
+                            }
+                        }
+
+                        // Set to WorkProduced first so the landing handler can process it
+                        mission.Status = MissionStatusEnum.WorkProduced;
+                        mission.LastUpdateUtc = DateTime.UtcNow;
+                        await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+
+                        _Logging.Info(_Header + "manual Complete transition for " + id + " — routing through landing pipeline");
+
+                        // Invoke the full landing pipeline (same as agent-driven completion)
+                        await HandleMissionCompleteAsync(mission, landingDock).ConfigureAwait(false);
+
+                        // Re-read the mission to get the final state after landing
+                        mission = await _Database.Missions.ReadAsync(id).ConfigureAwait(false);
+                        if (mission == null)
+                            return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found after landing" };
+
+                        Signal landingSignal = new Signal(SignalTypeEnum.Progress, "Mission " + id + " manual completion — landed as " + mission.Status);
+                        if (!String.IsNullOrEmpty(mission.CaptainId)) landingSignal.FromCaptainId = mission.CaptainId;
+                        await _Database.Signals.CreateAsync(landingSignal).ConfigureAwait(false);
+
+                        await EmitEventAsync("mission.status_changed", "Mission " + id + " manually completed — landed as " + mission.Status,
+                            entityType: "mission", entityId: id,
+                            captainId: mission.CaptainId, missionId: id, vesselId: mission.VesselId, voyageId: mission.VoyageId).ConfigureAwait(false);
+
+                        if (_WebSocketHub != null)
+                            _WebSocketHub.BroadcastMissionChange(id, mission.Status.ToString(), mission.Title);
+
+                        return (object)mission;
+                    }
+                }
+
+                // Standard transition: no dock available or not transitioning to Complete
                 mission.Status = newStatus;
                 mission.LastUpdateUtc = DateTime.UtcNow;
 
@@ -1184,27 +1237,6 @@ namespace Armada.Server
                 }
 
                 await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
-
-                // If manually transitioning to Complete, capture diff if dock is still available
-                if (newStatus == MissionStatusEnum.Complete && _Admiral.OnCaptureDiff != null)
-                {
-                    string? dockId = mission.DockId;
-                    if (!String.IsNullOrEmpty(dockId))
-                    {
-                        Dock? completionDock = await _Database.Docks.ReadAsync(dockId).ConfigureAwait(false);
-                        if (completionDock != null)
-                        {
-                            try
-                            {
-                                await _Admiral.OnCaptureDiff.Invoke(mission, completionDock).ConfigureAwait(false);
-                            }
-                            catch (Exception diffEx)
-                            {
-                                _Logging.Warn(_Header + "error capturing diff during manual completion of " + id + ": " + diffEx.Message);
-                            }
-                        }
-                    }
-                }
 
                 Signal signal = new Signal(SignalTypeEnum.Progress, "Mission " + id + " transitioned to " + newStatus);
                 if (!String.IsNullOrEmpty(mission.CaptainId)) signal.FromCaptainId = mission.CaptainId;
