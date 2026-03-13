@@ -1,5 +1,6 @@
 namespace Armada.Helm.Commands
 {
+    using System.Collections.Generic;
     using System.ComponentModel;
     using System.Threading;
     using Spectre.Console;
@@ -100,6 +101,17 @@ namespace Armada.Helm.Commands
                 return 0;
             }
 
+            // Fetch missions to look up titles for the Mission column
+            Dictionary<string, Mission> missionLookup = new Dictionary<string, Mission>();
+            EnumerationResult<Mission>? missionResult = await GetAsync<EnumerationResult<Mission>>("/api/v1/missions").ConfigureAwait(false);
+            if (missionResult?.Objects != null)
+            {
+                foreach (Mission m in missionResult.Objects)
+                {
+                    missionLookup[m.Id] = m;
+                }
+            }
+
             TableRenderer.RenderPaginationHeader(result.PageNumber, result.TotalPages, result.TotalRecords, result.TotalMs);
             Table table = TableRenderer.CreateTable("Captains", null);
             table.AddColumn("[bold]Id[/]");
@@ -117,12 +129,25 @@ namespace Armada.Helm.Commands
                     ? captain.LastHeartbeatUtc.Value.ToString("HH:mm:ss")
                     : "[dim]-[/]";
 
+                string missionCell = "-";
+                if (!string.IsNullOrEmpty(captain.CurrentMissionId))
+                {
+                    if (missionLookup.TryGetValue(captain.CurrentMissionId, out Mission? mission) && !string.IsNullOrEmpty(mission.Title))
+                    {
+                        missionCell = Markup.Escape(mission.Title) + "\n" + $"[dim]{Markup.Escape(captain.CurrentMissionId)}[/]";
+                    }
+                    else
+                    {
+                        missionCell = Markup.Escape(captain.CurrentMissionId);
+                    }
+                }
+
                 table.AddRow(
                     $"[dim]{Markup.Escape(captain.Id)}[/]",
                     $"[bold]{Markup.Escape(captain.Name)}[/]",
                     $"{captain.Runtime}",
                     $"[{stateColor}]{captain.State}[/]",
-                    Markup.Escape(captain.CurrentMissionId ?? "-"),
+                    missionCell,
                     heartbeat);
             }
 
