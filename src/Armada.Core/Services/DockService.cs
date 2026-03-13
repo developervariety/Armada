@@ -210,6 +210,15 @@ namespace Armada.Core.Services
             Dock? dock = await _Database.Docks.ReadAsync(dockId, token).ConfigureAwait(false);
             if (dock == null) return;
 
+            // Idempotency guard: if the dock is already inactive, it was already reclaimed.
+            // This prevents duplicate worktree removal when both MissionService (background finalizer)
+            // and ArmadaServer (HandleMissionCompleteAsync) both call ReclaimAsync for the same dock.
+            if (!dock.Active)
+            {
+                _Logging.Debug(_Header + "dock " + dockId + " already reclaimed (Active=false) — skipping");
+                return;
+            }
+
             if (!String.IsNullOrEmpty(dock.WorktreePath))
             {
                 try
