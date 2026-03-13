@@ -3,6 +3,7 @@ namespace Armada.Helm.Commands
     using System.ComponentModel;
     using System.Diagnostics;
     using System.Net.Http;
+    using System.Runtime.InteropServices;
     using System.Threading;
     using Spectre.Console;
     using Spectre.Console.Cli;
@@ -69,17 +70,36 @@ namespace Armada.Helm.Commands
             if (serverExe == null)
             {
                 AnsiConsole.MarkupLine("[red]Admiral server executable not found.[/]");
-                AnsiConsole.MarkupLine("[dim]Looked for Armada.Server.exe next to the CLI and in common source locations.[/]");
+                AnsiConsole.MarkupLine("[dim]Looked for Armada.Server next to the CLI and in common source locations.[/]");
                 return 1;
             }
 
-            // Launch the server executable in its own window
-            ProcessStartInfo startInfo = new ProcessStartInfo
+            // Launch the server executable detached
+            ProcessStartInfo startInfo;
+
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
-                FileName = serverExe,
-                UseShellExecute = true,
-                WindowStyle = ProcessWindowStyle.Minimized
-            };
+                startInfo = new ProcessStartInfo
+                {
+                    FileName = serverExe,
+                    UseShellExecute = true,
+                    WindowStyle = ProcessWindowStyle.Minimized
+                };
+            }
+            else
+            {
+                // On Unix, UseShellExecute=true doesn't launch executables the same way.
+                // Use UseShellExecute=false and redirect streams to detach cleanly.
+                startInfo = new ProcessStartInfo
+                {
+                    FileName = serverExe,
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    RedirectStandardInput = true,
+                    CreateNoWindow = true
+                };
+            }
 
             Process process = new Process { StartInfo = startInfo };
             bool started = process.Start();
@@ -139,11 +159,16 @@ namespace Armada.Helm.Commands
         /// </summary>
         private string? FindServerExe()
         {
-            // 1. Installed: Armada.Server.exe next to the CLI
+            // Platform-aware executable name
+            string exeName = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+                ? "Armada.Server.exe"
+                : "Armada.Server";
+
+            // 1. Installed: Armada.Server[.exe] next to the CLI
             string? cliDir = Path.GetDirectoryName(Environment.ProcessPath);
             if (!string.IsNullOrEmpty(cliDir))
             {
-                string installed = Path.Combine(cliDir, "Armada.Server.exe");
+                string installed = Path.Combine(cliDir, exeName);
                 if (File.Exists(installed)) return installed;
             }
 
@@ -151,7 +176,7 @@ namespace Armada.Helm.Commands
             string? projectDir = FindServerProject();
             if (projectDir == null) return null;
 
-            string builtExe = Path.GetFullPath(Path.Combine(projectDir, "bin", "Debug", "net10.0", "Armada.Server.exe"));
+            string builtExe = Path.GetFullPath(Path.Combine(projectDir, "bin", "Debug", "net10.0", exeName));
 
             // If the exe exists and is locked by a recently-stopped server, wait for it to be released
             if (File.Exists(builtExe))
