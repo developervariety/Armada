@@ -2395,7 +2395,7 @@ namespace Armada.Server
                                 // Poll for merge completion, then pull into the user's working directory
                                 if (vessel != null && !String.IsNullOrEmpty(vessel.WorkingDirectory))
                                 {
-                                    _ = PollAndPullAfterMergeAsync(vessel.WorkingDirectory, prUrl, mission.Id);
+                                    _ = PollAndPullAfterMergeAsync(vessel.WorkingDirectory, vessel.LocalPath, dock.BranchName, prUrl, mission.Id);
                                 }
                             }
                             catch (Exception mergeEx)
@@ -2426,6 +2426,17 @@ namespace Armada.Server
                         _Logging.Info(_Header + "merged branch " + dock.BranchName + " into " + vessel.WorkingDirectory);
 
                         landingSucceeded = true;
+
+                        // Clean up the mission branch from the bare repo now that it's merged
+                        try
+                        {
+                            await _Git.DeleteLocalBranchAsync(vessel.LocalPath, dock.BranchName).ConfigureAwait(false);
+                            _Logging.Info(_Header + "deleted branch " + dock.BranchName + " from bare repo after successful merge");
+                        }
+                        catch (Exception branchEx)
+                        {
+                            _Logging.Warn(_Header + "failed to delete branch " + dock.BranchName + " from bare repo: " + branchEx.Message);
+                        }
 
                         // Push the merged changes to the remote
                         if (effectivePush)
@@ -2557,7 +2568,7 @@ namespace Armada.Server
             return Task.CompletedTask;
         }
 
-        private async Task PollAndPullAfterMergeAsync(string workingDirectory, string prUrl, string missionId)
+        private async Task PollAndPullAfterMergeAsync(string workingDirectory, string bareRepoPath, string branchName, string prUrl, string missionId)
         {
             try
             {
@@ -2574,6 +2585,18 @@ namespace Armada.Server
                         _Logging.Info(_Header + "PR " + prUrl + " merged, pulling into " + workingDirectory);
                         await _Git.PullAsync(workingDirectory).ConfigureAwait(false);
                         _Logging.Info(_Header + "pulled latest into " + workingDirectory + " after PR merge");
+
+                        // Clean up the mission branch from the bare repo
+                        try
+                        {
+                            await _Git.DeleteLocalBranchAsync(bareRepoPath, branchName).ConfigureAwait(false);
+                            _Logging.Info(_Header + "deleted branch " + branchName + " from bare repo after PR merge");
+                        }
+                        catch (Exception branchEx)
+                        {
+                            _Logging.Warn(_Header + "failed to delete branch " + branchName + " from bare repo: " + branchEx.Message);
+                        }
+
                         return;
                     }
                 }
