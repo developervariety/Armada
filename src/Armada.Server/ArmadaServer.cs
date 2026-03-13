@@ -2686,11 +2686,34 @@ namespace Armada.Server
                 }
             }
 
-            // Broadcast via WebSocket for real-time UI updates
+            // Broadcast via WebSocket for real-time UI updates.
+            // Derive event type from mission.Status (not from boolean flags) so the broadcast
+            // accurately reflects the current state. This prevents the PR path from emitting
+            // a misleading "mission.work_produced" broadcast when the mission is already PullRequestOpen.
             if (_WebSocketHub != null)
             {
-                string eventType = landingSucceeded ? "mission.completed" : (landingAttempted ? "mission.landing_failed" : "mission.work_produced");
-                string eventMessage = landingSucceeded ? "Mission completed: " + mission.Title : (landingAttempted ? "Landing failed: " + mission.Title : "Work produced: " + mission.Title);
+                string eventType;
+                string eventMessage;
+
+                switch (mission.Status)
+                {
+                    case MissionStatusEnum.Complete:
+                        eventType = "mission.completed";
+                        eventMessage = "Mission completed: " + mission.Title;
+                        break;
+                    case MissionStatusEnum.LandingFailed:
+                        eventType = "mission.landing_failed";
+                        eventMessage = "Landing failed: " + mission.Title;
+                        break;
+                    case MissionStatusEnum.PullRequestOpen:
+                        eventType = "mission.pull_request_open";
+                        eventMessage = "Pull request open: " + mission.Title;
+                        break;
+                    default:
+                        eventType = "mission.work_produced";
+                        eventMessage = "Work produced: " + mission.Title;
+                        break;
+                }
 
                 _WebSocketHub.BroadcastEvent(eventType, eventMessage, new
                 {
