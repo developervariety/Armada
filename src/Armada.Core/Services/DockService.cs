@@ -276,16 +276,21 @@ namespace Armada.Core.Services
 
                 try
                 {
-                    // Clear read-only attributes that can block deletion on Windows
-                    foreach (string file in Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories))
+                    // Clear read-only attributes that can block deletion on Windows.
+                    // On Unix this is unnecessary (read-only attr maps to file permissions
+                    // and Directory.Delete handles it), so skip the expensive enumeration.
+                    if (OperatingSystem.IsWindows())
                     {
-                        try
+                        foreach (string file in Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories))
                         {
-                            FileAttributes attrs = File.GetAttributes(file);
-                            if ((attrs & FileAttributes.ReadOnly) != 0)
-                                File.SetAttributes(file, attrs & ~FileAttributes.ReadOnly);
+                            try
+                            {
+                                FileAttributes attrs = File.GetAttributes(file);
+                                if ((attrs & FileAttributes.ReadOnly) != 0)
+                                    File.SetAttributes(file, attrs & ~FileAttributes.ReadOnly);
+                            }
+                            catch { }
                         }
-                        catch { }
                     }
 
                     Directory.Delete(path, recursive: true);
