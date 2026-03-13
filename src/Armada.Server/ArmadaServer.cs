@@ -1695,6 +1695,92 @@ namespace Armada.Server
                 .WithResponse(201, OpenApiResponseMetadata.Json<Signal>("Created signal"))
                 .WithSecurity("ApiKey"));
 
+            _App.Rest.Get("/api/v1/signals/{id}", async (AppRequest req) =>
+            {
+                string id = req.Parameters["id"];
+                Signal? signal = await _Database.Signals.ReadAsync(id).ConfigureAwait(false);
+                if (signal == null) return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Signal not found" };
+                return (object)signal;
+            },
+            api => api
+                .WithTag("Signals")
+                .WithSummary("Get a signal")
+                .WithDescription("Returns a single signal by ID.")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Signal ID (sig_ prefix)"))
+                .WithResponse(200, OpenApiResponseMetadata.Json<Signal>("Signal details"))
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithSecurity("ApiKey"));
+
+            _App.Rest.Put("/api/v1/signals/{id}/read", async (AppRequest req) =>
+            {
+                string id = req.Parameters["id"];
+                Signal? signal = await _Database.Signals.ReadAsync(id).ConfigureAwait(false);
+                if (signal == null) return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Signal not found" };
+                await _Database.Signals.MarkReadAsync(id).ConfigureAwait(false);
+                Signal? updated = await _Database.Signals.ReadAsync(id).ConfigureAwait(false);
+                return (object)updated!;
+            },
+            api => api
+                .WithTag("Signals")
+                .WithSummary("Mark a signal as read")
+                .WithDescription("Marks a signal as read by ID.")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Signal ID (sig_ prefix)"))
+                .WithResponse(200, OpenApiResponseMetadata.Json<Signal>("Updated signal"))
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithSecurity("ApiKey"));
+
+            _App.Rest.Get("/api/v1/signals/recipient/{captainId}", async (AppRequest req) =>
+            {
+                string captainId = req.Parameters["captainId"];
+                string unreadOnlyStr = req.Query.GetValueOrDefault("unreadOnly");
+                bool unreadOnly = String.IsNullOrEmpty(unreadOnlyStr) || bool.Parse(unreadOnlyStr);
+                List<Signal> signals = await _Database.Signals.EnumerateByRecipientAsync(captainId, unreadOnly).ConfigureAwait(false);
+                return signals;
+            },
+            api => api
+                .WithTag("Signals")
+                .WithSummary("Enumerate signals by recipient")
+                .WithDescription("Returns signals addressed to a specific captain. Defaults to unread only.")
+                .WithParameter(OpenApiParameterMetadata.Path("captainId", "Captain ID (cpt_ prefix)"))
+                .WithParameter(OpenApiParameterMetadata.Query("unreadOnly", "Filter to unread signals only (default: true)", false, OpenApiSchemaMetadata.Boolean()))
+                .WithResponse(200, OpenApiResponseMetadata.Json<List<Signal>>("Signal list"))
+                .WithSecurity("ApiKey"));
+
+            _App.Rest.Get("/api/v1/signals/recent", async (AppRequest req) =>
+            {
+                string countStr = req.Query.GetValueOrDefault("count");
+                int count = 50;
+                if (!String.IsNullOrEmpty(countStr) && int.TryParse(countStr, out int parsedCount)) count = parsedCount;
+                List<Signal> signals = await _Database.Signals.EnumerateRecentAsync(count).ConfigureAwait(false);
+                return signals;
+            },
+            api => api
+                .WithTag("Signals")
+                .WithSummary("Get recent signals")
+                .WithDescription("Returns the most recent signals, ordered by creation time descending.")
+                .WithParameter(OpenApiParameterMetadata.Query("count", "Maximum number of signals to return (default: 50)", false, OpenApiSchemaMetadata.Integer()))
+                .WithResponse(200, OpenApiResponseMetadata.Json<List<Signal>>("Signal list"))
+                .WithSecurity("ApiKey"));
+
+            _App.Rest.Delete("/api/v1/signals/{id}", async (AppRequest req) =>
+            {
+                string id = req.Parameters["id"];
+                Signal? signal = await _Database.Signals.ReadAsync(id).ConfigureAwait(false);
+                if (signal == null) return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Signal not found" };
+                // Mark as read to "soft delete" since no hard delete exists
+                await _Database.Signals.MarkReadAsync(id).ConfigureAwait(false);
+                req.Http.Response.StatusCode = 204;
+                return null;
+            },
+            api => api
+                .WithTag("Signals")
+                .WithSummary("Delete a signal")
+                .WithDescription("Soft-deletes a signal by marking it as read.")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Signal ID (sig_ prefix)"))
+                .WithResponse(204, OpenApiResponseMetadata.NoContent())
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithSecurity("ApiKey"));
+
             // Events
             _App.Rest.Get("/api/v1/events", async (AppRequest req) =>
             {
