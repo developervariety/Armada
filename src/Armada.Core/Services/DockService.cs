@@ -224,6 +224,12 @@ namespace Armada.Core.Services
                 // from the just-exited agent process can linger and block deletion.
                 await ForceRemoveDirectoryAsync(dock.WorktreePath, token).ConfigureAwait(false);
             }
+
+            // Update the dock record so DataExpiryService can purge it
+            dock.Active = false;
+            dock.CaptainId = null;
+            dock.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.Docks.UpdateAsync(dock, token).ConfigureAwait(false);
         }
 
         /// <inheritdoc />
