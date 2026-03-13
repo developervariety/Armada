@@ -2586,8 +2586,39 @@ namespace Armada.Server
                 }
                 else if (landingModeIsMergeQueue)
                 {
-                    _Logging.Info(_Header + "mission " + mission.Id + " landing mode is MergeQueue — branch " + dock.BranchName + " should be enqueued via armada_enqueue_merge");
-                    // MergeQueue mode: work stays as WorkProduced, user or automation enqueues for merge
+                    // MergeQueue mode: auto-enqueue the branch into the merge queue.
+                    // Processing (test-and-land) remains a separate trigger via armada_process_merge_queue.
+                    try
+                    {
+                        string targetBranch = vessel?.DefaultBranch ?? "main";
+                        MergeEntry entry = new MergeEntry(dock.BranchName, targetBranch);
+                        entry.MissionId = mission.Id;
+                        entry.VesselId = mission.VesselId;
+                        entry = await _MergeQueue.EnqueueAsync(entry).ConfigureAwait(false);
+                        _Logging.Info(_Header + "mission " + mission.Id + " auto-enqueued as merge entry " + entry.Id + " (branch " + dock.BranchName + " -> " + targetBranch + ")");
+
+                        // Emit merge_queue.enqueued event
+                        try
+                        {
+                            ArmadaEvent mqEvent = new ArmadaEvent("merge_queue.enqueued", "Mission " + mission.Id + " auto-enqueued for merge queue: " + dock.BranchName + " -> " + targetBranch);
+                            mqEvent.EntityType = "merge_entry";
+                            mqEvent.EntityId = entry.Id;
+                            mqEvent.MissionId = mission.Id;
+                            mqEvent.VesselId = mission.VesselId;
+                            mqEvent.VoyageId = mission.VoyageId;
+                            mqEvent.CaptainId = mission.CaptainId;
+                            await _Database.Events.CreateAsync(mqEvent).ConfigureAwait(false);
+                        }
+                        catch (Exception evtEx)
+                        {
+                            _Logging.Warn(_Header + "error emitting merge_queue.enqueued event for " + mission.Id + ": " + evtEx.Message);
+                        }
+                    }
+                    catch (Exception mqEx)
+                    {
+                        _Logging.Warn(_Header + "error auto-enqueuing merge entry for mission " + mission.Id + ": " + mqEx.Message + " — branch " + dock.BranchName + " is still available for manual enqueue");
+                    }
+                    // Mission stays as WorkProduced; merge queue processing will land it
                 }
                 else
                 {
