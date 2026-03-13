@@ -10,7 +10,10 @@ namespace Armada.Core.Services
 
 
     /// <summary>
-    /// Bors-style merge queue with batch testing and binary bisection on failure.
+    /// Sequential merge queue that processes entries one at a time, landing each
+    /// immediately before moving to the next.  This ensures that every subsequent
+    /// merge is attempted against the up-to-date target branch, eliminating the
+    /// cascade failures that occur with batch-style processing.
     /// </summary>
     public class MergeQueueService : IMergeQueueService
     {
@@ -73,19 +76,24 @@ namespace Armada.Core.Services
 
             try
             {
-                // Get all queued entries from database ordered by priority then created_utc
+                // Get all queued entries ordered by priority then created_utc
                 List<MergeEntry> queued = await _Database.MergeEntries.EnumerateByStatusAsync(MergeStatusEnum.Queued, token).ConfigureAwait(false);
 
                 if (queued.Count == 0) return;
 
-                // Process each vessel/target group
+                // Group by vessel + target branch (independent repos can process independently)
                 IEnumerable<IGrouping<string, MergeEntry>> groups = queued.GroupBy(
                     e => (e.VesselId ?? "default") + ":" + e.TargetBranch);
 
                 foreach (IGrouping<string, MergeEntry> group in groups)
                 {
-                    List<MergeEntry> batch = group.ToList();
-                    await ProcessBatchAsync(batch, token).ConfigureAwait(false);
+                    // Order by priority (lower = higher priority) then by creation time ascending
+                    List<MergeEntry> entries = group
+                        .OrderBy(e => e.Priority)
+                        .ThenBy(e => e.CreatedUtc)
+                        .ToList();
+
+                    await ProcessGroupAsync(entries, token).ConfigureAwait(false);
                 }
             }
             finally
@@ -127,7 +135,7 @@ namespace Armada.Core.Services
             if (entry.Status != MergeStatusEnum.Queued) return null;
 
             _Logging.Info(_Header + "processing single entry " + entryId);
-            await ProcessBatchAsync(new List<MergeEntry> { entry }, token).ConfigureAwait(false);
+            await ProcessEntryAsync(entry, token).ConfigureAwait(false);
 
             // Re-read from DB to get updated state
             return await _Database.MergeEntries.ReadAsync(entryId, token).ConfigureAwait(false);
@@ -196,18 +204,23 @@ namespace Armada.Core.Services
 
         #region Private-Methods
 
-        private async Task ProcessBatchAsync(List<MergeEntry> batch, CancellationToken token)
+        /// <summary>
+        /// Process a group of entries that share the same vessel and target branch.
+        /// Entries are processed one at a time in priority/creation order.  Each
+        /// successful merge is landed immediately so the next entry merges against
+        /// the updated target.
+        /// </summary>
+        private async Task ProcessGroupAsync(List<MergeEntry> entries, CancellationToken token)
         {
-            if (batch.Count == 0) return;
+            if (entries.Count == 0) return;
 
-            string batchId = "batch_" + DateTime.UtcNow.ToString("yyyyMMddHHmmss");
-            MergeEntry first = batch[0];
+            MergeEntry first = entries[0];
             string? repoPath = await GetRepoPathAsync(first, token).ConfigureAwait(false);
 
             if (repoPath == null)
             {
-                _Logging.Warn(_Header + "skipping batch " + batchId + ": unable to resolve repo path for vessel " + first.VesselId);
-                foreach (MergeEntry entry in batch)
+                _Logging.Warn(_Header + "unable to resolve repo path for vessel " + first.VesselId + " — failing all entries");
+                foreach (MergeEntry entry in entries)
                 {
                     entry.Status = MergeStatusEnum.Failed;
                     entry.TestOutput = "Unable to resolve repository path for vessel " + first.VesselId;
@@ -218,195 +231,141 @@ namespace Armada.Core.Services
                 return;
             }
 
-            _Logging.Info(_Header + "processing batch " + batchId + " with " + batch.Count + " entries for " + first.TargetBranch);
+            _Logging.Info(_Header + "processing " + entries.Count + " entries for " + first.TargetBranch + " on vessel " + (first.VesselId ?? "default"));
 
-            // Mark all entries as testing
-            foreach (MergeEntry entry in batch)
+            foreach (MergeEntry entry in entries)
             {
-                entry.Status = MergeStatusEnum.Testing;
-                entry.BatchId = batchId;
-                entry.TestStartedUtc = DateTime.UtcNow;
+                await ProcessEntryAsync(entry, repoPath, token).ConfigureAwait(false);
+            }
+        }
+
+        /// <summary>
+        /// Process a single merge entry: fetch, merge, test, land.
+        /// If any step fails the entry is marked Failed and processing continues
+        /// to the next entry in the group.
+        /// </summary>
+        private async Task ProcessEntryAsync(MergeEntry entry, CancellationToken token)
+        {
+            string? repoPath = await GetRepoPathAsync(entry, token).ConfigureAwait(false);
+            if (repoPath == null)
+            {
+                entry.Status = MergeStatusEnum.Failed;
+                entry.TestOutput = "Unable to resolve repository path for vessel " + entry.VesselId;
+                entry.CompletedUtc = DateTime.UtcNow;
                 entry.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
+                return;
             }
 
-            // Create integration branch
-            string integrationBranch = "armada/merge-queue/" + batchId;
+            await ProcessEntryAsync(entry, repoPath, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Core single-entry processing with a known repo path.
+        /// </summary>
+        private async Task ProcessEntryAsync(MergeEntry entry, string repoPath, CancellationToken token)
+        {
+            string entryTag = entry.Id + " branch " + entry.BranchName;
+            _Logging.Info(_Header + "processing " + entryTag);
+
+            // Mark as testing
+            entry.Status = MergeStatusEnum.Testing;
+            entry.TestStartedUtc = DateTime.UtcNow;
+            entry.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
+
+            // Each entry gets its own temporary worktree so the merge is always
+            // attempted against the current state of the target branch.
+            string worktreeId = "mq_" + entry.Id + "_" + DateTime.UtcNow.ToString("yyyyMMddHHmmss");
+            string integrationBranch = "armada/merge-queue/" + worktreeId;
+            string integrationPath = Path.Combine(_Settings.DocksDirectory, "_merge-queue", worktreeId);
 
             try
             {
-                // Fetch latest
+                // Fetch latest so the target branch ref is up to date
                 await _Git.FetchAsync(repoPath, token).ConfigureAwait(false);
 
-                // Create integration branch from target
-                string integrationPath = Path.Combine(
-                    _Settings.DocksDirectory, "_merge-queue", batchId);
+                // Create a temporary worktree from the current target branch
+                await _Git.CreateWorktreeAsync(repoPath, integrationPath, integrationBranch, entry.TargetBranch, token).ConfigureAwait(false);
 
-                await _Git.CreateWorktreeAsync(repoPath, integrationPath, integrationBranch, first.TargetBranch, token).ConfigureAwait(false);
-
-                // Merge each branch into the integration branch
-                foreach (MergeEntry entry in batch)
+                // Merge the entry's branch
+                bool mergeOk = await MergeBranchAsync(integrationPath, entry.BranchName, token).ConfigureAwait(false);
+                if (!mergeOk)
                 {
-                    bool mergeOk = await MergeBranchAsync(integrationPath, entry.BranchName, token).ConfigureAwait(false);
-                    if (!mergeOk)
-                    {
-                        _Logging.Warn(_Header + "merge conflict for " + entry.Id + " branch " + entry.BranchName);
-                        entry.Status = MergeStatusEnum.Failed;
-                        entry.TestOutput = "Merge conflict with " + first.TargetBranch;
-                        entry.CompletedUtc = DateTime.UtcNow;
-                        entry.LastUpdateUtc = DateTime.UtcNow;
-                        await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
-
-                        // Remove conflicting entry and retry batch without it
-                        List<MergeEntry> remaining = batch.Where(e => e.Id != entry.Id && e.Status == MergeStatusEnum.Testing).ToList();
-                        await CleanupWorktreeAsync(integrationPath, token).ConfigureAwait(false);
-
-                        if (remaining.Count > 0)
-                        {
-                            // Reset remaining to queued for re-processing
-                            foreach (MergeEntry r in remaining)
-                            {
-                                r.Status = MergeStatusEnum.Queued;
-                                r.BatchId = null;
-                                r.TestStartedUtc = null;
-                                r.LastUpdateUtc = DateTime.UtcNow;
-                                await _Database.MergeEntries.UpdateAsync(r, token).ConfigureAwait(false);
-                            }
-                        }
-                        return;
-                    }
+                    _Logging.Warn(_Header + "merge conflict for " + entryTag);
+                    entry.Status = MergeStatusEnum.Failed;
+                    entry.TestOutput = "Merge conflict with " + entry.TargetBranch;
+                    entry.CompletedUtc = DateTime.UtcNow;
+                    entry.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
+                    await CleanupWorktreeAsync(integrationPath, token).ConfigureAwait(false);
+                    return;
                 }
 
-                // Run tests
-                string testCommand = first.TestCommand ?? _Settings.MergeQueueTestCommand ?? "";
+                // Run tests if configured
+                string testCommand = entry.TestCommand ?? _Settings.MergeQueueTestCommand ?? "";
                 if (!String.IsNullOrEmpty(testCommand))
                 {
                     TestResult testResult = await RunTestsAsync(integrationPath, testCommand, token).ConfigureAwait(false);
-
-                    if (testResult.ExitCode == 0)
+                    if (testResult.ExitCode != 0)
                     {
-                        // Tests passed — land all entries
-                        _Logging.Info(_Header + "batch " + batchId + " tests PASSED");
-                        await LandBatchAsync(batch, repoPath, integrationBranch, first.TargetBranch, token).ConfigureAwait(false);
+                        _Logging.Warn(_Header + "tests FAILED for " + entryTag + " (exit " + testResult.ExitCode + ")");
+                        entry.Status = MergeStatusEnum.Failed;
+                        entry.TestExitCode = testResult.ExitCode;
+                        entry.TestOutput = TruncateOutput(testResult.Output);
+                        entry.CompletedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
+                        await CleanupWorktreeAsync(integrationPath, token).ConfigureAwait(false);
+                        return;
                     }
-                    else
-                    {
-                        // Tests failed
-                        _Logging.Warn(_Header + "batch " + batchId + " tests FAILED (exit " + testResult.ExitCode + ")");
 
-                        if (batch.Count > 1)
-                        {
-                            // Binary bisection: split batch and retry each half
-                            await BisectBatchAsync(batch, repoPath, first.TargetBranch, testCommand, testResult.Output, token).ConfigureAwait(false);
-                        }
-                        else
-                        {
-                            // Single entry failed
-                            MergeEntry single = batch[0];
-                            single.Status = MergeStatusEnum.Failed;
-                            single.TestExitCode = testResult.ExitCode;
-                            single.TestOutput = TruncateOutput(testResult.Output);
-                            single.CompletedUtc = DateTime.UtcNow;
-                            single.LastUpdateUtc = DateTime.UtcNow;
-                            await _Database.MergeEntries.UpdateAsync(single, token).ConfigureAwait(false);
-                        }
-                    }
-                }
-                else
-                {
-                    // No test command — land directly
-                    _Logging.Info(_Header + "no test command configured, landing batch " + batchId + " directly");
-                    await LandBatchAsync(batch, repoPath, integrationBranch, first.TargetBranch, token).ConfigureAwait(false);
+                    _Logging.Info(_Header + "tests PASSED for " + entryTag);
                 }
 
-                // Cleanup integration worktree
+                // Land immediately — push the integration branch to update the target
+                await LandEntryAsync(entry, repoPath, integrationBranch, token).ConfigureAwait(false);
+
+                // Cleanup
                 await CleanupWorktreeAsync(integrationPath, token).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
-                _Logging.Warn(_Header + "batch " + batchId + " error: " + ex.Message);
-                foreach (MergeEntry entry in batch.Where(e => e.Status == MergeStatusEnum.Testing))
-                {
-                    entry.Status = MergeStatusEnum.Failed;
-                    entry.TestOutput = "Queue processing error: " + ex.Message;
-                    entry.CompletedUtc = DateTime.UtcNow;
-                    entry.LastUpdateUtc = DateTime.UtcNow;
-                    await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
-                }
-            }
-        }
-
-        private async Task BisectBatchAsync(
-            List<MergeEntry> batch,
-            string repoPath,
-            string targetBranch,
-            string testCommand,
-            string failureOutput,
-            CancellationToken token)
-        {
-            _Logging.Info(_Header + "bisecting batch of " + batch.Count + " entries");
-
-            // Split batch in half
-            int mid = batch.Count / 2;
-            List<MergeEntry> firstHalf = batch.Take(mid).ToList();
-            List<MergeEntry> secondHalf = batch.Skip(mid).ToList();
-
-            // Reset all to queued — they'll be re-batched in smaller groups
-            foreach (MergeEntry entry in batch)
-            {
-                entry.Status = MergeStatusEnum.Queued;
-                entry.BatchId = null;
-                entry.TestStartedUtc = null;
+                _Logging.Warn(_Header + "error processing " + entryTag + ": " + ex.Message);
+                entry.Status = MergeStatusEnum.Failed;
+                entry.TestOutput = "Queue processing error: " + ex.Message;
+                entry.CompletedUtc = DateTime.UtcNow;
                 entry.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
-            }
 
-            // Process each half separately (recursive — will further bisect if needed)
-            if (firstHalf.Count > 0)
-            {
-                await ProcessBatchAsync(firstHalf, token).ConfigureAwait(false);
-            }
-
-            if (secondHalf.Count > 0)
-            {
-                await ProcessBatchAsync(secondHalf, token).ConfigureAwait(false);
+                // Best-effort cleanup
+                await CleanupWorktreeAsync(integrationPath, token).ConfigureAwait(false);
             }
         }
 
-        private async Task LandBatchAsync(
-            List<MergeEntry> batch,
-            string repoPath,
-            string integrationBranch,
-            string targetBranch,
-            CancellationToken token)
+        /// <summary>
+        /// Land a single entry by pushing the integration branch to the target.
+        /// </summary>
+        private async Task LandEntryAsync(MergeEntry entry, string repoPath, string integrationBranch, CancellationToken token)
         {
-            // Push integration branch and update target
             try
             {
-                // The integration branch already has all changes merged
-                // Push it to update the remote target branch
-                await RunGitAsync(repoPath, "push origin " + integrationBranch + ":" + targetBranch, token).ConfigureAwait(false);
+                await RunGitAsync(repoPath, "push origin " + integrationBranch + ":" + entry.TargetBranch, token).ConfigureAwait(false);
 
-                foreach (MergeEntry entry in batch)
-                {
-                    entry.Status = MergeStatusEnum.Landed;
-                    entry.CompletedUtc = DateTime.UtcNow;
-                    entry.LastUpdateUtc = DateTime.UtcNow;
-                    await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
-                    _Logging.Info(_Header + "landed " + entry.Id + " branch " + entry.BranchName);
-                }
+                entry.Status = MergeStatusEnum.Landed;
+                entry.CompletedUtc = DateTime.UtcNow;
+                entry.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
+                _Logging.Info(_Header + "landed " + entry.Id + " branch " + entry.BranchName);
             }
             catch (Exception ex)
             {
-                _Logging.Warn(_Header + "failed to land batch: " + ex.Message);
-                foreach (MergeEntry entry in batch)
-                {
-                    entry.Status = MergeStatusEnum.Failed;
-                    entry.TestOutput = "Landing failed: " + ex.Message;
-                    entry.CompletedUtc = DateTime.UtcNow;
-                    entry.LastUpdateUtc = DateTime.UtcNow;
-                    await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
-                }
+                _Logging.Warn(_Header + "failed to land " + entry.Id + ": " + ex.Message);
+                entry.Status = MergeStatusEnum.Failed;
+                entry.TestOutput = "Landing failed: " + ex.Message;
+                entry.CompletedUtc = DateTime.UtcNow;
+                entry.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
             }
         }
 

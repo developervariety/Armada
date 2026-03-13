@@ -3,7 +3,7 @@ namespace Armada.Core.Services.Interfaces
     using Armada.Core.Models;
 
     /// <summary>
-    /// Service for managing the merge queue — test-before-merge with batch support.
+    /// Service for managing the merge queue — sequential test-before-merge with immediate landing.
     /// </summary>
     public interface IMergeQueueService
     {
@@ -16,7 +16,7 @@ namespace Armada.Core.Services.Interfaces
         Task<MergeEntry> EnqueueAsync(MergeEntry entry, CancellationToken token = default);
 
         /// <summary>
-        /// Process the next batch of queued entries: merge into integration branch, run tests, land if green.
+        /// Process queued entries one at a time: merge, test, land immediately, then move to the next.
         /// </summary>
         /// <param name="token">Cancellation token.</param>
         Task ProcessQueueAsync(CancellationToken token = default);
