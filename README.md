@@ -17,6 +17,7 @@
   <a href="#how-it-works">How It Works</a> |
   <a href="#architecture">Architecture</a> |
   <a href="#cli-reference">CLI Reference</a> |
+  <a href="#upgrading">Upgrading</a> |
   <a href="#rest-api">REST API</a> |
   <a href="#mcp-integration">MCP Integration</a> |
   <a href="#contributing">Contributing</a>
@@ -358,6 +359,115 @@ armada config init              # Interactive setup (optional)
 | `AutoMergePullRequests` | false | Auto-merge PRs after creation |
 | `TerminalBell` | true | Ring terminal bell during `armada watch` |
 | `DefaultRuntime` | null (auto-detect) | Default agent runtime |
+
+## Upgrading
+
+### v0.1.0 to v0.2.0
+
+**Breaking change:** The `settings.json` format has changed. Armada v0.2.0 will fail to start if you use a v0.1.0 `settings.json` without updating it.
+
+The `databasePath` string property has been replaced with a `database` object that supports multiple database backends (SQLite, PostgreSQL, SQL Server, MySQL).
+
+#### Before (v0.1.0)
+
+```json
+{
+  "databasePath": "armada.db",
+  "admiralPort": 7890,
+  "maxCaptains": 5
+}
+```
+
+#### After (v0.2.0)
+
+```json
+{
+  "database": {
+    "type": "Sqlite",
+    "filename": "armada.db"
+  },
+  "admiralPort": 7890,
+  "maxCaptains": 5
+}
+```
+
+#### Minimal change for SQLite users
+
+Replace:
+
+```json
+"databasePath": "path/to/armada.db"
+```
+
+With:
+
+```json
+"database": {
+  "type": "Sqlite",
+  "filename": "path/to/armada.db"
+}
+```
+
+No other changes are required -- all other settings remain the same.
+
+#### Switching to PostgreSQL
+
+```json
+"database": {
+  "type": "Postgresql",
+  "hostname": "localhost",
+  "port": 5432,
+  "username": "armada",
+  "password": "your-password",
+  "databaseName": "armada",
+  "schema": "public",
+  "minPoolSize": 1,
+  "maxPoolSize": 25,
+  "connectionLifetimeSeconds": 300,
+  "connectionIdleTimeoutSeconds": 60
+}
+```
+
+#### Switching to SQL Server
+
+```json
+"database": {
+  "type": "SqlServer",
+  "hostname": "localhost",
+  "port": 1433,
+  "username": "armada",
+  "password": "your-password",
+  "databaseName": "armada",
+  "minPoolSize": 1,
+  "maxPoolSize": 25,
+  "connectionLifetimeSeconds": 300,
+  "connectionIdleTimeoutSeconds": 60
+}
+```
+
+#### Switching to MySQL
+
+```json
+"database": {
+  "type": "Mysql",
+  "hostname": "localhost",
+  "port": 3306,
+  "username": "armada",
+  "password": "your-password",
+  "databaseName": "armada",
+  "minPoolSize": 1,
+  "maxPoolSize": 25,
+  "connectionLifetimeSeconds": 300,
+  "connectionIdleTimeoutSeconds": 60
+}
+```
+
+#### Additional notes
+
+- **Port auto-detection:** Setting `port` to `0` (or omitting it) auto-detects the default port for each database type (PostgreSQL: 5432, SQL Server: 1433, MySQL: 3306).
+- **Connection pooling:** All non-SQLite backends support connection pooling via `minPoolSize` (0-100), `maxPoolSize` (1-200), `connectionLifetimeSeconds` (minimum 30), and `connectionIdleTimeoutSeconds` (minimum 10).
+- **Encryption:** Set `requireEncryption` to `true` to require encrypted connections for PostgreSQL, SQL Server, or MySQL.
+- **Backup/restore:** The `armada_backup` and `armada_restore` MCP tools are only available when using SQLite. If you switch to PostgreSQL, SQL Server, or MySQL, use your database's native backup tools instead.
 
 ## REST API
 
