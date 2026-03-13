@@ -208,9 +208,9 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Merge a branch from a source repository into the current branch of a target working directory.
+        /// Merge a branch from a source repository into a target branch of a working directory.
         /// </summary>
-        public async Task MergeBranchLocalAsync(string targetWorkDir, string sourceRepoPath, string branchName, string? commitMessage = null, CancellationToken token = default)
+        public async Task MergeBranchLocalAsync(string targetWorkDir, string sourceRepoPath, string branchName, string? targetBranch = null, string? commitMessage = null, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(targetWorkDir)) throw new ArgumentNullException(nameof(targetWorkDir));
             if (String.IsNullOrEmpty(sourceRepoPath)) throw new ArgumentNullException(nameof(sourceRepoPath));
@@ -218,10 +218,13 @@ namespace Armada.Core.Services
 
             _Logging.Info(_Header + "merging branch " + branchName + " from " + sourceRepoPath + " into " + targetWorkDir);
 
-            // Ensure we are on the main branch before merging.
+            // Ensure we are on the correct target branch before merging.
             // Without this, a previous fetch/merge could leave HEAD on a different branch,
             // causing subsequent merges to target the wrong branch.
-            await RunGitAsync(targetWorkDir, "checkout", "main").ConfigureAwait(false);
+            if (!String.IsNullOrEmpty(targetBranch))
+            {
+                await RunGitAsync(targetWorkDir, "checkout", targetBranch).ConfigureAwait(false);
+            }
 
             // Fetch the specific branch from the bare repo using explicit refspec
             // Branch names with slashes (e.g. armada/claude-code-1/msn_xxx) require
@@ -229,11 +232,11 @@ namespace Armada.Core.Services
             string refspec = "refs/heads/" + branchName;
             await RunGitAsync(targetWorkDir, "fetch", sourceRepoPath, refspec).ConfigureAwait(false);
 
-            // Merge FETCH_HEAD into the current branch (main)
+            // Merge FETCH_HEAD into the current branch
             string message = commitMessage ?? ("Merge armada mission: " + branchName);
             await RunGitAsync(targetWorkDir, "merge", "FETCH_HEAD", "--no-edit", "-m", message).ConfigureAwait(false);
 
-            _Logging.Info(_Header + "merged " + branchName + " into " + targetWorkDir);
+            _Logging.Info(_Header + "merged " + branchName + " into " + targetWorkDir + (String.IsNullOrEmpty(targetBranch) ? "" : " (target: " + targetBranch + ")"));
         }
 
         /// <summary>

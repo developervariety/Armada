@@ -100,9 +100,10 @@ namespace Armada.Core.Services.Interfaces
         /// <param name="targetWorkDir">The user's local working directory.</param>
         /// <param name="sourceRepoPath">Path to the bare repo containing the branch.</param>
         /// <param name="branchName">Branch name to fetch and merge.</param>
+        /// <param name="targetBranch">Target branch to checkout before merging (e.g. "main", "develop"). If null, uses current branch.</param>
         /// <param name="commitMessage">Optional custom merge commit message. If null, uses default.</param>
         /// <param name="token">Cancellation token.</param>
-        Task MergeBranchLocalAsync(string targetWorkDir, string sourceRepoPath, string branchName, string? commitMessage = null, CancellationToken token = default);
+        Task MergeBranchLocalAsync(string targetWorkDir, string sourceRepoPath, string branchName, string? targetBranch = null, string? commitMessage = null, CancellationToken token = default);
 
         /// <summary>
         /// Pull latest changes from remote into a working directory.

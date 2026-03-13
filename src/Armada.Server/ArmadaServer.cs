@@ -2420,7 +2420,7 @@ namespace Armada.Server
                         Dictionary<string, string> mergeContext = _TemplateService.BuildContext(mission, null, vessel, voyage, dock);
                         mergeMessage = _TemplateService.RenderMergeCommitMessage(_Settings.MessageTemplates, mergeContext);
 
-                        await _Git.MergeBranchLocalAsync(vessel.WorkingDirectory, vessel.LocalPath, dock.BranchName, mergeMessage).ConfigureAwait(false);
+                        await _Git.MergeBranchLocalAsync(vessel.WorkingDirectory, vessel.LocalPath, dock.BranchName, vessel.DefaultBranch, mergeMessage).ConfigureAwait(false);
                         _Logging.Info(_Header + "merged branch " + dock.BranchName + " into " + vessel.WorkingDirectory);
 
                         landingSucceeded = true;
