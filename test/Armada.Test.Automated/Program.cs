@@ -117,6 +117,7 @@ namespace Armada.Test.Automated
                 runner.AddSuite(new McpToolTests(mcpClient));
                 runner.AddSuite(new WebSocketTests(authClient, unauthClient, wsPort, apiKey));
                 runner.AddSuite(new WorkflowTests(authClient, unauthClient));
+                runner.AddSuite(new LandingPipelineTests(authClient, unauthClient));
 
                 exitCode = await runner.RunAllAsync().ConfigureAwait(false);
             }
