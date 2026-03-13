@@ -83,11 +83,12 @@ namespace Armada.Core.Services
                 Voyage = voyage,
                 TotalMissions = missions.Count,
                 CompletedMissions = missions.Count(m => m.Status == MissionStatusEnum.Complete),
-                FailedMissions = missions.Count(m => m.Status == MissionStatusEnum.Failed),
+                FailedMissions = missions.Count(m => m.Status == MissionStatusEnum.Failed || m.Status == MissionStatusEnum.LandingFailed),
                 InProgressMissions = missions.Count(m =>
                     m.Status == MissionStatusEnum.InProgress ||
                     m.Status == MissionStatusEnum.Assigned ||
-                    m.Status == MissionStatusEnum.Testing)
+                    m.Status == MissionStatusEnum.Testing ||
+                    m.Status == MissionStatusEnum.WorkProduced)
             };
 
             return progress;

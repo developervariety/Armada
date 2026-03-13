@@ -410,7 +410,9 @@ namespace Armada.Core.Services
             // or another handler already processed this completion/failure.
             if (mission.Status == MissionStatusEnum.Complete ||
                 mission.Status == MissionStatusEnum.Failed ||
-                mission.Status == MissionStatusEnum.Cancelled)
+                mission.Status == MissionStatusEnum.Cancelled ||
+                mission.Status == MissionStatusEnum.WorkProduced ||
+                mission.Status == MissionStatusEnum.LandingFailed)
             {
                 _Logging.Debug(_Header + "mission " + missionId + " already in terminal state " + mission.Status + " — skipping process exit handling");
                 return;
@@ -501,7 +503,9 @@ namespace Armada.Core.Services
             if (mission != null &&
                 (mission.Status == MissionStatusEnum.Complete ||
                  mission.Status == MissionStatusEnum.Failed ||
-                 mission.Status == MissionStatusEnum.Cancelled))
+                 mission.Status == MissionStatusEnum.Cancelled ||
+                 mission.Status == MissionStatusEnum.WorkProduced ||
+                 mission.Status == MissionStatusEnum.LandingFailed))
             {
                 _Logging.Warn(_Header + "captain " + captain.Id + " has terminal mission " + captain.CurrentMissionId + " (status: " + mission.Status + ") - releasing to Idle");
                 await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
@@ -639,7 +643,10 @@ namespace Armada.Core.Services
                             await _Database.Captains.UpdateStateAsync(captain.Id, CaptainStateEnum.Stalled, token).ConfigureAwait(false);
 
                             // Mark the active mission as Failed
-                            if (mission != null && mission.Status != MissionStatusEnum.Complete)
+                            if (mission != null &&
+                                mission.Status != MissionStatusEnum.Complete &&
+                                mission.Status != MissionStatusEnum.WorkProduced &&
+                                mission.Status != MissionStatusEnum.LandingFailed)
                             {
                                 mission.Status = MissionStatusEnum.Failed;
                                 mission.ProcessId = null;

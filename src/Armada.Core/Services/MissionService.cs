@@ -276,29 +276,28 @@ namespace Armada.Core.Services
             Mission? mission = await _Database.Missions.ReadAsync(missionId, token).ConfigureAwait(false);
             if (mission == null) return;
 
-            // Mark mission complete
-            mission.Status = MissionStatusEnum.Complete;
+            // Mark mission as work produced (agent finished, landing not yet attempted)
+            mission.Status = MissionStatusEnum.WorkProduced;
             mission.ProcessId = null;
-            mission.CompletedUtc = DateTime.UtcNow;
             mission.LastUpdateUtc = DateTime.UtcNow;
             await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
-            _Logging.Info(_Header + "mission " + mission.Id + " completed by captain " + captain.Id);
+            _Logging.Info(_Header + "mission " + mission.Id + " work produced by captain " + captain.Id);
 
-            // Emit mission.completed event for audit trail
+            // Emit mission.work_produced event for audit trail
             try
             {
-                ArmadaEvent completedEvent = new ArmadaEvent("mission.completed", "Mission completed: " + mission.Title);
-                completedEvent.EntityType = "mission";
-                completedEvent.EntityId = mission.Id;
-                completedEvent.CaptainId = captain.Id;
-                completedEvent.MissionId = mission.Id;
-                completedEvent.VesselId = mission.VesselId;
-                completedEvent.VoyageId = mission.VoyageId;
-                await _Database.Events.CreateAsync(completedEvent, token).ConfigureAwait(false);
+                ArmadaEvent workProducedEvent = new ArmadaEvent("mission.work_produced", "Work produced: " + mission.Title);
+                workProducedEvent.EntityType = "mission";
+                workProducedEvent.EntityId = mission.Id;
+                workProducedEvent.CaptainId = captain.Id;
+                workProducedEvent.MissionId = mission.Id;
+                workProducedEvent.VesselId = mission.VesselId;
+                workProducedEvent.VoyageId = mission.VoyageId;
+                await _Database.Events.CreateAsync(workProducedEvent, token).ConfigureAwait(false);
             }
             catch (Exception evtEx)
             {
-                _Logging.Warn(_Header + "error emitting mission.completed event for " + mission.Id + ": " + evtEx.Message);
+                _Logging.Warn(_Header + "error emitting mission.work_produced event for " + mission.Id + ": " + evtEx.Message);
             }
 
             // Get dock for push/PR (prefer mission-level DockId, fall back to captain-level)
@@ -375,8 +374,8 @@ namespace Armada.Core.Services
                 }
             }
 
-            // Log completion signal
-            Signal signal = new Signal(SignalTypeEnum.Completion, "Mission completed: " + mission.Title);
+            // Log work produced signal
+            Signal signal = new Signal(SignalTypeEnum.Completion, "Work produced: " + mission.Title);
             signal.FromCaptainId = captain.Id;
             await _Database.Signals.CreateAsync(signal, token).ConfigureAwait(false);
 

@@ -589,7 +589,7 @@ namespace Armada.Server.WebSocket
                             {
                                 tmMission.Status = tmNewStatus;
                                 tmMission.LastUpdateUtc = DateTime.UtcNow;
-                                if (tmNewStatus == MissionStatusEnum.Complete || tmNewStatus == MissionStatusEnum.Failed || tmNewStatus == MissionStatusEnum.Cancelled)
+                                if (tmNewStatus == MissionStatusEnum.Complete || tmNewStatus == MissionStatusEnum.Failed || tmNewStatus == MissionStatusEnum.LandingFailed || tmNewStatus == MissionStatusEnum.Cancelled)
                                     tmMission.CompletedUtc = DateTime.UtcNow;
                                 await _Database.Missions.UpdateAsync(tmMission).ConfigureAwait(false);
                                 Signal tmSignal = new Signal(SignalTypeEnum.Progress, "Mission " + tmId + " transitioned to " + tmNewStatus);
@@ -653,8 +653,8 @@ namespace Armada.Server.WebSocket
                             Mission? rmMission = await _Database.Missions.ReadAsync(rmId).ConfigureAwait(false);
                             if (rmMission == null)
                                 result = new { type = "command.error", action = "restart_mission", error = "Mission not found" };
-                            else if (rmMission.Status != MissionStatusEnum.Failed && rmMission.Status != MissionStatusEnum.Cancelled)
-                                result = new { type = "command.error", action = "restart_mission", error = "Only Failed or Cancelled missions can be restarted" };
+                            else if (rmMission.Status != MissionStatusEnum.Failed && rmMission.Status != MissionStatusEnum.Cancelled && rmMission.Status != MissionStatusEnum.LandingFailed)
+                                result = new { type = "command.error", action = "restart_mission", error = "Only Failed, LandingFailed, or Cancelled missions can be restarted" };
                             else
                             {
                                 WebSocketDataCommand<MissionRestartData>? rmData = null;
@@ -1076,11 +1076,15 @@ namespace Armada.Server.WebSocket
                 (MissionStatusEnum.Pending, MissionStatusEnum.Cancelled) => true,
                 (MissionStatusEnum.Assigned, MissionStatusEnum.InProgress) => true,
                 (MissionStatusEnum.Assigned, MissionStatusEnum.Cancelled) => true,
+                (MissionStatusEnum.InProgress, MissionStatusEnum.WorkProduced) => true,
                 (MissionStatusEnum.InProgress, MissionStatusEnum.Testing) => true,
                 (MissionStatusEnum.InProgress, MissionStatusEnum.Review) => true,
                 (MissionStatusEnum.InProgress, MissionStatusEnum.Complete) => true,
                 (MissionStatusEnum.InProgress, MissionStatusEnum.Failed) => true,
                 (MissionStatusEnum.InProgress, MissionStatusEnum.Cancelled) => true,
+                (MissionStatusEnum.WorkProduced, MissionStatusEnum.Complete) => true,
+                (MissionStatusEnum.WorkProduced, MissionStatusEnum.LandingFailed) => true,
+                (MissionStatusEnum.WorkProduced, MissionStatusEnum.Cancelled) => true,
                 (MissionStatusEnum.Testing, MissionStatusEnum.Review) => true,
                 (MissionStatusEnum.Testing, MissionStatusEnum.InProgress) => true,
                 (MissionStatusEnum.Testing, MissionStatusEnum.Complete) => true,
@@ -1088,6 +1092,9 @@ namespace Armada.Server.WebSocket
                 (MissionStatusEnum.Review, MissionStatusEnum.Complete) => true,
                 (MissionStatusEnum.Review, MissionStatusEnum.InProgress) => true,
                 (MissionStatusEnum.Review, MissionStatusEnum.Failed) => true,
+                (MissionStatusEnum.LandingFailed, MissionStatusEnum.WorkProduced) => true,
+                (MissionStatusEnum.LandingFailed, MissionStatusEnum.Failed) => true,
+                (MissionStatusEnum.LandingFailed, MissionStatusEnum.Cancelled) => true,
                 _ => false
             };
         }

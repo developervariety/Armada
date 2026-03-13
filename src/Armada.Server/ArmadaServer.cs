@@ -2297,7 +2297,7 @@ namespace Armada.Server
             if (String.IsNullOrEmpty(dock.WorktreePath) || String.IsNullOrEmpty(dock.BranchName))
                 return;
 
-            _Logging.Info(_Header + "handling mission completion for " + mission.Id);
+            _Logging.Info(_Header + "handling landing for mission " + mission.Id);
 
             // Look up the vessel and voyage for settings resolution
             Vessel? vessel = null;
@@ -2324,6 +2324,9 @@ namespace Armada.Server
             _Logging.Info(_Header + "acquiring merge lock for vessel " + vesselLockKey + " (mission " + mission.Id + ")");
             await vesselLock.WaitAsync().ConfigureAwait(false);
 
+            bool landingSucceeded = false;
+            bool landingAttempted = false;
+
             try
             {
                 _Logging.Info(_Header + "merge lock acquired for vessel " + vesselLockKey + " (mission " + mission.Id + ")");
@@ -2331,6 +2334,7 @@ namespace Armada.Server
                 if (effectivePr)
                 {
                     // Push + PR flow
+                    landingAttempted = true;
                     try
                     {
                         await _Git.PushBranchAsync(dock.WorktreePath).ConfigureAwait(false);
@@ -2353,6 +2357,9 @@ namespace Armada.Server
                         await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
                         _Logging.Info(_Header + "created PR: " + prUrl);
 
+                        // PR created successfully — mark landing as succeeded
+                        landingSucceeded = true;
+
                         // Auto-merge if enabled
                         if (effectiveMerge && !String.IsNullOrEmpty(prUrl))
                         {
@@ -2370,17 +2377,20 @@ namespace Armada.Server
                             catch (Exception mergeEx)
                             {
                                 _Logging.Warn(_Header + "failed to enable auto-merge for " + prUrl + ": " + mergeEx.Message);
+                                // PR was created, so landing still counts as succeeded even if auto-merge enablement fails
                             }
                         }
                     }
                     catch (Exception ex)
                     {
                         _Logging.Warn(_Header + "error pushing/creating PR for mission " + mission.Id + ": " + ex.Message);
+                        landingSucceeded = false;
                     }
                 }
                 else if (vessel != null && !String.IsNullOrEmpty(vessel.WorkingDirectory) && !String.IsNullOrEmpty(vessel.LocalPath))
                 {
                     // Local merge flow: fetch captain's branch from bare repo and merge into user's working directory
+                    landingAttempted = true;
                     try
                     {
                         // Render merge commit message from template
@@ -2390,6 +2400,8 @@ namespace Armada.Server
 
                         await _Git.MergeBranchLocalAsync(vessel.WorkingDirectory, vessel.LocalPath, dock.BranchName, mergeMessage).ConfigureAwait(false);
                         _Logging.Info(_Header + "merged branch " + dock.BranchName + " into " + vessel.WorkingDirectory);
+
+                        landingSucceeded = true;
 
                         // Push the merged changes to the remote
                         if (effectivePush)
@@ -2402,17 +2414,20 @@ namespace Armada.Server
                             catch (Exception pushEx)
                             {
                                 _Logging.Warn(_Header + "local merge succeeded but push failed for mission " + mission.Id + ": " + pushEx.Message);
+                                // Local merge succeeded, so landing still counts as succeeded
                             }
                         }
                     }
                     catch (Exception ex)
                     {
                         _Logging.Warn(_Header + "error merging locally for mission " + mission.Id + ": " + ex.Message + " — branch " + dock.BranchName + " is still available in the bare repo");
+                        landingSucceeded = false;
                     }
                 }
                 else
                 {
-                    _Logging.Info(_Header + "mission " + mission.Id + " completed — branch " + dock.BranchName + " available in bare repo (no auto-PR or local merge configured)");
+                    _Logging.Info(_Header + "mission " + mission.Id + " work produced — branch " + dock.BranchName + " available in bare repo (no auto-PR or local merge configured)");
+                    // No landing configured — mission stays as WorkProduced
                 }
             }
             finally
@@ -2421,12 +2436,67 @@ namespace Armada.Server
                 _Logging.Info(_Header + "merge lock released for vessel " + vesselLockKey + " (mission " + mission.Id + ")");
             }
 
-            // Note: mission.completed event is emitted by MissionService.HandleCompletionAsync
-            // to guarantee the audit trail even if this callback fails or is not invoked.
-            // Broadcast via WebSocket for real-time UI updates.
+            // Transition mission status based on landing result
+            if (landingAttempted)
+            {
+                if (landingSucceeded)
+                {
+                    mission.Status = MissionStatusEnum.Complete;
+                    mission.CompletedUtc = DateTime.UtcNow;
+                    mission.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                    _Logging.Info(_Header + "mission " + mission.Id + " landed successfully, status set to Complete");
+
+                    // Emit mission.completed event
+                    try
+                    {
+                        ArmadaEvent completedEvent = new ArmadaEvent("mission.completed", "Mission completed: " + mission.Title);
+                        completedEvent.EntityType = "mission";
+                        completedEvent.EntityId = mission.Id;
+                        completedEvent.CaptainId = mission.CaptainId;
+                        completedEvent.MissionId = mission.Id;
+                        completedEvent.VesselId = mission.VesselId;
+                        completedEvent.VoyageId = mission.VoyageId;
+                        await _Database.Events.CreateAsync(completedEvent).ConfigureAwait(false);
+                    }
+                    catch (Exception evtEx)
+                    {
+                        _Logging.Warn(_Header + "error emitting mission.completed event for " + mission.Id + ": " + evtEx.Message);
+                    }
+                }
+                else
+                {
+                    mission.Status = MissionStatusEnum.LandingFailed;
+                    mission.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                    _Logging.Warn(_Header + "mission " + mission.Id + " landing failed, status set to LandingFailed");
+
+                    // Emit mission.landing_failed event
+                    try
+                    {
+                        ArmadaEvent failedEvent = new ArmadaEvent("mission.landing_failed", "Landing failed: " + mission.Title);
+                        failedEvent.EntityType = "mission";
+                        failedEvent.EntityId = mission.Id;
+                        failedEvent.CaptainId = mission.CaptainId;
+                        failedEvent.MissionId = mission.Id;
+                        failedEvent.VesselId = mission.VesselId;
+                        failedEvent.VoyageId = mission.VoyageId;
+                        await _Database.Events.CreateAsync(failedEvent).ConfigureAwait(false);
+                    }
+                    catch (Exception evtEx)
+                    {
+                        _Logging.Warn(_Header + "error emitting mission.landing_failed event for " + mission.Id + ": " + evtEx.Message);
+                    }
+                }
+            }
+
+            // Broadcast via WebSocket for real-time UI updates
             if (_WebSocketHub != null)
             {
-                _WebSocketHub.BroadcastEvent("mission.completed", "Mission completed: " + mission.Title, new
+                string eventType = landingSucceeded ? "mission.completed" : (landingAttempted ? "mission.landing_failed" : "mission.work_produced");
+                string eventMessage = landingSucceeded ? "Mission completed: " + mission.Title : (landingAttempted ? "Landing failed: " + mission.Title : "Work produced: " + mission.Title);
+
+                _WebSocketHub.BroadcastEvent(eventType, eventMessage, new
                 {
                     entityType = "mission",
                     entityId = mission.Id,
