@@ -1,5 +1,6 @@
 namespace Armada.Core.Services.Interfaces
 {
+    using Armada.Core.Enums;
     using Armada.Core.Models;
 
     /// <summary>
@@ -56,5 +57,15 @@ namespace Armada.Core.Services.Interfaces
         /// <param name="token">Cancellation token.</param>
         /// <returns>True if deleted, false if not found or not in a terminal state.</returns>
         Task<bool> DeleteAsync(string entryId, CancellationToken token = default);
+
+        /// <summary>
+        /// Permanently delete all terminal merge queue entries (Landed, Failed, Cancelled).
+        /// Optionally filter by vessel ID and/or status.
+        /// </summary>
+        /// <param name="vesselId">Optional vessel ID filter.</param>
+        /// <param name="status">Optional status filter (must be a terminal status).</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Number of entries deleted.</returns>
+        Task<int> PurgeTerminalAsync(string? vesselId = null, MergeStatusEnum? status = null, CancellationToken token = default);
     }
 }

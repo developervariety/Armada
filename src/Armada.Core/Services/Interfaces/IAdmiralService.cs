@@ -93,5 +93,17 @@ namespace Armada.Core.Services.Interfaces
         /// </summary>
         /// <param name="token">Cancellation token.</param>
         Task CleanupStaleCaptainsAsync(CancellationToken token = default);
+
+        /// <summary>
+        /// Handle an agent process exit detected via the OnProcessExited event.
+        /// Transitions the mission to the appropriate state, releases the captain,
+        /// and reclaims the dock.
+        /// </summary>
+        /// <param name="processId">OS process ID that exited.</param>
+        /// <param name="exitCode">Exit code, or null if unavailable.</param>
+        /// <param name="captainId">Captain identifier.</param>
+        /// <param name="missionId">Mission identifier.</param>
+        /// <param name="token">Cancellation token.</param>
+        Task HandleProcessExitAsync(int processId, int? exitCode, string captainId, string missionId, CancellationToken token = default);
     }
 }

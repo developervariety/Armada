@@ -26,6 +26,12 @@ namespace Armada.Runtimes
         /// </summary>
         public event Action<int, string>? OnOutputReceived;
 
+        /// <summary>
+        /// Event raised when the agent process exits.
+        /// Parameters: processId, exitCode (null if unavailable).
+        /// </summary>
+        public event Action<int, int?>? OnProcessExited;
+
         #endregion
 
         #region Private-Members
@@ -135,6 +141,10 @@ namespace Armada.Runtimes
                 try { code = ((Process?)sender)?.ExitCode; } catch { }
                 logWriter?.WriteLine("[" + DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss") + "] Agent exited with code " + (code?.ToString() ?? "unknown"));
                 logWriter?.Dispose();
+
+                // Notify subscribers that the process has exited
+                try { OnProcessExited?.Invoke(process.Id, code); }
+                catch (Exception ex) { _Logging.Warn(_Header + "error in OnProcessExited handler for process " + process.Id + ": " + ex.Message); }
             };
             process.EnableRaisingEvents = true;
 

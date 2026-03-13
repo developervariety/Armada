@@ -1474,6 +1474,61 @@ namespace Armada.Server.Mcp
                     await mergeQueue.ProcessQueueAsync().ConfigureAwait(false);
                     return (object)new { Status = "processed" };
                 });
+
+            register(
+                "armada_delete_merge",
+                "Permanently delete a terminal merge queue entry from the database. Only entries in Landed, Failed, or Cancelled status can be deleted. This cannot be undone.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        entryId = new { type = "string", description = "Merge entry ID (mrg_ prefix)" }
+                    },
+                    required = new[] { "entryId" }
+                },
+                async (args) =>
+                {
+                    MergeEntryIdArgs request = JsonSerializer.Deserialize<MergeEntryIdArgs>(args!.Value, _JsonOptions)!;
+                    string entryId = request.EntryId;
+                    MergeEntry? entry = await mergeQueue.GetAsync(entryId).ConfigureAwait(false);
+                    if (entry == null) return (object)new { Error = "Merge entry not found" };
+
+                    bool deleted = await mergeQueue.DeleteAsync(entryId).ConfigureAwait(false);
+                    if (!deleted) return (object)new { Error = "Cannot delete merge entry in non-terminal status " + entry.Status + ". Only Landed, Failed, or Cancelled entries can be deleted." };
+
+                    return (object)new { Status = "deleted", EntryId = entryId };
+                });
+
+            register(
+                "armada_purge_merge_queue",
+                "Permanently delete all terminal merge queue entries (Landed, Failed, Cancelled) from the database. Optionally filter by vessel ID and/or status. This cannot be undone.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        vesselId = new { type = "string", description = "Optional vessel ID filter (vsl_ prefix)" },
+                        status = new { type = "string", description = "Optional status filter: Landed, Failed, or Cancelled" }
+                    }
+                },
+                async (args) =>
+                {
+                    PurgeMergeQueueArgs request = args != null
+                        ? JsonSerializer.Deserialize<PurgeMergeQueueArgs>(args.Value, _JsonOptions)!
+                        : new PurgeMergeQueueArgs();
+
+                    MergeStatusEnum? statusFilter = null;
+                    if (!String.IsNullOrEmpty(request.Status))
+                    {
+                        if (!Enum.TryParse<MergeStatusEnum>(request.Status, true, out MergeStatusEnum parsed))
+                            return (object)new { Error = "Invalid status. Must be one of: Landed, Failed, Cancelled" };
+                        statusFilter = parsed;
+                    }
+
+                    int deleted = await mergeQueue.PurgeTerminalAsync(request.VesselId, statusFilter).ConfigureAwait(false);
+                    return (object)new { Status = "purged", EntriesDeleted = deleted };
+                });
         }
 
         private static bool IsValidTransition(MissionStatusEnum current, MissionStatusEnum target)

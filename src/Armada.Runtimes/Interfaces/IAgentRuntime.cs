@@ -22,6 +22,12 @@ namespace Armada.Runtimes.Interfaces
         event Action<int, string>? OnOutputReceived;
 
         /// <summary>
+        /// Event raised when the agent process exits.
+        /// Parameters: processId, exitCode (null if unavailable).
+        /// </summary>
+        event Action<int, int?>? OnProcessExited;
+
+        /// <summary>
         /// Start an agent process with the given prompt in the specified working directory.
         /// Returns the process ID.
         /// </summary>

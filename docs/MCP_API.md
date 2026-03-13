@@ -1642,6 +1642,68 @@ Process the merge queue: creates integration branches, runs tests, and lands pas
 
 ---
 
+### armada_delete_merge
+
+Permanently delete a terminal merge queue entry from the database. Only entries in Landed, Failed, or Cancelled status can be deleted. **This cannot be undone.**
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "entryId": { "type": "string", "description": "Merge entry ID (mrg_ prefix)" }
+  },
+  "required": ["entryId"]
+}
+```
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `entryId` | string | Yes | Merge entry ID to delete (prefix `mrg_`) |
+
+**Response:**
+
+```json
+{ "Status": "deleted", "EntryId": "mrg_..." }
+```
+
+Returns `{ "Error": "Merge entry not found" }` if the ID does not exist.
+Returns `{ "Error": "Cannot delete merge entry in non-terminal status ..." }` if the entry is not in a terminal state.
+
+---
+
+### armada_purge_merge_queue
+
+Permanently delete all terminal merge queue entries (Landed, Failed, Cancelled) from the database. Optionally filter by vessel ID and/or status. **This cannot be undone.**
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "vesselId": { "type": "string", "description": "Optional vessel ID filter (vsl_ prefix)" },
+    "status": { "type": "string", "description": "Optional status filter: Landed, Failed, or Cancelled" }
+  }
+}
+```
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `vesselId` | string | No | Filter to only purge entries for a specific vessel (prefix `vsl_`) |
+| `status` | string | No | Filter to only purge entries with a specific terminal status: `Landed`, `Failed`, or `Cancelled` |
+
+**Response:**
+
+```json
+{ "Status": "purged", "EntriesDeleted": 5 }
+```
+
+Returns `{ "Error": "Invalid status. Must be one of: Landed, Failed, Cancelled" }` if an invalid status is provided.
+
+---
+
 ### armada_backup
 
 Create a backup of the Armada database and settings as a ZIP archive.

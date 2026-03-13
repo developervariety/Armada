@@ -200,6 +200,49 @@ namespace Armada.Core.Services
             return true;
         }
 
+        /// <inheritdoc />
+        public async Task<int> PurgeTerminalAsync(string? vesselId = null, MergeStatusEnum? status = null, CancellationToken token = default)
+        {
+            List<MergeStatusEnum> terminalStatuses = new List<MergeStatusEnum>
+            {
+                MergeStatusEnum.Landed,
+                MergeStatusEnum.Failed,
+                MergeStatusEnum.Cancelled
+            };
+
+            if (status != null && !terminalStatuses.Contains(status.Value))
+            {
+                _Logging.Warn(_Header + "purge requested for non-terminal status " + status.Value);
+                return 0;
+            }
+
+            List<MergeStatusEnum> statusesToPurge = status != null
+                ? new List<MergeStatusEnum> { status.Value }
+                : terminalStatuses;
+
+            List<MergeEntry> candidates = new List<MergeEntry>();
+            foreach (MergeStatusEnum s in statusesToPurge)
+            {
+                List<MergeEntry> entries = await _Database.MergeEntries.EnumerateByStatusAsync(s, token).ConfigureAwait(false);
+                candidates.AddRange(entries);
+            }
+
+            if (!String.IsNullOrEmpty(vesselId))
+            {
+                candidates = candidates.Where(e => e.VesselId == vesselId).ToList();
+            }
+
+            int deleted = 0;
+            foreach (MergeEntry entry in candidates)
+            {
+                bool result = await DeleteAsync(entry.Id, token).ConfigureAwait(false);
+                if (result) deleted++;
+            }
+
+            _Logging.Info(_Header + "purged " + deleted + " terminal entries");
+            return deleted;
+        }
+
         #endregion
 
         #region Private-Methods

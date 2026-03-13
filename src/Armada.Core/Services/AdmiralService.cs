@@ -386,6 +386,100 @@ namespace Armada.Core.Services
             }
         }
 
+        /// <inheritdoc />
+        public async Task HandleProcessExitAsync(int processId, int? exitCode, string captainId, string missionId, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(captainId)) throw new ArgumentNullException(nameof(captainId));
+            if (String.IsNullOrEmpty(missionId)) throw new ArgumentNullException(nameof(missionId));
+
+            Captain? captain = await _Database.Captains.ReadAsync(captainId, token).ConfigureAwait(false);
+            if (captain == null)
+            {
+                _Logging.Warn(_Header + "captain " + captainId + " not found during process exit handling");
+                return;
+            }
+
+            Mission? mission = await _Database.Missions.ReadAsync(missionId, token).ConfigureAwait(false);
+            if (mission == null)
+            {
+                _Logging.Warn(_Header + "mission " + missionId + " not found during process exit handling");
+                return;
+            }
+
+            // If the mission is already in a terminal state, nothing to do — the health check
+            // or another handler already processed this completion/failure.
+            if (mission.Status == MissionStatusEnum.Complete ||
+                mission.Status == MissionStatusEnum.Failed ||
+                mission.Status == MissionStatusEnum.Cancelled)
+            {
+                _Logging.Debug(_Header + "mission " + missionId + " already in terminal state " + mission.Status + " — skipping process exit handling");
+                return;
+            }
+
+            // If the captain is no longer working on this mission, skip
+            if (captain.CurrentMissionId != missionId)
+            {
+                _Logging.Debug(_Header + "captain " + captainId + " is no longer assigned to mission " + missionId + " — skipping process exit handling");
+                return;
+            }
+
+            await EmitEventAsync("captain.process_exited",
+                "Agent process " + processId + " exited with code " + (exitCode?.ToString() ?? "unknown") + " for captain " + captain.Name,
+                entityType: "captain", entityId: captain.Id,
+                captainId: captain.Id, missionId: missionId,
+                vesselId: mission.VesselId, voyageId: mission.VoyageId, token: token).ConfigureAwait(false);
+
+            if (exitCode == 0)
+            {
+                // Clean exit — delegate to the normal completion flow
+                _Logging.Info(_Header + "agent process " + processId + " exited cleanly for mission " + missionId + " — handling completion");
+                await _Missions.HandleCompletionAsync(captain, missionId, token).ConfigureAwait(false);
+            }
+            else
+            {
+                // Non-zero or unknown exit code — attempt recovery or mark failed
+                _Logging.Warn(_Header + "agent process " + processId + " exited with code " + (exitCode?.ToString() ?? "unknown") + " for mission " + missionId);
+
+                if (captain.RecoveryAttempts < _Settings.MaxRecoveryAttempts)
+                {
+                    await _Captains.TryRecoverAsync(captain, token).ConfigureAwait(false);
+                }
+                else
+                {
+                    // Recovery exhausted — mark mission as failed
+                    mission.Status = MissionStatusEnum.Failed;
+                    mission.ProcessId = null;
+                    mission.CompletedUtc = DateTime.UtcNow;
+                    mission.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                    _Logging.Warn(_Header + "mission " + missionId + " marked failed (process exit code " + (exitCode?.ToString() ?? "unknown") + ", recovery exhausted)");
+
+                    await EmitEventAsync("mission.failed",
+                        "Mission failed: " + mission.Title + " (agent process exited with code " + (exitCode?.ToString() ?? "unknown") + ", recovery exhausted)",
+                        entityType: "mission", entityId: mission.Id,
+                        captainId: captain.Id, missionId: mission.Id,
+                        vesselId: mission.VesselId, voyageId: mission.VoyageId, token: token).ConfigureAwait(false);
+
+                    // Reclaim the dock
+                    await ReclaimDockAsync(captain, mission, token).ConfigureAwait(false);
+
+                    // Mark captain as stalled
+                    await _Database.Captains.UpdateStateAsync(captain.Id, CaptainStateEnum.Stalled, token).ConfigureAwait(false);
+
+                    if (_Escalation != null)
+                        await _Escalation.FireAsync(EscalationTriggerEnum.RecoveryExhausted, captain.Id,
+                            "Captain " + captain.Id + " recovery exhausted for mission " + missionId + " (exit code " + (exitCode?.ToString() ?? "unknown") + ")", token).ConfigureAwait(false);
+
+                    Signal signal = new Signal(SignalTypeEnum.Error, "Agent process exited with code " + (exitCode?.ToString() ?? "unknown") + " for mission " + mission.Title + " (recovery exhausted)");
+                    signal.FromCaptainId = captain.Id;
+                    await _Database.Signals.CreateAsync(signal, token).ConfigureAwait(false);
+                }
+            }
+
+            // Try to dispatch any pending missions now that capacity may have freed up
+            await DispatchPendingMissionsAsync(token).ConfigureAwait(false);
+        }
+
         #endregion
 
         #region Private-Methods

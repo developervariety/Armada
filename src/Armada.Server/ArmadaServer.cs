@@ -1269,10 +1269,14 @@ namespace Armada.Server
                 catch { }
 
                 mission.Status = MissionStatusEnum.Pending;
+                mission.CreatedUtc = DateTime.UtcNow;
                 mission.CaptainId = null;
                 mission.BranchName = null;
                 mission.PrUrl = null;
                 mission.CommitHash = null;
+                mission.DockId = null;
+                mission.ProcessId = null;
+                mission.DiffSnapshot = null;
                 mission.StartedUtc = null;
                 mission.CompletedUtc = null;
                 mission.LastUpdateUtc = DateTime.UtcNow;
@@ -2057,8 +2061,9 @@ namespace Armada.Server
 
             Armada.Runtimes.Interfaces.IAgentRuntime runtime = _RuntimeFactory.Create(captain.Runtime);
 
-            // Wire up progress tracking
+            // Wire up progress tracking and process exit detection
             runtime.OnOutputReceived += HandleAgentOutput;
+            runtime.OnProcessExited += HandleAgentProcessExited;
 
             string prompt = "Mission: " + mission.Title + "\n\n" + (mission.Description ?? "");
 
@@ -2167,6 +2172,53 @@ namespace Armada.Server
                     _Logging.Warn(_Header + "error processing progress signal: " + ex.Message);
                 }
             });
+        }
+
+        private void HandleAgentProcessExited(int processId, int? exitCode)
+        {
+            // Look up captain and mission from process tracking maps
+            string? captainId = null;
+            string? missionId = null;
+            lock (_ProcessToCaptain)
+            {
+                _ProcessToCaptain.TryGetValue(processId, out captainId);
+                _ProcessToMission.TryGetValue(processId, out missionId);
+            }
+
+            if (String.IsNullOrEmpty(captainId) || String.IsNullOrEmpty(missionId))
+            {
+                _Logging.Debug(_Header + "process " + processId + " exited (code " + (exitCode?.ToString() ?? "unknown") + ") but no captain/mission mapping found — likely already handled");
+                return;
+            }
+
+            _Logging.Info(_Header + "process " + processId + " exited (code " + (exitCode?.ToString() ?? "unknown") + ") for captain " + captainId + " mission " + missionId);
+
+            // Clean up process tracking immediately to prevent duplicate handling
+            lock (_ProcessToCaptain)
+            {
+                _ProcessToCaptain.Remove(processId);
+                _ProcessToMission.Remove(processId);
+            }
+
+            // Handle the exit asynchronously — fire-and-forget since we're in an event handler
+            string capturedCaptainId = captainId;
+            string capturedMissionId = missionId;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await HandleAgentProcessExitedAsync(processId, exitCode, capturedCaptainId, capturedMissionId).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "error handling process exit for captain " + capturedCaptainId + " mission " + capturedMissionId + ": " + ex.Message);
+                }
+            });
+        }
+
+        private async Task HandleAgentProcessExitedAsync(int processId, int? exitCode, string captainId, string missionId)
+        {
+            await _Admiral.HandleProcessExitAsync(processId, exitCode, captainId, missionId).ConfigureAwait(false);
         }
 
         private async Task HandleStopAgentAsync(Captain captain)
