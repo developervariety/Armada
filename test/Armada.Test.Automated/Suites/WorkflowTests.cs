@@ -356,7 +356,14 @@ namespace Armada.Test.Automated.Suites
             HttpResponseMessage resp = await _AuthClient.PostAsync("/api/v1/missions", content).ConfigureAwait(false);
             resp.EnsureSuccessStatusCode();
             string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
-            return JsonDocument.Parse(body).RootElement.Clone();
+            JsonElement root = JsonDocument.Parse(body).RootElement.Clone();
+
+            // When mission stays Pending (no captain available), the API returns
+            // { "Mission": {...}, "Warning": "..." } instead of the mission directly.
+            if (root.TryGetProperty("Mission", out JsonElement nested))
+                return nested;
+
+            return root;
         }
 
         private async Task<JsonElement> CreateVoyageAsync(string title, string vesselId, params (string Title, string Description)[] missions)

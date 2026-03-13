@@ -964,7 +964,14 @@ namespace Armada.Test.Automated.Suites
             resp.EnsureSuccessStatusCode();
             string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
             using JsonDocument doc = JsonDocument.Parse(body);
-            return doc.RootElement.GetProperty("Id").GetString()!;
+            JsonElement root = doc.RootElement;
+
+            // When mission stays Pending (no captain available), the API returns
+            // { "Mission": {...}, "Warning": "..." } instead of the mission directly.
+            if (root.TryGetProperty("Mission", out JsonElement nested))
+                return nested.GetProperty("Id").GetString()!;
+
+            return root.GetProperty("Id").GetString()!;
         }
 
         private async Task<string> CreateVoyageViaRestAsync(string title)

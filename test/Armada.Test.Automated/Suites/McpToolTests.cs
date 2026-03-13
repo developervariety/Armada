@@ -2113,6 +2113,12 @@ namespace Armada.Test.Automated.Suites
             }).ConfigureAwait(false);
             string text = GetToolResultText(result);
             JsonElement mission = JsonSerializer.Deserialize<JsonElement>(text);
+
+            // When mission stays Pending (no captain available), the response wraps
+            // the mission in { "Mission": {...}, "Warning": "..." }.
+            if (mission.TryGetProperty("Mission", out JsonElement nested))
+                return nested.GetProperty("Id").GetString()!;
+
             return mission.GetProperty("Id").GetString()!;
         }
 

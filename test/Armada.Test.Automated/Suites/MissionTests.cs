@@ -60,6 +60,10 @@ namespace Armada.Test.Automated.Suites
                 JsonDocument doc = JsonDocument.Parse(body);
                 JsonElement root = doc.RootElement;
 
+                // Unwrap { "Mission": {...}, "Warning": "..." } envelope if present
+                if (root.TryGetProperty("Mission", out JsonElement nested201))
+                    root = nested201;
+
                 string missionId = root.GetProperty("Id").GetString()!;
                 _CreatedMissionIds.Add(missionId);
 
@@ -88,10 +92,15 @@ namespace Armada.Test.Automated.Suites
                 HttpResponseMessage response = await _AuthClient.PostAsync("/api/v1/missions", content);
                 string body = await response.Content.ReadAsStringAsync();
                 JsonDocument doc = JsonDocument.Parse(body);
+                JsonElement prioRoot = doc.RootElement;
 
-                _CreatedMissionIds.Add(doc.RootElement.GetProperty("Id").GetString()!);
+                // Unwrap { "Mission": {...}, "Warning": "..." } envelope if present
+                if (prioRoot.TryGetProperty("Mission", out JsonElement nestedPrio))
+                    prioRoot = nestedPrio;
 
-                AssertEqual(100, doc.RootElement.GetProperty("Priority").GetInt32());
+                _CreatedMissionIds.Add(prioRoot.GetProperty("Id").GetString()!);
+
+                AssertEqual(100, prioRoot.GetProperty("Priority").GetInt32());
             });
 
             await RunTest("CreateMission_WithAllOptionalFields", async () =>
@@ -122,6 +131,11 @@ namespace Armada.Test.Automated.Suites
                 string body = await response.Content.ReadAsStringAsync();
                 JsonDocument doc = JsonDocument.Parse(body);
                 JsonElement root = doc.RootElement;
+
+                // Unwrap { "Mission": {...}, "Warning": "..." } envelope if present
+                if (root.TryGetProperty("Mission", out JsonElement nestedAll))
+                    root = nestedAll;
+
                 string missionId = root.GetProperty("Id").GetString()!;
                 _CreatedMissionIds.Add(missionId);
 
@@ -1773,6 +1787,12 @@ namespace Armada.Test.Automated.Suites
             HttpResponseMessage resp = await _AuthClient.PostAsync("/api/v1/missions", content);
             string body = await resp.Content.ReadAsStringAsync();
             JsonElement root = JsonDocument.Parse(body).RootElement;
+
+            // When mission stays Pending (no captain available), the API returns
+            // { "Mission": {...}, "Warning": "..." } instead of the mission directly.
+            if (root.TryGetProperty("Mission", out JsonElement nested))
+                root = nested.Clone();
+
             if (!root.TryGetProperty("Id", out JsonElement idElem))
                 throw new Exception("CreateMissionAsync failed (" + (int)resp.StatusCode + "): " + body);
             _CreatedMissionIds.Add(idElem.GetString()!);
