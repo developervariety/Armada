@@ -291,6 +291,12 @@ namespace Armada.Core.Settings
         public List<EscalationRule> EscalationRules { get; set; } = new List<EscalationRule>();
 
         /// <summary>
+        /// Database connection settings.
+        /// When set, takes precedence over DatabasePath for database initialization.
+        /// </summary>
+        public DatabaseSettings Database { get; set; } = new DatabaseSettings();
+
+        /// <summary>
         /// REST API listener settings.
         /// </summary>
         public RestSettings Rest { get; set; } = new RestSettings();
