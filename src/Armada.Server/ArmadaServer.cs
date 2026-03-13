@@ -1247,6 +1247,17 @@ namespace Armada.Server
 
                 await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
 
+                // Audit event: manual Complete without an active dock bypasses the landing pipeline.
+                // This is allowed (operators may need it after restarts/cleanup) but should be visible.
+                if (newStatus == MissionStatusEnum.Complete)
+                {
+                    _Logging.Warn(_Header + "mission " + id + " manually completed without active dock — landing pipeline was skipped");
+                    await EmitEventAsync("mission.manual_complete_no_dock",
+                        "Mission " + id + " manually marked Complete without an active dock (landing pipeline skipped)",
+                        entityType: "mission", entityId: id,
+                        captainId: mission.CaptainId, missionId: id, vesselId: mission.VesselId, voyageId: mission.VoyageId).ConfigureAwait(false);
+                }
+
                 Signal signal = new Signal(SignalTypeEnum.Progress, "Mission " + id + " transitioned to " + newStatus);
                 if (!String.IsNullOrEmpty(mission.CaptainId)) signal.FromCaptainId = mission.CaptainId;
                 await _Database.Signals.CreateAsync(signal).ConfigureAwait(false);
