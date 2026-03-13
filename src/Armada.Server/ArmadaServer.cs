@@ -2403,6 +2403,9 @@ namespace Armada.Server
             bool landingModeIsNone = resolvedLandingMode == LandingModeEnum.None;
             bool landingModeIsMergeQueue = resolvedLandingMode == LandingModeEnum.MergeQueue;
 
+            // Resolve branch cleanup policy: vessel > global setting
+            BranchCleanupPolicyEnum cleanupPolicy = vessel?.BranchCleanupPolicy ?? _Settings.BranchCleanupPolicy;
+
             // Acquire per-vessel merge lock to prevent concurrent git operations on the same repo
             string vesselLockKey = mission.VesselId ?? dock.VesselId ?? "unknown";
             SemaphoreSlim vesselLock = _VesselMergeLocks.GetOrAdd(vesselLockKey, _ => new SemaphoreSlim(1, 1));
@@ -2497,7 +2500,7 @@ namespace Armada.Server
                                 // Poll for merge completion, then transition to Complete
                                 if (vessel != null && !String.IsNullOrEmpty(vessel.WorkingDirectory) && !String.IsNullOrEmpty(vessel.LocalPath) && !String.IsNullOrEmpty(dock.BranchName))
                                 {
-                                    _ = PollAndPullAfterMergeAsync(vessel.WorkingDirectory, vessel.LocalPath, dock.BranchName, prUrl, mission.Id);
+                                    _ = PollAndPullAfterMergeAsync(vessel.WorkingDirectory, vessel.LocalPath, dock.BranchName, prUrl, mission.Id, cleanupPolicy);
                                 }
                             }
                             catch (Exception mergeEx)
@@ -2529,15 +2532,35 @@ namespace Armada.Server
 
                         landingSucceeded = true;
 
-                        // Clean up the mission branch from the bare repo now that it's merged
-                        try
+                        // Clean up the mission branch based on cleanup policy
+                        if (cleanupPolicy != BranchCleanupPolicyEnum.None)
                         {
-                            await _Git.DeleteLocalBranchAsync(vessel.LocalPath, dock.BranchName).ConfigureAwait(false);
-                            _Logging.Info(_Header + "deleted branch " + dock.BranchName + " from bare repo after successful merge");
+                            try
+                            {
+                                await _Git.DeleteLocalBranchAsync(vessel.LocalPath, dock.BranchName).ConfigureAwait(false);
+                                _Logging.Info(_Header + "deleted branch " + dock.BranchName + " from bare repo after successful merge");
+                            }
+                            catch (Exception branchEx)
+                            {
+                                _Logging.Warn(_Header + "failed to delete branch " + dock.BranchName + " from bare repo: " + branchEx.Message);
+                            }
+
+                            if (cleanupPolicy == BranchCleanupPolicyEnum.LocalAndRemote)
+                            {
+                                try
+                                {
+                                    await _Git.DeleteRemoteBranchAsync(vessel.WorkingDirectory, dock.BranchName).ConfigureAwait(false);
+                                    _Logging.Info(_Header + "deleted remote branch " + dock.BranchName + " after successful merge");
+                                }
+                                catch (Exception remoteBranchEx)
+                                {
+                                    _Logging.Warn(_Header + "failed to delete remote branch " + dock.BranchName + ": " + remoteBranchEx.Message);
+                                }
+                            }
                         }
-                        catch (Exception branchEx)
+                        else
                         {
-                            _Logging.Warn(_Header + "failed to delete branch " + dock.BranchName + " from bare repo: " + branchEx.Message);
+                            _Logging.Info(_Header + "branch cleanup policy is None — retaining branch " + dock.BranchName + " for inspection");
                         }
 
                         // Push the merged changes to the remote
@@ -2675,7 +2698,7 @@ namespace Armada.Server
             return Task.CompletedTask;
         }
 
-        private async Task PollAndPullAfterMergeAsync(string workingDirectory, string bareRepoPath, string branchName, string prUrl, string missionId)
+        private async Task PollAndPullAfterMergeAsync(string workingDirectory, string bareRepoPath, string branchName, string prUrl, string missionId, BranchCleanupPolicyEnum cleanupPolicy = BranchCleanupPolicyEnum.LocalOnly)
         {
             try
             {
@@ -2743,15 +2766,35 @@ namespace Armada.Server
                             _Logging.Warn(_Header + "error transitioning mission " + missionId + " to Complete after PR merge: " + statusEx.Message);
                         }
 
-                        // Clean up the mission branch from the bare repo
-                        try
+                        // Clean up the mission branch based on cleanup policy
+                        if (cleanupPolicy != BranchCleanupPolicyEnum.None)
                         {
-                            await _Git.DeleteLocalBranchAsync(bareRepoPath, branchName).ConfigureAwait(false);
-                            _Logging.Info(_Header + "deleted branch " + branchName + " from bare repo after PR merge");
+                            try
+                            {
+                                await _Git.DeleteLocalBranchAsync(bareRepoPath, branchName).ConfigureAwait(false);
+                                _Logging.Info(_Header + "deleted branch " + branchName + " from bare repo after PR merge");
+                            }
+                            catch (Exception branchEx)
+                            {
+                                _Logging.Warn(_Header + "failed to delete branch " + branchName + " from bare repo: " + branchEx.Message);
+                            }
+
+                            if (cleanupPolicy == BranchCleanupPolicyEnum.LocalAndRemote)
+                            {
+                                try
+                                {
+                                    await _Git.DeleteRemoteBranchAsync(workingDirectory, branchName).ConfigureAwait(false);
+                                    _Logging.Info(_Header + "deleted remote branch " + branchName + " after PR merge");
+                                }
+                                catch (Exception remoteBranchEx)
+                                {
+                                    _Logging.Warn(_Header + "failed to delete remote branch " + branchName + ": " + remoteBranchEx.Message);
+                                }
+                            }
                         }
-                        catch (Exception branchEx)
+                        else
                         {
-                            _Logging.Warn(_Header + "failed to delete branch " + branchName + " from bare repo: " + branchEx.Message);
+                            _Logging.Info(_Header + "branch cleanup policy is None — retaining branch " + branchName + " for inspection");
                         }
 
                         return;

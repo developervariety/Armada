@@ -193,6 +193,9 @@ namespace Armada.Core.Database.Sqlite.Queries
                 new SchemaMigration(10, "Add landing_mode to vessels and voyages",
                     @"ALTER TABLE vessels ADD COLUMN landing_mode TEXT;",
                     @"ALTER TABLE voyages ADD COLUMN landing_mode TEXT;"
+                ),
+                new SchemaMigration(11, "Add branch_cleanup_policy to vessels",
+                    @"ALTER TABLE vessels ADD COLUMN branch_cleanup_policy TEXT;"
                 )
             };
         }

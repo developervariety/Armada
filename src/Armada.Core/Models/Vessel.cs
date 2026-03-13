@@ -83,6 +83,12 @@ namespace Armada.Core.Models
         public LandingModeEnum? LandingMode { get; set; } = null;
 
         /// <summary>
+        /// Branch cleanup policy for this vessel. Determines when and how mission branches
+        /// are deleted after successful landing. Null means use the global setting (default: LocalOnly).
+        /// </summary>
+        public BranchCleanupPolicyEnum? BranchCleanupPolicy { get; set; } = null;
+
+        /// <summary>
         /// Whether the vessel is active.
         /// </summary>
         public bool Active { get; set; } = true;

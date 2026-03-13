@@ -150,6 +150,12 @@ namespace Armada.Core.Settings
         public LandingModeEnum? LandingMode { get; set; } = null;
 
         /// <summary>
+        /// Global branch cleanup policy after successful landing.
+        /// Can be overridden per-vessel. Default: LocalOnly.
+        /// </summary>
+        public BranchCleanupPolicyEnum BranchCleanupPolicy { get; set; } = BranchCleanupPolicyEnum.LocalOnly;
+
+        /// <summary>
         /// Whether to automatically push changes to the remote on mission completion.
         /// Legacy setting — prefer LandingMode when possible.
         /// </summary>

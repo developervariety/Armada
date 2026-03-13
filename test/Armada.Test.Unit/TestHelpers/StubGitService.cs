@@ -70,6 +70,12 @@ namespace Armada.Test.Unit.TestHelpers
             return Task.CompletedTask;
         }
 
+        public Task DeleteRemoteBranchAsync(string repoPath, string branchName, CancellationToken token = default)
+        {
+            DeleteBranchCalls.Add("remote:" + branchName);
+            return Task.CompletedTask;
+        }
+
         public Task PruneWorktreesAsync(string repoPath, CancellationToken token = default) => Task.CompletedTask;
         public Task EnableAutoMergeAsync(string worktreePath, string prUrl, CancellationToken token = default) => Task.CompletedTask;
 

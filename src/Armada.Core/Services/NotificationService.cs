@@ -75,7 +75,7 @@ namespace Armada.Core.Services
             string script =
                 "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null; " +
                 "$xml = [Windows.Data.Xml.Dom.XmlDocument]::new(); " +
-                $"$xml.LoadXml('{EscapeQuotes(toastXml)}'); " +
+                $"$xml.LoadXml('{toastXml.Replace("'", "''")}'); " +
                 "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('Armada').Show([Windows.UI.Notifications.ToastNotification]::new($xml))";
             RunProcess("powershell", "-NoProfile", "-Command", script);
         }

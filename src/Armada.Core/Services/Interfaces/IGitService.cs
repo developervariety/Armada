@@ -79,6 +79,15 @@ namespace Armada.Core.Services.Interfaces
         Task DeleteLocalBranchAsync(string repoPath, string branchName, CancellationToken token = default);
 
         /// <summary>
+        /// Delete a branch from the remote origin.
+        /// Executes: git push origin --delete {branchName}
+        /// </summary>
+        /// <param name="repoPath">Path to a repository with the remote configured.</param>
+        /// <param name="branchName">Remote branch name to delete.</param>
+        /// <param name="token">Cancellation token.</param>
+        Task DeleteRemoteBranchAsync(string repoPath, string branchName, CancellationToken token = default);
+
+        /// <summary>
         /// Prune stale worktree registrations (entries for worktrees whose directories no longer exist).
         /// </summary>
         /// <param name="repoPath">Path to the repository.</param>

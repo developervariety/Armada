@@ -324,6 +324,16 @@ namespace Armada.Core.Services
             await RunGitAsync(repoPath, "branch", "-D", branchName).ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
+        public async Task DeleteRemoteBranchAsync(string repoPath, string branchName, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(repoPath)) throw new ArgumentNullException(nameof(repoPath));
+            if (String.IsNullOrEmpty(branchName)) throw new ArgumentNullException(nameof(branchName));
+
+            _Logging.Debug(_Header + "deleting remote branch " + branchName + " from origin");
+            await RunGitAsync(repoPath, "push", "origin", "--delete", branchName).ConfigureAwait(false);
+        }
+
         /// <summary>
         /// Check if a path is a valid git repository.
         /// </summary>
