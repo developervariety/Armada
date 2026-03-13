@@ -434,19 +434,28 @@ namespace Armada.Server
                 string[] runtimeCommands = new string[] { "claude", "codex" };
                 string[] runtimeNames = new string[] { "Claude Code", "Codex" };
                 bool isWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
-                string whichCmd = isWindows ? "where" : "which";
-
                 for (int i = 0; i < runtimeCommands.Length; i++)
                 {
                     try
                     {
-                        ProcessStartInfo rtPsi = new ProcessStartInfo(whichCmd, runtimeCommands[i])
+                        // Use 'where' on Windows, 'command -v' (POSIX standard) on Unix.
+                        // 'which' is deprecated on Debian and missing on some distros.
+                        ProcessStartInfo rtPsi;
+                        if (isWindows)
                         {
-                            RedirectStandardOutput = true,
-                            RedirectStandardError = true,
-                            UseShellExecute = false,
-                            CreateNoWindow = true
-                        };
+                            rtPsi = new ProcessStartInfo("where");
+                            rtPsi.ArgumentList.Add(runtimeCommands[i]);
+                        }
+                        else
+                        {
+                            rtPsi = new ProcessStartInfo("/bin/sh");
+                            rtPsi.ArgumentList.Add("-c");
+                            rtPsi.ArgumentList.Add("command -v " + runtimeCommands[i]);
+                        }
+                        rtPsi.RedirectStandardOutput = true;
+                        rtPsi.RedirectStandardError = true;
+                        rtPsi.UseShellExecute = false;
+                        rtPsi.CreateNoWindow = true;
                         using (Process? rtProc = Process.Start(rtPsi))
                         {
                             if (rtProc != null)
