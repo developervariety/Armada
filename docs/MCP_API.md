@@ -72,6 +72,8 @@
     - [armada_delete_signals](#armada_delete_signals)
   - **Events**
     - [armada_list_events](#armada_list_events)
+    - [armada_delete_event](#armada_delete_event)
+    - [armada_delete_events](#armada_delete_events)
   - **Docks**
     - [armada_list_docks](#armada_list_docks)
     - [armada_get_dock](#armada_get_dock)
@@ -806,6 +808,78 @@ Filters are applied with priority: `missionId` > `captainId` > `voyageId`. Only 
   }
 ]
 ```
+
+---
+
+### armada_delete_event
+
+Delete a single event by ID.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "eventId": {
+      "type": "string",
+      "description": "Event ID to delete (evt_ prefix)"
+    }
+  },
+  "required": ["eventId"]
+}
+```
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `eventId` | string | Yes | Event ID to delete (prefix `evt_`) |
+
+**Response:**
+
+```json
+{
+  "Status": "deleted",
+  "EventId": "evt_abc123def456ghi789jk"
+}
+```
+
+Returns `{ "Error": "Event not found: evt_..." }` if the event does not exist.
+
+---
+
+### armada_delete_events
+
+Delete multiple events by ID. Returns a summary of deleted and skipped entries.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "ids": { "type": "array", "items": { "type": "string" }, "description": "List of event IDs to delete (evt_ prefix)" }
+  },
+  "required": ["ids"]
+}
+```
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `ids` | string[] | Yes | List of event IDs to delete (prefix `evt_`) |
+
+**Response:**
+
+```json
+{
+  "Status": "deleted",
+  "Deleted": 2,
+  "Skipped": [
+    { "Id": "evt_xyz789", "Reason": "Not found" }
+  ]
+}
+```
+
+Returns `{ "Error": "ids is required and must not be empty" }` if no IDs are provided.
 
 ---
 

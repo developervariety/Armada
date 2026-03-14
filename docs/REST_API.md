@@ -1278,6 +1278,48 @@ Paginated enumeration of events with optional filtering and sorting.
 
 ---
 
+#### `DELETE /api/v1/events/{id}`
+
+Delete a single event by ID.
+
+**Path Parameters:**
+
+| Parameter | Description |
+|---|---|
+| `id` | Event ID (`evt_` prefix) |
+
+**Response:** `204 No Content`
+
+**Error:** `404` - Event not found
+
+---
+
+#### `POST /api/v1/events/delete/multiple`
+
+Batch delete multiple events by ID. Returns a summary of deleted and skipped entries.
+
+**Request Body:**
+
+```json
+{
+  "Ids": ["evt_abc123", "evt_def456"]
+}
+```
+
+**Response:** `200 OK`
+
+```json
+{
+  "Status": "deleted",
+  "Deleted": 2,
+  "Skipped": []
+}
+```
+
+Skipped entries include the entity ID and the reason (e.g., "Not found" or "Empty ID").
+
+---
+
 ### Docks
 
 Docks are git worktrees provisioned for captains. These endpoints provide access to dock state and management.
