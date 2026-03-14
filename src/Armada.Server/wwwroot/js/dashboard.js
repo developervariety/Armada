@@ -1,7 +1,6 @@
 // Armada Dashboard - Alpine.js component
 function dashboard() {
     const API = window.location.origin;
-    const WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const STORAGE_KEY = 'armada_api_key';
 
     // Spread extracted modules into the Alpine component
@@ -15,6 +14,10 @@ function dashboard() {
         ...(_modules.filtering || {}),
         ...(_modules.selection || {}),
         ...(_modules.actionMenu || {}),
+        ...(_modules.viewers || {}),
+        ...(_modules.dataLoaders || {}),
+        ...(_modules.navigation || {}),
+        ...(_modules.websocket || {}),
 
         // Theme
         darkMode: false,
@@ -344,21 +347,12 @@ function dashboard() {
             ]);
         },
 
-        /// <summary>
-        /// Silently refresh doctor health checks for the top-bar indicator.
-        /// Unlike runDoctorChecks(), this does not set doctorRunning or clear results on start.
-        /// </summary>
-        async refreshDoctorStatus() {
-            try {
-                this.doctorResults = await this.api('GET', '/api/v1/doctor');
-            } catch (e) {
-                // Silently fail -- top-bar will show unknown state
-            }
-        },
+        // refreshDoctorStatus: moved to modules/data-loaders.js
 
         /// <summary>
         /// Returns the aggregate health status: 'healthy', 'warning', or 'error'.
         /// Based on the worst status across all doctor check results.
+        /// Note: getters cannot be spread from modules, so they remain here.
         /// </summary>
         get doctorOverallStatus() {
             if (!this.doctorResults || this.doctorResults.length === 0) return 'unknown';
@@ -371,9 +365,6 @@ function dashboard() {
             return hasWarn ? 'warning' : 'healthy';
         },
 
-        /// <summary>
-        /// Returns the label text for the top-bar health indicator.
-        /// </summary>
         get doctorStatusLabel() {
             let s = this.doctorOverallStatus;
             if (s === 'healthy') return 'Healthy';
@@ -382,9 +373,6 @@ function dashboard() {
             return '';
         },
 
-        /// <summary>
-        /// Returns a tooltip for the top-bar health indicator with details.
-        /// </summary>
         get doctorStatusTooltip() {
             let s = this.doctorOverallStatus;
             if (s === 'unknown') return 'Health status unknown -- click to run checks';
@@ -417,13 +405,7 @@ function dashboard() {
             }
         },
 
-        async loadRecentMissions() {
-            try {
-                let result = await this.api('GET', '/api/v1/missions?pageSize=10&order=CreatedDescending');
-                this.recentMissions = (result && result.objects) ? result.objects : [];
-                if (!Array.isArray(this.recentMissions)) this.recentMissions = [];
-            } catch (e) { console.warn('Failed to load recent missions:', e); }
-        },
+        // loadRecentMissions: moved to modules/data-loaders.js
 
         // ============================================================
         // API client
@@ -480,264 +462,11 @@ function dashboard() {
         },
 
         // ============================================================
-        // Data loaders
+        // Data loaders: moved to modules/data-loaders.js
+        // (loadStatus, loadFleets, loadVoyages, loadVoyageMissionMap, loadCaptains,
+        //  loadVessels, loadVoyageMissions, loadMissions, loadSignals, loadEvents,
+        //  loadMergeQueue, loadDocks)
         // ============================================================
-        async loadStatus() {
-            try {
-                this.status = await this.api('GET', '/api/v1/status');
-                this.apiConnected = true;
-                this.connected = true;
-            } catch (e) {
-                console.warn('Failed to load status:', e);
-                this.apiConnected = false;
-                this.connected = this.wsConnected;
-            }
-        },
-
-        async loadFleets() {
-            try {
-                let result = await this.api('GET', '/api/v1/fleets?pageSize=1000');
-                let fleets = (result && result.objects) ? result.objects : [];
-                if (!Array.isArray(fleets)) { console.warn('Fleets response is not an array:', fleets); fleets = []; }
-                for (let fleet of fleets) {
-                    try {
-                        let vesselResult = await this.api('GET', '/api/v1/vessels?fleetId=' + fleet.id + '&pageSize=1000');
-                        fleet.vessels = (vesselResult && vesselResult.objects) ? vesselResult.objects : [];
-                        if (!Array.isArray(fleet.vessels)) fleet.vessels = [];
-                    } catch (e) { fleet.vessels = []; }
-                    fleet._vesselCount = (fleet.vessels || []).length;
-                }
-                this.fleets = fleets;
-            } catch (e) { console.warn('Failed to load fleets:', e); }
-        },
-
-        async loadVoyages() {
-            try {
-                let params = [];
-                if (this.voyageFilters.status) params.push('status=' + this.voyageFilters.status);
-                if (this.view === 'voyages') {
-                    params.push('pageNumber=' + this.voyagePaging.pageNumber);
-                    params.push('pageSize=' + this.voyagePaging.pageSize);
-                } else {
-                    params.push('pageSize=1000');
-                }
-                let url = '/api/v1/voyages' + (params.length ? '?' + params.join('&') : '');
-                let result = await this.api('GET', url);
-                this.voyages = (result && result.objects) ? result.objects : [];
-                if (!Array.isArray(this.voyages)) this.voyages = [];
-                if (result && this.view === 'voyages') {
-                    this.voyagePaging.pageNumber = result.pageNumber || 1;
-                    this.voyagePaging.totalPages = result.totalPages || 0;
-                    this.voyagePaging.totalRecords = result.totalRecords || 0;
-                    this.voyagePaging.totalMs = result.totalMs || 0;
-                }
-            } catch (e) { console.warn('Failed to load voyages:', e); }
-        },
-
-        async loadVoyageMissionMap() {
-            try {
-                let result = await this.api('GET', '/api/v1/missions?pageSize=1000');
-                let missions = (result && result.objects) ? result.objects : [];
-                let map = {};
-                for (let m of missions) {
-                    if (m.voyageId) {
-                        if (!map[m.voyageId]) map[m.voyageId] = [];
-                        if (m.vesselId && !map[m.voyageId].includes(m.vesselId)) map[m.voyageId].push(m.vesselId);
-                    }
-                }
-                this.voyageMissionMap = map;
-            } catch (e) { console.warn('Failed to load voyage mission map:', e); }
-        },
-
-        async loadCaptains() {
-            try {
-                let params = [];
-                if (this.view === 'captains') {
-                    params.push('pageNumber=' + this.captainPaging.pageNumber);
-                    params.push('pageSize=' + this.captainPaging.pageSize);
-                } else {
-                    params.push('pageSize=1000');
-                }
-                let url = '/api/v1/captains' + (params.length ? '?' + params.join('&') : '');
-                let result = await this.api('GET', url);
-                this.captains = (result && result.objects) ? result.objects : [];
-                if (!Array.isArray(this.captains)) this.captains = [];
-                if (result && this.view === 'captains') {
-                    this.captainPaging.pageNumber = result.pageNumber || 1;
-                    this.captainPaging.totalPages = result.totalPages || 0;
-                    this.captainPaging.totalRecords = result.totalRecords || 0;
-                    this.captainPaging.totalMs = result.totalMs || 0;
-                }
-            } catch (e) { console.warn('Failed to load captains:', e); }
-        },
-
-        async loadVessels() {
-            try {
-                let result = await this.api('GET', '/api/v1/vessels?pageSize=1000');
-                this.allVessels = (result && result.objects) ? result.objects : [];
-                if (!Array.isArray(this.allVessels)) this.allVessels = [];
-                for (let vessel of this.allVessels) {
-                    vessel._fleetName = this.fleetName(vessel.fleetId);
-                }
-            } catch (e) { console.warn('Failed to load vessels:', e); }
-        },
-
-        async loadVoyageMissions(voyageId) {
-            try {
-                let result = await this.api('GET', '/api/v1/missions?voyageId=' + voyageId + '&pageSize=1000');
-                this.voyageMissions = (result && result.objects) ? result.objects : [];
-                if (!Array.isArray(this.voyageMissions)) this.voyageMissions = [];
-            } catch (e) { console.warn('Failed to load voyage missions:', e); this.voyageMissions = []; }
-        },
-
-        async loadMissions() {
-            try {
-                let params = [];
-                if (this.missionFilters.status) params.push('status=' + this.missionFilters.status);
-                if (this.missionFilters.vesselId) params.push('vesselId=' + this.missionFilters.vesselId);
-                if (this.missionFilters.captainId) params.push('captainId=' + this.missionFilters.captainId);
-                if (this.missionFilters.voyageId) params.push('voyageId=' + this.missionFilters.voyageId);
-                params.push('pageNumber=' + this.missionPaging.pageNumber);
-                params.push('pageSize=' + this.missionPaging.pageSize);
-                let url = '/api/v1/missions' + (params.length ? '?' + params.join('&') : '');
-                let result = await this.api('GET', url);
-                this.allMissions = (result && result.objects) ? result.objects : [];
-                if (!Array.isArray(this.allMissions)) this.allMissions = [];
-                if (result) {
-                    this.missionPaging.pageNumber = result.pageNumber || 1;
-                    this.missionPaging.totalPages = result.totalPages || 0;
-                    this.missionPaging.totalRecords = result.totalRecords || 0;
-                    this.missionPaging.totalMs = result.totalMs || 0;
-                }
-            } catch (e) { console.warn('Failed to load missions:', e); }
-        },
-
-        async loadSignals() {
-            try {
-                let params = [];
-                params.push('pageNumber=' + this.signalPaging.pageNumber);
-                params.push('pageSize=' + this.signalPaging.pageSize);
-                let url = '/api/v1/signals?' + params.join('&');
-                let result = await this.api('GET', url);
-                this.signals = (result && result.objects) ? result.objects : [];
-                if (!Array.isArray(this.signals)) this.signals = [];
-                if (result) {
-                    this.signalPaging.pageNumber = result.pageNumber || 1;
-                    this.signalPaging.totalPages = result.totalPages || 0;
-                    this.signalPaging.totalRecords = result.totalRecords || 0;
-                    this.signalPaging.totalMs = result.totalMs || 0;
-                }
-            } catch (e) { console.warn('Failed to load signals:', e); }
-        },
-
-        async loadEvents() {
-            this.selectedEvents = [];
-            try {
-                let params = [];
-                if (this.eventFilters.type) params.push('type=' + this.eventFilters.type);
-                if (this.eventFilters.captainId) params.push('captainId=' + this.eventFilters.captainId);
-                if (this.eventFilters.missionId) params.push('missionId=' + this.eventFilters.missionId);
-                if (this.eventFilters.vesselId) params.push('vesselId=' + this.eventFilters.vesselId);
-                if (this.eventFilters.voyageId) params.push('voyageId=' + this.eventFilters.voyageId);
-                params.push('pageNumber=' + this.eventPaging.pageNumber);
-                params.push('pageSize=' + (this.eventFilters.limit || this.eventPaging.pageSize));
-                let url = '/api/v1/events' + (params.length ? '?' + params.join('&') : '');
-                let result = await this.api('GET', url);
-                this.events = (result && result.objects) ? result.objects : [];
-                if (!Array.isArray(this.events)) this.events = [];
-                if (result) {
-                    this.eventPaging.pageNumber = result.pageNumber || 1;
-                    this.eventPaging.totalPages = result.totalPages || 0;
-                    this.eventPaging.totalRecords = result.totalRecords || 0;
-                    this.eventPaging.totalMs = result.totalMs || 0;
-                }
-            } catch (e) { console.warn('Failed to load events:', e); }
-        },
-
-        async loadMergeQueue() {
-            try {
-                let params = [];
-                params.push('pageNumber=' + this.mergeQueuePaging.pageNumber);
-                params.push('pageSize=' + this.mergeQueuePaging.pageSize);
-                let url = '/api/v1/merge-queue?' + params.join('&');
-                let result = await this.api('GET', url);
-                this.mergeQueue = (result && result.objects) ? result.objects : [];
-                if (!Array.isArray(this.mergeQueue)) this.mergeQueue = [];
-                if (result) {
-                    this.mergeQueuePaging.pageNumber = result.pageNumber || 1;
-                    this.mergeQueuePaging.totalPages = result.totalPages || 0;
-                    this.mergeQueuePaging.totalRecords = result.totalRecords || 0;
-                    this.mergeQueuePaging.totalMs = result.totalMs || 0;
-                }
-
-                // Enrich entries with mission titles and voyage names
-                let missionIds = [...new Set(this.mergeQueue.filter(e => e.missionId).map(e => e.missionId))];
-                let missionMap = {};
-                await Promise.all(missionIds.map(async (mid) => {
-                    try {
-                        let mission = this.toCamel(await this.api('GET', '/api/v1/missions/' + mid));
-                        missionMap[mid] = mission;
-                    } catch (e) { console.warn('Failed to load mission ' + mid, e); }
-                }));
-
-                let voyageIds = [...new Set(Object.values(missionMap).filter(m => m && m.voyageId).map(m => m.voyageId))];
-                let voyageMap = {};
-                await Promise.all(voyageIds.map(async (vid) => {
-                    try {
-                        let voyage = this.toCamel(await this.api('GET', '/api/v1/voyages/' + vid));
-                        voyageMap[vid] = voyage;
-                    } catch (e) { console.warn('Failed to load voyage ' + vid, e); }
-                }));
-
-                for (let entry of this.mergeQueue) {
-                    if (entry.missionId && missionMap[entry.missionId]) {
-                        let mission = missionMap[entry.missionId];
-                        entry._missionTitle = mission.title || null;
-                        entry._voyageId = mission.voyageId || null;
-                        let voyage = mission.voyageId ? voyageMap[mission.voyageId] : null;
-                        entry._voyageName = voyage ? (voyage.title || null) : null;
-                    } else {
-                        entry._missionTitle = null;
-                        entry._voyageId = null;
-                        entry._voyageName = null;
-                    }
-                }
-
-                // Build unique voyage list for filter dropdown
-                let voyageSet = {};
-                for (let entry of this.mergeQueue) {
-                    if (entry._voyageId && entry._voyageName) {
-                        voyageSet[entry._voyageId] = entry._voyageName;
-                    }
-                }
-                this.mergeQueueVoyages = Object.keys(voyageSet).map(id => ({ id: id, name: voyageSet[id] }));
-            } catch (e) { console.warn('Failed to load merge queue:', e); }
-        },
-
-        async loadDocks() {
-            try {
-                let params = [];
-                params.push('pageNumber=' + this.dockPaging.pageNumber);
-                params.push('pageSize=' + this.dockPaging.pageSize);
-                let url = '/api/v1/docks?' + params.join('&');
-                let result = await this.api('GET', url);
-                let allDocks = (result && result.objects) ? result.objects : [];
-                if (!Array.isArray(allDocks)) allDocks = [];
-                // Apply client-side status filter
-                if (this.dockFilters.status === 'active') {
-                    allDocks = allDocks.filter(d => d.active === true);
-                } else if (this.dockFilters.status === 'inactive') {
-                    allDocks = allDocks.filter(d => d.active === false);
-                }
-                this.docks = allDocks;
-                if (result) {
-                    this.dockPaging.pageNumber = result.pageNumber || 1;
-                    this.dockPaging.totalPages = result.totalPages || 0;
-                    this.dockPaging.totalRecords = result.totalRecords || 0;
-                    this.dockPaging.totalMs = result.totalMs || 0;
-                }
-            } catch (e) { console.warn('Failed to load docks:', e); }
-        },
 
         async deleteDock(id) {
             if (!await this.showConfirm('Delete dock ' + id + '? This will clean up the git worktree and cannot be undone.')) return;
@@ -765,394 +494,17 @@ function dashboard() {
             } catch (e) { this.toast('Failed: ' + e.message, 'error'); }
         },
 
-        async loadHealth() {
-            try { this.healthInfo = await this.api('GET', '/api/v1/status/health'); } catch (e) { console.warn('Failed to load health:', e); }
-        },
+        // loadHealth, runDoctorChecks: moved to modules/data-loaders.js
 
-        async runDoctorChecks() {
-            this.doctorRunning = true;
-            this.doctorResults = [];
-            try {
-                this.doctorResults = await this.api('GET', '/api/v1/doctor');
-            } catch (e) {
-                console.warn('Failed to run doctor checks:', e);
-                this.doctorResults = [{ name: 'Error', status: 'Fail', message: 'Failed to run health checks: ' + e.message }];
-            } finally {
-                this.doctorRunning = false;
-            }
-        },
+        // navigate, loadDetail: moved to modules/navigation.js and modules/data-loaders.js
 
-        // ============================================================
-        // Navigation
-        // ============================================================
-        navigate(view, detailView, detailId) {
-            this.view = view;
-            this.detailView = detailView || null;
-            this.detailId = detailId || null;
-            this.detail = null;
-            this.detailMissions = [];
-            this.detailDiff = null;
-            this.detailLog = null;
-            this.listSearch = '';
-            this.clearColumnFilters();
-            this.showDispatchForm = false;
-            this.dispatchResult = null;
-            this.quickDispatchResult = null;
-            this.quickParsedTasks = [];
-            this.updateBreadcrumbs();
-
-            // Reset pagination to page 1 when navigating to a view
-            if (view === 'missions') this.missionPaging.pageNumber = 1;
-            if (view === 'voyages') this.voyagePaging.pageNumber = 1;
-            if (view === 'captains') this.captainPaging.pageNumber = 1;
-            if (view === 'signals') this.signalPaging.pageNumber = 1;
-            if (view === 'events') this.eventPaging.pageNumber = 1;
-            if (view === 'merge-queue') this.mergeQueuePaging.pageNumber = 1;
-            if (view === 'docks') this.dockPaging.pageNumber = 1;
-
-            // Load data for new views
-            if (view === 'signals') this.loadSignals();
-            if (view === 'events') this.loadEvents();
-            if (view === 'merge-queue') this.loadMergeQueue();
-            if (view === 'missions') this.selectedMissions = [];
-            if (view === 'voyages') this.selectedVoyages = [];
-            if (view === 'captains') this.selectedCaptains = [];
-            if (view === 'signals') this.selectedSignals = [];
-            if (view === 'events') this.selectedEvents = [];
-            if (view === 'merge-queue') this.selectedMergeQueue = [];
-            if (view === 'fleets-list') { this.loadFleets(); }
-            if (view === 'fleets') { this.selectedVessels = []; this.sortColumn = '_fleetName'; this.sortAsc = true; this.loadFleets().then(() => { this.loadVessels(); }); }
-            if (view === 'docks') { this.selectedDocks = []; this.loadDocks(); }
-            if (view === 'server') { this.loadHealth(); this.loadSettings(); }
-            if (view === 'missions') this.loadMissions();
-            if (view === 'voyages') this.loadVoyageMissionMap();
-            if (view === 'doctor') this.runDoctorChecks();
-
-            if (detailView) this.loadDetail(detailView, detailId);
-        },
-
-        async loadDetail(detailView, id) {
-            try {
-                if (detailView === 'mission-detail') {
-                    this.detail = await this.api('GET', '/api/v1/missions/' + id);
-                } else if (detailView === 'voyage-detail') {
-                    let result = await this.api('GET', '/api/v1/voyages/' + id);
-                    this.detail = result.voyage || result;
-                    this.detailMissions = result.missions || [];
-                } else if (detailView === 'captain-detail') {
-                    this.detail = await this.api('GET', '/api/v1/captains/' + id);
-                    try {
-                        let missionResult = await this.api('GET', '/api/v1/missions?captainId=' + id + '&pageSize=10&order=CreatedDescending');
-                        this.detailMissions = (missionResult && missionResult.objects) ? missionResult.objects : [];
-                        if (!Array.isArray(this.detailMissions)) this.detailMissions = [];
-                    } catch (_) { }
-                } else if (detailView === 'vessel-detail') {
-                    this.detail = await this.api('GET', '/api/v1/vessels/' + id);
-                    try {
-                        let missionResult = await this.api('GET', '/api/v1/missions?vesselId=' + id + '&pageSize=1000');
-                        this.detailMissions = (missionResult && missionResult.objects) ? missionResult.objects : [];
-                        if (!Array.isArray(this.detailMissions)) this.detailMissions = [];
-                    } catch (_) { }
-                } else if (detailView === 'fleet-detail') {
-                    this.detail = await this.api('GET', '/api/v1/fleets/' + id);
-                    this.detail.vessels = [];
-                    try {
-                        let vesselResult = await this.api('GET', '/api/v1/vessels?fleetId=' + id + '&pageSize=1000');
-                        this.detail.vessels = (vesselResult && vesselResult.objects) ? vesselResult.objects : [];
-                        if (!Array.isArray(this.detail.vessels)) this.detail.vessels = [];
-                    } catch (_) { }
-                } else if (detailView === 'dock-detail') {
-                    this.detail = await this.api('GET', '/api/v1/docks/' + id);
-                } else if (detailView === 'merge-detail') {
-                    this.detail = await this.api('GET', '/api/v1/merge-queue/' + id);
-                } else if (detailView === 'signal-detail') {
-                    this.detail = this.signals.find(s => s.id === id) || null;
-                    if (!this.detail) {
-                        try {
-                            let sigResult = await this.api('GET', '/api/v1/signals?pageSize=1000');
-                            let allSigs = (sigResult && sigResult.objects) ? sigResult.objects : [];
-                            this.detail = allSigs.find(s => s.id === id) || null;
-                        } catch (_) { }
-                    }
-                } else if (detailView === 'event-detail') {
-                    this.detail = this.events.find(e => e.id === id) || null;
-                    if (!this.detail) {
-                        try {
-                            let evtResult = await this.api('GET', '/api/v1/events?limit=1000');
-                            let allEvts = (evtResult && evtResult.objects) ? evtResult.objects : [];
-                            this.detail = allEvts.find(e => e.id === id) || null;
-                        } catch (_) { }
-                    }
-                }
-            } catch (e) {
-                this.toast('Failed to load detail: ' + e.message, 'error');
-            }
-        },
-
-        formatDiffHtml(text) {
-            if (!text) return '';
-            let escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-            return escaped.split('\n').map(line => {
-                if (line.startsWith('@@')) return '<span class="diff-line-section">' + line + '</span>';
-                if (line.startsWith('+')) return '<span class="diff-line-add">' + line + '</span>';
-                if (line.startsWith('-')) return '<span class="diff-line-remove">' + line + '</span>';
-                return line;
-            }).join('\n');
-        },
-
-        parseDiffFiles(rawDiff) {
-            if (!rawDiff || rawDiff === 'No changes') return [];
-            let files = [];
-            let lines = rawDiff.split('\n');
-            let currentFile = null;
-            for (let i = 0; i < lines.length; i++) {
-                let line = lines[i];
-                if (line.startsWith('diff --git ')) {
-                    if (currentFile) files.push(currentFile);
-                    let match = line.match(/diff --git a\/(.*?) b\/(.*)/);
-                    let name = match ? match[2] : line.substring(11);
-                    currentFile = { name: name, additions: 0, deletions: 0, startLine: i };
-                } else if (currentFile) {
-                    if (line.startsWith('+') && !line.startsWith('+++')) currentFile.additions++;
-                    else if (line.startsWith('-') && !line.startsWith('---')) currentFile.deletions++;
-                }
-            }
-            if (currentFile) files.push(currentFile);
-            return files;
-        },
-
-        renderFileDiff(rawDiff, fileName) {
-            if (!rawDiff) return '';
-            let lines = rawDiff.split('\n');
-            let inFile = false;
-            let fileLines = [];
-            for (let i = 0; i < lines.length; i++) {
-                let line = lines[i];
-                if (line.startsWith('diff --git ')) {
-                    if (inFile) break;
-                    let match = line.match(/diff --git a\/(.*?) b\/(.*)/);
-                    let name = match ? match[2] : '';
-                    if (name === fileName) inFile = true;
-                }
-                if (inFile) fileLines.push(line);
-            }
-            return this.renderDiffLines(fileLines);
-        },
-
-        renderAllDiffs(rawDiff) {
-            if (!rawDiff) return '';
-            return this.renderDiffLines(rawDiff.split('\n'));
-        },
-
-        renderDiffLines(lines) {
-            let html = '';
-            let oldNum = 0, newNum = 0;
-            for (let i = 0; i < lines.length; i++) {
-                let line = lines[i];
-                let escaped = line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-                if (line.startsWith('diff --git ')) {
-                    html += '<div class="diff-file-header">' + escaped + '</div>';
-                } else if (line.startsWith('@@')) {
-                    let hunkMatch = line.match(/@@ -(\d+)/);
-                    if (hunkMatch) { oldNum = parseInt(hunkMatch[1]); }
-                    let newMatch = line.match(/@@ -\d+(?:,\d+)? \+(\d+)/);
-                    if (newMatch) { newNum = parseInt(newMatch[1]); }
-                    html += '<div class="diff-hunk-header">' + escaped + '</div>';
-                } else if (line.startsWith('---') || line.startsWith('+++') || line.startsWith('index ') || line.startsWith('new file') || line.startsWith('deleted file') || line.startsWith('old mode') || line.startsWith('new mode') || line.startsWith('similarity index') || line.startsWith('rename from') || line.startsWith('rename to') || line.startsWith('Binary files')) {
-                    html += '<div class="diff-meta-line">' + escaped + '</div>';
-                } else if (line.startsWith('+')) {
-                    html += '<div class="diff-line diff-line-add"><span class="diff-line-num diff-line-num-old"></span><span class="diff-line-num diff-line-num-new">' + newNum + '</span><span class="diff-line-content">' + escaped + '</span></div>';
-                    newNum++;
-                } else if (line.startsWith('-')) {
-                    html += '<div class="diff-line diff-line-del"><span class="diff-line-num diff-line-num-old">' + oldNum + '</span><span class="diff-line-num diff-line-num-new"></span><span class="diff-line-content">' + escaped + '</span></div>';
-                    oldNum++;
-                } else {
-                    html += '<div class="diff-line diff-line-ctx"><span class="diff-line-num diff-line-num-old">' + (oldNum || '') + '</span><span class="diff-line-num diff-line-num-new">' + (newNum || '') + '</span><span class="diff-line-content">' + escaped + '</span></div>';
-                    if (oldNum) oldNum++;
-                    if (newNum) newNum++;
-                }
-            }
-            return html;
-        },
-
-        openDiffViewer(title, rawDiff) {
-            this.diffViewerTitle = title;
-            this.diffViewerRawDiff = rawDiff;
-            this.diffViewerSelectedFile = null;
-            this.diffViewerCopied = false;
-            this.diffViewerOpen = true;
-            let isEmpty = !rawDiff || !rawDiff.trim() || rawDiff === 'No changes' || rawDiff === 'No modified files';
-            this.diffViewerFiles = isEmpty ? [] : this.parseDiffFiles(rawDiff);
-            this.$nextTick(() => {
-                let el = document.getElementById('diff-content-area');
-                if (el) {
-                    if (isEmpty) {
-                        el.innerHTML = '<div class="diff-empty-state"><span class="text-dim">No modified files</span></div>';
-                    } else {
-                        el.innerHTML = this.renderAllDiffs(rawDiff);
-                    }
-                }
-            });
-        },
-
-        closeDiffViewer() {
-            this.diffViewerOpen = false;
-            this.diffViewerRawDiff = '';
-            this.diffViewerFiles = [];
-            this.diffViewerSelectedFile = null;
-        },
-
-        selectDiffFile(fileName) {
-            if (this.diffViewerSelectedFile === fileName) {
-                this.diffViewerSelectedFile = null;
-                this.$nextTick(() => {
-                    let el = document.getElementById('diff-content-area');
-                    if (el) el.innerHTML = this.renderAllDiffs(this.diffViewerRawDiff);
-                });
-            } else {
-                this.diffViewerSelectedFile = fileName;
-                this.$nextTick(() => {
-                    let el = document.getElementById('diff-content-area');
-                    if (el) el.innerHTML = this.renderFileDiff(this.diffViewerRawDiff, fileName);
-                });
-            }
-        },
-
-        copyDiffRaw() {
-            let text = this.diffViewerRawDiff;
-            if (!text) return;
-            let onSuccess = () => {
-                this.diffViewerCopied = true;
-                setTimeout(() => { this.diffViewerCopied = false; }, 2000);
-            };
-            if (navigator.clipboard && window.isSecureContext) {
-                navigator.clipboard.writeText(text).then(onSuccess).catch(() => {
-                    this.fallbackCopy(text);
-                    onSuccess();
-                });
-            } else {
-                this.fallbackCopy(text);
-                onSuccess();
-            }
-        },
-
-        async loadMissionDiff(missionId) {
-            let title = 'Diff: ' + (this.detail ? this.detail.title : missionId);
-            this.diffViewerTitle = title;
-            this.diffViewerLoading = true;
-            this.diffViewerOpen = true;
-            this.diffViewerFiles = [];
-            this.diffViewerSelectedFile = null;
-            this.diffViewerRawDiff = '';
-            this.detailDiffLoading = true;
-            try {
-                let controller = new AbortController();
-                let timeoutId = setTimeout(() => controller.abort(), 30000);
-                let opts = {
-                    method: 'GET',
-                    headers: { 'Content-Type': 'application/json' },
-                    signal: controller.signal
-                };
-                if (this.apiKey) opts.headers['X-Api-Key'] = this.apiKey;
-                let resp = await fetch(API + '/api/v1/missions/' + missionId + '/diff', opts);
-                clearTimeout(timeoutId);
-                if (!resp.ok) {
-                    let errText = await resp.text();
-                    let errMsg = 'HTTP ' + resp.status;
-                    try { let e = JSON.parse(errText); errMsg = e.Message || e.message || e.Error || e.error || errMsg; } catch (_) { }
-                    throw new Error(errMsg);
-                }
-                let text = await resp.text();
-                let result = text ? this.toCamel(JSON.parse(text)) : null;
-                let rawDiff = (result && result.diff) ? result.diff : '';
-                this.openDiffViewer(title, rawDiff);
-            } catch (e) {
-                let errMsg = e.name === 'AbortError' ? 'Request timed out after 30 seconds' : e.message;
-                let isNotFound = errMsg.toLowerCase().includes('not found') || errMsg.includes('404') || errMsg.toLowerCase().includes('no diff available');
-                if (isNotFound) {
-                    this.openDiffViewer(title, '');
-                } else {
-                    this.diffViewerRawDiff = 'Error: ' + errMsg;
-                    this.diffViewerFiles = [];
-                    this.$nextTick(() => {
-                        let el = document.getElementById('diff-content-area');
-                        if (el) el.textContent = 'Error: ' + errMsg;
-                    });
-                }
-            } finally {
-                this.detailDiffLoading = false;
-                this.diffViewerLoading = false;
-            }
-        },
-
-        async loadMissionLog(missionId) {
-            let title = this.detail ? this.detail.title : missionId;
-            this.openViewer('Log: ' + title, 'Loading…');
-            try {
-                let result = await this.api('GET', '/api/v1/missions/' + missionId + '/log?lines=500');
-                let logText = result.log || 'No log output';
-                let lineInfo = '(' + (result.lines || 0) + ' of ' + (result.totalLines || 0) + ' lines)';
-                this.viewerTitle = 'Log: ' + title + ' ' + lineInfo;
-                this.viewerContent = logText;
-                this.viewerRawText = logText;
-            } catch (e) {
-                this.viewerContent = 'Log unavailable: ' + e.message;
-                this.viewerRawText = '';
-            }
-        },
-
-        async loadCaptainLog(captainId) {
-            let captainName = this.detail ? this.detail.name : captainId;
-            this.viewerTitle = 'Log: ' + captainName;
-            this.viewerContent = '';
-            this.viewerRawContent = '';
-            this.viewerIsHtml = false;
-            this.viewerLoading = true;
-            this.modal = 'viewer';
-            try {
-                let result = await this.api('GET', '/api/v1/captains/' + captainId + '/log?lines=500');
-                this.viewerContent = result.log || 'No log output';
-                this.viewerRawContent = this.viewerContent;
-            } catch (e) {
-                this.viewerContent = 'Log unavailable: ' + e.message;
-                this.viewerRawContent = this.viewerContent;
-            } finally {
-                this.viewerLoading = false;
-            }
-        },
-
-        copyViewerContent() {
-            let text = this.viewerRawContent || this.viewerContent;
-            if (!text) return;
-            if (navigator.clipboard && window.isSecureContext) {
-                navigator.clipboard.writeText(text).catch(() => this.fallbackCopy(text));
-            } else {
-                this.fallbackCopy(text);
-            }
-        },
+        // formatDiffHtml, parseDiffFiles, renderFileDiff, renderAllDiffs, renderDiffLines,
+        // openDiffViewer, closeDiffViewer, selectDiffFile, copyDiffRaw,
+        // loadMissionDiff, loadMissionLog, loadCaptainLog: moved to modules/viewers.js
 
         // ============================================================
         // Copy to clipboard (works on both HTTP and HTTPS)
         // ============================================================
-        copyId(text, event) {
-            if (!text) return;
-            let btn = event?.currentTarget;
-            let onSuccess = () => {
-                if (!btn) return;
-                let orig = btn.textContent;
-                btn.textContent = '\u2713';
-                btn.classList.add('copied');
-                setTimeout(() => { btn.textContent = orig; btn.classList.remove('copied'); }, 1500);
-            };
-            if (navigator.clipboard && window.isSecureContext) {
-                navigator.clipboard.writeText(text).then(onSuccess).catch(() => {
-                    if (this.fallbackCopy(text)) onSuccess();
-                });
-            } else {
-                if (this.fallbackCopy(text)) onSuccess();
-            }
-        },
-
         fallbackCopy(text) {
             let ta = document.createElement('textarea');
             ta.value = text;
@@ -1165,33 +517,7 @@ function dashboard() {
             return ok;
         },
 
-        updateBreadcrumbs() {
-            this.breadcrumbs = [];
-            let viewLabels = {
-                'home': 'Dashboard', 'fleets-list': 'Fleets', 'fleets': 'Vessels', 'voyages': 'Voyages',
-                'captains': 'Captains', 'missions': 'Missions', 'dispatch': 'Dispatch',
-                'signals': 'Signals', 'events': 'Events', 'merge-queue': 'Merge Queue',
-                'docks': 'Docks', 'server': 'Server', 'config': 'Config'
-            };
-            this.breadcrumbs.push({ label: viewLabels[this.view] || this.view, view: this.view });
-            if (this.detailView) {
-                let label = this.detailId;
-                if (this.detail) {
-                    label = this.detail.title || this.detail.name || this.detail.id || this.detailId;
-                }
-                this.breadcrumbs.push({ label: label, id: this.detailId });
-            }
-        },
-
-        goBack() {
-            this.detailView = null;
-            this.detailId = null;
-            this.detail = null;
-            this.detailMissions = [];
-            this.detailDiff = null;
-            this.detailLog = null;
-            this.updateBreadcrumbs();
-        },
+        // updateBreadcrumbs, goBack: moved to modules/navigation.js
 
         // ============================================================
         // Confirm dialog (replaces native browser confirm())
@@ -1793,9 +1119,7 @@ function dashboard() {
             } catch (e) { this.toast('Failed: ' + e.message, 'error'); }
         },
 
-        async loadSettings() {
-            try { this.serverSettings = await this.api('GET', '/api/v1/settings'); } catch (e) { console.warn('Failed to load settings:', e); }
-        },
+        // loadSettings: moved to modules/data-loaders.js
 
         async saveServerConfig() {
             try {
@@ -1907,120 +1231,7 @@ function dashboard() {
             } catch (e) { this.toast('Failed to copy', 'error'); }
         },
 
-        // ============================================================
-        // WebSocket
-        // ============================================================
-        connectWebSocket() {
-            try {
-                let wsUrl = WS_PROTOCOL + '//' + window.location.hostname + ':' + this.wsPort;
-                console.log('Connecting WebSocket to', wsUrl);
-                this.ws = new WebSocket(wsUrl);
-                this.ws.onopen = () => {
-                    this.wsConnected = true;
-                    this.connected = true;
-                    console.log('WebSocket connected');
-                    this.ws.send(JSON.stringify({ Route: 'subscribe' }));
-                };
-                this.ws.onmessage = (evt) => {
-                    try { this.handleWsMessage(this.toCamel(JSON.parse(evt.data))); } catch (e) { }
-                };
-                this.ws.onclose = () => {
-                    this.wsConnected = false;
-                    this.connected = this.apiConnected;
-                    setTimeout(() => this.connectWebSocket(), 3000);
-                };
-                this.ws.onerror = (e) => {
-                    console.warn('WebSocket error:', e);
-                    this.wsConnected = false;
-                    this.connected = this.apiConnected;
-                };
-            } catch (e) {
-                console.warn('WebSocket connection failed:', e);
-                this.wsConnected = false;
-                this.connected = this.apiConnected;
-            }
-        },
-
-        handleWsMessage(data) {
-            if (data.type === 'status.snapshot') {
-                this.status = data.data || this.status;
-                return;
-            }
-            if (data.type && (
-                data.type.includes('changed') || data.type.includes('mission') ||
-                data.type.includes('captain') || data.type.includes('voyage') ||
-                data.type.includes('signal') || data.type.includes('merge') ||
-                data.type.includes('event')
-            )) {
-                this.refresh();
-                // Refresh current view data
-                if (this.view === 'signals') this.loadSignals();
-                if (this.view === 'events') this.loadEvents();
-                if (this.view === 'merge-queue') this.loadMergeQueue();
-                if (this.view === 'missions') this.loadMissions();
-            }
-
-            // Toast notifications for mission state changes
-            if (data.type === 'mission.changed' && data.data) {
-                let m = data.data;
-                if (m.status) {
-                    this._notifyStateChange('Mission', m.id, m.title, m.status);
-                }
-            }
-
-            // Toast notifications for voyage state changes
-            if (data.type === 'voyage.changed' && data.data) {
-                let v = data.data;
-                if (v.status) {
-                    this._notifyStateChange('Voyage', v.id, v.title, v.status);
-                }
-            }
-
-            // Captain state changes
-            if (data.type === 'captain.changed' && data.data) {
-                let c = data.data;
-                if (c.id && c.state) {
-                    this._notifyStateChange('Captain', c.id, c.name || c.id, c.state);
-                }
-            }
-        },
-
-        // ============================================================
-        // Copy to clipboard
-        // ============================================================
-        copyId(text, event) {
-            if (!text) return;
-            let btn = event.currentTarget;
-            let copyPromise;
-            if (navigator.clipboard && navigator.clipboard.writeText && window.isSecureContext) {
-                copyPromise = navigator.clipboard.writeText(text);
-            } else {
-                copyPromise = new Promise((resolve, reject) => {
-                    let textarea = document.createElement('textarea');
-                    textarea.value = text;
-                    textarea.style.position = 'fixed';
-                    textarea.style.opacity = '0';
-                    textarea.style.left = '-9999px';
-                    document.body.appendChild(textarea);
-                    textarea.focus();
-                    textarea.select();
-                    try {
-                        document.execCommand('copy') ? resolve() : reject();
-                    } catch (err) {
-                        reject(err);
-                    } finally {
-                        document.body.removeChild(textarea);
-                    }
-                });
-            }
-            copyPromise.then(() => {
-                btn.classList.add('copied');
-                setTimeout(() => { btn.classList.remove('copied'); }, 1500);
-            }).catch(() => {
-                btn.classList.add('copy-failed');
-                setTimeout(() => { btn.classList.remove('copy-failed'); }, 1500);
-            });
-        },
+        // connectWebSocket, handleWsMessage: moved to modules/websocket.js
 
         // ============================================================
         // Helpers
@@ -2057,23 +1268,7 @@ function dashboard() {
 
         // statusTooltip: moved to modules/status.js
 
-        /// <summary>
-        /// Returns navigation info for an entity ID based on its prefix, or null if no detail view exists.
-        /// </summary>
-        entityNav(entityId) {
-            if (!entityId) return null;
-            let prefix = entityId.substring(0, 4);
-            let map = {
-                'flt_': { view: 'fleets', detail: 'fleet-detail' },
-                'vsl_': { view: 'vessels', detail: 'vessel-detail' },
-                'cpt_': { view: 'captains', detail: 'captain-detail' },
-                'msn_': { view: 'missions', detail: 'mission-detail' },
-                'vyg_': { view: 'voyages', detail: 'voyage-detail' },
-                'sig_': { view: 'signals', detail: 'signal-detail' }
-            };
-            return map[prefix] || null;
-        },
-
+        // entityNav: moved to modules/navigation.js
         // filterMatch: moved to modules/sorting.js
 
         // Column filtering and client-side filters: moved to modules/filtering.js
@@ -2131,158 +1326,10 @@ function dashboard() {
 
         // toggleActionMenu, closeActionMenu: moved to modules/action-menu.js
 
-        // JSON viewer modal
-        showJson(title, id, obj) {
-            this.jsonViewer = {
-                open: true,
-                title: title || '',
-                subtitle: '',
-                id: id || '',
-                content: JSON.stringify(obj, null, 2)
-            };
-        },
-        closeJsonViewer() {
-            this.jsonViewer = { open: false, title: '', subtitle: '', id: '', content: '' };
-        },
-        async copyJsonContent() {
-            try {
-                await navigator.clipboard.writeText(this.jsonViewer.content);
-                this.toast('JSON copied to clipboard');
-            } catch (e) {
-                this.fallbackCopy(this.jsonViewer.content);
-                this.toast('JSON copied to clipboard');
-            }
-        },
-
-        // Viewer modal
-        openViewer(title, content) {
-            this.viewer = { open: true, title: title, content: content || '', copied: false };
-        },
-        closeViewer() {
-            this.viewer = { open: false, title: '', content: '', copied: false };
-        },
-        async copyViewerContent() {
-            try {
-                await navigator.clipboard.writeText(this.viewer.content);
-                this.viewer.copied = true;
-                setTimeout(() => { this.viewer.copied = false; }, 2000);
-            } catch (e) {
-                this.toast('Failed to copy to clipboard', 'error');
-            }
-        },
-        async viewMissionDiff(missionId) {
-            this.diffViewerTitle = 'Loading diff...';
-            this.diffViewerLoading = true;
-            this.diffViewerOpen = true;
-            this.diffViewerFiles = [];
-            this.diffViewerSelectedFile = null;
-            this.diffViewerRawDiff = '';
-            try {
-                let response = await this.api('GET', '/api/v1/missions/' + missionId + '/diff', null, 30000);
-                let diff = response ? this.toCamel(response) : null;
-                if (diff && !diff.error) {
-                    let title = 'Mission Diff' + (diff.branch ? ' (' + diff.branch + ')' : '');
-                    let rawDiff = diff.diff || '';
-                    this.openDiffViewer(title, rawDiff);
-                } else {
-                    this.diffViewerTitle = 'Mission Diff';
-                    this.$nextTick(() => {
-                        let el = document.getElementById('diff-content-area');
-                        if (el) el.innerHTML = '<div class="diff-empty-state"><p>No diff available for this mission.</p><p class="text-dim" style="font-size:0.85rem; margin-top:0.5rem">This can happen if the mission has not produced any work yet, the worktree has been cleaned up, or the branch was already merged and deleted.</p></div>';
-                    });
-                }
-            } catch (e) {
-                let errMsg = e.message || 'Request failed';
-                let isNotFound = errMsg.toLowerCase().includes('not found') || errMsg.includes('404') || errMsg.toLowerCase().includes('no diff available');
-                this.diffViewerTitle = 'Mission Diff';
-                this.$nextTick(() => {
-                    let el = document.getElementById('diff-content-area');
-                    if (el) {
-                        if (isNotFound) {
-                            el.innerHTML = '<div class="diff-empty-state"><p>No diff available for this mission.</p><p class="text-dim" style="font-size:0.85rem; margin-top:0.5rem">This can happen if the mission has not produced any work yet, the worktree has been cleaned up, or the branch was already merged and deleted.</p></div>';
-                        } else {
-                            el.innerHTML = '<div class="diff-empty-state"><p>Failed to load diff</p><p class="text-dim" style="font-size:0.85rem; margin-top:0.5rem">' + errMsg + '</p></div>';
-                        }
-                    }
-                });
-            } finally {
-                this.diffViewerLoading = false;
-            }
-        },
-        async viewMissionLog(missionId) {
-            this.openLogViewer('Mission Log', 'mission', missionId, 200);
-        },
-        async viewCaptainLog(captainId) {
-            this.openLogViewer('Captain Log', 'captain', captainId, 50);
-        },
-        async openLogViewer(title, entityType, entityId, defaultLines) {
-            this.logViewer = { open: true, title: title, content: '', entityType: entityType, entityId: entityId, following: false, lineCount: defaultLines || 200, timer: null, copied: false, totalLines: 0 };
-            await this.fetchLogContent();
-        },
-        async fetchLogContent() {
-            let lv = this.logViewer;
-            if (!lv.open || !lv.entityId) return;
-            let endpoint = lv.entityType === 'mission'
-                ? '/api/v1/missions/' + lv.entityId + '/log?lines=' + lv.lineCount
-                : '/api/v1/captains/' + lv.entityId + '/log?lines=' + lv.lineCount;
-            try {
-                let result = await this.api('GET', endpoint);
-                if (!this.logViewer.open) return;
-                if (result && !result.error) {
-                    this.logViewer.content = result.log || 'No log output';
-                    this.logViewer.totalLines = result.totalLines || 0;
-                    let showing = result.lines || 0;
-                    let total = result.totalLines || 0;
-                    this.logViewer.title = (lv.entityType === 'mission' ? 'Mission' : 'Captain') + ' Log (' + showing + ' of ' + total + ' lines)';
-                    if (this.logViewer.following) {
-                        this.$nextTick(() => {
-                            let el = document.getElementById('log-viewer-content');
-                            if (el) el.scrollTop = el.scrollHeight;
-                        });
-                    }
-                } else {
-                    this.logViewer.title = 'Log Error';
-                    this.logViewer.content = (result && result.error) || 'Failed to load log';
-                }
-            } catch (e) {
-                if (!this.logViewer.open) return;
-                this.logViewer.title = 'Log Error';
-                this.logViewer.content = e.message || 'Request failed';
-            }
-        },
-        toggleLogFollow() {
-            this.logViewer.following = !this.logViewer.following;
-            if (this.logViewer.following) {
-                this.fetchLogContent();
-                this.logViewer.timer = setInterval(() => { this.fetchLogContent(); }, 1000);
-            } else {
-                this.stopLogFollow();
-            }
-        },
-        stopLogFollow() {
-            if (this.logViewer.timer) {
-                clearInterval(this.logViewer.timer);
-                this.logViewer.timer = null;
-            }
-            this.logViewer.following = false;
-        },
-        changeLogLineCount(count) {
-            this.logViewer.lineCount = parseInt(count) || 200;
-            this.fetchLogContent();
-        },
-        closeLogViewer() {
-            this.stopLogFollow();
-            this.logViewer = { open: false, title: '', content: '', entityType: '', entityId: '', following: false, lineCount: 200, timer: null, copied: false, totalLines: 0 };
-        },
-        async copyLogContent() {
-            try {
-                await navigator.clipboard.writeText(this.logViewer.content);
-                this.logViewer.copied = true;
-                setTimeout(() => { this.logViewer.copied = false; }, 2000);
-            } catch (e) {
-                this.toast('Failed to copy to clipboard', 'error');
-            }
-        },
+        // showJson, closeJsonViewer, copyJsonContent, openViewer, closeViewer,
+        // copyViewerContent, viewMissionDiff, viewMissionLog, viewCaptainLog,
+        // openLogViewer, fetchLogContent, toggleLogFollow, stopLogFollow,
+        // changeLogLineCount, closeLogViewer, copyLogContent: moved to modules/viewers.js
 
         // goToPage, nextPage, prevPage, changePageSize, paginateLocal, noopLoad: moved to modules/pagination.js
 
