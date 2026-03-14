@@ -103,6 +103,7 @@ function dashboard() {
         mergeQueueVoyages: [],
         dockFilters: { status: '' },
         // Per-column filter state
+        voyageColFilters: { title: '', status: '' },
         vesselColFilters: { fleet: '', name: '', repoUrl: '', branch: '' },
         missionColFilters: { title: '', status: '', vessel: '', captain: '', branch: '' },
         captainColFilters: { name: '', state: '', runtime: '' },
@@ -2335,6 +2336,16 @@ function dashboard() {
             );
         },
 
+        // Column-filtered voyages
+        columnFilteredVoyages() {
+            let rows = this.filteredVoyages();
+            let f = this.voyageColFilters;
+            return rows.filter(v =>
+                this.filterMatch(v.title || v.id, f.title) &&
+                this.filterMatch(v.status, f.status)
+            );
+        },
+
         // Column-filtered missions
         columnFilteredMissions() {
             let rows = this.filterRows(this.allMissions);
@@ -2398,6 +2409,7 @@ function dashboard() {
 
         // Clear all column filters
         clearColumnFilters() {
+            this.voyageColFilters = { title: '', status: '' };
             this.vesselColFilters = { fleet: '', name: '', repoUrl: '', branch: '' };
             this.missionColFilters = { title: '', status: '', vessel: '', captain: '', branch: '' };
             this.captainColFilters = { name: '', state: '', runtime: '' };
