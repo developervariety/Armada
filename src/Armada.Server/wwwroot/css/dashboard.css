@@ -649,6 +649,7 @@ tr.clickable { cursor: pointer; }
 .detail-field {
     display: flex;
     flex-direction: column;
+    align-items: flex-start;
     padding: 0.5rem 0;
     border-bottom: 1px solid var(--border);
 }
