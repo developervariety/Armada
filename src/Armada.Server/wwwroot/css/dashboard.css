@@ -527,6 +527,12 @@ td {
     vertical-align: top;
 }
 
+th.col-checkbox, td.col-checkbox {
+    width: 1.5rem;
+    padding: 0.4rem 0.25rem;
+    text-align: center;
+}
+
 tr:hover td { background: var(--bg-hover); color: var(--text); }
 tr:hover td .text-dim { color: var(--text-dim); }
 tr:hover td strong { color: var(--text); }
