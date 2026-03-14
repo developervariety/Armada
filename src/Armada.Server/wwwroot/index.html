@@ -376,16 +376,26 @@
                     <thead>
                         <tr>
                             <th class="sortable" @click="sortBy('name', fleets)" title="Fleet name -- click to sort">Name<span x-text="sortIcon('name')"></span></th>
-                            <th>Description</th>
+                            <th>ID</th>
+                            <th class="sortable" @click="sortBy('description', fleets)" title="Description -- click to sort">Description<span x-text="sortIcon('description')"></span></th>
                             <th class="sortable" @click="sortBy('_vesselCount', fleets)" title="Vessel count -- click to sort">Vessels<span x-text="sortIcon('_vesselCount')"></span></th>
                             <th class="sortable" @click="sortBy('createdUtc', fleets)" title="Created date -- click to sort">Created<span x-text="sortIcon('createdUtc')"></span></th>
                             <th class="text-right">Actions</th>
                         </tr>
+                        <tr class="column-filter-row">
+                            <td><input type="text" class="col-filter" x-model="fleetColFilters.name" placeholder="Filter..."></td>
+                            <td></td>
+                            <td><input type="text" class="col-filter" x-model="fleetColFilters.description" placeholder="Filter..."></td>
+                            <td></td>
+                            <td></td>
+                            <td></td>
+                        </tr>
                     </thead>
                     <tbody>
-                        <template x-for="f in paginateLocal(sortedRows(filterRows(fleets)), fleetListPaging)" :key="f.id">
+                        <template x-for="f in paginateLocal(sortedRows(columnFilteredFleets()), fleetListPaging)" :key="f.id">
                             <tr class="clickable" @click="navigate('fleets-list', 'fleet-detail', f.id)">
-                                <td><strong x-text="f.name"></strong><div class="text-dim id-display"><span class="mono" x-text="f.id"></span><button class="copy-btn" @click.stop="copyId(f.id, $event)" title="Copy ID"></button></div></td>
+                                <td><strong x-text="f.name"></strong></td>
+                                <td class="mono text-dim"><span class="id-display"><span x-text="f.id"></span><button class="copy-btn" @click.stop="copyId(f.id, $event)" title="Copy ID"></button></span></td>
                                 <td class="text-dim" x-text="f.description || '-'"></td>
                                 <td x-text="(f.vessels || []).length"></td>
                                 <td class="text-dim" x-text="formatTime(f.createdUtc)"></td>
