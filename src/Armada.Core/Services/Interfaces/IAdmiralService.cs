@@ -36,6 +36,13 @@ namespace Armada.Core.Services.Interfaces
         Func<Voyage, Task>? OnVoyageComplete { get; set; }
 
         /// <summary>
+        /// Delegate invoked during health check to reconcile PullRequestOpen missions.
+        /// The handler receives a mission and should check if its PR has been merged,
+        /// returning true if the mission was reconciled (transitioned to Complete or LandingFailed).
+        /// </summary>
+        Func<Mission, Task<bool>>? OnReconcilePullRequest { get; set; }
+
+        /// <summary>
         /// Dispatch a voyage with one or more missions.
         /// Creates the voyage, creates missions, and auto-assigns available captains.
         /// </summary>

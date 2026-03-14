@@ -330,56 +330,33 @@ namespace Armada.Core.Services
                 }
             }
 
-            // Invoke OnMissionComplete for push/PR handling (fire-and-forget to avoid blocking health check loop)
+            // Invoke OnMissionComplete synchronously (Phase A: push branch, create PR, or enqueue).
+            // Captain stays in Working state until the handoff completes, preventing the captain
+            // from being reassigned while git operations are still in progress.
             if (dock != null && OnMissionComplete != null)
             {
-                Func<Mission, Dock, Task> handler = OnMissionComplete;
-                string completionMissionId = mission.Id;
-                string? completionDockId = dock.Id;
-                _Logging.Info(_Header + "queuing background merge/push for mission " + completionMissionId);
-
-                Task completionTask = Task.Run(async () =>
-                {
-                    try
-                    {
-                        await handler.Invoke(mission, dock).ConfigureAwait(false);
-                    }
-                    catch (Exception ex)
-                    {
-                        _Logging.Warn(_Header + "error in mission complete handler for " + completionMissionId + ": " + ex.Message);
-                    }
-                    finally
-                    {
-                        _InFlightCompletions.TryRemove(completionMissionId, out _);
-
-                        // Reclaim the dock (remove worktree directory) now that push/PR is done.
-                        // This prevents stale directories from blocking future provisioning.
-                        if (!String.IsNullOrEmpty(completionDockId))
-                        {
-                            try
-                            {
-                                await _Docks.ReclaimAsync(completionDockId, CancellationToken.None).ConfigureAwait(false);
-                            }
-                            catch (Exception reclaimEx)
-                            {
-                                _Logging.Warn(_Header + "error reclaiming dock " + completionDockId + " after mission " + completionMissionId + ": " + reclaimEx.Message);
-                            }
-                        }
-                    }
-                });
-
-                _InFlightCompletions.TryAdd(completionMissionId, completionTask);
-            }
-            else if (dock != null)
-            {
-                // No completion handler — reclaim the dock immediately
+                _Logging.Info(_Header + "executing synchronous landing handoff for mission " + mission.Id);
                 try
                 {
-                    await _Docks.ReclaimAsync(dock.Id, token).ConfigureAwait(false);
+                    await OnMissionComplete.Invoke(mission, dock).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "error in mission complete handler for " + mission.Id + ": " + ex.Message);
+                }
+            }
+
+            // Reclaim the dock after the handoff completes (or if no handler was set)
+            string? completionDockId = dock?.Id;
+            if (!String.IsNullOrEmpty(completionDockId))
+            {
+                try
+                {
+                    await _Docks.ReclaimAsync(completionDockId, token).ConfigureAwait(false);
                 }
                 catch (Exception reclaimEx)
                 {
-                    _Logging.Warn(_Header + "error reclaiming dock " + dock.Id + " after mission " + mission.Id + ": " + reclaimEx.Message);
+                    _Logging.Warn(_Header + "error reclaiming dock " + completionDockId + " after mission " + mission.Id + ": " + reclaimEx.Message);
                 }
             }
 
@@ -388,7 +365,7 @@ namespace Armada.Core.Services
             signal.FromCaptainId = captain.Id;
             await _Database.Signals.CreateAsync(signal, token).ConfigureAwait(false);
 
-            // Release the captain to idle
+            // Release the captain to idle only AFTER the handoff and dock reclaim are done
             await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
 
             // Try to pick up next pending mission

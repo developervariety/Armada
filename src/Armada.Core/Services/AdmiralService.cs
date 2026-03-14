@@ -46,6 +46,9 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         public Func<Voyage, Task>? OnVoyageComplete { get; set; }
 
+        /// <inheritdoc />
+        public Func<Mission, Task<bool>>? OnReconcilePullRequest { get; set; }
+
         #endregion
 
         #region Private-Members
@@ -293,6 +296,12 @@ namespace Armada.Core.Services
                     catch (Exception ex) { _Logging.Warn(_Header + "error in OnVoyageComplete callback: " + ex.Message); }
                 }
             }
+
+            // Reconcile PullRequestOpen missions — check if their PRs have been merged
+            await ReconcilePullRequestMissionsAsync(token).ConfigureAwait(false);
+
+            // Reclaim docks stuck in Provisioned state with no active captain
+            await ReclaimOrphanedDocksAsync(token).ConfigureAwait(false);
 
             await DispatchPendingMissionsAsync(token).ConfigureAwait(false);
 
@@ -697,6 +706,97 @@ namespace Armada.Core.Services
             catch (Exception ex)
             {
                 _Logging.Warn(_Header + "error emitting event " + eventType + ": " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Reclaim docks that have been active for too long without an associated working captain.
+        /// This catches docks leaked by failed launches or agent crashes.
+        /// </summary>
+        private async Task ReclaimOrphanedDocksAsync(CancellationToken token)
+        {
+            try
+            {
+                List<Dock> allDocks = await _Database.Docks.EnumerateAsync(token).ConfigureAwait(false);
+                DateTime threshold = DateTime.UtcNow.AddMinutes(-5);
+
+                foreach (Dock dock in allDocks)
+                {
+                    if (!dock.Active) continue;
+
+                    // Skip recently created docks (may still be in the provisioning process)
+                    if (dock.CreatedUtc > threshold) continue;
+
+                    // Check if any captain is actively using this dock
+                    bool inUse = false;
+                    if (!String.IsNullOrEmpty(dock.CaptainId))
+                    {
+                        Captain? captain = await _Database.Captains.ReadAsync(dock.CaptainId, token).ConfigureAwait(false);
+                        if (captain != null && captain.State == CaptainStateEnum.Working && captain.CurrentDockId == dock.Id)
+                        {
+                            inUse = true;
+                        }
+                    }
+
+                    if (!inUse)
+                    {
+                        _Logging.Info(_Header + "reclaiming orphaned dock " + dock.Id + " (created " + dock.CreatedUtc + ", no active captain)");
+                        try
+                        {
+                            await _Docks.ReclaimAsync(dock.Id, token).ConfigureAwait(false);
+                        }
+                        catch (Exception ex)
+                        {
+                            _Logging.Warn(_Header + "error reclaiming orphaned dock " + dock.Id + ": " + ex.Message);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "error in orphaned dock reclamation: " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Reconcile missions in PullRequestOpen status by checking if their PRs have been merged.
+        /// This replaces the fire-and-forget 5-minute poller with a persistent, restart-safe check.
+        /// Rate-limited to at most 10 missions per health check cycle.
+        /// </summary>
+        private async Task ReconcilePullRequestMissionsAsync(CancellationToken token)
+        {
+            if (OnReconcilePullRequest == null) return;
+
+            try
+            {
+                List<Mission> prMissions = await _Database.Missions.EnumerateByStatusAsync(
+                    MissionStatusEnum.PullRequestOpen, token).ConfigureAwait(false);
+
+                if (prMissions.Count == 0) return;
+
+                // Rate-limit: check at most 10 per cycle to avoid hammering the git host API
+                int checked_count = 0;
+                foreach (Mission mission in prMissions)
+                {
+                    if (checked_count >= 10) break;
+
+                    try
+                    {
+                        await OnReconcilePullRequest.Invoke(mission).ConfigureAwait(false);
+                        checked_count++;
+                    }
+                    catch (Exception ex)
+                    {
+                        _Logging.Warn(_Header + "error reconciling PR for mission " + mission.Id + ": " + ex.Message);
+                    }
+                }
+
+                if (checked_count > 0)
+                    _Logging.Info(_Header + "reconciled " + checked_count + " PullRequestOpen mission(s)");
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "error in PR reconciliation: " + ex.Message);
             }
         }
 

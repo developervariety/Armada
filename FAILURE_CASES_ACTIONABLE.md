@@ -339,7 +339,7 @@ Dependencies noted per item.
 
 ### T2-1: Persistent PR reconciler (depends on T1-5)
 
-**Status:** `[ ]` Not started
+**Status:** `[x]` Complete
 
 **Goal:** Missions in `PullRequestOpen` must be checked periodically, not just
 via a one-shot 5-minute poller.
@@ -376,10 +376,10 @@ via a one-shot 5-minute poller.
 
 #### Checklist
 
-- [ ] 6a — Hook into health check
-- [ ] 6b — Implement reconciliation method
-- [ ] 6c — Rate-limiting mechanism
-- [ ] 6d — Simplify/remove fire-and-forget poller
+- [x] 6a — ReconcilePullRequestMissionsAsync added to HealthCheckAsync
+- [x] 6b — Delegate-based: OnReconcilePullRequest in IAdmiralService, wired in ArmadaServer
+- [x] 6c — Rate-limited to 10 PRs per health check cycle
+- [ ] 6d — Fire-and-forget poller kept as fast path (removes itself after 5min, reconciler catches remainder)
 
 ---
 
@@ -432,7 +432,7 @@ via a one-shot 5-minute poller.
 
 ### T2-3: Bounded auto-retry for target-branch drift (depends on T1-1 + T2-2)
 
-**Status:** `[ ]` Not started
+**Status:** `[~]` Partial (setting added, retry logic deferred to LandingService)
 
 **Goal:** Automatically rebase and retry landing when the failure is due to
 target-branch drift (not a genuine content conflict).
@@ -460,15 +460,15 @@ target-branch drift (not a genuine content conflict).
 
 #### Checklist
 
-- [ ] 8a — Auto-rebase retry logic
-- [ ] 8b — MaxLandingRetries setting
-- [ ] 8c — Retry count tracking
+- [ ] 8a — Auto-rebase retry logic (requires LandingService from T2-2)
+- [x] 8b — MaxLandingRetries setting added to ArmadaSettings (default 3, clamped [0,10])
+- [ ] 8c — Retry count tracking (requires LandingService)
 
 ---
 
 ### T2-4: Captain not released until post-run handoff completes (depends on T1-1)
 
-**Status:** `[ ]` Not started
+**Status:** `[x]` Complete
 
 **Goal:** Captain stays in `Working` state until the branch is pushed / PR is
 created / merge-queue entry is enqueued. Only long-running waits (PR merge
@@ -501,14 +501,14 @@ polling, queue processing) happen after captain release.
 
 #### Checklist
 
-- [ ] 9a — Synchronous Phase A handoff
-- [ ] 9b — Remove fire-and-forget, fix captain release timing
+- [x] 9a — OnMissionComplete now invoked synchronously (await, not Task.Run)
+- [x] 9b — Removed fire-and-forget Task.Run; captain released after handoff + dock reclaim
 
 ---
 
 ### T2-5: Reclaim docks from failed launches (depends on T1-3)
 
-**Status:** `[ ]` Not started
+**Status:** `[x]` Complete
 
 **Goal:** Docks stuck in `Provisioned` state with no active captain are
 reclaimed automatically.
@@ -528,8 +528,8 @@ reclaimed automatically.
 
 #### Checklist
 
-- [ ] 10a — Health-check dock reclamation
-- [ ] 10b — Timestamp verification
+- [x] 10a — ReclaimOrphanedDocksAsync added to health check (5-minute threshold)
+- [x] 10b — Uses Dock.CreatedUtc for age check; verifies captain state before reclaiming
 
 ---
 
@@ -756,6 +756,10 @@ Phase 3 (after Phase 2):
 | 2026-03-13 | T1-3 | Complete | DockService checks active docks before deleting sibling worktrees |
 | 2026-03-13 | T1-4 | Complete | Push failure → LandingFailed; branch preserved; push before cleanup |
 | 2026-03-13 | T1-5 | Complete | ReconcileMissionStatusAsync in MergeQueueService on land/fail |
+| 2026-03-13 | T2-1 | Complete | Persistent PR reconciler via delegate, rate-limited, in health check |
+| 2026-03-13 | T2-3 | Partial | MaxLandingRetries setting added; retry logic needs LandingService |
+| 2026-03-13 | T2-4 | Complete | Synchronous handoff; removed Task.Run fire-and-forget |
+| 2026-03-13 | T2-5 | Complete | ReclaimOrphanedDocksAsync in health check, 5-min threshold |
 
 ---
 

@@ -142,6 +142,21 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Maximum number of automatic landing retries when landing fails due to target-branch drift.
+        /// Set to 0 to disable auto-retry. Must be in range [0, 10].
+        /// </summary>
+        public int MaxLandingRetries
+        {
+            get => _MaxLandingRetries;
+            set
+            {
+                if (value < 0) value = 0;
+                if (value > 10) value = 10;
+                _MaxLandingRetries = value;
+            }
+        }
+
+        /// <summary>
         /// Global landing mode for completed missions. Determines how work is integrated.
         /// When set, takes precedence over the legacy boolean flags (AutoPush, AutoCreatePullRequests, AutoMergePullRequests).
         /// Can be overridden per-vessel or per-voyage.
@@ -355,6 +370,7 @@ namespace Armada.Core.Settings
         private long _MaxLogFileSizeBytes = Constants.DefaultMaxLogFileSizeBytes;
         private int _MaxLogFileCount = Constants.DefaultMaxLogFileCount;
         private int _DataRetentionDays = Constants.DefaultDataRetentionDays;
+        private int _MaxLandingRetries = 3;
         private int _MinIdleCaptains = 0;
         private int _MaxCaptains = 0;
         private int _IdleCaptainTimeoutSeconds = Constants.DefaultIdleCaptainTimeoutSeconds;

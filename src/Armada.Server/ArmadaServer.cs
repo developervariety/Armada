@@ -135,6 +135,7 @@ namespace Armada.Server
             _Admiral.OnCaptureDiff = HandleCaptureDiffAsync;
             _Admiral.OnMissionComplete = HandleMissionCompleteAsync;
             _Admiral.OnVoyageComplete = HandleVoyageCompleteAsync;
+            _Admiral.OnReconcilePullRequest = HandleReconcilePullRequestAsync;
 
             // Initialize REST API
             _App = new SwiftStackApp(ArmadaConstants.ProductName, _Quiet);
@@ -2884,6 +2885,58 @@ namespace Armada.Server
             }
 
             return Task.CompletedTask;
+        }
+
+        /// <summary>
+        /// Persistent PR reconciler: checks if a PullRequestOpen mission's PR has been merged.
+        /// Called from the health-check loop via delegate. Returns true if the mission was reconciled.
+        /// </summary>
+        private async Task<bool> HandleReconcilePullRequestAsync(Mission mission)
+        {
+            if (mission == null || String.IsNullOrEmpty(mission.PrUrl)) return false;
+            if (mission.Status != MissionStatusEnum.PullRequestOpen) return false;
+
+            // Find the vessel to get working directory context for gh CLI
+            Vessel? vessel = null;
+            if (!String.IsNullOrEmpty(mission.VesselId))
+                vessel = await _Database.Vessels.ReadAsync(mission.VesselId).ConfigureAwait(false);
+
+            string? workingDir = vessel?.WorkingDirectory ?? vessel?.LocalPath;
+            if (String.IsNullOrEmpty(workingDir)) return false;
+
+            try
+            {
+                bool merged = await _Git.IsPrMergedAsync(workingDir, mission.PrUrl).ConfigureAwait(false);
+                if (merged)
+                {
+                    mission.Status = MissionStatusEnum.Complete;
+                    mission.CompletedUtc = DateTime.UtcNow;
+                    mission.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                    _Logging.Info(_Header + "PR reconciler: mission " + mission.Id + " PR merged, status set to Complete");
+
+                    // Pull latest into working directory if available
+                    if (!String.IsNullOrEmpty(vessel?.WorkingDirectory))
+                    {
+                        try
+                        {
+                            await _Git.PullAsync(vessel.WorkingDirectory).ConfigureAwait(false);
+                        }
+                        catch (Exception pullEx)
+                        {
+                            _Logging.Warn(_Header + "PR reconciler: pull failed for " + vessel.WorkingDirectory + ": " + pullEx.Message);
+                        }
+                    }
+
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "PR reconciler: error checking PR status for mission " + mission.Id + ": " + ex.Message);
+            }
+
+            return false;
         }
 
         private async Task PollAndPullAfterMergeAsync(string workingDirectory, string bareRepoPath, string branchName, string prUrl, string missionId, BranchCleanupPolicyEnum cleanupPolicy = BranchCleanupPolicyEnum.LocalOnly)
