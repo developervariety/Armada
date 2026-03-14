@@ -333,6 +333,7 @@ namespace Armada.Server.Mcp
                         await database.Fleets.DeleteAsync(id).ConfigureAwait(false);
                         result.Deleted++;
                     }
+                    result.ResolveStatus();
                     return (object)result;
                 });
         }
@@ -505,6 +506,7 @@ namespace Armada.Server.Mcp
                         await database.Vessels.DeleteAsync(id).ConfigureAwait(false);
                         result.Deleted++;
                     }
+                    result.ResolveStatus();
                     return (object)result;
                 });
 
@@ -775,6 +777,7 @@ namespace Armada.Server.Mcp
                         await database.Voyages.DeleteAsync(id).ConfigureAwait(false);
                         result.Deleted++;
                     }
+                    result.ResolveStatus();
                     return (object)result;
                 });
         }
@@ -1016,6 +1019,7 @@ namespace Armada.Server.Mcp
                         await database.Missions.DeleteAsync(id).ConfigureAwait(false);
                         result.Deleted++;
                     }
+                    result.ResolveStatus();
                     return (object)result;
                 });
 
@@ -1435,6 +1439,7 @@ namespace Armada.Server.Mcp
                         await database.Captains.DeleteAsync(id).ConfigureAwait(false);
                         result.Deleted++;
                     }
+                    result.ResolveStatus();
                     return (object)result;
                 });
 
@@ -1572,6 +1577,7 @@ namespace Armada.Server.Mcp
                         await database.Signals.MarkReadAsync(id).ConfigureAwait(false);
                         result.Deleted++;
                     }
+                    result.ResolveStatus();
                     return (object)result;
                 });
         }
@@ -1673,6 +1679,7 @@ namespace Armada.Server.Mcp
                         await database.Events.DeleteAsync(id).ConfigureAwait(false);
                         result.Deleted++;
                     }
+                    result.ResolveStatus();
                     return (object)result;
                 });
         }
@@ -1805,6 +1812,7 @@ namespace Armada.Server.Mcp
                         await dockService.PurgeAsync(id).ConfigureAwait(false);
                         result.Deleted++;
                     }
+                    result.ResolveStatus();
                     return (object)result;
                 });
         }
@@ -2026,6 +2034,7 @@ namespace Armada.Server.Mcp
                         return (object)new { Error = "entryIds is required and must not be empty" };
 
                     MergeQueuePurgeResult result = await mergeQueue.DeleteMultipleAsync(request.EntryIds).ConfigureAwait(false);
+                    result.ResolveStatus();
                     return (object)result;
                 });
         }

@@ -759,6 +759,7 @@ namespace Armada.Server
                 await EmitEventAsync("fleet.batch_deleted", "Batch deleted " + result.Deleted + " fleets",
                     entityType: "fleet").ConfigureAwait(false);
 
+                result.ResolveStatus();
                 return (object)result;
             },
             api => api
@@ -919,6 +920,7 @@ namespace Armada.Server
                 await EmitEventAsync("vessel.batch_deleted", "Batch deleted " + result.Deleted + " vessels",
                     entityType: "vessel").ConfigureAwait(false);
 
+                result.ResolveStatus();
                 return (object)result;
             },
             api => api
@@ -1173,6 +1175,7 @@ namespace Armada.Server
                 await EmitEventAsync("voyage.batch_deleted", "Batch deleted " + result.Deleted + " voyages",
                     entityType: "voyage").ConfigureAwait(false);
 
+                result.ResolveStatus();
                 return (object)result;
             },
             api => api
@@ -1485,6 +1488,7 @@ namespace Armada.Server
                 await EmitEventAsync("mission.batch_deleted", "Batch deleted " + result.Deleted + " missions",
                     entityType: "mission").ConfigureAwait(false);
 
+                result.ResolveStatus();
                 return (object)result;
             },
             api => api
@@ -1900,6 +1904,7 @@ namespace Armada.Server
                 await EmitEventAsync("captain.batch_deleted", "Batch deleted " + result.Deleted + " captains",
                     entityType: "captain").ConfigureAwait(false);
 
+                result.ResolveStatus();
                 return (object)result;
             },
             api => api
@@ -2038,6 +2043,7 @@ namespace Armada.Server
                 await EmitEventAsync("dock.batch_deleted", "Batch deleted " + result.Deleted + " docks",
                     entityType: "dock").ConfigureAwait(false);
 
+                result.ResolveStatus();
                 return (object)result;
             },
             api => api
@@ -2208,6 +2214,7 @@ namespace Armada.Server
                 await EmitEventAsync("signal.batch_deleted", "Batch deleted " + result.Deleted + " signals",
                     entityType: "signal").ConfigureAwait(false);
 
+                result.ResolveStatus();
                 return (object)result;
             },
             api => api
@@ -2308,6 +2315,7 @@ namespace Armada.Server
                 await EmitEventAsync("event.batch_deleted", "Batch deleted " + result.Deleted + " events",
                     entityType: "event").ConfigureAwait(false);
 
+                result.ResolveStatus();
                 return (object)result;
             },
             api => api
