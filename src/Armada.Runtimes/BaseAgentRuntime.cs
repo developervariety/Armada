@@ -109,7 +109,20 @@ namespace Armada.Runtimes
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(logFilePath)!);
                 logWriter = new StreamWriter(logFilePath, append: true) { AutoFlush = true };
-                await logWriter.WriteLineAsync("[" + DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss") + "] Agent starting: " + command + " " + String.Join(" ", args).Replace("\n", " ").Replace("\r", "")).ConfigureAwait(false);
+                string timestamp = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss");
+                string argsJoined = String.Join(" ", args);
+                // Write command on first line, then prompt content preserving newlines
+                string firstFlag = "";
+                string promptContent = argsJoined;
+                int promptStart = argsJoined.IndexOf("Mission:");
+                if (promptStart > 0)
+                {
+                    firstFlag = argsJoined.Substring(0, promptStart).Trim();
+                    promptContent = argsJoined.Substring(promptStart);
+                }
+                await logWriter.WriteLineAsync("[" + timestamp + "] Agent starting: " + command + " " + firstFlag).ConfigureAwait(false);
+                await logWriter.WriteLineAsync(promptContent).ConfigureAwait(false);
+                await logWriter.WriteLineAsync("").ConfigureAwait(false);
             }
 
             Process process = new Process { StartInfo = startInfo };
