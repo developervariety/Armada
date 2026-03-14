@@ -524,7 +524,7 @@ th.sortable:hover { color: var(--text); }
 td {
     padding: 0.6rem 0.75rem;
     border-bottom: 1px solid var(--border);
-    vertical-align: top;
+    vertical-align: middle;
 }
 
 .truncate-cell {
