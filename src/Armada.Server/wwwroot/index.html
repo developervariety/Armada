@@ -1662,34 +1662,51 @@
                     <button class="btn btn-sm" @click="loadMergeQueue()" title="Refresh">&#x21bb;</button>
                 </div>
             </div>
-            <div class="cards merge-queue-cards" x-show="mergeQueue.length > 0">
-                <template x-for="entry in filteredMergeQueue()" :key="entry.id">
-                    <div class="card merge-queue-card">
-                        <div class="mq-card-header">
-                            <input type="checkbox" :checked="selectedMergeQueue.includes(entry.id)" @change.stop="toggleMergeQueueSelection(entry.id)" @click.stop title="Select this entry">
-                            <span class="tag" :class="(entry.status || '').toLowerCase()" x-text="entry.status" :title="statusTooltip(entry.status)"></span>
-                            <span class="text-dim" style="font-size:0.8rem" x-text="'Priority: ' + entry.priority"></span>
-                        </div>
-                        <div x-show="entry._voyageName" class="text-dim" style="font-size:0.8rem; margin-bottom:0.25rem">Voyage: <span x-text="entry._voyageName"></span></div>
-                        <div class="mq-card-title" x-show="entry._missionTitle" x-text="entry._missionTitle"></div>
-                        <div class="mq-card-title text-dim" x-show="!entry._missionTitle" style="font-style:italic">&mdash; No mission assigned &mdash;</div>
-                        <div class="mono" style="font-size:0.85rem; margin-top:0.5rem"><span x-text="entry.branchName"></span> &rarr; <span x-text="entry.targetBranch"></span></div>
-                        <div class="text-dim" style="font-size:0.8rem; margin-top:0.25rem" x-text="formatTime(entry.createdUtc)" :title="formatTimeAbsolute(entry.createdUtc)"></div>
-                        <div class="mq-card-actions">
-                            <div class="action-menu-wrap">
-                                <button class="action-menu-btn" @click.stop="toggleActionMenu($event,'mq-' + entry.id)" title="Actions">&#8942;</button>
-                                <div class="action-menu-dropdown" x-show="openActionMenu === 'mq-' + entry.id" x-cloak>
-                                    <button class="action-menu-item" x-show="entry.missionId" @click="viewMissionLog(entry.missionId); closeActionMenu()">Log</button>
-                                    <button class="action-menu-item" x-show="entry.missionId" @click="viewMissionDiff(entry.missionId); closeActionMenu()">Diff</button>
-                                    <button class="action-menu-item" @click="showJson('Merge Entry: ' + entry.id, entry.id, entry); closeActionMenu()">View JSON</button>
-                                    <button class="action-menu-item" x-show="entry.status === 'Queued'" @click="mergeSingleEntry(entry.id); closeActionMenu()">Process</button>
-                                    <button class="action-menu-item danger" x-show="entry.status === 'Queued' || entry.status === 'Testing'" @click="cancelMergeEntry(entry.id); closeActionMenu()">Cancel</button>
-                                    <button class="action-menu-item danger" x-show="entry.status === 'Cancelled' || entry.status === 'Landed' || entry.status === 'Failed'" @click="deleteMergeEntry(entry); closeActionMenu()">Delete</button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </template>
+            <div class="table-wrap" x-show="mergeQueue.length > 0">
+                <table>
+                    <thead>
+                        <tr>
+                            <th style="width: 1.5rem; padding: 0.25rem;"><input type="checkbox" @change="$event.target.checked ? selectAllMergeQueue() : clearMergeQueueSelection()" :checked="selectedMergeQueue.length > 0 && selectedMergeQueue.length === filteredMergeQueue().length" title="Select all"></th>
+                            <th class="sortable" @click="sortBy('status', mergeQueue)" title="Entry status -- click to sort">Status<span x-text="sortIcon('status')"></span></th>
+                            <th class="sortable" @click="sortBy('priority', mergeQueue)" title="Priority -- click to sort">Pri<span x-text="sortIcon('priority')"></span></th>
+                            <th>Mission</th>
+                            <th>Branch</th>
+                            <th>Target</th>
+                            <th class="sortable" @click="sortBy('createdUtc', mergeQueue)" title="Created -- click to sort">Created<span x-text="sortIcon('createdUtc')"></span></th>
+                            <th class="text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <template x-for="entry in sortedRows(filteredMergeQueue())" :key="entry.id">
+                            <tr>
+                                <td><input type="checkbox" :checked="selectedMergeQueue.includes(entry.id)" @change.stop="toggleMergeQueueSelection(entry.id)" @click.stop title="Select this entry"></td>
+                                <td><span class="tag" :class="(entry.status || '').toLowerCase()" x-text="entry.status" :title="statusTooltip(entry.status)"></span></td>
+                                <td x-text="entry.priority"></td>
+                                <td>
+                                    <span x-show="entry._missionTitle" x-text="entry._missionTitle"></span>
+                                    <span x-show="!entry._missionTitle" class="text-dim" style="font-style:italic">--</span>
+                                    <div x-show="entry._voyageName" class="text-dim" style="font-size:0.75rem" x-text="entry._voyageName"></div>
+                                </td>
+                                <td class="mono text-dim" style="font-size:0.8rem" x-text="entry.branchName"></td>
+                                <td class="mono text-dim" style="font-size:0.8rem" x-text="entry.targetBranch"></td>
+                                <td class="text-dim" x-text="formatTime(entry.createdUtc)" :title="formatTimeAbsolute(entry.createdUtc)" style="white-space:nowrap"></td>
+                                <td class="text-right">
+                                    <div class="action-menu-wrap">
+                                        <button class="action-menu-btn" @click.stop="toggleActionMenu($event,'mq-' + entry.id)" title="Actions">&#8942;</button>
+                                        <div class="action-menu-dropdown" x-show="openActionMenu === 'mq-' + entry.id" x-cloak>
+                                            <button class="action-menu-item" x-show="entry.missionId" @click="viewMissionLog(entry.missionId); closeActionMenu()">Log</button>
+                                            <button class="action-menu-item" x-show="entry.missionId" @click="viewMissionDiff(entry.missionId); closeActionMenu()">Diff</button>
+                                            <button class="action-menu-item" @click="showJson('Merge Entry: ' + entry.id, entry.id, entry); closeActionMenu()">View JSON</button>
+                                            <button class="action-menu-item" x-show="entry.status === 'Queued'" @click="mergeSingleEntry(entry.id); closeActionMenu()">Process</button>
+                                            <button class="action-menu-item danger" x-show="entry.status === 'Queued' || entry.status === 'Testing'" @click="cancelMergeEntry(entry.id); closeActionMenu()">Cancel</button>
+                                            <button class="action-menu-item danger" x-show="entry.status === 'Cancelled' || entry.status === 'Landed' || entry.status === 'Failed'" @click="deleteMergeEntry(entry); closeActionMenu()">Delete</button>
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
             </div>
             <p class="text-dim" x-show="mergeQueue.length === 0">Merge queue is empty.</p>
         </div>
