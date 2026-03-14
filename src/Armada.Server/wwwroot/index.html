@@ -332,7 +332,7 @@
                     <div class="signal-list">
                         <template x-for="sig in status.recentSignals" :key="sig.id">
                             <div class="signal-item">
-                                <span class="tag" :class="(sig.type || '').toLowerCase()" x-text="sig.type"></span>
+                                <span class="tag" :class="(sig.type || '').toLowerCase()" x-text="sig.type" :title="statusTooltip(sig.type)"></span>
                                 <span x-text="sig.payload || sig.message"></span>
                                 <span class="text-dim" x-text="formatTime(sig.createdUtc)" :title="formatTimeAbsolute(sig.createdUtc)"></span>
                             </div>
@@ -1114,7 +1114,7 @@
                                     <span x-show="!dock.captainId">-</span>
                                 </td>
                                 <td class="mono text-dim" x-text="dock.branchName || '-'"></td>
-                                <td><span class="tag" :class="dock.active ? 'active' : 'inactive'" x-text="dock.active ? 'Active' : 'Inactive'"></span></td>
+                                <td><span class="tag" :class="dock.active ? 'active' : 'inactive'" x-text="dock.active ? 'Active' : 'Inactive'" :title="statusTooltip(dock.active ? 'Active' : 'Inactive')"></span></td>
                                 <td class="text-dim" x-text="formatTime(dock.createdUtc)" :title="formatTimeAbsolute(dock.createdUtc)"></td>
                                 <td>
                                     <button class="btn btn-sm btn-danger" @click.stop="deleteDock(dock.id)" title="Delete this dock and clean up its worktree">Delete</button>
@@ -1139,7 +1139,7 @@
                     </div>
                     <div class="detail-grid">
                         <div class="detail-field"><span class="detail-label">ID</span><span class="id-display"><span class="mono" x-text="detail.id"></span><button class="copy-btn" @click.stop="copyId(detail.id, $event)" title="Copy ID"></button></span></div>
-                        <div class="detail-field"><span class="detail-label">Status</span><span class="tag" :class="detail.active ? 'active' : 'inactive'" x-text="detail.active ? 'Active' : 'Inactive'"></span></div>
+                        <div class="detail-field"><span class="detail-label">Status</span><span class="tag" :class="detail.active ? 'active' : 'inactive'" x-text="detail.active ? 'Active' : 'Inactive'" :title="statusTooltip(detail.active ? 'Active' : 'Inactive')"></span></div>
                         <div class="detail-field"><span class="detail-label">Vessel</span>
                             <span x-show="detail.vesselId" class="id-display"><a class="mono" href="#" @click.prevent="navigate('fleets', 'vessel-detail', detail.vesselId)" x-text="vesselName(detail.vesselId)"></a><button class="copy-btn" @click.stop="copyId(detail.vesselId, $event)" title="Copy ID"></button></span>
                             <span x-show="!detail.vesselId">-</span>
@@ -1202,7 +1202,7 @@
                             <tr>
                                 <td><input type="checkbox" :checked="selectedSignals.includes(sig.id)" @change="toggleSignalSelection(sig.id)" title="Select this signal"></td>
                                 <td class="mono text-dim"><span class="id-display"><span x-text="sig.id"></span><button class="copy-btn" @click.stop="copyId(sig.id, $event)" title="Copy ID"></button></span></td>
-                                <td><span class="tag" :class="(sig.type || '').toLowerCase()" x-text="sig.type"></span></td>
+                                <td><span class="tag" :class="(sig.type || '').toLowerCase()" x-text="sig.type" :title="statusTooltip(sig.type)"></span></td>
                                 <td><span x-show="sig.fromCaptainId" class="id-display"><span class="mono" x-text="sig.fromCaptainId"></span><button class="copy-btn" @click.stop="copyId(sig.fromCaptainId, $event)" title="Copy ID"></button></span><span x-show="!sig.fromCaptainId">Admiral</span></td>
                                 <td><span x-show="sig.toCaptainId" class="id-display"><span class="mono" x-text="sig.toCaptainId"></span><button class="copy-btn" @click.stop="copyId(sig.toCaptainId, $event)" title="Copy ID"></button></span><span x-show="!sig.toCaptainId">Admiral</span></td>
                                 <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="sig.payload || '-'"></td>
@@ -1226,7 +1226,7 @@
                     </div>
                     <div class="detail-grid">
                         <div class="detail-field"><span class="detail-label">ID</span><span class="id-display"><span class="mono" x-text="detail.id"></span><button class="copy-btn" @click.stop="copyId(detail.id, $event)" title="Copy ID"></button></span></div>
-                        <div class="detail-field"><span class="detail-label">Type</span><span class="tag" :class="(detail.type || '').toLowerCase()" x-text="detail.type"></span></div>
+                        <div class="detail-field"><span class="detail-label">Type</span><span class="tag" :class="(detail.type || '').toLowerCase()" x-text="detail.type" :title="statusTooltip(detail.type)"></span></div>
                         <div class="detail-field"><span class="detail-label">Read</span><span x-text="detail.read ? 'Yes' : 'No'"></span></div>
                         <div class="detail-field">
                             <span class="detail-label">From</span>
@@ -1644,7 +1644,8 @@
                                 <td>
                                     <span class="doctor-badge"
                                           :class="'doctor-' + check.status.toLowerCase()"
-                                          x-text="check.status"></span>
+                                          x-text="check.status"
+                                          :title="statusTooltip(check.status)"></span>
                                 </td>
                                 <td class="text-dim" x-text="check.message"></td>
                             </tr>
@@ -1969,7 +1970,7 @@
             <div class="viewer-header">
                 <h3 class="viewer-title">
                     <span x-text="logViewer.title"></span>
-                    <span class="log-live-badge" x-show="logViewer.following">LIVE</span>
+                    <span class="log-live-badge" x-show="logViewer.following" title="Log is being followed in real-time">LIVE</span>
                 </h3>
                 <div class="viewer-actions">
                     <select class="log-line-select" :value="logViewer.lineCount" @change="changeLogLineCount($event.target.value)" title="Number of lines to show">
