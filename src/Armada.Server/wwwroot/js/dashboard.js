@@ -10,6 +10,8 @@ function dashboard() {
     return {
         // Spread modules
         ...(_modules.status || {}),
+        ...(_modules.pagination || {}),
+        ...(_modules.sorting || {}),
 
         // Theme
         darkMode: false,
@@ -2290,11 +2292,7 @@ function dashboard() {
             return map[prefix] || null;
         },
 
-        // Case-insensitive substring match for column filters
-        filterMatch(value, filter) {
-            if (!filter) return true;
-            return (String(value || '')).toLowerCase().includes(filter.toLowerCase());
-        },
+        // filterMatch: moved to modules/sorting.js
 
         // Column-filtered vessels
         columnFilteredVessels() {
@@ -2401,12 +2399,7 @@ function dashboard() {
             this.eventColFilters = { type: '', message: '', entity: '', captain: '', mission: '' };
         },
 
-        // Client-side text search filter
-        filterRows(rows) {
-            if (!this.listSearch) return rows;
-            let q = this.listSearch.toLowerCase();
-            return rows.filter(r => JSON.stringify(r).toLowerCase().includes(q));
-        },
+        // filterRows: moved to modules/sorting.js
 
         // Client-side filter for Fleets & Vessels
         filteredFleets() {
@@ -2480,36 +2473,7 @@ function dashboard() {
         },
 
         // Column sorting
-        sortBy(column, rows) {
-            if (this.sortColumn === column) {
-                this.sortAsc = !this.sortAsc;
-            } else {
-                this.sortColumn = column;
-                this.sortAsc = true;
-            }
-            return this.sortedRows(rows);
-        },
-
-        sortedRows(rows) {
-            if (!this.sortColumn) return rows;
-            let col = this.sortColumn;
-            let asc = this.sortAsc;
-            return [...rows].sort((a, b) => {
-                let va = a[col], vb = b[col];
-                if (va == null) va = '';
-                if (vb == null) vb = '';
-                if (typeof va === 'string') va = va.toLowerCase();
-                if (typeof vb === 'string') vb = vb.toLowerCase();
-                if (va < vb) return asc ? -1 : 1;
-                if (va > vb) return asc ? 1 : -1;
-                return 0;
-            });
-        },
-
-        sortIcon(column) {
-            if (this.sortColumn !== column) return '';
-            return this.sortAsc ? ' \u25B2' : ' \u25BC';
-        },
+        // sortBy, sortedRows, sortIcon: moved to modules/sorting.js
 
         // Modal openers
         openCreateFleet() { this.modal = 'create-fleet'; this.modalData = { name: '', description: '' }; },
@@ -2699,42 +2663,7 @@ function dashboard() {
             }
         },
 
-        // Pagination helpers
-        goToPage(pagingObj, page, loadFn) {
-            if (page < 1 || page > pagingObj.totalPages) return;
-            pagingObj.pageNumber = page;
-            loadFn.call(this);
-        },
-
-        nextPage(pagingObj, loadFn) {
-            this.goToPage(pagingObj, pagingObj.pageNumber + 1, loadFn);
-        },
-
-        prevPage(pagingObj, loadFn) {
-            this.goToPage(pagingObj, pagingObj.pageNumber - 1, loadFn);
-        },
-
-        changePageSize(pagingObj, newSize, loadFn) {
-            pagingObj.pageSize = parseInt(newSize) || 25;
-            pagingObj.pageNumber = 1;
-            loadFn.call(this);
-        },
-
-        /// <summary>
-        /// Client-side pagination: slice an array and update paging metadata.
-        /// </summary>
-        paginateLocal(arr, pagingObj) {
-            pagingObj.totalRecords = arr.length;
-            pagingObj.totalPages = Math.ceil(arr.length / pagingObj.pageSize) || 1;
-            if (pagingObj.pageNumber > pagingObj.totalPages) pagingObj.pageNumber = pagingObj.totalPages;
-            let start = (pagingObj.pageNumber - 1) * pagingObj.pageSize;
-            return arr.slice(start, start + pagingObj.pageSize);
-        },
-
-        /// <summary>
-        /// No-op load function for client-side paginated tables.
-        /// </summary>
-        noopLoad() {},
+        // goToPage, nextPage, prevPage, changePageSize, paginateLocal, noopLoad: moved to modules/pagination.js
 
         // Keyboard shortcuts
         handleKeyboard(e) {
