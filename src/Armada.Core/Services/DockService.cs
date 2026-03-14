@@ -43,14 +43,18 @@ namespace Armada.Core.Services
         #region Public-Methods
 
         /// <inheritdoc />
-        public async Task<Dock?> ProvisionAsync(Vessel vessel, Captain captain, string branchName, CancellationToken token = default)
+        public async Task<Dock?> ProvisionAsync(Vessel vessel, Captain captain, string branchName, string? missionId = null, CancellationToken token = default)
         {
             if (vessel == null) throw new ArgumentNullException(nameof(vessel));
             if (captain == null) throw new ArgumentNullException(nameof(captain));
             if (String.IsNullOrEmpty(branchName)) throw new ArgumentNullException(nameof(branchName));
 
             string repoPath = vessel.LocalPath ?? Path.Combine(_Settings.ReposDirectory, vessel.Name + ".git");
-            string worktreePath = Path.Combine(_Settings.DocksDirectory, vessel.Name, captain.Name);
+
+            // Use per-mission dock path when missionId is provided (eliminates path-reuse races).
+            // Falls back to per-captain path for backward compatibility.
+            string dockDirName = !String.IsNullOrEmpty(missionId) ? missionId : captain.Name;
+            string worktreePath = Path.Combine(_Settings.DocksDirectory, vessel.Name, dockDirName);
 
             try
             {

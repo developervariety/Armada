@@ -131,7 +131,7 @@ namespace Armada.Core.Services
             try
             {
                 _Logging.Info(_Header + "provisioning dock for mission " + mission.Id + " on vessel " + vessel.Id + " with captain " + captain.Id);
-                dock = await _Docks.ProvisionAsync(vessel, captain, branchName, token).ConfigureAwait(false);
+                dock = await _Docks.ProvisionAsync(vessel, captain, branchName, mission.Id, token).ConfigureAwait(false);
             }
             catch (Exception ex)
             {

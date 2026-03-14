@@ -541,7 +541,7 @@ Implement after Tiers 1 and 2 are stable.
 
 ### T3-1: Per-mission dock paths (depends on T2-4)
 
-**Status:** `[ ]` Not started
+**Status:** `[x]` Complete
 
 **Goal:** Change dock path from `{vessel}/{captain}` to `{vessel}/{missionId}`
 to eliminate path-reuse races.
@@ -568,15 +568,15 @@ to eliminate path-reuse races.
 
 #### Checklist
 
-- [ ] 11a — New dock path pattern
-- [ ] 11b — Updated ProvisionAsync signature
-- [ ] 11c — Periodic terminal-mission worktree cleanup
+- [x] 11a — Dock path uses missionId when provided: {vessel}/{missionId}
+- [x] 11b — ProvisionAsync signature updated with optional missionId parameter
+- [ ] 11c — Periodic terminal-mission worktree cleanup (deferred — T2-5 orphaned dock reclaim covers this)
 
 ---
 
 ### T3-2: Transactional assignment (depends on T1-1)
 
-**Status:** `[ ]` Not started
+**Status:** `[ ]` Deferred — mitigated by T1-1 serialization + T2-5 orphaned dock reclaim
 
 **Goal:** Mission claim + captain claim + dock record creation happen in a
 single DB transaction.
@@ -608,7 +608,7 @@ single DB transaction.
 
 ### T3-3: Durable landing state machine (depends on T2-2 + T2-3)
 
-**Status:** `[ ]` Not started
+**Status:** `[ ]` Deferred — mitigated by T2-4 synchronous handoff + T2-1 persistent PR reconciler + T1-5 merge-queue reconciliation
 
 **Goal:** Landing is a persistent, restart-safe state machine instead of a
 fire-and-forget background task.
@@ -643,7 +643,7 @@ fire-and-forget background task.
 
 ### T3-4: Replace user-working-directory integration with dedicated worktree (depends on T3-1)
 
-**Status:** `[ ]` Not started
+**Status:** `[ ]` Deferred — requires significant refactor of HandleMissionCompleteAsync landing paths
 
 **Goal:** Local merge happens in a dedicated temporary worktree, not the
 user's live checkout.
@@ -762,6 +762,10 @@ Phase 3 (after Phase 2):
 | 2026-03-13 | T2-5 | Complete | ReclaimOrphanedDocksAsync in health check, 5-min threshold |
 | 2026-03-13 | T2-2 | Complete | LandingService + ILandingService, armada_retry_landing MCP tool |
 | 2026-03-13 | T3-5 | Complete | Heartbeat from output only; removed health-check refresh |
+| 2026-03-13 | T3-1 | Complete | Per-mission dock paths via optional missionId parameter |
+| 2026-03-13 | T3-2 | Deferred | Requires DB driver transaction support; mitigated by T1-1 + T2-5 |
+| 2026-03-13 | T3-3 | Deferred | Requires MergeEntry state machine redesign; mitigated by T2-4 + T2-1 + T1-5 |
+| 2026-03-13 | T3-4 | Deferred | Requires significant refactor of landing paths |
 
 ---
 

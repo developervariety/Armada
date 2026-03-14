@@ -9,13 +9,16 @@ namespace Armada.Core.Services.Interfaces
     {
         /// <summary>
         /// Provision a dock (git worktree) for a captain working on a vessel.
+        /// When missionId is provided, the dock path uses {vessel}/{missionId} for uniqueness.
+        /// When omitted, falls back to {vessel}/{captain} (legacy behavior).
         /// </summary>
         /// <param name="vessel">Target vessel.</param>
         /// <param name="captain">Captain that will use the dock.</param>
         /// <param name="branchName">Branch name for the worktree.</param>
+        /// <param name="missionId">Optional mission ID for per-mission dock paths.</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>The created dock, or null if provisioning failed.</returns>
-        Task<Dock?> ProvisionAsync(Vessel vessel, Captain captain, string branchName, CancellationToken token = default);
+        Task<Dock?> ProvisionAsync(Vessel vessel, Captain captain, string branchName, string? missionId = null, CancellationToken token = default);
 
         /// <summary>
         /// Reclaim a dock by removing the worktree.
