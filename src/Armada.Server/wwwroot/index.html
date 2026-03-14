@@ -436,15 +436,17 @@
                         <tr>
                             <th style="width: 1.5rem; padding: 0.25rem;"><input type="checkbox" @change="$event.target.checked ? selectAllVessels() : clearVesselSelection()" :checked="selectedVessels.length > 0 && selectedVessels.length === filteredVesselsList().length" title="Select all vessels"></th>
                             <th class="sortable" @click="sortBy('name', allVessels)" title="Vessel name -- click to sort">Vessel<span x-text="sortIcon('name')"></span></th>
+                            <th>ID</th>
                             <th class="sortable" @click="sortBy('_fleetName', allVessels)" title="Fleet -- click to sort">Fleet<span x-text="sortIcon('_fleetName')"></span></th>
                             <th class="sortable" @click="sortBy('repoUrl', allVessels)" title="Git repository URL -- click to sort">Repo URL<span x-text="sortIcon('repoUrl')"></span></th>
                             <th class="sortable" @click="sortBy('defaultBranch', allVessels)" title="Default branch -- click to sort">Branch<span x-text="sortIcon('defaultBranch')"></span></th>
-                            <th title="Context and style guide indicators"></th>
+                            <th style="width: 3.5rem;" title="Context and style guide indicators"></th>
                             <th class="text-right">Actions</th>
                         </tr>
                         <tr class="column-filter-row">
                             <td></td>
                             <td><input type="text" class="col-filter" x-model="vesselColFilters.name" placeholder="Filter..."></td>
+                            <td></td>
                             <td><input type="text" class="col-filter" x-model="vesselColFilters.fleet" placeholder="Filter..."></td>
                             <td><input type="text" class="col-filter" x-model="vesselColFilters.repoUrl" placeholder="Filter..."></td>
                             <td><input type="text" class="col-filter" x-model="vesselColFilters.branch" placeholder="Filter..."></td>
@@ -456,7 +458,8 @@
                         <template x-for="v in sortedRows(columnFilteredVessels())" :key="v.id">
                             <tr>
                                 <td><input type="checkbox" :checked="selectedVessels.includes(v.id)" @change="toggleVesselSelection(v.id)" title="Select this vessel"></td>
-                                <td class="clickable" @click="navigate('fleets', 'vessel-detail', v.id)"><strong x-text="v.name"></strong><div class="text-dim id-display"><span class="mono" x-text="v.id"></span><button class="copy-btn" @click.stop="copyId(v.id, $event)" title="Copy ID"></button></div></td>
+                                <td class="clickable" @click="navigate('fleets', 'vessel-detail', v.id)"><strong x-text="v.name"></strong></td>
+                                <td class="mono text-dim"><span class="id-display"><span x-text="v.id"></span><button class="copy-btn" @click.stop="copyId(v.id, $event)" title="Copy ID"></button></span></td>
                                 <td><a href="#" @click.prevent="navigate('fleets', 'fleet-detail', v.fleetId)" x-text="fleetName(v.fleetId)" x-show="v.fleetId"></a><span x-show="!v.fleetId">-</span></td>
                                 <td class="text-dim vessel-repo-cell" x-text="v.repoUrl"></td>
                                 <td x-text="v.defaultBranch || 'main'"></td>
