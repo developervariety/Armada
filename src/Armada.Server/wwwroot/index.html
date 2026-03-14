@@ -421,7 +421,7 @@
                         <template x-for="f in paginateLocal(sortedRows(columnFilteredFleets()), fleetListPaging)" :key="f.id">
                             <tr class="clickable" @click="navigate('fleets-list', 'fleet-detail', f.id)">
                                 <td class="col-checkbox" @click.stop><input type="checkbox" :checked="selectedFleets.includes(f.id)" @change="toggleFleetSelection(f.id)" title="Select this fleet"></td>
-                                <td><strong x-text="f.name"></strong></td>
+                                <td class="clickable" @click.stop="openEditFleet(f)"><strong x-text="f.name"></strong></td>
                                 <td class="mono text-dim"><span class="id-display"><span x-text="f.id"></span><button class="copy-btn" @click.stop="copyId(f.id, $event)" title="Copy ID"></button></span></td>
                                 <td class="text-dim" x-text="f.description || '-'"></td>
                                 <td x-text="(f.vessels || []).length"></td>
@@ -495,7 +495,7 @@
                         <template x-for="v in paginateLocal(sortedRows(columnFilteredVessels()), vesselPaging)" :key="v.id">
                             <tr>
                                 <td class="col-checkbox"><input type="checkbox" :checked="selectedVessels.includes(v.id)" @change="toggleVesselSelection(v.id)" title="Select this vessel"></td>
-                                <td class="clickable" @click="navigate('fleets', 'vessel-detail', v.id)"><strong x-text="v.name"></strong></td>
+                                <td class="clickable" @click.stop="openEditVessel(v)"><strong x-text="v.name"></strong></td>
                                 <td class="mono text-dim"><span class="id-display"><span x-text="v.id"></span><button class="copy-btn" @click.stop="copyId(v.id, $event)" title="Copy ID"></button></span></td>
                                 <td><a href="#" @click.prevent="navigate('fleets', 'fleet-detail', v.fleetId)" x-text="fleetName(v.fleetId)" x-show="v.fleetId"></a><span x-show="!v.fleetId">-</span></td>
                                 <td class="text-dim vessel-repo-cell" x-text="v.repoUrl"></td>
@@ -967,7 +967,8 @@
                     <thead>
                         <tr>
                             <th class="col-checkbox"><input type="checkbox" @change="$event.target.checked ? selectAllMissions() : clearMissionSelection()" :checked="selectedMissions.length > 0 && selectedMissions.length === allMissions.length" title="Select all missions"></th>
-                            <th class="sortable" @click="sortBy('title', allMissions)" title="Mission name and unique identifier -- click to sort">Mission<span x-text="sortIcon('title')"></span></th>
+                            <th class="sortable" @click="sortBy('title', allMissions)" title="Mission title -- click to sort">Mission<span x-text="sortIcon('title')"></span></th>
+                            <th>ID</th>
                             <th class="sortable" @click="sortBy('status', allMissions)" title="Current mission lifecycle state -- click to sort">Status<span x-text="sortIcon('status')"></span></th>
                             <th title="Target repository for this mission">Vessel</th>
                             <th title="AI captain assigned to execute this mission">Captain</th>
@@ -978,6 +979,7 @@
                         <tr class="column-filter-row">
                             <td></td>
                             <td><input type="text" class="col-filter" x-model="missionColFilters.title" placeholder="Filter..."></td>
+                            <td></td>
                             <td><input type="text" class="col-filter" x-model="missionColFilters.status" placeholder="Filter..."></td>
                             <td><input type="text" class="col-filter" x-model="missionColFilters.vessel" placeholder="Filter..."></td>
                             <td><input type="text" class="col-filter" x-model="missionColFilters.captain" placeholder="Filter..."></td>
@@ -990,7 +992,8 @@
                         <template x-for="m in sortedRows(columnFilteredMissions())" :key="m.id">
                             <tr class="clickable" @click="navigate('missions', 'mission-detail', m.id)">
                                 <td class="col-checkbox" @click.stop><input type="checkbox" :checked="selectedMissions.includes(m.id)" @change="toggleMissionSelection(m.id)" title="Select this mission"></td>
-                                <td><strong x-text="m.title"></strong><div class="text-dim id-display"><span class="mono" x-text="m.id"></span><button class="copy-btn" @click.stop="copyId(m.id, $event)" title="Copy ID"></button></div></td>
+                                <td @click.stop class="clickable" @click="openEditMission(m)"><strong x-text="m.title"></strong></td>
+                                <td class="mono text-dim"><span class="id-display"><span x-text="m.id"></span><button class="copy-btn" @click.stop="copyId(m.id, $event)" title="Copy ID"></button></span></td>
                                 <td><span class="tag" :class="(m.status || '').toLowerCase()" x-text="m.status" :title="statusTooltip(m.status)"></span></td>
                                 <td x-text="vesselName(m.vesselId)"></td>
                                 <td x-text="captainName(m.captainId)"></td>
@@ -1163,7 +1166,7 @@
                         <template x-for="cpt in sortedRows(columnFilteredCaptains())" :key="cpt.id">
                             <tr>
                                 <td class="col-checkbox"><input type="checkbox" :checked="selectedCaptains.includes(cpt.id)" @change="toggleCaptainSelection(cpt.id)" title="Select this captain"></td>
-                                <td class="clickable" @click="navigate('captains', 'captain-detail', cpt.id)"><strong x-text="cpt.name"></strong></td>
+                                <td class="clickable" @click.stop="openEditCaptain(cpt)"><strong x-text="cpt.name"></strong></td>
                                 <td class="mono text-dim"><span class="id-display"><span x-text="cpt.id"></span><button class="copy-btn" @click.stop="copyId(cpt.id, $event)" title="Copy ID"></button></span></td>
                                 <td><span class="tag" :class="(cpt.state || '').toLowerCase()" x-text="cpt.state" :title="statusTooltip(cpt.state)"></span></td>
                                 <td x-text="cpt.runtime || 'ClaudeCode'"></td>
