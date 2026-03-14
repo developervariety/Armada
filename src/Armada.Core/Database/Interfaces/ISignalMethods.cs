@@ -33,6 +33,11 @@ namespace Armada.Core.Database.Interfaces
         Task MarkReadAsync(string id, CancellationToken token = default);
 
         /// <summary>
+        /// Permanently delete a signal by identifier.
+        /// </summary>
+        Task DeleteAsync(string id, CancellationToken token = default);
+
+        /// <summary>
         /// Enumerate signals with pagination and filtering.
         /// </summary>
         Task<EnumerationResult<Signal>> EnumerateAsync(EnumerationQuery query, CancellationToken token = default);

@@ -164,6 +164,25 @@ namespace Armada.Core.Database.SqlServer.Implementations
         }
 
         /// <summary>
+        /// Permanently delete a signal by identifier.
+        /// </summary>
+        public async Task DeleteAsync(string id, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(id)) throw new ArgumentNullException(nameof(id));
+
+            using (SqlConnection conn = new SqlConnection(_ConnectionString))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (SqlCommand cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "DELETE FROM signals WHERE id = @id;";
+                    cmd.Parameters.AddWithValue("@id", id);
+                    await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                }
+            }
+        }
+
+        /// <summary>
         /// Enumerate signals with pagination and filtering.
         /// </summary>
         public async Task<EnumerationResult<Signal>> EnumerateAsync(EnumerationQuery query, CancellationToken token = default)

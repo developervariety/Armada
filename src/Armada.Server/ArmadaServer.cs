@@ -2168,15 +2168,14 @@ namespace Armada.Server
                 string id = req.Parameters["id"];
                 Signal? signal = await _Database.Signals.ReadAsync(id).ConfigureAwait(false);
                 if (signal == null) return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Signal not found" };
-                // Mark as read to "soft delete" since no hard delete exists
-                await _Database.Signals.MarkReadAsync(id).ConfigureAwait(false);
+                await _Database.Signals.DeleteAsync(id).ConfigureAwait(false);
                 req.Http.Response.StatusCode = 204;
                 return null;
             },
             api => api
                 .WithTag("Signals")
                 .WithSummary("Delete a signal")
-                .WithDescription("Soft-deletes a signal by marking it as read.")
+                .WithDescription("Permanently deletes a signal by ID.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Signal ID (sig_ prefix)"))
                 .WithResponse(204, OpenApiResponseMetadata.NoContent())
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
@@ -2202,7 +2201,7 @@ namespace Armada.Server
                         result.Skipped.Add(new DeleteMultipleSkipped(id, "Not found"));
                         continue;
                     }
-                    await _Database.Signals.MarkReadAsync(id).ConfigureAwait(false);
+                    await _Database.Signals.DeleteAsync(id).ConfigureAwait(false);
                     result.Deleted++;
                 }
 
@@ -2214,7 +2213,7 @@ namespace Armada.Server
             api => api
                 .WithTag("Signals")
                 .WithSummary("Batch delete multiple signals")
-                .WithDescription("Soft-deletes multiple signals by marking them as read. Returns a summary of deleted and skipped entries.")
+                .WithDescription("Permanently deletes multiple signals by ID. Returns a summary of deleted and skipped entries.")
                 .WithRequestBody(OpenApiRequestBodyMetadata.Json<DeleteMultipleRequest>("List of signal IDs to delete"))
                 .WithResponse(200, OpenApiResponseMetadata.Json<DeleteMultipleResult>("Delete result summary"))
                 .WithSecurity("ApiKey"));

@@ -857,16 +857,18 @@ function dashboard() {
         clearSignalSelection() { this.selectedSignals = []; },
         async deleteSelectedSignals() {
             if (this.selectedSignals.length === 0) return;
-            if (!await this.showConfirm('Delete ' + this.selectedSignals.length + ' selected signal(s)? This cannot be undone.')) return;
-            let ids = [...this.selectedSignals];
-            let failed = 0;
-            for (let id of ids) {
-                try { await this.api('DELETE', '/api/v1/signals/' + id); }
-                catch (e) { failed++; console.warn('Failed to delete signal ' + id + ':', e); }
+            if (!await this.showConfirm('Delete ' + this.selectedSignals.length + ' selected signal(s)?')) return;
+            try {
+                let result = await this.api('POST', '/api/v1/signals/delete/multiple', { Ids: [...this.selectedSignals] });
+                this.selectedSignals = [];
+                let deleted = result.deleted || 0;
+                let skipped = (result.skipped || []).length;
+                if (skipped > 0) { this.toast('Deleted ' + deleted + ', skipped ' + skipped, 'warning'); }
+                else { this.toast('Deleted ' + deleted + ' signal(s)'); }
+            } catch (e) {
+                this.selectedSignals = [];
+                this.toast('Failed to delete signals: ' + e.message, 'error');
             }
-            this.selectedSignals = [];
-            if (failed > 0) { this.toast('Deleted ' + (ids.length - failed) + ' signals, ' + failed + ' failed', 'warning'); }
-            else { this.toast('Deleted ' + ids.length + ' signal(s)'); }
             await this.loadSignals();
         },
 
@@ -911,15 +913,17 @@ function dashboard() {
         async deleteSelectedEvents() {
             if (this.selectedEvents.length === 0) return;
             if (!await this.showConfirm('Delete ' + this.selectedEvents.length + ' selected event(s)? This cannot be undone.')) return;
-            let ids = [...this.selectedEvents];
-            let failed = 0;
-            for (let id of ids) {
-                try { await this.api('DELETE', '/api/v1/events/' + id); }
-                catch (e) { failed++; console.warn('Failed to delete event ' + id + ':', e); }
+            try {
+                let result = await this.api('POST', '/api/v1/events/delete/multiple', { Ids: [...this.selectedEvents] });
+                this.selectedEvents = [];
+                let deleted = result.deleted || 0;
+                let skipped = (result.skipped || []).length;
+                if (skipped > 0) { this.toast('Deleted ' + deleted + ', skipped ' + skipped, 'warning'); }
+                else { this.toast('Deleted ' + deleted + ' event(s)'); }
+            } catch (e) {
+                this.selectedEvents = [];
+                this.toast('Failed to delete events: ' + e.message, 'error');
             }
-            this.selectedEvents = [];
-            if (failed > 0) { this.toast('Deleted ' + (ids.length - failed) + ' events, ' + failed + ' failed', 'warning'); }
-            else { this.toast('Deleted ' + ids.length + ' event(s)'); }
             await this.loadEvents();
         },
 

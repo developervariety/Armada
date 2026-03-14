@@ -179,6 +179,25 @@ namespace Armada.Core.Database.Postgresql.Implementations
         }
 
         /// <summary>
+        /// Permanently delete a signal by identifier.
+        /// </summary>
+        public async Task DeleteAsync(string id, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(id)) throw new ArgumentNullException(nameof(id));
+
+            using (NpgsqlConnection conn = await _DataSource.OpenConnectionAsync(token).ConfigureAwait(false))
+            {
+                using (NpgsqlCommand cmd = new NpgsqlCommand())
+                {
+                    cmd.Connection = conn;
+                    cmd.CommandText = "DELETE FROM signals WHERE id = @id;";
+                    cmd.Parameters.AddWithValue("@id", id);
+                    await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                }
+            }
+        }
+
+        /// <summary>
         /// Enumerate signals with pagination and filtering.
         /// </summary>
         /// <param name="query">Enumeration query with pagination and filter parameters.</param>
