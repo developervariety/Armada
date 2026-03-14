@@ -254,8 +254,13 @@
                                             <span class="text-dim" x-show="vp.failedMissions > 0" x-text="', ' + vp.failedMissions + ' failed'"></span>
                                         </td>
                                         <td @click.stop>
-                                            <button class="btn btn-sm btn-danger" @click="deleteVoyage(vp.voyage?.id)"
-                                                x-show="vp.voyage?.status !== 'Open' && vp.voyage?.status !== 'InProgress'" title="Permanently delete this voyage">Delete</button>
+                                            <div class="action-menu-wrap">
+                                                <button class="action-menu-btn" @click.stop="toggleActionMenu('home-vyg-' + vp.voyage?.id)" title="Actions">&#8942;</button>
+                                                <div class="action-menu-dropdown" x-show="openActionMenu === 'home-vyg-' + vp.voyage?.id" x-cloak>
+                                                    <button class="action-menu-item" @click="showJson('Voyage: ' + (vp.voyage?.title || vp.voyage?.id), vp.voyage?.id, vp.voyage); closeActionMenu()">View JSON</button>
+                                                    <button class="action-menu-item danger" x-show="vp.voyage?.status !== 'Open' && vp.voyage?.status !== 'InProgress'" @click="deleteVoyage(vp.voyage?.id); closeActionMenu()">Delete</button>
+                                                </div>
+                                            </div>
                                         </td>
                                     </tr>
                                 </template>
@@ -317,7 +322,13 @@
                                         <td x-text="captainName(m.captainId)"></td>
                                         <td class="text-dim" x-text="formatTime(m.createdUtc)" :title="formatTimeAbsolute(m.createdUtc)"></td>
                                         <td @click.stop>
-                                            <button class="btn btn-sm btn-danger" @click="deleteMission(m.id)" title="Permanently delete this mission">Delete</button>
+                                            <div class="action-menu-wrap">
+                                                <button class="action-menu-btn" @click.stop="toggleActionMenu('home-msn-' + m.id)" title="Actions">&#8942;</button>
+                                                <div class="action-menu-dropdown" x-show="openActionMenu === 'home-msn-' + m.id" x-cloak>
+                                                    <button class="action-menu-item" @click="showJson('Mission: ' + m.title, m.id, m); closeActionMenu()">View JSON</button>
+                                                    <button class="action-menu-item danger" @click="deleteMission(m.id); closeActionMenu()">Delete</button>
+                                                </div>
+                                            </div>
                                         </td>
                                     </tr>
                                 </template>
@@ -431,8 +442,14 @@
                                 <td x-text="v.defaultBranch || 'main'"></td>
                                 <td><span class="vessel-badge" x-show="v.projectContext" title="Has Project Context">CTX</span><span class="vessel-badge" x-show="v.styleGuide" title="Has Style Guide">STY</span></td>
                                 <td class="text-right">
-                                    <button class="btn btn-sm" @click.stop="openEditVessel(v)" title="Edit vessel settings, context, and style guide">Edit</button>
-                                    <button class="btn btn-sm btn-danger" @click.stop="deleteVessel(v.id)" title="Permanently delete this vessel">Delete</button>
+                                    <div class="action-menu-wrap">
+                                        <button class="action-menu-btn" @click.stop="toggleActionMenu('vsl-' + v.id)" title="Actions">&#8942;</button>
+                                        <div class="action-menu-dropdown" x-show="openActionMenu === 'vsl-' + v.id" x-cloak>
+                                            <button class="action-menu-item" @click="openEditVessel(v); closeActionMenu()">Edit</button>
+                                            <button class="action-menu-item" @click="showJson('Vessel: ' + v.name, v.id, v); closeActionMenu()">View JSON</button>
+                                            <button class="action-menu-item danger" @click="deleteVessel(v.id); closeActionMenu()">Delete</button>
+                                        </div>
+                                    </div>
                                 </td>
                             </tr>
                         </template>
@@ -449,8 +466,14 @@
                     <div class="detail-header">
                         <h2 x-text="detail.name"></h2>
                         <div class="inline-actions">
-                            <button class="btn btn-sm" @click="openEditFleet(detail)" title="Edit fleet name and description">Edit</button>
-                            <button class="btn btn-sm btn-danger" @click="deleteFleet(detail.id)" title="Permanently delete this fleet">Delete</button>
+                            <div class="action-menu-wrap">
+                                <button class="action-menu-btn" @click.stop="toggleActionMenu('flt-detail-' + detail.id)" title="Actions">&#8942;</button>
+                                <div class="action-menu-dropdown" x-show="openActionMenu === 'flt-detail-' + detail.id" x-cloak>
+                                    <button class="action-menu-item" @click="openEditFleet(detail); closeActionMenu()">Edit</button>
+                                    <button class="action-menu-item" @click="showJson('Fleet: ' + detail.name, detail.id, detail); closeActionMenu()">View JSON</button>
+                                    <button class="action-menu-item danger" @click="deleteFleet(detail.id); closeActionMenu()">Delete</button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                     <div class="detail-grid">
@@ -495,8 +518,14 @@
                     <div class="detail-header">
                         <h2 x-text="detail.name"></h2>
                         <div class="inline-actions">
-                            <button class="btn btn-sm" @click="openEditVessel(detail)" title="Edit vessel settings, context, and style guide">Edit</button>
-                            <button class="btn btn-sm btn-danger" @click="deleteVessel(detail.id)" title="Permanently delete this vessel">Delete</button>
+                            <div class="action-menu-wrap">
+                                <button class="action-menu-btn" @click.stop="toggleActionMenu('vsl-detail-' + detail.id)" title="Actions">&#8942;</button>
+                                <div class="action-menu-dropdown" x-show="openActionMenu === 'vsl-detail-' + detail.id" x-cloak>
+                                    <button class="action-menu-item" @click="openEditVessel(detail); closeActionMenu()">Edit</button>
+                                    <button class="action-menu-item" @click="showJson('Vessel: ' + detail.name, detail.id, detail); closeActionMenu()">View JSON</button>
+                                    <button class="action-menu-item danger" @click="deleteVessel(detail.id); closeActionMenu()">Delete</button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                     <div class="detail-grid">
@@ -606,8 +635,13 @@
                         </div>
                         <div class="inline-actions" @click.stop>
                             <span class="tag" :class="(voyage.status || '').toLowerCase()" x-text="voyage.status" :title="statusTooltip(voyage.status)"></span>
-                            <button class="btn btn-sm btn-danger" @click="deleteVoyage(voyage.id)"
-                                x-show="voyage.status !== 'Open' && voyage.status !== 'InProgress'" title="Permanently delete this voyage">Delete</button>
+                            <div class="action-menu-wrap">
+                                <button class="action-menu-btn" @click.stop="toggleActionMenu('vyg-' + voyage.id)" title="Actions">&#8942;</button>
+                                <div class="action-menu-dropdown" x-show="openActionMenu === 'vyg-' + voyage.id" x-cloak>
+                                    <button class="action-menu-item" @click="showJson('Voyage: ' + (voyage.title || voyage.id), voyage.id, voyage); closeActionMenu()">View JSON</button>
+                                    <button class="action-menu-item danger" x-show="voyage.status !== 'Open' && voyage.status !== 'InProgress'" @click="deleteVoyage(voyage.id); closeActionMenu()">Delete</button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                     <template x-if="voyage.description">
@@ -625,11 +659,15 @@
                     <div class="detail-header">
                         <h2 x-text="detail.title || detail.id"></h2>
                         <div class="inline-actions">
-                            <button class="btn btn-sm btn-danger" @click="cancelVoyage(detail.id)"
-                                x-show="detail.status === 'Open' || detail.status === 'InProgress'" title="Cancel this voyage and all its pending missions">Cancel Voyage</button>
-                            <button class="btn btn-sm" @click="retryVoyageMissions(detail.id)" title="Restart all failed missions in this voyage">Retry Failed</button>
-                            <button class="btn btn-sm btn-danger" @click="deleteVoyage(detail.id)"
-                                x-show="detail.status !== 'Open' && detail.status !== 'InProgress'" title="Permanently delete this voyage">Delete Voyage</button>
+                            <div class="action-menu-wrap">
+                                <button class="action-menu-btn" @click.stop="toggleActionMenu('vyg-detail-' + detail.id)" title="Actions">&#8942;</button>
+                                <div class="action-menu-dropdown" x-show="openActionMenu === 'vyg-detail-' + detail.id" x-cloak>
+                                    <button class="action-menu-item" @click="retryVoyageMissions(detail.id); closeActionMenu()">Retry Failed</button>
+                                    <button class="action-menu-item" @click="showJson('Voyage: ' + (detail.title || detail.id), detail.id, detail); closeActionMenu()">View JSON</button>
+                                    <button class="action-menu-item danger" x-show="detail.status === 'Open' || detail.status === 'InProgress'" @click="cancelVoyage(detail.id); closeActionMenu()">Cancel Voyage</button>
+                                    <button class="action-menu-item danger" x-show="detail.status !== 'Open' && detail.status !== 'InProgress'" @click="deleteVoyage(detail.id); closeActionMenu()">Delete Voyage</button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                     <div class="detail-grid">
@@ -848,7 +886,13 @@
                                 <td class="text-dim" x-text="m.branchName || '-'"></td>
                                 <td class="text-dim" x-text="formatTime(m.createdUtc)" :title="formatTimeAbsolute(m.createdUtc)"></td>
                                 <td @click.stop>
-                                    <button class="btn btn-sm btn-danger" @click="deleteMission(m.id)" title="Permanently delete this mission">Delete</button>
+                                    <div class="action-menu-wrap">
+                                        <button class="action-menu-btn" @click.stop="toggleActionMenu('msn-' + m.id)" title="Actions">&#8942;</button>
+                                        <div class="action-menu-dropdown" x-show="openActionMenu === 'msn-' + m.id" x-cloak>
+                                            <button class="action-menu-item" @click="showJson('Mission: ' + m.title, m.id, m); closeActionMenu()">View JSON</button>
+                                            <button class="action-menu-item danger" @click="deleteMission(m.id); closeActionMenu()">Delete</button>
+                                        </div>
+                                    </div>
                                 </td>
                             </tr>
                         </template>
@@ -866,14 +910,18 @@
                     <div class="detail-header">
                         <h2 x-text="detail.title"></h2>
                         <div class="inline-actions">
-                            <button class="btn btn-sm" @click="openEditMission(detail)" title="Edit mission title, description, and priority">Edit</button>
-                            <button class="btn btn-sm btn-danger" @click="cancelMission(detail.id)"
-                                x-show="detail.status !== 'Complete' && detail.status !== 'Cancelled'" title="Cancel this mission and stop execution">Cancel</button>
-                            <button class="btn btn-sm" @click="restartMissionPrompt(detail)"
-                                x-show="detail.status === 'Failed' || detail.status === 'Cancelled'" title="Restart this mission with optional changes to the instructions">Restart</button>
-                            <button class="btn btn-sm btn-danger" @click="deleteMission(detail.id)" title="Permanently delete this mission">Delete</button>
-                            <button class="btn btn-sm" @click="viewMissionDiff(detail.id)" title="View the git diff showing changes made by this mission">Diff</button>
-                            <button class="btn btn-sm" @click="viewMissionLog(detail.id)" title="View the captain's execution log for this mission">Log</button>
+                            <div class="action-menu-wrap">
+                                <button class="action-menu-btn" @click.stop="toggleActionMenu('msn-detail-' + detail.id)" title="Actions">&#8942;</button>
+                                <div class="action-menu-dropdown" x-show="openActionMenu === 'msn-detail-' + detail.id" x-cloak>
+                                    <button class="action-menu-item" @click="openEditMission(detail); closeActionMenu()">Edit</button>
+                                    <button class="action-menu-item" @click="viewMissionDiff(detail.id); closeActionMenu()">Diff</button>
+                                    <button class="action-menu-item" @click="viewMissionLog(detail.id); closeActionMenu()">Log</button>
+                                    <button class="action-menu-item" x-show="detail.status === 'Failed' || detail.status === 'Cancelled'" @click="restartMissionPrompt(detail); closeActionMenu()">Restart</button>
+                                    <button class="action-menu-item" @click="showJson('Mission: ' + detail.title, detail.id, detail); closeActionMenu()">View JSON</button>
+                                    <button class="action-menu-item danger" x-show="detail.status !== 'Complete' && detail.status !== 'Cancelled'" @click="cancelMission(detail.id); closeActionMenu()">Cancel</button>
+                                    <button class="action-menu-item danger" @click="deleteMission(detail.id); closeActionMenu()">Delete</button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                     <div class="detail-grid">
@@ -1003,12 +1051,14 @@
                                 <td x-text="cpt.processId || '-'"></td>
                                 <td class="text-dim" x-text="formatTime(cpt.lastHeartbeatUtc)" :title="formatTimeAbsolute(cpt.lastHeartbeatUtc)"></td>
                                 <td>
-                                    <button class="btn btn-sm btn-danger"
-                                        x-show="cpt.state === 'Working' || cpt.state === 'Stalled'"
-                                        @click.stop="recallCaptain(cpt.id)" title="Stop this captain's current process">Recall</button>
-                                    <button class="btn btn-sm btn-danger"
-                                        x-show="cpt.state === 'Idle'"
-                                        @click.stop="removeCaptain(cpt.id)" title="Unregister and remove this captain">Remove</button>
+                                    <div class="action-menu-wrap">
+                                        <button class="action-menu-btn" @click.stop="toggleActionMenu('cpt-' + cpt.id)" title="Actions">&#8942;</button>
+                                        <div class="action-menu-dropdown" x-show="openActionMenu === 'cpt-' + cpt.id" x-cloak>
+                                            <button class="action-menu-item" @click="showJson('Captain: ' + cpt.name, cpt.id, cpt); closeActionMenu()">View JSON</button>
+                                            <button class="action-menu-item danger" x-show="cpt.state === 'Working' || cpt.state === 'Stalled'" @click="recallCaptain(cpt.id); closeActionMenu()">Recall</button>
+                                            <button class="action-menu-item danger" x-show="cpt.state === 'Idle'" @click="removeCaptain(cpt.id); closeActionMenu()">Remove</button>
+                                        </div>
+                                    </div>
                                 </td>
                             </tr>
                         </template>
@@ -1025,11 +1075,15 @@
                     <div class="detail-header">
                         <h2 x-text="detail.name"></h2>
                         <div class="inline-actions">
-                            <button class="btn btn-sm" @click="openEditCaptain(detail)" title="Edit captain name and runtime">Edit</button>
-                            <button class="btn btn-sm btn-danger" @click="recallCaptain(detail.id)"
-                                x-show="detail.state === 'Working' || detail.state === 'Stalled'" title="Stop this captain's current process">Stop</button>
-                            <button class="btn btn-sm btn-danger" @click="removeCaptain(detail.id)"
-                                x-show="detail.state === 'Idle'" title="Unregister and remove this captain">Remove</button>
+                            <div class="action-menu-wrap">
+                                <button class="action-menu-btn" @click.stop="toggleActionMenu('cpt-detail-' + detail.id)" title="Actions">&#8942;</button>
+                                <div class="action-menu-dropdown" x-show="openActionMenu === 'cpt-detail-' + detail.id" x-cloak>
+                                    <button class="action-menu-item" @click="openEditCaptain(detail); closeActionMenu()">Edit</button>
+                                    <button class="action-menu-item" @click="showJson('Captain: ' + detail.name, detail.id, detail); closeActionMenu()">View JSON</button>
+                                    <button class="action-menu-item danger" x-show="detail.state === 'Working' || detail.state === 'Stalled'" @click="recallCaptain(detail.id); closeActionMenu()">Stop</button>
+                                    <button class="action-menu-item danger" x-show="detail.state === 'Idle'" @click="removeCaptain(detail.id); closeActionMenu()">Remove</button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                     <div class="detail-grid">
@@ -1159,7 +1213,13 @@
                                 <td><span class="tag" :class="dock.active ? 'active' : 'inactive'" x-text="dock.active ? 'Active' : 'Inactive'" :title="statusTooltip(dock.active ? 'Active' : 'Inactive')"></span></td>
                                 <td class="text-dim" x-text="formatTime(dock.createdUtc)" :title="formatTimeAbsolute(dock.createdUtc)"></td>
                                 <td>
-                                    <button class="btn btn-sm btn-danger" @click.stop="deleteDock(dock.id)" title="Delete this dock and clean up its worktree">Delete</button>
+                                    <div class="action-menu-wrap">
+                                        <button class="action-menu-btn" @click.stop="toggleActionMenu('dock-' + dock.id)" title="Actions">&#8942;</button>
+                                        <div class="action-menu-dropdown" x-show="openActionMenu === 'dock-' + dock.id" x-cloak>
+                                            <button class="action-menu-item" @click="showJson('Dock: ' + dock.id, dock.id, dock); closeActionMenu()">View JSON</button>
+                                            <button class="action-menu-item danger" @click="deleteDock(dock.id); closeActionMenu()">Delete</button>
+                                        </div>
+                                    </div>
                                 </td>
                             </tr>
                         </template>
@@ -1176,7 +1236,13 @@
                     <div class="detail-header">
                         <h2>Dock Details</h2>
                         <div class="inline-actions">
-                            <button class="btn btn-sm btn-danger" @click="deleteDock(detail.id)" title="Delete this dock and clean up its worktree">Delete</button>
+                            <div class="action-menu-wrap">
+                                <button class="action-menu-btn" @click.stop="toggleActionMenu('dock-detail-' + detail.id)" title="Actions">&#8942;</button>
+                                <div class="action-menu-dropdown" x-show="openActionMenu === 'dock-detail-' + detail.id" x-cloak>
+                                    <button class="action-menu-item" @click="showJson('Dock: ' + detail.id, detail.id, detail); closeActionMenu()">View JSON</button>
+                                    <button class="action-menu-item danger" @click="deleteDock(detail.id); closeActionMenu()">Delete</button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                     <div class="detail-grid">
@@ -1249,7 +1315,15 @@
                                 <td><span x-show="sig.toCaptainId" class="id-display"><span class="mono" x-text="sig.toCaptainId"></span><button class="copy-btn" @click.stop="copyId(sig.toCaptainId, $event)" title="Copy ID"></button></span><span x-show="!sig.toCaptainId">Admiral</span></td>
                                 <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="sig.payload || '-'"></td>
                                 <td class="text-dim" x-text="formatTime(sig.createdUtc)" :title="formatTimeAbsolute(sig.createdUtc)"></td>
-                                <td><button class="btn btn-sm" @click="navigate('signals', 'signal-detail', sig.id)" title="View full signal payload and details">Show Details</button></td>
+                                <td>
+                                    <div class="action-menu-wrap">
+                                        <button class="action-menu-btn" @click.stop="toggleActionMenu('sig-' + sig.id)" title="Actions">&#8942;</button>
+                                        <div class="action-menu-dropdown" x-show="openActionMenu === 'sig-' + sig.id" x-cloak>
+                                            <button class="action-menu-item" @click="navigate('signals', 'signal-detail', sig.id); closeActionMenu()">Show Details</button>
+                                            <button class="action-menu-item" @click="showJson('Signal: ' + sig.id, sig.id, sig); closeActionMenu()">View JSON</button>
+                                        </div>
+                                    </div>
+                                </td>
                             </tr>
                         </template>
                     </tbody>
@@ -1357,7 +1431,15 @@
                                 <td class="mono text-dim"><span x-show="evt.entityId" class="id-display"><span x-text="evt.entityId"></span><button class="copy-btn" @click.stop="copyId(evt.entityId, $event)" title="Copy ID"></button></span><span x-show="!evt.entityId">-</span></td>
                                 <td class="text-dim"><span x-show="evt.captainId" class="id-display"><span class="mono" x-text="evt.captainId"></span><button class="copy-btn" @click.stop="copyId(evt.captainId, $event)" title="Copy ID"></button></span><span x-show="!evt.captainId">-</span></td>
                                 <td class="text-dim"><span x-show="evt.missionId" class="id-display"><span class="mono" x-text="evt.missionId"></span><button class="copy-btn" @click.stop="copyId(evt.missionId, $event)" title="Copy ID"></button></span><span x-show="!evt.missionId">-</span></td>
-                                <td><button class="btn btn-sm" @click="navigate('events', 'event-detail', evt.id)" title="View full event payload and details">Show Details</button></td>
+                                <td>
+                                    <div class="action-menu-wrap">
+                                        <button class="action-menu-btn" @click.stop="toggleActionMenu('evt-' + evt.id)" title="Actions">&#8942;</button>
+                                        <div class="action-menu-dropdown" x-show="openActionMenu === 'evt-' + evt.id" x-cloak>
+                                            <button class="action-menu-item" @click="navigate('events', 'event-detail', evt.id); closeActionMenu()">Show Details</button>
+                                            <button class="action-menu-item" @click="showJson('Event: ' + evt.id, evt.id, evt); closeActionMenu()">View JSON</button>
+                                        </div>
+                                    </div>
+                                </td>
                             </tr>
                         </template>
                     </tbody>
@@ -1474,11 +1556,17 @@
                         <div class="mono" style="font-size:0.85rem; margin-top:0.5rem"><span x-text="entry.branchName"></span> &rarr; <span x-text="entry.targetBranch"></span></div>
                         <div class="text-dim" style="font-size:0.8rem; margin-top:0.25rem" x-text="formatTime(entry.createdUtc)" :title="formatTimeAbsolute(entry.createdUtc)"></div>
                         <div class="mq-card-actions">
-                            <button class="btn btn-sm" @click.stop="viewMissionLog(entry.missionId)" x-show="entry.missionId" title="View mission log">Log</button>
-                            <button class="btn btn-sm" @click.stop="viewMissionDiff(entry.missionId)" x-show="entry.missionId" title="View mission diff">Diff</button>
-                            <button class="btn btn-sm btn-primary" @click.stop="mergeSingleEntry(entry.id)" x-show="entry.status === 'Queued'" title="Process this entry now">Process</button>
-                            <button class="btn btn-sm btn-danger" @click.stop="cancelMergeEntry(entry.id)" x-show="entry.status === 'Queued' || entry.status === 'Testing'" title="Cancel this merge queue entry">Cancel</button>
-                            <button class="btn btn-sm btn-danger" @click.stop="deleteMergeEntry(entry)" x-show="entry.status === 'Cancelled' || entry.status === 'Landed' || entry.status === 'Failed'" title="Permanently delete this entry">Delete</button>
+                            <div class="action-menu-wrap">
+                                <button class="action-menu-btn" @click.stop="toggleActionMenu('mq-' + entry.id)" title="Actions">&#8942;</button>
+                                <div class="action-menu-dropdown" x-show="openActionMenu === 'mq-' + entry.id" x-cloak>
+                                    <button class="action-menu-item" x-show="entry.missionId" @click="viewMissionLog(entry.missionId); closeActionMenu()">Log</button>
+                                    <button class="action-menu-item" x-show="entry.missionId" @click="viewMissionDiff(entry.missionId); closeActionMenu()">Diff</button>
+                                    <button class="action-menu-item" @click="showJson('Merge Entry: ' + entry.id, entry.id, entry); closeActionMenu()">View JSON</button>
+                                    <button class="action-menu-item" x-show="entry.status === 'Queued'" @click="mergeSingleEntry(entry.id); closeActionMenu()">Process</button>
+                                    <button class="action-menu-item danger" x-show="entry.status === 'Queued' || entry.status === 'Testing'" @click="cancelMergeEntry(entry.id); closeActionMenu()">Cancel</button>
+                                    <button class="action-menu-item danger" x-show="entry.status === 'Cancelled' || entry.status === 'Landed' || entry.status === 'Failed'" @click="deleteMergeEntry(entry); closeActionMenu()">Delete</button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </template>
@@ -2082,6 +2170,27 @@
                     </template>
                     <div id="diff-content-area" class="diff-content-area" x-show="!diffViewerLoading"></div>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========== JSON Viewer Modal ========== -->
+    <div class="json-viewer-overlay" x-show="jsonViewer.open" @click.self="closeJsonViewer()" x-cloak
+         x-transition:enter="viewer-enter" x-transition:leave="viewer-leave">
+        <div class="json-viewer-modal">
+            <div class="json-viewer-header">
+                <h3 x-text="jsonViewer.title"></h3>
+                <button class="json-viewer-close" @click="closeJsonViewer()" title="Close (Esc)">&times;</button>
+            </div>
+            <div class="json-viewer-sub">
+                <span class="mono" x-text="jsonViewer.id"></span>
+                <button class="copy-btn" @click.stop="copyId(jsonViewer.id, $event)" title="Copy ID"></button>
+            </div>
+            <div class="json-viewer-actions">
+                <button class="btn btn-sm btn-primary" @click="copyJsonContent()" title="Copy full JSON to clipboard">Copy JSON</button>
+            </div>
+            <div class="json-viewer-body">
+                <pre x-text="jsonViewer.content"></pre>
             </div>
         </div>
     </div>

@@ -70,6 +70,12 @@ function dashboard() {
         // Viewer modal
         viewer: { open: false, title: '', content: '', copied: false },
 
+        // Action dropdown menu
+        openActionMenu: null,
+
+        // JSON viewer modal
+        jsonViewer: { open: false, title: '', subtitle: '', id: '', content: '' },
+
         // Log viewer modal (follow mode)
         logViewer: { open: false, title: '', content: '', entityType: '', entityId: '', following: false, lineCount: 200, timer: null, copied: false, totalLines: 0 },
 
@@ -191,6 +197,13 @@ function dashboard() {
             });
 
             this.apiKey = localStorage.getItem(STORAGE_KEY);
+
+            // Close action menus on click outside
+            document.addEventListener('click', (e) => {
+                if (this.openActionMenu && !e.target.closest('.action-menu-wrap')) {
+                    this.openActionMenu = null;
+                }
+            });
 
             // Fetch health to discover WebSocket port
             try {
@@ -2383,6 +2396,37 @@ function dashboard() {
         openSendSignal() { this.modal = 'send-signal'; this.modalData = { type: 'Nudge', payload: '', fromCaptainId: '', toCaptainId: '' }; },
         openEnqueueMerge() { this.modal = 'enqueue-merge'; this.modalData = { missionId: '', vesselId: '', branchName: '', targetBranch: 'main' }; },
 
+        // Action dropdown menu
+        toggleActionMenu(id) {
+            this.openActionMenu = this.openActionMenu === id ? null : id;
+        },
+        closeActionMenu() {
+            this.openActionMenu = null;
+        },
+
+        // JSON viewer modal
+        showJson(title, id, obj) {
+            this.jsonViewer = {
+                open: true,
+                title: title || '',
+                subtitle: '',
+                id: id || '',
+                content: JSON.stringify(obj, null, 2)
+            };
+        },
+        closeJsonViewer() {
+            this.jsonViewer = { open: false, title: '', subtitle: '', id: '', content: '' };
+        },
+        async copyJsonContent() {
+            try {
+                await navigator.clipboard.writeText(this.jsonViewer.content);
+                this.toast('JSON copied to clipboard');
+            } catch (e) {
+                this.fallbackCopy(this.jsonViewer.content);
+                this.toast('JSON copied to clipboard');
+            }
+        },
+
         // Viewer modal
         openViewer(title, content) {
             this.viewer = { open: true, title: title, content: content || '', copied: false };
@@ -2535,6 +2579,7 @@ function dashboard() {
         // Keyboard shortcuts
         handleKeyboard(e) {
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+            if (this.jsonViewer.open && e.key === 'Escape') { this.closeJsonViewer(); return; }
             if (this.diffViewerOpen && e.key === 'Escape') { this.closeDiffViewer(); return; }
             if (this.logViewer.open && e.key === 'Escape') { this.closeLogViewer(); return; }
             if (this.viewer.open && e.key === 'Escape') { this.closeViewer(); return; }
