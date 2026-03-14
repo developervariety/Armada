@@ -422,6 +422,9 @@
                         <option value="25">25 / page</option>
                         <option value="50">50 / page</option>
                         <option value="100">100 / page</option>
+                        <option value="250">250 / page</option>
+                        <option value="500">500 / page</option>
+                        <option value="1000">1000 / page</option>
                     </select>
                 </div>
                 <div class="pagination-controls">
@@ -517,6 +520,9 @@
                         <option value="25">25 / page</option>
                         <option value="50">50 / page</option>
                         <option value="100">100 / page</option>
+                        <option value="250">250 / page</option>
+                        <option value="500">500 / page</option>
+                        <option value="1000">1000 / page</option>
                     </select>
                 </div>
                 <div class="pagination-controls">
@@ -680,6 +686,8 @@
                         <option value="50">50 / page</option>
                         <option value="100">100 / page</option>
                         <option value="250">250 / page</option>
+                        <option value="500">500 / page</option>
+                        <option value="1000">1000 / page</option>
                     </select>
                 </div>
                 <div class="pagination-controls">
@@ -935,6 +943,8 @@
                         <option value="50">50 / page</option>
                         <option value="100">100 / page</option>
                         <option value="250">250 / page</option>
+                        <option value="500">500 / page</option>
+                        <option value="1000">1000 / page</option>
                     </select>
                 </div>
                 <div class="pagination-controls">
@@ -1104,6 +1114,8 @@
                         <option value="50">50 / page</option>
                         <option value="100">100 / page</option>
                         <option value="250">250 / page</option>
+                        <option value="500">500 / page</option>
+                        <option value="1000">1000 / page</option>
                     </select>
                 </div>
                 <div class="pagination-controls">
@@ -1161,6 +1173,7 @@
                                     <div class="action-menu-wrap">
                                         <button class="action-menu-btn" @click.stop="toggleActionMenu($event,'cpt-' + cpt.id)" title="Actions">&#8942;</button>
                                         <div class="action-menu-dropdown" x-show="openActionMenu === 'cpt-' + cpt.id" x-cloak>
+                                            <button class="action-menu-item" @click="openEditCaptain(cpt); closeActionMenu()">Edit</button>
                                             <button class="action-menu-item" @click="showJson('Captain: ' + cpt.name, cpt.id, cpt); closeActionMenu()">View JSON</button>
                                             <button class="action-menu-item danger" x-show="cpt.state === 'Working' || cpt.state === 'Stalled'" @click="recallCaptain(cpt.id); closeActionMenu()">Recall</button>
                                             <button class="action-menu-item danger" x-show="cpt.state === 'Idle'" @click="removeCaptain(cpt.id); closeActionMenu()">Remove</button>
@@ -1274,6 +1287,8 @@
                         <option value="50">50 / page</option>
                         <option value="100">100 / page</option>
                         <option value="250">250 / page</option>
+                        <option value="500">500 / page</option>
+                        <option value="1000">1000 / page</option>
                     </select>
                 </div>
                 <div class="pagination-controls">
@@ -1406,6 +1421,8 @@
                         <option value="50">50 / page</option>
                         <option value="100">100 / page</option>
                         <option value="250">250 / page</option>
+                        <option value="500">500 / page</option>
+                        <option value="1000">1000 / page</option>
                     </select>
                 </div>
                 <div class="pagination-controls">
@@ -1536,6 +1553,8 @@
                         <option value="50">50 / page</option>
                         <option value="100">100 / page</option>
                         <option value="250">250 / page</option>
+                        <option value="500">500 / page</option>
+                        <option value="1000">1000 / page</option>
                     </select>
                 </div>
                 <div class="pagination-controls">
@@ -1673,6 +1692,8 @@
                         <option value="50">50 / page</option>
                         <option value="100">100 / page</option>
                         <option value="250">250 / page</option>
+                        <option value="500">500 / page</option>
+                        <option value="1000">1000 / page</option>
                     </select>
                 </div>
                 <div class="pagination-controls">
@@ -2018,20 +2039,22 @@
         </div>
 
         <!-- Edit Vessel -->
-        <div class="modal-box modal-box-wide" x-show="modal === 'edit-vessel'">
+        <div class="modal-box modal-vessel-edit" x-show="modal === 'edit-vessel'">
             <h3>Edit Vessel</h3>
             <form @submit.prevent="saveVesselEdit()">
-                <div class="form-group"><label>Name</label><input type="text" x-model="modalData.name" required title="Vessel name"></div>
-                <div class="form-group"><label>Repo URL</label><input type="text" x-model="modalData.repoUrl" title="Git repository URL (HTTPS or SSH)"></div>
-                <div class="form-group"><label>Default Branch</label><input type="text" x-model="modalData.defaultBranch" title="The branch to merge completed work into (e.g. main)"></div>
-                <div class="form-group"><label>Local Path (Bare Repo)</label><input type="text" x-model="modalData.localPath" placeholder="e.g. C:\armada\repos\my-project.git" title="Path to the bare git repository clone used by Armada for worktrees"></div>
-                <div class="form-group"><label>Working Directory</label><input type="text" x-model="modalData.workingDirectory" placeholder="e.g. C:\code\my-project" title="Path to your local checkout — completed missions are merged here automatically"></div>
-                <div class="form-group">
-                    <label>Fleet</label>
-                    <select x-model="modalData.fleetId" title="Assign this vessel to a fleet">
-                        <option value="">No fleet</option>
-                        <template x-for="f in fleets" :key="f.id"><option :value="f.id" x-text="f.name"></option></template>
-                    </select>
+                <div class="modal-two-col">
+                    <div class="form-group"><label>Name</label><input type="text" x-model="modalData.name" required title="Vessel name"></div>
+                    <div class="form-group"><label>Repo URL</label><input type="text" x-model="modalData.repoUrl" title="Git repository URL (HTTPS or SSH)"></div>
+                    <div class="form-group"><label>Default Branch</label><input type="text" x-model="modalData.defaultBranch" title="The branch to merge completed work into (e.g. main)"></div>
+                    <div class="form-group"><label>Local Path (Bare Repo)</label><input type="text" x-model="modalData.localPath" placeholder="e.g. C:\armada\repos\my-project.git" title="Path to the bare git repository clone used by Armada for worktrees"></div>
+                    <div class="form-group"><label>Working Directory</label><input type="text" x-model="modalData.workingDirectory" placeholder="e.g. C:\code\my-project" title="Path to your local checkout -- completed missions are merged here automatically"></div>
+                    <div class="form-group">
+                        <label>Fleet</label>
+                        <select x-model="modalData.fleetId" title="Assign this vessel to a fleet">
+                            <option value="">No fleet</option>
+                            <template x-for="f in fleets" :key="f.id"><option :value="f.id" x-text="f.name"></option></template>
+                        </select>
+                    </div>
                 </div>
                 <div class="form-group">
                     <label>Project Context</label>
