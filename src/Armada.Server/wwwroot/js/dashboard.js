@@ -700,23 +700,25 @@ function dashboard() {
 
         async deleteDock(id) {
             if (!await this.showConfirm('Delete dock ' + id + '? This will clean up the git worktree and cannot be undone.')) return;
+            this.toast('Cleanup of dock ' + id + ' started in the background');
+            this.selectedDocks = this.selectedDocks.filter(d => d !== id);
+            if (this.detailView === 'dock-detail' && this.detailId === id) {
+                this.goBack();
+            }
             try {
                 await this.api('DELETE', '/api/v1/docks/' + id);
-                this.toast('Dock deleted');
-                this.selectedDocks = this.selectedDocks.filter(d => d !== id);
-                if (this.view === 'docks' && !this.detailView) {
-                    await this.loadDocks();
-                } else if (this.detailView === 'dock-detail' && this.detailId === id) {
-                    this.goBack();
-                    await this.loadDocks();
-                }
-            } catch (e) { this.toast('Failed: ' + e.message, 'error'); }
+                this.toast('Dock ' + id + ' deleted successfully');
+            } catch (e) { this.toast('Failed to delete dock ' + id + ': ' + e.message, 'error'); }
+            await this.loadDocks();
         },
 
         async deleteSelectedDocks() {
             if (this.selectedDocks.length === 0) return;
-            if (!await this.showConfirm('Delete ' + this.selectedDocks.length + ' selected dock(s)? This cannot be undone.')) return;
+            if (!await this.showConfirm('Delete ' + this.selectedDocks.length + ' selected dock(s)? This will clean up git worktrees and cannot be undone.')) return;
+            let count = this.selectedDocks.length;
             let ids = [...this.selectedDocks];
+            this.selectedDocks = [];
+            this.toast('Cleanup of ' + count + ' dock(s) started in the background');
             let failed = 0;
             for (let id of ids) {
                 try {
@@ -726,11 +728,10 @@ function dashboard() {
                     console.warn('Failed to delete dock ' + id + ':', e);
                 }
             }
-            this.selectedDocks = [];
             if (failed > 0) {
                 this.toast('Deleted ' + (ids.length - failed) + ' docks, ' + failed + ' failed', 'warning');
             } else {
-                this.toast('Deleted ' + ids.length + ' dock(s)');
+                this.toast('All ' + count + ' dock(s) cleaned up successfully');
             }
             await this.loadDocks();
         },
