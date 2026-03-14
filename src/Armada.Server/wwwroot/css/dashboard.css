@@ -349,6 +349,20 @@ body {
     transition: all 0.15s;
 }
 .theme-toggle:hover { color: var(--text); border-color: var(--accent); }
+
+/* Top bar connection status */
+.top-bar-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    cursor: default;
+}
+.top-bar-status-label {
+    line-height: 1;
+}
+
 .github-link {
     color: var(--text-dim);
     display: inline-flex;
