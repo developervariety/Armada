@@ -385,7 +385,7 @@ via a one-shot 5-minute poller.
 
 ### T2-2: Explicit `armada_retry_landing` command (depends on T1-4)
 
-**Status:** `[ ]` Not started
+**Status:** `[x]` Complete
 
 **Goal:** Operator can retry a failed landing with one command.
 
@@ -424,9 +424,9 @@ via a one-shot 5-minute poller.
 
 #### Checklist
 
-- [ ] 7a — LandingService + interface
-- [ ] 7b — MCP Args + tool registration
-- [ ] 7c — Wire in ArmadaServer
+- [x] 7a — LandingService + ILandingService created with RetryLandingAsync
+- [x] 7b — MissionRetryLandingArgs + armada_retry_landing tool registered
+- [x] 7c — LandingService instantiated and wired in ArmadaServer + McpStdioCommand
 
 ---
 
@@ -760,6 +760,7 @@ Phase 3 (after Phase 2):
 | 2026-03-13 | T2-3 | Partial | MaxLandingRetries setting added; retry logic needs LandingService |
 | 2026-03-13 | T2-4 | Complete | Synchronous handoff; removed Task.Run fire-and-forget |
 | 2026-03-13 | T2-5 | Complete | ReclaimOrphanedDocksAsync in health check, 5-min threshold |
+| 2026-03-13 | T2-2 | Complete | LandingService + ILandingService, armada_retry_landing MCP tool |
 
 ---
 

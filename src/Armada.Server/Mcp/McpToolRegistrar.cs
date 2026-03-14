@@ -48,6 +48,7 @@ namespace Armada.Server.Mcp
         /// <param name="git">Git service for diff operations.</param>
         /// <param name="mergeQueue">Merge queue service.</param>
         /// <param name="dockService">Dock service for dock management.</param>
+        /// <param name="landingService">Landing service for retry landing operations.</param>
         /// <param name="onStop">Callback to stop the server.</param>
         /// <param name="onStopCaptain">Callback to kill a captain's agent process by captain ID. Called before RecallCaptainAsync.</param>
         public static void RegisterAll(
@@ -58,6 +59,7 @@ namespace Armada.Server.Mcp
             IGitService? git = null,
             IMergeQueueService? mergeQueue = null,
             IDockService? dockService = null,
+            ILandingService? landingService = null,
             Action? onStop = null,
             Func<string, Task>? onStopCaptain = null)
         {
@@ -66,7 +68,7 @@ namespace Armada.Server.Mcp
             RegisterFleetTools(register, database);
             RegisterVesselTools(register, database);
             RegisterVoyageTools(register, database, admiral);
-            RegisterMissionTools(register, database, admiral, settings, git);
+            RegisterMissionTools(register, database, admiral, settings, git, landingService);
             RegisterCaptainTools(register, database, admiral, settings, onStopCaptain);
             RegisterSignalTools(register, database);
             RegisterEventTools(register, database);
@@ -647,7 +649,7 @@ namespace Armada.Server.Mcp
                 });
         }
 
-        private static void RegisterMissionTools(RegisterToolDelegate register, DatabaseDriver database, IAdmiralService admiral, ArmadaSettings? settings, IGitService? git)
+        private static void RegisterMissionTools(RegisterToolDelegate register, DatabaseDriver database, IAdmiralService admiral, ArmadaSettings? settings, IGitService? git, ILandingService? landingService = null)
         {
             register(
                 "armada_list_missions",
@@ -890,6 +892,27 @@ namespace Armada.Server.Mcp
                     await database.Signals.CreateAsync(signal).ConfigureAwait(false);
 
                     return (object)mission;
+                });
+
+            register(
+                "armada_retry_landing",
+                "Retry landing for a mission in LandingFailed status. Rebases the mission branch onto the current target and re-attempts landing.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        missionId = new { type = "string", description = "Mission ID (msn_ prefix) to retry landing for" }
+                    },
+                    required = new[] { "missionId" }
+                },
+                async (args) =>
+                {
+                    if (landingService == null) return (object)new { Error = "Landing service not configured" };
+                    MissionRetryLandingArgs request = JsonSerializer.Deserialize<MissionRetryLandingArgs>(args!.Value, _JsonOptions)!;
+                    bool success = await landingService.RetryLandingAsync(request.MissionId).ConfigureAwait(false);
+                    Mission? mission = await database.Missions.ReadAsync(request.MissionId).ConfigureAwait(false);
+                    return (object)new { Success = success, Mission = mission };
                 });
 
             register(

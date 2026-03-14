@@ -56,6 +56,7 @@ namespace Armada.Server
         private ArmadaWebSocketHub _WebSocketHub = null!;
 
         private IMergeQueueService _MergeQueue = null!;
+        private LandingService _LandingService = null!;
         private IMessageTemplateService _TemplateService = null!;
         private LogRotationService _LogRotation = null!;
         private DataExpiryService _DataExpiry = null!;
@@ -122,6 +123,7 @@ namespace Armada.Server
             IEscalationService escalationService = new EscalationService(_Logging, _Database, _Settings);
             _Admiral = new AdmiralService(_Logging, _Database, _Settings, captainService, missionService, voyageService, dockService, escalationService);
             _MergeQueue = new MergeQueueService(_Logging, _Database, _Settings, _Git);
+            _LandingService = new LandingService(_Logging, _Database, _Settings, _Git);
             _TemplateService = new MessageTemplateService(_Logging);
             _RuntimeFactory = new AgentRuntimeFactory(_Logging);
 
@@ -136,6 +138,7 @@ namespace Armada.Server
             _Admiral.OnMissionComplete = HandleMissionCompleteAsync;
             _Admiral.OnVoyageComplete = HandleVoyageCompleteAsync;
             _Admiral.OnReconcilePullRequest = HandleReconcilePullRequestAsync;
+            _LandingService.OnPerformLanding = HandleMissionCompleteAsync;
 
             // Initialize REST API
             _App = new SwiftStackApp(ArmadaConstants.ProductName, _Quiet);
@@ -2240,6 +2243,7 @@ namespace Armada.Server
                 _Git,
                 _MergeQueue,
                 _Docks,
+                _LandingService,
                 () => Stop(),
                 async (captainId) =>
                 {
