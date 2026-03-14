@@ -327,6 +327,8 @@
                                             <div class="action-menu-wrap">
                                                 <button class="action-menu-btn" @click.stop="toggleActionMenu($event,'home-msn-' + m.id)" title="Actions">&#8942;</button>
                                                 <div class="action-menu-dropdown" x-show="openActionMenu === 'home-msn-' + m.id" x-cloak>
+                                                    <button class="action-menu-item" @click="viewMissionDiff(m.id); closeActionMenu()">Diff</button>
+                                                    <button class="action-menu-item" @click="viewMissionLog(m.id); closeActionMenu()">Log</button>
                                                     <button class="action-menu-item" @click="showJson('Mission: ' + m.title, m.id, m); closeActionMenu()">View JSON</button>
                                                     <button class="action-menu-item danger" @click="deleteMission(m.id); closeActionMenu()">Delete</button>
                                                 </div>
@@ -1005,6 +1007,8 @@
                                     <div class="action-menu-wrap">
                                         <button class="action-menu-btn" @click.stop="toggleActionMenu($event,'msn-' + m.id)" title="Actions">&#8942;</button>
                                         <div class="action-menu-dropdown" x-show="openActionMenu === 'msn-' + m.id" x-cloak>
+                                            <button class="action-menu-item" @click="viewMissionDiff(m.id); closeActionMenu()">Diff</button>
+                                            <button class="action-menu-item" @click="viewMissionLog(m.id); closeActionMenu()">Log</button>
                                             <button class="action-menu-item" @click="showJson('Mission: ' + m.title, m.id, m); closeActionMenu()">View JSON</button>
                                             <button class="action-menu-item danger" @click="deleteMission(m.id); closeActionMenu()">Delete</button>
                                         </div>
@@ -1056,8 +1060,14 @@
                         <div class="detail-field" x-show="detail.completedUtc"><span class="detail-label">Completed</span><span x-text="formatTimeAbsolute(detail.completedUtc)"></span></div>
                     </div>
 
+                    <!-- Mission actions -->
+                    <div style="display:flex; gap:0.5rem; margin:0.75rem 0">
+                        <button class="btn btn-sm" @click="viewMissionDiff(detail.id)" title="View git diff of changes">View Diff</button>
+                        <button class="btn btn-sm" @click="viewMissionLog(detail.id)" title="View captain session log">View Log</button>
+                    </div>
+
                     <!-- Status transitions -->
-                    <div class="status-transitions" x-show="detail.status !== 'Complete' && detail.status !== 'Cancelled'" title="Manually transition this mission to a different status">
+                    <div class="status-transitions" x-show="['Pending','Assigned','InProgress','Testing','Review','WorkProduced','LandingFailed'].includes(detail.status)" title="Manually transition this mission to a different status">
                         <span class="detail-label">Transition to:</span>
                         <template x-if="detail.status === 'Pending'">
                             <button class="btn btn-sm" @click="transitionMissionStatus(detail.id, 'Assigned')" title="Mark as assigned to a captain">Assigned</button>
@@ -1086,6 +1096,19 @@
                                 <button class="btn btn-sm" @click="transitionMissionStatus(detail.id, 'Complete')" title="Mark as successfully completed">Complete</button>
                                 <button class="btn btn-sm" @click="transitionMissionStatus(detail.id, 'InProgress')" title="Send back to active work">InProgress</button>
                                 <button class="btn btn-sm btn-danger" @click="transitionMissionStatus(detail.id, 'Failed')" title="Mark as failed">Failed</button>
+                            </span>
+                        </template>
+                        <template x-if="detail.status === 'WorkProduced'">
+                            <span>
+                                <button class="btn btn-sm" @click="transitionMissionStatus(detail.id, 'Complete')" title="Mark as successfully completed">Complete</button>
+                                <button class="btn btn-sm btn-danger" @click="transitionMissionStatus(detail.id, 'Cancelled')" title="Cancel this mission">Cancelled</button>
+                            </span>
+                        </template>
+                        <template x-if="detail.status === 'LandingFailed'">
+                            <span>
+                                <button class="btn btn-sm" @click="transitionMissionStatus(detail.id, 'WorkProduced')" title="Retry landing">WorkProduced</button>
+                                <button class="btn btn-sm btn-danger" @click="transitionMissionStatus(detail.id, 'Failed')" title="Mark as failed">Failed</button>
+                                <button class="btn btn-sm btn-danger" @click="transitionMissionStatus(detail.id, 'Cancelled')" title="Cancel this mission">Cancelled</button>
                             </span>
                         </template>
                     </div>
