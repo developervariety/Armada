@@ -8,6 +8,10 @@ function dashboard() {
         // Theme
         darkMode: false,
 
+        // Sidebar
+        sidebarCollapsed: false,
+        sidebarSections: { operations: true, fleet: true, activity: true, system: true },
+
         // Navigation
         view: 'home',
         detailView: null,   // e.g. 'mission-detail', 'voyage-detail', etc.
@@ -155,6 +159,27 @@ function dashboard() {
             }
             document.documentElement.setAttribute('data-theme', this.darkMode ? 'dark' : 'light');
 
+            // Restore sidebar state from localStorage
+            let savedCollapsed = localStorage.getItem('armada_sidebar_collapsed');
+            if (savedCollapsed !== null) {
+                this.sidebarCollapsed = JSON.parse(savedCollapsed);
+            }
+            let savedSections = localStorage.getItem('armada_sidebar_sections');
+            if (savedSections !== null) {
+                this.sidebarSections = JSON.parse(savedSections);
+            }
+
+            // Auto-collapse sidebar on narrow viewports
+            if (window.innerWidth < 1024) {
+                this.sidebarCollapsed = true;
+            }
+            window.addEventListener('resize', () => {
+                if (window.innerWidth < 1024 && !this.sidebarCollapsed) {
+                    this.sidebarCollapsed = true;
+                    localStorage.setItem('armada_sidebar_collapsed', JSON.stringify(true));
+                }
+            });
+
             this.apiKey = localStorage.getItem(STORAGE_KEY);
 
             // Fetch health to discover WebSocket port
@@ -224,6 +249,20 @@ function dashboard() {
             this.darkMode = !this.darkMode;
             document.documentElement.setAttribute('data-theme', this.darkMode ? 'dark' : 'light');
             localStorage.setItem('armada_theme', this.darkMode ? 'dark' : 'light');
+        },
+
+        toggleSidebar() {
+            this.sidebarCollapsed = !this.sidebarCollapsed;
+            localStorage.setItem('armada_sidebar_collapsed', JSON.stringify(this.sidebarCollapsed));
+        },
+
+        toggleSection(section) {
+            this.sidebarSections[section] = !this.sidebarSections[section];
+            localStorage.setItem('armada_sidebar_sections', JSON.stringify(this.sidebarSections));
+        },
+
+        isSectionCollapsed(section) {
+            return !this.sidebarSections[section];
         },
 
         logout() {

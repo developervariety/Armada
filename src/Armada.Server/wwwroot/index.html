@@ -39,106 +39,106 @@
     </div>
 
     <!-- App Layout -->
-    <div class="app-layout" x-show="!authRequired || authenticated">
+    <div class="app-layout" x-show="!authRequired || authenticated" :style="'grid-template-columns: ' + (sidebarCollapsed ? '56px' : '240px') + ' 1fr'">
 
         <!-- Sidebar -->
-        <aside class="sidebar">
+        <aside class="sidebar" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
             <div class="sidebar-brand">
                 <img src="/dashboard/img/logo-light-grey.png" alt="Armada" class="sidebar-logo">
-                <h1>Armada</h1>
+                <h1 class="sidebar-label">Armada</h1>
             </div>
             <div class="sidebar-status">
                 <span class="status-dot" :class="connected ? 'connected' : 'disconnected'" title="Server connection status"></span>
-                <span x-text="wsConnected ? 'Live' : (apiConnected ? 'Online' : 'Offline')" title="Live = WebSocket real-time updates, Online = HTTP polling, Offline = no connection"></span>
+                <span class="sidebar-label" x-text="wsConnected ? 'Live' : (apiConnected ? 'Online' : 'Offline')" title="Live = WebSocket real-time updates, Online = HTTP polling, Offline = no connection"></span>
             </div>
             <nav class="sidebar-nav">
                 <!-- Dashboard -->
-                <button class="sidebar-nav-item" :class="{ active: view === 'home' }" @click="navigate('home')" title="System overview with voyage progress, recent missions, and signals">
+                <button class="sidebar-nav-item" :class="{ active: view === 'home' }" @click="navigate('home')" :title="sidebarCollapsed ? 'Dashboard' : 'System overview with voyage progress, recent missions, and signals'">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-                    Dashboard
+                    <span class="sidebar-label">Dashboard</span>
                 </button>
 
                 <!-- OPERATIONS -->
-                <div class="sidebar-section" :class="{ 'section-active': ['voyages','missions','merge-queue'].includes(view) }">
-                    <button class="sidebar-section-header" @click="$el.closest('.sidebar-section').classList.toggle('collapsed')">
+                <div class="sidebar-section" :class="{ 'section-active': ['voyages','missions','merge-queue'].includes(view), collapsed: isSectionCollapsed('operations') }">
+                    <button class="sidebar-section-header" x-show="!sidebarCollapsed" @click="toggleSection('operations')">
                         OPERATIONS
                         <span class="sidebar-section-chevron"><svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg></span>
                     </button>
-                    <div class="sidebar-section-items">
-                        <button class="sidebar-nav-item" :class="{ active: view === 'voyages' }" @click="navigate('voyages')" title="Batches of related missions with progress tracking">
+                    <div class="sidebar-section-items" x-show="sidebarCollapsed || sidebarSections.operations">
+                        <button class="sidebar-nav-item" :class="{ active: view === 'voyages' }" @click="navigate('voyages')" :title="sidebarCollapsed ? 'Voyages' : 'Batches of related missions with progress tracking'">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                            Voyages
+                            <span class="sidebar-label">Voyages</span>
                         </button>
-                        <button class="sidebar-nav-item" :class="{ active: view === 'missions' }" @click="navigate('missions'); loadMissions()" title="Individual work units assigned to captains">
+                        <button class="sidebar-nav-item" :class="{ active: view === 'missions' }" @click="navigate('missions'); loadMissions()" :title="sidebarCollapsed ? 'Missions' : 'Individual work units assigned to captains'">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-                            Missions
+                            <span class="sidebar-label">Missions</span>
                         </button>
-                        <button class="sidebar-nav-item" :class="{ active: view === 'merge-queue' }" @click="navigate('merge-queue')" title="Completed mission branches awaiting merge into main">
+                        <button class="sidebar-nav-item" :class="{ active: view === 'merge-queue' }" @click="navigate('merge-queue')" :title="sidebarCollapsed ? 'Merge Queue' : 'Completed mission branches awaiting merge into main'">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/></svg>
-                            Merge Queue
+                            <span class="sidebar-label">Merge Queue</span>
                         </button>
                     </div>
                 </div>
 
                 <!-- FLEET -->
-                <div class="sidebar-section" :class="{ 'section-active': ['fleets','captains','docks'].includes(view) }">
-                    <button class="sidebar-section-header" @click="$el.closest('.sidebar-section').classList.toggle('collapsed')">
+                <div class="sidebar-section" :class="{ 'section-active': ['fleets','captains','docks'].includes(view), collapsed: isSectionCollapsed('fleet') }">
+                    <button class="sidebar-section-header" x-show="!sidebarCollapsed" @click="toggleSection('fleet')">
                         FLEET
                         <span class="sidebar-section-chevron"><svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg></span>
                     </button>
-                    <div class="sidebar-section-items">
-                        <button class="sidebar-nav-item" :class="{ active: view === 'fleets' }" @click="navigate('fleets')" title="Repository groups and their vessels">
+                    <div class="sidebar-section-items" x-show="sidebarCollapsed || sidebarSections.fleet">
+                        <button class="sidebar-nav-item" :class="{ active: view === 'fleets' }" @click="navigate('fleets')" :title="sidebarCollapsed ? 'Vessels' : 'Repository groups and their vessels'">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-                            Vessels
+                            <span class="sidebar-label">Vessels</span>
                         </button>
-                        <button class="sidebar-nav-item" :class="{ active: view === 'captains' }" @click="navigate('captains')" title="AI worker agents that execute missions">
+                        <button class="sidebar-nav-item" :class="{ active: view === 'captains' }" @click="navigate('captains')" :title="sidebarCollapsed ? 'Captains' : 'AI worker agents that execute missions'">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-                            Captains
+                            <span class="sidebar-label">Captains</span>
                         </button>
-                        <button class="sidebar-nav-item" :class="{ active: view === 'docks' }" @click="navigate('docks')" title="Git worktrees used by captains">
+                        <button class="sidebar-nav-item" :class="{ active: view === 'docks' }" @click="navigate('docks')" :title="sidebarCollapsed ? 'Docks' : 'Git worktrees used by captains'">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
-                            Docks
+                            <span class="sidebar-label">Docks</span>
                         </button>
                     </div>
                 </div>
 
                 <!-- ACTIVITY -->
-                <div class="sidebar-section" :class="{ 'section-active': ['signals','events','notifications'].includes(view) }">
-                    <button class="sidebar-section-header" @click="$el.closest('.sidebar-section').classList.toggle('collapsed')">
+                <div class="sidebar-section" :class="{ 'section-active': ['signals','events','notifications'].includes(view), collapsed: isSectionCollapsed('activity') }">
+                    <button class="sidebar-section-header" x-show="!sidebarCollapsed" @click="toggleSection('activity')">
                         ACTIVITY
                         <span class="sidebar-section-chevron"><svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg></span>
                     </button>
-                    <div class="sidebar-section-items">
-                        <button class="sidebar-nav-item" :class="{ active: view === 'signals' }" @click="navigate('signals')" title="Messages exchanged between the admiral and captains">
+                    <div class="sidebar-section-items" x-show="sidebarCollapsed || sidebarSections.activity">
+                        <button class="sidebar-nav-item" :class="{ active: view === 'signals' }" @click="navigate('signals')" :title="sidebarCollapsed ? 'Signals' : 'Messages exchanged between the admiral and captains'">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-                            Signals
+                            <span class="sidebar-label">Signals</span>
                         </button>
-                        <button class="sidebar-nav-item" :class="{ active: view === 'events' }" @click="navigate('events')" title="System event log of state changes and activity">
+                        <button class="sidebar-nav-item" :class="{ active: view === 'events' }" @click="navigate('events')" :title="sidebarCollapsed ? 'Events' : 'System event log of state changes and activity'">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-                            Events
+                            <span class="sidebar-label">Events</span>
                         </button>
-                        <button class="sidebar-nav-item" :class="{ active: view === 'notifications' }" @click="navigate('notifications')" title="Notification history for state changes">
+                        <button class="sidebar-nav-item" :class="{ active: view === 'notifications' }" @click="navigate('notifications')" :title="sidebarCollapsed ? 'Notifications' : 'Notification history for state changes'">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-                            Notifications
+                            <span class="sidebar-label">Notifications</span>
                             <span x-show="unreadNotificationCount > 0" class="notif-badge" x-text="unreadNotificationCount"></span>
                         </button>
                     </div>
                 </div>
 
                 <!-- SYSTEM -->
-                <div class="sidebar-section" :class="{ 'section-active': ['server','doctor'].includes(view) }">
-                    <button class="sidebar-section-header" @click="$el.closest('.sidebar-section').classList.toggle('collapsed')">
+                <div class="sidebar-section" :class="{ 'section-active': ['server','doctor'].includes(view), collapsed: isSectionCollapsed('system') }">
+                    <button class="sidebar-section-header" x-show="!sidebarCollapsed" @click="toggleSection('system')">
                         SYSTEM
                         <span class="sidebar-section-chevron"><svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg></span>
                     </button>
-                    <div class="sidebar-section-items">
-                        <button class="sidebar-nav-item" :class="{ active: view === 'server' }" @click="navigate('server')" title="Admiral server health, configuration, and controls">
+                    <div class="sidebar-section-items" x-show="sidebarCollapsed || sidebarSections.system">
+                        <button class="sidebar-nav-item" :class="{ active: view === 'server' }" @click="navigate('server')" :title="sidebarCollapsed ? 'Server' : 'Admiral server health, configuration, and controls'">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
-                            Server
+                            <span class="sidebar-label">Server</span>
                         </button>
-                        <button class="sidebar-nav-item" :class="{ active: view === 'doctor' }" @click="navigate('doctor')" title="System health diagnostics and checks">
+                        <button class="sidebar-nav-item" :class="{ active: view === 'doctor' }" @click="navigate('doctor')" :title="sidebarCollapsed ? 'Doctor' : 'System health diagnostics and checks'">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
-                            Doctor
+                            <span class="sidebar-label">Doctor</span>
                         </button>
                     </div>
                 </div>
@@ -146,10 +146,20 @@
 
             <!-- Sidebar footer -->
             <div class="sidebar-footer">
-                <a href="https://github.com/jchristn/Armada" target="_blank" rel="noopener noreferrer" class="github-link" title="View on GitHub">
+                <button class="sidebar-toggle-btn" @click="toggleSidebar()" :title="sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <template x-if="sidebarCollapsed">
+                            <g><polyline points="9 18 15 12 9 6"/></g>
+                        </template>
+                        <template x-if="!sidebarCollapsed">
+                            <g><polyline points="15 18 9 12 15 6"/></g>
+                        </template>
+                    </svg>
+                </button>
+                <a href="https://github.com/jchristn/Armada" target="_blank" rel="noopener noreferrer" class="github-link" title="View on GitHub" x-show="!sidebarCollapsed">
                     <svg height="18" width="18" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
                 </a>
-                <button class="btn btn-sm" x-show="authenticated" @click="logout()" title="Sign out and clear API key">Logout</button>
+                <button class="btn btn-sm" x-show="authenticated && !sidebarCollapsed" @click="logout()" title="Sign out and clear API key">Logout</button>
             </div>
         </aside>
 

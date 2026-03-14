@@ -72,6 +72,7 @@ body {
     display: grid;
     grid-template-columns: 240px 1fr;
     min-height: 100vh;
+    transition: grid-template-columns 0.25s ease;
 }
 
 /* Sidebar */
@@ -86,6 +87,61 @@ body {
     flex-direction: column;
     z-index: 100;
     border-right: 1px solid var(--border);
+    width: 240px;
+    transition: width 0.25s ease;
+}
+
+.sidebar-collapsed {
+    width: 56px;
+    overflow-x: hidden;
+}
+
+.sidebar-collapsed .sidebar-label {
+    opacity: 0;
+    width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    transition: opacity 0.15s ease, width 0.15s ease;
+}
+
+.sidebar-label {
+    opacity: 1;
+    transition: opacity 0.2s ease 0.1s;
+}
+
+.sidebar-collapsed .sidebar-brand {
+    justify-content: center;
+    padding: 1rem 0.5rem;
+}
+
+.sidebar-collapsed .sidebar-status {
+    justify-content: center;
+    padding: 0.5rem 0.5rem 0.75rem;
+}
+
+.sidebar-collapsed .sidebar-nav-item {
+    justify-content: center;
+    padding: 0.5rem;
+}
+
+.sidebar-collapsed .sidebar-nav-item.active {
+    border-right: 3px solid var(--accent);
+}
+
+.sidebar-collapsed .sidebar-nav-item svg {
+    flex-shrink: 0;
+}
+
+.sidebar-collapsed .sidebar-footer {
+    justify-content: center;
+    padding: 0.75rem 0.5rem;
+}
+
+.sidebar-collapsed .notif-badge {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    margin-left: 0;
 }
 
 .sidebar-brand {
@@ -243,6 +299,27 @@ body {
 .sidebar-footer .btn {
     font-size: 0.75rem;
     padding: 0.2rem 0.5rem;
+}
+
+/* Sidebar toggle button */
+.sidebar-toggle-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    background: none;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 4px;
+    color: var(--sidebar-text);
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: all 0.15s;
+}
+
+.sidebar-toggle-btn:hover {
+    color: #f1f5f9;
+    background: rgba(255, 255, 255, 0.08);
 }
 
 /* Top bar (thin bar above main content) */
