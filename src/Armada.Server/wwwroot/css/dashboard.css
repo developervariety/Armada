@@ -70,7 +70,7 @@ body {
 /* Page Layout */
 .app-layout {
     display: grid;
-    grid-template-columns: 240px 1fr;
+    grid-template-columns: 180px 1fr;
     min-height: 100vh;
     transition: grid-template-columns 0.25s ease;
 }
@@ -87,7 +87,7 @@ body {
     flex-direction: column;
     z-index: 100;
     border-right: 1px solid var(--border);
-    width: 240px;
+    width: 180px;
     transition: width 0.25s ease;
 }
 
@@ -1651,8 +1651,8 @@ a:hover { text-decoration: underline; }
     .app-layout { grid-template-columns: 1fr; }
     .sidebar {
         position: fixed;
-        left: -240px;
-        width: 240px;
+        left: -180px;
+        width: 180px;
         transition: left 0.2s;
         z-index: 200;
     }
