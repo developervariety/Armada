@@ -201,6 +201,7 @@ window.ArmadaModules.dataLoaders = {
             let params = [];
             params.push('pageNumber=' + this.mergeQueuePaging.pageNumber);
             params.push('pageSize=' + this.mergeQueuePaging.pageSize);
+            if (this.mergeQueueStatusFilter) params.push('status=' + encodeURIComponent(this.mergeQueueStatusFilter));
             let url = '/api/v1/merge-queue?' + params.join('&');
             let result = await this.api('GET', url);
             this.mergeQueue = (result && result.objects) ? result.objects : [];

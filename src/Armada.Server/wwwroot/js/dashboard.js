@@ -114,6 +114,7 @@ function dashboard() {
         eventPaging: { pageNumber: 1, totalPages: 0, totalRecords: 0, pageSize: 50, totalMs: 0 },
         mergeQueuePaging: { pageNumber: 1, totalPages: 0, totalRecords: 0, pageSize: 25, totalMs: 0 },
         dockPaging: { pageNumber: 1, totalPages: 0, totalRecords: 0, pageSize: 25, totalMs: 0 },
+        mergeQueueStatusFilter: '',
         mergeQueueVoyageFilter: '',
         mergeQueueVoyages: [],
         dockFilters: { status: '' },

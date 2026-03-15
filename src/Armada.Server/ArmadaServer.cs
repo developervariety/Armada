@@ -2333,6 +2333,8 @@ namespace Armada.Server
                 query.ApplyQuerystringOverrides(key => req.Query.GetValueOrDefault(key));
                 Stopwatch sw = Stopwatch.StartNew();
                 List<MergeEntry> all = await _MergeQueue.ListAsync().ConfigureAwait(false);
+                if (!String.IsNullOrEmpty(query.Status))
+                    all = all.Where(e => String.Equals(e.Status.ToString(), query.Status, StringComparison.OrdinalIgnoreCase)).ToList();
                 int totalCount = all.Count;
                 List<MergeEntry> page = all.Skip(query.Offset).Take(query.PageSize).ToList();
                 EnumerationResult<MergeEntry> result = EnumerationResult<MergeEntry>.Create(query, page, totalCount);
@@ -2342,7 +2344,7 @@ namespace Armada.Server
             api => api
                 .WithTag("MergeQueue")
                 .WithSummary("List merge queue entries")
-                .WithDescription("Returns all entries in the merge queue.")
+                .WithDescription("Returns all entries in the merge queue, with optional status filter via query parameter.")
                 .WithResponse(200, OpenApiResponseMetadata.Json<EnumerationResult<MergeEntry>>("Paginated merge queue list"))
                 .WithSecurity("ApiKey"));
 
@@ -2352,6 +2354,8 @@ namespace Armada.Server
                 query.ApplyQuerystringOverrides(key => req.Query.GetValueOrDefault(key));
                 Stopwatch sw = Stopwatch.StartNew();
                 List<MergeEntry> all = await _MergeQueue.ListAsync().ConfigureAwait(false);
+                if (!String.IsNullOrEmpty(query.Status))
+                    all = all.Where(e => String.Equals(e.Status.ToString(), query.Status, StringComparison.OrdinalIgnoreCase)).ToList();
                 int totalCount = all.Count;
                 List<MergeEntry> page = all.Skip(query.Offset).Take(query.PageSize).ToList();
                 EnumerationResult<MergeEntry> result = EnumerationResult<MergeEntry>.Create(query, page, totalCount);

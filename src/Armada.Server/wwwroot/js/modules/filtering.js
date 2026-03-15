@@ -99,9 +99,15 @@ window.ArmadaModules.filtering = {
 
     filteredMergeQueue() {
         let rows = this.filterRows(this.mergeQueue);
-        if (!this.mergeQueueVoyageFilter) return rows;
-        let voyageId = this.mergeQueueVoyageFilter;
-        return rows.filter(entry => entry._voyageId === voyageId);
+        if (this.mergeQueueStatusFilter) {
+            let status = this.mergeQueueStatusFilter;
+            rows = rows.filter(entry => entry.status === status);
+        }
+        if (this.mergeQueueVoyageFilter) {
+            let voyageId = this.mergeQueueVoyageFilter;
+            rows = rows.filter(entry => entry._voyageId === voyageId);
+        }
+        return rows;
     },
 
     filteredVoyages() {

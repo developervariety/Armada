@@ -6,7 +6,16 @@
                 </div>
                 <div class="view-actions">
                     <input type="text" class="filter-input" x-model="listSearch" placeholder="Search..." title="Search merge queue entries by branch or ID">
-                    <select class="page-size-select" x-model="mergeQueueVoyageFilter" title="Filter by voyage">
+                    <select class="filter-select" x-model="mergeQueueStatusFilter" @change="loadMergeQueue()" title="Filter by status">
+                        <option value="">All Statuses</option>
+                        <option value="Queued">Queued</option>
+                        <option value="Testing">Testing</option>
+                        <option value="Passed">Passed</option>
+                        <option value="Failed">Failed</option>
+                        <option value="Landed">Landed</option>
+                        <option value="Cancelled">Cancelled</option>
+                    </select>
+                    <select class="filter-select" x-model="mergeQueueVoyageFilter" title="Filter by voyage">
                         <option value="">All Voyages</option>
                         <template x-for="v in mergeQueueVoyages" :key="v.id">
                             <option :value="v.id" x-text="v.name"></option>
