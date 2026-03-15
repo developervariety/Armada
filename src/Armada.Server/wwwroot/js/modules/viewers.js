@@ -94,7 +94,6 @@ window.ArmadaModules.viewers = {
         this.diffViewerTitle = title;
         this.diffViewerRawDiff = rawDiff;
         this.diffViewerSelectedFile = null;
-        this.diffViewerCopied = false;
         this.diffViewerOpen = true;
         let isEmpty = !rawDiff || !rawDiff.trim() || rawDiff === 'No changes' || rawDiff === 'No modified files';
         this.diffViewerFiles = isEmpty ? [] : this.parseDiffFiles(rawDiff);
@@ -133,22 +132,10 @@ window.ArmadaModules.viewers = {
         }
     },
 
-    copyDiffRaw() {
+    copyDiffRaw(buttonEl) {
         let text = this.diffViewerRawDiff;
         if (!text) return;
-        let onSuccess = () => {
-            this.diffViewerCopied = true;
-            setTimeout(() => { this.diffViewerCopied = false; }, 2000);
-        };
-        if (navigator.clipboard && window.isSecureContext) {
-            navigator.clipboard.writeText(text).then(onSuccess).catch(() => {
-                this.fallbackCopy(text);
-                onSuccess();
-            });
-        } else {
-            this.fallbackCopy(text);
-            onSuccess();
-        }
+        this.copyToClipboard(text, buttonEl);
     },
 
     async loadMissionDiff(missionId) {
@@ -251,33 +238,21 @@ window.ArmadaModules.viewers = {
         this.jsonViewer = { open: false, title: '', subtitle: '', id: '', content: '' };
     },
 
-    async copyJsonContent() {
-        try {
-            await navigator.clipboard.writeText(this.jsonViewer.content);
-            this.toast('JSON copied to clipboard');
-        } catch (e) {
-            this.fallbackCopy(this.jsonViewer.content);
-            this.toast('JSON copied to clipboard');
-        }
+    copyJsonContent(buttonEl) {
+        this.copyToClipboard(this.jsonViewer.content, buttonEl);
     },
 
     // Viewer modal (simple text viewer)
     openViewer(title, content) {
-        this.viewer = { open: true, title: title, content: content || '', copied: false };
+        this.viewer = { open: true, title: title, content: content || '' };
     },
 
     closeViewer() {
-        this.viewer = { open: false, title: '', content: '', copied: false };
+        this.viewer = { open: false, title: '', content: '' };
     },
 
-    async copyViewerContent() {
-        try {
-            await navigator.clipboard.writeText(this.viewer.content);
-            this.viewer.copied = true;
-            setTimeout(() => { this.viewer.copied = false; }, 2000);
-        } catch (e) {
-            this.toast('Failed to copy to clipboard', 'error');
-        }
+    copyViewerContent(buttonEl) {
+        this.copyToClipboard(this.viewer.content, buttonEl);
     },
 
     async viewMissionDiff(missionId) {
@@ -329,7 +304,7 @@ window.ArmadaModules.viewers = {
     },
 
     async openLogViewer(title, entityType, entityId, defaultLines) {
-        this.logViewer = { open: true, title: title, content: '', entityType: entityType, entityId: entityId, following: false, lineCount: defaultLines || 200, timer: null, copied: false, totalLines: 0 };
+        this.logViewer = { open: true, title: title, content: '', entityType: entityType, entityId: entityId, following: false, lineCount: defaultLines || 200, timer: null, totalLines: 0 };
         await this.fetchLogContent();
     },
 
@@ -390,16 +365,10 @@ window.ArmadaModules.viewers = {
 
     closeLogViewer() {
         this.stopLogFollow();
-        this.logViewer = { open: false, title: '', content: '', entityType: '', entityId: '', following: false, lineCount: 200, timer: null, copied: false, totalLines: 0 };
+        this.logViewer = { open: false, title: '', content: '', entityType: '', entityId: '', following: false, lineCount: 200, timer: null, totalLines: 0 };
     },
 
-    async copyLogContent() {
-        try {
-            await navigator.clipboard.writeText(this.logViewer.content);
-            this.logViewer.copied = true;
-            setTimeout(() => { this.logViewer.copied = false; }, 2000);
-        } catch (e) {
-            this.toast('Failed to copy to clipboard', 'error');
-        }
+    copyLogContent(buttonEl) {
+        this.copyToClipboard(this.logViewer.content, buttonEl);
     },
 };

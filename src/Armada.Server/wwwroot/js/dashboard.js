@@ -174,7 +174,6 @@ function dashboard() {
         diffViewerFiles: [],
         diffViewerSelectedFile: null,
         diffViewerLoading: false,
-        diffViewerCopied: false,
 
         // Confirm dialog
         confirmMessage: '',
@@ -1276,12 +1275,9 @@ function dashboard() {
             return JSON.stringify({ type: 'stdio', command: 'armada', args: ['mcp', 'stdio'] }, null, 2);
         },
 
-        async copyMcpConfig(type) {
+        copyMcpConfig(type, buttonEl) {
             let text = type === 'http' ? this.getMcpConfigHttp() : this.getMcpConfigStdio();
-            try {
-                await navigator.clipboard.writeText(text);
-                this.toast('Copied to clipboard');
-            } catch (e) { this.toast('Failed to copy', 'error'); }
+            this.copyToClipboard(text, buttonEl);
         },
 
         // connectWebSocket, handleWsMessage: moved to modules/websocket.js
