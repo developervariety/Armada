@@ -23,14 +23,12 @@
   - **Enumeration**
     - [armada_enumerate](#armada_enumerate)
   - **Fleets**
-    - [armada_list_fleets](#armada_list_fleets)
     - [armada_get_fleet](#armada_get_fleet)
     - [armada_create_fleet](#armada_create_fleet)
     - [armada_update_fleet](#armada_update_fleet)
     - [armada_delete_fleet](#armada_delete_fleet)
     - [armada_delete_fleets](#armada_delete_fleets)
   - **Vessels**
-    - [armada_list_vessels](#armada_list_vessels)
     - [armada_get_vessel](#armada_get_vessel)
     - [armada_add_vessel](#armada_add_vessel)
     - [armada_update_vessel](#armada_update_vessel)
@@ -39,13 +37,11 @@
     - [armada_delete_vessels](#armada_delete_vessels)
   - **Voyages**
     - [armada_dispatch](#armada_dispatch)
-    - [armada_list_voyages](#armada_list_voyages)
     - [armada_voyage_status](#armada_voyage_status)
     - [armada_cancel_voyage](#armada_cancel_voyage)
     - [armada_purge_voyage](#armada_purge_voyage)
     - [armada_delete_voyages](#armada_delete_voyages)
   - **Missions**
-    - [armada_list_missions](#armada_list_missions)
     - [armada_mission_status](#armada_mission_status)
     - [armada_create_mission](#armada_create_mission)
     - [armada_update_mission](#armada_update_mission)
@@ -57,7 +53,6 @@
     - [armada_get_mission_diff](#armada_get_mission_diff)
     - [armada_get_mission_log](#armada_get_mission_log)
   - **Captains**
-    - [armada_list_captains](#armada_list_captains)
     - [armada_get_captain](#armada_get_captain)
     - [armada_create_captain](#armada_create_captain)
     - [armada_update_captain](#armada_update_captain)
@@ -67,21 +62,17 @@
     - [armada_delete_captains](#armada_delete_captains)
     - [armada_get_captain_log](#armada_get_captain_log)
   - **Signals**
-    - [armada_list_signals](#armada_list_signals)
     - [armada_send_signal](#armada_send_signal)
     - [armada_delete_signals](#armada_delete_signals)
   - **Events**
-    - [armada_list_events](#armada_list_events)
     - [armada_delete_event](#armada_delete_event)
     - [armada_delete_events](#armada_delete_events)
   - **Docks**
-    - [armada_list_docks](#armada_list_docks)
     - [armada_get_dock](#armada_get_dock)
     - [armada_delete_dock](#armada_delete_dock)
     - [armada_purge_dock](#armada_purge_dock)
     - [armada_delete_docks](#armada_delete_docks)
   - **Merge Queue**
-    - [armada_list_merge_queue](#armada_list_merge_queue)
     - [armada_get_merge_entry](#armada_get_merge_entry)
     - [armada_enqueue_merge](#armada_enqueue_merge)
     - [armada_cancel_merge](#armada_cancel_merge)
@@ -244,7 +235,7 @@ Paginated enumeration of any entity type with filtering and sorting. This is the
   "properties": {
     "entityType": { "type": "string", "description": "Entity type to enumerate (fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue)" },
     "pageNumber": { "type": "integer", "description": "Page number (1-based, default 1)" },
-    "pageSize": { "type": "integer", "description": "Results per page (default 100, max 1000)" },
+    "pageSize": { "type": "integer", "description": "Results per page (default 10, max 1000)" },
     "order": { "type": "string", "description": "Sort order: CreatedAscending, CreatedDescending" },
     "createdAfter": { "type": "string", "description": "ISO 8601 timestamp filter" },
     "createdBefore": { "type": "string", "description": "ISO 8601 timestamp filter" },
@@ -257,7 +248,12 @@ Paginated enumeration of any entity type with filtering and sorting. This is the
     "eventType": { "type": "string", "description": "Filter by event type (events only)" },
     "signalType": { "type": "string", "description": "Filter by signal type (signals only)" },
     "toCaptainId": { "type": "string", "description": "Filter by recipient captain (signals only)" },
-    "unreadOnly": { "type": "boolean", "description": "Unread only (signals only)" }
+    "unreadOnly": { "type": "boolean", "description": "Unread only (signals only)" },
+    "includeDescription": { "type": "boolean", "description": "Include full Description on missions/voyages (default false). Returns descriptionLength hint when false." },
+    "includeContext": { "type": "boolean", "description": "Include ProjectContext and StyleGuide on vessels (default false). Returns length hints when false." },
+    "includeTestOutput": { "type": "boolean", "description": "Include TestOutput on merge queue entries (default false). Returns testOutputLength hint when false." },
+    "includePayload": { "type": "boolean", "description": "Include full Payload on events (default false). Returns payloadLength hint when false." },
+    "includeMessage": { "type": "boolean", "description": "Include full Message on signals (default false). Returns messageLength hint when false." }
   },
   "required": ["entityType"]
 }
@@ -275,7 +271,15 @@ Paginated enumeration of any entity type with filtering and sorting. This is the
 | `events` | `eventType`, `captainId`, `missionId`, `vesselId`, `voyageId`, `createdAfter`, `createdBefore` |
 | `merge_queue` | `status` (Queued/Testing/Passed/Failed/Landed/Cancelled), `createdAfter`, `createdBefore` |
 
-**Example — page 2 of in-progress missions, 25 per page:**
+| Include flag | Applies to | Default | Description |
+|---|---|---|---|
+| `includeDescription` | missions, voyages | `false` | Include full Description. Returns `descriptionLength` hint when false. |
+| `includeContext` | vessels | `false` | Include ProjectContext and StyleGuide. Returns length hints when false. |
+| `includeTestOutput` | merge_queue | `false` | Include TestOutput. Returns `testOutputLength` hint when false. |
+| `includePayload` | events | `false` | Include full Payload. Returns `payloadLength` hint when false. |
+| `includeMessage` | signals | `false` | Include full Message. Returns `messageLength` hint when false. |
+
+**Example -- page 2 of in-progress missions, 25 per page:**
 
 ```json
 {
@@ -378,7 +382,7 @@ Dispatch a new voyage with missions to a vessel. This is the primary way to assi
 
 ### armada_voyage_status
 
-Get status of a specific voyage with all its missions.
+Get status of a specific voyage. Returns summary with mission counts by default; opt-in to full mission details.
 
 **Input Schema:**
 
@@ -389,27 +393,75 @@ Get status of a specific voyage with all its missions.
     "voyageId": {
       "type": "string",
       "description": "Voyage ID"
+    },
+    "summary": {
+      "type": "boolean",
+      "description": "Return summary with mission counts only (default true)"
+    },
+    "includeMissions": {
+      "type": "boolean",
+      "description": "Include full mission objects in response (default false)"
+    },
+    "includeDescription": {
+      "type": "boolean",
+      "description": "Include full Description on voyage and missions (default false)"
+    },
+    "includeDiffs": {
+      "type": "boolean",
+      "description": "Include DiffSnapshot on missions (default false)"
+    },
+    "includeLogs": {
+      "type": "boolean",
+      "description": "Include session logs on missions (default false)"
     }
   },
   "required": ["voyageId"]
 }
 ```
 
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `voyageId` | string | Yes | Voyage ID (prefix `vyg_`) |
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `voyageId` | string | Yes | -- | Voyage ID (prefix `vyg_`) |
+| `summary` | boolean | No | `true` | Return summary with mission counts only |
+| `includeMissions` | boolean | No | `false` | Include full mission objects in response |
+| `includeDescription` | boolean | No | `false` | Include full Description on voyage and missions |
+| `includeDiffs` | boolean | No | `false` | Include DiffSnapshot on missions |
+| `includeLogs` | boolean | No | `false` | Include session logs on missions |
 
-**Response:**
+**Response (default summary mode):**
 
 ```json
 {
-  "voyage": {
+  "Voyage": {
     "id": "vyg_abc123def456ghi789jk",
     "title": "Implement authentication",
-    "status": "InProgress",
-    "...": "..."
+    "status": "InProgress"
   },
-  "missions": [
+  "TotalMissions": 5,
+  "MissionCountsByStatus": {
+    "Pending": 1,
+    "InProgress": 2,
+    "Complete": 2
+  }
+}
+```
+
+**Response (with `includeMissions: true`):**
+
+```json
+{
+  "Voyage": {
+    "id": "vyg_abc123def456ghi789jk",
+    "title": "Implement authentication",
+    "status": "InProgress"
+  },
+  "TotalMissions": 5,
+  "MissionCountsByStatus": {
+    "Pending": 1,
+    "InProgress": 2,
+    "Complete": 2
+  },
+  "Missions": [
     {
       "id": "msn_abc123def456ghi789jk",
       "title": "Add JWT middleware",
@@ -428,8 +480,10 @@ Get status of a specific voyage with all its missions.
 
 | Field | Type | Description |
 |---|---|---|
-| `voyage` | object \| null | [Voyage](#voyage) object, or null if not found |
-| `missions` | array | List of [Mission](#mission) objects belonging to this voyage |
+| `Voyage` | object \| null | [Voyage](#voyage) object, or null if not found |
+| `TotalMissions` | int | Total number of missions in this voyage |
+| `MissionCountsByStatus` | object | Map of status string to count |
+| `Missions` | array \| null | List of [Mission](#mission) objects (only present when `includeMissions` is true) |
 
 ---
 
@@ -459,38 +513,6 @@ Get status of a specific mission.
 **Response:** [Mission](#mission) object, or `{"error": "Mission not found"}` if the ID does not exist.
 
 > **Note:** The `DiffSnapshot` field is excluded from status responses to keep payloads compact. Use `armada_get_mission_diff` to retrieve the full diff.
-
----
-
-### armada_list_fleets
-
-List all registered fleets.
-
-**Input Schema:**
-
-```json
-{
-  "type": "object",
-  "properties": {}
-}
-```
-
-No parameters required.
-
-**Response:** Array of [Fleet](#fleet) objects.
-
-```json
-[
-  {
-    "id": "flt_abc123def456ghi789jk",
-    "name": "Backend Services",
-    "description": "All backend microservices",
-    "active": true,
-    "createdUtc": "2026-03-01T00:00:00.000Z",
-    "lastUpdateUtc": "2026-03-07T12:00:00.000Z"
-  }
-]
-```
 
 ---
 
@@ -543,25 +565,6 @@ Returns `{"error": "Fleet not found"}` if the ID does not exist.
 |---|---|---|
 | `fleet` | object | [Fleet](#fleet) object |
 | `vessels` | array | List of [Vessel](#vessel) objects in this fleet |
-
----
-
-### armada_list_vessels
-
-List all registered vessels (repositories).
-
-**Input Schema:**
-
-```json
-{
-  "type": "object",
-  "properties": {}
-}
-```
-
-No parameters required.
-
-**Response:** Array of [Vessel](#vessel) objects.
 
 ---
 
@@ -630,184 +633,6 @@ Register a new vessel (git repository) in a fleet.
 ```
 
 **Response:** The newly created [Vessel](#vessel) object.
-
----
-
-### armada_list_voyages
-
-List all voyages, optionally filtered by status.
-
-**Input Schema:**
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "status": {
-      "type": "string",
-      "description": "Filter by status: Open, InProgress, Complete, Cancelled"
-    }
-  }
-}
-```
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `status` | string | No | Filter by [VoyageStatusEnum](#voyagestatusenum) value |
-
-**Response:** Array of [Voyage](#voyage) objects.
-
----
-
-### armada_list_missions
-
-List all missions, optionally filtered by status.
-
-**Input Schema:**
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "status": {
-      "type": "string",
-      "description": "Filter by status: Pending, Assigned, InProgress, WorkProduced, PullRequestOpen, Testing, Review, Complete, Failed, LandingFailed, Cancelled"
-    }
-  }
-}
-```
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `status` | string | No | Filter by [MissionStatusEnum](#missionstatusenum) value |
-
-**Response:** Array of [Mission](#mission) objects. If `status` is provided and valid, only missions matching that status are returned. Otherwise, all missions are returned.
-
-> **Note:** The `DiffSnapshot` field is excluded from list responses to keep payloads compact. Use `armada_get_mission_diff` to retrieve the full diff.
-
----
-
-### armada_list_captains
-
-List all captains with their current state.
-
-**Input Schema:**
-
-```json
-{
-  "type": "object",
-  "properties": {}
-}
-```
-
-No parameters required.
-
-**Response:** Array of [Captain](#captain) objects.
-
-```json
-[
-  {
-    "id": "cpt_abc123def456ghi789jk",
-    "name": "captain-1",
-    "runtime": "ClaudeCode",
-    "state": "Working",
-    "currentMissionId": "msn_abc123def456ghi789jk",
-    "currentDockId": "dck_abc123def456ghi789jk",
-    "processId": 12345,
-    "recoveryAttempts": 0,
-    "lastHeartbeatUtc": "2026-03-07T12:34:00.000Z",
-    "createdUtc": "2026-03-07T12:00:00.000Z",
-    "lastUpdateUtc": "2026-03-07T12:34:00.000Z"
-  }
-]
-```
-
----
-
-### armada_list_signals
-
-List signals (messages between admiral and captains).
-
-**Input Schema:**
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "captainId": {
-      "type": "string",
-      "description": "Filter signals by captain ID"
-    }
-  }
-}
-```
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `captainId` | string | No | Filter signals by recipient captain ID (prefix `cpt_`) |
-
-**Response:** Array of [Signal](#signal) objects. If `captainId` is provided, only signals addressed to that captain are returned. Otherwise, recent signals are returned.
-
----
-
-### armada_list_events
-
-Query the event audit trail with optional filters.
-
-**Input Schema:**
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "missionId": {
-      "type": "string",
-      "description": "Filter events by mission ID"
-    },
-    "captainId": {
-      "type": "string",
-      "description": "Filter events by captain ID"
-    },
-    "voyageId": {
-      "type": "string",
-      "description": "Filter events by voyage ID"
-    },
-    "limit": {
-      "type": "integer",
-      "description": "Maximum number of events to return (default 50)"
-    }
-  }
-}
-```
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `missionId` | string | No | — | Filter by mission ID (prefix `msn_`) |
-| `captainId` | string | No | — | Filter by captain ID (prefix `cpt_`) |
-| `voyageId` | string | No | — | Filter by voyage ID (prefix `vyg_`) |
-| `limit` | integer | No | `50` | Maximum number of events to return |
-
-Filters are applied with priority: `missionId` > `captainId` > `voyageId`. Only one filter is applied at a time. If no filter is provided, the most recent events are returned.
-
-**Response:** Array of [ArmadaEvent](#armadaevent) objects.
-
-```json
-[
-  {
-    "id": "evt_abc123def456ghi789jk",
-    "eventType": "mission.created",
-    "entityType": "mission",
-    "entityId": "msn_abc123def456ghi789jk",
-    "captainId": null,
-    "missionId": "msn_abc123def456ghi789jk",
-    "vesselId": "vsl_abc123def456ghi789jk",
-    "voyageId": "vyg_abc123def456ghi789jk",
-    "message": "Mission 'Add JWT middleware' created",
-    "payload": null,
-    "createdUtc": "2026-03-07T12:00:00.000Z"
-  }
-]
-```
 
 ---
 
@@ -1810,38 +1635,6 @@ Get the current session log for a captain. Supports pagination.
 
 ---
 
-### armada_list_docks
-
-List all docks (git worktrees) with their status, optionally filtered by vessel.
-
-**Input Schema:**
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "vesselId": { "type": "string", "description": "Filter docks by vessel ID (vsl_ prefix)" }
-  }
-}
-```
-
-**Response:** Array of Dock objects.
-
-```json
-[
-  {
-    "Id": "dck_...",
-    "VesselId": "vsl_...",
-    "CaptainId": "cpt_...",
-    "BranchName": "armada/msn_...",
-    "WorktreePath": "/path/to/worktree",
-    "Active": true
-  }
-]
-```
-
----
-
 ### armada_get_dock
 
 Get a dock (git worktree) by ID.
@@ -1960,23 +1753,6 @@ Permanently delete multiple docks and their git worktrees from the database by I
 ```
 
 Returns `{ "Error": "ids is required and must not be empty" }` if no IDs are provided.
-
----
-
-### armada_list_merge_queue
-
-List all entries in the merge queue.
-
-**Input Schema:**
-
-```json
-{
-  "type": "object",
-  "properties": {}
-}
-```
-
-**Response:** Array of [MergeEntry](#mergeentry) objects.
 
 ---
 
