@@ -500,7 +500,7 @@ Armada runs an MCP (Model Context Protocol) server with 18 tools, allowing Claud
 armada mcp install    # Configure Armada as an MCP server
 ```
 
-Once installed, your MCP client can call tools like `armada_status`, `armada_dispatch`, `armada_list_missions`, `armada_cancel_voyage`, `armada_list_events`, and more.
+Once installed, your MCP client can call tools like `armada_status`, `armada_dispatch`, `armada_enumerate`, `armada_voyage_status`, `armada_cancel_voyage`, and more.
 
 ### AI-Powered Orchestration
 

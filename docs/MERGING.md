@@ -4,7 +4,7 @@
 
 Armada includes a built-in merge queue that serializes branch merges into a target branch, running optional tests before landing each one. Entries targeting the same vessel and target branch are processed **sequentially** to avoid conflicts, while different vessel+target-branch groups are processed **in parallel** for throughput. This design ensures correctness within a group (each merge sees the result of the previous one) while maximizing overall processing speed across independent repositories and branches.
 
-The merge queue is managed through MCP tools (`armada_enqueue_merge`, `armada_process_merge_queue`, `armada_list_merge_queue`, etc.) and operates on the bare repository clones that Armada maintains for each vessel.
+The merge queue is managed through MCP tools (`armada_enqueue_merge`, `armada_process_merge_queue`, `armada_enumerate` with entityType 'merge_queue', etc.) and operates on the bare repository clones that Armada maintains for each vessel.
 
 ---
 
@@ -76,7 +76,7 @@ Because each entry is landed immediately, the next entry in the same group alway
 - **One branch per entry.** Each merge queue entry corresponds to a single feature branch being merged into a target branch.
 - **Keep test commands fast.** Tests run synchronously per entry, blocking subsequent entries in the same group. Long tests slow down the entire group's queue throughput.
 - **Use priorities.** Lower priority numbers are processed first within a group. Use this to land critical fixes ahead of routine changes.
-- **Monitor terminal entries.** Use `armada_list_merge_queue` or `armada_enumerate` to check for `Failed` entries that may need attention.
+- **Monitor terminal entries.** Use `armada_enumerate` with entityType 'merge_queue' and status 'Failed' to check for entries that may need attention.
 - **Clean up regularly.** Use `armada_delete_merge` or `armada_purge_merge_queue` to remove terminal entries and their associated git branches.
 
 ---
@@ -88,7 +88,6 @@ Because each entry is landed immediately, the next entry in the same group alway
 | `armada_enqueue_merge` | Add an entry to the merge queue. |
 | `armada_process_merge_queue` | Trigger a processing run (no-op if already running). |
 | `armada_process_merge_entry` | Process a single entry by ID. |
-| `armada_list_merge_queue` | List all merge queue entries. |
 | `armada_get_merge_entry` | Get a single entry by ID. |
 | `armada_cancel_merge` | Cancel a queued entry. |
 | `armada_delete_merge` | Delete a terminal entry and clean up its branches. |
