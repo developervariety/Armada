@@ -7,7 +7,8 @@ window.ArmadaModules.partialLoader = {
     _partialCache: {},
 
     async loadViewPartial(viewName) {
-        let container = document.getElementById('view-container');
+        // Look for a view-specific container first, then fall back to generic container
+        let container = document.getElementById('view-' + viewName) || document.getElementById('view-container');
         if (!container) return;
 
         // Hide container if no partial exists for this view
