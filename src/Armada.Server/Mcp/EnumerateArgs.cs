@@ -90,6 +90,31 @@ namespace Armada.Server.Mcp
         public bool? UnreadOnly { get; set; }
 
         /// <summary>
+        /// Include Description field on missions and voyages (default false). When false, a DescriptionLength hint is returned instead.
+        /// </summary>
+        public bool? IncludeDescription { get; set; }
+
+        /// <summary>
+        /// Include ProjectContext and StyleGuide fields on vessels (default false). When false, length hints are returned instead.
+        /// </summary>
+        public bool? IncludeContext { get; set; }
+
+        /// <summary>
+        /// Include TestOutput field on merge queue entries (default false). When false, a TestOutputLength hint is returned instead.
+        /// </summary>
+        public bool? IncludeTestOutput { get; set; }
+
+        /// <summary>
+        /// Include full Payload on event entities (default false). When false, a PayloadLength hint is returned instead.
+        /// </summary>
+        public bool? IncludePayload { get; set; }
+
+        /// <summary>
+        /// Include full Message body on signal entities (default false). When false, a MessageLength hint is returned instead.
+        /// </summary>
+        public bool? IncludeMessage { get; set; }
+
+        /// <summary>
         /// Convert to an EnumerationQuery for database operations.
         /// </summary>
         /// <returns>Populated EnumerationQuery.</returns>

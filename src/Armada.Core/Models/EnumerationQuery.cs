@@ -13,7 +13,7 @@ namespace Armada.Core.Models
         #region Private-Members
 
         private int _PageNumber = 1;
-        private int _PageSize = 100;
+        private int _PageSize = 10;
 
         #endregion
 
@@ -29,7 +29,7 @@ namespace Armada.Core.Models
         }
 
         /// <summary>
-        /// Number of results per page. Default is 100. Min 1, max 1000.
+        /// Number of results per page. Default is 10. Min 1, max 1000.
         /// </summary>
         public int PageSize
         {

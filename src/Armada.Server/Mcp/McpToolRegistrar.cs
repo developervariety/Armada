@@ -121,7 +121,7 @@ namespace Armada.Server.Mcp
                     {
                         entityType = new { type = "string", description = "Entity type to enumerate: fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue" },
                         pageNumber = new { type = "integer", description = "Page number (1-based, default 1)" },
-                        pageSize = new { type = "integer", description = "Results per page (default 100, max 1000)" },
+                        pageSize = new { type = "integer", description = "Results per page (default 10, max 1000)" },
                         order = new { type = "string", description = "Sort order: CreatedAscending, CreatedDescending (default)" },
                         createdAfter = new { type = "string", description = "ISO 8601 timestamp — only return entities created after this time" },
                         createdBefore = new { type = "string", description = "ISO 8601 timestamp — only return entities created before this time" },
@@ -134,7 +134,12 @@ namespace Armada.Server.Mcp
                         eventType = new { type = "string", description = "Filter by event type string (events only)" },
                         signalType = new { type = "string", description = "Filter by signal type (signals only)" },
                         toCaptainId = new { type = "string", description = "Filter by recipient captain ID (signals only)" },
-                        unreadOnly = new { type = "boolean", description = "Return only unread signals (signals only)" }
+                        unreadOnly = new { type = "boolean", description = "Return only unread signals (signals only)" },
+                        includeDescription = new { type = "boolean", description = "Include full Description on missions/voyages (default false; returns descriptionLength hint when false)" },
+                        includeContext = new { type = "boolean", description = "Include ProjectContext and StyleGuide on vessels (default false; returns length hints when false)" },
+                        includeTestOutput = new { type = "boolean", description = "Include TestOutput on merge queue entries (default false; returns testOutputLength hint when false)" },
+                        includePayload = new { type = "boolean", description = "Include full Payload on events (default false; returns payloadLength hint when false)" },
+                        includeMessage = new { type = "boolean", description = "Include full Message on signals (default false; returns messageLength hint when false)" }
                     },
                     required = new[] { "entityType" }
                 },
@@ -153,6 +158,27 @@ namespace Armada.Server.Mcp
                         case "vessels":
                         case "vessel":
                             EnumerationResult<Vessel> vessels = await database.Vessels.EnumerateAsync(query).ConfigureAwait(false);
+                            if (request.IncludeContext != true)
+                            {
+                                object projectedVessels = new
+                                {
+                                    vessels.Success,
+                                    vessels.PageNumber,
+                                    vessels.PageSize,
+                                    vessels.TotalPages,
+                                    vessels.TotalRecords,
+                                    Objects = vessels.Objects.Select(v => new
+                                    {
+                                        v.Id, v.FleetId, v.Name, v.RepoUrl, v.LocalPath, v.WorkingDirectory,
+                                        v.DefaultBranch, v.LandingMode, v.BranchCleanupPolicy,
+                                        v.AllowConcurrentMissions, v.Active, v.CreatedUtc, v.LastUpdateUtc,
+                                        ProjectContextLength = v.ProjectContext?.Length ?? 0,
+                                        StyleGuideLength = v.StyleGuide?.Length ?? 0
+                                    }).ToList(),
+                                    vessels.TotalMs
+                                };
+                                return (object)projectedVessels;
+                            }
                             return (object)vessels;
                         case "captains":
                         case "captain":
@@ -162,10 +188,50 @@ namespace Armada.Server.Mcp
                         case "mission":
                             EnumerationResult<Mission> missions = await database.Missions.EnumerateAsync(query).ConfigureAwait(false);
                             foreach (Mission m in missions.Objects) m.DiffSnapshot = null;
+                            if (request.IncludeDescription != true)
+                            {
+                                object projectedMissions = new
+                                {
+                                    missions.Success,
+                                    missions.PageNumber,
+                                    missions.PageSize,
+                                    missions.TotalPages,
+                                    missions.TotalRecords,
+                                    Objects = missions.Objects.Select(m => new
+                                    {
+                                        m.Id, m.Title, m.Status, m.VesselId, m.VoyageId, m.CaptainId,
+                                        m.BranchName, m.DockId, m.ProcessId, m.PrUrl, m.CommitHash,
+                                        m.Priority, m.ParentMissionId,
+                                        m.CreatedUtc, m.LastUpdateUtc, m.StartedUtc, m.CompletedUtc,
+                                        DescriptionLength = m.Description?.Length ?? 0
+                                    }).ToList(),
+                                    missions.TotalMs
+                                };
+                                return (object)projectedMissions;
+                            }
                             return (object)missions;
                         case "voyages":
                         case "voyage":
                             EnumerationResult<Voyage> voyages = await database.Voyages.EnumerateAsync(query).ConfigureAwait(false);
+                            if (request.IncludeDescription != true)
+                            {
+                                object projectedVoyages = new
+                                {
+                                    voyages.Success,
+                                    voyages.PageNumber,
+                                    voyages.PageSize,
+                                    voyages.TotalPages,
+                                    voyages.TotalRecords,
+                                    Objects = voyages.Objects.Select(v => new
+                                    {
+                                        v.Id, v.Title, v.Status, v.CreatedUtc, v.CompletedUtc, v.LastUpdateUtc,
+                                        v.AutoPush, v.AutoCreatePullRequests, v.AutoMergePullRequests, v.LandingMode,
+                                        DescriptionLength = v.Description?.Length ?? 0
+                                    }).ToList(),
+                                    voyages.TotalMs
+                                };
+                                return (object)projectedVoyages;
+                            }
                             return (object)voyages;
                         case "docks":
                         case "dock":
@@ -174,16 +240,74 @@ namespace Armada.Server.Mcp
                         case "signals":
                         case "signal":
                             EnumerationResult<Signal> signals = await database.Signals.EnumerateAsync(query).ConfigureAwait(false);
+                            if (request.IncludeMessage != true)
+                            {
+                                object projectedSignals = new
+                                {
+                                    signals.Success,
+                                    signals.PageNumber,
+                                    signals.PageSize,
+                                    signals.TotalPages,
+                                    signals.TotalRecords,
+                                    Objects = signals.Objects.Select(s => new
+                                    {
+                                        s.Id, s.FromCaptainId, s.ToCaptainId, s.Type, s.Read, s.CreatedUtc,
+                                        PayloadLength = s.Payload?.Length ?? 0
+                                    }).ToList(),
+                                    signals.TotalMs
+                                };
+                                return (object)projectedSignals;
+                            }
                             return (object)signals;
                         case "events":
                         case "event":
                             EnumerationResult<ArmadaEvent> events = await database.Events.EnumerateAsync(query).ConfigureAwait(false);
+                            if (request.IncludePayload != true)
+                            {
+                                object projectedEvents = new
+                                {
+                                    events.Success,
+                                    events.PageNumber,
+                                    events.PageSize,
+                                    events.TotalPages,
+                                    events.TotalRecords,
+                                    Objects = events.Objects.Select(e => new
+                                    {
+                                        e.Id, e.EventType, e.EntityType, e.EntityId,
+                                        e.CaptainId, e.MissionId, e.VesselId, e.VoyageId,
+                                        e.Message, e.CreatedUtc,
+                                        PayloadLength = e.Payload?.Length ?? 0
+                                    }).ToList(),
+                                    events.TotalMs
+                                };
+                                return (object)projectedEvents;
+                            }
                             return (object)events;
                         case "merge_queue":
                         case "merge-queue":
                         case "mergequeue":
                         case "merge_entries":
                             EnumerationResult<MergeEntry> mqResult = await database.MergeEntries.EnumerateAsync(query).ConfigureAwait(false);
+                            if (request.IncludeTestOutput != true)
+                            {
+                                object projectedMerge = new
+                                {
+                                    mqResult.Success,
+                                    mqResult.PageNumber,
+                                    mqResult.PageSize,
+                                    mqResult.TotalPages,
+                                    mqResult.TotalRecords,
+                                    Objects = mqResult.Objects.Select(e => new
+                                    {
+                                        e.Id, e.MissionId, e.VesselId, e.BranchName, e.TargetBranch,
+                                        e.Status, e.Priority, e.BatchId, e.TestCommand, e.TestExitCode,
+                                        e.CreatedUtc, e.LastUpdateUtc, e.TestStartedUtc, e.CompletedUtc,
+                                        TestOutputLength = e.TestOutput?.Length ?? 0
+                                    }).ToList(),
+                                    mqResult.TotalMs
+                                };
+                                return (object)projectedMerge;
+                            }
                             return (object)mqResult;
                         default:
                             return (object)new { Error = "Unknown entity type: " + entityType + ". Valid types: fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue" };
