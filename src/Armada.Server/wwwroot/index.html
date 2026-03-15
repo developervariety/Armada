@@ -428,10 +428,8 @@
             <div class="viewer-header">
                 <h3 class="viewer-title" x-text="viewer.title"></h3>
                 <div class="viewer-actions">
-                    <button class="btn btn-sm btn-primary" @click="copyViewerContent()"
-                            x-text="viewer.copied ? 'Copied!' : 'Copy to Clipboard'"
-                            :class="{ 'viewer-copied': viewer.copied }"
-                            title="Copy full content to clipboard"></button>
+                    <button class="btn btn-sm btn-primary copy-btn" @click="copyViewerContent($el)"
+                            title="Copy full content to clipboard">Copy to Clipboard</button>
                     <button class="btn btn-sm" @click="closeViewer()" title="Close viewer (Esc)">Close</button>
                 </div>
             </div>
@@ -460,10 +458,8 @@
                         <span class="follow-dot" :class="{ 'follow-dot-active': logViewer.following }"></span>
                         <span x-text="logViewer.following ? 'Following' : 'Follow'"></span>
                     </button>
-                    <button class="btn btn-sm btn-primary" @click="copyLogContent()"
-                            x-text="logViewer.copied ? 'Copied!' : 'Copy'"
-                            :class="{ 'viewer-copied': logViewer.copied }"
-                            title="Copy log content to clipboard"></button>
+                    <button class="btn btn-sm btn-primary copy-btn" @click="copyLogContent($el)"
+                            title="Copy log content to clipboard">Copy</button>
                     <button class="btn btn-sm" @click="closeLogViewer()" title="Close log viewer (Esc)">Close</button>
                 </div>
             </div>
@@ -483,10 +479,8 @@
                     <span class="diff-stat-del" x-text="'-' + diffViewerFiles.reduce((s, f) => s + f.deletions, 0)"></span>
                 </div>
                 <div class="viewer-actions">
-                    <button class="btn btn-sm" @click="copyDiffRaw()"
-                            x-text="diffViewerCopied ? 'Copied!' : 'Copy Raw'"
-                            :class="{ 'viewer-copied': diffViewerCopied }"
-                            title="Copy raw diff to clipboard"></button>
+                    <button class="btn btn-sm copy-btn" @click="copyDiffRaw($el)"
+                            title="Copy raw diff to clipboard">Copy Raw</button>
                     <button class="btn btn-sm" @click="closeDiffViewer()" title="Close diff viewer (Esc)">Close</button>
                 </div>
             </div>
@@ -533,7 +527,7 @@
                 <button class="copy-btn" @click.stop="copyId(jsonViewer.id, $event)" title="Copy ID"></button>
             </div>
             <div class="json-viewer-body">
-                <button class="json-viewer-copy copy-btn" @click="copyJsonContent()" title="Copy JSON to clipboard"></button>
+                <button class="json-viewer-copy copy-btn" @click="copyJsonContent($el)" title="Copy JSON to clipboard"></button>
                 <pre x-text="jsonViewer.content"></pre>
             </div>
         </div>
