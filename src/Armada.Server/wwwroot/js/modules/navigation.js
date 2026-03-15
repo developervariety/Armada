@@ -93,8 +93,8 @@ window.ArmadaModules.navigation = {
         if (!entityId) return null;
         let prefix = entityId.substring(0, 4);
         let map = {
-            'flt_': { view: 'fleets', detail: 'fleet-detail' },
-            'vsl_': { view: 'vessels', detail: 'vessel-detail' },
+            'flt_': { view: 'fleets-list', detail: 'fleet-detail' },
+            'vsl_': { view: 'fleets', detail: 'vessel-detail' },
             'cpt_': { view: 'captains', detail: 'captain-detail' },
             'msn_': { view: 'missions', detail: 'mission-detail' },
             'vyg_': { view: 'voyages', detail: 'voyage-detail' },
