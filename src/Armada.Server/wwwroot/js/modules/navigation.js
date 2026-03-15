@@ -35,7 +35,7 @@ window.ArmadaModules.navigation = {
         if (view === 'merge-queue') this.loadMergeQueue();
         if (view === 'missions') this.selectedMissions = [];
         if (view === 'voyages') this.selectedVoyages = [];
-        if (view === 'captains') this.selectedCaptains = [];
+        if (view === 'captains') { this.selectedCaptains = []; this.loadCaptains(); }
         if (view === 'signals') this.selectedSignals = [];
         if (view === 'events') this.selectedEvents = [];
         if (view === 'merge-queue') this.selectedMergeQueue = [];
@@ -44,7 +44,7 @@ window.ArmadaModules.navigation = {
         if (view === 'docks') { this.selectedDocks = []; this.loadDocks(); }
         if (view === 'server') { this.loadHealth(); this.loadSettings(); }
         if (view === 'missions') this.loadMissions();
-        if (view === 'voyages') this.loadVoyageMissionMap();
+        if (view === 'voyages') { this.loadVoyages(); this.loadVoyageMissionMap(); }
         if (view === 'doctor') this.runDoctorChecks();
 
         if (detailView) this.loadDetail(detailView, detailId);
@@ -64,7 +64,7 @@ window.ArmadaModules.navigation = {
             'home': 'Dashboard', 'fleets-list': 'Fleets', 'fleets': 'Vessels', 'voyages': 'Voyages',
             'captains': 'Captains', 'missions': 'Missions', 'dispatch': 'Dispatch',
             'signals': 'Signals', 'events': 'Events', 'merge-queue': 'Merge Queue',
-            'docks': 'Docks', 'server': 'Server', 'config': 'Config'
+            'docks': 'Docks', 'server': 'Server', 'doctor': 'Doctor', 'notifications': 'Notifications'
         };
         this.breadcrumbs.push({ label: viewLabels[this.view] || this.view, view: this.view });
         if (this.detailView) {
