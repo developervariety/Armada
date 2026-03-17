@@ -184,7 +184,7 @@ namespace Armada.Core.Services
                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
 
                 // Reclaim the dock we provisioned since we can't use it
-                await _Docks.ReclaimAsync(dock.Id, token).ConfigureAwait(false);
+                await _Docks.ReclaimAsync(dock.Id, token: token).ConfigureAwait(false);
 
                 return false;
             }
@@ -198,6 +198,8 @@ namespace Armada.Core.Services
 
             // Create assignment signal
             Signal signal = new Signal(SignalTypeEnum.Assignment, mission.Title);
+            signal.TenantId = mission.TenantId;
+            signal.UserId = mission.UserId;
             signal.ToCaptainId = captain.Id;
             await _Database.Signals.CreateAsync(signal, token).ConfigureAwait(false);
 
@@ -239,6 +241,8 @@ namespace Armada.Core.Services
                     await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
 
                     Signal errorSignal = new Signal(SignalTypeEnum.Error, "Failed to launch agent: " + ex.Message);
+                    errorSignal.TenantId = mission.TenantId;
+                    errorSignal.UserId = mission.UserId;
                     errorSignal.FromCaptainId = captain.Id;
                     await _Database.Signals.CreateAsync(errorSignal, token).ConfigureAwait(false);
 
@@ -282,7 +286,9 @@ namespace Armada.Core.Services
             if (captain == null) throw new ArgumentNullException(nameof(captain));
             if (String.IsNullOrEmpty(missionId)) return;
 
-            Mission? mission = await _Database.Missions.ReadAsync(missionId, token).ConfigureAwait(false);
+            Mission? mission = !String.IsNullOrEmpty(captain.TenantId)
+                ? await _Database.Missions.ReadAsync(captain.TenantId, missionId, token).ConfigureAwait(false)
+                : await _Database.Missions.ReadAsync(missionId, token).ConfigureAwait(false);
             if (mission == null) return;
 
             // Mark mission as work produced (agent finished, landing not yet attempted)
@@ -296,6 +302,8 @@ namespace Armada.Core.Services
             try
             {
                 ArmadaEvent workProducedEvent = new ArmadaEvent("mission.work_produced", "Work produced: " + mission.Title);
+                workProducedEvent.TenantId = mission.TenantId;
+                workProducedEvent.UserId = mission.UserId;
                 workProducedEvent.EntityType = "mission";
                 workProducedEvent.EntityId = mission.Id;
                 workProducedEvent.CaptainId = captain.Id;
@@ -314,7 +322,9 @@ namespace Armada.Core.Services
             string? dockId = mission.DockId ?? captain.CurrentDockId;
             if (!String.IsNullOrEmpty(dockId))
             {
-                dock = await _Database.Docks.ReadAsync(dockId, token).ConfigureAwait(false);
+                dock = !String.IsNullOrEmpty(mission.TenantId)
+                    ? await _Database.Docks.ReadAsync(mission.TenantId, dockId, token).ConfigureAwait(false)
+                    : await _Database.Docks.ReadAsync(dockId, token).ConfigureAwait(false);
             }
 
             // Capture diff synchronously before releasing the captain, to ensure the worktree is still available
@@ -352,7 +362,7 @@ namespace Armada.Core.Services
             {
                 try
                 {
-                    await _Docks.ReclaimAsync(completionDockId, token).ConfigureAwait(false);
+                    await _Docks.ReclaimAsync(completionDockId, token: token).ConfigureAwait(false);
                 }
                 catch (Exception reclaimEx)
                 {

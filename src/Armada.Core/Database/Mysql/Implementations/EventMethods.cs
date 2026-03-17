@@ -52,9 +52,11 @@ namespace Armada.Core.Database.Mysql.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = @"INSERT INTO events (id, event_type, entity_type, entity_id, captain_id, mission_id, vessel_id, voyage_id, message, payload, created_utc)
-                        VALUES (@id, @event_type, @entity_type, @entity_id, @captain_id, @mission_id, @vessel_id, @voyage_id, @message, @payload, @created_utc);";
+                    cmd.CommandText = @"INSERT INTO events (id, tenant_id, user_id, event_type, entity_type, entity_id, captain_id, mission_id, vessel_id, voyage_id, message, payload, created_utc)
+                        VALUES (@id, @tenant_id, @user_id, @event_type, @entity_type, @entity_id, @captain_id, @mission_id, @vessel_id, @voyage_id, @message, @payload, @created_utc);";
                     cmd.Parameters.AddWithValue("@id", armadaEvent.Id);
+                    cmd.Parameters.AddWithValue("@tenant_id", (object?)armadaEvent.TenantId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@user_id", (object?)armadaEvent.UserId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@event_type", armadaEvent.EventType);
                     cmd.Parameters.AddWithValue("@entity_type", (object?)armadaEvent.EntityType ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@entity_id", (object?)armadaEvent.EntityId ?? DBNull.Value);
@@ -321,6 +323,158 @@ namespace Armada.Core.Database.Mysql.Implementations
             }
         }
 
+        /// <summary>
+        /// Read an event by tenant and identifier (tenant-scoped).
+        /// </summary>
+        public async Task<ArmadaEvent?> ReadAsync(string tenantId, string id, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
+            if (string.IsNullOrEmpty(id)) throw new ArgumentNullException(nameof(id));
+
+            using (MySqlConnection conn = new MySqlConnection(_ConnectionString))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (MySqlCommand cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "SELECT * FROM events WHERE tenant_id = @tenantId AND id = @id;";
+                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
+                    cmd.Parameters.AddWithValue("@id", id);
+                    using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
+                    {
+                        if (await reader.ReadAsync(token).ConfigureAwait(false))
+                            return EventFromReader(reader);
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Delete an event by tenant and identifier (tenant-scoped).
+        /// </summary>
+        public async Task DeleteAsync(string tenantId, string id, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
+            if (string.IsNullOrEmpty(id)) throw new ArgumentNullException(nameof(id));
+
+            using (MySqlConnection conn = new MySqlConnection(_ConnectionString))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (MySqlCommand cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "DELETE FROM events WHERE tenant_id = @tenantId AND id = @id;";
+                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
+                    cmd.Parameters.AddWithValue("@id", id);
+                    await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                }
+            }
+        }
+
+        /// <inheritdoc />
+        public async Task<List<ArmadaEvent>> EnumerateAsync(string tenantId, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
+            List<ArmadaEvent> results = new List<ArmadaEvent>();
+
+            using (MySqlConnection conn = new MySqlConnection(_ConnectionString))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (MySqlCommand cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "SELECT * FROM events WHERE tenant_id = @tenantId ORDER BY created_utc DESC;";
+                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
+                    using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
+                    {
+                        while (await reader.ReadAsync(token).ConfigureAwait(false))
+                            results.Add(EventFromReader(reader));
+                    }
+                }
+            }
+
+            return results;
+        }
+
+        /// <summary>
+        /// Enumerate events with pagination and filtering (tenant-scoped).
+        /// </summary>
+        public async Task<EnumerationResult<ArmadaEvent>> EnumerateAsync(string tenantId, EnumerationQuery query, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
+            if (query == null) query = new EnumerationQuery();
+
+            using (MySqlConnection conn = new MySqlConnection(_ConnectionString))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+
+                List<string> conditions = new List<string> { "tenant_id = @tenantId" };
+                List<MySqlParameter> parameters = new List<MySqlParameter> { new MySqlParameter("@tenantId", tenantId) };
+
+                if (query.CreatedAfter.HasValue)
+                {
+                    conditions.Add("created_utc > @created_after");
+                    parameters.Add(new MySqlParameter("@created_after", ToIso8601(query.CreatedAfter.Value)));
+                }
+                if (query.CreatedBefore.HasValue)
+                {
+                    conditions.Add("created_utc < @created_before");
+                    parameters.Add(new MySqlParameter("@created_before", ToIso8601(query.CreatedBefore.Value)));
+                }
+                if (!string.IsNullOrEmpty(query.EventType))
+                {
+                    conditions.Add("event_type = @event_type");
+                    parameters.Add(new MySqlParameter("@event_type", query.EventType));
+                }
+                if (!string.IsNullOrEmpty(query.CaptainId))
+                {
+                    conditions.Add("captain_id = @captain_id");
+                    parameters.Add(new MySqlParameter("@captain_id", query.CaptainId));
+                }
+                if (!string.IsNullOrEmpty(query.MissionId))
+                {
+                    conditions.Add("mission_id = @mission_id");
+                    parameters.Add(new MySqlParameter("@mission_id", query.MissionId));
+                }
+                if (!string.IsNullOrEmpty(query.VesselId))
+                {
+                    conditions.Add("vessel_id = @vessel_id");
+                    parameters.Add(new MySqlParameter("@vessel_id", query.VesselId));
+                }
+                if (!string.IsNullOrEmpty(query.VoyageId))
+                {
+                    conditions.Add("voyage_id = @voyage_id");
+                    parameters.Add(new MySqlParameter("@voyage_id", query.VoyageId));
+                }
+
+                string whereClause = " WHERE " + string.Join(" AND ", conditions);
+                string orderDirection = query.Order == EnumerationOrderEnum.CreatedAscending ? "ASC" : "DESC";
+
+                long totalCount = 0;
+                using (MySqlCommand cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "SELECT COUNT(*) FROM events" + whereClause + ";";
+                    foreach (MySqlParameter p in parameters) cmd.Parameters.Add(new MySqlParameter(p.ParameterName, p.Value));
+                    totalCount = (long)(await cmd.ExecuteScalarAsync(token).ConfigureAwait(false))!;
+                }
+
+                List<ArmadaEvent> results = new List<ArmadaEvent>();
+                using (MySqlCommand cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "SELECT * FROM events" + whereClause +
+                        " ORDER BY created_utc " + orderDirection +
+                        " LIMIT " + query.PageSize + " OFFSET " + query.Offset + ";";
+                    foreach (MySqlParameter p in parameters) cmd.Parameters.Add(new MySqlParameter(p.ParameterName, p.Value));
+                    using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
+                    {
+                        while (await reader.ReadAsync(token).ConfigureAwait(false))
+                            results.Add(EventFromReader(reader));
+                    }
+                }
+
+                return EnumerationResult<ArmadaEvent>.Create(query, results, totalCount);
+            }
+        }
+
         #endregion
 
         #region Private-Methods
@@ -346,6 +500,7 @@ namespace Armada.Core.Database.Mysql.Implementations
         {
             ArmadaEvent evt = new ArmadaEvent();
             evt.Id = reader["id"].ToString()!;
+            evt.TenantId = NullableString(reader["tenant_id"]);
             evt.EventType = reader["event_type"].ToString()!;
             evt.EntityType = NullableString(reader["entity_type"]);
             evt.EntityId = NullableString(reader["entity_id"]);
@@ -384,3 +539,4 @@ namespace Armada.Core.Database.Mysql.Implementations
         #endregion
     }
 }
+

@@ -33,6 +33,11 @@ namespace Armada.Core.Database.Interfaces
         Task MarkReadAsync(string id, CancellationToken token = default);
 
         /// <summary>
+        /// Mark a signal as read (tenant-scoped).
+        /// </summary>
+        Task MarkReadAsync(string tenantId, string id, CancellationToken token = default);
+
+        /// <summary>
         /// Permanently delete a signal by identifier.
         /// </summary>
         Task DeleteAsync(string id, CancellationToken token = default);
@@ -41,5 +46,25 @@ namespace Armada.Core.Database.Interfaces
         /// Enumerate signals with pagination and filtering.
         /// </summary>
         Task<EnumerationResult<Signal>> EnumerateAsync(EnumerationQuery query, CancellationToken token = default);
+
+        /// <summary>
+        /// Read a signal by tenant and identifier (tenant-scoped).
+        /// </summary>
+        Task<Signal?> ReadAsync(string tenantId, string id, CancellationToken token = default);
+
+        /// <summary>
+        /// Delete a signal by tenant and identifier (tenant-scoped).
+        /// </summary>
+        Task DeleteAsync(string tenantId, string id, CancellationToken token = default);
+
+        /// <summary>
+        /// Enumerate all signals for a tenant.
+        /// </summary>
+        Task<List<Signal>> EnumerateAsync(string tenantId, CancellationToken token = default);
+
+        /// <summary>
+        /// Enumerate signals with pagination and filtering (tenant-scoped).
+        /// </summary>
+        Task<EnumerationResult<Signal>> EnumerateAsync(string tenantId, EnumerationQuery query, CancellationToken token = default);
     }
 }

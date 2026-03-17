@@ -47,5 +47,25 @@ namespace Armada.Core.Database.Interfaces
         /// Check if a fleet exists by identifier.
         /// </summary>
         Task<bool> ExistsAsync(string id, CancellationToken token = default);
+
+        /// <summary>
+        /// Read a fleet by tenant and identifier (tenant-scoped).
+        /// </summary>
+        Task<Fleet?> ReadAsync(string tenantId, string id, CancellationToken token = default);
+
+        /// <summary>
+        /// Delete a fleet by tenant and identifier (tenant-scoped).
+        /// </summary>
+        Task DeleteAsync(string tenantId, string id, CancellationToken token = default);
+
+        /// <summary>
+        /// Enumerate all fleets in a tenant (tenant-scoped).
+        /// </summary>
+        Task<List<Fleet>> EnumerateAsync(string tenantId, CancellationToken token = default);
+
+        /// <summary>
+        /// Enumerate fleets with pagination and filtering (tenant-scoped).
+        /// </summary>
+        Task<EnumerationResult<Fleet>> EnumerateAsync(string tenantId, EnumerationQuery query, CancellationToken token = default);
     }
 }

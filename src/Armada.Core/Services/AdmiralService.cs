@@ -122,6 +122,8 @@ namespace Armada.Core.Services
 
             // Create voyage
             Voyage voyage = new Voyage(title, description);
+            voyage.TenantId = vessel.TenantId;
+            voyage.UserId = vessel.UserId;
             voyage.Status = VoyageStatusEnum.Open;
             voyage = await _Database.Voyages.CreateAsync(voyage, token).ConfigureAwait(false);
             _Logging.Info(_Header + "created voyage " + voyage.Id + ": " + title);
@@ -130,6 +132,8 @@ namespace Armada.Core.Services
             foreach (MissionDescription md in missionDescriptions)
             {
                 Mission mission = new Mission(md.Title, md.Description);
+                mission.TenantId = vessel.TenantId;
+                mission.UserId = vessel.UserId;
                 mission.VoyageId = voyage.Id;
                 mission.VesselId = vesselId;
                 mission = await _Database.Missions.CreateAsync(mission, token).ConfigureAwait(false);
@@ -218,7 +222,7 @@ namespace Armada.Core.Services
 
             foreach (Voyage voyage in activeVoyages.Concat(openVoyages))
             {
-                VoyageProgress? progress = await _Voyages.GetProgressAsync(voyage.Id, token).ConfigureAwait(false);
+                VoyageProgress? progress = await _Voyages.GetProgressAsync(voyage.Id, token: token).ConfigureAwait(false);
                 if (progress != null) status.Voyages.Add(progress);
             }
 
@@ -231,7 +235,7 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         public async Task RecallCaptainAsync(string captainId, CancellationToken token = default)
         {
-            await _Captains.RecallAsync(captainId, token).ConfigureAwait(false);
+            await _Captains.RecallAsync(captainId, token: token).ConfigureAwait(false);
         }
 
         /// <inheritdoc />
@@ -245,7 +249,7 @@ namespace Armada.Core.Services
             {
                 try
                 {
-                    await _Captains.RecallAsync(captain.Id, token).ConfigureAwait(false);
+                    await _Captains.RecallAsync(captain.Id, token: token).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -365,7 +369,7 @@ namespace Armada.Core.Services
                     {
                         try
                         {
-                            await _Docks.ReclaimAsync(mission.DockId, token).ConfigureAwait(false);
+                            await _Docks.ReclaimAsync(mission.DockId, token: token).ConfigureAwait(false);
                             _Logging.Info(_Header + "reclaimed dock " + mission.DockId + " for stale mission " + mission.Id);
                         }
                         catch (Exception ex)
@@ -401,6 +405,8 @@ namespace Armada.Core.Services
             if (String.IsNullOrEmpty(captainId)) throw new ArgumentNullException(nameof(captainId));
             if (String.IsNullOrEmpty(missionId)) throw new ArgumentNullException(nameof(missionId));
 
+            // System-scoped: process exit handler receives only IDs with no tenant context;
+            // tenant is unknown until the entity is read.
             Captain? captain = await _Database.Captains.ReadAsync(captainId, token).ConfigureAwait(false);
             if (captain == null)
             {
@@ -408,7 +414,10 @@ namespace Armada.Core.Services
                 return;
             }
 
-            Mission? mission = await _Database.Missions.ReadAsync(missionId, token).ConfigureAwait(false);
+            // Use captain's tenant to scope the mission read when available
+            Mission? mission = !String.IsNullOrEmpty(captain.TenantId)
+                ? await _Database.Missions.ReadAsync(captain.TenantId, missionId, token).ConfigureAwait(false)
+                : await _Database.Missions.ReadAsync(missionId, token).ConfigureAwait(false);
             if (mission == null)
             {
                 _Logging.Warn(_Header + "mission " + missionId + " not found during process exit handling");
@@ -746,7 +755,7 @@ namespace Armada.Core.Services
                         _Logging.Info(_Header + "reclaiming orphaned dock " + dock.Id + " (created " + dock.CreatedUtc + ", no active captain)");
                         try
                         {
-                            await _Docks.ReclaimAsync(dock.Id, token).ConfigureAwait(false);
+                            await _Docks.ReclaimAsync(dock.Id, token: token).ConfigureAwait(false);
                         }
                         catch (Exception ex)
                         {
@@ -931,7 +940,7 @@ namespace Armada.Core.Services
 
             try
             {
-                await _Docks.ReclaimAsync(dockId, token).ConfigureAwait(false);
+                await _Docks.ReclaimAsync(dockId, token: token).ConfigureAwait(false);
                 _Logging.Info(_Header + "reclaimed dock " + dockId + " for captain " + captain.Id);
             }
             catch (Exception ex)

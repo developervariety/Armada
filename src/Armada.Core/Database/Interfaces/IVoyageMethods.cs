@@ -47,5 +47,25 @@ namespace Armada.Core.Database.Interfaces
         /// Check if a voyage exists by identifier.
         /// </summary>
         Task<bool> ExistsAsync(string id, CancellationToken token = default);
+
+        /// <summary>
+        /// Read a voyage by tenant and identifier (tenant-scoped).
+        /// </summary>
+        Task<Voyage?> ReadAsync(string tenantId, string id, CancellationToken token = default);
+
+        /// <summary>
+        /// Delete a voyage by tenant and identifier (tenant-scoped).
+        /// </summary>
+        Task DeleteAsync(string tenantId, string id, CancellationToken token = default);
+
+        /// <summary>
+        /// Enumerate all voyages in a tenant (tenant-scoped).
+        /// </summary>
+        Task<List<Voyage>> EnumerateAsync(string tenantId, CancellationToken token = default);
+
+        /// <summary>
+        /// Enumerate voyages with pagination and filtering (tenant-scoped).
+        /// </summary>
+        Task<EnumerationResult<Voyage>> EnumerateAsync(string tenantId, EnumerationQuery query, CancellationToken token = default);
     }
 }

@@ -63,9 +63,11 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 using (NpgsqlCommand cmd = new NpgsqlCommand())
                 {
                     cmd.Connection = conn;
-                    cmd.CommandText = @"INSERT INTO captains (id, name, runtime, state, current_mission_id, current_dock_id, process_id, recovery_attempts, last_heartbeat_utc, created_utc, last_update_utc)
-                        VALUES (@id, @name, @runtime, @state, @current_mission_id, @current_dock_id, @process_id, @recovery_attempts, @last_heartbeat_utc, @created_utc, @last_update_utc);";
+                    cmd.CommandText = @"INSERT INTO captains (id, tenant_id, user_id, name, runtime, state, current_mission_id, current_dock_id, process_id, recovery_attempts, last_heartbeat_utc, created_utc, last_update_utc)
+                        VALUES (@id, @tenant_id, @user_id, @name, @runtime, @state, @current_mission_id, @current_dock_id, @process_id, @recovery_attempts, @last_heartbeat_utc, @created_utc, @last_update_utc);";
                     cmd.Parameters.AddWithValue("@id", captain.Id);
+                    cmd.Parameters.AddWithValue("@tenant_id", (object?)captain.TenantId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@user_id", (object?)captain.UserId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@name", captain.Name);
                     cmd.Parameters.AddWithValue("@runtime", captain.Runtime.ToString());
                     cmd.Parameters.AddWithValue("@state", captain.State.ToString());
@@ -159,6 +161,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = @"UPDATE captains SET
+                        tenant_id = @tenant_id,
+                            user_id = @user_id,
                         name = @name,
                         runtime = @runtime,
                         state = @state,
@@ -170,6 +174,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                         last_update_utc = @last_update_utc
                         WHERE id = @id;";
                     cmd.Parameters.AddWithValue("@id", captain.Id);
+                    cmd.Parameters.AddWithValue("@tenant_id", (object?)captain.TenantId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@user_id", (object?)captain.UserId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@name", captain.Name);
                     cmd.Parameters.AddWithValue("@runtime", captain.Runtime.ToString());
                     cmd.Parameters.AddWithValue("@state", captain.State.ToString());
@@ -448,6 +454,118 @@ namespace Armada.Core.Database.Postgresql.Implementations
             }
         }
 
+        /// <inheritdoc />
+        public async Task<Captain?> ReadAsync(string tenantId, string id, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
+            if (string.IsNullOrEmpty(id)) throw new ArgumentNullException(nameof(id));
+            using (NpgsqlConnection conn = new NpgsqlConnection(_Settings.GetConnectionString()))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (NpgsqlCommand cmd = new NpgsqlCommand())
+                {
+                    cmd.Connection = conn;
+                    cmd.CommandText = "SELECT * FROM captains WHERE tenant_id = @tenantId AND id = @id;";
+                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
+                    cmd.Parameters.AddWithValue("@id", id);
+                    using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
+                    {
+                        if (await reader.ReadAsync(token).ConfigureAwait(false))
+                            return CaptainFromReader(reader);
+                    }
+                }
+            }
+            return null;
+        }
+
+        /// <inheritdoc />
+        public async Task DeleteAsync(string tenantId, string id, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
+            if (string.IsNullOrEmpty(id)) throw new ArgumentNullException(nameof(id));
+            using (NpgsqlConnection conn = new NpgsqlConnection(_Settings.GetConnectionString()))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (NpgsqlCommand cmd = new NpgsqlCommand())
+                {
+                    cmd.Connection = conn;
+                    cmd.CommandText = "DELETE FROM captains WHERE tenant_id = @tenantId AND id = @id;";
+                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
+                    cmd.Parameters.AddWithValue("@id", id);
+                    await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                }
+            }
+        }
+
+        /// <inheritdoc />
+        public async Task<List<Captain>> EnumerateAsync(string tenantId, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
+            List<Captain> results = new List<Captain>();
+            using (NpgsqlConnection conn = new NpgsqlConnection(_Settings.GetConnectionString()))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (NpgsqlCommand cmd = new NpgsqlCommand())
+                {
+                    cmd.Connection = conn;
+                    cmd.CommandText = "SELECT * FROM captains WHERE tenant_id = @tenantId ORDER BY name;";
+                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
+                    using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
+                    {
+                        while (await reader.ReadAsync(token).ConfigureAwait(false))
+                            results.Add(CaptainFromReader(reader));
+                    }
+                }
+            }
+            return results;
+        }
+
+        /// <inheritdoc />
+        public async Task<EnumerationResult<Captain>> EnumerateAsync(string tenantId, EnumerationQuery query, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
+            if (query == null) query = new EnumerationQuery();
+            using (NpgsqlConnection conn = new NpgsqlConnection(_Settings.GetConnectionString()))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                List<string> conditions = new List<string> { "tenant_id = @tenantId" };
+                List<NpgsqlParameter> parameters = new List<NpgsqlParameter> { new NpgsqlParameter("@tenantId", tenantId) };
+                if (query.CreatedAfter.HasValue)
+                {
+                    conditions.Add("created_utc > @created_after");
+                    parameters.Add(new NpgsqlParameter("@created_after", query.CreatedAfter.Value));
+                }
+                if (query.CreatedBefore.HasValue)
+                {
+                    conditions.Add("created_utc < @created_before");
+                    parameters.Add(new NpgsqlParameter("@created_before", query.CreatedBefore.Value));
+                }
+                string whereClause = " WHERE " + string.Join(" AND ", conditions);
+                string orderDirection = query.Order == EnumerationOrderEnum.CreatedAscending ? "ASC" : "DESC";
+                long totalCount = 0;
+                using (NpgsqlCommand cmd = new NpgsqlCommand())
+                {
+                    cmd.Connection = conn;
+                    cmd.CommandText = "SELECT COUNT(*) FROM captains" + whereClause + ";";
+                    foreach (NpgsqlParameter p in parameters) cmd.Parameters.Add(new NpgsqlParameter(p.ParameterName, p.Value));
+                    totalCount = (long)(await cmd.ExecuteScalarAsync(token).ConfigureAwait(false))!;
+                }
+                List<Captain> results = new List<Captain>();
+                using (NpgsqlCommand cmd = new NpgsqlCommand())
+                {
+                    cmd.Connection = conn;
+                    cmd.CommandText = "SELECT * FROM captains" + whereClause + " ORDER BY created_utc " + orderDirection + " LIMIT " + query.PageSize + " OFFSET " + query.Offset + ";";
+                    foreach (NpgsqlParameter p in parameters) cmd.Parameters.Add(new NpgsqlParameter(p.ParameterName, p.Value));
+                    using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
+                    {
+                        while (await reader.ReadAsync(token).ConfigureAwait(false))
+                            results.Add(CaptainFromReader(reader));
+                    }
+                }
+                return EnumerationResult<Captain>.Create(query, results, totalCount);
+            }
+        }
+
         #endregion
 
         #region Private-Methods
@@ -456,6 +574,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
         {
             Captain captain = new Captain();
             captain.Id = reader["id"].ToString()!;
+            captain.TenantId = NullableString(reader["tenant_id"]);
             captain.Name = reader["name"].ToString()!;
             captain.Runtime = Enum.Parse<AgentRuntimeEnum>(reader["runtime"].ToString()!);
             captain.State = Enum.Parse<CaptainStateEnum>(reader["state"].ToString()!);
@@ -491,3 +610,4 @@ namespace Armada.Core.Database.Postgresql.Implementations
         #endregion
     }
 }
+

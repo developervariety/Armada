@@ -57,9 +57,11 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = @"INSERT INTO vessels (id, fleet_id, name, repo_url, local_path, working_directory, project_context, style_guide, landing_mode, branch_cleanup_policy, allow_concurrent_missions, default_branch, active, created_utc, last_update_utc)
-                            VALUES (@id, @fleet_id, @name, @repo_url, @local_path, @working_directory, @project_context, @style_guide, @landing_mode, @branch_cleanup_policy, @allow_concurrent_missions, @default_branch, @active, @created_utc, @last_update_utc);";
+                    cmd.CommandText = @"INSERT INTO vessels (id, tenant_id, user_id, fleet_id, name, repo_url, local_path, working_directory, project_context, style_guide, landing_mode, branch_cleanup_policy, allow_concurrent_missions, default_branch, active, created_utc, last_update_utc)
+                            VALUES (@id, @tenant_id, @user_id, @fleet_id, @name, @repo_url, @local_path, @working_directory, @project_context, @style_guide, @landing_mode, @branch_cleanup_policy, @allow_concurrent_missions, @default_branch, @active, @created_utc, @last_update_utc);";
                     cmd.Parameters.AddWithValue("@id", vessel.Id);
+                    cmd.Parameters.AddWithValue("@tenant_id", (object?)vessel.TenantId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@user_id", (object?)vessel.UserId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@fleet_id", (object?)vessel.FleetId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@name", vessel.Name);
                     cmd.Parameters.AddWithValue("@repo_url", (object?)vessel.RepoUrl ?? DBNull.Value);
@@ -139,6 +141,8 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = @"UPDATE vessels SET
+                            tenant_id = @tenant_id,
+                            user_id = @user_id,
                             fleet_id = @fleet_id,
                             name = @name,
                             repo_url = @repo_url,
@@ -154,6 +158,8 @@ namespace Armada.Core.Database.Sqlite.Implementations
                             last_update_utc = @last_update_utc
                             WHERE id = @id;";
                     cmd.Parameters.AddWithValue("@id", vessel.Id);
+                    cmd.Parameters.AddWithValue("@tenant_id", (object?)vessel.TenantId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@user_id", (object?)vessel.UserId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@fleet_id", (object?)vessel.FleetId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@name", vessel.Name);
                     cmd.Parameters.AddWithValue("@repo_url", (object?)vessel.RepoUrl ?? DBNull.Value);
@@ -314,6 +320,114 @@ namespace Armada.Core.Database.Sqlite.Implementations
             }
         }
 
+        /// <inheritdoc />
+        public async Task<Vessel?> ReadAsync(string tenantId, string id, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
+            if (string.IsNullOrEmpty(id)) throw new ArgumentNullException(nameof(id));
+            using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (SqliteCommand cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "SELECT * FROM vessels WHERE tenant_id = @tenantId AND id = @id;";
+                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
+                    cmd.Parameters.AddWithValue("@id", id);
+                    using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
+                    {
+                        if (await reader.ReadAsync(token).ConfigureAwait(false))
+                            return SqliteDatabaseDriver.VesselFromReader(reader);
+                    }
+                }
+            }
+            return null;
+        }
+
+        /// <inheritdoc />
+        public async Task DeleteAsync(string tenantId, string id, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
+            if (string.IsNullOrEmpty(id)) throw new ArgumentNullException(nameof(id));
+            using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (SqliteCommand cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "DELETE FROM vessels WHERE tenant_id = @tenantId AND id = @id;";
+                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
+                    cmd.Parameters.AddWithValue("@id", id);
+                    await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                }
+            }
+        }
+
+        /// <inheritdoc />
+        public async Task<List<Vessel>> EnumerateAsync(string tenantId, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
+            List<Vessel> results = new List<Vessel>();
+            using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (SqliteCommand cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "SELECT * FROM vessels WHERE tenant_id = @tenantId ORDER BY name;";
+                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
+                    using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
+                    {
+                        while (await reader.ReadAsync(token).ConfigureAwait(false))
+                            results.Add(SqliteDatabaseDriver.VesselFromReader(reader));
+                    }
+                }
+            }
+            return results;
+        }
+
+        /// <inheritdoc />
+        public async Task<EnumerationResult<Vessel>> EnumerateAsync(string tenantId, EnumerationQuery query, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
+            if (query == null) query = new EnumerationQuery();
+            using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                List<string> conditions = new List<string> { "tenant_id = @tenantId" };
+                List<SqliteParameter> parameters = new List<SqliteParameter> { new SqliteParameter("@tenantId", tenantId) };
+                if (query.CreatedAfter.HasValue)
+                {
+                    conditions.Add("created_utc > @created_after");
+                    parameters.Add(new SqliteParameter("@created_after", SqliteDatabaseDriver.ToIso8601(query.CreatedAfter.Value)));
+                }
+                if (query.CreatedBefore.HasValue)
+                {
+                    conditions.Add("created_utc < @created_before");
+                    parameters.Add(new SqliteParameter("@created_before", SqliteDatabaseDriver.ToIso8601(query.CreatedBefore.Value)));
+                }
+                string whereClause = " WHERE " + string.Join(" AND ", conditions);
+                string orderDirection = query.Order == EnumerationOrderEnum.CreatedAscending ? "ASC" : "DESC";
+                long totalCount = 0;
+                using (SqliteCommand cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "SELECT COUNT(*) FROM vessels" + whereClause + ";";
+                    foreach (SqliteParameter p in parameters) cmd.Parameters.Add(new SqliteParameter(p.ParameterName, p.Value));
+                    totalCount = (long)(await cmd.ExecuteScalarAsync(token).ConfigureAwait(false))!;
+                }
+                List<Vessel> results = new List<Vessel>();
+                using (SqliteCommand cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "SELECT * FROM vessels" + whereClause + " ORDER BY created_utc " + orderDirection + " LIMIT " + query.PageSize + " OFFSET " + query.Offset + ";";
+                    foreach (SqliteParameter p in parameters) cmd.Parameters.Add(new SqliteParameter(p.ParameterName, p.Value));
+                    using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
+                    {
+                        while (await reader.ReadAsync(token).ConfigureAwait(false))
+                            results.Add(SqliteDatabaseDriver.VesselFromReader(reader));
+                    }
+                }
+                return EnumerationResult<Vessel>.Create(query, results, totalCount);
+            }
+        }
+
         #endregion
     }
 }
+

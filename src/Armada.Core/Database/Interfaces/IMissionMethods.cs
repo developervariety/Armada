@@ -62,5 +62,25 @@ namespace Armada.Core.Database.Interfaces
         /// Check if a mission exists by identifier.
         /// </summary>
         Task<bool> ExistsAsync(string id, CancellationToken token = default);
+
+        /// <summary>
+        /// Read a mission by tenant and identifier (tenant-scoped).
+        /// </summary>
+        Task<Mission?> ReadAsync(string tenantId, string id, CancellationToken token = default);
+
+        /// <summary>
+        /// Delete a mission by tenant and identifier (tenant-scoped).
+        /// </summary>
+        Task DeleteAsync(string tenantId, string id, CancellationToken token = default);
+
+        /// <summary>
+        /// Enumerate all missions in a tenant (tenant-scoped).
+        /// </summary>
+        Task<List<Mission>> EnumerateAsync(string tenantId, CancellationToken token = default);
+
+        /// <summary>
+        /// Enumerate missions with pagination and filtering (tenant-scoped).
+        /// </summary>
+        Task<EnumerationResult<Mission>> EnumerateAsync(string tenantId, EnumerationQuery query, CancellationToken token = default);
     }
 }

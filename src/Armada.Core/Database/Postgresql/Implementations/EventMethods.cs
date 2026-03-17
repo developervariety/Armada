@@ -52,9 +52,11 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 using (NpgsqlCommand cmd = new NpgsqlCommand())
                 {
                     cmd.Connection = conn;
-                    cmd.CommandText = @"INSERT INTO events (id, event_type, entity_type, entity_id, captain_id, mission_id, vessel_id, voyage_id, message, payload, created_utc)
-                        VALUES (@id, @event_type, @entity_type, @entity_id, @captain_id, @mission_id, @vessel_id, @voyage_id, @message, @payload, @created_utc);";
+                    cmd.CommandText = @"INSERT INTO events (id, tenant_id, user_id, event_type, entity_type, entity_id, captain_id, mission_id, vessel_id, voyage_id, message, payload, created_utc)
+                        VALUES (@id, @tenant_id, @user_id, @event_type, @entity_type, @entity_id, @captain_id, @mission_id, @vessel_id, @voyage_id, @message, @payload, @created_utc);";
                     cmd.Parameters.AddWithValue("@id", armadaEvent.Id);
+                    cmd.Parameters.AddWithValue("@tenant_id", (object?)armadaEvent.TenantId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@user_id", (object?)armadaEvent.UserId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@event_type", armadaEvent.EventType);
                     cmd.Parameters.AddWithValue("@entity_type", (object?)armadaEvent.EntityType ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@entity_id", (object?)armadaEvent.EntityId ?? DBNull.Value);
@@ -321,6 +323,162 @@ namespace Armada.Core.Database.Postgresql.Implementations
             }
         }
 
+        /// <summary>
+        /// Read an event by tenant and identifier (tenant-scoped).
+        /// </summary>
+        public async Task<ArmadaEvent?> ReadAsync(string tenantId, string id, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
+            if (string.IsNullOrEmpty(id)) throw new ArgumentNullException(nameof(id));
+
+            using (NpgsqlConnection conn = await _DataSource.OpenConnectionAsync(token).ConfigureAwait(false))
+            {
+                using (NpgsqlCommand cmd = new NpgsqlCommand())
+                {
+                    cmd.Connection = conn;
+                    cmd.CommandText = "SELECT * FROM events WHERE tenant_id = @tenant_id AND id = @id;";
+                    cmd.Parameters.AddWithValue("@tenant_id", tenantId);
+                    cmd.Parameters.AddWithValue("@id", id);
+                    using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
+                    {
+                        if (await reader.ReadAsync(token).ConfigureAwait(false))
+                            return EventFromReader(reader);
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Delete an event by tenant and identifier (tenant-scoped).
+        /// </summary>
+        public async Task DeleteAsync(string tenantId, string id, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
+            if (string.IsNullOrEmpty(id)) throw new ArgumentNullException(nameof(id));
+
+            using (NpgsqlConnection conn = await _DataSource.OpenConnectionAsync(token).ConfigureAwait(false))
+            {
+                using (NpgsqlCommand cmd = new NpgsqlCommand())
+                {
+                    cmd.Connection = conn;
+                    cmd.CommandText = "DELETE FROM events WHERE tenant_id = @tenant_id AND id = @id;";
+                    cmd.Parameters.AddWithValue("@tenant_id", tenantId);
+                    cmd.Parameters.AddWithValue("@id", id);
+                    await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Enumerate all events in a tenant (tenant-scoped).
+        /// </summary>
+        public async Task<List<ArmadaEvent>> EnumerateAsync(string tenantId, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
+            List<ArmadaEvent> results = new List<ArmadaEvent>();
+
+            using (NpgsqlConnection conn = await _DataSource.OpenConnectionAsync(token).ConfigureAwait(false))
+            {
+                using (NpgsqlCommand cmd = new NpgsqlCommand())
+                {
+                    cmd.Connection = conn;
+                    cmd.CommandText = "SELECT * FROM events WHERE tenant_id = @tenant_id ORDER BY created_utc DESC;";
+                    cmd.Parameters.AddWithValue("@tenant_id", tenantId);
+                    using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
+                    {
+                        while (await reader.ReadAsync(token).ConfigureAwait(false))
+                            results.Add(EventFromReader(reader));
+                    }
+                }
+            }
+
+            return results;
+        }
+
+        /// <summary>
+        /// Enumerate events with pagination and filtering (tenant-scoped).
+        /// </summary>
+        public async Task<EnumerationResult<ArmadaEvent>> EnumerateAsync(string tenantId, EnumerationQuery query, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
+            if (query == null) query = new EnumerationQuery();
+
+            using (NpgsqlConnection conn = await _DataSource.OpenConnectionAsync(token).ConfigureAwait(false))
+            {
+                List<string> conditions = new List<string> { "tenant_id = @tenant_id" };
+                List<NpgsqlParameter> parameters = new List<NpgsqlParameter> { new NpgsqlParameter("@tenant_id", tenantId) };
+
+                if (query.CreatedAfter.HasValue)
+                {
+                    conditions.Add("created_utc > @created_after");
+                    parameters.Add(new NpgsqlParameter("@created_after", ToIso8601(query.CreatedAfter.Value)));
+                }
+                if (query.CreatedBefore.HasValue)
+                {
+                    conditions.Add("created_utc < @created_before");
+                    parameters.Add(new NpgsqlParameter("@created_before", ToIso8601(query.CreatedBefore.Value)));
+                }
+                if (!string.IsNullOrEmpty(query.EventType))
+                {
+                    conditions.Add("event_type = @event_type");
+                    parameters.Add(new NpgsqlParameter("@event_type", query.EventType));
+                }
+                if (!string.IsNullOrEmpty(query.CaptainId))
+                {
+                    conditions.Add("captain_id = @captain_id");
+                    parameters.Add(new NpgsqlParameter("@captain_id", query.CaptainId));
+                }
+                if (!string.IsNullOrEmpty(query.MissionId))
+                {
+                    conditions.Add("mission_id = @mission_id");
+                    parameters.Add(new NpgsqlParameter("@mission_id", query.MissionId));
+                }
+                if (!string.IsNullOrEmpty(query.VesselId))
+                {
+                    conditions.Add("vessel_id = @vessel_id");
+                    parameters.Add(new NpgsqlParameter("@vessel_id", query.VesselId));
+                }
+                if (!string.IsNullOrEmpty(query.VoyageId))
+                {
+                    conditions.Add("voyage_id = @voyage_id");
+                    parameters.Add(new NpgsqlParameter("@voyage_id", query.VoyageId));
+                }
+
+                string whereClause = " WHERE " + string.Join(" AND ", conditions);
+                string orderDirection = query.Order == EnumerationOrderEnum.CreatedAscending ? "ASC" : "DESC";
+
+                // Count
+                long totalCount = 0;
+                using (NpgsqlCommand cmd = new NpgsqlCommand())
+                {
+                    cmd.Connection = conn;
+                    cmd.CommandText = "SELECT COUNT(*) FROM events" + whereClause + ";";
+                    foreach (NpgsqlParameter p in parameters) cmd.Parameters.Add(new NpgsqlParameter(p.ParameterName, p.NpgsqlDbType) { Value = p.Value });
+                    totalCount = (long)(await cmd.ExecuteScalarAsync(token).ConfigureAwait(false))!;
+                }
+
+                // Query
+                List<ArmadaEvent> results = new List<ArmadaEvent>();
+                using (NpgsqlCommand cmd = new NpgsqlCommand())
+                {
+                    cmd.Connection = conn;
+                    cmd.CommandText = "SELECT * FROM events" + whereClause +
+                        " ORDER BY created_utc " + orderDirection +
+                        " LIMIT " + query.PageSize + " OFFSET " + query.Offset + ";";
+                    foreach (NpgsqlParameter p in parameters) cmd.Parameters.Add(new NpgsqlParameter(p.ParameterName, p.NpgsqlDbType) { Value = p.Value });
+                    using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
+                    {
+                        while (await reader.ReadAsync(token).ConfigureAwait(false))
+                            results.Add(EventFromReader(reader));
+                    }
+                }
+
+                return EnumerationResult<ArmadaEvent>.Create(query, results, totalCount);
+            }
+        }
+
         #endregion
 
         #region Private-Methods
@@ -346,6 +504,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
         {
             ArmadaEvent evt = new ArmadaEvent();
             evt.Id = reader["id"].ToString()!;
+            evt.TenantId = NullableString(reader["tenant_id"]);
             evt.EventType = reader["event_type"].ToString()!;
             evt.EntityType = NullableString(reader["entity_type"]);
             evt.EntityId = NullableString(reader["entity_id"]);
@@ -384,3 +543,4 @@ namespace Armada.Core.Database.Postgresql.Implementations
         #endregion
     }
 }
+

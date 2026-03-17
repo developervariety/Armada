@@ -73,6 +73,11 @@ namespace Armada.Test.Database
             Console.WriteLine("--- Dock CRUD ---");
             await RunTest("Dock_Create_Read", "Dock", () => TestDockCreateReadAsync(token), token);
 
+            // Multi-tenant scoping tests
+            MultiTenantScopingTests scopingTests = new MultiTenantScopingTests(_Driver, _NoCleanup);
+            List<TestResult> scopingResults = await scopingTests.RunAllAsync(token);
+            _Results.AddRange(scopingResults);
+
             return _Results;
         }
 

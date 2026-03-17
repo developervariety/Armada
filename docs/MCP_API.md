@@ -1,6 +1,6 @@
 # Armada MCP API Reference
 
-**Version:** 0.2.0
+**Version:** 0.3.0
 **Default URL:** `http://localhost:7891`
 **Protocol:** [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) over HTTP
 **Server Library:** Voltaic (McpHttpServer)
@@ -16,6 +16,7 @@
   - [Stdio Transport](#stdio-transport)
   - [Port Configuration](#port-configuration)
 - [Authentication](#authentication)
+  - [MCP Authentication Scope](#mcp-authentication-scope)
 - [Tools](#tools)
   - **Status**
     - [armada_status](#armada_status)
@@ -146,7 +147,15 @@ The MCP port can be configured in the Armada settings file. The hostname is shar
 
 ## Authentication
 
-The MCP server does not currently enforce API key authentication. Access control should be managed at the network level (firewall, bind address).
+The MCP server does **not** currently enforce authentication. All MCP operations run in the context of the default tenant. Access control should be managed at the network level (firewall, bind address).
+
+> **Note:** Unlike the REST API, which supports bearer tokens, encrypted session tokens, and API keys as of v0.3.0, the MCP server remains unauthenticated. Multi-tenant MCP authentication is planned for a future release. For now, MCP clients have unrestricted access to all operations within the default tenant context.
+
+### MCP Authentication Scope
+
+MCP tools (served via stdio) remain **unauthenticated by design**. The MCP transport assumes the orchestrating agent (e.g., Claude Code) is already trusted and running locally. All MCP tool operations use the default tenant context (`ten_default`). If multi-tenant isolation is required for MCP clients, use the authenticated REST API instead.
+
+This is a deliberate architectural decision, not a missing feature. The stdio transport has no network attack surface -- the only caller is the parent process that spawned Armada. Adding authentication to stdio would add complexity without meaningful security benefit. The HTTP MCP transport inherits the same unauthenticated model for consistency, but should be bound to `localhost` or protected by a firewall in production.
 
 ---
 
