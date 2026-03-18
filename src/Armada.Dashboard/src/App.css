@@ -26,6 +26,7 @@
     --diff-bg: #f8fafc;
     --modal-overlay: rgba(0, 0, 0, 0.3);
     --radius: 8px;
+    --shell-chrome-height: 56px;
     --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
     --mono: "SF Mono", "Cascadia Code", "Fira Code", "Consolas", monospace;
 }
@@ -144,7 +145,8 @@ body {
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    padding: 1rem 1.25rem;
+    height: var(--shell-chrome-height);
+    padding: 0 1.25rem;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
@@ -317,7 +319,8 @@ body {
     align-items: center;
     justify-content: flex-end;
     gap: 0.75rem;
-    padding: 0.5rem 1rem;
+    height: var(--shell-chrome-height);
+    padding: 0 1rem;
     background: var(--bg-card);
     border-bottom: 1px solid var(--border);
     position: sticky;
