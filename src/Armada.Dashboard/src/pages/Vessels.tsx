@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { listVessels, listFleets, createVessel, updateVessel, deleteVessel } from '../api/client';
+import { listVessels, listFleets, createVessel, updateVessel, deleteVessel, getVesselGitStatus } from '../api/client';
 import type { Fleet, Vessel } from '../types/models';
 import Pagination from '../components/shared/Pagination';
 import ActionMenu from '../components/shared/ActionMenu';
@@ -52,6 +52,7 @@ export default function Vessels() {
   const [fleets, setFleets] = useState<Fleet[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [gitStatus, setGitStatus] = useState<Record<string, { ahead: number | null; behind: number | null }>>({});
 
   // Modal
   const [showForm, setShowForm] = useState(false);
@@ -96,6 +97,18 @@ export default function Vessels() {
       setVessels(vResult.objects);
       setFleets(fResult.objects);
       setError('');
+
+      // Fetch git status for each vessel in the background (non-blocking)
+      const statusMap: Record<string, { ahead: number | null; behind: number | null }> = {};
+      await Promise.all(vResult.objects.map(async (v: Vessel) => {
+        try {
+          const gs = await getVesselGitStatus(v.id);
+          statusMap[v.id] = { ahead: gs.commitsAhead, behind: gs.commitsBehind };
+        } catch {
+          statusMap[v.id] = { ahead: null, behind: null };
+        }
+      }));
+      setGitStatus(statusMap);
     } catch {
       setError('Failed to load vessels.');
     } finally {
@@ -344,11 +357,8 @@ export default function Vessels() {
                   <th className="sortable" onClick={() => handleSort('defaultBranch')} title="Default branch -- click to sort">
                     Branch{sortIcon('defaultBranch')}
                   </th>
-                  <th title="Whether this vessel accepts new missions">Active</th>
                   <th title="How completed mission work is integrated (LocalMerge, PullRequest, MergeQueue, None)">Landing Mode</th>
-                  <th className="sortable" onClick={() => handleSort('createdUtc')} title="Created date -- click to sort">
-                    Created{sortIcon('createdUtc')}
-                  </th>
+                  <th title="Commits ahead and behind the remote default branch">Sync</th>
                   <th className="text-right">Actions</th>
                 </tr>
                 <tr className="column-filter-row">
@@ -362,7 +372,6 @@ export default function Vessels() {
                     </select>
                   </td>
                   <td><input type="text" className="col-filter" value={colFilters.repoUrl} onChange={e => { setColFilters(f => ({ ...f, repoUrl: e.target.value })); setPageNumber(1); }} placeholder="Filter..." /></td>
-                  <td></td>
                   <td></td>
                   <td>
                     <select className="col-filter" title="Filter vessels by landing mode" value={colFilters.landingMode} onChange={e => { setColFilters(f => ({ ...f, landingMode: e.target.value })); setPageNumber(1); }}>
@@ -411,9 +420,22 @@ export default function Vessels() {
                         <CopyButton text={v.defaultBranch || 'main'} onClick={e => e.stopPropagation()} title="Copy branch" />
                       </span>
                     </td>
-                    <td>{v.active !== false ? 'Yes' : 'No'}</td>
                     <td className="text-dim" title={v.landingMode === 'LocalMerge' ? 'Merge into local working directory' : v.landingMode === 'PullRequest' ? 'Push and create pull request' : v.landingMode === 'MergeQueue' ? 'Enqueue for validated merge' : v.landingMode === 'None' ? 'No automatic landing' : 'Uses global setting'}>{v.landingMode || '-'}</td>
-                    <td className="text-dim">{formatTime(v.createdUtc)}</td>
+                    <td>
+                      {(() => {
+                        const gs = gitStatus[v.id];
+                        if (!gs || (gs.ahead === null && gs.behind === null)) return <span className="text-dim">-</span>;
+                        const ahead = gs.ahead ?? 0;
+                        const behind = gs.behind ?? 0;
+                        if (ahead === 0 && behind === 0) return <span className="git-sync-badge git-sync-even" title="Up to date with remote">in sync</span>;
+                        return (
+                          <span className="git-sync-badges">
+                            {ahead > 0 && <span className="git-sync-badge git-sync-ahead" title={ahead + ' commit(s) ahead of remote -- needs push'}>{ahead} ahead</span>}
+                            {behind > 0 && <span className="git-sync-badge git-sync-behind" title={behind + ' commit(s) behind remote -- needs pull'}>{behind} behind</span>}
+                          </span>
+                        );
+                      })()}
+                    </td>
                     <td className="text-right" onClick={e => e.stopPropagation()}>
                       <ActionMenu id={`vessel-${v.id}`} items={[
                         { label: 'View Detail', onClick: () => navigate(`/vessels/${v.id}`) },
@@ -425,7 +447,7 @@ export default function Vessels() {
                   </tr>
                 ))}
                 {paginated.length === 0 && (
-                  <tr><td colSpan={10} className="text-dim">No vessels match the current filters.</td></tr>
+                  <tr><td colSpan={9} className="text-dim">No vessels match the current filters.</td></tr>
                 )}
               </tbody>
             </table>

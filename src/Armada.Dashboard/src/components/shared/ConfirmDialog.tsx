@@ -36,7 +36,7 @@ export default function ConfirmDialog({
   if (!open) return null;
 
   return (
-    <div className="modal-overlay" onClick={onCancel}>
+    <div className="modal-overlay" style={{ zIndex: 1500 }} onClick={onCancel}>
       <div
         className="modal-box"
         style={width ? { maxWidth: width } : undefined}

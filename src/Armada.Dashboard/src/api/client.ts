@@ -179,6 +179,7 @@ export const getVessel = (id: string) => get<Vessel>(`/api/v1/vessels/${id}`);
 export const createVessel = (data: Partial<Vessel>) => post<Vessel>('/api/v1/vessels', data);
 export const updateVessel = (id: string, data: Partial<Vessel>) => put<Vessel>(`/api/v1/vessels/${id}`, data);
 export const deleteVessel = (id: string) => del<void>(`/api/v1/vessels/${id}`);
+export const getVesselGitStatus = (id: string) => get<{ vesselId: string; commitsAhead: number | null; commitsBehind: number | null; error?: string }>(`/api/v1/vessels/${id}/git-status`);
 
 // ==================== Captains ====================
 export const listCaptains = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
@@ -209,7 +210,7 @@ export const deleteMission = (id: string) => del<void>(`/api/v1/missions/${id}`)
 export const purgeMission = (id: string) => del<void>(`/api/v1/missions/${id}/purge`);
 export const dispatchMission = (data: DispatchRequest) => post<Mission>('/api/v1/missions', data);
 export const restartMission = (id: string) => post<Mission>(`/api/v1/missions/${id}/restart`);
-export const transitionMission = (id: string, data: TransitionRequest) => post<Mission>(`/api/v1/missions/${id}/transition`, data);
+export const transitionMission = (id: string, data: TransitionRequest) => put<Mission>(`/api/v1/missions/${id}/status`, data);
 export const getMissionDiff = (id: string) => get<DiffResult>(`/api/v1/missions/${id}/diff`, { timeout: 30000 });
 export const getMissionLog = (id: string, lines = 500) => get<LogResult>(`/api/v1/missions/${id}/log?lines=${lines}`);
 

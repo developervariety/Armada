@@ -1,6 +1,7 @@
 namespace Armada.Server.Routes
 {
     using System.Diagnostics;
+    using System.IO;
     using System.Text.Json;
     using SwiftStack;
     using SwiftStack.Rest;
@@ -217,6 +218,50 @@ namespace Armada.Server.Routes
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
+            app.Rest.Get("/api/v1/vessels/{id}/git-status", async (AppRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                {
+                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
+                    return (object)new { Error = ctx.IsAuthenticated ? "Forbidden" : "Unauthorized" };
+                }
+                string id = req.Parameters["id"];
+                Vessel? vessel = ctx.IsAdmin
+                    ? await _database.Vessels.ReadAsync(id).ConfigureAwait(false)
+                    : await _database.Vessels.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                if (vessel == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Vessel not found" }; }
+                if (String.IsNullOrEmpty(vessel.WorkingDirectory) || !Directory.Exists(vessel.WorkingDirectory))
+                    return (object)new { VesselId = id, CommitsAhead = (int?)null, CommitsBehind = (int?)null, Error = "No working directory configured or directory does not exist" };
+
+                try
+                {
+                    string baseBranch = vessel.DefaultBranch ?? "main";
+
+                    // Fetch latest from remote (silent, best-effort)
+                    try { await RunGitCommandAsync(vessel.WorkingDirectory, "fetch", "origin", "--quiet").ConfigureAwait(false); }
+                    catch { /* ignore fetch failures -- offline or no remote */ }
+
+                    string aheadStr = await RunGitCommandAsync(vessel.WorkingDirectory, "rev-list", "--count", "origin/" + baseBranch + "..HEAD").ConfigureAwait(false);
+                    string behindStr = await RunGitCommandAsync(vessel.WorkingDirectory, "rev-list", "--count", "HEAD..origin/" + baseBranch).ConfigureAwait(false);
+
+                    int.TryParse(aheadStr.Trim(), out int ahead);
+                    int.TryParse(behindStr.Trim(), out int behind);
+
+                    return (object)new { VesselId = id, CommitsAhead = ahead, CommitsBehind = behind };
+                }
+                catch (Exception ex)
+                {
+                    return (object)new { VesselId = id, CommitsAhead = (int?)null, CommitsBehind = (int?)null, Error = "Git error: " + ex.Message };
+                }
+            },
+            api => api
+                .WithTag("Vessels")
+                .WithSummary("Get vessel git status")
+                .WithDescription("Returns commits ahead/behind the remote default branch for the vessel's working directory.")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Vessel ID (vsl_ prefix)"))
+                .WithSecurity("ApiKey"));
+
             app.Rest.Delete("/api/v1/vessels/{id}", async (AppRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
@@ -295,6 +340,34 @@ namespace Armada.Server.Routes
                 .WithRequestBody(OpenApiRequestBodyMetadata.Json<DeleteMultipleRequest>("List of vessel IDs to delete"))
                 .WithResponse(200, OpenApiResponseMetadata.Json<DeleteMultipleResult>("Delete result summary"))
                 .WithSecurity("ApiKey"));
+        }
+
+        /// <summary>
+        /// Run a git command and return stdout.
+        /// </summary>
+        private static async Task<string> RunGitCommandAsync(string workingDirectory, params string[] args)
+        {
+            ProcessStartInfo psi = new ProcessStartInfo("git")
+            {
+                WorkingDirectory = workingDirectory,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            foreach (string arg in args) psi.ArgumentList.Add(arg);
+
+            using (Process process = Process.Start(psi)!)
+            {
+                string output = await process.StandardOutput.ReadToEndAsync().ConfigureAwait(false);
+                await process.WaitForExitAsync().ConfigureAwait(false);
+                if (process.ExitCode != 0)
+                {
+                    string error = await process.StandardError.ReadToEndAsync().ConfigureAwait(false);
+                    throw new InvalidOperationException("git exited with code " + process.ExitCode + ": " + error.Trim());
+                }
+                return output;
+            }
         }
     }
 }

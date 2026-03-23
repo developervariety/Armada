@@ -15,7 +15,7 @@ export default function ErrorModal({ error, onClose }: ErrorModalProps) {
   if (!error) return null;
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" style={{ zIndex: 1500 }} onClick={onClose}>
       <div className="modal error-modal" onClick={e => e.stopPropagation()}>
         <div className="error-modal-header">
           <span className="error-modal-icon">!</span>
