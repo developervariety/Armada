@@ -13,6 +13,7 @@ import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
 import DiffViewer from '../components/shared/DiffViewer';
 import LogViewer from '../components/shared/LogViewer';
+import ErrorModal from '../components/shared/ErrorModal';
 import RefreshButton from '../components/shared/RefreshButton';
 import CopyButton from '../components/shared/CopyButton';
 
@@ -278,7 +279,7 @@ export default function Missions() {
         </div>
       </div>
 
-      {error && <p className="text-error">{error}</p>}
+      <ErrorModal error={error} onClose={() => setError('')} />
 
       {/* Create Modal */}
       {showForm && (

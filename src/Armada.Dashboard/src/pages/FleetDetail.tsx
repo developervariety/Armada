@@ -6,6 +6,7 @@ import ActionMenu from '../components/shared/ActionMenu';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
 import CopyButton, { copyToClipboard } from '../components/shared/CopyButton';
+import ErrorModal from '../components/shared/ErrorModal';
 
 function formatTimeAbsolute(utc: string | null): string {
   if (!utc) return '-';
@@ -82,7 +83,7 @@ export default function FleetDetail() {
   }
 
   if (loading) return <p className="text-dim">Loading...</p>;
-  if (error && !fleet) return <p className="text-error">{error}</p>;
+  if (error && !fleet) return <ErrorModal error={error} onClose={() => setError('')} />;
   if (!fleet) return <p className="text-dim">Fleet not found.</p>;
 
   return (
@@ -103,7 +104,7 @@ export default function FleetDetail() {
         </div>
       </div>
 
-      {error && <p className="text-error">{error}</p>}
+      <ErrorModal error={error} onClose={() => setError('')} />
 
       {/* Edit Modal */}
       {showForm && (

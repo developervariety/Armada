@@ -109,7 +109,7 @@ export default function MissionHistoryChart({ missions, vessels, fleets, onRefre
   return (
     <div className="mission-history-section">
       <div className="mission-history-header">
-        <h3>Mission History</h3>
+        <span className="mission-history-title">Mission History</span>
         <div className="mission-history-controls">
           <select value={fleetId} onChange={e => { setFleetId(e.target.value); setVesselId(''); }} title="Filter by fleet">
             <option value="">All Fleets</option>

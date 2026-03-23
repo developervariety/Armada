@@ -8,6 +8,7 @@ import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
 import CopyButton from '../components/shared/CopyButton';
 import RefreshButton from '../components/shared/RefreshButton';
+import ErrorModal from '../components/shared/ErrorModal';
 
 type SortDir = 'asc' | 'desc';
 type SortField = 'branchName' | 'active' | 'createdUtc';
@@ -180,7 +181,7 @@ export default function Docks() {
         </div>
       </div>
 
-      {error && <p className="text-error">{error}</p>}
+      <ErrorModal error={error} onClose={() => setError('')} />
 
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}

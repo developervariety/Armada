@@ -13,6 +13,7 @@ import {
 } from '../api/client';
 import type { Voyage, Mission, Vessel, Captain } from '../types/models';
 import StatusBadge from '../components/shared/StatusBadge';
+import ErrorModal from '../components/shared/ErrorModal';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
 import DiffViewer from '../components/shared/DiffViewer';
@@ -219,7 +220,7 @@ export default function VoyageDetail() {
   }, [logModal.missionId, fetchLog]);
 
   if (loading) return <p className="text-muted">Loading...</p>;
-  if (!voyage) return <p className="text-error">{error || 'Voyage not found.'}</p>;
+  if (!voyage) return <ErrorModal error={error || 'Voyage not found.'} onClose={() => setError('')} />;
 
   return (
     <div>
@@ -230,7 +231,7 @@ export default function VoyageDetail() {
         <span>{voyage.title || voyage.id}</span>
       </div>
 
-      {error && <p className="text-error">{error}</p>}
+      <ErrorModal error={error} onClose={() => setError('')} />
 
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>

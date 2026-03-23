@@ -8,6 +8,7 @@ import JsonViewer from '../../components/shared/JsonViewer';
 import CopyButton from '../../components/shared/CopyButton';
 import RefreshButton from '../../components/shared/RefreshButton';
 import { useAuth } from '../../context/AuthContext';
+import ErrorModal from '../../components/shared/ErrorModal';
 
 function formatTime(utc: string | null): string {
   if (!utc) return '-';
@@ -149,7 +150,7 @@ export default function Tenants() {
         </div>
       </div>
 
-      {error && <p className="text-error">{error}</p>}
+      <ErrorModal error={error} onClose={() => setError('')} />
 
       {showForm && (
         <div className="modal-overlay" onClick={() => setShowForm(false)}>

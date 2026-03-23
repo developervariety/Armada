@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { getSettings, updateSettings, getHealth } from '../api/client';
 import RefreshButton from '../components/shared/RefreshButton';
+import ErrorModal from '../components/shared/ErrorModal';
 
 interface ServerSettings {
   admiralPort: number;
@@ -102,7 +103,7 @@ export default function Settings() {
         </div>
       </div>
 
-      {error && <p className="text-error">{error}</p>}
+      <ErrorModal error={error} onClose={() => setError('')} />
       {toast && (
         <div className="alert alert-success" style={{ marginBottom: '1rem' }}>
           {toast}

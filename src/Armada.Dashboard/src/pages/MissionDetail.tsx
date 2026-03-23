@@ -13,6 +13,7 @@ import {
   listCaptains,
 } from '../api/client';
 import type { Mission, Vessel, Captain } from '../types/models';
+import ErrorModal from '../components/shared/ErrorModal';
 import StatusBadge from '../components/shared/StatusBadge';
 import ActionMenu from '../components/shared/ActionMenu';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
@@ -231,7 +232,7 @@ export default function MissionDetail() {
   }
 
   if (loading) return <p className="text-dim">Loading...</p>;
-  if (!mission) return <p className="text-error">{error || 'Mission not found.'}</p>;
+  if (!mission) return <ErrorModal error={error || 'Mission not found.'} onClose={() => setError('')} />;
 
   return (
     <div>
@@ -258,7 +259,7 @@ export default function MissionDetail() {
         </div>
       </div>
 
-      {error && <p className="text-error">{error}</p>}
+      <ErrorModal error={error} onClose={() => setError('')} />
 
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}

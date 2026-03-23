@@ -12,6 +12,7 @@ import {
 } from '../api/client';
 import type { Mission, Vessel, Captain, Signal, Fleet } from '../types/models';
 import { useWebSocket } from '../context/WebSocketContext';
+import ErrorModal from '../components/shared/ErrorModal';
 import type { WebSocketMessage } from '../types/models';
 import StatusBadge from '../components/shared/StatusBadge';
 import ActionMenu from '../components/shared/ActionMenu';
@@ -298,7 +299,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {error && <p className="text-error">{error}</p>}
+      <ErrorModal error={error} onClose={() => setError('')} />
 
       {/* Alert Banners */}
       {alerts.length > 0 && (

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { listVessels, createVoyage } from '../api/client';
 import type { Vessel } from '../types/models';
+import ErrorModal from '../components/shared/ErrorModal';
 
 interface MissionRow {
   title: string;
@@ -92,7 +93,7 @@ export default function VoyageCreate() {
 
       <h2 style={{ marginBottom: 20 }}>Create Voyage</h2>
 
-      {error && <p className="text-error" style={{ marginBottom: 12 }}>{error}</p>}
+      <ErrorModal error={error} onClose={() => setError('')} />
 
       <form onSubmit={handleSubmit}>
         {/* Voyage metadata */}

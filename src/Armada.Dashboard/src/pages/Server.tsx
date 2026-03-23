@@ -13,6 +13,7 @@ import { useWebSocket } from '../context/WebSocketContext';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import CopyButton, { copyToClipboard } from '../components/shared/CopyButton';
 import { useAuth } from '../context/AuthContext';
+import ErrorModal from '../components/shared/ErrorModal';
 
 interface HealthInfo {
   status: string;
@@ -253,7 +254,7 @@ export default function Server() {
         </div>
       </div>
 
-      {error && <p className="text-error">{error}</p>}
+      <ErrorModal error={error} onClose={() => setError('')} />
       {toast && (
         <div className="alert alert-success" style={{ marginBottom: '1rem' }}>
           {toast}

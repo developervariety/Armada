@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { getDoctor } from '../api/client';
 import StatusBadge from '../components/shared/StatusBadge';
+import ErrorModal from '../components/shared/ErrorModal';
 
 interface DiagnosticCheck {
   name: string;
@@ -67,7 +68,7 @@ export default function Doctor() {
         </div>
       </div>
 
-      {error && <p className="text-error">{error}</p>}
+      <ErrorModal error={error} onClose={() => setError('')} />
 
       {running && (
         <div style={{ textAlign: 'center', padding: '2rem' }}>

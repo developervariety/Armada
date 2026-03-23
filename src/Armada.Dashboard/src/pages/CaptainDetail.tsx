@@ -13,6 +13,7 @@ import {
 import type { Captain, Mission, LogResult } from '../types/models';
 import ActionMenu from '../components/shared/ActionMenu';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
+import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
 import StatusBadge from '../components/shared/StatusBadge';
 import { copyToClipboard } from '../components/shared/CopyButton';
@@ -190,7 +191,7 @@ export default function CaptainDetail() {
   }
 
   if (loading) return <p className="text-dim">Loading...</p>;
-  if (error && !captain) return <p className="text-error">{error}</p>;
+  if (error && !captain) return <ErrorModal error={error} onClose={() => setError('')} />;
   if (!captain) return <p className="text-dim">Captain not found.</p>;
 
   return (
@@ -207,7 +208,7 @@ export default function CaptainDetail() {
         </div>
       </div>
 
-      {error && <p className="text-error">{error}</p>}
+      <ErrorModal error={error} onClose={() => setError('')} />
 
       {/* Edit Modal */}
       {showForm && (

@@ -7,6 +7,7 @@ import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
 import StatusBadge from '../components/shared/StatusBadge';
 import { copyToClipboard } from '../components/shared/CopyButton';
+import ErrorModal from '../components/shared/ErrorModal';
 
 function formatTimeAbsolute(utc: string | null): string {
   if (!utc) return '-';
@@ -132,7 +133,7 @@ export default function VesselDetail() {
   }
 
   if (loading) return <p className="text-dim">Loading...</p>;
-  if (error && !vessel) return <p className="text-error">{error}</p>;
+  if (error && !vessel) return <ErrorModal error={error} onClose={() => setError('')} />;
   if (!vessel) return <p className="text-dim">Vessel not found.</p>;
 
   return (
@@ -153,7 +154,7 @@ export default function VesselDetail() {
         </div>
       </div>
 
-      {error && <p className="text-error">{error}</p>}
+      <ErrorModal error={error} onClose={() => setError('')} />
 
       {/* Edit Modal */}
       {showForm && (

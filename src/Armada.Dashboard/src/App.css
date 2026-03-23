@@ -498,8 +498,8 @@ h3 { font-size: 1.1rem; margin-bottom: 0.5rem; font-weight: 600; margin-top: 1re
 
 /* Mission History Chart */
 .mission-history-section { margin-bottom: 1.5rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem 1.25rem; }
-.mission-history-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem; }
-.mission-history-header h3 { margin: 0; font-size: 1rem; }
+.mission-history-header { display: flex; align-items: center; margin-bottom: 0.75rem; gap: 0.75rem; flex-wrap: wrap; }
+.mission-history-title { font-weight: 600; font-size: 0.85rem; white-space: nowrap; }
 .mission-history-controls { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
 .mission-history-controls select { font-size: 0.75rem; padding: 0.2rem 0.4rem; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); max-width: 160px; }
 .mission-history-time-tabs { display: flex; gap: 0; }
@@ -1044,6 +1044,13 @@ tr.clickable { cursor: pointer; }
 
 .modal-box h3,
 .modal h3 { margin-top: 0; margin-bottom: 1rem; }
+
+/* Error Modal */
+.error-modal { max-width: 480px; }
+.error-modal-header { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem; }
+.error-modal-header h3 { margin: 0; font-size: 1rem; }
+.error-modal-icon { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; background: var(--red); color: #fff; font-weight: 700; font-size: 0.9rem; flex-shrink: 0; }
+.error-modal-message { margin: 0 0 1rem; color: var(--text); font-size: 0.9rem; line-height: 1.5; }
 
 .modal-actions {
     display: flex;
@@ -1809,8 +1816,14 @@ a:hover { text-decoration: underline; }
     transition: all 0.15s;
 }
 
-.dispatch-tab:hover { color: var(--text); }
-.dispatch-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.dispatch-tab:hover { color: var(--text); background: var(--bg-hover); }
+.dispatch-tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+    background: var(--bg-hover);
+    font-weight: 600;
+    border-radius: var(--radius) var(--radius) 0 0;
+}
 
 .dispatch-preview {
     background: var(--bg);

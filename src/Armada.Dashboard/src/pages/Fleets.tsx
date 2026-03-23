@@ -9,6 +9,7 @@ import JsonViewer from '../components/shared/JsonViewer';
 import StatusBadge from '../components/shared/StatusBadge';
 import CopyButton from '../components/shared/CopyButton';
 import RefreshButton from '../components/shared/RefreshButton';
+import ErrorModal from '../components/shared/ErrorModal';
 
 type SortDir = 'asc' | 'desc';
 type SortField = 'name' | 'createdUtc' | '_vesselCount' | 'description';
@@ -203,7 +204,7 @@ export default function Fleets() {
         </div>
       </div>
 
-      {error && <p className="text-error">{error}</p>}
+      <ErrorModal error={error} onClose={() => setError('')} />
 
       {/* Create/Edit Modal */}
       {showForm && (

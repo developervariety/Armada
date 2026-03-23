@@ -10,6 +10,7 @@ import type { ArmadaEvent, Captain, Vessel } from '../types/models';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
 import { copyToClipboard } from '../components/shared/CopyButton';
+import ErrorModal from '../components/shared/ErrorModal';
 
 function formatTimeAbsolute(utc: string): string {
   return new Date(utc).toLocaleString();
@@ -88,7 +89,7 @@ export default function EventDetail() {
   if (error && !event) {
     return (
       <div>
-        <p className="text-error">{error}</p>
+        <ErrorModal error={error} onClose={() => setError('')} />
         <button className="btn-sm" onClick={() => navigate('/events')}>&larr; Back to Events</button>
       </div>
     );
@@ -118,7 +119,7 @@ export default function EventDetail() {
         <span className="mono">{event.id}</span>
       </div>
 
-      {error && <p className="text-error">{error}</p>}
+      <ErrorModal error={error} onClose={() => setError('')} />
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <h2>Event Details</h2>

@@ -10,6 +10,7 @@ import type { Signal, Captain } from '../types/models';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
 import { copyToClipboard } from '../components/shared/CopyButton';
+import ErrorModal from '../components/shared/ErrorModal';
 
 // The API may return missionId on signals even though the base type doesn't include it
 interface SignalWithMission extends Signal {
@@ -92,7 +93,7 @@ export default function SignalDetail() {
   if (error && !signal) {
     return (
       <div>
-        <p className="text-error">{error}</p>
+        <ErrorModal error={error} onClose={() => setError('')} />
         <button className="btn-sm" onClick={() => navigate('/signals')}>&larr; Back to Signals</button>
       </div>
     );
@@ -111,7 +112,7 @@ export default function SignalDetail() {
         <span className="mono">{signal.id}</span>
       </div>
 
-      {error && <p className="text-error">{error}</p>}
+      <ErrorModal error={error} onClose={() => setError('')} />
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <h2>Signal Details</h2>

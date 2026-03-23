@@ -9,6 +9,7 @@ import DiffViewer from '../components/shared/DiffViewer';
 import LogViewer from '../components/shared/LogViewer';
 import StatusBadge from '../components/shared/StatusBadge';
 import { copyToClipboard } from '../components/shared/CopyButton';
+import ErrorModal from '../components/shared/ErrorModal';
 
 function formatTimeAbsolute(utc: string | null): string {
   if (!utc) return '-';
@@ -154,7 +155,7 @@ export default function MergeQueueDetail() {
   }, [logModal.missionId, fetchLog]);
 
   if (loading) return <p className="text-dim">Loading...</p>;
-  if (error && !entry) return <p className="text-error">{error}</p>;
+  if (error && !entry) return <ErrorModal error={error} onClose={() => setError('')} />;
   if (!entry) return <p className="text-dim">Merge entry not found.</p>;
 
   const actionItems = [
@@ -187,7 +188,7 @@ export default function MergeQueueDetail() {
         </div>
       </div>
 
-      {error && <p className="text-error">{error}</p>}
+      <ErrorModal error={error} onClose={() => setError('')} />
 
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
