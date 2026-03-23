@@ -6,10 +6,11 @@ import {
   listVessels,
   listCaptains,
   listSignals,
+  listFleets,
   deleteMission,
   restartMission,
 } from '../api/client';
-import type { Mission, Vessel, Captain, Signal } from '../types/models';
+import type { Mission, Vessel, Captain, Signal, Fleet } from '../types/models';
 import { useWebSocket } from '../context/WebSocketContext';
 import type { WebSocketMessage } from '../types/models';
 import StatusBadge from '../components/shared/StatusBadge';
@@ -18,6 +19,7 @@ import RefreshButton from '../components/shared/RefreshButton';
 import CopyButton, { copyToClipboard } from '../components/shared/CopyButton';
 import JsonViewer from '../components/shared/JsonViewer';
 import FilterBar from '../components/shared/FilterBar';
+import MissionHistoryChart from '../components/MissionHistoryChart';
 
 interface VoyageProgress {
   voyage: {
@@ -77,7 +79,9 @@ export default function Dashboard() {
 
   const [status, setStatus] = useState<StatusData | null>(null);
   const [recentMissions, setRecentMissions] = useState<Mission[]>([]);
+  const [allMissions, setAllMissions] = useState<Mission[]>([]);
   const [vessels, setVessels] = useState<Vessel[]>([]);
+  const [fleets, setFleets] = useState<Fleet[]>([]);
   const [captains, setCaptains] = useState<Captain[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -122,20 +126,23 @@ export default function Dashboard() {
 
   const loadAll = useCallback(async () => {
     try {
-      const [statusRes, missionRes, vesselRes, captainRes] = await Promise.all([
+      const [statusRes, missionRes, vesselRes, captainRes, fleetRes] = await Promise.all([
         getStatus().catch(() => null),
         listMissions({ pageSize: 9999 }).catch(() => null),
         listVessels({ pageSize: 9999 }).catch(() => null),
         listCaptains({ pageSize: 9999 }).catch(() => null),
+        listFleets({ pageSize: 9999 }).catch(() => null),
       ]);
       if (statusRes) setStatus(statusRes as unknown as StatusData);
       if (missionRes) {
+        setAllMissions(missionRes.objects);
         const sorted = [...missionRes.objects].sort(
           (a, b) => new Date(b.createdUtc).getTime() - new Date(a.createdUtc).getTime(),
         );
         setRecentMissions(sorted.slice(0, 10));
       }
       if (vesselRes) setVessels(vesselRes.objects);
+      if (fleetRes) setFleets(fleetRes.objects);
       if (captainRes) setCaptains(captainRes.objects);
       if (!statusRes && !missionRes) setError('Failed to load dashboard data.');
     } catch {
@@ -162,6 +169,66 @@ export default function Dashboard() {
     const timer = setInterval(loadAll, 30000);
     return () => clearInterval(timer);
   }, [loadAll]);
+
+  // Compute alerts from status data
+  const alerts = useMemo(() => {
+    if (!status) return [];
+    const result: Array<{ level: 'error' | 'warning'; message: string; action?: string; link?: string }> = [];
+    const ms = status.missionsByStatus || {};
+    const stalledCount = status.stalledCaptains ?? 0;
+    const failedCount = (ms['Failed'] ?? 0);
+    const landingFailedCount = (ms['LandingFailed'] ?? 0);
+    const pendingCount = (ms['Pending'] ?? 0);
+    const idleCount = status.idleCaptains ?? 0;
+    const workingCount = status.workingCaptains ?? 0;
+    const totalCaptains = status.totalCaptains ?? 0;
+
+    if (stalledCount > 0) {
+      result.push({
+        level: 'error',
+        message: `${stalledCount} captain(s) stalled -- recovery attempts exhausted.`,
+        action: 'Stop and restart stalled captains to resume work.',
+        link: '/captains',
+      });
+    }
+
+    if (failedCount > 0) {
+      result.push({
+        level: 'warning',
+        message: `${failedCount} mission(s) failed.`,
+        action: 'Review and restart failed missions.',
+        link: '/missions',
+      });
+    }
+
+    if (landingFailedCount > 0) {
+      result.push({
+        level: 'warning',
+        message: `${landingFailedCount} mission(s) failed to land -- work was produced but could not be merged.`,
+        action: 'Retry landing or restart these missions.',
+        link: '/missions',
+      });
+    }
+
+    if (pendingCount > 0 && idleCount > 0 && workingCount === 0) {
+      result.push({
+        level: 'warning',
+        message: `${pendingCount} pending mission(s) but no captains are working. ${idleCount} captain(s) idle.`,
+        action: 'Vessels may have concurrent mission limits blocking dispatch, or missions may be assigned to a vessel with an active mission.',
+      });
+    }
+
+    if (totalCaptains === 0 && pendingCount > 0) {
+      result.push({
+        level: 'error',
+        message: `${pendingCount} pending mission(s) but no captains exist.`,
+        action: 'Create a captain to start processing missions.',
+        link: '/captains',
+      });
+    }
+
+    return result;
+  }, [status]);
 
   const totalMissions = useMemo(() => {
     if (!status?.missionsByStatus) return 0;
@@ -232,6 +299,26 @@ export default function Dashboard() {
       </div>
 
       {error && <p className="text-error">{error}</p>}
+
+      {/* Alert Banners */}
+      {alerts.length > 0 && (
+        <div className="dashboard-alerts">
+          {alerts.map((alert, i) => (
+            <div key={i} className={`dashboard-alert dashboard-alert-${alert.level}`}>
+              <div className="dashboard-alert-content">
+                <strong>{alert.message}</strong>
+                {alert.action && <span className="dashboard-alert-action"> {alert.action}</span>}
+              </div>
+              {alert.link && (
+                <button className="btn btn-sm" onClick={() => navigate(alert.link!)}>View</button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Mission History Chart */}
+      <MissionHistoryChart missions={allMissions} vessels={vessels} fleets={fleets} onRefresh={loadAll} />
 
       {/* KPI Cards */}
       <div className="cards">

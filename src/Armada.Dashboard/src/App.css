@@ -457,6 +457,65 @@ h3 { font-size: 1.1rem; margin-bottom: 0.5rem; font-weight: 600; margin-top: 1re
     margin-bottom: 1.5rem;
 }
 
+/* Dashboard Alert Banners */
+.dashboard-alerts {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.dashboard-alert {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.6rem 1rem;
+    border-radius: var(--radius);
+    font-size: 0.85rem;
+    border-left: 4px solid;
+}
+
+.dashboard-alert-error {
+    background: color-mix(in srgb, var(--red) 10%, var(--bg-card));
+    border-left-color: var(--red);
+    color: var(--text);
+}
+
+.dashboard-alert-warning {
+    background: color-mix(in srgb, var(--yellow) 10%, var(--bg-card));
+    border-left-color: var(--yellow);
+    color: var(--text);
+}
+
+.dashboard-alert-content {
+    flex: 1;
+}
+
+.dashboard-alert-action {
+    color: var(--text-dim);
+}
+
+/* Mission History Chart */
+.mission-history-section { margin-bottom: 1.5rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem 1.25rem; }
+.mission-history-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem; }
+.mission-history-header h3 { margin: 0; font-size: 1rem; }
+.mission-history-controls { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+.mission-history-controls select { font-size: 0.8rem; padding: 0.25rem 0.5rem; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); }
+.mission-history-time-tabs { display: flex; gap: 0; }
+.mission-history-time-tab { background: none; border: none; border-bottom: 2px solid transparent; color: var(--text-dim); padding: 0.4rem 0.75rem; font-size: 0.8rem; font-family: var(--font); cursor: pointer; transition: all 0.15s; }
+.mission-history-time-tab:hover { color: var(--text); background: var(--bg-hover); }
+.mission-history-time-tab.active { color: var(--accent); border-bottom-color: var(--accent); background: var(--bg-hover); font-weight: 600; }
+.mission-history-stats { display: flex; gap: 1.5rem; margin-bottom: 0.5rem; font-size: 0.85rem; }
+.mission-history-stat-value { font-weight: 600; margin-right: 0.25rem; }
+.mission-history-chart-container { position: relative; }
+.mission-history-tooltip { position: absolute; top: -10px; transform: translateX(-50%); background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.5rem 0.75rem; font-size: 0.8rem; box-shadow: 0 4px 12px rgba(0,0,0,0.15); pointer-events: none; z-index: 10; white-space: nowrap; }
+.mission-history-legend { display: flex; gap: 1rem; margin-top: 0.5rem; font-size: 0.8rem; color: var(--text-dim); }
+.mission-history-legend-color { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 0.25rem; vertical-align: middle; }
+.mission-history-empty { text-align: center; padding: 2rem; color: var(--text-dim); font-size: 0.85rem; }
+.mission-history-refresh-btn { background: none; border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer; padding: 0.25rem 0.4rem; color: var(--text-dim); display: inline-flex; align-items: center; font-size: 0.9rem; }
+.mission-history-refresh-btn:hover { color: var(--accent); border-color: var(--accent); }
+
 .card {
     background: var(--bg-card);
     border: 1px solid var(--border);
