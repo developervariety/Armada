@@ -96,7 +96,9 @@ namespace Armada.Server.Routes
                 Stopwatch sw = Stopwatch.StartNew();
                 EnumerationResult<Captain> result = ctx.IsAdmin
                     ? await _database.Captains.EnumerateAsync(query).ConfigureAwait(false)
-                    : await _database.Captains.EnumerateAsync(ctx.TenantId!, query).ConfigureAwait(false);
+                    : ctx.IsTenantAdmin
+                        ? await _database.Captains.EnumerateAsync(ctx.TenantId!, query).ConfigureAwait(false)
+                        : await _database.Captains.EnumerateAsync(ctx.TenantId!, ctx.UserId!, query).ConfigureAwait(false);
                 result.TotalMs = Math.Round(sw.Elapsed.TotalMilliseconds, 2);
                 return result;
             },
@@ -120,7 +122,9 @@ namespace Armada.Server.Routes
                 Stopwatch sw = Stopwatch.StartNew();
                 EnumerationResult<Captain> result = ctx.IsAdmin
                     ? await _database.Captains.EnumerateAsync(query).ConfigureAwait(false)
-                    : await _database.Captains.EnumerateAsync(ctx.TenantId!, query).ConfigureAwait(false);
+                    : ctx.IsTenantAdmin
+                        ? await _database.Captains.EnumerateAsync(ctx.TenantId!, query).ConfigureAwait(false)
+                        : await _database.Captains.EnumerateAsync(ctx.TenantId!, ctx.UserId!, query).ConfigureAwait(false);
                 result.TotalMs = Math.Round(sw.Elapsed.TotalMilliseconds, 2);
                 return result;
             },
@@ -166,7 +170,9 @@ namespace Armada.Server.Routes
                 string id = req.Parameters["id"];
                 Captain? captain = ctx.IsAdmin
                     ? await _database.Captains.ReadAsync(id).ConfigureAwait(false)
-                    : await _database.Captains.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                    : ctx.IsTenantAdmin
+                        ? await _database.Captains.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                        : await _database.Captains.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (captain == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Captain not found" }; }
                 return (object)captain;
             },
@@ -190,7 +196,9 @@ namespace Armada.Server.Routes
                 string id = req.Parameters["id"];
                 Captain? existing = ctx.IsAdmin
                     ? await _database.Captains.ReadAsync(id).ConfigureAwait(false)
-                    : await _database.Captains.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                    : ctx.IsTenantAdmin
+                        ? await _database.Captains.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                        : await _database.Captains.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (existing == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Captain not found" }; }
                 Captain updated = JsonSerializer.Deserialize<Captain>(req.Http.Request.DataAsString, _jsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as Captain.");
@@ -227,7 +235,9 @@ namespace Armada.Server.Routes
                 string id = req.Parameters["id"];
                 Captain? captain = ctx.IsAdmin
                     ? await _database.Captains.ReadAsync(id).ConfigureAwait(false)
-                    : await _database.Captains.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                    : ctx.IsTenantAdmin
+                        ? await _database.Captains.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                        : await _database.Captains.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (captain == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Captain not found" }; }
 
                 // Kill the process if running
@@ -276,7 +286,9 @@ namespace Armada.Server.Routes
                 string id = req.Parameters["id"];
                 Captain? captain = ctx.IsAdmin
                     ? await _database.Captains.ReadAsync(id).ConfigureAwait(false)
-                    : await _database.Captains.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                    : ctx.IsTenantAdmin
+                        ? await _database.Captains.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                        : await _database.Captains.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (captain == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Captain not found" }; }
 
                 string pointerPath = Path.Combine(_settings.LogDirectory, "captains", id + ".current");
@@ -330,7 +342,9 @@ namespace Armada.Server.Routes
                 string id = req.Parameters["id"];
                 Captain? captain = ctx.IsAdmin
                     ? await _database.Captains.ReadAsync(id).ConfigureAwait(false)
-                    : await _database.Captains.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                    : ctx.IsTenantAdmin
+                        ? await _database.Captains.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                        : await _database.Captains.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (captain == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Captain not found" }; }
 
                 // Block deletion of working captains
@@ -353,8 +367,10 @@ namespace Armada.Server.Routes
 
                 if (ctx.IsAdmin)
                     await _database.Captains.DeleteAsync(id).ConfigureAwait(false);
-                else
+                else if (ctx.IsTenantAdmin)
                     await _database.Captains.DeleteAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                else
+                    await _database.Captains.DeleteAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 req.Http.Response.StatusCode = 204;
                 return null;
             },
@@ -390,7 +406,9 @@ namespace Armada.Server.Routes
                     }
                     Captain? captain = ctx.IsAdmin
                         ? await _database.Captains.ReadAsync(id).ConfigureAwait(false)
-                        : await _database.Captains.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                        : ctx.IsTenantAdmin
+                            ? await _database.Captains.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                            : await _database.Captains.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                     if (captain == null)
                     {
                         result.Skipped.Add(new DeleteMultipleSkipped(id, "Not found"));
@@ -412,8 +430,10 @@ namespace Armada.Server.Routes
                     }
                     if (ctx.IsAdmin)
                         await _database.Captains.DeleteAsync(id).ConfigureAwait(false);
-                    else
+                    else if (ctx.IsTenantAdmin)
                         await _database.Captains.DeleteAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                    else
+                        await _database.Captains.DeleteAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                     result.Deleted++;
                 }
 

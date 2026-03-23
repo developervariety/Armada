@@ -525,6 +525,153 @@ namespace Armada.Core.Database.Mysql.Implementations
             }
         }
 
+        /// <inheritdoc />
+        public async Task<MergeEntry?> ReadAsync(string tenantId, string userId, string id, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
+            if (string.IsNullOrEmpty(userId)) throw new ArgumentNullException(nameof(userId));
+            if (string.IsNullOrEmpty(id)) throw new ArgumentNullException(nameof(id));
+
+            using (MySqlConnection conn = new MySqlConnection(_ConnectionString))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (MySqlCommand cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "SELECT * FROM merge_entries WHERE tenant_id = @tenantId AND user_id = @userId AND id = @id;";
+                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
+                    cmd.Parameters.AddWithValue("@userId", userId);
+                    cmd.Parameters.AddWithValue("@id", id);
+                    using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
+                    {
+                        if (await reader.ReadAsync(token).ConfigureAwait(false))
+                            return MergeEntryFromReader(reader);
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        /// <inheritdoc />
+        public async Task DeleteAsync(string tenantId, string userId, string id, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
+            if (string.IsNullOrEmpty(userId)) throw new ArgumentNullException(nameof(userId));
+            if (string.IsNullOrEmpty(id)) throw new ArgumentNullException(nameof(id));
+
+            using (MySqlConnection conn = new MySqlConnection(_ConnectionString))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (MySqlCommand cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "DELETE FROM merge_entries WHERE tenant_id = @tenantId AND user_id = @userId AND id = @id;";
+                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
+                    cmd.Parameters.AddWithValue("@userId", userId);
+                    cmd.Parameters.AddWithValue("@id", id);
+                    await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                }
+            }
+        }
+
+        /// <inheritdoc />
+        public async Task<List<MergeEntry>> EnumerateAsync(string tenantId, string userId, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
+            if (string.IsNullOrEmpty(userId)) throw new ArgumentNullException(nameof(userId));
+            List<MergeEntry> results = new List<MergeEntry>();
+
+            using (MySqlConnection conn = new MySqlConnection(_ConnectionString))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (MySqlCommand cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "SELECT * FROM merge_entries WHERE tenant_id = @tenantId AND user_id = @userId ORDER BY priority ASC, created_utc ASC;";
+                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
+                    cmd.Parameters.AddWithValue("@userId", userId);
+                    using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
+                    {
+                        while (await reader.ReadAsync(token).ConfigureAwait(false))
+                            results.Add(MergeEntryFromReader(reader));
+                    }
+                }
+            }
+
+            return results;
+        }
+
+        /// <inheritdoc />
+        public async Task<EnumerationResult<MergeEntry>> EnumerateAsync(string tenantId, string userId, EnumerationQuery query, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
+            if (string.IsNullOrEmpty(userId)) throw new ArgumentNullException(nameof(userId));
+            if (query == null) query = new EnumerationQuery();
+
+            using (MySqlConnection conn = new MySqlConnection(_ConnectionString))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+
+                List<string> conditions = new List<string> { "tenant_id = @tenantId", "user_id = @userId" };
+                List<MySqlParameter> parameters = new List<MySqlParameter>
+                {
+                    new MySqlParameter("@tenantId", tenantId),
+                    new MySqlParameter("@userId", userId)
+                };
+
+                if (query.CreatedAfter.HasValue)
+                {
+                    conditions.Add("created_utc > @created_after");
+                    parameters.Add(new MySqlParameter("@created_after", ToIso8601(query.CreatedAfter.Value)));
+                }
+                if (query.CreatedBefore.HasValue)
+                {
+                    conditions.Add("created_utc < @created_before");
+                    parameters.Add(new MySqlParameter("@created_before", ToIso8601(query.CreatedBefore.Value)));
+                }
+                if (!string.IsNullOrEmpty(query.Status))
+                {
+                    conditions.Add("status = @status");
+                    parameters.Add(new MySqlParameter("@status", query.Status));
+                }
+                if (!string.IsNullOrEmpty(query.VesselId))
+                {
+                    conditions.Add("vessel_id = @vessel_id");
+                    parameters.Add(new MySqlParameter("@vessel_id", query.VesselId));
+                }
+                if (!string.IsNullOrEmpty(query.MissionId))
+                {
+                    conditions.Add("mission_id = @mission_id");
+                    parameters.Add(new MySqlParameter("@mission_id", query.MissionId));
+                }
+
+                string whereClause = " WHERE " + string.Join(" AND ", conditions);
+                string orderDirection = query.Order == EnumerationOrderEnum.CreatedAscending ? "ASC" : "DESC";
+
+                long totalCount = 0;
+                using (MySqlCommand cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "SELECT COUNT(*) FROM merge_entries" + whereClause + ";";
+                    foreach (MySqlParameter p in parameters) cmd.Parameters.Add(new MySqlParameter(p.ParameterName, p.Value));
+                    totalCount = (long)(await cmd.ExecuteScalarAsync(token).ConfigureAwait(false))!;
+                }
+
+                List<MergeEntry> results = new List<MergeEntry>();
+                using (MySqlCommand cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "SELECT * FROM merge_entries" + whereClause +
+                        " ORDER BY created_utc " + orderDirection +
+                        " LIMIT " + query.PageSize + " OFFSET " + query.Offset + ";";
+                    foreach (MySqlParameter p in parameters) cmd.Parameters.Add(new MySqlParameter(p.ParameterName, p.Value));
+                    using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
+                    {
+                        while (await reader.ReadAsync(token).ConfigureAwait(false))
+                            results.Add(MergeEntryFromReader(reader));
+                    }
+                }
+
+                return EnumerationResult<MergeEntry>.Create(query, results, totalCount);
+            }
+        }
+
         #endregion
 
         #region Private-Methods

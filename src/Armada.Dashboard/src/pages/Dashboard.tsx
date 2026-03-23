@@ -15,7 +15,7 @@ import type { WebSocketMessage } from '../types/models';
 import StatusBadge from '../components/shared/StatusBadge';
 import ActionMenu from '../components/shared/ActionMenu';
 import RefreshButton from '../components/shared/RefreshButton';
-import { copyToClipboard } from '../components/shared/CopyButton';
+import CopyButton, { copyToClipboard } from '../components/shared/CopyButton';
 import JsonViewer from '../components/shared/JsonViewer';
 import FilterBar from '../components/shared/FilterBar';
 
@@ -99,6 +99,16 @@ export default function Dashboard() {
       return v ? v.name : id.slice(0, 8);
     },
     [vessels],
+  );
+
+  const voyageVesselNames = useCallback(
+    (voyageId: string | null | undefined) => {
+      if (!voyageId) return '-';
+      const vesselIds = [...new Set(recentMissions.filter(m => m.voyageId === voyageId).map(m => m.vesselId))];
+      if (vesselIds.length === 0) return '-';
+      return vesselIds.map(id => vesselName(id)).join(', ');
+    },
+    [recentMissions, vesselName],
   );
 
   const captainName = useCallback(
@@ -278,6 +288,7 @@ export default function Dashboard() {
                 <tr>
                   <th title="Voyage name and unique identifier">Voyage</th>
                   <th title="Current voyage lifecycle state">Status</th>
+                  <th title="Vessel(s) targeted by this voyage's missions">Vessel</th>
                   <th title="Percentage of missions completed">Progress</th>
                   <th title="Completed vs total missions in this voyage">Missions</th>
                   <th></th>
@@ -294,19 +305,13 @@ export default function Dashboard() {
                       <strong>{vp.voyage?.title || vp.voyage?.id}</strong>
                       <div className="text-dim id-display">
                         <span className="mono">{vp.voyage?.id}</span>
-                        <button
-                          className="copy-btn"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            copyId(vp.voyage?.id);
-                          }}
-                          title="Copy ID"
-                        />
+                        <CopyButton text={vp.voyage?.id || ''} onClick={e => e.stopPropagation()} />
                       </div>
                     </td>
                     <td>
                       <StatusBadge status={vp.voyage?.status || ''} />
                     </td>
+                    <td className="text-dim">{voyageVesselNames(vp.voyage?.id)}</td>
                     <td>
                       <div className="progress-bar">
                         <div
@@ -418,14 +423,7 @@ export default function Dashboard() {
                     <td className="mono text-dim">
                       <span className="id-display">
                         <span>{m.id}</span>
-                        <button
-                          className="copy-btn"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            copyId(m.id);
-                          }}
-                          title="Copy ID"
-                        />
+                        <CopyButton text={m.id} onClick={e => e.stopPropagation()} />
                       </span>
                     </td>
                     <td>

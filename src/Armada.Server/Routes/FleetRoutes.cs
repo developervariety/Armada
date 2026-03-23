@@ -60,7 +60,9 @@ namespace Armada.Server.Routes
                 Stopwatch sw = Stopwatch.StartNew();
                 EnumerationResult<Fleet> result = ctx.IsAdmin
                     ? await _database.Fleets.EnumerateAsync(query).ConfigureAwait(false)
-                    : await _database.Fleets.EnumerateAsync(ctx.TenantId!, query).ConfigureAwait(false);
+                    : ctx.IsTenantAdmin
+                        ? await _database.Fleets.EnumerateAsync(ctx.TenantId!, query).ConfigureAwait(false)
+                        : await _database.Fleets.EnumerateAsync(ctx.TenantId!, ctx.UserId!, query).ConfigureAwait(false);
                 result.TotalMs = Math.Round(sw.Elapsed.TotalMilliseconds, 2);
                 return result;
             },
@@ -84,7 +86,9 @@ namespace Armada.Server.Routes
                 Stopwatch sw = Stopwatch.StartNew();
                 EnumerationResult<Fleet> result = ctx.IsAdmin
                     ? await _database.Fleets.EnumerateAsync(query).ConfigureAwait(false)
-                    : await _database.Fleets.EnumerateAsync(ctx.TenantId!, query).ConfigureAwait(false);
+                    : ctx.IsTenantAdmin
+                        ? await _database.Fleets.EnumerateAsync(ctx.TenantId!, query).ConfigureAwait(false)
+                        : await _database.Fleets.EnumerateAsync(ctx.TenantId!, ctx.UserId!, query).ConfigureAwait(false);
                 result.TotalMs = Math.Round(sw.Elapsed.TotalMilliseconds, 2);
                 return result;
             },
@@ -130,7 +134,9 @@ namespace Armada.Server.Routes
                 string id = req.Parameters["id"];
                 Fleet? fleet = ctx.IsAdmin
                     ? await _database.Fleets.ReadAsync(id).ConfigureAwait(false)
-                    : await _database.Fleets.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                    : ctx.IsTenantAdmin
+                        ? await _database.Fleets.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                        : await _database.Fleets.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (fleet == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Fleet not found" }; }
                 List<Vessel> vessels = ctx.IsAdmin
                     ? await _database.Vessels.EnumerateByFleetAsync(id).ConfigureAwait(false)
@@ -157,7 +163,9 @@ namespace Armada.Server.Routes
                 string id = req.Parameters["id"];
                 Fleet? existing = ctx.IsAdmin
                     ? await _database.Fleets.ReadAsync(id).ConfigureAwait(false)
-                    : await _database.Fleets.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                    : ctx.IsTenantAdmin
+                        ? await _database.Fleets.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                        : await _database.Fleets.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (existing == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Fleet not found" }; }
                 Fleet updated = JsonSerializer.Deserialize<Fleet>(req.Http.Request.DataAsString, _jsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as Fleet.");
@@ -186,8 +194,10 @@ namespace Armada.Server.Routes
                 string id = req.Parameters["id"];
                 if (ctx.IsAdmin)
                     await _database.Fleets.DeleteAsync(id).ConfigureAwait(false);
-                else
+                else if (ctx.IsTenantAdmin)
                     await _database.Fleets.DeleteAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                else
+                    await _database.Fleets.DeleteAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 req.Http.Response.StatusCode = 204;
                 return null;
             },
@@ -221,7 +231,9 @@ namespace Armada.Server.Routes
                     }
                     Fleet? existing = ctx.IsAdmin
                         ? await _database.Fleets.ReadAsync(id).ConfigureAwait(false)
-                        : await _database.Fleets.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                        : ctx.IsTenantAdmin
+                            ? await _database.Fleets.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                            : await _database.Fleets.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                     if (existing == null)
                     {
                         result.Skipped.Add(new DeleteMultipleSkipped(id, "Not found"));
@@ -229,8 +241,10 @@ namespace Armada.Server.Routes
                     }
                     if (ctx.IsAdmin)
                         await _database.Fleets.DeleteAsync(id).ConfigureAwait(false);
-                    else
+                    else if (ctx.IsTenantAdmin)
                         await _database.Fleets.DeleteAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                    else
+                        await _database.Fleets.DeleteAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                     result.Deleted++;
                 }
 

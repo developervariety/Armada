@@ -60,7 +60,9 @@ namespace Armada.Server.Routes
                 Stopwatch sw = Stopwatch.StartNew();
                 EnumerationResult<Vessel> result = ctx.IsAdmin
                     ? await _database.Vessels.EnumerateAsync(query).ConfigureAwait(false)
-                    : await _database.Vessels.EnumerateAsync(ctx.TenantId!, query).ConfigureAwait(false);
+                    : ctx.IsTenantAdmin
+                        ? await _database.Vessels.EnumerateAsync(ctx.TenantId!, query).ConfigureAwait(false)
+                        : await _database.Vessels.EnumerateAsync(ctx.TenantId!, ctx.UserId!, query).ConfigureAwait(false);
                 result.TotalMs = Math.Round(sw.Elapsed.TotalMilliseconds, 2);
                 return result;
             },
@@ -85,7 +87,9 @@ namespace Armada.Server.Routes
                 Stopwatch sw = Stopwatch.StartNew();
                 EnumerationResult<Vessel> result = ctx.IsAdmin
                     ? await _database.Vessels.EnumerateAsync(query).ConfigureAwait(false)
-                    : await _database.Vessels.EnumerateAsync(ctx.TenantId!, query).ConfigureAwait(false);
+                    : ctx.IsTenantAdmin
+                        ? await _database.Vessels.EnumerateAsync(ctx.TenantId!, query).ConfigureAwait(false)
+                        : await _database.Vessels.EnumerateAsync(ctx.TenantId!, ctx.UserId!, query).ConfigureAwait(false);
                 result.TotalMs = Math.Round(sw.Elapsed.TotalMilliseconds, 2);
                 return result;
             },
@@ -131,7 +135,9 @@ namespace Armada.Server.Routes
                 string id = req.Parameters["id"];
                 Vessel? vessel = ctx.IsAdmin
                     ? await _database.Vessels.ReadAsync(id).ConfigureAwait(false)
-                    : await _database.Vessels.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                    : ctx.IsTenantAdmin
+                        ? await _database.Vessels.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                        : await _database.Vessels.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (vessel == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Vessel not found" }; }
                 return (object)vessel;
             },
@@ -155,7 +161,9 @@ namespace Armada.Server.Routes
                 string id = req.Parameters["id"];
                 Vessel? existing = ctx.IsAdmin
                     ? await _database.Vessels.ReadAsync(id).ConfigureAwait(false)
-                    : await _database.Vessels.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                    : ctx.IsTenantAdmin
+                        ? await _database.Vessels.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                        : await _database.Vessels.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (existing == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Vessel not found" }; }
                 Vessel updated = JsonSerializer.Deserialize<Vessel>(req.Http.Request.DataAsString, _jsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as Vessel.");
@@ -184,7 +192,9 @@ namespace Armada.Server.Routes
                 string id = req.Parameters["id"];
                 Vessel? existing = ctx.IsAdmin
                     ? await _database.Vessels.ReadAsync(id).ConfigureAwait(false)
-                    : await _database.Vessels.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                    : ctx.IsTenantAdmin
+                        ? await _database.Vessels.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                        : await _database.Vessels.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (existing == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Vessel not found" }; }
                 Vessel patch = JsonSerializer.Deserialize<Vessel>(req.Http.Request.DataAsString, _jsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as Vessel.");
@@ -218,8 +228,10 @@ namespace Armada.Server.Routes
                 string id = req.Parameters["id"];
                 if (ctx.IsAdmin)
                     await _database.Vessels.DeleteAsync(id).ConfigureAwait(false);
-                else
+                else if (ctx.IsTenantAdmin)
                     await _database.Vessels.DeleteAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                else
+                    await _database.Vessels.DeleteAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 req.Http.Response.StatusCode = 204;
                 return null;
             },
@@ -253,7 +265,9 @@ namespace Armada.Server.Routes
                     }
                     Vessel? existing = ctx.IsAdmin
                         ? await _database.Vessels.ReadAsync(id).ConfigureAwait(false)
-                        : await _database.Vessels.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                        : ctx.IsTenantAdmin
+                            ? await _database.Vessels.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                            : await _database.Vessels.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                     if (existing == null)
                     {
                         result.Skipped.Add(new DeleteMultipleSkipped(id, "Not found"));
@@ -261,8 +275,10 @@ namespace Armada.Server.Routes
                     }
                     if (ctx.IsAdmin)
                         await _database.Vessels.DeleteAsync(id).ConfigureAwait(false);
-                    else
+                    else if (ctx.IsTenantAdmin)
                         await _database.Vessels.DeleteAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                    else
+                        await _database.Vessels.DeleteAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                     result.Deleted++;
                 }
 

@@ -527,6 +527,151 @@ namespace Armada.Core.Database.Postgresql.Implementations
             }
         }
 
+        /// <inheritdoc />
+        public async Task<MergeEntry?> ReadAsync(string tenantId, string userId, string id, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
+            if (string.IsNullOrEmpty(userId)) throw new ArgumentNullException(nameof(userId));
+            if (string.IsNullOrEmpty(id)) throw new ArgumentNullException(nameof(id));
+
+            using (NpgsqlConnection conn = await _DataSource.OpenConnectionAsync(token).ConfigureAwait(false))
+            {
+                using (NpgsqlCommand cmd = new NpgsqlCommand())
+                {
+                    cmd.Connection = conn;
+                    cmd.CommandText = "SELECT * FROM merge_entries WHERE tenant_id = @tenant_id AND user_id = @user_id AND id = @id;";
+                    cmd.Parameters.AddWithValue("@tenant_id", tenantId);
+                    cmd.Parameters.AddWithValue("@user_id", userId);
+                    cmd.Parameters.AddWithValue("@id", id);
+                    using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
+                    {
+                        if (await reader.ReadAsync(token).ConfigureAwait(false))
+                            return MergeEntryFromReader(reader);
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        /// <inheritdoc />
+        public async Task DeleteAsync(string tenantId, string userId, string id, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
+            if (string.IsNullOrEmpty(userId)) throw new ArgumentNullException(nameof(userId));
+            if (string.IsNullOrEmpty(id)) throw new ArgumentNullException(nameof(id));
+
+            using (NpgsqlConnection conn = await _DataSource.OpenConnectionAsync(token).ConfigureAwait(false))
+            {
+                using (NpgsqlCommand cmd = new NpgsqlCommand())
+                {
+                    cmd.Connection = conn;
+                    cmd.CommandText = "DELETE FROM merge_entries WHERE tenant_id = @tenant_id AND user_id = @user_id AND id = @id;";
+                    cmd.Parameters.AddWithValue("@tenant_id", tenantId);
+                    cmd.Parameters.AddWithValue("@user_id", userId);
+                    cmd.Parameters.AddWithValue("@id", id);
+                    await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                }
+            }
+        }
+
+        /// <inheritdoc />
+        public async Task<List<MergeEntry>> EnumerateAsync(string tenantId, string userId, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
+            if (string.IsNullOrEmpty(userId)) throw new ArgumentNullException(nameof(userId));
+            List<MergeEntry> results = new List<MergeEntry>();
+
+            using (NpgsqlConnection conn = await _DataSource.OpenConnectionAsync(token).ConfigureAwait(false))
+            {
+                using (NpgsqlCommand cmd = new NpgsqlCommand())
+                {
+                    cmd.Connection = conn;
+                    cmd.CommandText = "SELECT * FROM merge_entries WHERE tenant_id = @tenant_id AND user_id = @user_id ORDER BY priority ASC, created_utc ASC;";
+                    cmd.Parameters.AddWithValue("@tenant_id", tenantId);
+                    cmd.Parameters.AddWithValue("@user_id", userId);
+                    using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
+                    {
+                        while (await reader.ReadAsync(token).ConfigureAwait(false))
+                            results.Add(MergeEntryFromReader(reader));
+                    }
+                }
+            }
+
+            return results;
+        }
+
+        /// <inheritdoc />
+        public async Task<EnumerationResult<MergeEntry>> EnumerateAsync(string tenantId, string userId, EnumerationQuery query, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
+            if (string.IsNullOrEmpty(userId)) throw new ArgumentNullException(nameof(userId));
+            if (query == null) query = new EnumerationQuery();
+
+            using (NpgsqlConnection conn = await _DataSource.OpenConnectionAsync(token).ConfigureAwait(false))
+            {
+                List<string> conditions = new List<string> { "tenant_id = @tenant_id", "user_id = @user_id" };
+                List<NpgsqlParameter> parameters = new List<NpgsqlParameter> { new NpgsqlParameter("@tenant_id", tenantId), new NpgsqlParameter("@user_id", userId) };
+
+                if (query.CreatedAfter.HasValue)
+                {
+                    conditions.Add("created_utc > @created_after");
+                    parameters.Add(new NpgsqlParameter("@created_after", ToIso8601(query.CreatedAfter.Value)));
+                }
+                if (query.CreatedBefore.HasValue)
+                {
+                    conditions.Add("created_utc < @created_before");
+                    parameters.Add(new NpgsqlParameter("@created_before", ToIso8601(query.CreatedBefore.Value)));
+                }
+                if (!string.IsNullOrEmpty(query.Status))
+                {
+                    conditions.Add("status = @status");
+                    parameters.Add(new NpgsqlParameter("@status", query.Status));
+                }
+                if (!string.IsNullOrEmpty(query.VesselId))
+                {
+                    conditions.Add("vessel_id = @vessel_id");
+                    parameters.Add(new NpgsqlParameter("@vessel_id", query.VesselId));
+                }
+                if (!string.IsNullOrEmpty(query.MissionId))
+                {
+                    conditions.Add("mission_id = @mission_id");
+                    parameters.Add(new NpgsqlParameter("@mission_id", query.MissionId));
+                }
+
+                string whereClause = " WHERE " + string.Join(" AND ", conditions);
+                string orderDirection = query.Order == EnumerationOrderEnum.CreatedAscending ? "ASC" : "DESC";
+
+                // Count
+                long totalCount = 0;
+                using (NpgsqlCommand cmd = new NpgsqlCommand())
+                {
+                    cmd.Connection = conn;
+                    cmd.CommandText = "SELECT COUNT(*) FROM merge_entries" + whereClause + ";";
+                    foreach (NpgsqlParameter p in parameters) cmd.Parameters.Add(new NpgsqlParameter(p.ParameterName, p.NpgsqlDbType) { Value = p.Value });
+                    totalCount = (long)(await cmd.ExecuteScalarAsync(token).ConfigureAwait(false))!;
+                }
+
+                // Query
+                List<MergeEntry> results = new List<MergeEntry>();
+                using (NpgsqlCommand cmd = new NpgsqlCommand())
+                {
+                    cmd.Connection = conn;
+                    cmd.CommandText = "SELECT * FROM merge_entries" + whereClause +
+                        " ORDER BY created_utc " + orderDirection +
+                        " LIMIT " + query.PageSize + " OFFSET " + query.Offset + ";";
+                    foreach (NpgsqlParameter p in parameters) cmd.Parameters.Add(new NpgsqlParameter(p.ParameterName, p.NpgsqlDbType) { Value = p.Value });
+                    using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
+                    {
+                        while (await reader.ReadAsync(token).ConfigureAwait(false))
+                            results.Add(MergeEntryFromReader(reader));
+                    }
+                }
+
+                return EnumerationResult<MergeEntry>.Create(query, results, totalCount);
+            }
+        }
+
         #endregion
 
         #region Private-Methods

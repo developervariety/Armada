@@ -64,7 +64,9 @@ namespace Armada.Server.Routes
                 Stopwatch sw = Stopwatch.StartNew();
                 EnumerationResult<Dock> result = ctx.IsAdmin
                     ? await _database.Docks.EnumerateAsync(query).ConfigureAwait(false)
-                    : await _database.Docks.EnumerateAsync(ctx.TenantId!, query).ConfigureAwait(false);
+                    : ctx.IsTenantAdmin
+                        ? await _database.Docks.EnumerateAsync(ctx.TenantId!, query).ConfigureAwait(false)
+                        : await _database.Docks.EnumerateAsync(ctx.TenantId!, ctx.UserId!, query).ConfigureAwait(false);
                 result.TotalMs = Math.Round(sw.Elapsed.TotalMilliseconds, 2);
                 return result;
             },
@@ -89,7 +91,9 @@ namespace Armada.Server.Routes
                 Stopwatch sw = Stopwatch.StartNew();
                 EnumerationResult<Dock> result = ctx.IsAdmin
                     ? await _database.Docks.EnumerateAsync(query).ConfigureAwait(false)
-                    : await _database.Docks.EnumerateAsync(ctx.TenantId!, query).ConfigureAwait(false);
+                    : ctx.IsTenantAdmin
+                        ? await _database.Docks.EnumerateAsync(ctx.TenantId!, query).ConfigureAwait(false)
+                        : await _database.Docks.EnumerateAsync(ctx.TenantId!, ctx.UserId!, query).ConfigureAwait(false);
                 result.TotalMs = Math.Round(sw.Elapsed.TotalMilliseconds, 2);
                 return result;
             },
@@ -111,7 +115,9 @@ namespace Armada.Server.Routes
                 string id = req.Parameters["id"];
                 Dock? dock = ctx.IsAdmin
                     ? await _database.Docks.ReadAsync(id).ConfigureAwait(false)
-                    : await _database.Docks.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                    : ctx.IsTenantAdmin
+                        ? await _database.Docks.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                        : await _database.Docks.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (dock == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Dock not found" }; }
                 return (object)dock;
             },
@@ -135,7 +141,9 @@ namespace Armada.Server.Routes
                 string id = req.Parameters["id"];
                 Dock? dock = ctx.IsAdmin
                     ? await _database.Docks.ReadAsync(id).ConfigureAwait(false)
-                    : await _database.Docks.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                    : ctx.IsTenantAdmin
+                        ? await _database.Docks.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                        : await _database.Docks.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (dock == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Dock not found" }; }
 
                 bool deleted = await _dockService.DeleteAsync(id).ConfigureAwait(false);
@@ -172,7 +180,9 @@ namespace Armada.Server.Routes
                 string id = req.Parameters["id"];
                 Dock? dock = ctx.IsAdmin
                     ? await _database.Docks.ReadAsync(id).ConfigureAwait(false)
-                    : await _database.Docks.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                    : ctx.IsTenantAdmin
+                        ? await _database.Docks.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                        : await _database.Docks.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (dock == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Dock not found" }; }
 
                 await _dockService.PurgeAsync(id).ConfigureAwait(false);
@@ -213,7 +223,9 @@ namespace Armada.Server.Routes
                     }
                     Dock? dock = ctx.IsAdmin
                         ? await _database.Docks.ReadAsync(id).ConfigureAwait(false)
-                        : await _database.Docks.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                        : ctx.IsTenantAdmin
+                            ? await _database.Docks.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                            : await _database.Docks.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                     if (dock == null)
                     {
                         result.Skipped.Add(new DeleteMultipleSkipped(id, "Not found"));

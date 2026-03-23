@@ -150,7 +150,9 @@ namespace Armada.Server.Routes
                 Stopwatch sw = Stopwatch.StartNew();
                 EnumerationResult<Mission> result = ctx.IsAdmin
                     ? await _database.Missions.EnumerateAsync(query).ConfigureAwait(false)
-                    : await _database.Missions.EnumerateAsync(ctx.TenantId!, query).ConfigureAwait(false);
+                    : ctx.IsTenantAdmin
+                        ? await _database.Missions.EnumerateAsync(ctx.TenantId!, query).ConfigureAwait(false)
+                        : await _database.Missions.EnumerateAsync(ctx.TenantId!, ctx.UserId!, query).ConfigureAwait(false);
                 result.TotalMs = Math.Round(sw.Elapsed.TotalMilliseconds, 2);
                 foreach (Mission m in result.Objects) m.DiffSnapshot = null;
                 return result;
@@ -179,7 +181,9 @@ namespace Armada.Server.Routes
                 Stopwatch sw = Stopwatch.StartNew();
                 EnumerationResult<Mission> result = ctx.IsAdmin
                     ? await _database.Missions.EnumerateAsync(query).ConfigureAwait(false)
-                    : await _database.Missions.EnumerateAsync(ctx.TenantId!, query).ConfigureAwait(false);
+                    : ctx.IsTenantAdmin
+                        ? await _database.Missions.EnumerateAsync(ctx.TenantId!, query).ConfigureAwait(false)
+                        : await _database.Missions.EnumerateAsync(ctx.TenantId!, ctx.UserId!, query).ConfigureAwait(false);
                 result.TotalMs = Math.Round(sw.Elapsed.TotalMilliseconds, 2);
                 foreach (Mission m in result.Objects) m.DiffSnapshot = null;
                 return result;
@@ -234,7 +238,9 @@ namespace Armada.Server.Routes
                 string id = req.Parameters["id"];
                 Mission? mission = ctx.IsAdmin
                     ? await _database.Missions.ReadAsync(id).ConfigureAwait(false)
-                    : await _database.Missions.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                    : ctx.IsTenantAdmin
+                        ? await _database.Missions.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                        : await _database.Missions.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (mission == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found" }; }
                 mission.DiffSnapshot = null;
                 return (object)mission;
@@ -259,7 +265,9 @@ namespace Armada.Server.Routes
                 string id = req.Parameters["id"];
                 Mission? existing = ctx.IsAdmin
                     ? await _database.Missions.ReadAsync(id).ConfigureAwait(false)
-                    : await _database.Missions.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                    : ctx.IsTenantAdmin
+                        ? await _database.Missions.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                        : await _database.Missions.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (existing == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found" }; }
                 Mission incoming = JsonSerializer.Deserialize<Mission>(req.Http.Request.DataAsString, _jsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as Mission.");
@@ -302,7 +310,9 @@ namespace Armada.Server.Routes
                 string id = req.Parameters["id"];
                 Mission? mission = ctx.IsAdmin
                     ? await _database.Missions.ReadAsync(id).ConfigureAwait(false)
-                    : await _database.Missions.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                    : ctx.IsTenantAdmin
+                        ? await _database.Missions.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                        : await _database.Missions.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (mission == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found" }; }
 
                 StatusTransitionRequest transition = JsonSerializer.Deserialize<StatusTransitionRequest>(req.Http.Request.DataAsString, _jsonOptions)
@@ -326,7 +336,9 @@ namespace Armada.Server.Routes
                 {
                     Dock? landingDock = ctx.IsAdmin
                         ? await _database.Docks.ReadAsync(mission.DockId).ConfigureAwait(false)
-                        : await _database.Docks.ReadAsync(ctx.TenantId!, mission.DockId).ConfigureAwait(false);
+                        : ctx.IsTenantAdmin
+                            ? await _database.Docks.ReadAsync(ctx.TenantId!, mission.DockId).ConfigureAwait(false)
+                            : await _database.Docks.ReadAsync(ctx.TenantId!, ctx.UserId!, mission.DockId).ConfigureAwait(false);
                     if (landingDock != null && landingDock.Active)
                     {
                         // Capture diff before landing
@@ -430,7 +442,9 @@ namespace Armada.Server.Routes
                 string id = req.Parameters["id"];
                 Mission? mission = ctx.IsAdmin
                     ? await _database.Missions.ReadAsync(id).ConfigureAwait(false)
-                    : await _database.Missions.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                    : ctx.IsTenantAdmin
+                        ? await _database.Missions.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                        : await _database.Missions.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (mission == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found" }; }
                 mission.Status = MissionStatusEnum.Cancelled;
                 mission.CompletedUtc = DateTime.UtcNow;
@@ -458,13 +472,17 @@ namespace Armada.Server.Routes
                 string id = req.Parameters["id"];
                 Mission? mission = ctx.IsAdmin
                     ? await _database.Missions.ReadAsync(id).ConfigureAwait(false)
-                    : await _database.Missions.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                    : ctx.IsTenantAdmin
+                        ? await _database.Missions.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                        : await _database.Missions.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (mission == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found" }; }
 
                 if (ctx.IsAdmin)
                     await _database.Missions.DeleteAsync(id).ConfigureAwait(false);
-                else
+                else if (ctx.IsTenantAdmin)
                     await _database.Missions.DeleteAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                else
+                    await _database.Missions.DeleteAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
 
                 await _emitEvent("mission.deleted", "Mission " + id + " permanently deleted",
                     "mission", id, null, null, null, null).ConfigureAwait(false);
@@ -502,7 +520,9 @@ namespace Armada.Server.Routes
                     }
                     Mission? mission = ctx.IsAdmin
                         ? await _database.Missions.ReadAsync(id).ConfigureAwait(false)
-                        : await _database.Missions.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                        : ctx.IsTenantAdmin
+                            ? await _database.Missions.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                            : await _database.Missions.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                     if (mission == null)
                     {
                         result.Skipped.Add(new DeleteMultipleSkipped(id, "Not found"));
@@ -510,8 +530,10 @@ namespace Armada.Server.Routes
                     }
                     if (ctx.IsAdmin)
                         await _database.Missions.DeleteAsync(id).ConfigureAwait(false);
-                    else
+                    else if (ctx.IsTenantAdmin)
                         await _database.Missions.DeleteAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                    else
+                        await _database.Missions.DeleteAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                     result.Deleted++;
                 }
 
@@ -540,7 +562,9 @@ namespace Armada.Server.Routes
                 string id = req.Parameters["id"];
                 Mission? mission = ctx.IsAdmin
                     ? await _database.Missions.ReadAsync(id).ConfigureAwait(false)
-                    : await _database.Missions.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                    : ctx.IsTenantAdmin
+                        ? await _database.Missions.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                        : await _database.Missions.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (mission == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found" }; }
 
                 if (mission.Status != MissionStatusEnum.Failed && mission.Status != MissionStatusEnum.Cancelled)
@@ -605,7 +629,9 @@ namespace Armada.Server.Routes
                 string id = req.Parameters["id"];
                 Mission? mission = ctx.IsAdmin
                     ? await _database.Missions.ReadAsync(id).ConfigureAwait(false)
-                    : await _database.Missions.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                    : ctx.IsTenantAdmin
+                        ? await _database.Missions.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                        : await _database.Missions.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (mission == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found" }; }
 
                 // Check for a saved diff file first (captured at completion time)
@@ -628,19 +654,25 @@ namespace Armada.Server.Routes
                 {
                     dock = ctx.IsAdmin
                         ? await _database.Docks.ReadAsync(mission.DockId).ConfigureAwait(false)
-                        : await _database.Docks.ReadAsync(ctx.TenantId!, mission.DockId).ConfigureAwait(false);
+                        : ctx.IsTenantAdmin
+                            ? await _database.Docks.ReadAsync(ctx.TenantId!, mission.DockId).ConfigureAwait(false)
+                            : await _database.Docks.ReadAsync(ctx.TenantId!, ctx.UserId!, mission.DockId).ConfigureAwait(false);
                 }
 
                 if (dock == null && !String.IsNullOrEmpty(mission.CaptainId))
                 {
                     Captain? captain = ctx.IsAdmin
                         ? await _database.Captains.ReadAsync(mission.CaptainId).ConfigureAwait(false)
-                        : await _database.Captains.ReadAsync(ctx.TenantId!, mission.CaptainId).ConfigureAwait(false);
+                        : ctx.IsTenantAdmin
+                            ? await _database.Captains.ReadAsync(ctx.TenantId!, mission.CaptainId).ConfigureAwait(false)
+                            : await _database.Captains.ReadAsync(ctx.TenantId!, ctx.UserId!, mission.CaptainId).ConfigureAwait(false);
                     if (captain != null && !String.IsNullOrEmpty(captain.CurrentDockId))
                     {
                         dock = ctx.IsAdmin
                             ? await _database.Docks.ReadAsync(captain.CurrentDockId).ConfigureAwait(false)
-                            : await _database.Docks.ReadAsync(ctx.TenantId!, captain.CurrentDockId).ConfigureAwait(false);
+                            : ctx.IsTenantAdmin
+                                ? await _database.Docks.ReadAsync(ctx.TenantId!, captain.CurrentDockId).ConfigureAwait(false)
+                                : await _database.Docks.ReadAsync(ctx.TenantId!, ctx.UserId!, captain.CurrentDockId).ConfigureAwait(false);
                     }
                 }
 
@@ -684,7 +716,9 @@ namespace Armada.Server.Routes
                 string id = req.Parameters["id"];
                 Mission? mission = ctx.IsAdmin
                     ? await _database.Missions.ReadAsync(id).ConfigureAwait(false)
-                    : await _database.Missions.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                    : ctx.IsTenantAdmin
+                        ? await _database.Missions.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                        : await _database.Missions.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (mission == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found" }; }
 
                 string logPath = Path.Combine(_settings.LogDirectory, "missions", id + ".log");

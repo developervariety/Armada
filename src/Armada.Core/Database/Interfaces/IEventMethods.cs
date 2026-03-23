@@ -116,5 +116,25 @@ namespace Armada.Core.Database.Interfaces
         /// Enumerate events filtered by tenant and voyage (tenant-scoped).
         /// </summary>
         Task<List<ArmadaEvent>> EnumerateByVoyageAsync(string tenantId, string voyageId, int limit = 50, CancellationToken token = default);
+
+        /// <summary>
+        /// Read an event by tenant, user, and identifier (user-scoped).
+        /// </summary>
+        Task<ArmadaEvent?> ReadAsync(string tenantId, string userId, string id, CancellationToken token = default);
+
+        /// <summary>
+        /// Delete an event by tenant, user, and identifier (user-scoped).
+        /// </summary>
+        Task DeleteAsync(string tenantId, string userId, string id, CancellationToken token = default);
+
+        /// <summary>
+        /// Enumerate all events owned by a user within a tenant (user-scoped).
+        /// </summary>
+        Task<List<ArmadaEvent>> EnumerateAsync(string tenantId, string userId, CancellationToken token = default);
+
+        /// <summary>
+        /// Enumerate events with pagination and filtering (user-scoped).
+        /// </summary>
+        Task<EnumerationResult<ArmadaEvent>> EnumerateAsync(string tenantId, string userId, EnumerationQuery query, CancellationToken token = default);
     }
 }

@@ -77,7 +77,9 @@ namespace Armada.Server.Routes
                 Stopwatch sw = Stopwatch.StartNew();
                 EnumerationResult<Voyage> result = ctx.IsAdmin
                     ? await _database.Voyages.EnumerateAsync(query).ConfigureAwait(false)
-                    : await _database.Voyages.EnumerateAsync(ctx.TenantId!, query).ConfigureAwait(false);
+                    : ctx.IsTenantAdmin
+                        ? await _database.Voyages.EnumerateAsync(ctx.TenantId!, query).ConfigureAwait(false)
+                        : await _database.Voyages.EnumerateAsync(ctx.TenantId!, ctx.UserId!, query).ConfigureAwait(false);
                 result.TotalMs = Math.Round(sw.Elapsed.TotalMilliseconds, 2);
                 return result;
             },
@@ -102,7 +104,9 @@ namespace Armada.Server.Routes
                 Stopwatch sw = Stopwatch.StartNew();
                 EnumerationResult<Voyage> result = ctx.IsAdmin
                     ? await _database.Voyages.EnumerateAsync(query).ConfigureAwait(false)
-                    : await _database.Voyages.EnumerateAsync(ctx.TenantId!, query).ConfigureAwait(false);
+                    : ctx.IsTenantAdmin
+                        ? await _database.Voyages.EnumerateAsync(ctx.TenantId!, query).ConfigureAwait(false)
+                        : await _database.Voyages.EnumerateAsync(ctx.TenantId!, ctx.UserId!, query).ConfigureAwait(false);
                 result.TotalMs = Math.Round(sw.Elapsed.TotalMilliseconds, 2);
                 return result;
             },
@@ -170,7 +174,9 @@ namespace Armada.Server.Routes
                 string id = req.Parameters["id"];
                 Voyage? voyage = ctx.IsAdmin
                     ? await _database.Voyages.ReadAsync(id).ConfigureAwait(false)
-                    : await _database.Voyages.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                    : ctx.IsTenantAdmin
+                        ? await _database.Voyages.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                        : await _database.Voyages.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (voyage == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Voyage not found" }; }
                 List<Mission> missions = ctx.IsAdmin
                     ? await _database.Missions.EnumerateByVoyageAsync(id).ConfigureAwait(false)
@@ -196,7 +202,9 @@ namespace Armada.Server.Routes
                 string id = req.Parameters["id"];
                 Voyage? voyage = ctx.IsAdmin
                     ? await _database.Voyages.ReadAsync(id).ConfigureAwait(false)
-                    : await _database.Voyages.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                    : ctx.IsTenantAdmin
+                        ? await _database.Voyages.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                        : await _database.Voyages.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (voyage == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Voyage not found" }; }
                 voyage.Status = VoyageStatusEnum.Cancelled;
                 voyage.CompletedUtc = DateTime.UtcNow;
@@ -275,7 +283,9 @@ namespace Armada.Server.Routes
                 string id = req.Parameters["id"];
                 Voyage? voyage = ctx.IsAdmin
                     ? await _database.Voyages.ReadAsync(id).ConfigureAwait(false)
-                    : await _database.Voyages.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                    : ctx.IsTenantAdmin
+                        ? await _database.Voyages.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                        : await _database.Voyages.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (voyage == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Voyage not found" }; }
 
                 // Block deletion of active voyages
@@ -343,7 +353,9 @@ namespace Armada.Server.Routes
                     }
                     Voyage? voyage = ctx.IsAdmin
                         ? await _database.Voyages.ReadAsync(id).ConfigureAwait(false)
-                        : await _database.Voyages.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                        : ctx.IsTenantAdmin
+                            ? await _database.Voyages.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                            : await _database.Voyages.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                     if (voyage == null)
                     {
                         result.Skipped.Add(new DeleteMultipleSkipped(id, "Not found"));

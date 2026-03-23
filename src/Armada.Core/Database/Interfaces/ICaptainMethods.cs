@@ -121,5 +121,25 @@ namespace Armada.Core.Database.Interfaces
         /// to the specified tenant. Returns true if the claim succeeded.
         /// </summary>
         Task<bool> TryClaimAsync(string tenantId, string captainId, string missionId, string dockId, CancellationToken token = default);
+
+        /// <summary>
+        /// Read a captain by tenant, user, and identifier (user-scoped).
+        /// </summary>
+        Task<Captain?> ReadAsync(string tenantId, string userId, string id, CancellationToken token = default);
+
+        /// <summary>
+        /// Delete a captain by tenant, user, and identifier (user-scoped).
+        /// </summary>
+        Task DeleteAsync(string tenantId, string userId, string id, CancellationToken token = default);
+
+        /// <summary>
+        /// Enumerate all captains owned by a user within a tenant (user-scoped).
+        /// </summary>
+        Task<List<Captain>> EnumerateAsync(string tenantId, string userId, CancellationToken token = default);
+
+        /// <summary>
+        /// Enumerate captains with pagination and filtering (user-scoped).
+        /// </summary>
+        Task<EnumerationResult<Captain>> EnumerateAsync(string tenantId, string userId, EnumerationQuery query, CancellationToken token = default);
     }
 }

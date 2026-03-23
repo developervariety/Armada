@@ -61,7 +61,9 @@ namespace Armada.Server.Routes
                 Stopwatch sw = Stopwatch.StartNew();
                 EnumerationResult<Signal> result = ctx.IsAdmin
                     ? await _database.Signals.EnumerateAsync(query).ConfigureAwait(false)
-                    : await _database.Signals.EnumerateAsync(ctx.TenantId!, query).ConfigureAwait(false);
+                    : ctx.IsTenantAdmin
+                        ? await _database.Signals.EnumerateAsync(ctx.TenantId!, query).ConfigureAwait(false)
+                        : await _database.Signals.EnumerateAsync(ctx.TenantId!, ctx.UserId!, query).ConfigureAwait(false);
                 result.TotalMs = Math.Round(sw.Elapsed.TotalMilliseconds, 2);
                 return result;
             },
@@ -85,7 +87,9 @@ namespace Armada.Server.Routes
                 Stopwatch sw = Stopwatch.StartNew();
                 EnumerationResult<Signal> result = ctx.IsAdmin
                     ? await _database.Signals.EnumerateAsync(query).ConfigureAwait(false)
-                    : await _database.Signals.EnumerateAsync(ctx.TenantId!, query).ConfigureAwait(false);
+                    : ctx.IsTenantAdmin
+                        ? await _database.Signals.EnumerateAsync(ctx.TenantId!, query).ConfigureAwait(false)
+                        : await _database.Signals.EnumerateAsync(ctx.TenantId!, ctx.UserId!, query).ConfigureAwait(false);
                 result.TotalMs = Math.Round(sw.Elapsed.TotalMilliseconds, 2);
                 return result;
             },
@@ -131,7 +135,9 @@ namespace Armada.Server.Routes
                 string id = req.Parameters["id"];
                 Signal? signal = ctx.IsAdmin
                     ? await _database.Signals.ReadAsync(id).ConfigureAwait(false)
-                    : await _database.Signals.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                    : ctx.IsTenantAdmin
+                        ? await _database.Signals.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                        : await _database.Signals.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (signal == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Signal not found" }; }
                 return (object)signal;
             },
@@ -162,12 +168,20 @@ namespace Armada.Server.Routes
                     Signal? updated = await _database.Signals.ReadAsync(id).ConfigureAwait(false);
                     return (object)updated!;
                 }
-                else
+                else if (ctx.IsTenantAdmin)
                 {
                     signal = await _database.Signals.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false);
                     if (signal == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Signal not found" }; }
                     await _database.Signals.MarkReadAsync(ctx.TenantId!, id).ConfigureAwait(false);
                     Signal? updated = await _database.Signals.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                    return (object)updated!;
+                }
+                else
+                {
+                    signal = await _database.Signals.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
+                    if (signal == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Signal not found" }; }
+                    await _database.Signals.MarkReadAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                    Signal? updated = await _database.Signals.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                     return (object)updated!;
                 }
             },
@@ -240,12 +254,16 @@ namespace Armada.Server.Routes
                 string id = req.Parameters["id"];
                 Signal? signal = ctx.IsAdmin
                     ? await _database.Signals.ReadAsync(id).ConfigureAwait(false)
-                    : await _database.Signals.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                    : ctx.IsTenantAdmin
+                        ? await _database.Signals.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                        : await _database.Signals.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (signal == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Signal not found" }; }
                 if (ctx.IsAdmin)
                     await _database.Signals.DeleteAsync(id).ConfigureAwait(false);
-                else
+                else if (ctx.IsTenantAdmin)
                     await _database.Signals.DeleteAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                else
+                    await _database.Signals.DeleteAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 req.Http.Response.StatusCode = 204;
                 return null;
             },
@@ -280,7 +298,9 @@ namespace Armada.Server.Routes
                     }
                     Signal? signal = ctx.IsAdmin
                         ? await _database.Signals.ReadAsync(id).ConfigureAwait(false)
-                        : await _database.Signals.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                        : ctx.IsTenantAdmin
+                            ? await _database.Signals.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                            : await _database.Signals.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                     if (signal == null)
                     {
                         result.Skipped.Add(new DeleteMultipleSkipped(id, "Not found"));
@@ -288,8 +308,10 @@ namespace Armada.Server.Routes
                     }
                     if (ctx.IsAdmin)
                         await _database.Signals.DeleteAsync(id).ConfigureAwait(false);
-                    else
+                    else if (ctx.IsTenantAdmin)
                         await _database.Signals.DeleteAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                    else
+                        await _database.Signals.DeleteAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                     result.Deleted++;
                 }
 

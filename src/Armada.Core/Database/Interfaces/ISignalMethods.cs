@@ -76,5 +76,25 @@ namespace Armada.Core.Database.Interfaces
         /// Enumerate recent signals (tenant-scoped).
         /// </summary>
         Task<List<Signal>> EnumerateRecentAsync(string tenantId, int count = 50, CancellationToken token = default);
+
+        /// <summary>
+        /// Read a signal by tenant, user, and identifier (user-scoped).
+        /// </summary>
+        Task<Signal?> ReadAsync(string tenantId, string userId, string id, CancellationToken token = default);
+
+        /// <summary>
+        /// Delete a signal by tenant, user, and identifier (user-scoped).
+        /// </summary>
+        Task DeleteAsync(string tenantId, string userId, string id, CancellationToken token = default);
+
+        /// <summary>
+        /// Enumerate all signals owned by a user within a tenant (user-scoped).
+        /// </summary>
+        Task<List<Signal>> EnumerateAsync(string tenantId, string userId, CancellationToken token = default);
+
+        /// <summary>
+        /// Enumerate signals with pagination and filtering (user-scoped).
+        /// </summary>
+        Task<EnumerationResult<Signal>> EnumerateAsync(string tenantId, string userId, EnumerationQuery query, CancellationToken token = default);
     }
 }

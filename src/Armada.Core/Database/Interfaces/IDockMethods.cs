@@ -86,5 +86,25 @@ namespace Armada.Core.Database.Interfaces
         /// Check if a dock exists by tenant and identifier (tenant-scoped).
         /// </summary>
         Task<bool> ExistsAsync(string tenantId, string id, CancellationToken token = default);
+
+        /// <summary>
+        /// Read a dock by tenant, user, and identifier (user-scoped).
+        /// </summary>
+        Task<Dock?> ReadAsync(string tenantId, string userId, string id, CancellationToken token = default);
+
+        /// <summary>
+        /// Delete a dock by tenant, user, and identifier (user-scoped).
+        /// </summary>
+        Task DeleteAsync(string tenantId, string userId, string id, CancellationToken token = default);
+
+        /// <summary>
+        /// Enumerate all docks owned by a user within a tenant (user-scoped).
+        /// </summary>
+        Task<List<Dock>> EnumerateAsync(string tenantId, string userId, CancellationToken token = default);
+
+        /// <summary>
+        /// Enumerate docks with pagination and filtering (user-scoped).
+        /// </summary>
+        Task<EnumerationResult<Dock>> EnumerateAsync(string tenantId, string userId, EnumerationQuery query, CancellationToken token = default);
     }
 }

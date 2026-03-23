@@ -62,7 +62,9 @@ namespace Armada.Server.Routes
                 Stopwatch sw = Stopwatch.StartNew();
                 EnumerationResult<ArmadaEvent> result = ctx.IsAdmin
                     ? await _database.Events.EnumerateAsync(query).ConfigureAwait(false)
-                    : await _database.Events.EnumerateAsync(ctx.TenantId!, query).ConfigureAwait(false);
+                    : ctx.IsTenantAdmin
+                        ? await _database.Events.EnumerateAsync(ctx.TenantId!, query).ConfigureAwait(false)
+                        : await _database.Events.EnumerateAsync(ctx.TenantId!, ctx.UserId!, query).ConfigureAwait(false);
                 result.TotalMs = Math.Round(sw.Elapsed.TotalMilliseconds, 2);
                 return result;
             },
@@ -94,7 +96,9 @@ namespace Armada.Server.Routes
                 Stopwatch sw = Stopwatch.StartNew();
                 EnumerationResult<ArmadaEvent> result = ctx.IsAdmin
                     ? await _database.Events.EnumerateAsync(query).ConfigureAwait(false)
-                    : await _database.Events.EnumerateAsync(ctx.TenantId!, query).ConfigureAwait(false);
+                    : ctx.IsTenantAdmin
+                        ? await _database.Events.EnumerateAsync(ctx.TenantId!, query).ConfigureAwait(false)
+                        : await _database.Events.EnumerateAsync(ctx.TenantId!, ctx.UserId!, query).ConfigureAwait(false);
                 result.TotalMs = Math.Round(sw.Elapsed.TotalMilliseconds, 2);
                 return result;
             },
@@ -116,12 +120,16 @@ namespace Armada.Server.Routes
                 string id = req.Parameters["id"];
                 ArmadaEvent? evt = ctx.IsAdmin
                     ? await _database.Events.ReadAsync(id).ConfigureAwait(false)
-                    : await _database.Events.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                    : ctx.IsTenantAdmin
+                        ? await _database.Events.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                        : await _database.Events.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (evt == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Event not found" }; }
                 if (ctx.IsAdmin)
                     await _database.Events.DeleteAsync(id).ConfigureAwait(false);
-                else
+                else if (ctx.IsTenantAdmin)
                     await _database.Events.DeleteAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                else
+                    await _database.Events.DeleteAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 await _emitEvent("event.deleted", "Deleted event " + id,
                     "event", id, null, null, null, null).ConfigureAwait(false);
                 req.Http.Response.StatusCode = 204;
@@ -158,7 +166,9 @@ namespace Armada.Server.Routes
                     }
                     ArmadaEvent? evt = ctx.IsAdmin
                         ? await _database.Events.ReadAsync(id).ConfigureAwait(false)
-                        : await _database.Events.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                        : ctx.IsTenantAdmin
+                            ? await _database.Events.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                            : await _database.Events.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                     if (evt == null)
                     {
                         result.Skipped.Add(new DeleteMultipleSkipped(id, "Not found"));
@@ -166,8 +176,10 @@ namespace Armada.Server.Routes
                     }
                     if (ctx.IsAdmin)
                         await _database.Events.DeleteAsync(id).ConfigureAwait(false);
-                    else
+                    else if (ctx.IsTenantAdmin)
                         await _database.Events.DeleteAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                    else
+                        await _database.Events.DeleteAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                     result.Deleted++;
                 }
 
