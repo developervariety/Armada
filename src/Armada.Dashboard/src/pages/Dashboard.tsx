@@ -317,9 +317,6 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Mission History Chart */}
-      <MissionHistoryChart missions={allMissions} vessels={vessels} fleets={fleets} onRefresh={loadAll} />
-
       {/* KPI Cards */}
       <div className="cards">
         <div
@@ -364,6 +361,9 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* Mission History Chart */}
+      <MissionHistoryChart missions={allMissions} vessels={vessels} fleets={fleets} onRefresh={loadAll} />
 
       {/* Voyage Progress */}
       {status?.voyages && status.voyages.length > 0 && (

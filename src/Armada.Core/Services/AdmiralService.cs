@@ -359,29 +359,26 @@ namespace Armada.Core.Services
                 {
                     mission.Status = MissionStatusEnum.Pending;
                     mission.CaptainId = null;
-                    mission.BranchName = null;
                     mission.ProcessId = null;
                     mission.StartedUtc = null;
                     mission.LastUpdateUtc = DateTime.UtcNow;
-
-                    // Reclaim dock if assigned
-                    if (!String.IsNullOrEmpty(mission.DockId))
-                    {
-                        try
-                        {
-                            await _Docks.ReclaimAsync(mission.DockId, token: token).ConfigureAwait(false);
-                            _Logging.Info(_Header + "reclaimed dock " + mission.DockId + " for stale mission " + mission.Id);
-                        }
-                        catch (Exception ex)
-                        {
-                            _Logging.Warn(_Header + "error reclaiming dock " + mission.DockId + " for stale mission " + mission.Id + ": " + ex.Message);
-                        }
-
-                        mission.DockId = null;
-                    }
+                    // Preserve DockId and BranchName so the next captain can continue
+                    // from partial work in the existing worktree
 
                     await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
-                    _Logging.Info(_Header + "reset stale mission " + mission.Id + " to Pending (was " + (activeMissions.Contains(mission) ? "active" : "assigned") + " on captain " + captain.Id + ")");
+
+                    if (!String.IsNullOrEmpty(mission.DockId))
+                    {
+                        _Logging.Info(_Header + "preserved dock " + mission.DockId + " for mission " + mission.Id + " (branch: " + (mission.BranchName ?? "none") + ")");
+
+                        await EmitEventAsync("mission.dock_preserved", "Dock preserved for re-dispatch: " + mission.Id,
+                            entityType: "mission", entityId: mission.Id,
+                            missionId: mission.Id, token: token).ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        _Logging.Info(_Header + "reset stale mission " + mission.Id + " to Pending (no dock to preserve)");
+                    }
                 }
 
                 // Reset captain to Idle
@@ -765,6 +762,15 @@ namespace Armada.Core.Services
 
                     if (!inUse)
                     {
+                        // Check if a Pending mission is preserving this dock for re-dispatch
+                        List<Mission> pendingMissions = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Pending, token).ConfigureAwait(false);
+                        bool preservedForMission = pendingMissions.Any(m => m.DockId == dock.Id);
+                        if (preservedForMission)
+                        {
+                            _Logging.Info(_Header + "skipping reclaim of dock " + dock.Id + " -- preserved for a pending mission re-dispatch");
+                            continue;
+                        }
+
                         _Logging.Info(_Header + "reclaiming orphaned dock " + dock.Id + " (created " + dock.CreatedUtc + ", no active captain)");
                         try
                         {
