@@ -85,11 +85,12 @@ namespace Armada.Core.Services
             }
 
             // Check if this mission is broad-scope and vessel already has active work
+            // Only count truly active missions (agent running or assigned).
+            // WorkProduced and PullRequestOpen are post-agent states where the agent
+            // has finished -- they should NOT block new mission dispatch.
             int concurrentCount = activeMissions.Count(m =>
                 m.Status == MissionStatusEnum.Assigned ||
-                m.Status == MissionStatusEnum.InProgress ||
-                m.Status == MissionStatusEnum.WorkProduced ||
-                m.Status == MissionStatusEnum.PullRequestOpen);
+                m.Status == MissionStatusEnum.InProgress);
 
             if (IsBroadScope(mission) && concurrentCount > 0)
             {

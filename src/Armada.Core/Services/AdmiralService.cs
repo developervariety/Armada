@@ -624,12 +624,15 @@ namespace Armada.Core.Services
                         // Reclaim the dock worktree so it doesn't leak
                         await ReclaimDockAsync(captain, mission, token).ConfigureAwait(false);
 
-                        await _Database.Captains.UpdateStateAsync(captain.Id, CaptainStateEnum.Stalled, token).ConfigureAwait(false);
+                        // Release the captain to Idle instead of Stalled so it can pick up new work.
+                        // The mission is already marked Failed above -- no need to also block the captain.
+                        await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
+                        _Logging.Info(_Header + "captain " + captain.Id + " released to Idle after recovery exhaustion for mission " + missionId);
 
                         if (_Escalation != null)
                             await _Escalation.FireAsync(EscalationTriggerEnum.RecoveryExhausted, captain.Id, "Captain " + captain.Id + " recovery exhausted for mission " + missionId + " (exit code " + exitCode + ")", token).ConfigureAwait(false);
 
-                        Signal signal = new Signal(SignalTypeEnum.Error, "Captain process exited with code " + exitCode + " for mission " + missionId + " (recovery exhausted)");
+                        Signal signal = new Signal(SignalTypeEnum.Error, "Captain process exited with code " + exitCode + " for mission " + missionId + " (recovery exhausted, captain released to Idle)");
                         signal.FromCaptainId = captain.Id;
                         await _Database.Signals.CreateAsync(signal, token).ConfigureAwait(false);
                     }
@@ -665,8 +668,6 @@ namespace Armada.Core.Services
                         }
                         else
                         {
-                            await _Database.Captains.UpdateStateAsync(captain.Id, CaptainStateEnum.Stalled, token).ConfigureAwait(false);
-
                             // Mark the active mission as Failed
                             if (mission != null &&
                                 mission.Status != MissionStatusEnum.Complete &&
@@ -687,8 +688,20 @@ namespace Armada.Core.Services
                                     captainId: captain.Id, missionId: mission.Id, token: token).ConfigureAwait(false);
                             }
 
+                            // Kill the stalled process
+                            if (_Captains.OnStopAgent != null)
+                            {
+                                try { await _Captains.OnStopAgent.Invoke(captain).ConfigureAwait(false); }
+                                catch { }
+                            }
+
                             // Reclaim the dock worktree so it doesn't leak
                             await ReclaimDockAsync(captain, mission, token).ConfigureAwait(false);
+
+                            // Release the captain to Idle instead of Stalled so it can pick up new work.
+                            // The mission is already marked Failed -- no need to also block the captain.
+                            await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
+                            _Logging.Info(_Header + "captain " + captain.Id + " released to Idle after stall recovery exhaustion");
                         }
                     }
                 }
