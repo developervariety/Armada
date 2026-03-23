@@ -204,7 +204,7 @@ namespace Armada.Core.Services
             await _Database.Signals.CreateAsync(signal, token).ConfigureAwait(false);
 
             // Generate mission CLAUDE.md into worktree
-            await GenerateClaudeMdAsync(dock.WorktreePath!, mission, vessel, token).ConfigureAwait(false);
+            await GenerateClaudeMdAsync(dock.WorktreePath!, mission, vessel, captain, token).ConfigureAwait(false);
 
             // Launch agent process via captain service
             if (_Captains.OnLaunchAgent != null)
@@ -426,7 +426,7 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
-        public async Task GenerateClaudeMdAsync(string worktreePath, Mission mission, Vessel vessel, CancellationToken token = default)
+        public async Task GenerateClaudeMdAsync(string worktreePath, Mission mission, Vessel vessel, Captain? captain = null, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(worktreePath)) throw new ArgumentNullException(nameof(worktreePath));
             if (mission == null) throw new ArgumentNullException(nameof(mission));
@@ -435,6 +435,14 @@ namespace Armada.Core.Services
             string claudeMdPath = Path.Combine(worktreePath, "CLAUDE.md");
 
             string content = "";
+
+            if (captain != null && !String.IsNullOrEmpty(captain.SystemInstructions))
+            {
+                content +=
+                    "## Captain Instructions\n" +
+                    captain.SystemInstructions + "\n" +
+                    "\n";
+            }
 
             if (!String.IsNullOrEmpty(vessel.ProjectContext))
             {

@@ -105,7 +105,23 @@ namespace Armada.Server.Mcp.Tools
                         case "captains":
                         case "captain":
                             EnumerationResult<Captain> captains = await database.Captains.EnumerateAsync(query).ConfigureAwait(false);
-                            return (object)captains;
+                            object projectedCaptains = new
+                            {
+                                captains.Success,
+                                captains.PageNumber,
+                                captains.PageSize,
+                                captains.TotalPages,
+                                captains.TotalRecords,
+                                Objects = captains.Objects.Select(c => new
+                                {
+                                    c.Id, c.TenantId, c.UserId, c.Name, c.Runtime, c.State,
+                                    c.CurrentMissionId, c.CurrentDockId, c.ProcessId,
+                                    c.RecoveryAttempts, c.LastHeartbeatUtc, c.CreatedUtc, c.LastUpdateUtc,
+                                    SystemInstructionsLength = c.SystemInstructions?.Length ?? 0
+                                }).ToList(),
+                                captains.TotalMs
+                            };
+                            return (object)projectedCaptains;
                         case "missions":
                         case "mission":
                             EnumerationResult<Mission> missions = await database.Missions.EnumerateAsync(query).ConfigureAwait(false);

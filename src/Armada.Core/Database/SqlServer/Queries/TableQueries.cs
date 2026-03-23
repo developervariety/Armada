@@ -133,6 +133,13 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"
                     IF COL_LENGTH('vessels', 'model_context') IS NULL
                         ALTER TABLE vessels ADD model_context NVARCHAR(MAX);"
+                ),
+                new SchemaMigration(
+                    6,
+                    "Add system_instructions to captains",
+                    @"
+                    IF COL_LENGTH('captains', 'system_instructions') IS NULL
+                        ALTER TABLE captains ADD system_instructions NVARCHAR(MAX);"
                 )
             };
         }
@@ -249,6 +256,7 @@ namespace Armada.Core.Database.SqlServer.Queries
                 tenant_id NVARCHAR(450),
                 name NVARCHAR(450) NOT NULL,
                 runtime NVARCHAR(450) NOT NULL DEFAULT 'ClaudeCode',
+                system_instructions NVARCHAR(MAX),
                 state NVARCHAR(450) NOT NULL DEFAULT 'Idle',
                 current_mission_id NVARCHAR(450),
                 current_dock_id NVARCHAR(450),

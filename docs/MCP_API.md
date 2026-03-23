@@ -1499,7 +1499,8 @@ Register a new captain (AI agent).
   "type": "object",
   "properties": {
     "name": { "type": "string", "description": "Captain display name" },
-    "runtime": { "type": "string", "description": "Agent runtime: ClaudeCode, Codex" }
+    "runtime": { "type": "string", "description": "Agent runtime: ClaudeCode, Codex, Gemini, Cursor" },
+    "systemInstructions": { "type": "string", "description": "System instructions for this captain -- injected into every mission prompt to specialize behavior" }
   },
   "required": ["name"]
 }
@@ -1508,7 +1509,8 @@ Register a new captain (AI agent).
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `name` | string | Yes | Captain display name |
-| `runtime` | string | No | Agent runtime: `ClaudeCode`, `Codex` |
+| `runtime` | string | No | Agent runtime: `ClaudeCode`, `Codex`, `Gemini`, `Cursor` |
+| `systemInstructions` | string | No | System instructions injected into every mission prompt for this captain |
 
 **Response:** [Captain](#captain) object.
 
@@ -1546,7 +1548,8 @@ Update a captain's name or runtime. Operational fields (state, process, mission)
   "properties": {
     "captainId": { "type": "string", "description": "Captain ID (cpt_ prefix)" },
     "name": { "type": "string", "description": "New display name" },
-    "runtime": { "type": "string", "description": "New agent runtime: ClaudeCode, Codex" }
+    "runtime": { "type": "string", "description": "New agent runtime: ClaudeCode, Codex, Gemini, Cursor" },
+    "systemInstructions": { "type": "string", "description": "New system instructions for this captain" }
   },
   "required": ["captainId"]
 }
@@ -1556,7 +1559,8 @@ Update a captain's name or runtime. Operational fields (state, process, mission)
 |---|---|---|---|
 | `captainId` | string | Yes | Captain ID (prefix `cpt_`) |
 | `name` | string | No | New display name |
-| `runtime` | string | No | New agent runtime: `ClaudeCode`, `Codex` |
+| `runtime` | string | No | New agent runtime: `ClaudeCode`, `Codex`, `Gemini`, `Cursor` |
+| `systemInstructions` | string | No | New system instructions for this captain |
 
 **Response:** Updated [Captain](#captain) object, or `{ "Error": "Captain not found" }`.
 

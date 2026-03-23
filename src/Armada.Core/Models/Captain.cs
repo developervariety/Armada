@@ -52,6 +52,13 @@ namespace Armada.Core.Models
         public AgentRuntimeEnum Runtime { get; set; } = AgentRuntimeEnum.ClaudeCode;
 
         /// <summary>
+        /// User-supplied system instructions for this captain. Injected into every mission's
+        /// instructions before vessel context and mission details. Use this to specialize
+        /// captain behavior, add guardrails, or provide persistent context.
+        /// </summary>
+        public string? SystemInstructions { get; set; } = null;
+
+        /// <summary>
         /// Current state of the captain.
         /// </summary>
         public CaptainStateEnum State { get; set; } = CaptainStateEnum.Idle;

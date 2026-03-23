@@ -1473,7 +1473,7 @@ Register a new captain (AI agent).
 ```bash
 curl -X POST http://localhost:7890/api/v1/captains \
   -H "Content-Type: application/json" \
-  -d '{"Name": "captain-1", "Runtime": "ClaudeCode"}'
+  -d '{"Name": "captain-1", "Runtime": "ClaudeCode", "SystemInstructions": "You are a testing specialist. Always run tests before committing."}'
 ```
 
 ---
@@ -1505,7 +1505,8 @@ Update a captain's name or runtime. Operational fields (state, process, mission)
 ```json
 {
   "name": "captain-bravo",
-  "runtime": "Codex"
+  "runtime": "Codex",
+  "systemInstructions": "Focus on code quality and always run linting before commits."
 }
 ```
 
@@ -2533,6 +2534,7 @@ A worker AI agent instance executing missions.
   "Id": "cpt_abc123",
   "Name": "captain-1",
   "Runtime": "ClaudeCode",
+  "SystemInstructions": null,
   "State": "Idle",
   "CurrentMissionId": null,
   "CurrentDockId": null,
@@ -2549,6 +2551,7 @@ A worker AI agent instance executing missions.
 | `Id` | string | auto-generated | Unique ID with `cpt_` prefix |
 | `Name` | string | `"Captain"` | Captain name |
 | `Runtime` | [AgentRuntimeEnum](#agentruntimeenum) | `ClaudeCode` | Agent runtime type |
+| `SystemInstructions` | string? | null | Per-captain system instructions injected into every mission prompt |
 | `State` | [CaptainStateEnum](#captainstateenum) | `Idle` | Current state |
 | `CurrentMissionId` | string? | null | Currently assigned mission ID |
 | `CurrentDockId` | string? | null | Currently assigned dock (worktree) ID |

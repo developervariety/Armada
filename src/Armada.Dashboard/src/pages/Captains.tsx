@@ -33,7 +33,7 @@ export default function Captains() {
   // Modal state
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Captain | null>(null);
-  const [form, setForm] = useState({ name: '', runtime: '' });
+  const [form, setForm] = useState({ name: '', runtime: '', systemInstructions: '' });
 
   // JSON viewer
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
@@ -125,14 +125,16 @@ export default function Captains() {
   function clearSelection() { setSelected([]); }
 
   // CRUD
-  function openCreate() { setForm({ name: '', runtime: '' }); setEditing(null); setShowForm(true); }
-  function openEdit(c: Captain) { setForm({ name: c.name, runtime: c.runtime }); setEditing(c); setShowForm(true); }
+  function openCreate() { setForm({ name: '', runtime: '', systemInstructions: '' }); setEditing(null); setShowForm(true); }
+  function openEdit(c: Captain) { setForm({ name: c.name, runtime: c.runtime, systemInstructions: c.systemInstructions ?? '' }); setEditing(c); setShowForm(true); }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     try {
-      if (editing) await updateCaptain(editing.id, form);
-      else await createCaptain(form);
+      const payload = { ...form } as Record<string, unknown>;
+      if (!payload.systemInstructions) delete payload.systemInstructions;
+      if (editing) await updateCaptain(editing.id, payload);
+      else await createCaptain(payload);
       setShowForm(false);
       load();
     } catch { setError('Save failed.'); }
@@ -244,7 +246,19 @@ export default function Captains() {
           <form className="modal" onClick={e => e.stopPropagation()} onSubmit={handleSubmit}>
             <h3>{editing ? 'Edit Captain' : 'Create Captain'}</h3>
             <label>Name<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required /></label>
-            <label>Runtime<input value={form.runtime} onChange={e => setForm({ ...form, runtime: e.target.value })} required /></label>
+            <label title="The AI agent runtime this captain will use">Runtime
+              <select value={form.runtime} onChange={e => setForm({ ...form, runtime: e.target.value })} required>
+                <option value="">Select runtime...</option>
+                <option value="ClaudeCode">Claude Code</option>
+                <option value="Codex">Codex</option>
+                <option value="Gemini">Gemini</option>
+                <option value="Cursor">Cursor</option>
+              </select>
+            </label>
+            <label title="Optional instructions injected into every mission prompt for this captain. Use this to specialize behavior, add guardrails, or provide persistent context.">
+              System Instructions
+              <textarea value={form.systemInstructions} onChange={e => setForm({ ...form, systemInstructions: e.target.value })} rows={4} placeholder="e.g., You are a testing specialist. Always run tests before committing..." />
+            </label>
             <div className="modal-actions">
               <button type="submit" className="btn btn-primary">Save</button>
               <button type="button" className="btn" onClick={() => setShowForm(false)}>Cancel</button>

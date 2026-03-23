@@ -114,6 +114,7 @@ namespace Armada.Core.Database.Postgresql.Queries
                         tenant_id TEXT,
                         name TEXT NOT NULL,
                         runtime TEXT NOT NULL DEFAULT 'ClaudeCode',
+                        system_instructions TEXT,
                         state TEXT NOT NULL DEFAULT 'Idle',
                         current_mission_id TEXT,
                         current_dock_id TEXT,
@@ -399,6 +400,9 @@ namespace Armada.Core.Database.Postgresql.Queries
                 new SchemaMigration(5, "Add enable_model_context and model_context to vessels",
                     @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS enable_model_context BOOLEAN NOT NULL DEFAULT TRUE;",
                     @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS model_context TEXT;"
+                ),
+                new SchemaMigration(6, "Add system_instructions to captains",
+                    @"ALTER TABLE captains ADD COLUMN IF NOT EXISTS system_instructions TEXT;"
                 )
             };
         }

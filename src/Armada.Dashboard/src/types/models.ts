@@ -125,6 +125,7 @@ export interface Captain {
   tenantId: string | null;
   name: string;
   runtime: string;
+  systemInstructions: string | null;
   state: string;
   currentMissionId: string | null;
   currentDockId: string | null;

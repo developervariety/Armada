@@ -61,6 +61,7 @@ namespace Armada.Core.Database.Mysql.Queries
             id VARCHAR(450) NOT NULL PRIMARY KEY,
             name VARCHAR(450) NOT NULL UNIQUE,
             runtime VARCHAR(450) NOT NULL DEFAULT 'ClaudeCode',
+            system_instructions LONGTEXT,
             state VARCHAR(450) NOT NULL DEFAULT 'Idle',
             current_mission_id VARCHAR(450),
             current_dock_id VARCHAR(450),
@@ -407,6 +408,14 @@ namespace Armada.Core.Database.Mysql.Queries
         {
             @"ALTER TABLE vessels ADD COLUMN enable_model_context TINYINT(1) NOT NULL DEFAULT 1;",
             @"ALTER TABLE vessels ADD COLUMN model_context LONGTEXT;"
+        };
+
+        /// <summary>
+        /// Migration v8 statements for adding system_instructions to captains.
+        /// </summary>
+        public static readonly string[] MigrationV8Statements = new string[]
+        {
+            @"ALTER TABLE captains ADD COLUMN system_instructions LONGTEXT;"
         };
 
         /// <summary>

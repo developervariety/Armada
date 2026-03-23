@@ -370,6 +370,11 @@ namespace Armada.Core.Database.Mysql
                     7,
                     "Add enable_model_context and model_context to vessels",
                     TableQueries.MigrationV7Statements
+                ),
+                new SchemaMigration(
+                    8,
+                    "Add system_instructions to captains",
+                    TableQueries.MigrationV8Statements
                 )
             };
         }
@@ -503,6 +508,7 @@ namespace Armada.Core.Database.Mysql
             captain.UserId = NullableString(reader["user_id"]);
             captain.Name = reader["name"].ToString()!;
             captain.Runtime = Enum.Parse<AgentRuntimeEnum>(reader["runtime"].ToString()!);
+            captain.SystemInstructions = NullableString(reader["system_instructions"]);
             captain.State = Enum.Parse<CaptainStateEnum>(reader["state"].ToString()!);
             captain.CurrentMissionId = NullableString(reader["current_mission_id"]);
             captain.CurrentDockId = NullableString(reader["current_dock_id"]);

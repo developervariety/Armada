@@ -653,6 +653,9 @@ namespace Armada.Core.Database.Sqlite.Queries
                 new SchemaMigration(17, "Add enable_model_context and model_context to vessels",
                     @"ALTER TABLE vessels ADD COLUMN enable_model_context INTEGER NOT NULL DEFAULT 1;",
                     @"ALTER TABLE vessels ADD COLUMN model_context TEXT;"
+                ),
+                new SchemaMigration(18, "Add system_instructions to captains",
+                    @"ALTER TABLE captains ADD COLUMN system_instructions TEXT;"
                 )
             };
         }

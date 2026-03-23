@@ -48,7 +48,7 @@ export default function CaptainDetail() {
 
   // Edit
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ name: '', runtime: 'ClaudeCode' });
+  const [form, setForm] = useState({ name: '', runtime: 'ClaudeCode', systemInstructions: '' });
 
   // Log viewer
   const [logText, setLogText] = useState<string | null>(null);
@@ -94,7 +94,7 @@ export default function CaptainDetail() {
 
   function openEdit() {
     if (!captain) return;
-    setForm({ name: captain.name, runtime: captain.runtime || 'ClaudeCode' });
+    setForm({ name: captain.name, runtime: captain.runtime || 'ClaudeCode', systemInstructions: captain.systemInstructions ?? '' });
     setShowForm(true);
   }
 
@@ -102,7 +102,9 @@ export default function CaptainDetail() {
     e.preventDefault();
     if (!captain) return;
     try {
-      await updateCaptain(captain.id, form);
+      const payload = { ...form } as Record<string, unknown>;
+      if (!payload.systemInstructions) delete payload.systemInstructions;
+      await updateCaptain(captain.id, payload);
       setShowForm(false);
       load();
     } catch { setError('Save failed.'); }
@@ -218,6 +220,10 @@ export default function CaptainDetail() {
                 {RUNTIMES.map(r => <option key={r} value={r}>{r}</option>)}
               </select>
             </label>
+            <label title="Optional instructions injected into every mission prompt for this captain. Use this to specialize behavior, add guardrails, or provide persistent context.">
+              System Instructions
+              <textarea value={form.systemInstructions} onChange={e => setForm({ ...form, systemInstructions: e.target.value })} rows={4} placeholder="e.g., You are a testing specialist. Always run tests before committing..." />
+            </label>
             <div className="modal-actions">
               <button type="submit" className="btn btn-primary">Save</button>
               <button type="button" className="btn" onClick={() => setShowForm(false)}>Cancel</button>
@@ -242,6 +248,14 @@ export default function CaptainDetail() {
         <div className="detail-field"><span className="detail-label">Name</span><span>{captain.name}</span></div>
         <div className="detail-field"><span className="detail-label">Tenant ID</span><span className="mono">{captain.tenantId || '-'}</span></div>
         <div className="detail-field"><span className="detail-label">Runtime</span><span>{captain.runtime || 'ClaudeCode'}</span></div>
+      </div>
+      {captain.systemInstructions && (
+        <div className="detail-context-section">
+          <h4>System Instructions</h4>
+          <pre className="detail-context-block">{captain.systemInstructions}</pre>
+        </div>
+      )}
+      <div className="detail-grid">
         <div className="detail-field">
           <span className="detail-label">State</span>
           <StatusBadge status={captain.state} />

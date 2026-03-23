@@ -65,7 +65,8 @@ namespace Armada.Server.Mcp.Tools
                     properties = new
                     {
                         name = new { type = "string", description = "Captain display name" },
-                        runtime = new { type = "string", description = "Agent runtime: ClaudeCode, Codex" }
+                        runtime = new { type = "string", description = "Agent runtime: ClaudeCode, Codex" },
+                        systemInstructions = new { type = "string", description = "System instructions for this captain -- injected into every mission prompt to specialize behavior" }
                     },
                     required = new[] { "name" }
                 },
@@ -77,6 +78,7 @@ namespace Armada.Server.Mcp.Tools
                     captain.Name = request.Name;
                     if (!String.IsNullOrEmpty(request.Runtime) && Enum.TryParse<AgentRuntimeEnum>(request.Runtime, true, out AgentRuntimeEnum rt))
                         captain.Runtime = rt;
+                    captain.SystemInstructions = request.SystemInstructions;
                     captain = await database.Captains.CreateAsync(captain).ConfigureAwait(false);
                     return (object)captain;
                 });
@@ -91,7 +93,8 @@ namespace Armada.Server.Mcp.Tools
                     {
                         captainId = new { type = "string", description = "Captain ID (cpt_ prefix)" },
                         name = new { type = "string", description = "New display name" },
-                        runtime = new { type = "string", description = "New agent runtime: ClaudeCode, Codex" }
+                        runtime = new { type = "string", description = "New agent runtime: ClaudeCode, Codex" },
+                        systemInstructions = new { type = "string", description = "New system instructions for this captain" }
                     },
                     required = new[] { "captainId" }
                 },
@@ -105,6 +108,8 @@ namespace Armada.Server.Mcp.Tools
                         captain.Name = request.Name;
                     if (!String.IsNullOrEmpty(request.Runtime) && Enum.TryParse<AgentRuntimeEnum>(request.Runtime, true, out AgentRuntimeEnum rt))
                         captain.Runtime = rt;
+                    if (request.SystemInstructions != null)
+                        captain.SystemInstructions = request.SystemInstructions;
                     captain.LastUpdateUtc = DateTime.UtcNow;
                     captain = await database.Captains.UpdateAsync(captain).ConfigureAwait(false);
                     return (object)captain;
