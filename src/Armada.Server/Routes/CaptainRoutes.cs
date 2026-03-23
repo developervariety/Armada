@@ -341,7 +341,9 @@ namespace Armada.Server.Routes
                 }
 
                 // Block deletion if captain has active missions
-                List<Mission> captainMissions = await _database.Missions.EnumerateByCaptainAsync(id).ConfigureAwait(false);
+                List<Mission> captainMissions = ctx.IsAdmin
+                    ? await _database.Missions.EnumerateByCaptainAsync(id).ConfigureAwait(false)
+                    : await _database.Missions.EnumerateByCaptainAsync(ctx.TenantId!, id).ConfigureAwait(false);
                 List<Mission> activeCaptainMissions = captainMissions.Where(m => m.Status == MissionStatusEnum.Assigned || m.Status == MissionStatusEnum.InProgress).ToList();
                 if (activeCaptainMissions.Count > 0)
                 {
@@ -399,7 +401,9 @@ namespace Armada.Server.Routes
                         result.Skipped.Add(new DeleteMultipleSkipped(id, "Cannot delete captain while state is Working. Stop the captain first."));
                         continue;
                     }
-                    List<Mission> captainMissions = await _database.Missions.EnumerateByCaptainAsync(id).ConfigureAwait(false);
+                    List<Mission> captainMissions = ctx.IsAdmin
+                        ? await _database.Missions.EnumerateByCaptainAsync(id).ConfigureAwait(false)
+                        : await _database.Missions.EnumerateByCaptainAsync(ctx.TenantId!, id).ConfigureAwait(false);
                     List<Mission> activeCaptainMissions = captainMissions.Where(m => m.Status == MissionStatusEnum.Assigned || m.Status == MissionStatusEnum.InProgress).ToList();
                     if (activeCaptainMissions.Count > 0)
                     {

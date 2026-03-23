@@ -8,6 +8,7 @@ import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
 import StatusBadge from '../components/shared/StatusBadge';
 import CopyButton from '../components/shared/CopyButton';
+import RefreshButton from '../components/shared/RefreshButton';
 
 type SortDir = 'asc' | 'desc';
 type SortField = 'name' | 'createdUtc' | '_vesselCount' | 'description';
@@ -198,7 +199,7 @@ export default function Fleets() {
             </button>
           )}
           <button className="btn btn-primary btn-sm" onClick={openCreate}>+ Fleet</button>
-          <button className="btn btn-sm" onClick={load} title="Refresh fleet data">&#x21bb;</button>
+          <RefreshButton onRefresh={load} title="Refresh fleet data" />
         </div>
       </div>
 

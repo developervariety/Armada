@@ -7,12 +7,14 @@ import {
   listCaptains,
   listSignals,
   deleteMission,
+  restartMission,
 } from '../api/client';
 import type { Mission, Vessel, Captain, Signal } from '../types/models';
 import { useWebSocket } from '../context/WebSocketContext';
 import type { WebSocketMessage } from '../types/models';
 import StatusBadge from '../components/shared/StatusBadge';
 import ActionMenu from '../components/shared/ActionMenu';
+import RefreshButton from '../components/shared/RefreshButton';
 import { copyToClipboard } from '../components/shared/CopyButton';
 import JsonViewer from '../components/shared/JsonViewer';
 import FilterBar from '../components/shared/FilterBar';
@@ -215,9 +217,7 @@ export default function Dashboard() {
           <button className="btn btn-primary btn-sm" onClick={() => navigate('/voyages/create')} title="Create a new voyage with multiple missions">
             + Voyage
           </button>
-          <button className="btn btn-sm refresh-btn" onClick={loadAll} title="Refresh all dashboard data">
-            &#x21bb;
-          </button>
+          <RefreshButton onRefresh={loadAll} title="Refresh all dashboard data" />
         </div>
       </div>
 
@@ -441,10 +441,18 @@ export default function Dashboard() {
                         id={`mission-action-${m.id}`}
                         items={[
                           {
+                            label: 'View Detail',
+                            onClick: () => navigate(`/missions/${m.id}`),
+                          },
+                          {
                             label: 'View JSON',
                             onClick: () =>
                               setJsonViewer({ open: true, title: `Mission: ${m.title}`, data: m }),
                           },
+                          ...(m.status === 'Failed' || m.status === 'Cancelled' || m.status === 'LandingFailed' ? [{
+                            label: 'Restart',
+                            onClick: async () => { try { await restartMission(m.id); loadAll(); } catch { /* ignore */ } },
+                          }] : []),
                           {
                             label: 'Delete',
                             danger: true,

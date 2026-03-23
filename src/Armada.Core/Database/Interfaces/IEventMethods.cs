@@ -81,5 +81,40 @@ namespace Armada.Core.Database.Interfaces
         /// Enumerate events with pagination and filtering (tenant-scoped).
         /// </summary>
         Task<EnumerationResult<ArmadaEvent>> EnumerateAsync(string tenantId, EnumerationQuery query, CancellationToken token = default);
+
+        /// <summary>
+        /// Enumerate recent events (tenant-scoped).
+        /// </summary>
+        Task<List<ArmadaEvent>> EnumerateRecentAsync(string tenantId, int limit = 50, CancellationToken token = default);
+
+        /// <summary>
+        /// Enumerate events filtered by tenant and event type (tenant-scoped).
+        /// </summary>
+        Task<List<ArmadaEvent>> EnumerateByTypeAsync(string tenantId, string eventType, int limit = 50, CancellationToken token = default);
+
+        /// <summary>
+        /// Enumerate events filtered by tenant and entity (tenant-scoped).
+        /// </summary>
+        Task<List<ArmadaEvent>> EnumerateByEntityAsync(string tenantId, string entityType, string entityId, int limit = 50, CancellationToken token = default);
+
+        /// <summary>
+        /// Enumerate events filtered by tenant and captain (tenant-scoped).
+        /// </summary>
+        Task<List<ArmadaEvent>> EnumerateByCaptainAsync(string tenantId, string captainId, int limit = 50, CancellationToken token = default);
+
+        /// <summary>
+        /// Enumerate events filtered by tenant and mission (tenant-scoped).
+        /// </summary>
+        Task<List<ArmadaEvent>> EnumerateByMissionAsync(string tenantId, string missionId, int limit = 50, CancellationToken token = default);
+
+        /// <summary>
+        /// Enumerate events filtered by tenant and vessel (tenant-scoped).
+        /// </summary>
+        Task<List<ArmadaEvent>> EnumerateByVesselAsync(string tenantId, string vesselId, int limit = 50, CancellationToken token = default);
+
+        /// <summary>
+        /// Enumerate events filtered by tenant and voyage (tenant-scoped).
+        /// </summary>
+        Task<List<ArmadaEvent>> EnumerateByVoyageAsync(string tenantId, string voyageId, int limit = 50, CancellationToken token = default);
     }
 }

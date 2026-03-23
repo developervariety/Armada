@@ -13,6 +13,7 @@ import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
 import DiffViewer from '../components/shared/DiffViewer';
 import LogViewer from '../components/shared/LogViewer';
+import RefreshButton from '../components/shared/RefreshButton';
 import CopyButton from '../components/shared/CopyButton';
 
 type SortDir = 'asc' | 'desc';
@@ -273,7 +274,7 @@ export default function Missions() {
             </button>
           )}
           <button className="btn btn-primary btn-sm" onClick={openCreate}>+ Mission</button>
-          <button className="btn btn-sm" onClick={load} title="Refresh mission data">&#x21bb;</button>
+          <RefreshButton onRefresh={load} title="Refresh mission data" />
         </div>
       </div>
 

@@ -8,6 +8,7 @@ import StatusBadge from '../components/shared/StatusBadge';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
 import CopyButton from '../components/shared/CopyButton';
+import RefreshButton from '../components/shared/RefreshButton';
 
 type SortDir = 'asc' | 'desc';
 type SortField = 'name' | 'fleetId' | 'defaultBranch' | 'createdUtc';
@@ -41,7 +42,7 @@ interface VesselForm {
 
 const emptyForm: VesselForm = {
   name: '', fleetId: '', repoUrl: '', defaultBranch: 'main', localPath: '', workingDirectory: '',
-  projectContext: '', styleGuide: '', enableModelContext: true, modelContext: '', landingMode: '', branchCleanupPolicy: '', allowConcurrentMissions: false,
+  projectContext: '', styleGuide: '', enableModelContext: true, modelContext: '', landingMode: 'LocalMerge', branchCleanupPolicy: 'LocalAndRemote', allowConcurrentMissions: false,
 };
 
 export default function Vessels() {
@@ -242,7 +243,7 @@ export default function Vessels() {
             </button>
           )}
           <button className="btn btn-primary btn-sm" onClick={openCreate}>+ Vessel</button>
-          <button className="btn btn-sm" onClick={load} title="Refresh vessel data">&#x21bb;</button>
+          <RefreshButton onRefresh={load} title="Refresh vessel data" />
         </div>
       </div>
 
@@ -272,7 +273,7 @@ export default function Vessels() {
               Style Guide
               <textarea value={form.styleGuide} onChange={e => setForm({ ...form, styleGuide: e.target.value })} rows={4} />
             </label>
-            <label>Landing Mode
+            <label title="How completed mission work is integrated. LocalMerge merges into your local working directory. PullRequest creates a PR on the remote. MergeQueue enqueues for validated sequential merge. None leaves the branch for manual integration.">Landing Mode
               <select value={form.landingMode} onChange={e => setForm({ ...form, landingMode: e.target.value })}>
                 <option value="">Default</option>
                 <option value="LocalMerge">Local Merge</option>
@@ -281,7 +282,7 @@ export default function Vessels() {
                 <option value="None">None</option>
               </select>
             </label>
-            <label>Branch Cleanup Policy
+            <label title="When and how mission branches are deleted after successful landing. LocalOnly deletes from the local bare repo only. LocalAndRemote deletes from both local and remote. None retains branches for inspection.">Branch Cleanup Policy
               <select value={form.branchCleanupPolicy} onChange={e => setForm({ ...form, branchCleanupPolicy: e.target.value })}>
                 <option value="">Default</option>
                 <option value="LocalOnly">Local Only</option>
@@ -289,11 +290,11 @@ export default function Vessels() {
                 <option value="None">None</option>
               </select>
             </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8 }} title="When enabled, multiple missions can run on this vessel at the same time. When disabled, only one mission may be active (Assigned, InProgress, WorkProduced, PullRequestOpen) at a time.">
               <input type="checkbox" checked={form.allowConcurrentMissions} onChange={e => setForm({ ...form, allowConcurrentMissions: e.target.checked })} style={{ width: 'auto' }} />
               Allow Concurrent Missions
             </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8 }} title="When enabled, AI agents are instructed to accumulate key knowledge about this repository during missions. This context is shared with future agents to improve efficiency.">
               <input type="checkbox" checked={form.enableModelContext} onChange={e => setForm({ ...form, enableModelContext: e.target.checked })} style={{ width: 'auto' }} />
               Enable Model Context
             </label>
@@ -338,12 +339,12 @@ export default function Vessels() {
                   <th className="sortable" onClick={() => handleSort('fleetId')} title="Fleet -- click to sort">
                     Fleet{sortIcon('fleetId')}
                   </th>
-                  <th>Repo URL</th>
+                  <th title="Remote git repository URL">Repo URL</th>
                   <th className="sortable" onClick={() => handleSort('defaultBranch')} title="Default branch -- click to sort">
                     Branch{sortIcon('defaultBranch')}
                   </th>
-                  <th>Active</th>
-                  <th>Landing Mode</th>
+                  <th title="Whether this vessel accepts new missions">Active</th>
+                  <th title="How completed mission work is integrated (LocalMerge, PullRequest, MergeQueue, None)">Landing Mode</th>
                   <th className="sortable" onClick={() => handleSort('createdUtc')} title="Created date -- click to sort">
                     Created{sortIcon('createdUtc')}
                   </th>
@@ -354,7 +355,7 @@ export default function Vessels() {
                   <td><input type="text" className="col-filter" value={colFilters.name} onChange={e => { setColFilters(f => ({ ...f, name: e.target.value })); setPageNumber(1); }} placeholder="Filter..." /></td>
                   <td></td>
                   <td>
-                    <select className="col-filter" value={colFilters.fleetId} onChange={e => { setColFilters(f => ({ ...f, fleetId: e.target.value })); setPageNumber(1); }}>
+                    <select className="col-filter" title="Filter vessels by fleet" value={colFilters.fleetId} onChange={e => { setColFilters(f => ({ ...f, fleetId: e.target.value })); setPageNumber(1); }}>
                       <option value="">All Fleets</option>
                       {fleets.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
                     </select>
@@ -363,7 +364,7 @@ export default function Vessels() {
                   <td></td>
                   <td></td>
                   <td>
-                    <select className="col-filter" value={colFilters.landingMode} onChange={e => { setColFilters(f => ({ ...f, landingMode: e.target.value })); setPageNumber(1); }}>
+                    <select className="col-filter" title="Filter vessels by landing mode" value={colFilters.landingMode} onChange={e => { setColFilters(f => ({ ...f, landingMode: e.target.value })); setPageNumber(1); }}>
                       <option value="">All Modes</option>
                       <option value="LocalMerge">LocalMerge</option>
                       <option value="PullRequest">PullRequest</option>
@@ -410,7 +411,7 @@ export default function Vessels() {
                       </span>
                     </td>
                     <td>{v.active !== false ? 'Yes' : 'No'}</td>
-                    <td className="text-dim">{v.landingMode || '-'}</td>
+                    <td className="text-dim" title={v.landingMode === 'LocalMerge' ? 'Merge into local working directory' : v.landingMode === 'PullRequest' ? 'Push and create pull request' : v.landingMode === 'MergeQueue' ? 'Enqueue for validated merge' : v.landingMode === 'None' ? 'No automatic landing' : 'Uses global setting'}>{v.landingMode || '-'}</td>
                     <td className="text-dim">{formatTime(v.createdUtc)}</td>
                     <td className="text-right" onClick={e => e.stopPropagation()}>
                       <ActionMenu id={`vessel-${v.id}`} items={[

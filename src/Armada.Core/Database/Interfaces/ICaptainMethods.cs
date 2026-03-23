@@ -89,5 +89,37 @@ namespace Armada.Core.Database.Interfaces
         /// Enumerate captains with pagination and filtering (tenant-scoped).
         /// </summary>
         Task<EnumerationResult<Captain>> EnumerateAsync(string tenantId, EnumerationQuery query, CancellationToken token = default);
+
+        /// <summary>
+        /// Read a captain by tenant and name (tenant-scoped).
+        /// </summary>
+        Task<Captain?> ReadByNameAsync(string tenantId, string name, CancellationToken token = default);
+
+        /// <summary>
+        /// Enumerate captains by tenant and state (tenant-scoped).
+        /// </summary>
+        Task<List<Captain>> EnumerateByStateAsync(string tenantId, CaptainStateEnum state, CancellationToken token = default);
+
+        /// <summary>
+        /// Update captain state (tenant-scoped).
+        /// </summary>
+        Task UpdateStateAsync(string tenantId, string id, CaptainStateEnum state, CancellationToken token = default);
+
+        /// <summary>
+        /// Update captain heartbeat timestamp (tenant-scoped).
+        /// </summary>
+        Task UpdateHeartbeatAsync(string tenantId, string id, CancellationToken token = default);
+
+        /// <summary>
+        /// Check if a captain exists by tenant and identifier (tenant-scoped).
+        /// </summary>
+        Task<bool> ExistsAsync(string tenantId, string id, CancellationToken token = default);
+
+        /// <summary>
+        /// Atomically claim a captain for a mission (tenant-scoped). Sets state to Working
+        /// and assigns mission/dock IDs, but only if the captain is currently Idle and belongs
+        /// to the specified tenant. Returns true if the claim succeeded.
+        /// </summary>
+        Task<bool> TryClaimAsync(string tenantId, string captainId, string missionId, string dockId, CancellationToken token = default);
     }
 }

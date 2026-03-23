@@ -8,6 +8,7 @@ import StatusBadge from '../components/shared/StatusBadge';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
 import CopyButton from '../components/shared/CopyButton';
+import RefreshButton from '../components/shared/RefreshButton';
 
 type SortDir = 'asc' | 'desc';
 type SortField = 'title' | 'status' | 'createdUtc';
@@ -176,7 +177,7 @@ export default function Voyages() {
             </button>
           )}
           <button className="btn btn-primary btn-sm" onClick={() => navigate('/voyages/create')}>+ Voyage</button>
-          <button className="btn btn-sm" onClick={load} title="Refresh voyage data">&#x21bb;</button>
+          <RefreshButton onRefresh={load} title="Refresh voyage data" />
         </div>
       </div>
 

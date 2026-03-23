@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { getSettings, updateSettings, getHealth } from '../api/client';
+import RefreshButton from '../components/shared/RefreshButton';
 
 interface ServerSettings {
   admiralPort: number;
@@ -97,9 +98,7 @@ export default function Settings() {
           <p className="text-muted">View and modify server configuration.</p>
         </div>
         <div className="page-actions">
-          <button className="btn-sm" onClick={loadData} title="Refresh settings">
-            &#x21bb;
-          </button>
+          <RefreshButton onRefresh={loadData} title="Refresh settings" />
         </div>
       </div>
 

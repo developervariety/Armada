@@ -7,6 +7,7 @@ import ActionMenu from '../components/shared/ActionMenu';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
 import CopyButton from '../components/shared/CopyButton';
+import RefreshButton from '../components/shared/RefreshButton';
 
 type SortDir = 'asc' | 'desc';
 type SortField = 'branchName' | 'active' | 'createdUtc';
@@ -175,7 +176,7 @@ export default function Docks() {
               Delete Selected ({selected.length})
             </button>
           )}
-          <button className="btn btn-sm" onClick={load} title="Refresh dock data">&#x21bb;</button>
+          <RefreshButton onRefresh={load} title="Refresh dock data" />
         </div>
       </div>
 

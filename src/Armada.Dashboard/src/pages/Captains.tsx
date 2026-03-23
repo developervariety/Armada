@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { listCaptains, createCaptain, updateCaptain, deleteCaptain, stopCaptain, recallCaptain, stopAllCaptains } from '../api/client';
+import { listCaptains, createCaptain, updateCaptain, deleteCaptain, stopCaptain, recallCaptain, stopAllCaptains, restartCaptain } from '../api/client';
 import type { Captain } from '../types/models';
 import Pagination from '../components/shared/Pagination';
 import ActionMenu from '../components/shared/ActionMenu';
@@ -8,6 +8,7 @@ import StatusBadge from '../components/shared/StatusBadge';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
 import CopyButton from '../components/shared/CopyButton';
+import RefreshButton from '../components/shared/RefreshButton';
 
 type SortDir = 'asc' | 'desc';
 type SortField = 'name' | 'runtime' | 'state' | 'createdUtc';
@@ -192,6 +193,18 @@ export default function Captains() {
     });
   }
 
+  function handleRestart(id: string, name: string) {
+    setConfirm({
+      open: true,
+      title: 'Restart Captain',
+      message: `Restart captain "${name}"? The captain will be deleted and recreated with the same name and runtime.`,
+      onConfirm: async () => {
+        setConfirm(c => ({ ...c, open: false }));
+        try { await restartCaptain(id); load(); } catch { setError('Restart failed.'); }
+      },
+    });
+  }
+
   function handleStopAll() {
     setConfirm({
       open: true,
@@ -219,7 +232,7 @@ export default function Captains() {
           )}
           <button className="btn btn-sm btn-danger" onClick={handleStopAll} title="Stop all captain processes">Stop All</button>
           <button className="btn btn-primary btn-sm" onClick={openCreate}>+ Captain</button>
-          <button className="btn btn-sm" onClick={load} title="Refresh captain data">&#x21bb;</button>
+          <RefreshButton onRefresh={load} title="Refresh captain data" />
         </div>
       </div>
 
@@ -323,6 +336,7 @@ export default function Captains() {
                         { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `Captain: ${c.name}`, data: c }) },
                         { label: 'Stop', onClick: () => handleStop(c.id, c.name) },
                         { label: 'Recall', onClick: () => handleRecall(c.id, c.name) },
+                        { label: 'Restart', onClick: () => handleRestart(c.id, c.name) },
                         { label: 'Delete', danger: true, onClick: () => handleDelete(c.id, c.name) },
                       ]} />
                     </td>

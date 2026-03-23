@@ -189,7 +189,9 @@ namespace Armada.Server.Routes
                 // 5. Stalled Captains
                 try
                 {
-                    List<Captain> stalledCaptains = await _database.Captains.EnumerateByStateAsync(CaptainStateEnum.Stalled).ConfigureAwait(false);
+                    List<Captain> stalledCaptains = ctx.IsAdmin
+                        ? await _database.Captains.EnumerateByStateAsync(CaptainStateEnum.Stalled).ConfigureAwait(false)
+                        : await _database.Captains.EnumerateByStateAsync(ctx.TenantId!, CaptainStateEnum.Stalled).ConfigureAwait(false);
                     int stalledCount = stalledCaptains.Count;
                     if (stalledCount == 0)
                         results.Add(new { Name = "Stalled Captains", Status = "Pass", Message = "No stalled captains" });
@@ -204,7 +206,9 @@ namespace Armada.Server.Routes
                 // 6. Failed Missions
                 try
                 {
-                    List<Mission> failedMissions = await _database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Failed).ConfigureAwait(false);
+                    List<Mission> failedMissions = ctx.IsAdmin
+                        ? await _database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Failed).ConfigureAwait(false)
+                        : await _database.Missions.EnumerateByStatusAsync(ctx.TenantId!, MissionStatusEnum.Failed).ConfigureAwait(false);
                     int failedCount = failedMissions.Count;
                     if (failedCount == 0)
                         results.Add(new { Name = "Failed Missions", Status = "Pass", Message = "No failed missions" });

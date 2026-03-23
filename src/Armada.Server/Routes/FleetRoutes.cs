@@ -132,7 +132,9 @@ namespace Armada.Server.Routes
                     ? await _database.Fleets.ReadAsync(id).ConfigureAwait(false)
                     : await _database.Fleets.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false);
                 if (fleet == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Fleet not found" }; }
-                List<Vessel> vessels = await _database.Vessels.EnumerateByFleetAsync(id).ConfigureAwait(false);
+                List<Vessel> vessels = ctx.IsAdmin
+                    ? await _database.Vessels.EnumerateByFleetAsync(id).ConfigureAwait(false)
+                    : await _database.Vessels.EnumerateByFleetAsync(ctx.TenantId!, id).ConfigureAwait(false);
                 return (object)new { Fleet = fleet, Vessels = vessels };
             },
             api => api

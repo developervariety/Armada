@@ -324,7 +324,9 @@ namespace Armada.Server.Routes
                 // same semantics as agent-driven completion.
                 if (newStatus == MissionStatusEnum.Complete && !String.IsNullOrEmpty(mission.DockId))
                 {
-                    Dock? landingDock = await _database.Docks.ReadAsync(mission.DockId).ConfigureAwait(false);
+                    Dock? landingDock = ctx.IsAdmin
+                        ? await _database.Docks.ReadAsync(mission.DockId).ConfigureAwait(false)
+                        : await _database.Docks.ReadAsync(ctx.TenantId!, mission.DockId).ConfigureAwait(false);
                     if (landingDock != null && landingDock.Active)
                     {
                         // Capture diff before landing
@@ -624,21 +626,29 @@ namespace Armada.Server.Routes
                 Dock? dock = null;
                 if (!String.IsNullOrEmpty(mission.DockId))
                 {
-                    dock = await _database.Docks.ReadAsync(mission.DockId).ConfigureAwait(false);
+                    dock = ctx.IsAdmin
+                        ? await _database.Docks.ReadAsync(mission.DockId).ConfigureAwait(false)
+                        : await _database.Docks.ReadAsync(ctx.TenantId!, mission.DockId).ConfigureAwait(false);
                 }
 
                 if (dock == null && !String.IsNullOrEmpty(mission.CaptainId))
                 {
-                    Captain? captain = await _database.Captains.ReadAsync(mission.CaptainId).ConfigureAwait(false);
+                    Captain? captain = ctx.IsAdmin
+                        ? await _database.Captains.ReadAsync(mission.CaptainId).ConfigureAwait(false)
+                        : await _database.Captains.ReadAsync(ctx.TenantId!, mission.CaptainId).ConfigureAwait(false);
                     if (captain != null && !String.IsNullOrEmpty(captain.CurrentDockId))
                     {
-                        dock = await _database.Docks.ReadAsync(captain.CurrentDockId).ConfigureAwait(false);
+                        dock = ctx.IsAdmin
+                            ? await _database.Docks.ReadAsync(captain.CurrentDockId).ConfigureAwait(false)
+                            : await _database.Docks.ReadAsync(ctx.TenantId!, captain.CurrentDockId).ConfigureAwait(false);
                     }
                 }
 
                 if (dock == null && !String.IsNullOrEmpty(mission.BranchName) && !String.IsNullOrEmpty(mission.VesselId))
                 {
-                    List<Dock> docks = await _database.Docks.EnumerateByVesselAsync(mission.VesselId).ConfigureAwait(false);
+                    List<Dock> docks = ctx.IsAdmin
+                        ? await _database.Docks.EnumerateByVesselAsync(mission.VesselId).ConfigureAwait(false)
+                        : await _database.Docks.EnumerateByVesselAsync(ctx.TenantId!, mission.VesselId).ConfigureAwait(false);
                     dock = docks.FirstOrDefault(d => d.BranchName == mission.BranchName && d.Active);
                 }
 

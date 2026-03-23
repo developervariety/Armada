@@ -6,6 +6,7 @@ import ActionMenu from '../../components/shared/ActionMenu';
 import ConfirmDialog from '../../components/shared/ConfirmDialog';
 import JsonViewer from '../../components/shared/JsonViewer';
 import CopyButton, { copyToClipboard } from '../../components/shared/CopyButton';
+import RefreshButton from '../../components/shared/RefreshButton';
 import { useAuth } from '../../context/AuthContext';
 
 function formatTime(utc: string | null): string {
@@ -193,7 +194,7 @@ export default function Credentials() {
         <div className="view-actions">
           {selected.length > 0 && <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>Delete Selected ({selected.length})</button>}
           <button className="btn btn-primary btn-sm" onClick={openCreate}>+ Credential</button>
-          <button className="btn btn-sm" onClick={load} title="Refresh">&#x21bb;</button>
+          <RefreshButton onRefresh={load} title="Refresh credentials" />
         </div>
       </div>
 

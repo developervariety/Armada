@@ -191,7 +191,9 @@ namespace Armada.Server.Routes
                 string captainId = req.Parameters["captainId"];
                 string unreadOnlyStr = req.Query.GetValueOrDefault("unreadOnly");
                 bool unreadOnly = String.IsNullOrEmpty(unreadOnlyStr) || bool.Parse(unreadOnlyStr);
-                List<Signal> signals = await _database.Signals.EnumerateByRecipientAsync(captainId, unreadOnly).ConfigureAwait(false);
+                List<Signal> signals = ctx.IsAdmin
+                    ? await _database.Signals.EnumerateByRecipientAsync(captainId, unreadOnly).ConfigureAwait(false)
+                    : await _database.Signals.EnumerateByRecipientAsync(ctx.TenantId!, captainId, unreadOnly).ConfigureAwait(false);
                 return signals;
             },
             api => api
@@ -214,7 +216,9 @@ namespace Armada.Server.Routes
                 string countStr = req.Query.GetValueOrDefault("count");
                 int count = 50;
                 if (!String.IsNullOrEmpty(countStr) && int.TryParse(countStr, out int parsedCount)) count = parsedCount;
-                List<Signal> signals = await _database.Signals.EnumerateRecentAsync(count).ConfigureAwait(false);
+                List<Signal> signals = ctx.IsAdmin
+                    ? await _database.Signals.EnumerateRecentAsync(count).ConfigureAwait(false)
+                    : await _database.Signals.EnumerateRecentAsync(ctx.TenantId!, count).ConfigureAwait(false);
                 return signals;
             },
             api => api

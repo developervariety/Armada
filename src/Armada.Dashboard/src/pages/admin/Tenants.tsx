@@ -6,6 +6,7 @@ import ActionMenu from '../../components/shared/ActionMenu';
 import ConfirmDialog from '../../components/shared/ConfirmDialog';
 import JsonViewer from '../../components/shared/JsonViewer';
 import CopyButton from '../../components/shared/CopyButton';
+import RefreshButton from '../../components/shared/RefreshButton';
 import { useAuth } from '../../context/AuthContext';
 
 function formatTime(utc: string | null): string {
@@ -144,7 +145,7 @@ export default function Tenants() {
         <div className="view-actions">
           {isAdmin && selected.length > 0 && <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>Delete Selected ({selected.length})</button>}
           {isAdmin && <button className="btn btn-primary btn-sm" onClick={openCreate}>+ Tenant</button>}
-          <button className="btn btn-sm" onClick={load} title="Refresh">&#x21bb;</button>
+          <RefreshButton onRefresh={load} title="Refresh tenants" />
         </div>
       </div>
 

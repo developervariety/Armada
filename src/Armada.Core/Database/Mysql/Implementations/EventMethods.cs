@@ -395,6 +395,111 @@ namespace Armada.Core.Database.Mysql.Implementations
             return results;
         }
 
+        /// <inheritdoc />
+        public async Task<List<ArmadaEvent>> EnumerateRecentAsync(string tenantId, int limit = 50, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
+
+            return await QueryEventsAsync("SELECT * FROM events WHERE tenant_id = @tenantId ORDER BY created_utc DESC LIMIT @limit;",
+                cmd =>
+                {
+                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
+                    cmd.Parameters.AddWithValue("@limit", limit);
+                }, token).ConfigureAwait(false);
+        }
+
+        /// <inheritdoc />
+        public async Task<List<ArmadaEvent>> EnumerateByTypeAsync(string tenantId, string eventType, int limit = 50, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
+            if (string.IsNullOrEmpty(eventType)) throw new ArgumentNullException(nameof(eventType));
+
+            return await QueryEventsAsync("SELECT * FROM events WHERE tenant_id = @tenantId AND event_type = @event_type ORDER BY created_utc DESC LIMIT @limit;",
+                cmd =>
+                {
+                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
+                    cmd.Parameters.AddWithValue("@event_type", eventType);
+                    cmd.Parameters.AddWithValue("@limit", limit);
+                }, token).ConfigureAwait(false);
+        }
+
+        /// <inheritdoc />
+        public async Task<List<ArmadaEvent>> EnumerateByEntityAsync(string tenantId, string entityType, string entityId, int limit = 50, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
+            if (string.IsNullOrEmpty(entityType)) throw new ArgumentNullException(nameof(entityType));
+            if (string.IsNullOrEmpty(entityId)) throw new ArgumentNullException(nameof(entityId));
+
+            return await QueryEventsAsync("SELECT * FROM events WHERE tenant_id = @tenantId AND entity_type = @entity_type AND entity_id = @entity_id ORDER BY created_utc DESC LIMIT @limit;",
+                cmd =>
+                {
+                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
+                    cmd.Parameters.AddWithValue("@entity_type", entityType);
+                    cmd.Parameters.AddWithValue("@entity_id", entityId);
+                    cmd.Parameters.AddWithValue("@limit", limit);
+                }, token).ConfigureAwait(false);
+        }
+
+        /// <inheritdoc />
+        public async Task<List<ArmadaEvent>> EnumerateByCaptainAsync(string tenantId, string captainId, int limit = 50, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
+            if (string.IsNullOrEmpty(captainId)) throw new ArgumentNullException(nameof(captainId));
+
+            return await QueryEventsAsync("SELECT * FROM events WHERE tenant_id = @tenantId AND captain_id = @captain_id ORDER BY created_utc DESC LIMIT @limit;",
+                cmd =>
+                {
+                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
+                    cmd.Parameters.AddWithValue("@captain_id", captainId);
+                    cmd.Parameters.AddWithValue("@limit", limit);
+                }, token).ConfigureAwait(false);
+        }
+
+        /// <inheritdoc />
+        public async Task<List<ArmadaEvent>> EnumerateByMissionAsync(string tenantId, string missionId, int limit = 50, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
+            if (string.IsNullOrEmpty(missionId)) throw new ArgumentNullException(nameof(missionId));
+
+            return await QueryEventsAsync("SELECT * FROM events WHERE tenant_id = @tenantId AND mission_id = @mission_id ORDER BY created_utc DESC LIMIT @limit;",
+                cmd =>
+                {
+                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
+                    cmd.Parameters.AddWithValue("@mission_id", missionId);
+                    cmd.Parameters.AddWithValue("@limit", limit);
+                }, token).ConfigureAwait(false);
+        }
+
+        /// <inheritdoc />
+        public async Task<List<ArmadaEvent>> EnumerateByVesselAsync(string tenantId, string vesselId, int limit = 50, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
+            if (string.IsNullOrEmpty(vesselId)) throw new ArgumentNullException(nameof(vesselId));
+
+            return await QueryEventsAsync("SELECT * FROM events WHERE tenant_id = @tenantId AND vessel_id = @vessel_id ORDER BY created_utc DESC LIMIT @limit;",
+                cmd =>
+                {
+                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
+                    cmd.Parameters.AddWithValue("@vessel_id", vesselId);
+                    cmd.Parameters.AddWithValue("@limit", limit);
+                }, token).ConfigureAwait(false);
+        }
+
+        /// <inheritdoc />
+        public async Task<List<ArmadaEvent>> EnumerateByVoyageAsync(string tenantId, string voyageId, int limit = 50, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
+            if (string.IsNullOrEmpty(voyageId)) throw new ArgumentNullException(nameof(voyageId));
+
+            return await QueryEventsAsync("SELECT * FROM events WHERE tenant_id = @tenantId AND voyage_id = @voyage_id ORDER BY created_utc DESC LIMIT @limit;",
+                cmd =>
+                {
+                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
+                    cmd.Parameters.AddWithValue("@voyage_id", voyageId);
+                    cmd.Parameters.AddWithValue("@limit", limit);
+                }, token).ConfigureAwait(false);
+        }
+
         /// <summary>
         /// Enumerate events with pagination and filtering (tenant-scoped).
         /// </summary>

@@ -8,6 +8,7 @@ import {
   downloadBackup,
   restoreBackup,
 } from '../api/client';
+import RefreshButton from '../components/shared/RefreshButton';
 import { useWebSocket } from '../context/WebSocketContext';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import CopyButton, { copyToClipboard } from '../components/shared/CopyButton';
@@ -248,9 +249,7 @@ export default function Server() {
           </p>
         </div>
         <div className="page-actions">
-          <button className="btn-sm" onClick={loadData} title="Refresh">
-            &#x21bb;
-          </button>
+          <RefreshButton onRefresh={loadData} title="Refresh server data" />
         </div>
       </div>
 

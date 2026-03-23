@@ -438,6 +438,59 @@ namespace Armada.Core.Database.Postgresql.Implementations
             }
         }
 
+        /// <inheritdoc />
+        public async Task<List<Signal>> EnumerateByRecipientAsync(string tenantId, string captainId, bool unreadOnly = true, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
+            if (string.IsNullOrEmpty(captainId)) throw new ArgumentNullException(nameof(captainId));
+            List<Signal> results = new List<Signal>();
+
+            using (NpgsqlConnection conn = await _DataSource.OpenConnectionAsync(token).ConfigureAwait(false))
+            {
+                using (NpgsqlCommand cmd = new NpgsqlCommand())
+                {
+                    cmd.Connection = conn;
+                    cmd.CommandText = unreadOnly
+                        ? "SELECT * FROM signals WHERE tenant_id = @tenant_id AND to_captain_id = @to_captain_id AND read = FALSE ORDER BY created_utc DESC;"
+                        : "SELECT * FROM signals WHERE tenant_id = @tenant_id AND to_captain_id = @to_captain_id ORDER BY created_utc DESC;";
+                    cmd.Parameters.AddWithValue("@tenant_id", tenantId);
+                    cmd.Parameters.AddWithValue("@to_captain_id", captainId);
+                    using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
+                    {
+                        while (await reader.ReadAsync(token).ConfigureAwait(false))
+                            results.Add(SignalFromReader(reader));
+                    }
+                }
+            }
+
+            return results;
+        }
+
+        /// <inheritdoc />
+        public async Task<List<Signal>> EnumerateRecentAsync(string tenantId, int count = 50, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
+            List<Signal> results = new List<Signal>();
+
+            using (NpgsqlConnection conn = await _DataSource.OpenConnectionAsync(token).ConfigureAwait(false))
+            {
+                using (NpgsqlCommand cmd = new NpgsqlCommand())
+                {
+                    cmd.Connection = conn;
+                    cmd.CommandText = "SELECT * FROM signals WHERE tenant_id = @tenant_id ORDER BY created_utc DESC LIMIT @count;";
+                    cmd.Parameters.AddWithValue("@tenant_id", tenantId);
+                    cmd.Parameters.AddWithValue("@count", count);
+                    using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
+                    {
+                        while (await reader.ReadAsync(token).ConfigureAwait(false))
+                            results.Add(SignalFromReader(reader));
+                    }
+                }
+            }
+
+            return results;
+        }
+
         #endregion
 
         #region Private-Methods

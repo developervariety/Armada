@@ -13,6 +13,7 @@ import ActionMenu from '../components/shared/ActionMenu';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
 import CopyButton from '../components/shared/CopyButton';
+import RefreshButton from '../components/shared/RefreshButton';
 
 const SIGNAL_TYPES = ['Nudge', 'Mail', 'Assignment', 'Progress', 'Completion', 'Error'] as const;
 
@@ -252,7 +253,7 @@ export default function Signals() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <Pagination pageNumber={page} totalPages={totalPages} totalRecords={totalRecords} totalMs={totalMs}
             pageSize={pageSize} onPageChange={setPage} onPageSizeChange={handlePageSizeChange} />
-          <button className="btn btn-sm" onClick={load} title="Refresh">&#x21bb;</button>
+          <RefreshButton onRefresh={load} title="Refresh signals" />
         </div>
       )}
 

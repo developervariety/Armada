@@ -67,5 +67,15 @@ namespace Armada.Core.Database.Interfaces
         /// Enumerate merge entries with pagination and filtering (tenant-scoped).
         /// </summary>
         Task<EnumerationResult<MergeEntry>> EnumerateAsync(string tenantId, EnumerationQuery query, CancellationToken token = default);
+
+        /// <summary>
+        /// Enumerate merge entries by tenant and status (tenant-scoped).
+        /// </summary>
+        Task<List<MergeEntry>> EnumerateByStatusAsync(string tenantId, MergeStatusEnum status, CancellationToken token = default);
+
+        /// <summary>
+        /// Check if a merge entry exists by tenant and identifier (tenant-scoped).
+        /// </summary>
+        Task<bool> ExistsAsync(string tenantId, string id, CancellationToken token = default);
     }
 }

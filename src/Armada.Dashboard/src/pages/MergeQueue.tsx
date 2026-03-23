@@ -13,6 +13,7 @@ import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
 import DiffViewer from '../components/shared/DiffViewer';
 import LogViewer from '../components/shared/LogViewer';
+import RefreshButton from '../components/shared/RefreshButton';
 import CopyButton from '../components/shared/CopyButton';
 
 type SortDir = 'asc' | 'desc';
@@ -284,7 +285,7 @@ export default function MergeQueue() {
             setEnqueueForm({ branchName: '', targetBranch: 'main', missionId: '', vesselId: '', testCommand: '', priority: 0 });
             setShowEnqueue(true);
           }}>+ Enqueue</button>
-          <button className="btn btn-sm" onClick={load} title="Refresh merge queue">&#x21bb;</button>
+          <RefreshButton onRefresh={load} title="Refresh merge queue" />
         </div>
       </div>
 

@@ -192,6 +192,13 @@ export const stopCaptain = (id: string) => post<void>(`/api/v1/captains/${id}/st
 export const recallCaptain = (id: string) => post<void>(`/api/v1/captains/${id}/recall`);
 export const stopAllCaptains = () => post<void>('/api/v1/captains/stop-all');
 
+/** Restart a captain by deleting and recreating it with the same name and runtime. */
+export async function restartCaptain(id: string): Promise<Captain> {
+  const captain = await getCaptain(id);
+  await deleteCaptain(id);
+  return createCaptain({ name: captain.name, runtime: captain.runtime });
+}
+
 // ==================== Missions ====================
 export const listMissions = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
   get<EnumerationResult<Mission>>(`/api/v1/missions${buildQuery(params)}`);

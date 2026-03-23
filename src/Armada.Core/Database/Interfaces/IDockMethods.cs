@@ -71,5 +71,20 @@ namespace Armada.Core.Database.Interfaces
         /// Enumerate docks with pagination and filtering (tenant-scoped).
         /// </summary>
         Task<EnumerationResult<Dock>> EnumerateAsync(string tenantId, EnumerationQuery query, CancellationToken token = default);
+
+        /// <summary>
+        /// Enumerate docks by tenant and vessel identifier (tenant-scoped).
+        /// </summary>
+        Task<List<Dock>> EnumerateByVesselAsync(string tenantId, string vesselId, CancellationToken token = default);
+
+        /// <summary>
+        /// Find an available dock for a vessel within a tenant (tenant-scoped).
+        /// </summary>
+        Task<Dock?> FindAvailableAsync(string tenantId, string vesselId, CancellationToken token = default);
+
+        /// <summary>
+        /// Check if a dock exists by tenant and identifier (tenant-scoped).
+        /// </summary>
+        Task<bool> ExistsAsync(string tenantId, string id, CancellationToken token = default);
     }
 }

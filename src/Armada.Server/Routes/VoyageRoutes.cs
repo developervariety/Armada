@@ -172,7 +172,9 @@ namespace Armada.Server.Routes
                     ? await _database.Voyages.ReadAsync(id).ConfigureAwait(false)
                     : await _database.Voyages.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false);
                 if (voyage == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Voyage not found" }; }
-                List<Mission> missions = await _database.Missions.EnumerateByVoyageAsync(id).ConfigureAwait(false);
+                List<Mission> missions = ctx.IsAdmin
+                    ? await _database.Missions.EnumerateByVoyageAsync(id).ConfigureAwait(false)
+                    : await _database.Missions.EnumerateByVoyageAsync(ctx.TenantId!, id).ConfigureAwait(false);
                 return (object)new { Voyage = voyage, Missions = missions };
             },
             api => api
@@ -201,7 +203,9 @@ namespace Armada.Server.Routes
                 voyage.LastUpdateUtc = DateTime.UtcNow;
                 voyage = await _database.Voyages.UpdateAsync(voyage).ConfigureAwait(false);
                 // Cancel all pending/assigned missions in the voyage
-                List<Mission> missions = await _database.Missions.EnumerateByVoyageAsync(id).ConfigureAwait(false);
+                List<Mission> missions = ctx.IsAdmin
+                    ? await _database.Missions.EnumerateByVoyageAsync(id).ConfigureAwait(false)
+                    : await _database.Missions.EnumerateByVoyageAsync(ctx.TenantId!, id).ConfigureAwait(false);
                 int cancelledCount = 0;
                 foreach (Mission m in missions)
                 {
@@ -213,7 +217,9 @@ namespace Armada.Server.Routes
                             Captain? captain = await _database.Captains.ReadAsync(m.CaptainId).ConfigureAwait(false);
                             if (captain != null && captain.CurrentMissionId == m.Id)
                             {
-                                List<Mission> otherMissions = (await _database.Missions.EnumerateByCaptainAsync(captain.Id).ConfigureAwait(false))
+                                List<Mission> otherMissions = (ctx.IsAdmin
+                                    ? await _database.Missions.EnumerateByCaptainAsync(captain.Id).ConfigureAwait(false)
+                                    : await _database.Missions.EnumerateByCaptainAsync(ctx.TenantId!, captain.Id).ConfigureAwait(false))
                                     .Where(om => om.Id != m.Id && (om.Status == MissionStatusEnum.InProgress || om.Status == MissionStatusEnum.Assigned)).ToList();
                                 if (otherMissions.Count == 0)
                                 {
@@ -279,7 +285,9 @@ namespace Armada.Server.Routes
                     return (object)new { Error = "Conflict", Message = "Cannot delete voyage while status is " + voyage.Status + ". Cancel the voyage first." };
                 }
 
-                List<Mission> missions = await _database.Missions.EnumerateByVoyageAsync(id).ConfigureAwait(false);
+                List<Mission> missions = ctx.IsAdmin
+                    ? await _database.Missions.EnumerateByVoyageAsync(id).ConfigureAwait(false)
+                    : await _database.Missions.EnumerateByVoyageAsync(ctx.TenantId!, id).ConfigureAwait(false);
 
                 // Block deletion if any missions are actively assigned or in progress
                 List<Mission> activeMissions = missions.Where(m => m.Status == MissionStatusEnum.Assigned || m.Status == MissionStatusEnum.InProgress).ToList();
@@ -346,7 +354,9 @@ namespace Armada.Server.Routes
                         result.Skipped.Add(new DeleteMultipleSkipped(id, "Cannot delete voyage while status is " + voyage.Status + ". Cancel the voyage first."));
                         continue;
                     }
-                    List<Mission> missions = await _database.Missions.EnumerateByVoyageAsync(id).ConfigureAwait(false);
+                    List<Mission> missions = ctx.IsAdmin
+                        ? await _database.Missions.EnumerateByVoyageAsync(id).ConfigureAwait(false)
+                        : await _database.Missions.EnumerateByVoyageAsync(ctx.TenantId!, id).ConfigureAwait(false);
                     List<Mission> activeMissions = missions.Where(m => m.Status == MissionStatusEnum.Assigned || m.Status == MissionStatusEnum.InProgress).ToList();
                     if (activeMissions.Count > 0)
                     {
