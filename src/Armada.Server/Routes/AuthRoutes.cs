@@ -93,7 +93,7 @@ namespace Armada.Server.Routes
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
                 {
                     req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
-                    return (object)new { Error = ctx.IsAuthenticated ? "Forbidden" : "Unauthorized" };
+                    return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
 
                 TenantMetadata? tenant = await _database.Tenants.ReadAsync(ctx.TenantId!).ConfigureAwait(false);
