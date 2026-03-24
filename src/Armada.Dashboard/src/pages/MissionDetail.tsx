@@ -21,7 +21,7 @@ import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
 import DiffViewer from '../components/shared/DiffViewer';
 import LogViewer from '../components/shared/LogViewer';
-import { copyToClipboard } from '../components/shared/CopyButton';
+import CopyButton from '../components/shared/CopyButton';
 
 const MISSION_STATUSES = [
   'Pending', 'Assigned', 'InProgress', 'WorkProduced', 'Testing', 'Review', 'Complete', 'Failed', 'LandingFailed', 'Cancelled',
@@ -337,7 +337,7 @@ export default function MissionDetail() {
           <span className="detail-label">ID</span>
           <span className="id-display">
             <span className="mono">{mission.id}</span>
-            <button className="copy-btn" onClick={() => copyToClipboard(mission.id)} title="Copy ID" />
+            <CopyButton text={mission.id} />
           </span>
         </div>
         <div className="detail-field"><span className="detail-label">Tenant ID</span><span className="mono">{mission.tenantId || '-'}</span></div>
