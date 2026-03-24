@@ -83,9 +83,14 @@ namespace Armada.Core.Services
                 return false;
             }
 
-            Vessel? vessel = !String.IsNullOrEmpty(tenantId)
-                ? await _Database.Vessels.ReadAsync(tenantId, mission.VesselId, token).ConfigureAwait(false)
+            // Use the mission's own TenantId for vessel lookup (more reliable than caller's tenantId)
+            string? lookupTenantId = !String.IsNullOrEmpty(mission.TenantId) ? mission.TenantId : tenantId;
+            Vessel? vessel = !String.IsNullOrEmpty(lookupTenantId)
+                ? await _Database.Vessels.ReadAsync(lookupTenantId, mission.VesselId, token).ConfigureAwait(false)
                 : await _Database.Vessels.ReadAsync(mission.VesselId, token).ConfigureAwait(false);
+            // Fall back to unscoped read if tenant-scoped read fails
+            if (vessel == null)
+                vessel = await _Database.Vessels.ReadAsync(mission.VesselId, token).ConfigureAwait(false);
             if (vessel == null)
             {
                 _Logging.Warn(_Header + "vessel " + mission.VesselId + " not found -- cannot retry landing for mission " + missionId);
