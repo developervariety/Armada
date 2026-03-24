@@ -70,7 +70,7 @@ export default function MergeQueue() {
   const [sortDir, setSortDir] = useState<SortDir>('desc');
 
   // Column filters
-  const [colFilters, setColFilters] = useState({ branchName: '', targetBranch: '', status: '' });
+  const [colFilters, setColFilters] = useState({ branchName: '', targetBranch: '', status: '', vesselId: '' });
 
   const vesselName = useCallback((id: string | null) => {
     if (!id) return '-';
@@ -105,7 +105,8 @@ export default function MergeQueue() {
     return entries.filter(e =>
       (!colFilters.branchName || e.branchName.toLowerCase().includes(colFilters.branchName.toLowerCase())) &&
       (!colFilters.targetBranch || e.targetBranch.toLowerCase().includes(colFilters.targetBranch.toLowerCase())) &&
-      (!colFilters.status || (e.status ?? '').toLowerCase().includes(colFilters.status.toLowerCase()))
+      (!colFilters.status || (e.status ?? '').toLowerCase().includes(colFilters.status.toLowerCase())) &&
+      (!colFilters.vesselId || e.vesselId === colFilters.vesselId)
     );
   }, [entries, colFilters]);
 
@@ -377,7 +378,12 @@ export default function MergeQueue() {
                   <td><input type="text" className="col-filter" value={colFilters.status} onChange={e => setColFilters(f => ({ ...f, status: e.target.value }))} placeholder="Filter..." /></td>
                   <td></td>
                   <td></td>
-                  <td></td>
+                  <td>
+                    <select className="col-filter" title="Filter by vessel" value={colFilters.vesselId} onChange={e => { setColFilters(f => ({ ...f, vesselId: e.target.value })); }}>
+                      <option value="">All Vessels</option>
+                      {vessels.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                    </select>
+                  </td>
                   <td></td>
                 </tr>
               </thead>
