@@ -606,9 +606,9 @@ CREATE INDEX idx_missions_depends_on ON missions(depends_on_mission_id);
 
 ### 7.5 REST API Routes
 
-- [ ] Create `src/Armada.Server/Routes/PromptTemplateRoutes.cs` -- CRUD endpoints
-- [ ] Create `src/Armada.Server/Routes/PersonaRoutes.cs` -- CRUD endpoints
-- [ ] Create `src/Armada.Server/Routes/PipelineRoutes.cs` -- CRUD endpoints
+- [x] Create `src/Armada.Server/Routes/PromptTemplateRoutes.cs` -- 5 endpoints (list, enumerate, get by name, update, reset)
+- [x] Create `src/Armada.Server/Routes/PersonaRoutes.cs` -- 6 endpoints (list, enumerate, get, create, update, delete)
+- [x] Create `src/Armada.Server/Routes/PipelineRoutes.cs` -- 6 endpoints (list, enumerate, get, create, update, delete)
 
 ### 7.6 WebSocket Commands
 

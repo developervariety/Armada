@@ -379,6 +379,18 @@ namespace Armada.Server
             new MergeQueueRoutes(_Database, _MergeQueue, EmitEventAsync, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
 
+            // Prompt templates
+            new PromptTemplateRoutes(_Database, _PromptTemplateService, _JsonOptions)
+                .Register(_App, authenticate, _AuthorizationService);
+
+            // Personas
+            new PersonaRoutes(_Database, _JsonOptions)
+                .Register(_App, authenticate, _AuthorizationService);
+
+            // Pipelines
+            new PipelineRoutes(_Database, _JsonOptions)
+                .Register(_App, authenticate, _AuthorizationService);
+
             // Backup & restore
             new BackupRoutes(_Database, _Settings, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
