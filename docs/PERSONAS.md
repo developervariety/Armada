@@ -602,7 +602,7 @@ CREATE INDEX idx_missions_depends_on ON missions(depends_on_mission_id);
 
 ### 7.4 Enumerate Support
 
-- [ ] Add `persona`, `prompt_template`, and `pipeline` as entity types in `armada_enumerate`
+- [x] Add `persona`, `prompt_template`, and `pipeline` as entity types in `armada_enumerate`
 
 ### 7.5 REST API Routes
 
