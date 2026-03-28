@@ -57,6 +57,8 @@ namespace Armada.Server
         private IMergeQueueService _MergeQueue = null!;
         private LandingService _LandingService = null!;
         private IMessageTemplateService _TemplateService = null!;
+        private IPromptTemplateService _PromptTemplateService = null!;
+        private PersonaSeedService _PersonaSeedService = null!;
         private LogRotationService _LogRotation = null!;
         private DataExpiryService _DataExpiry = null!;
 
@@ -122,6 +124,15 @@ namespace Armada.Server
             _LandingService = new LandingService(_Logging, _Database, _Settings, _Git);
             _TemplateService = new MessageTemplateService(_Logging);
             _RuntimeFactory = new AgentRuntimeFactory(_Logging);
+
+            // Seed built-in prompt templates, personas, and pipelines
+            _PromptTemplateService = new PromptTemplateService(_Database, _Logging);
+            await _PromptTemplateService.SeedDefaultsAsync().ConfigureAwait(false);
+            _Logging.Info(_Header + "prompt template seeding completed");
+
+            _PersonaSeedService = new PersonaSeedService(_Database, _Logging);
+            await _PersonaSeedService.SeedAsync().ConfigureAwait(false);
+            _Logging.Info(_Header + "persona and pipeline seeding completed");
 
             // Initialize authentication services
             _SessionTokenService = new SessionTokenService(_Settings.SessionTokenEncryptionKey);

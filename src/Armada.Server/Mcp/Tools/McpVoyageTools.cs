@@ -54,7 +54,8 @@ namespace Armada.Server.Mcp.Tools
                                     description = new { type = "string" }
                                 }
                             }
-                        }
+                        },
+                        pipelineId = new { type = "string", description = "Pipeline ID to use for this dispatch (overrides vessel/fleet default)" }
                     },
                     required = new[] { "title", "vesselId", "missions" }
                 },
