@@ -136,8 +136,8 @@ export default function PipelineDetail() {
   return (
     <div>
       {/* Breadcrumb */}
-      <div className="breadcrumbs">
-        <Link to="/pipelines">Pipelines</Link> <span className="bc-sep">&gt;</span> <span>{pipeline.name}</span>
+      <div className="breadcrumb">
+        <Link to="/pipelines">Pipelines</Link> <span className="breadcrumb-sep">&gt;</span> <span>{pipeline.name}</span>
       </div>
 
       <div className="detail-header">
