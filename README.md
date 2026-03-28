@@ -7,7 +7,7 @@
 <p align="center">
   <strong>Multi-agent orchestration for scaling human developers with AI</strong>
   <br />
-  <strong>⚠️ ALPHA v0.3.0 - APIs, schemas, and behavior may change without notice</strong>
+  <strong>⚠️ ALPHA v0.4.0 - APIs, schemas, and behavior may change without notice</strong>
 </p>
 
 <p align="center">
