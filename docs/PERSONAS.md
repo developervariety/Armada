@@ -138,13 +138,15 @@ This avoids the .csproj embedded resource complexity and keeps templates co-loca
 
 ### 1.6 Refactor AgentLifecycleHandler Launch Prompt
 
-- [ ] Replace hardcoded prompt at `AgentLifecycleHandler.cs:100-107` with template resolution
-- [ ] Template name: `agent_launch_prompt`
+- [x] Replace hardcoded prompt at `AgentLifecycleHandler.cs:100` with template resolution
+- [x] Template name: `agent.launch_prompt`
+- [x] Hardcoded fallback preserved for backward compatibility
+- [x] Wired `IPromptTemplateService` into AgentLifecycleHandler constructor
 
 ### 1.7 Refactor MessageTemplateService
 
-- [ ] Migrate `RenderCommitInstructions` preamble text ("IMPORTANT: For every git commit...") to a template
-- [ ] Keep `MessageTemplateSettings` for backward compatibility but have it seed into the prompt_templates table on first run
+- [x] `commit.instructions_preamble` template seeded via PromptTemplateService.SeedDefaultsAsync
+- [ ] Future: inject IPromptTemplateService into MessageTemplateService to resolve preamble at runtime (low priority -- preamble text rarely changes)
 
 ---
 

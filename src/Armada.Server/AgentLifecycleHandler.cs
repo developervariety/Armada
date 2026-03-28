@@ -26,6 +26,7 @@ namespace Armada.Server
         private AgentRuntimeFactory _RuntimeFactory;
         private IAdmiralService _Admiral;
         private IMessageTemplateService _TemplateService;
+        private IPromptTemplateService? _PromptTemplateService;
         private ArmadaWebSocketHub? _WebSocketHub;
         private Func<string, string, string?, string?, string?, string?, string?, string?, Task> _EmitEventAsync;
 
@@ -52,6 +53,7 @@ namespace Armada.Server
         /// <param name="runtimeFactory">Agent runtime factory.</param>
         /// <param name="admiral">Admiral service.</param>
         /// <param name="templateService">Message template service.</param>
+        /// <param name="promptTemplateService">Prompt template service (optional).</param>
         /// <param name="webSocketHub">WebSocket hub (nullable).</param>
         /// <param name="emitEventAsync">Delegate to emit events.</param>
         public AgentLifecycleHandler(
@@ -61,6 +63,7 @@ namespace Armada.Server
             AgentRuntimeFactory runtimeFactory,
             IAdmiralService admiral,
             IMessageTemplateService templateService,
+            IPromptTemplateService? promptTemplateService,
             ArmadaWebSocketHub? webSocketHub,
             Func<string, string, string?, string?, string?, string?, string?, string?, Task> emitEventAsync)
         {
@@ -70,6 +73,7 @@ namespace Armada.Server
             _RuntimeFactory = runtimeFactory ?? throw new ArgumentNullException(nameof(runtimeFactory));
             _Admiral = admiral ?? throw new ArgumentNullException(nameof(admiral));
             _TemplateService = templateService ?? throw new ArgumentNullException(nameof(templateService));
+            _PromptTemplateService = promptTemplateService;
             _WebSocketHub = webSocketHub;
             _EmitEventAsync = emitEventAsync ?? throw new ArgumentNullException(nameof(emitEventAsync));
         }
@@ -97,7 +101,23 @@ namespace Armada.Server
             runtime.OnOutputReceived += HandleAgentHeartbeat;
             runtime.OnProcessExited += HandleAgentProcessExited;
 
-            string prompt = "Mission: " + mission.Title + "\n\n" + (mission.Description ?? "");
+            // Resolve launch prompt from template service or use hardcoded default
+            string prompt;
+            if (_PromptTemplateService != null)
+            {
+                Dictionary<string, string> promptParams = new Dictionary<string, string>
+                {
+                    ["MissionTitle"] = mission.Title,
+                    ["MissionDescription"] = mission.Description ?? ""
+                };
+                string rendered = await _PromptTemplateService.RenderAsync("agent.launch_prompt", promptParams).ConfigureAwait(false);
+                prompt = !String.IsNullOrEmpty(rendered) ? rendered : "Mission: " + mission.Title + "\n\n" + (mission.Description ?? "");
+            }
+            else
+            {
+                prompt = "Mission: " + mission.Title + "\n\n" + (mission.Description ?? "");
+            }
+
             if (_Settings.MessageTemplates.EnableCommitMetadata)
             {
                 Dictionary<string, string> templateContext = _TemplateService.BuildContext(mission, captain, null, null, dock);
