@@ -466,60 +466,34 @@ namespace Armada.Core.Services
             // Captain instructions
             if (captain != null && !String.IsNullOrEmpty(captain.SystemInstructions))
             {
-                content +=
-                    "## Captain Instructions\n" +
-                    captain.SystemInstructions + "\n" +
-                    "\n";
+                content += await ResolveSectionAsync("mission.captain_instructions_wrapper", templateParams, token).ConfigureAwait(false);
+                content += "\n";
             }
 
             // Vessel context sections
             if (!String.IsNullOrEmpty(vessel.ProjectContext))
             {
-                content +=
-                    "## Project Context\n" +
-                    vessel.ProjectContext + "\n" +
-                    "\n";
+                content += await ResolveSectionAsync("mission.project_context_wrapper", templateParams, token).ConfigureAwait(false);
+                content += "\n";
             }
 
             if (!String.IsNullOrEmpty(vessel.StyleGuide))
             {
-                content +=
-                    "## Code Style\n" +
-                    vessel.StyleGuide + "\n" +
-                    "\n";
+                content += await ResolveSectionAsync("mission.code_style_wrapper", templateParams, token).ConfigureAwait(false);
+                content += "\n";
             }
 
             if (vessel.EnableModelContext && !String.IsNullOrEmpty(vessel.ModelContext))
             {
-                content +=
-                    "## Model Context\n" +
-                    "The following context was accumulated by AI agents during previous missions on this repository. " +
-                    "Use this information to work more effectively.\n" +
-                    "\n" +
-                    vessel.ModelContext + "\n" +
-                    "\n";
+                content += await ResolveSectionAsync("mission.model_context_wrapper", templateParams, token).ConfigureAwait(false);
+                content += "\n";
             }
 
-            // Mission preamble and metadata
+            // Mission preamble and metadata -- resolve persona prompt first, then inject into metadata template
             string personaPrompt = await ResolvePersonaPromptAsync(mission.Persona, templateParams, token).ConfigureAwait(false);
-            content +=
-                "# Mission Instructions\n" +
-                "\n" +
-                personaPrompt + "\n" +
-                "\n" +
-                "## Mission\n" +
-                "- **Title:** " + mission.Title + "\n" +
-                "- **ID:** " + mission.Id + "\n" +
-                (mission.VoyageId != null ? "- **Voyage:** " + mission.VoyageId + "\n" : "") +
-                "\n" +
-                "## Description\n" +
-                (mission.Description ?? "No additional description provided.") + "\n" +
-                "\n" +
-                "## Repository\n" +
-                "- **Name:** " + vessel.Name + "\n" +
-                "- **Branch:** " + (mission.BranchName ?? "unknown") + "\n" +
-                "- **Default Branch:** " + vessel.DefaultBranch + "\n" +
-                "\n";
+            templateParams["PersonaPrompt"] = personaPrompt;
+            content += await ResolveSectionAsync("mission.metadata", templateParams, token).ConfigureAwait(false);
+            content += "\n";
 
             // Rules, context conservation, merge conflicts, progress signals -- from templates or hardcoded fallback
             content += await ResolveSectionAsync("mission.rules", templateParams, token).ConfigureAwait(false);
@@ -541,7 +515,8 @@ namespace Armada.Core.Services
             if (File.Exists(claudeMdPath))
             {
                 string existing = await File.ReadAllTextAsync(claudeMdPath).ConfigureAwait(false);
-                content += "\n## Existing Project Instructions\n\n" + existing;
+                templateParams["ExistingClaudeMd"] = existing;
+                content += await ResolveSectionAsync("mission.existing_instructions_wrapper", templateParams, token).ConfigureAwait(false);
             }
 
             Directory.CreateDirectory(Path.GetDirectoryName(claudeMdPath)!);
@@ -585,7 +560,15 @@ namespace Armada.Core.Services
             }
 
             // Hardcoded fallbacks for backward compatibility when template service is unavailable
-            return GetHardcodedFallback(templateName);
+            string fallback = GetHardcodedFallback(templateName);
+            if (!String.IsNullOrEmpty(fallback))
+            {
+                foreach (KeyValuePair<string, string> kvp in templateParams)
+                {
+                    fallback = fallback.Replace("{" + kvp.Key + "}", kvp.Value ?? "");
+                }
+            }
+            return fallback;
         }
 
         /// <summary>
@@ -691,6 +674,54 @@ namespace Armada.Core.Services
                         "and organize it clearly with sections or headings.\n" +
                         "\n" +
                         "If you have nothing to add, skip this step.\n";
+
+                case "mission.captain_instructions_wrapper":
+                    return
+                        "## Captain Instructions\n" +
+                        "{CaptainInstructions}\n";
+
+                case "mission.project_context_wrapper":
+                    return
+                        "## Project Context\n" +
+                        "{ProjectContext}\n";
+
+                case "mission.code_style_wrapper":
+                    return
+                        "## Code Style\n" +
+                        "{StyleGuide}\n";
+
+                case "mission.model_context_wrapper":
+                    return
+                        "## Model Context\n" +
+                        "The following context was accumulated by AI agents during previous missions on this repository. " +
+                        "Use this information to work more effectively.\n" +
+                        "\n" +
+                        "{ModelContext}\n";
+
+                case "mission.metadata":
+                    return
+                        "# Mission Instructions\n" +
+                        "\n" +
+                        "{PersonaPrompt}\n" +
+                        "\n" +
+                        "## Mission\n" +
+                        "- **Title:** {MissionTitle}\n" +
+                        "- **ID:** {MissionId}\n" +
+                        "- **Voyage:** {VoyageId}\n" +
+                        "\n" +
+                        "## Description\n" +
+                        "{MissionDescription}\n" +
+                        "\n" +
+                        "## Repository\n" +
+                        "- **Name:** {VesselName}\n" +
+                        "- **Branch:** {BranchName}\n" +
+                        "- **Default Branch:** {DefaultBranch}\n";
+
+                case "mission.existing_instructions_wrapper":
+                    return
+                        "\n## Existing Project Instructions\n" +
+                        "\n" +
+                        "{ExistingClaudeMd}";
 
                 default:
                     return "";

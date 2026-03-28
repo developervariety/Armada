@@ -152,31 +152,31 @@ This avoids the .csproj embedded resource complexity and keeps templates co-loca
 
 Goal: every string that forms part of a prompt to an agent must be resolvable from a template, so it is editable in the dashboard. The following items are still hardcoded in `MissionService.GenerateClaudeMdAsync` and `MissionLandingHandler`:
 
-- [ ] Create template `mission.captain_instructions_wrapper` (category: "mission")
+- [x] Create template `mission.captain_instructions_wrapper` (category: "structure")
   - Default: `## Captain Instructions\n{CaptainInstructions}\n`
   - Rendered only when `{CaptainInstructions}` is non-empty
-- [ ] Create template `mission.project_context_wrapper` (category: "mission")
+- [x] Create template `mission.project_context_wrapper` (category: "structure")
   - Default: `## Project Context\n{ProjectContext}\n`
   - Rendered only when `{ProjectContext}` is non-empty
-- [ ] Create template `mission.code_style_wrapper` (category: "mission")
+- [x] Create template `mission.code_style_wrapper` (category: "structure")
   - Default: `## Code Style\n{StyleGuide}\n`
   - Rendered only when `{StyleGuide}` is non-empty
-- [ ] Create template `mission.model_context_wrapper` (category: "mission")
+- [x] Create template `mission.model_context_wrapper` (category: "structure")
   - Default: `## Model Context\nThe following context was accumulated by AI agents during previous missions on this repository. Use this information to work more effectively.\n\n{ModelContext}\n`
   - Rendered only when model context is enabled and `{ModelContext}` is non-empty
-- [ ] Create template `mission.metadata` (category: "mission")
+- [x] Create template `mission.metadata` (category: "structure")
   - Default: `# Mission Instructions\n\n{PersonaPrompt}\n\n## Mission\n- **Title:** {MissionTitle}\n- **ID:** {MissionId}\n- **Voyage:** {VoyageId}\n\n## Description\n{MissionDescription}\n\n## Repository\n- **Name:** {VesselName}\n- **Branch:** {BranchName}\n- **Default Branch:** {DefaultBranch}\n`
   - This controls the entire mission metadata layout -- users can rearrange, add, or remove fields
-- [ ] Create template `mission.existing_instructions_wrapper` (category: "mission")
+- [x] Create template `mission.existing_instructions_wrapper` (category: "structure")
   - Default: `\n## Existing Project Instructions\n\n{ExistingClaudeMd}`
   - Rendered only when the repo already has a CLAUDE.md
-- [ ] Create template `landing.pr_body` (category: "landing")
+- [x] Create template `landing.pr_body` (category: "landing")
   - Default: `## Mission\n**{MissionTitle}**\n\n{MissionDescription}`
   - Currently hardcoded in `MissionLandingHandler.cs:215-221`
-- [ ] Refactor `MissionService.GenerateClaudeMdAsync` to resolve all wrapper/metadata sections through `ResolveSectionAsync` instead of inline strings
-- [ ] Refactor `MissionLandingHandler` PR body generation to resolve through template service
+- [x] Refactor `MissionService.GenerateClaudeMdAsync` to resolve all wrapper/metadata sections through `ResolveSectionAsync` instead of inline strings
+- [x] Refactor `MissionLandingHandler` PR body generation to resolve through template service
 - [ ] Refactor `MessageTemplateService.RenderCommitInstructions` to resolve preamble from `commit.instructions_preamble` template at runtime
-- [ ] Seed all new templates in `PromptTemplateService._EmbeddedDefaults`
+- [x] Seed all new templates in `PromptTemplateService._EmbeddedDefaults` (7 new: 6 structure + 1 landing)
 - [ ] Update dashboard Prompt Template editor to group these under a "Structure" or "Layout" category so users can find and edit them easily, separate from persona templates
 
 ---
@@ -711,12 +711,12 @@ All prompts that are or were hardcoded in C#. Status column indicates current st
 
 | # | Template Name | Category | Description | Status |
 |---|--------------|----------|-------------|--------|
-| 1 | `mission.captain_instructions_wrapper` | structure | Wrapper: `## Captain Instructions\n{CaptainInstructions}` | **TODO** (Phase 1.8) |
-| 2 | `mission.project_context_wrapper` | structure | Wrapper: `## Project Context\n{ProjectContext}` | **TODO** (Phase 1.8) |
-| 3 | `mission.code_style_wrapper` | structure | Wrapper: `## Code Style\n{StyleGuide}` | **TODO** (Phase 1.8) |
-| 4 | `mission.model_context_wrapper` | structure | Wrapper: `## Model Context\n` + preamble + `{ModelContext}` | **TODO** (Phase 1.8) |
-| 5 | `mission.metadata` | structure | Mission title, ID, voyage, description, repo info layout | **TODO** (Phase 1.8) |
-| 6 | `mission.existing_instructions_wrapper` | structure | Wrapper: `## Existing Project Instructions\n{ExistingClaudeMd}` | **TODO** (Phase 1.8) |
+| 1 | `mission.captain_instructions_wrapper` | structure | Wrapper: `## Captain Instructions\n{CaptainInstructions}` | **DONE** -- template-resolved |
+| 2 | `mission.project_context_wrapper` | structure | Wrapper: `## Project Context\n{ProjectContext}` | **DONE** -- template-resolved |
+| 3 | `mission.code_style_wrapper` | structure | Wrapper: `## Code Style\n{StyleGuide}` | **DONE** -- template-resolved |
+| 4 | `mission.model_context_wrapper` | structure | Wrapper: `## Model Context\n` + preamble + `{ModelContext}` | **DONE** -- template-resolved |
+| 5 | `mission.metadata` | structure | Mission title, ID, voyage, description, repo info layout | **DONE** -- template-resolved |
+| 6 | `mission.existing_instructions_wrapper` | structure | Wrapper: `## Existing Project Instructions\n{ExistingClaudeMd}` | **DONE** -- template-resolved |
 | 7 | `mission.rules` | mission | Worktree rules, commit rules, ASCII-only | **DONE** -- template-resolved |
 | 8 | `mission.context_conservation` | mission | Context window management rules | **DONE** -- template-resolved |
 | 9 | `mission.merge_conflict_avoidance` | mission | Multi-captain conflict prevention | **DONE** -- template-resolved |
@@ -724,7 +724,7 @@ All prompts that are or were hardcoded in C#. Status column indicates current st
 | 11 | `mission.model_context_updates` | mission | Instructions for updating vessel model context | **DONE** -- template-resolved |
 | 12 | `agent.launch_prompt` | agent | Short CLI prompt: `Mission: {MissionTitle}\n\n{MissionDescription}` | **DONE** -- template-resolved |
 | 13 | `commit.instructions_preamble` | commit | "IMPORTANT: For every git commit..." | **SEEDED** -- runtime resolution TODO (Phase 1.8) |
-| 14 | `landing.pr_body` | landing | PR body: `## Mission\n**{MissionTitle}**\n\n{MissionDescription}` | **TODO** (Phase 1.8) |
+| 14 | `landing.pr_body` | landing | PR body: `## Mission\n**{MissionTitle}**\n\n{MissionDescription}` | **DONE** -- template-resolved |
 | 15 | `commit.message_template` | commit | Commit trailer template | Already configurable via MessageTemplateSettings |
 | 16 | `commit.pr_description_template` | commit | PR description metadata | Already configurable via MessageTemplateSettings |
 | 17 | `commit.merge_message_template` | commit | Merge commit message | Already configurable via MessageTemplateSettings |

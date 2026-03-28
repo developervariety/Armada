@@ -25,6 +25,7 @@ namespace Armada.Server
         private IGitService _Git;
         private IMergeQueueService _MergeQueue;
         private IMessageTemplateService _TemplateService;
+        private IPromptTemplateService? _PromptTemplateService;
         private IDockService _Docks;
         private ArmadaWebSocketHub? _WebSocketHub;
 
@@ -46,6 +47,7 @@ namespace Armada.Server
         /// <param name="git">Git service.</param>
         /// <param name="mergeQueue">Merge queue service.</param>
         /// <param name="templateService">Message template service.</param>
+        /// <param name="promptTemplateService">Prompt template service (optional).</param>
         /// <param name="docks">Dock service.</param>
         /// <param name="webSocketHub">WebSocket hub (nullable).</param>
         public MissionLandingHandler(
@@ -55,6 +57,7 @@ namespace Armada.Server
             IGitService git,
             IMergeQueueService mergeQueue,
             IMessageTemplateService templateService,
+            IPromptTemplateService? promptTemplateService,
             IDockService docks,
             ArmadaWebSocketHub? webSocketHub)
         {
@@ -64,6 +67,7 @@ namespace Armada.Server
             _Git = git ?? throw new ArgumentNullException(nameof(git));
             _MergeQueue = mergeQueue ?? throw new ArgumentNullException(nameof(mergeQueue));
             _TemplateService = templateService ?? throw new ArgumentNullException(nameof(templateService));
+            _PromptTemplateService = promptTemplateService;
             _Docks = docks ?? throw new ArgumentNullException(nameof(docks));
             _WebSocketHub = webSocketHub;
         }
@@ -212,9 +216,21 @@ namespace Armada.Server
                         await _Git.PushBranchAsync(dock.WorktreePath).ConfigureAwait(false);
                         _Logging.Info(_Header + "pushed branch " + dock.BranchName);
 
-                        string prBody = "## Mission\n" +
-                            "**" + mission.Title + "**\n\n" +
-                            (mission.Description ?? "");
+                        string prBody;
+                        if (_PromptTemplateService != null)
+                        {
+                            Dictionary<string, string> prTemplateParams = new Dictionary<string, string>
+                            {
+                                ["MissionTitle"] = mission.Title,
+                                ["MissionDescription"] = mission.Description ?? ""
+                            };
+                            string rendered = await _PromptTemplateService.RenderAsync("landing.pr_body", prTemplateParams).ConfigureAwait(false);
+                            prBody = !String.IsNullOrEmpty(rendered) ? rendered : "## Mission\n**" + mission.Title + "**\n\n" + (mission.Description ?? "");
+                        }
+                        else
+                        {
+                            prBody = "## Mission\n**" + mission.Title + "**\n\n" + (mission.Description ?? "");
+                        }
 
                         // Append PR metadata template
                         Dictionary<string, string> prContext = _TemplateService.BuildContext(mission, null, vessel, voyage, dock);

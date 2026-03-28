@@ -517,6 +517,97 @@ namespace Armada.Core.Services
                     "to add test coverage for the changes described in the diff.\n"
             };
 
+            // Structure/layout templates -- control how sections are framed in the CLAUDE.md
+            defaults["mission.captain_instructions_wrapper"] = new EmbeddedTemplate
+            {
+                Name = "mission.captain_instructions_wrapper",
+                Description = "Wrapper for captain system instructions section in CLAUDE.md",
+                Category = "structure",
+                Content =
+                    "## Captain Instructions\n" +
+                    "{CaptainInstructions}\n"
+            };
+
+            defaults["mission.project_context_wrapper"] = new EmbeddedTemplate
+            {
+                Name = "mission.project_context_wrapper",
+                Description = "Wrapper for vessel project context section in CLAUDE.md",
+                Category = "structure",
+                Content =
+                    "## Project Context\n" +
+                    "{ProjectContext}\n"
+            };
+
+            defaults["mission.code_style_wrapper"] = new EmbeddedTemplate
+            {
+                Name = "mission.code_style_wrapper",
+                Description = "Wrapper for vessel code style guide section in CLAUDE.md",
+                Category = "structure",
+                Content =
+                    "## Code Style\n" +
+                    "{StyleGuide}\n"
+            };
+
+            defaults["mission.model_context_wrapper"] = new EmbeddedTemplate
+            {
+                Name = "mission.model_context_wrapper",
+                Description = "Wrapper for agent-accumulated model context section in CLAUDE.md",
+                Category = "structure",
+                Content =
+                    "## Model Context\n" +
+                    "The following context was accumulated by AI agents during previous missions on this repository. " +
+                    "Use this information to work more effectively.\n" +
+                    "\n" +
+                    "{ModelContext}\n"
+            };
+
+            defaults["mission.metadata"] = new EmbeddedTemplate
+            {
+                Name = "mission.metadata",
+                Description = "Mission metadata layout in CLAUDE.md -- title, ID, voyage, description, repo info",
+                Category = "structure",
+                Content =
+                    "# Mission Instructions\n" +
+                    "\n" +
+                    "{PersonaPrompt}\n" +
+                    "\n" +
+                    "## Mission\n" +
+                    "- **Title:** {MissionTitle}\n" +
+                    "- **ID:** {MissionId}\n" +
+                    "- **Voyage:** {VoyageId}\n" +
+                    "\n" +
+                    "## Description\n" +
+                    "{MissionDescription}\n" +
+                    "\n" +
+                    "## Repository\n" +
+                    "- **Name:** {VesselName}\n" +
+                    "- **Branch:** {BranchName}\n" +
+                    "- **Default Branch:** {DefaultBranch}\n"
+            };
+
+            defaults["mission.existing_instructions_wrapper"] = new EmbeddedTemplate
+            {
+                Name = "mission.existing_instructions_wrapper",
+                Description = "Wrapper for existing CLAUDE.md content from the repository",
+                Category = "structure",
+                Content =
+                    "\n## Existing Project Instructions\n" +
+                    "\n" +
+                    "{ExistingClaudeMd}"
+            };
+
+            defaults["landing.pr_body"] = new EmbeddedTemplate
+            {
+                Name = "landing.pr_body",
+                Description = "Pull request body template used when creating PRs for completed missions",
+                Category = "landing",
+                Content =
+                    "## Mission\n" +
+                    "**{MissionTitle}**\n" +
+                    "\n" +
+                    "{MissionDescription}"
+            };
+
             return defaults;
         }
 
