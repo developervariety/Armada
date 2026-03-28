@@ -309,4 +309,50 @@ export interface WebSocketMessage {
   data?: Record<string, unknown>;
 }
 
-export type EntityType = 'fleets' | 'vessels' | 'captains' | 'missions' | 'voyages' | 'signals' | 'events' | 'docks' | 'merge-queue';
+export interface PromptTemplate {
+  id: string;
+  tenantId: string | null;
+  name: string;
+  description: string | null;
+  category: string;
+  content: string;
+  isBuiltIn: boolean;
+  active: boolean;
+  createdUtc: string;
+  lastUpdateUtc: string;
+}
+
+export interface Persona {
+  id: string;
+  tenantId: string | null;
+  name: string;
+  description: string | null;
+  promptTemplateName: string;
+  isBuiltIn: boolean;
+  active: boolean;
+  createdUtc: string;
+  lastUpdateUtc: string;
+}
+
+export interface Pipeline {
+  id: string;
+  tenantId: string | null;
+  name: string;
+  description: string | null;
+  stages: PipelineStage[];
+  isBuiltIn: boolean;
+  active: boolean;
+  createdUtc: string;
+  lastUpdateUtc: string;
+}
+
+export interface PipelineStage {
+  id: string;
+  pipelineId: string | null;
+  order: number;
+  personaName: string;
+  isOptional: boolean;
+  description: string | null;
+}
+
+export type EntityType = 'fleets' | 'vessels' | 'captains' | 'missions' | 'voyages' | 'signals' | 'events' | 'docks' | 'merge-queue' | 'personas' | 'prompt-templates' | 'pipelines';

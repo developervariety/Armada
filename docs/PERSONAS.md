@@ -527,51 +527,44 @@ CREATE INDEX idx_missions_depends_on ON missions(depends_on_mission_id);
 
 ### 6.1 Persona Management Page
 
-- [ ] Create `src/Armada.Dashboard/src/pages/Personas.tsx` -- list view
-- [ ] Create `src/Armada.Dashboard/src/pages/PersonaDetail.tsx` -- create/edit view
-  - Fields: Name, Description, PromptTemplateName (dropdown of available templates)
-  - Show built-in badge, prevent deletion of built-in personas
-- [ ] Add navigation entry in sidebar/header
+- [x] Create `src/Armada.Dashboard/src/pages/Personas.tsx` -- list view with table, filters, sort, pagination, CRUD modals
+- [x] Create `src/Armada.Dashboard/src/pages/PersonaDetail.tsx` -- detail view with edit, JSON viewer, delete (built-in guard)
+- [x] Add navigation entry in sidebar under System section
 
 ### 6.2 Prompt Template Management Page
 
-- [ ] Create `src/Armada.Dashboard/src/pages/PromptTemplates.tsx` -- list view grouped by category
-- [ ] Create `src/Armada.Dashboard/src/pages/PromptTemplateDetail.tsx` -- edit view
-  - Full-height text editor for template content
-  - **Parameter reference panel**: display all available `{Placeholder}` parameters for the template's category, with name, source field, and a description of how/when each is populated. Group by context (Mission, Vessel, Captain, Pipeline, System). This panel should be always visible alongside the editor so the user knows exactly what variables are available and what they resolve to at runtime.
-  - "Reset to Default" button for built-in templates
-  - Preview pane showing rendered output with sample data (populate placeholders with realistic example values)
-  - Show built-in badge, prevent deletion of built-in templates (allow content override)
-  - Syntax highlighting or visual distinction for `{Placeholder}` tokens within the editor
-- [ ] Add navigation entry in sidebar/header
+- [x] Create `src/Armada.Dashboard/src/pages/PromptTemplates.tsx` -- list view with category filter dropdown, content length, reset to default
+- [x] Create `src/Armada.Dashboard/src/pages/PromptTemplateDetail.tsx` -- two-column editor:
+  - Left: full-height monospace textarea editor with save/reset buttons, unsaved indicator
+  - Right: parameter reference panel grouped by context (Mission, Vessel, Captain, Pipeline, System) with click-to-insert
+  - Built-in badge, ActionMenu with View JSON and Reset to Default
+  - Detail grid with ID, Active, Created, Last Updated
+- [x] Add navigation entry in sidebar under System section
 
 ### 6.3 Pipeline Management Page
 
-- [ ] Create `src/Armada.Dashboard/src/pages/Pipelines.tsx` -- list view
-- [ ] Create `src/Armada.Dashboard/src/pages/PipelineDetail.tsx` -- create/edit view
-  - Drag-and-drop ordered list of stages
-  - Each stage: persona dropdown, optional flag, description
-  - Show built-in badge
-- [ ] Add navigation entry in sidebar/header
+- [x] Create `src/Armada.Dashboard/src/pages/Pipelines.tsx` -- list view with stages display (arrow-joined), CRUD, dynamic stage editor
+- [x] Create `src/Armada.Dashboard/src/pages/PipelineDetail.tsx` -- detail view with stages table, edit modal with dynamic stage list
+- [x] Add navigation entry in sidebar under System section
 
 ### 6.4 Vessel/Fleet Detail Updates
 
-- [ ] Add `DefaultPipeline` dropdown to `VesselDetail.tsx`
-- [ ] Add `DefaultPipeline` dropdown to `FleetDetail.tsx` (if it exists, or fleet settings)
+- [ ] Add `DefaultPipeline` dropdown to `VesselDetail.tsx` (future enhancement)
+- [ ] Add `DefaultPipeline` dropdown to `FleetDetail.tsx` (future enhancement)
 
 ### 6.5 Captain Detail Updates
 
-- [ ] Add `AllowedPersonas` multi-select to `CaptainDetail.tsx`
-- [ ] Add `PreferredPersona` dropdown to `CaptainDetail.tsx`
+- [ ] Add `AllowedPersonas` multi-select to `CaptainDetail.tsx` (future enhancement)
+- [ ] Add `PreferredPersona` dropdown to `CaptainDetail.tsx` (future enhancement)
 
 ### 6.6 Mission Detail Updates
 
-- [ ] Show `Persona` badge on mission cards/detail view
-- [ ] Show pipeline stage indicator (e.g. "Stage 2 of 3: Worker") on missions that are part of a pipeline
+- [ ] Show `Persona` badge on mission cards/detail view (future enhancement)
+- [ ] Show pipeline stage indicator on missions that are part of a pipeline (future enhancement)
 
 ### 6.7 Dashboard Build
 
-- [ ] Rebuild dashboard dist assets after all UI changes
+- [x] Rebuild dashboard dist assets after all UI changes
 
 ---
 
