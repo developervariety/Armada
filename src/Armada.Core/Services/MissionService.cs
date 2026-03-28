@@ -341,6 +341,9 @@ namespace Armada.Core.Services
                 _Logging.Warn(_Header + "error emitting mission.work_produced event for " + mission.Id + ": " + evtEx.Message);
             }
 
+            // Pipeline handoff: if missions in the same voyage depend on this one, prepare them
+            await TryHandoffToNextStageAsync(mission, token).ConfigureAwait(false);
+
             // Get dock for push/PR (prefer mission-level DockId, fall back to captain-level)
             Dock? dock = null;
             string? dockId = mission.DockId ?? captain.CurrentDockId;
@@ -750,6 +753,58 @@ namespace Armada.Core.Services
         #endregion
 
         #region Private-Methods
+
+        /// <summary>
+        /// After a mission produces work, check if any missions in the same voyage depend on it
+        /// and prepare them for assignment (inject prior stage context into description).
+        /// </summary>
+        private async Task TryHandoffToNextStageAsync(Mission completedMission, CancellationToken token)
+        {
+            if (String.IsNullOrEmpty(completedMission.VoyageId)) return;
+
+            // Find missions that depend on this completed mission
+            List<Mission> voyageMissions = await _Database.Missions.EnumerateByVoyageAsync(completedMission.VoyageId, token).ConfigureAwait(false);
+            List<Mission> dependentMissions = voyageMissions.Where(m =>
+                m.DependsOnMissionId == completedMission.Id &&
+                m.Status == MissionStatusEnum.Pending).ToList();
+
+            if (dependentMissions.Count == 0) return;
+
+            foreach (Mission nextMission in dependentMissions)
+            {
+                // Inject context from the completed stage into the next stage's description
+                string handoffContext = "\n\n---\n" +
+                    "## Prior Stage Output\n" +
+                    "The previous pipeline stage (" + (completedMission.Persona ?? "Worker") + ") " +
+                    "completed mission \"" + completedMission.Title + "\" (" + completedMission.Id + ").\n" +
+                    "Branch: " + (completedMission.BranchName ?? "unknown") + "\n";
+
+                // Include the diff snapshot if available
+                if (!String.IsNullOrEmpty(completedMission.DiffSnapshot))
+                {
+                    handoffContext += "\n### Diff from prior stage\n```diff\n" + completedMission.DiffSnapshot + "\n```\n";
+                }
+
+                nextMission.Description = (nextMission.Description ?? "") + handoffContext;
+                nextMission.BranchName = completedMission.BranchName;
+                nextMission.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.Missions.UpdateAsync(nextMission, token).ConfigureAwait(false);
+
+                _Logging.Info(_Header + "pipeline handoff: prepared mission " + nextMission.Id +
+                    " (" + nextMission.Persona + ") with context from " + completedMission.Id +
+                    " (" + completedMission.Persona + ")");
+
+                // Try to assign the next stage (dependency check in TryAssignAsync will now pass)
+                if (!String.IsNullOrEmpty(nextMission.VesselId))
+                {
+                    Vessel? vessel = await _Database.Vessels.ReadAsync(nextMission.VesselId, token).ConfigureAwait(false);
+                    if (vessel != null)
+                    {
+                        await TryAssignAsync(nextMission, vessel, token).ConfigureAwait(false);
+                    }
+                }
+            }
+        }
 
         private async Task<Captain?> FindAvailableCaptainAsync(string? persona, CancellationToken token)
         {

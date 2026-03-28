@@ -464,13 +464,12 @@ CREATE INDEX idx_missions_depends_on ON missions(depends_on_mission_id);
 
 ### 4.3 Stage Handoff
 
-- [ ] When a mission completes successfully and another mission depends on it:
-  1. The Admiral checks if the next stage mission exists
-  2. Injects the previous stage's output as context into the next stage's mission description
-  3. For Architect -> Worker: the architect's output becomes the worker missions (architect may create multiple missions)
-  4. For Worker -> Judge: the worker's diff/branch is passed to the judge for review
-  5. For Worker -> TestEngineer: the worker's diff/branch is passed for test creation
-- [ ] Architect stage is special: its output is a set of new missions that replace the remaining pipeline stages
+- [x] When a mission completes successfully and another mission depends on it:
+  1. `TryHandoffToNextStageAsync` finds dependent missions in the same voyage
+  2. Injects prior stage context (persona, title, branch, diff snapshot) into next mission's description
+  3. Sets the same branch name so the next stage works on the same branch
+  4. Automatically attempts to assign the next stage mission
+- [ ] Architect stage is special: its output is a set of new missions that replace the remaining pipeline stages (future enhancement -- currently architect output is treated as context for the next stage like any other persona)
 
 ### 4.4 Captain Dispatch Routing
 
