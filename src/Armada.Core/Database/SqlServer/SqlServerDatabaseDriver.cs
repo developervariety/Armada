@@ -326,6 +326,7 @@ namespace Armada.Core.Database.SqlServer
             fleet.UserId = NullableString(reader["user_id"]);
             fleet.Name = reader["name"].ToString()!;
             fleet.Description = NullableString(reader["description"]);
+            try { fleet.DefaultPipelineId = NullableString(reader["default_pipeline_id"]); } catch { }
             fleet.Active = Convert.ToBoolean(reader["active"]);
             fleet.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
             fleet.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
@@ -361,6 +362,7 @@ namespace Armada.Core.Database.SqlServer
                 vessel.BranchCleanupPolicy = bcp;
             try { vessel.AllowConcurrentMissions = Convert.ToBoolean(reader["allow_concurrent_missions"]); }
             catch { vessel.AllowConcurrentMissions = false; }
+            try { vessel.DefaultPipelineId = NullableString(reader["default_pipeline_id"]); } catch { }
             vessel.DefaultBranch = reader["default_branch"].ToString()!;
             vessel.Active = Convert.ToBoolean(reader["active"]);
             vessel.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
@@ -390,6 +392,8 @@ namespace Armada.Core.Database.SqlServer
             captain.LastHeartbeatUtc = FromIso8601Nullable(reader["last_heartbeat_utc"]);
             captain.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
             captain.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
+            try { captain.AllowedPersonas = NullableString(reader["allowed_personas"]); } catch { }
+            try { captain.PreferredPersona = NullableString(reader["preferred_persona"]); } catch { }
             return captain;
         }
 
@@ -422,6 +426,8 @@ namespace Armada.Core.Database.SqlServer
             mission.StartedUtc = FromIso8601Nullable(reader["started_utc"]);
             mission.CompletedUtc = FromIso8601Nullable(reader["completed_utc"]);
             mission.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
+            try { mission.Persona = NullableString(reader["persona"]); } catch { }
+            try { mission.DependsOnMissionId = NullableString(reader["depends_on_mission_id"]); } catch { }
             return mission;
         }
 

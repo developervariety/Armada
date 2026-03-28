@@ -65,10 +65,10 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     cmd.Connection = conn;
                     cmd.CommandText = @"INSERT INTO missions (id, tenant_id, user_id, voyage_id, vessel_id, captain_id, title, description,
                         status, priority, parent_mission_id, branch_name, dock_id, process_id,
-                        pr_url, commit_hash, diff_snapshot, created_utc, started_utc, completed_utc, last_update_utc)
+                        pr_url, commit_hash, diff_snapshot, persona, depends_on_mission_id, created_utc, started_utc, completed_utc, last_update_utc)
                         VALUES (@id, @tenant_id, @user_id, @voyage_id, @vessel_id, @captain_id, @title, @description,
                         @status, @priority, @parent_mission_id, @branch_name, @dock_id, @process_id,
-                        @pr_url, @commit_hash, @diff_snapshot, @created_utc, @started_utc, @completed_utc, @last_update_utc);";
+                        @pr_url, @commit_hash, @diff_snapshot, @persona, @depends_on_mission_id, @created_utc, @started_utc, @completed_utc, @last_update_utc);";
                     AddMissionParameters(cmd, mission);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
@@ -131,6 +131,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                         priority = @priority, parent_mission_id = @parent_mission_id,
                         branch_name = @branch_name, dock_id = @dock_id, process_id = @process_id,
                         pr_url = @pr_url, commit_hash = @commit_hash, diff_snapshot = @diff_snapshot,
+                        persona = @persona, depends_on_mission_id = @depends_on_mission_id,
                         started_utc = @started_utc, completed_utc = @completed_utc,
                         last_update_utc = @last_update_utc
                         WHERE id = @id;";
@@ -652,6 +653,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
             cmd.Parameters.AddWithValue("@pr_url", (object?)mission.PrUrl ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@commit_hash", (object?)mission.CommitHash ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@diff_snapshot", (object?)mission.DiffSnapshot ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@persona", (object?)mission.Persona ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@depends_on_mission_id", (object?)mission.DependsOnMissionId ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@created_utc", mission.CreatedUtc);
             cmd.Parameters.AddWithValue("@started_utc", mission.StartedUtc.HasValue ? (object)mission.StartedUtc.Value : DBNull.Value);
             cmd.Parameters.AddWithValue("@completed_utc", mission.CompletedUtc.HasValue ? (object)mission.CompletedUtc.Value : DBNull.Value);
@@ -728,6 +731,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
             mission.StartedUtc = NullableDateTime(reader["started_utc"]);
             mission.CompletedUtc = NullableDateTime(reader["completed_utc"]);
             mission.LastUpdateUtc = ((DateTime)reader["last_update_utc"]).ToUniversalTime();
+            try { mission.Persona = NullableString(reader["persona"]); } catch { }
+            try { mission.DependsOnMissionId = NullableString(reader["depends_on_mission_id"]); } catch { }
             return mission;
         }
 
