@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { getPersona, updatePersona, deletePersona } from '../api/client';
+import { getPersona, updatePersona, deletePersona, listPromptTemplates } from '../api/client';
 import type { Persona } from '../types/models';
 import ActionMenu from '../components/shared/ActionMenu';
 import JsonViewer from '../components/shared/JsonViewer';
@@ -24,6 +24,7 @@ export default function PersonaDetail() {
   // Edit modal
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ description: '', promptTemplateName: '' });
+  const [templateNames, setTemplateNames] = useState<string[]>([]);
 
   // JSON viewer
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
@@ -38,6 +39,8 @@ export default function PersonaDetail() {
       const found = await getPersona(name);
       if (!found) { setError('Persona not found.'); setLoading(false); return; }
       setPersona(found);
+      const templateResult = await listPromptTemplates({ pageSize: 9999 });
+      setTemplateNames(templateResult.objects.map(t => t.name));
       setError('');
     } catch {
       setError('Failed to load persona.');
@@ -114,7 +117,14 @@ export default function PersonaDetail() {
           <form className="modal" onClick={e => e.stopPropagation()} onSubmit={handleSubmit}>
             <h3>Edit Persona</h3>
             <label>Description<textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} rows={4} /></label>
-            <label>Prompt Template Name<input value={form.promptTemplateName} onChange={e => setForm({ ...form, promptTemplateName: e.target.value })} /></label>
+            <label>Prompt Template Name
+              <select value={form.promptTemplateName} onChange={e => setForm({ ...form, promptTemplateName: e.target.value })} required>
+                <option value="">Select a template...</option>
+                {templateNames.map(name => (
+                  <option key={name} value={name}>{name}</option>
+                ))}
+              </select>
+            </label>
             <div className="modal-actions">
               <button type="submit" className="btn btn-primary">Save</button>
               <button type="button" className="btn" onClick={() => setShowForm(false)}>Cancel</button>

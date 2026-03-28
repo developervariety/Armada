@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { listPipelines, createPipeline, updatePipeline, deletePipeline } from '../api/client';
+import { listPipelines, listPersonas, createPipeline, updatePipeline, deletePipeline } from '../api/client';
 import type { Pipeline, PipelineStage } from '../types/models';
 import Pagination from '../components/shared/Pagination';
 import ActionMenu from '../components/shared/ActionMenu';
@@ -46,6 +46,7 @@ export default function Pipelines() {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Pipeline | null>(null);
   const [form, setForm] = useState<{ name: string; description: string; stages: StageFormEntry[] }>({ name: '', description: '', stages: [{ personaName: '', isOptional: false }] });
+  const [personaNames, setPersonaNames] = useState<string[]>([]);
 
   // JSON viewer
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
@@ -69,6 +70,8 @@ export default function Pipelines() {
       setLoading(true);
       const result = await listPipelines({ pageSize: 9999 });
       setPipelines(result.objects);
+      const personaResult = await listPersonas({ pageSize: 9999 });
+      setPersonaNames(personaResult.objects.map(p => p.name));
       setError('');
     } catch {
       setError('Failed to load pipelines.');
@@ -205,27 +208,32 @@ export default function Pipelines() {
       {/* Create/Edit Modal */}
       {showForm && (
         <div className="modal-overlay" onClick={() => setShowForm(false)}>
-          <form className="modal" onClick={e => e.stopPropagation()} onSubmit={handleSubmit}>
+          <form className="modal" onClick={e => e.stopPropagation()} onSubmit={handleSubmit} style={{ maxWidth: '720px', width: '90%' }}>
             <h3>{editing ? 'Edit Pipeline' : 'Create Pipeline'}</h3>
             <label>Name<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required /></label>
             <label>Description<input value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></label>
             <div style={{ marginTop: '1rem' }}>
               <strong>Stages</strong>
               {form.stages.map((stage, i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.5rem' }}>
+                <div key={i} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.5rem', marginTop: '0.5rem' }}>
                   <span className="text-dim" style={{ minWidth: '1.5rem' }}>{i + 1}.</span>
-                  <input
-                    placeholder="Persona name"
+                  <select
                     value={stage.personaName}
                     onChange={e => updateStage(i, 'personaName', e.target.value)}
                     required
                     style={{ flex: 1 }}
-                  />
+                  >
+                    <option value="">Select persona...</option>
+                    {personaNames.map(name => (
+                      <option key={name} value={name}>{name}</option>
+                    ))}
+                  </select>
                   <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', margin: 0, whiteSpace: 'nowrap' }}>
                     <input
                       type="checkbox"
                       checked={stage.isOptional}
                       onChange={e => updateStage(i, 'isOptional', e.target.checked)}
+                      style={{ width: 'auto' }}
                     />
                     Optional
                   </label>
@@ -296,7 +304,7 @@ export default function Pipelines() {
               </thead>
               <tbody>
                 {paginated.map(p => (
-                  <tr key={p.id} className="clickable" onClick={() => navigate(`/pipelines/${encodeURIComponent(p.name)}`)}>
+                  <tr key={p.id} className="clickable" onClick={() => openEdit(p)}>
                     <td><strong>{p.name}</strong></td>
                     <td className="mono text-dim table-id-cell">
                       <span className="id-display">

@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { listPersonas, createPersona, updatePersona, deletePersona } from '../api/client';
+import { listPersonas, listPromptTemplates, createPersona, updatePersona, deletePersona } from '../api/client';
 import type { Persona } from '../types/models';
 import Pagination from '../components/shared/Pagination';
 import ActionMenu from '../components/shared/ActionMenu';
@@ -35,6 +35,7 @@ export default function Personas() {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Persona | null>(null);
   const [form, setForm] = useState({ name: '', description: '', promptTemplateName: '' });
+  const [templateNames, setTemplateNames] = useState<string[]>([]);
 
   // JSON viewer
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
@@ -58,6 +59,8 @@ export default function Personas() {
       setLoading(true);
       const result = await listPersonas({ pageSize: 9999 });
       setPersonas(result.objects);
+      const templateResult = await listPromptTemplates({ pageSize: 9999 });
+      setTemplateNames(templateResult.objects.map(t => t.name));
       setError('');
     } catch {
       setError('Failed to load personas.');
@@ -168,7 +171,14 @@ export default function Personas() {
             <label>Description
               <textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} rows={3} placeholder="Optional description of this persona..." />
             </label>
-            <label>Prompt Template Name<input value={form.promptTemplateName} onChange={e => setForm({ ...form, promptTemplateName: e.target.value })} required placeholder="e.g., default, reviewer, tester..." /></label>
+            <label>Prompt Template Name
+              <select value={form.promptTemplateName} onChange={e => setForm({ ...form, promptTemplateName: e.target.value })} required>
+                <option value="">Select a template...</option>
+                {templateNames.map(name => (
+                  <option key={name} value={name}>{name}</option>
+                ))}
+              </select>
+            </label>
             <div className="modal-actions">
               <button type="submit" className="btn btn-primary">Save</button>
               <button type="button" className="btn" onClick={() => setShowForm(false)}>Cancel</button>
@@ -231,7 +241,7 @@ export default function Personas() {
               </thead>
               <tbody>
                 {paginated.map(p => (
-                  <tr key={p.name} className="clickable" onClick={() => navigate(`/personas/${encodeURIComponent(p.name)}`)}>
+                  <tr key={p.name} className="clickable" onClick={() => openEdit(p)}>
                     <td><strong>{p.name}</strong></td>
                     <td className="mono text-dim table-id-cell">
                       <span className="id-display">

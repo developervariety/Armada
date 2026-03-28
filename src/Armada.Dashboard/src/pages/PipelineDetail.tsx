@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { getPipeline, updatePipeline, deletePipeline } from '../api/client';
+import { getPipeline, updatePipeline, deletePipeline, listPersonas } from '../api/client';
 import type { Pipeline } from '../types/models';
 import ActionMenu from '../components/shared/ActionMenu';
 import JsonViewer from '../components/shared/JsonViewer';
@@ -29,6 +29,7 @@ export default function PipelineDetail() {
   // Edit modal
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<{ description: string; stages: StageForm[] }>({ description: '', stages: [] });
+  const [personaNames, setPersonaNames] = useState<string[]>([]);
 
   // JSON viewer
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
@@ -42,6 +43,8 @@ export default function PipelineDetail() {
       setLoading(true);
       const found = await getPipeline(name);
       setPipeline(found);
+      const personaResult = await listPersonas({ pageSize: 9999 });
+      setPersonaNames(personaResult.objects.map(p => p.name));
       setError('');
     } catch {
       setError('Failed to load pipeline.');
@@ -141,7 +144,7 @@ export default function PipelineDetail() {
       {/* Edit Modal */}
       {showForm && (
         <div className="modal-overlay" onClick={() => setShowForm(false)}>
-          <form className="modal" onClick={e => e.stopPropagation()} onSubmit={handleSubmit}>
+          <form className="modal" onClick={e => e.stopPropagation()} onSubmit={handleSubmit} style={{ maxWidth: '720px', width: '90%' }}>
             <h3>Edit Pipeline</h3>
             <label>Description<textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} rows={3} /></label>
             <div style={{ marginTop: '1rem' }}>
@@ -150,17 +153,24 @@ export default function PipelineDetail() {
                 <button type="button" className="btn" onClick={addStage}>+ Add Stage</button>
               </div>
               {form.stages.map((stage, i) => (
-                <div key={i} style={{ border: '1px solid var(--border)', borderRadius: '4px', padding: '0.75rem', marginBottom: '0.5rem' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                    <span className="text-dim">Stage {i + 1}</span>
-                    <button type="button" className="btn" onClick={() => removeStage(i)} style={{ padding: '0.1rem 0.5rem' }}>Remove</button>
-                  </div>
-                  <label>Persona Name<input value={stage.personaName} onChange={e => updateStage(i, 'personaName', e.target.value)} required /></label>
-                  <label>Description<input value={stage.description} onChange={e => updateStage(i, 'description', e.target.value)} /></label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexDirection: 'row' }}>
+                <div key={i} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.5rem' }}>
+                  <span className="text-dim" style={{ minWidth: '1.5rem' }}>{i + 1}.</span>
+                  <select
+                    value={stage.personaName}
+                    onChange={e => updateStage(i, 'personaName', e.target.value)}
+                    required
+                    style={{ flex: 1 }}
+                  >
+                    <option value="">Select persona...</option>
+                    {personaNames.map(name => (
+                      <option key={name} value={name}>{name}</option>
+                    ))}
+                  </select>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', margin: 0, whiteSpace: 'nowrap' }}>
                     <input type="checkbox" checked={stage.isOptional} onChange={e => updateStage(i, 'isOptional', e.target.checked)} style={{ width: 'auto' }} />
                     Optional
                   </label>
+                  <button type="button" className="btn btn-sm btn-danger" onClick={() => removeStage(i)} title="Remove stage">X</button>
                 </div>
               ))}
               {form.stages.length === 0 && <p className="text-dim">No stages defined.</p>}

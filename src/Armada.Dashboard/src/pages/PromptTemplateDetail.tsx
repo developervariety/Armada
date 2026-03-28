@@ -252,36 +252,36 @@ export default function PromptTemplateDetail() {
           font-size: 0.875em;
           line-height: 1.5;
           padding: 12px;
-          border: 1px solid rgba(255, 255, 255, 0.12);
+          border: 1px solid var(--border);
           border-radius: 6px;
-          background: rgba(0, 0, 0, 0.2);
-          color: inherit;
+          background: var(--input-bg);
+          color: var(--text);
           resize: vertical;
           tab-size: 2;
         }
         .template-editor-textarea:focus {
           outline: none;
-          border-color: rgba(100, 160, 255, 0.5);
-          box-shadow: 0 0 0 2px rgba(100, 160, 255, 0.15);
+          border-color: var(--accent);
+          box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
         }
         .template-description-input {
           width: 100%;
           padding: 8px 12px;
-          border: 1px solid rgba(255, 255, 255, 0.12);
+          border: 1px solid var(--border);
           border-radius: 6px;
-          background: rgba(0, 0, 0, 0.2);
-          color: inherit;
+          background: var(--input-bg);
+          color: var(--text);
           font-size: 0.9em;
         }
         .template-description-input:focus {
           outline: none;
-          border-color: rgba(100, 160, 255, 0.5);
-          box-shadow: 0 0 0 2px rgba(100, 160, 255, 0.15);
+          border-color: var(--accent);
+          box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
         }
         .template-param-panel {
-          border: 1px solid rgba(255, 255, 255, 0.08);
+          border: 1px solid var(--border);
           border-radius: 6px;
-          background: rgba(0, 0, 0, 0.15);
+          background: var(--bg-card);
           padding: 1rem;
           max-height: 700px;
           overflow-y: auto;
@@ -289,7 +289,7 @@ export default function PromptTemplateDetail() {
         .template-param-panel h4 {
           margin: 0 0 0.75rem 0;
           font-size: 0.95em;
-          color: rgba(255, 255, 255, 0.7);
+          color: var(--text-dim);
         }
         .template-param-group {
           margin-bottom: 1rem;
@@ -302,10 +302,10 @@ export default function PromptTemplateDetail() {
           font-weight: 600;
           text-transform: uppercase;
           letter-spacing: 0.05em;
-          color: rgba(255, 255, 255, 0.45);
+          color: var(--text-dim);
           margin-bottom: 0.4rem;
           padding-bottom: 0.25rem;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+          border-bottom: 1px solid var(--border);
         }
         .template-param-item {
           display: flex;
@@ -317,18 +317,18 @@ export default function PromptTemplateDetail() {
           transition: background 0.15s;
         }
         .template-param-item:hover {
-          background: rgba(100, 160, 255, 0.08);
+          background: var(--bg-hover);
         }
         .template-param-name {
           font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace;
           font-size: 0.8em;
-          color: #6aa0ff;
+          color: var(--accent);
           white-space: nowrap;
           flex-shrink: 0;
         }
         .template-param-desc {
           font-size: 0.78em;
-          color: rgba(255, 255, 255, 0.45);
+          color: var(--text-dim);
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
@@ -340,7 +340,7 @@ export default function PromptTemplateDetail() {
         }
         .template-char-count {
           font-size: 0.8em;
-          color: rgba(255, 255, 255, 0.4);
+          color: var(--text-dim);
           margin-left: auto;
         }
         .template-dirty-indicator {
@@ -370,7 +370,7 @@ export default function PromptTemplateDetail() {
       <div className="template-editor-layout">
         {/* Left: Editor Panel */}
         <div className="template-editor-panel">
-          <label style={{ fontSize: '0.85em', color: 'rgba(255,255,255,0.6)' }}>
+          <label style={{ fontSize: '0.85em', color: 'var(--text-dim)' }}>
             Description
             <input
               type="text"
@@ -382,7 +382,7 @@ export default function PromptTemplateDetail() {
           </label>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <label style={{ fontSize: '0.85em', color: 'rgba(255,255,255,0.6)', margin: 0 }}>
+            <label style={{ fontSize: '0.85em', color: 'var(--text-dim)', margin: 0 }}>
               Template Content
               {dirty && <span className="template-dirty-indicator" title="Unsaved changes" />}
             </label>
@@ -427,7 +427,7 @@ export default function PromptTemplateDetail() {
         {/* Right: Parameter Reference Panel */}
         <div className="template-param-panel">
           <h4>Parameters</h4>
-          <p style={{ fontSize: '0.78em', color: 'rgba(255,255,255,0.4)', margin: '0 0 0.75rem 0' }}>
+          <p style={{ fontSize: '0.78em', color: 'var(--text-dim)', margin: '0 0 0.75rem 0' }}>
             Click a parameter to insert it at the cursor position.
           </p>
           {PARAMETER_GROUPS.map(group => (
