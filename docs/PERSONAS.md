@@ -129,10 +129,12 @@ This avoids the .csproj embedded resource complexity and keeps templates co-loca
 
 ### 1.5 Refactor MissionService.GenerateClaudeMdAsync
 
-- [ ] Replace inline string concatenation (lines 438-596) with calls to `IPromptTemplateService.RenderAsync()`
-- [ ] Each section becomes a named template resolved through the service
-- [ ] The method becomes an assembly step: resolve each template, concatenate in order
-- [ ] Preserve all existing behavior -- this is a refactor, not a behavior change
+- [x] Replace inline string concatenation with calls to `IPromptTemplateService.RenderAsync()`
+- [x] Each section becomes a named template resolved through the service (`ResolveSectionAsync`)
+- [x] The method assembles sections: resolve each template, concatenate in order
+- [x] Preserve all existing behavior via `GetHardcodedFallback` when template service is null
+- [x] Persona-aware: `ResolvePersonaPromptAsync` resolves `persona.{name}` template for the mission preamble
+- [x] Template params dictionary built from mission/vessel/captain context
 
 ### 1.6 Refactor AgentLifecycleHandler Launch Prompt
 
@@ -544,26 +546,26 @@ CREATE INDEX idx_missions_depends_on ON missions(depends_on_mission_id);
 
 ### 7.1 Prompt Template MCP Tools
 
-- [ ] `armada_get_prompt_template` -- get a template by name
-- [ ] `armada_update_prompt_template` -- update template content
-- [ ] `armada_reset_prompt_template` -- reset to embedded default
-- [ ] Register in `McpToolRegistrar.cs` or create `McpPromptTemplateTools.cs`
+- [x] `armada_get_prompt_template` -- get a template by name
+- [x] `armada_update_prompt_template` -- update template content
+- [x] `armada_reset_prompt_template` -- reset to embedded default
+- [x] Register in `McpToolRegistrar.cs` or create `McpPromptTemplateTools.cs`
 
 ### 7.2 Persona MCP Tools
 
-- [ ] `armada_create_persona` -- create a custom persona
-- [ ] `armada_get_persona` -- get persona by ID or name
-- [ ] `armada_update_persona` -- update persona properties
-- [ ] `armada_delete_persona` -- delete a custom persona (block deletion of built-in)
-- [ ] Register in `McpToolRegistrar.cs` or create `McpPersonaTools.cs`
+- [x] `armada_create_persona` -- create a custom persona
+- [x] `armada_get_persona` -- get persona by ID or name
+- [x] `armada_update_persona` -- update persona properties
+- [x] `armada_delete_persona` -- delete a custom persona (block deletion of built-in)
+- [x] Register in `McpToolRegistrar.cs` or create `McpPersonaTools.cs`
 
 ### 7.3 Pipeline MCP Tools
 
-- [ ] `armada_create_pipeline` -- create a custom pipeline
-- [ ] `armada_get_pipeline` -- get pipeline by ID or name
-- [ ] `armada_update_pipeline` -- update pipeline stages
-- [ ] `armada_delete_pipeline` -- delete a custom pipeline (block deletion of built-in)
-- [ ] Register in `McpToolRegistrar.cs` or create `McpPipelineTools.cs`
+- [x] `armada_create_pipeline` -- create a custom pipeline
+- [x] `armada_get_pipeline` -- get pipeline by ID or name
+- [x] `armada_update_pipeline` -- update pipeline stages
+- [x] `armada_delete_pipeline` -- delete a custom pipeline (block deletion of built-in)
+- [x] Register in `McpToolRegistrar.cs` or create `McpPipelineTools.cs`
 
 ### 7.4 Enumerate Support
 

@@ -116,7 +116,10 @@ namespace Armada.Server
             IDockService dockService = new DockService(_Logging, _Database, _Settings, _Git);
             _Docks = dockService;
             ICaptainService captainService = new CaptainService(_Logging, _Database, _Settings, _Git, dockService);
-            IMissionService missionService = new MissionService(_Logging, _Database, _Settings, dockService, captainService);
+            // Prompt template service must be created before MissionService so it can resolve templates
+            _PromptTemplateService = new PromptTemplateService(_Database, _Logging);
+
+            IMissionService missionService = new MissionService(_Logging, _Database, _Settings, dockService, captainService, _PromptTemplateService);
             IVoyageService voyageService = new VoyageService(_Logging, _Database);
             IEscalationService escalationService = new EscalationService(_Logging, _Database, _Settings);
             _Admiral = new AdmiralService(_Logging, _Database, _Settings, captainService, missionService, voyageService, dockService, escalationService);
@@ -126,7 +129,6 @@ namespace Armada.Server
             _RuntimeFactory = new AgentRuntimeFactory(_Logging);
 
             // Seed built-in prompt templates, personas, and pipelines
-            _PromptTemplateService = new PromptTemplateService(_Database, _Logging);
             await _PromptTemplateService.SeedDefaultsAsync().ConfigureAwait(false);
             _Logging.Info(_Header + "prompt template seeding completed");
 

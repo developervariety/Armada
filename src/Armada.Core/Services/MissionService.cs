@@ -30,6 +30,7 @@ namespace Armada.Core.Services
         private ArmadaSettings _Settings;
         private IDockService _Docks;
         private ICaptainService _Captains;
+        private IPromptTemplateService? _PromptTemplates;
 
         /// <summary>
         /// Tracks in-flight mission complete handler operations by mission ID.
@@ -48,18 +49,21 @@ namespace Armada.Core.Services
         /// <param name="settings">Application settings.</param>
         /// <param name="docks">Dock service.</param>
         /// <param name="captains">Captain service.</param>
+        /// <param name="promptTemplates">Prompt template service (optional for backward compatibility).</param>
         public MissionService(
             LoggingModule logging,
             DatabaseDriver database,
             ArmadaSettings settings,
             IDockService docks,
-            ICaptainService captains)
+            ICaptainService captains,
+            IPromptTemplateService? promptTemplates = null)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _Docks = docks ?? throw new ArgumentNullException(nameof(docks));
             _Captains = captains ?? throw new ArgumentNullException(nameof(captains));
+            _PromptTemplates = promptTemplates;
         }
 
         #endregion
@@ -435,8 +439,31 @@ namespace Armada.Core.Services
 
             string claudeMdPath = Path.Combine(worktreePath, "CLAUDE.md");
 
+            // Build placeholder context for template rendering
+            Dictionary<string, string> templateParams = new Dictionary<string, string>
+            {
+                ["MissionId"] = mission.Id,
+                ["MissionTitle"] = mission.Title,
+                ["MissionDescription"] = mission.Description ?? "No additional description provided.",
+                ["MissionPersona"] = mission.Persona ?? "Worker",
+                ["VoyageId"] = mission.VoyageId ?? "",
+                ["VesselId"] = vessel.Id,
+                ["VesselName"] = vessel.Name,
+                ["DefaultBranch"] = vessel.DefaultBranch,
+                ["BranchName"] = mission.BranchName ?? "unknown",
+                ["FleetId"] = vessel.FleetId ?? "",
+                ["ProjectContext"] = vessel.ProjectContext ?? "",
+                ["StyleGuide"] = vessel.StyleGuide ?? "",
+                ["ModelContext"] = vessel.ModelContext ?? "",
+                ["CaptainId"] = captain?.Id ?? "",
+                ["CaptainName"] = captain?.Name ?? "",
+                ["CaptainInstructions"] = captain?.SystemInstructions ?? "",
+                ["Timestamp"] = DateTime.UtcNow.ToString("o")
+            };
+
             string content = "";
 
+            // Captain instructions
             if (captain != null && !String.IsNullOrEmpty(captain.SystemInstructions))
             {
                 content +=
@@ -445,6 +472,7 @@ namespace Armada.Core.Services
                     "\n";
             }
 
+            // Vessel context sections
             if (!String.IsNullOrEmpty(vessel.ProjectContext))
             {
                 content +=
@@ -472,10 +500,12 @@ namespace Armada.Core.Services
                     "\n";
             }
 
+            // Mission preamble and metadata
+            string personaPrompt = await ResolvePersonaPromptAsync(mission.Persona, templateParams, token).ConfigureAwait(false);
             content +=
                 "# Mission Instructions\n" +
                 "\n" +
-                "You are an Armada captain executing a mission. Follow these instructions carefully.\n" +
+                personaPrompt + "\n" +
                 "\n" +
                 "## Mission\n" +
                 "- **Title:** " + mission.Title + "\n" +
@@ -489,97 +519,22 @@ namespace Armada.Core.Services
                 "- **Name:** " + vessel.Name + "\n" +
                 "- **Branch:** " + (mission.BranchName ?? "unknown") + "\n" +
                 "- **Default Branch:** " + vessel.DefaultBranch + "\n" +
-                "\n" +
-                "## Rules\n" +
-                "- Work only within this worktree directory\n" +
-                "- Commit all changes to the current branch\n" +
-                "- Commit and push your changes -- the Admiral will also push if needed\n" +
-                "- If you encounter a blocking issue, commit what you have and exit\n" +
-                "- Exit with code 0 on success\n" +
-                "- Do not use extended/Unicode characters (em dashes, smart quotes, etc.) -- use only ASCII characters in all output and commit messages\n" +
-                "- Do not use ANSI color codes or terminal formatting in output -- keep all output plain text\n" +
-                "\n" +
-                "## Context Conservation (CRITICAL)\n" +
-                "\n" +
-                "You have a limited context window. Exceeding it will crash your process and fail the mission. " +
-                "Follow these rules to stay within limits:\n" +
-                "\n" +
-                "1. **NEVER read entire large files.** If a file is over 200 lines, read only the specific " +
-                "section you need using line offsets. Use grep/search to find the right section first.\n" +
-                "\n" +
-                "2. **Read before you write, but read surgically.** Read only the 10-30 lines around the code " +
-                "you need to change, not the whole file.\n" +
-                "\n" +
-                "3. **Do not explore the codebase broadly.** Only read files explicitly mentioned in your " +
-                "mission description. If the mission says to edit README.md, read only the section you need " +
-                "to edit, not the entire README.\n" +
-                "\n" +
-                "4. **Make your changes and finish.** Do not re-read files to verify your changes, do not " +
-                "read files for 'context' that isn't directly needed for your edit, and do not explore related " +
-                "files out of curiosity.\n" +
-                "\n" +
-                "5. **If the mission scope feels too large** (more than 8 files, or files with 500+ lines to " +
-                "read), commit what you have, report progress, and exit with code 0. Partial progress is " +
-                "better than crashing.\n" +
-                "\n" +
-                "## Avoiding Merge Conflicts (CRITICAL)\n" +
-                "\n" +
-                "You are one of several captains working on this repository. Other captains may be working on " +
-                "other missions in parallel on separate branches. To prevent merge conflicts and landing failures, " +
-                "you MUST follow these rules:\n" +
-                "\n" +
-                "1. **Only modify files explicitly mentioned in your mission description.** If the description says " +
-                "to edit `src/routes/users.ts`, do NOT also refactor `src/routes/orders.ts` even if you notice " +
-                "improvements. Another captain may be working on that file.\n" +
-                "\n" +
-                "2. **Do not make \"helpful\" changes outside your scope.** Do not rename shared variables, " +
-                "reorganize imports in files you were not asked to touch, reformat code in unrelated files, " +
-                "update documentation files unless instructed, or modify configuration/project files " +
-                "(e.g., .csproj, package.json, tsconfig.json) unless your mission specifically requires it.\n" +
-                "\n" +
-                "3. **Do not modify barrel/index export files** (e.g., index.ts, mod.rs) unless your mission " +
-                "explicitly requires it. These are high-conflict files that many missions may need to touch.\n" +
-                "\n" +
-                "4. **Keep changes minimal and focused.** The fewer files you touch, the lower the risk of " +
-                "conflicts. If your mission can be completed by editing 2 files, do not edit 5.\n" +
-                "\n" +
-                "5. **If you must create new files**, prefer names that are specific to your mission's feature " +
-                "rather than generic names that another captain might also choose.\n" +
-                "\n" +
-                "6. **Do not modify or delete files created by another mission's branch.** You are working in " +
-                "an isolated worktree -- if you see files that seem unrelated to your mission, leave them alone.\n" +
-                "\n" +
-                "Violating these rules will cause your branch to conflict with other captains' branches during " +
-                "landing, resulting in a LandingFailed status and wasted work.\n" +
-                "\n" +
-                "## Progress Signals (Optional)\n" +
-                "You can report progress to the Admiral by printing these lines to stdout:\n" +
-                "- `[ARMADA:PROGRESS] 50` -- report completion percentage (0-100)\n" +
-                "- `[ARMADA:STATUS] Testing` -- transition mission to Testing status\n" +
-                "- `[ARMADA:STATUS] Review` -- transition mission to Review status\n" +
-                "- `[ARMADA:MESSAGE] your message here` -- send a progress message\n";
+                "\n";
 
+            // Rules, context conservation, merge conflicts, progress signals -- from templates or hardcoded fallback
+            content += await ResolveSectionAsync("mission.rules", templateParams, token).ConfigureAwait(false);
+            content += "\n";
+            content += await ResolveSectionAsync("mission.context_conservation", templateParams, token).ConfigureAwait(false);
+            content += "\n";
+            content += await ResolveSectionAsync("mission.merge_conflict_avoidance", templateParams, token).ConfigureAwait(false);
+            content += "\n";
+            content += await ResolveSectionAsync("mission.progress_signals", templateParams, token).ConfigureAwait(false);
+
+            // Model context updates
             if (vessel.EnableModelContext)
             {
-                content +=
-                    "\n" +
-                    "## Model Context Updates\n" +
-                    "\n" +
-                    "Model context accumulation is enabled for this vessel. Before you finish your mission, " +
-                    "review the existing model context above (if any) and consider whether you have discovered " +
-                    "key information that would help future agents work on this repository more effectively. " +
-                    "Examples include: architectural insights, code style conventions, naming conventions, " +
-                    "logging patterns, error handling patterns, testing patterns, build quirks, common pitfalls, " +
-                    "important dependencies, interdependencies between modules, concurrency patterns, " +
-                    "and performance considerations.\n" +
-                    "\n" +
-                    "If you have useful additions, call `armada_update_vessel_context` with the `modelContext` " +
-                    "parameter set to the COMPLETE updated model context (not just your additions -- include " +
-                    "the existing content with your additions merged in). Be thorough -- this context is a " +
-                    "goldmine for future agents. Focus on information that is not obvious from reading the code, " +
-                    "and organize it clearly with sections or headings.\n" +
-                    "\n" +
-                    "If you have nothing to add, skip this step.\n";
+                content += "\n";
+                content += await ResolveSectionAsync("mission.model_context_updates", templateParams, token).ConfigureAwait(false);
             }
 
             // If there's an existing CLAUDE.md, preserve it and prepend our instructions
@@ -593,6 +548,153 @@ namespace Armada.Core.Services
             await File.WriteAllTextAsync(claudeMdPath, content).ConfigureAwait(false);
 
             _Logging.Info(_Header + "generated mission CLAUDE.md at " + claudeMdPath);
+        }
+
+        /// <summary>
+        /// Resolve a persona prompt template by persona name. Falls back to default worker preamble.
+        /// </summary>
+        private async Task<string> ResolvePersonaPromptAsync(string? persona, Dictionary<string, string> templateParams, CancellationToken token)
+        {
+            string templateName = "persona.worker";
+            if (!String.IsNullOrEmpty(persona))
+            {
+                templateName = "persona." + persona.ToLowerInvariant();
+            }
+
+            if (_PromptTemplates != null)
+            {
+                string rendered = await _PromptTemplates.RenderAsync(templateName, templateParams, token).ConfigureAwait(false);
+                if (!String.IsNullOrEmpty(rendered))
+                    return rendered;
+            }
+
+            // Fallback for backward compatibility
+            return "You are an Armada captain executing a mission. Follow these instructions carefully.";
+        }
+
+        /// <summary>
+        /// Resolve a named template section. Falls back to empty string if no template service or template not found.
+        /// </summary>
+        private async Task<string> ResolveSectionAsync(string templateName, Dictionary<string, string> templateParams, CancellationToken token)
+        {
+            if (_PromptTemplates != null)
+            {
+                string rendered = await _PromptTemplates.RenderAsync(templateName, templateParams, token).ConfigureAwait(false);
+                if (!String.IsNullOrEmpty(rendered))
+                    return rendered;
+            }
+
+            // Hardcoded fallbacks for backward compatibility when template service is unavailable
+            return GetHardcodedFallback(templateName);
+        }
+
+        /// <summary>
+        /// Returns hardcoded prompt section content as a fallback when the template service is unavailable.
+        /// </summary>
+        private string GetHardcodedFallback(string templateName)
+        {
+            switch (templateName)
+            {
+                case "mission.rules":
+                    return
+                        "## Rules\n" +
+                        "- Work only within this worktree directory\n" +
+                        "- Commit all changes to the current branch\n" +
+                        "- Commit and push your changes -- the Admiral will also push if needed\n" +
+                        "- If you encounter a blocking issue, commit what you have and exit\n" +
+                        "- Exit with code 0 on success\n" +
+                        "- Do not use extended/Unicode characters (em dashes, smart quotes, etc.) -- use only ASCII characters in all output and commit messages\n" +
+                        "- Do not use ANSI color codes or terminal formatting in output -- keep all output plain text\n";
+
+                case "mission.context_conservation":
+                    return
+                        "## Context Conservation (CRITICAL)\n" +
+                        "\n" +
+                        "You have a limited context window. Exceeding it will crash your process and fail the mission. " +
+                        "Follow these rules to stay within limits:\n" +
+                        "\n" +
+                        "1. **NEVER read entire large files.** If a file is over 200 lines, read only the specific " +
+                        "section you need using line offsets. Use grep/search to find the right section first.\n" +
+                        "\n" +
+                        "2. **Read before you write, but read surgically.** Read only the 10-30 lines around the code " +
+                        "you need to change, not the whole file.\n" +
+                        "\n" +
+                        "3. **Do not explore the codebase broadly.** Only read files explicitly mentioned in your " +
+                        "mission description. If the mission says to edit README.md, read only the section you need " +
+                        "to edit, not the entire README.\n" +
+                        "\n" +
+                        "4. **Make your changes and finish.** Do not re-read files to verify your changes, do not " +
+                        "read files for 'context' that isn't directly needed for your edit, and do not explore related " +
+                        "files out of curiosity.\n" +
+                        "\n" +
+                        "5. **If the mission scope feels too large** (more than 8 files, or files with 500+ lines to " +
+                        "read), commit what you have, report progress, and exit with code 0. Partial progress is " +
+                        "better than crashing.\n";
+
+                case "mission.merge_conflict_avoidance":
+                    return
+                        "## Avoiding Merge Conflicts (CRITICAL)\n" +
+                        "\n" +
+                        "You are one of several captains working on this repository. Other captains may be working on " +
+                        "other missions in parallel on separate branches. To prevent merge conflicts and landing failures, " +
+                        "you MUST follow these rules:\n" +
+                        "\n" +
+                        "1. **Only modify files explicitly mentioned in your mission description.** If the description says " +
+                        "to edit `src/routes/users.ts`, do NOT also refactor `src/routes/orders.ts` even if you notice " +
+                        "improvements. Another captain may be working on that file.\n" +
+                        "\n" +
+                        "2. **Do not make \"helpful\" changes outside your scope.** Do not rename shared variables, " +
+                        "reorganize imports in files you were not asked to touch, reformat code in unrelated files, " +
+                        "update documentation files unless instructed, or modify configuration/project files " +
+                        "(e.g., .csproj, package.json, tsconfig.json) unless your mission specifically requires it.\n" +
+                        "\n" +
+                        "3. **Do not modify barrel/index export files** (e.g., index.ts, mod.rs) unless your mission " +
+                        "explicitly requires it. These are high-conflict files that many missions may need to touch.\n" +
+                        "\n" +
+                        "4. **Keep changes minimal and focused.** The fewer files you touch, the lower the risk of " +
+                        "conflicts. If your mission can be completed by editing 2 files, do not edit 5.\n" +
+                        "\n" +
+                        "5. **If you must create new files**, prefer names that are specific to your mission's feature " +
+                        "rather than generic names that another captain might also choose.\n" +
+                        "\n" +
+                        "6. **Do not modify or delete files created by another mission's branch.** You are working in " +
+                        "an isolated worktree -- if you see files that seem unrelated to your mission, leave them alone.\n" +
+                        "\n" +
+                        "Violating these rules will cause your branch to conflict with other captains' branches during " +
+                        "landing, resulting in a LandingFailed status and wasted work.\n";
+
+                case "mission.progress_signals":
+                    return
+                        "## Progress Signals (Optional)\n" +
+                        "You can report progress to the Admiral by printing these lines to stdout:\n" +
+                        "- `[ARMADA:PROGRESS] 50` -- report completion percentage (0-100)\n" +
+                        "- `[ARMADA:STATUS] Testing` -- transition mission to Testing status\n" +
+                        "- `[ARMADA:STATUS] Review` -- transition mission to Review status\n" +
+                        "- `[ARMADA:MESSAGE] your message here` -- send a progress message\n";
+
+                case "mission.model_context_updates":
+                    return
+                        "## Model Context Updates\n" +
+                        "\n" +
+                        "Model context accumulation is enabled for this vessel. Before you finish your mission, " +
+                        "review the existing model context above (if any) and consider whether you have discovered " +
+                        "key information that would help future agents work on this repository more effectively. " +
+                        "Examples include: architectural insights, code style conventions, naming conventions, " +
+                        "logging patterns, error handling patterns, testing patterns, build quirks, common pitfalls, " +
+                        "important dependencies, interdependencies between modules, concurrency patterns, " +
+                        "and performance considerations.\n" +
+                        "\n" +
+                        "If you have useful additions, call `armada_update_vessel_context` with the `modelContext` " +
+                        "parameter set to the COMPLETE updated model context (not just your additions -- include " +
+                        "the existing content with your additions merged in). Be thorough -- this context is a " +
+                        "goldmine for future agents. Focus on information that is not obvious from reading the code, " +
+                        "and organize it clearly with sections or headings.\n" +
+                        "\n" +
+                        "If you have nothing to add, skip this step.\n";
+
+                default:
+                    return "";
+            }
         }
 
         #endregion
