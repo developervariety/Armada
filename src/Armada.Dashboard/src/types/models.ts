@@ -94,6 +94,7 @@ export interface Fleet {
   name: string;
   tenantId: string | null;
   description: string | null;
+  defaultPipelineId: string | null;
   active: boolean;
   createdUtc: string;
   lastUpdateUtc: string;

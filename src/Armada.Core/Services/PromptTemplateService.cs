@@ -406,7 +406,18 @@ namespace Armada.Core.Services
                     "\n" +
                     "7. **Output structured mission definitions.** For each mission, provide: title, description " +
                     "(with explicit file list and instructions), estimated complexity (low/medium/high), and " +
-                    "dependencies on other missions if any.\n"
+                    "dependencies on other missions if any.\n" +
+                    "\n" +
+                    "IMPORTANT: Output your mission definitions using this exact format so the Admiral can parse them:\n" +
+                    "\n" +
+                    "[ARMADA:MISSION] Title of mission\n" +
+                    "Description of the mission, including which files to modify and what changes to make.\n" +
+                    "\n" +
+                    "[ARMADA:MISSION] Another mission title\n" +
+                    "Another mission description.\n" +
+                    "\n" +
+                    "Each [ARMADA:MISSION] marker starts a new mission definition. The first line after the marker " +
+                    "is the title, and everything until the next marker (or end of output) is the description.\n"
             };
 
             defaults["persona.judge"] = new EmbeddedTemplate

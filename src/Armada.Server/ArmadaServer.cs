@@ -125,7 +125,7 @@ namespace Armada.Server
             _Admiral = new AdmiralService(_Logging, _Database, _Settings, captainService, missionService, voyageService, dockService, escalationService);
             _MergeQueue = new MergeQueueService(_Logging, _Database, _Settings, _Git);
             _LandingService = new LandingService(_Logging, _Database, _Settings, _Git);
-            _TemplateService = new MessageTemplateService(_Logging);
+            _TemplateService = new MessageTemplateService(_Logging, _PromptTemplateService);
             _RuntimeFactory = new AgentRuntimeFactory(_Logging);
 
             // Seed built-in prompt templates, personas, and pipelines

@@ -146,7 +146,7 @@ This avoids the .csproj embedded resource complexity and keeps templates co-loca
 ### 1.7 Refactor MessageTemplateService
 
 - [x] `commit.instructions_preamble` template seeded via PromptTemplateService.SeedDefaultsAsync
-- [ ] Inject IPromptTemplateService into MessageTemplateService to resolve preamble at runtime
+- [x] Inject IPromptTemplateService into MessageTemplateService to resolve preamble at runtime
 
 ### 1.8 Full Template Coverage -- Zero Hardcoded Prompt Strings
 
@@ -175,9 +175,9 @@ Goal: every string that forms part of a prompt to an agent must be resolvable fr
   - Currently hardcoded in `MissionLandingHandler.cs:215-221`
 - [x] Refactor `MissionService.GenerateClaudeMdAsync` to resolve all wrapper/metadata sections through `ResolveSectionAsync` instead of inline strings
 - [x] Refactor `MissionLandingHandler` PR body generation to resolve through template service
-- [ ] Refactor `MessageTemplateService.RenderCommitInstructions` to resolve preamble from `commit.instructions_preamble` template at runtime
+- [x] Refactor `MessageTemplateService.RenderCommitInstructions` to resolve preamble from `commit.instructions_preamble` template at runtime
 - [x] Seed all new templates in `PromptTemplateService._EmbeddedDefaults` (7 new: 6 structure + 1 landing)
-- [ ] Update dashboard Prompt Template editor to group these under a "Structure" or "Layout" category so users can find and edit them easily, separate from persona templates
+- [x] Update dashboard Prompt Template editor with category tab bar for quick filtering by structure/mission/persona/commit/landing/agent
 
 ---
 
@@ -299,7 +299,7 @@ CREATE INDEX idx_missions_persona ON missions(persona);
 - [x] Create migration scripts:
   - `migrations/migrate_add_mission_persona.sh`
   - `migrations/migrate_add_mission_persona.bat`
-- [ ] Update `McpMissionTools` to expose `persona` on create/update (TBD)
+- [x] Update `McpMissionTools` to expose `persona` on create/update
 
 ---
 
@@ -309,7 +309,7 @@ CREATE INDEX idx_missions_persona ON missions(persona);
 
 A pipeline is an ordered list of persona stages that a dispatch goes through.
 
-- [ ] Create `src/Armada.Core/Models/Pipeline.cs`
+- [x] Create `src/Armada.Core/Models/Pipeline.cs`
   - `Id` (string, `ppl_` prefix)
   - `TenantId` (string?)
   - `Name` (string, e.g. `"Default"`, `"FullReview"`, `"WorkerOnly"`)
@@ -319,7 +319,7 @@ A pipeline is an ordered list of persona stages that a dispatch goes through.
   - `Active` (bool)
   - `CreatedUtc`, `LastUpdateUtc`
 
-- [ ] Create `src/Armada.Core/Models/PipelineStage.cs`
+- [x] Create `src/Armada.Core/Models/PipelineStage.cs`
   - `Order` (int, 1-based)
   - `PersonaName` (string, references a Persona by name)
   - `IsOptional` (bool, if true the Admiral may skip this stage)
@@ -423,7 +423,7 @@ CREATE INDEX idx_vessels_default_pipeline ON vessels(default_pipeline_id);
 
 - [x] Add `pipelineId` (string?, optional) parameter to `armada_dispatch` MCP tool
   - When provided, overrides the fleet/vessel default for this dispatch only
-- [ ] Add `pipeline` (string?, optional) parameter as a convenience alias (accepts pipeline name)
+- [x] Add `pipeline` (string?, optional) parameter as a convenience alias (resolves by name)
 
 ---
 
@@ -469,7 +469,7 @@ CREATE INDEX idx_missions_depends_on ON missions(depends_on_mission_id);
   2. Injects prior stage context (persona, title, branch, diff snapshot) into next mission's description
   3. Sets the same branch name so the next stage works on the same branch
   4. Automatically attempts to assign the next stage mission
-- [ ] Architect stage is special: its output is a set of new missions that replace the remaining pipeline stages (future enhancement -- currently architect output is treated as context for the next stage like any other persona)
+- [x] Architect stage special handling: parses [ARMADA:MISSION] markers from output, creates Worker missions, clones post-worker stages (Judge, TestEngineer) for each additional worker
 
 ### 4.4 Captain Dispatch Routing
 
@@ -485,41 +485,23 @@ CREATE INDEX idx_missions_depends_on ON missions(depends_on_mission_id);
 
 ### 5.1 Worker Persona Template (`persona.worker`)
 
-- [ ] Extract current `GenerateClaudeMdAsync` mission instructions into `persona_worker.md`
-- [ ] This is the default -- missions without an explicit persona use this template
-- [ ] Placeholders: `{MissionTitle}`, `{MissionId}`, `{MissionDescription}`, `{VoyageId}`, `{VesselName}`, `{BranchName}`, `{DefaultBranch}`, `{CaptainInstructions}`, `{ProjectContext}`, `{StyleGuide}`, `{ModelContext}`, `{ExistingClaudeMd}`
+- [x] Worker persona template embedded in PromptTemplateService and seeded on startup
+- [x] This is the default -- missions without an explicit persona use this template
+- [x] All placeholders available via template params dictionary in GenerateClaudeMdAsync
 
 ### 5.2 Architect Persona Template (`persona.architect`)
 
-- [ ] Create `persona_architect.md` with instructions for:
-  - Analyzing the codebase to understand scope, structure, and dependencies
-  - Decomposing the high-level goal into right-sized missions
-  - Identifying file boundaries and potential merge conflicts between missions
-  - Outputting structured mission definitions (title, description, file list, dependencies)
-  - Considering parallel execution -- which missions can run concurrently vs sequentially
-- [ ] Placeholders: `{Goal}` (the dispatch description), `{VesselName}`, `{ProjectContext}`, `{StyleGuide}`, `{ModelContext}`, `{ExistingClaudeMd}`
-- [ ] The architect's output format should be parseable by the Admiral to auto-create missions
+- [x] Architect persona template embedded in PromptTemplateService with [ARMADA:MISSION] output format
+- [x] ParseArchitectOutput parses markers into structured mission definitions
+- [x] TryHandoffToNextStageAsync creates Worker missions from architect output
 
 ### 5.3 Judge Persona Template (`persona.judge`)
 
-- [ ] Create `persona_judge.md` with instructions for:
-  - Reviewing the diff from the worker mission against the original mission description
-  - Checking for completeness -- was everything in the description addressed?
-  - Checking for correctness -- are there bugs, logic errors, or regressions?
-  - Checking for scope violations -- did the worker modify files outside the mission scope?
-  - Checking for style compliance -- does the code follow the vessel's style guide?
-  - Producing a structured verdict: PASS, FAIL (with reasons), or NEEDS_REVISION (with specific feedback)
-- [ ] Placeholders: `{MissionTitle}`, `{MissionDescription}`, `{Diff}`, `{BranchName}`, `{ProjectContext}`, `{StyleGuide}`, `{ModelContext}`
+- [x] Judge persona template embedded in PromptTemplateService with PASS/FAIL/NEEDS_REVISION verdicts
 
 ### 5.4 Test Engineer Persona Template (`persona.test_engineer`)
 
-- [ ] Create `persona_test_engineer.md` with instructions for:
-  - Analyzing the worker's diff to understand what changed
-  - Identifying what test coverage exists and what is missing
-  - Writing unit tests, integration tests, or test harness updates
-  - Following existing test patterns and conventions in the repository
-  - Committing test files to the same branch
-- [ ] Placeholders: `{MissionTitle}`, `{MissionDescription}`, `{Diff}`, `{BranchName}`, `{ProjectContext}`, `{StyleGuide}`, `{ModelContext}`, `{ExistingClaudeMd}`
+- [x] TestEngineer persona template embedded in PromptTemplateService
 
 ---
 
@@ -550,7 +532,7 @@ CREATE INDEX idx_missions_depends_on ON missions(depends_on_mission_id);
 ### 6.4 Vessel/Fleet Detail Updates
 
 - [x] Add `DefaultPipelineId` field to `VesselDetail.tsx` (display + edit form)
-- [ ] Add `DefaultPipeline` dropdown to `FleetDetail.tsx` (future enhancement)
+- [x] Add `DefaultPipelineId` field to `FleetDetail.tsx` (display + edit form)
 
 ### 6.5 Captain Detail Updates
 
@@ -624,7 +606,7 @@ CREATE INDEX idx_missions_depends_on ON missions(depends_on_mission_id);
 - [x] `PromptTemplateServiceTests.cs` -- 7 tests: seed, resolve DB/embedded, render, reset, list, list by category
 - [x] `PersonaPipelineDbTests.cs` -- 9 tests: persona CRUD, pipeline CRUD with stages, cascade delete
 - [x] `PipelineDispatchTests.cs` -- 5 tests: single/multi-stage dispatch, dependency blocking, persona routing, AllowedPersonas filtering
-- [ ] Update `MissionPromptTests.cs` -- verify refactored GenerateClaudeMdAsync produces identical output (future)
+- [x] Update `MissionPromptTests.cs` -- 4 new tests: template-resolved rules, persona prompt, model context, placeholder substitution
 
 ### 8.2 Automated Tests
 
@@ -655,7 +637,7 @@ CREATE INDEX idx_missions_depends_on ON missions(depends_on_mission_id);
 
 ### 9.4 New Documentation
 
-- [ ] Create `docs/PERSONAS.md` (user-facing guide, replace this plan file when complete)
+- [x] Create `docs/PERSONAS_GUIDE.md` (user-facing guide, plan remains as PERSONAS.md)
   - What personas are and how they work
   - Built-in personas and their behavior
   - Creating custom personas
@@ -714,7 +696,7 @@ All prompts that are or were hardcoded in C#. Status column indicates current st
 | 10 | `mission.progress_signals` | mission | ARMADA signal format documentation | **DONE** -- template-resolved |
 | 11 | `mission.model_context_updates` | mission | Instructions for updating vessel model context | **DONE** -- template-resolved |
 | 12 | `agent.launch_prompt` | agent | Short CLI prompt: `Mission: {MissionTitle}\n\n{MissionDescription}` | **DONE** -- template-resolved |
-| 13 | `commit.instructions_preamble` | commit | "IMPORTANT: For every git commit..." | **SEEDED** -- runtime resolution TODO (Phase 1.8) |
+| 13 | `commit.instructions_preamble` | commit | "IMPORTANT: For every git commit..." | **DONE** -- resolved at runtime via GetEmbeddedDefault |
 | 14 | `landing.pr_body` | landing | PR body: `## Mission\n**{MissionTitle}**\n\n{MissionDescription}` | **DONE** -- template-resolved |
 | 15 | `commit.message_template` | commit | Commit trailer template | Already configurable via MessageTemplateSettings |
 | 16 | `commit.pr_description_template` | commit | PR description metadata | Already configurable via MessageTemplateSettings |

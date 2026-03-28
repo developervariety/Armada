@@ -37,6 +37,22 @@ namespace Armada.Core.Services
         /// </summary>
         private System.Collections.Concurrent.ConcurrentDictionary<string, Task> _InFlightCompletions = new System.Collections.Concurrent.ConcurrentDictionary<string, Task>();
 
+        /// <summary>
+        /// Parsed mission definition extracted from an architect's output.
+        /// </summary>
+        private class ParsedArchitectMission
+        {
+            /// <summary>
+            /// Mission title.
+            /// </summary>
+            public string Title { get; set; } = "";
+
+            /// <summary>
+            /// Mission description.
+            /// </summary>
+            public string Description { get; set; } = "";
+        }
+
         #endregion
 
         #region Constructors-and-Factories
@@ -770,6 +786,78 @@ namespace Armada.Core.Services
 
             if (dependentMissions.Count == 0) return;
 
+            // Special handling for Architect stage: parse output into new missions
+            if (String.Equals(completedMission.Persona, "Architect", StringComparison.OrdinalIgnoreCase))
+            {
+                List<ParsedArchitectMission> parsed = ParseArchitectOutput(completedMission);
+                if (parsed.Count > 0)
+                {
+                    _Logging.Info(_Header + "architect produced " + parsed.Count + " mission definitions");
+
+                    foreach (Mission nextMission in dependentMissions)
+                    {
+                        if (String.Equals(nextMission.Persona, "Worker", StringComparison.OrdinalIgnoreCase))
+                        {
+                            // Update the first parsed mission into this existing Worker mission slot
+                            ParsedArchitectMission first = parsed[0];
+                            nextMission.Title = first.Title + " [Worker]";
+                            nextMission.Description = first.Description;
+                            nextMission.BranchName = completedMission.BranchName;
+                            nextMission.LastUpdateUtc = DateTime.UtcNow;
+                            await _Database.Missions.UpdateAsync(nextMission, token).ConfigureAwait(false);
+
+                            // Find what depends on this worker mission (Judge, TestEngineer stages)
+                            List<Mission> postWorkerStages = voyageMissions.Where(m =>
+                                m.DependsOnMissionId == nextMission.Id).ToList();
+
+                            // Create additional worker missions for remaining parsed items
+                            for (int i = 1; i < parsed.Count; i++)
+                            {
+                                Mission additionalWorker = new Mission(parsed[i].Title + " [Worker]", parsed[i].Description);
+                                additionalWorker.TenantId = completedMission.TenantId;
+                                additionalWorker.UserId = completedMission.UserId;
+                                additionalWorker.VoyageId = completedMission.VoyageId;
+                                additionalWorker.VesselId = completedMission.VesselId;
+                                additionalWorker.Persona = "Worker";
+                                additionalWorker.DependsOnMissionId = completedMission.Id;
+                                additionalWorker = await _Database.Missions.CreateAsync(additionalWorker, token).ConfigureAwait(false);
+                                _Logging.Info(_Header + "architect created additional worker mission " + additionalWorker.Id + ": " + parsed[i].Title);
+
+                                // Clone the post-worker stages (Judge, TestEngineer) for each additional worker
+                                foreach (Mission postWorkerStage in postWorkerStages)
+                                {
+                                    Mission clonedStage = new Mission(
+                                        parsed[i].Title + " [" + postWorkerStage.Persona + "]",
+                                        postWorkerStage.Description);
+                                    clonedStage.TenantId = completedMission.TenantId;
+                                    clonedStage.UserId = completedMission.UserId;
+                                    clonedStage.VoyageId = completedMission.VoyageId;
+                                    clonedStage.VesselId = completedMission.VesselId;
+                                    clonedStage.Persona = postWorkerStage.Persona;
+                                    clonedStage.DependsOnMissionId = additionalWorker.Id;
+                                    clonedStage = await _Database.Missions.CreateAsync(clonedStage, token).ConfigureAwait(false);
+                                    _Logging.Info(_Header + "architect created chained stage " + clonedStage.Id +
+                                        " (" + clonedStage.Persona + ") depending on " + additionalWorker.Id);
+                                }
+                            }
+
+                            // Try to assign the first worker mission
+                            if (!String.IsNullOrEmpty(nextMission.VesselId))
+                            {
+                                Vessel? vessel = await _Database.Vessels.ReadAsync(nextMission.VesselId, token).ConfigureAwait(false);
+                                if (vessel != null)
+                                {
+                                    await TryAssignAsync(nextMission, vessel, token).ConfigureAwait(false);
+                                }
+                            }
+                        }
+                    }
+
+                    return; // Architect special handling complete, skip normal handoff
+                }
+                // If no [ARMADA:MISSION] markers found, fall through to normal handoff
+            }
+
             foreach (Mission nextMission in dependentMissions)
             {
                 // Inject context from the completed stage into the next stage's description
@@ -804,6 +892,65 @@ namespace Armada.Core.Services
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// Parse structured mission definitions from an architect's output.
+        /// Looks for [ARMADA:MISSION] markers in the mission diff snapshot or description.
+        /// </summary>
+        private List<ParsedArchitectMission> ParseArchitectOutput(Mission architectMission)
+        {
+            List<ParsedArchitectMission> results = new List<ParsedArchitectMission>();
+
+            // Look in diff snapshot first, then description
+            string? source = null;
+            if (!String.IsNullOrEmpty(architectMission.DiffSnapshot) &&
+                architectMission.DiffSnapshot.Contains("[ARMADA:MISSION]"))
+            {
+                source = architectMission.DiffSnapshot;
+            }
+            else if (!String.IsNullOrEmpty(architectMission.Description) &&
+                     architectMission.Description.Contains("[ARMADA:MISSION]"))
+            {
+                source = architectMission.Description;
+            }
+
+            if (source == null) return results;
+
+            string[] segments = source.Split(new string[] { "[ARMADA:MISSION]" }, StringSplitOptions.None);
+
+            // First segment is everything before the first marker -- skip it
+            for (int i = 1; i < segments.Length; i++)
+            {
+                string segment = segments[i].Trim();
+                if (String.IsNullOrEmpty(segment)) continue;
+
+                // First line is the title, rest is description
+                int newlineIndex = segment.IndexOf('\n');
+                string title;
+                string description;
+
+                if (newlineIndex >= 0)
+                {
+                    title = segment.Substring(0, newlineIndex).Trim();
+                    description = segment.Substring(newlineIndex + 1).Trim();
+                }
+                else
+                {
+                    title = segment.Trim();
+                    description = "";
+                }
+
+                if (!String.IsNullOrEmpty(title))
+                {
+                    ParsedArchitectMission parsed = new ParsedArchitectMission();
+                    parsed.Title = title;
+                    parsed.Description = description;
+                    results.Add(parsed);
+                }
+            }
+
+            return results;
         }
 
         private async Task<Captain?> FindAvailableCaptainAsync(string? persona, CancellationToken token)

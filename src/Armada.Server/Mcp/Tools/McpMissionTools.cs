@@ -69,7 +69,8 @@ namespace Armada.Server.Mcp.Tools
                         title = new { type = "string", description = "Mission title" },
                         description = new { type = "string", description = "Mission description/instructions" },
                         vesselId = new { type = "string", description = "Target vessel ID (vsl_ prefix)" },
-                        voyageId = new { type = "string", description = "Optional voyage ID to associate with (vyg_ prefix)" }
+                        voyageId = new { type = "string", description = "Optional voyage ID to associate with (vyg_ prefix)" },
+                        persona = new { type = "string", description = "Persona for this mission (e.g. Worker, Architect, Judge, TestEngineer)" }
                     },
                     required = new[] { "title", "description", "vesselId" }
                 },
@@ -83,6 +84,7 @@ namespace Armada.Server.Mcp.Tools
                     mission.VesselId = request.VesselId;
                     if (request.VoyageId != null)
                         mission.VoyageId = request.VoyageId;
+                    mission.Persona = request.Persona;
                     mission = await admiral.DispatchMissionAsync(mission).ConfigureAwait(false);
                     if (mission.Status == Armada.Core.Enums.MissionStatusEnum.Pending)
                     {
@@ -111,7 +113,8 @@ namespace Armada.Server.Mcp.Tools
                         priority = new { type = "integer", description = "New priority (lower is higher priority)" },
                         branchName = new { type = "string", description = "Git branch name for this mission" },
                         prUrl = new { type = "string", description = "Pull request URL" },
-                        parentMissionId = new { type = "string", description = "Parent mission ID for sub-tasks (msn_ prefix)" }
+                        parentMissionId = new { type = "string", description = "Parent mission ID for sub-tasks (msn_ prefix)" },
+                        persona = new { type = "string", description = "Persona for this mission (e.g. Worker, Architect, Judge, TestEngineer)" }
                     },
                     required = new[] { "missionId" }
                 },
@@ -137,6 +140,8 @@ namespace Armada.Server.Mcp.Tools
                         mission.PrUrl = request.PrUrl;
                     if (request.ParentMissionId != null)
                         mission.ParentMissionId = request.ParentMissionId;
+                    if (request.Persona != null)
+                        mission.Persona = request.Persona;
                     mission.LastUpdateUtc = DateTime.UtcNow;
                     mission = await database.Missions.UpdateAsync(mission).ConfigureAwait(false);
                     return (object)mission;

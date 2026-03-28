@@ -23,7 +23,7 @@ export default function FleetDetail() {
 
   // Edit modal
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ name: '', description: '' });
+  const [form, setForm] = useState({ name: '', description: '', defaultPipelineId: '' });
 
   // JSON viewer
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
@@ -52,7 +52,7 @@ export default function FleetDetail() {
 
   function openEdit() {
     if (!fleet) return;
-    setForm({ name: fleet.name, description: fleet.description ?? '' });
+    setForm({ name: fleet.name, description: fleet.description ?? '', defaultPipelineId: fleet.defaultPipelineId ?? '' });
     setShowForm(true);
   }
 
@@ -113,6 +113,7 @@ export default function FleetDetail() {
             <h3>Edit Fleet</h3>
             <label>Name<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required /></label>
             <label>Description<input value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></label>
+            <label>Default Pipeline ID<input value={form.defaultPipelineId} onChange={e => setForm({ ...form, defaultPipelineId: e.target.value })} /></label>
             <div className="modal-actions">
               <button type="submit" className="btn btn-primary">Save</button>
               <button type="button" className="btn" onClick={() => setShowForm(false)}>Cancel</button>
@@ -136,6 +137,7 @@ export default function FleetDetail() {
         </div>
         <div className="detail-field"><span className="detail-label">Name</span><span>{fleet.name}</span></div>
         <div className="detail-field"><span className="detail-label">Description</span><span>{fleet.description || '-'}</span></div>
+        <div className="detail-field"><span className="detail-label">Default Pipeline</span><span className="mono">{fleet.defaultPipelineId || <span className="text-dim">None (WorkerOnly)</span>}</span></div>
         <div className="detail-field"><span className="detail-label">Active</span><span>{fleet.active !== false ? 'Yes' : 'No'}</span></div>
         <div className="detail-field"><span className="detail-label">Created</span><span title={fleet.createdUtc}>{formatTimeAbsolute(fleet.createdUtc)}</span></div>
         <div className="detail-field"><span className="detail-label">Last Updated</span><span>{formatTimeAbsolute(fleet.lastUpdateUtc)}</span></div>

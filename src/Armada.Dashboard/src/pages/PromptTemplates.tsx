@@ -42,8 +42,11 @@ export default function PromptTemplates() {
   const [sortField, setSortField] = useState<SortField>('category');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
 
+  // Category tab bar filter
+  const [categoryFilter, setCategoryFilter] = useState('all');
+
   // Column filters
-  const [colFilters, setColFilters] = useState({ name: '', description: '', category: 'all' });
+  const [colFilters, setColFilters] = useState({ name: '', description: '' });
 
   // Pagination
   const [pageNumber, setPageNumber] = useState(1);
@@ -69,9 +72,9 @@ export default function PromptTemplates() {
     return templates.filter(t =>
       (!colFilters.name || t.name.toLowerCase().includes(colFilters.name.toLowerCase())) &&
       (!colFilters.description || (t.description ?? '').toLowerCase().includes(colFilters.description.toLowerCase())) &&
-      (colFilters.category === 'all' || t.category.toLowerCase() === colFilters.category.toLowerCase())
+      (categoryFilter === 'all' || t.category.toLowerCase() === categoryFilter.toLowerCase())
     );
-  }, [templates, colFilters]);
+  }, [templates, colFilters, categoryFilter]);
 
   // Sorted rows
   const sorted = useMemo(() => {
@@ -145,6 +148,22 @@ export default function PromptTemplates() {
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
 
+      {/* Category tab bar */}
+      {templates.length > 0 && (
+        <div style={{ display: 'flex', gap: '0.25rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+          {CATEGORY_OPTIONS.map(cat => (
+            <button
+              key={cat}
+              className={`btn btn-sm${categoryFilter === cat ? ' btn-primary' : ''}`}
+              onClick={() => { setCategoryFilter(cat); setPageNumber(1); }}
+              style={{ textTransform: 'capitalize', padding: '0.25rem 0.75rem', fontSize: '0.85rem' }}
+            >
+              {cat === 'all' ? 'All' : cat}
+            </button>
+          ))}
+        </div>
+      )}
+
       {loading && templates.length === 0 && <p className="text-dim">Loading...</p>}
       {!loading && templates.length === 0 && <p className="text-dim">No prompt templates found.</p>}
 
@@ -184,13 +203,7 @@ export default function PromptTemplates() {
                 <tr className="column-filter-row">
                   <td><input type="text" className="col-filter" value={colFilters.name} onChange={e => { setColFilters(f => ({ ...f, name: e.target.value })); setPageNumber(1); }} placeholder="Filter..." /></td>
                   <td><input type="text" className="col-filter" value={colFilters.description} onChange={e => { setColFilters(f => ({ ...f, description: e.target.value })); setPageNumber(1); }} placeholder="Filter..." /></td>
-                  <td>
-                    <select className="col-filter" value={colFilters.category} onChange={e => { setColFilters(f => ({ ...f, category: e.target.value })); setPageNumber(1); }}>
-                      {CATEGORY_OPTIONS.map(cat => (
-                        <option key={cat} value={cat}>{cat === 'all' ? 'All' : cat.charAt(0).toUpperCase() + cat.slice(1)}</option>
-                      ))}
-                    </select>
-                  </td>
+                  <td></td>
                   <td></td>
                   <td></td>
                   <td></td>
