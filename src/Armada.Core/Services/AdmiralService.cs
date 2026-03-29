@@ -610,6 +610,11 @@ namespace Armada.Core.Services
             {
                 Pipeline? vesselPipeline = await _Database.Pipelines.ReadAsync(vessel.DefaultPipelineId, token).ConfigureAwait(false);
                 if (vesselPipeline != null) return vesselPipeline;
+
+                // Pipeline no longer exists -- clear the stale reference
+                _Logging.Warn(_Header + "vessel " + vessel.Id + " references missing pipeline " + vessel.DefaultPipelineId + " -- clearing");
+                vessel.DefaultPipelineId = null;
+                await _Database.Vessels.UpdateAsync(vessel, token).ConfigureAwait(false);
             }
 
             // Fleet default
@@ -620,6 +625,11 @@ namespace Armada.Core.Services
                 {
                     Pipeline? fleetPipeline = await _Database.Pipelines.ReadAsync(fleet.DefaultPipelineId, token).ConfigureAwait(false);
                     if (fleetPipeline != null) return fleetPipeline;
+
+                    // Pipeline no longer exists -- clear the stale reference
+                    _Logging.Warn(_Header + "fleet " + fleet.Id + " references missing pipeline " + fleet.DefaultPipelineId + " -- clearing");
+                    fleet.DefaultPipelineId = null;
+                    await _Database.Fleets.UpdateAsync(fleet, token).ConfigureAwait(false);
                 }
             }
 
