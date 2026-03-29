@@ -58,7 +58,14 @@ namespace Armada.Core.Services
 
             try
             {
-                // Ensure bare clone exists
+                // Ensure bare clone exists. If the directory exists but isn't a valid repo
+                // (e.g. leftover from a failed clone/seed), remove it and re-clone.
+                if (Directory.Exists(repoPath) && !await _Git.IsRepositoryAsync(repoPath, token).ConfigureAwait(false))
+                {
+                    _Logging.Warn(_Header + "removing corrupt/incomplete repo directory: " + repoPath);
+                    try { Directory.Delete(repoPath, true); } catch { }
+                }
+
                 if (!await _Git.IsRepositoryAsync(repoPath, token).ConfigureAwait(false))
                 {
                     if (String.IsNullOrEmpty(vessel.RepoUrl))
