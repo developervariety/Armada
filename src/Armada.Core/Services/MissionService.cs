@@ -953,7 +953,9 @@ namespace Armada.Core.Services
 
             if (source == null) return results;
 
-            string[] segments = source.Split(new string[] { "[ARMADA:MISSION]" }, StringSplitOptions.None);
+            // Split on [ARMADA:MISSION] markers that appear at the start of a line with no indentation.
+            // Indented markers (e.g. in template examples) are ignored.
+            string[] segments = System.Text.RegularExpressions.Regex.Split(source, @"(?m)^\[ARMADA:MISSION\][ \t]*");
 
             // First segment is everything before the first marker -- skip it
             for (int i = 1; i < segments.Length; i++)

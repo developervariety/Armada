@@ -408,16 +408,19 @@ namespace Armada.Core.Services
                     "(with explicit file list and instructions), estimated complexity (low/medium/high), and " +
                     "dependencies on other missions if any.\n" +
                     "\n" +
-                    "IMPORTANT: Output your mission definitions using this exact format so the Admiral can parse them:\n" +
+                    "IMPORTANT: Output your mission definitions using this exact format so the Admiral can parse them. " +
+                    "Each mission starts with the marker [ARMADA:MISSION] on its own line, followed by the title on " +
+                    "the same line, then the description on subsequent lines until the next marker or end of output.\n" +
                     "\n" +
-                    "[ARMADA:MISSION] Title of mission\n" +
-                    "Description of the mission, including which files to modify and what changes to make.\n" +
+                    "Example format (do NOT copy these example titles -- use real titles from your analysis):\n" +
                     "\n" +
-                    "[ARMADA:MISSION] Another mission title\n" +
-                    "Another mission description.\n" +
+                    "  [ARMADA:MISSION] Implement the user authentication module\n" +
+                    "  Create auth.py with login endpoint, password hashing, and token generation.\n" +
+                    "  Files: src/auth.py, src/models/user.py\n" +
                     "\n" +
-                    "Each [ARMADA:MISSION] marker starts a new mission definition. The first line after the marker " +
-                    "is the title, and everything until the next marker (or end of output) is the description.\n"
+                    "  [ARMADA:MISSION] Add API endpoint tests\n" +
+                    "  Write pytest tests covering all REST endpoints.\n" +
+                    "  Files: tests/test_api.py\n"
             };
 
             defaults["persona.judge"] = new EmbeddedTemplate
