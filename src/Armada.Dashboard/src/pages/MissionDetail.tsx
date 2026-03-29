@@ -289,6 +289,7 @@ export default function MissionDetail() {
         title={logModal.title}
         content={logModal.content}
         totalLines={logModal.totalLines}
+        completed={mission != null && ['Complete', 'Failed', 'Cancelled', 'WorkProduced', 'LandingFailed'].includes(mission.status)}
         onClose={() => setLogModal({ open: false, title: '', missionId: '', content: '', totalLines: 0, lineCount: 200 })}
         onRefresh={handleLogRefresh}
         onLineCountChange={handleLogLineCountChange}

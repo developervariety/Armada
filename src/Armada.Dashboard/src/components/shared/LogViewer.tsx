@@ -7,6 +7,8 @@ interface LogViewerProps {
   content: string;
   totalLines?: number;
   loading?: boolean;
+  /** Whether the mission/process has completed (terminal state) */
+  completed?: boolean;
   onClose: () => void;
   /** Called when line count changes */
   onLineCountChange?: (lines: number) => void;
@@ -24,6 +26,7 @@ export default function LogViewer({
   content,
   totalLines,
   loading,
+  completed,
   onClose,
   onLineCountChange,
   onRefresh,
@@ -57,6 +60,15 @@ export default function LogViewer({
       }
     };
   }, [following, onRefresh]);
+
+  // Stop following when mission completes
+  useEffect(() => {
+    if (completed && following) {
+      setFollowing(false);
+      // Do one final refresh to get the last content
+      if (onRefresh) onRefresh();
+    }
+  }, [completed]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Cleanup on close
   useEffect(() => {
@@ -93,7 +105,8 @@ export default function LogViewer({
         <div className="viewer-header">
           <h3 className="viewer-title">
             {title}
-            {following && <span className="log-live-badge">LIVE</span>}
+            {completed && <span className="log-live-badge" style={{ background: 'var(--tag-complete-bg, #2d4a2d)', color: 'var(--tag-complete-fg, #6fcf6f)' }}>DONE</span>}
+            {following && !completed && <span className="log-live-badge">LIVE</span>}
           </h3>
           <div className="viewer-actions">
             <select
@@ -105,7 +118,7 @@ export default function LogViewer({
                 <option key={n} value={n}>{n} lines</option>
               ))}
             </select>
-            {onRefresh && (
+            {onRefresh && !completed && (
               <button
                 className={`btn btn-sm ${following ? 'btn-follow-active' : 'btn-follow-inactive'}`}
                 onClick={toggleFollow}
@@ -114,6 +127,9 @@ export default function LogViewer({
                 <span className={`follow-dot${following ? ' follow-dot-active' : ''}`}></span>
                 {following ? 'Following' : 'Follow'}
               </button>
+            )}
+            {completed && (
+              <span style={{ fontSize: '0.8em', color: 'var(--text-dim)', padding: '0.25rem 0.5rem' }}>Completed</span>
             )}
             <button
               className={`btn btn-sm${copied ? ' copied' : ''}`}
