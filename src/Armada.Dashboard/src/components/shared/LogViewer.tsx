@@ -37,6 +37,8 @@ export default function LogViewer({
   const [copied, setCopied] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<number | null>(null);
+  const onRefreshRef = useRef(onRefresh);
+  onRefreshRef.current = onRefresh;
 
   // Auto-scroll when following
   useEffect(() => {
@@ -45,12 +47,12 @@ export default function LogViewer({
     }
   }, [following, content]);
 
-  // Follow timer
+  // Follow timer -- uses ref so callback identity changes don't reset the interval
   useEffect(() => {
-    if (following && onRefresh) {
-      onRefresh();
+    if (following) {
+      onRefreshRef.current?.();
       timerRef.current = window.setInterval(() => {
-        onRefresh();
+        onRefreshRef.current?.();
       }, 1000);
     }
     return () => {
@@ -59,7 +61,7 @@ export default function LogViewer({
         timerRef.current = null;
       }
     };
-  }, [following, onRefresh]);
+  }, [following]);
 
   // Stop following when mission completes
   useEffect(() => {
