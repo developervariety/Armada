@@ -132,7 +132,8 @@ namespace Armada.Runtimes
                 if (!String.IsNullOrEmpty(e.Data))
                 {
                     _Logging.Debug(_Header + "[stdout] " + e.Data);
-                    logWriter?.WriteLine(e.Data);
+                    try { logWriter?.WriteLine(e.Data); }
+                    catch (ObjectDisposedException) { }
 
                     try { OnOutputReceived?.Invoke(process.Id, e.Data); }
                     catch { }
@@ -144,7 +145,8 @@ namespace Armada.Runtimes
                 if (!String.IsNullOrEmpty(e.Data))
                 {
                     _Logging.Debug(_Header + "[stderr] " + e.Data);
-                    logWriter?.WriteLine("[stderr] " + e.Data);
+                    try { logWriter?.WriteLine("[stderr] " + e.Data); }
+                    catch (ObjectDisposedException) { }
                 }
             };
 
@@ -152,7 +154,8 @@ namespace Armada.Runtimes
             {
                 int? code = null;
                 try { code = ((Process?)sender)?.ExitCode; } catch { }
-                logWriter?.WriteLine("[" + DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss") + "] Agent exited with code " + (code?.ToString() ?? "unknown"));
+                try { logWriter?.WriteLine("[" + DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss") + "] Agent exited with code " + (code?.ToString() ?? "unknown")); }
+                catch (ObjectDisposedException) { }
                 logWriter?.Dispose();
 
                 // Notify subscribers that the process has exited

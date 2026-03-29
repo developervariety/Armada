@@ -220,7 +220,7 @@ export default function VoyageDetail() {
   }, [logModal.missionId, fetchLog]);
 
   if (loading) return <p className="text-muted">Loading...</p>;
-  if (!voyage) return <ErrorModal error={error || 'Voyage not found.'} onClose={() => setError('')} />;
+  if (!voyage) return <ErrorModal error={error || 'Voyage not found.'} onClose={() => nav('/voyages')} />;
 
   return (
     <div>

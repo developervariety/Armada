@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useNotifications } from '../context/NotificationContext';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
@@ -142,10 +142,13 @@ export default function MissionDetail() {
     fetchLog(id, 200);
   }
 
+  const logRefreshCountRef = useRef(0);
   const handleLogRefresh = useCallback(() => {
     if (logModal.missionId) fetchLog(logModal.missionId, logModal.lineCount);
-    // Also refresh mission status so the log viewer detects completion
-    loadMission();
+    // Refresh mission status every 5th poll (~5 seconds) to detect completion
+    // without causing re-renders that break the follow timer
+    logRefreshCountRef.current++;
+    if (logRefreshCountRef.current % 5 === 0) loadMission();
   }, [logModal.missionId, logModal.lineCount, fetchLog, loadMission]);
 
   const handleLogLineCountChange = useCallback((lines: number) => {
@@ -243,7 +246,7 @@ export default function MissionDetail() {
   }
 
   if (loading) return <p className="text-dim">Loading...</p>;
-  if (!mission) return <ErrorModal error={error || 'Mission not found.'} onClose={() => setError('')} />;
+  if (!mission) return <ErrorModal error={error || 'Mission not found.'} onClose={() => navigate('/missions')} />;
 
   return (
     <div>
