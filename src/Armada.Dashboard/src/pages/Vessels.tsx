@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { listVessels, listFleets, createVessel, updateVessel, deleteVessel, getVesselGitStatus } from '../api/client';
-import type { Fleet, Vessel } from '../types/models';
+import { listVessels, listFleets, listPipelines, createVessel, updateVessel, deleteVessel, getVesselGitStatus } from '../api/client';
+import type { Fleet, Vessel, Pipeline } from '../types/models';
 import Pagination from '../components/shared/Pagination';
 import ActionMenu from '../components/shared/ActionMenu';
 import StatusBadge from '../components/shared/StatusBadge';
@@ -39,17 +39,19 @@ interface VesselForm {
   landingMode: string;
   branchCleanupPolicy: string;
   allowConcurrentMissions: boolean;
+  defaultPipelineId: string;
 }
 
 const emptyForm: VesselForm = {
   name: '', fleetId: '', repoUrl: '', defaultBranch: 'main', localPath: '', workingDirectory: '',
-  projectContext: '', styleGuide: '', enableModelContext: true, modelContext: '', landingMode: 'LocalMerge', branchCleanupPolicy: 'LocalAndRemote', allowConcurrentMissions: false,
+  projectContext: '', styleGuide: '', enableModelContext: true, modelContext: '', landingMode: 'LocalMerge', branchCleanupPolicy: 'LocalAndRemote', allowConcurrentMissions: false, defaultPipelineId: '',
 };
 
 export default function Vessels() {
   const navigate = useNavigate();
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [fleets, setFleets] = useState<Fleet[]>([]);
+  const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [gitStatus, setGitStatus] = useState<Record<string, { ahead: number | null; behind: number | null }>>({});
@@ -93,9 +95,10 @@ export default function Vessels() {
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const [vResult, fResult] = await Promise.all([listVessels({ pageSize: 9999 }), listFleets({ pageSize: 9999 })]);
+      const [vResult, fResult, pResult] = await Promise.all([listVessels({ pageSize: 9999 }), listFleets({ pageSize: 9999 }), listPipelines({ pageSize: 9999 })]);
       setVessels(vResult.objects);
       setFleets(fResult.objects);
+      setPipelines(pResult.objects);
       setError('');
 
       // Fetch git status for each vessel in the background (non-blocking)
@@ -189,6 +192,7 @@ export default function Vessels() {
       allowConcurrentMissions: v.allowConcurrentMissions,
       enableModelContext: v.enableModelContext,
       modelContext: v.modelContext ?? '',
+      defaultPipelineId: v.defaultPipelineId ?? '',
     });
     setEditing(v);
     setShowForm(true);
@@ -205,6 +209,7 @@ export default function Vessels() {
       if (!payload.landingMode) delete payload.landingMode;
       if (!payload.branchCleanupPolicy) delete payload.branchCleanupPolicy;
       if (!payload.modelContext) delete payload.modelContext;
+      if (!payload.defaultPipelineId) delete payload.defaultPipelineId;
       if (editing) await updateVessel(editing.id, payload);
       else await createVessel(payload);
       setShowForm(false);
@@ -302,6 +307,14 @@ export default function Vessels() {
                 <option value="LocalOnly">Local Only</option>
                 <option value="LocalAndRemote">Local and Remote</option>
                 <option value="None">None</option>
+              </select>
+            </label>
+            <label>Default Pipeline
+              <select value={form.defaultPipelineId} onChange={e => setForm({ ...form, defaultPipelineId: e.target.value })}>
+                <option value="">None (WorkerOnly)</option>
+                {pipelines.map(p => (
+                  <option key={p.id} value={p.id}>{p.name} ({p.stages.map(s => s.personaName).join(' -> ')})</option>
+                ))}
               </select>
             </label>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8 }} title="When enabled, multiple missions can run on this vessel at the same time. When disabled, only one mission may be active (Assigned, InProgress, WorkProduced, PullRequestOpen) at a time.">
