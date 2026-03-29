@@ -276,6 +276,8 @@ export interface DispatchRequest {
 export interface VoyageCreateRequest {
   title: string;
   description?: string;
+  vesselId?: string;
+  pipelineId?: string;
   pipeline?: string;
   missions: DispatchRequest[];
 }

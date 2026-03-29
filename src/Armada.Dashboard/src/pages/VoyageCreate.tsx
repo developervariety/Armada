@@ -76,7 +76,7 @@ export default function VoyageCreate() {
         vesselId,
         ...(selectedPipeline ? { pipeline: selectedPipeline } : {}),
         missions: missionPayloads,
-      } as any);
+      });
 
       navigate(`/voyages/${voyage.id}`);
     } catch (err: unknown) {

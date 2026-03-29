@@ -123,7 +123,7 @@ export default function Dispatch() {
         title: t,
         description: t,
       }));
-      const voyage = await createVoyage({ title, missions, ...(selectedPipeline ? { pipeline: selectedPipeline } : {}) });
+      const voyage = await createVoyage({ title, vesselId: quick.vesselId, missions, ...(selectedPipeline ? { pipeline: selectedPipeline } : {}) });
       setQuickResult({
         ok: true,
         message: `Dispatched 1 voyage with ${missions.length} mission${missions.length !== 1 ? 's' : ''}`,
