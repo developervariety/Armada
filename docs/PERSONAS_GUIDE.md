@@ -110,14 +110,18 @@ previous one.
 | **Tested** | Worker -> TestEngineer -> Judge | Work is implemented, tests are written, then everything is reviewed. |
 | **FullPipeline** | Architect -> Worker -> TestEngineer -> Judge | Full lifecycle: plan, implement, test, review. |
 
-### Pipeline Resolution Order
+### Pipeline Resolution Order (Precedence)
 
-When a voyage is dispatched, the Admiral determines which pipeline to use in this order:
+When a voyage is dispatched, the Admiral determines which pipeline to use. **Highest priority wins:**
 
-1. **Explicit dispatch parameter** -- `pipelineId` passed to `armada_dispatch`
-2. **Vessel default** -- `DefaultPipelineId` on the target vessel
-3. **Fleet default** -- `DefaultPipelineId` on the vessel's parent fleet
-4. **Fallback** -- `WorkerOnly`
+| Priority | Source | Set Via |
+|----------|--------|---------|
+| 1 (highest) | **Explicit dispatch parameter** | `pipelineId` or `pipeline` on dispatch |
+| 2 | **Vessel default** | `DefaultPipelineId` on the target vessel (dashboard, MCP, REST) |
+| 3 | **Fleet default** | `DefaultPipelineId` on the vessel's parent fleet (dashboard, MCP, REST) |
+| 4 (lowest) | **System fallback** | WorkerOnly (no configuration needed) |
+
+This means a fleet-level default applies to all vessels in that fleet unless overridden at the vessel level, and any explicit pipeline on a dispatch overrides both. If a referenced pipeline has been deleted, the stale reference is automatically cleared.
 
 ### How Missions Chain
 

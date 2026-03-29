@@ -127,7 +127,7 @@ export default function VoyageCreate() {
           <label style={{ display: 'block', marginBottom: 14 }}>
             <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-muted)' }}>Pipeline</span>
             <select value={selectedPipeline} onChange={e => setSelectedPipeline(e.target.value)} style={{ marginTop: 4 }}>
-              <option value="">Default (vessel/fleet setting)</option>
+              <option value="">Inherit (vessel, then fleet, then WorkerOnly)</option>
               {pipelines.map(p => (
                 <option key={p.id} value={p.name}>
                   {p.name} ({p.stages.map(s => s.personaName).join(' -> ')})

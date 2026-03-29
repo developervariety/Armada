@@ -159,21 +159,35 @@ Is pipeline null or single-stage Worker?
 
 ## 5. Pipeline Resolution
 
-The Admiral resolves which pipeline to use in `ResolvePipelineAsync`:
+The Admiral resolves which pipeline to use in `ResolvePipelineAsync`. Resolution follows a strict precedence order -- **highest priority wins**:
+
+| Priority | Source | How to Set |
+|----------|--------|------------|
+| 1 (highest) | **Explicit dispatch parameter** | `pipelineId` or `pipeline` on `armada_dispatch` / voyage create |
+| 2 | **Vessel default** | `DefaultPipelineId` on the target vessel |
+| 3 | **Fleet default** | `DefaultPipelineId` on the vessel's parent fleet |
+| 4 (lowest) | **System fallback** | WorkerOnly (no pipeline, standard single-mission behavior) |
 
 ```
-1. If pipelineId is provided:
+1. If pipelineId is provided (explicit dispatch override):
    a. Try ReadAsync(pipelineId)      -- lookup by ID
    b. Try ReadByNameAsync(pipelineId) -- lookup by name (convenience)
+   c. If found, use it (highest priority)
 
 2. If vessel.DefaultPipelineId is set:
    a. Try ReadAsync(vessel.DefaultPipelineId)
+   b. If found, use it
+   c. If pipeline was deleted: clear the stale reference (set to null, update vessel), log warning
 
 3. If vessel.FleetId is set and fleet.DefaultPipelineId is set:
    a. Try ReadAsync(fleet.DefaultPipelineId)
+   b. If found, use it
+   c. If pipeline was deleted: clear the stale reference (set to null, update fleet), log warning
 
 4. Return null (falls back to WorkerOnly behavior)
 ```
+
+**Stale reference handling:** If a vessel or fleet references a pipeline that has been deleted, the Admiral automatically clears the `DefaultPipelineId` to null, persists the update, and logs a warning. This prevents stale IDs from accumulating.
 
 **Source:** `src/Armada.Core/Services/AdmiralService.cs`, method `ResolvePipelineAsync`
 

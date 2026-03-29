@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { listFleets, listVessels, updateFleet, deleteFleet } from '../api/client';
-import type { Fleet, Vessel } from '../types/models';
+import { listFleets, listVessels, listPipelines, updateFleet, deleteFleet } from '../api/client';
+import type { Fleet, Vessel, Pipeline } from '../types/models';
 import ActionMenu from '../components/shared/ActionMenu';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
@@ -18,6 +18,7 @@ export default function FleetDetail() {
   const navigate = useNavigate();
   const [fleet, setFleet] = useState<Fleet | null>(null);
   const [vessels, setVessels] = useState<Vessel[]>([]);
+  const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -35,11 +36,12 @@ export default function FleetDetail() {
     if (!id) return;
     try {
       setLoading(true);
-      const [fResult, vResult] = await Promise.all([listFleets({ pageSize: 9999 }), listVessels({ pageSize: 9999 })]);
+      const [fResult, vResult, pResult] = await Promise.all([listFleets({ pageSize: 9999 }), listVessels({ pageSize: 9999 }), listPipelines({ pageSize: 9999 })]);
       const found = fResult.objects.find(f => f.id === id);
       if (!found) { setError('Fleet not found.'); setLoading(false); return; }
       setFleet(found);
       setVessels(vResult.objects.filter(v => v.fleetId === id));
+      setPipelines(pResult.objects);
       setError('');
     } catch {
       setError('Failed to load fleet.');
@@ -113,7 +115,14 @@ export default function FleetDetail() {
             <h3>Edit Fleet</h3>
             <label>Name<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required /></label>
             <label>Description<input value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></label>
-            <label>Default Pipeline ID<input value={form.defaultPipelineId} onChange={e => setForm({ ...form, defaultPipelineId: e.target.value })} /></label>
+            <label>Default Pipeline
+              <select value={form.defaultPipelineId} onChange={e => setForm({ ...form, defaultPipelineId: e.target.value })}>
+                <option value="">None (WorkerOnly)</option>
+                {pipelines.map(p => (
+                  <option key={p.id} value={p.id}>{p.name} ({p.stages.map(s => s.personaName).join(' -> ')})</option>
+                ))}
+              </select>
+            </label>
             <div className="modal-actions">
               <button type="submit" className="btn btn-primary">Save</button>
               <button type="button" className="btn" onClick={() => setShowForm(false)}>Cancel</button>
@@ -137,7 +146,7 @@ export default function FleetDetail() {
         </div>
         <div className="detail-field"><span className="detail-label">Name</span><span>{fleet.name}</span></div>
         <div className="detail-field"><span className="detail-label">Description</span><span>{fleet.description || '-'}</span></div>
-        <div className="detail-field"><span className="detail-label">Default Pipeline</span><span className="mono">{fleet.defaultPipelineId || <span className="text-dim">None (WorkerOnly)</span>}</span></div>
+        <div className="detail-field"><span className="detail-label">Default Pipeline</span><span>{pipelines.find(p => p.id === fleet.defaultPipelineId)?.name || fleet.defaultPipelineId || <span className="text-dim">None (WorkerOnly)</span>}</span></div>
         <div className="detail-field"><span className="detail-label">Active</span><span>{fleet.active !== false ? 'Yes' : 'No'}</span></div>
         <div className="detail-field"><span className="detail-label">Created</span><span title={fleet.createdUtc}>{formatTimeAbsolute(fleet.createdUtc)}</span></div>
         <div className="detail-field"><span className="detail-label">Last Updated</span><span>{formatTimeAbsolute(fleet.lastUpdateUtc)}</span></div>

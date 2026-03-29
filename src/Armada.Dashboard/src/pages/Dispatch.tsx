@@ -231,7 +231,7 @@ export default function Dispatch() {
                 onChange={(e) => setSelectedPipeline(e.target.value)}
                 title="Override the default pipeline for this dispatch"
               >
-                <option value="">Default (vessel/fleet setting)</option>
+                <option value="">Inherit (vessel, then fleet, then WorkerOnly)</option>
                 {pipelines.map((p) => (
                   <option key={p.id} value={p.name}>
                     {p.name} ({p.stages.map((s) => s.personaName).join(' -> ')})
