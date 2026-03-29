@@ -394,6 +394,10 @@ Dispatch a new voyage with missions to a vessel. This is the primary way to assi
     "pipelineId": {
       "type": "string",
       "description": "Optional pipeline ID to use for this voyage (overrides vessel/fleet default)"
+    },
+    "pipeline": {
+      "type": "string",
+      "description": "Optional pipeline name to use for this voyage (convenience alias for pipelineId -- resolves by name)"
     }
   },
   "required": ["title", "vesselId", "missions"]
@@ -407,6 +411,7 @@ Dispatch a new voyage with missions to a vessel. This is the primary way to assi
 | `vesselId` | string | Yes | Target vessel ID (prefix `vsl_`) |
 | `missions` | array | Yes | Array of mission objects with `title` and optional `description` |
 | `pipelineId` | string | No | Pipeline ID to use for this voyage (overrides vessel/fleet default) |
+| `pipeline` | string | No | Pipeline name to use (convenience alias for `pipelineId` -- resolves by name) |
 
 **Example Input:**
 

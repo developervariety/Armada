@@ -1054,6 +1054,8 @@ Create a new voyage with optional missions. Missions are automatically dispatche
 | `Description` | string | no | Voyage description |
 | `VesselId` | string | yes | Target vessel ID |
 | `Missions` | array | no | List of [MissionRequest](#missionrequest) objects |
+| `PipelineId` | string | no | Pipeline ID to use for this voyage (overrides vessel/fleet default) |
+| `Pipeline` | string | no | Pipeline name to use for this voyage (alternative to `PipelineId`) |
 
 **Response:** `201 Created` - [Voyage](#voyage)
 

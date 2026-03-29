@@ -34,6 +34,49 @@ That's it. Armada auto-initializes, detects your installed agent runtime (Claude
 
 > **⚠️ Security Note:** Armada runs AI agents with auto-approve flags enabled by default — Claude Code uses `--dangerously-skip-permissions`, Codex uses `--approval-mode full-auto`, and Gemini uses `--sandbox none`. This means agents can read, write, and execute code in their worktrees without user confirmation. Review the [configuration](#configuration) options and understand the implications before running Armada in sensitive environments.
 
+## New in v0.4.0
+
+### Personas and Pipelines -- Multi-Stage Quality Gates
+
+v0.4.0 introduces **personas** and **pipelines**, transforming Armada from a simple dispatch system into a full AI development workflow engine.
+
+**Personas** are specialized agent roles. Instead of every captain doing the same thing, you can now assign captains to specific roles:
+
+- **Architect** -- Analyzes a high-level goal and decomposes it into right-sized missions, identifying file boundaries and parallel execution opportunities
+- **Worker** -- The default. Implements code changes, fixes bugs, writes features
+- **TestEngineer** -- Reviews diffs and writes unit/integration tests for the changes
+- **Judge** -- Reviews completed work for correctness, completeness, scope violations, and style compliance
+
+**Pipelines** chain personas into ordered workflows. Built-in pipelines include:
+
+| Pipeline | Stages | Use Case |
+|----------|--------|----------|
+| WorkerOnly | Worker | Quick tasks, bug fixes (default) |
+| Reviewed | Worker -> Judge | Code changes that need review |
+| Tested | Worker -> TestEngineer -> Judge | Changes that need test coverage |
+| FullPipeline | Architect -> Worker -> TestEngineer -> Judge | Complex features requiring planning |
+
+Pipelines are fully configurable -- create custom personas with custom prompt templates and chain them in any order. Set a default pipeline per vessel or fleet, or override per dispatch.
+
+### Fully Configurable Prompt Templates
+
+Every prompt the system sends to an agent is now template-driven and editable:
+
+- **18 built-in templates** covering mission rules, context conservation, merge conflict avoidance, persona instructions, PR bodies, and more
+- **{Placeholder} parameters** are substituted at runtime with mission, vessel, captain, and pipeline context
+- **Edit in the dashboard** with a two-column editor (template content + parameter reference panel)
+- **Edit via MCP tools** (`armada_get/update/reset_prompt_template`) or REST API
+- **Reset to defaults** at any time for built-in templates
+
+### Dashboard Enhancements
+
+- **Personas page** -- View, create, edit, and delete personas
+- **Pipelines page** -- Design multi-stage workflows with drag-to-reorder stages
+- **Prompt Templates page** -- Browse all templates by category, edit with live parameter reference
+- **Pipeline selection** on Dispatch, Voyage Create, and Vessel settings
+- **Mission detail** shows persona assignment and pipeline dependency chain
+- **Captain detail** shows persona preferences and restrictions
+
 ## New in v0.3.0
 
 - **Multi-tenant support** -- tenant isolation, user management, bearer token and session token authentication with role-based access (admin, tenant admin, user)
@@ -852,6 +895,16 @@ v0.3.0 introduces multi-tenant support. The database schema is automatically mig
 - **New settings:** `AllowSelfRegistration` (default: `true`), `RequireAuthForShutdown` (default: `false`), `SessionTokenEncryptionKey` (auto-generated)
 
 No manual changes to `settings.json` are required. Existing `ApiKey` settings continue to work.
+
+### v0.3.0 to v0.4.0
+
+v0.4.0 adds personas, pipelines, and prompt templates. The database schema is automatically migrated on first startup (migrations 19-23). Key changes:
+
+- New tables: `prompt_templates`, `personas`, `pipelines`, `pipeline_stages`
+- New columns: `captains.allowed_personas`, `captains.preferred_persona`, `missions.persona`, `missions.depends_on_mission_id`, `fleets.default_pipeline_id`, `vessels.default_pipeline_id`
+- Built-in personas (Worker, Architect, Judge, TestEngineer) and pipelines (WorkerOnly, Reviewed, Tested, FullPipeline) are seeded automatically
+- 18 built-in prompt templates are seeded automatically
+- Standalone migration scripts available in `migrations/` for manual execution
 
 ## Issues and Discussions
 
