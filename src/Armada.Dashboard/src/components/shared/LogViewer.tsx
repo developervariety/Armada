@@ -36,56 +36,81 @@ export default function LogViewer({
   const [lineCount, setLineCount] = useState(defaultLineCount);
   const [copied, setCopied] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
-  const timerRef = useRef<number | null>(null);
+
+  // Store onRefresh in a ref so the interval never needs to be recreated
   const onRefreshRef = useRef(onRefresh);
   onRefreshRef.current = onRefresh;
 
-  // Auto-scroll when following
-  useEffect(() => {
-    if (following && bodyRef.current) {
-      bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
-    }
-  }, [following, content]);
+  // Use a ref for the interval ID to manage it imperatively
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Follow timer -- uses ref so callback identity changes don't reset the interval
-  useEffect(() => {
-    if (following) {
-      onRefreshRef.current?.();
-      timerRef.current = window.setInterval(() => {
+  // Use a ref to track following state for the interval callback
+  const followingRef = useRef(false);
+
+  const startFollowing = useCallback(() => {
+    if (intervalRef.current) return; // already running
+    followingRef.current = true;
+    setFollowing(true);
+    onRefreshRef.current?.();
+    intervalRef.current = setInterval(() => {
+      if (followingRef.current) {
         onRefreshRef.current?.();
-      }, 1000);
-    }
-    return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
       }
-    };
-  }, [following]);
+    }, 1000);
+  }, []);
 
-  // Stop following when mission completes
-  useEffect(() => {
-    if (completed && following) {
-      setFollowing(false);
-      // Do one final refresh to get the last content
-      if (onRefresh) onRefresh();
+  const stopFollowing = useCallback(() => {
+    followingRef.current = false;
+    setFollowing(false);
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
     }
-  }, [completed]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Cleanup on close
-  useEffect(() => {
-    if (!open) {
-      setFollowing(false);
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
-    }
-  }, [open]);
+  }, []);
 
   const toggleFollow = useCallback(() => {
-    setFollowing(prev => !prev);
+    if (followingRef.current) {
+      stopFollowing();
+    } else {
+      startFollowing();
+    }
+  }, [startFollowing, stopFollowing]);
+
+  // Auto-scroll when following and content changes
+  useEffect(() => {
+    if (followingRef.current && bodyRef.current) {
+      bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
+    }
+  }, [content]);
+
+  // Stop when completed
+  const prevCompleted = useRef(completed);
+  useEffect(() => {
+    if (completed && !prevCompleted.current && followingRef.current) {
+      // One final refresh then stop
+      onRefreshRef.current?.();
+      stopFollowing();
+    }
+    prevCompleted.current = completed;
+  }, [completed, stopFollowing]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+      followingRef.current = false;
+    };
   }, []);
+
+  // Reset when modal closes
+  useEffect(() => {
+    if (!open && followingRef.current) {
+      stopFollowing();
+    }
+  }, [open, stopFollowing]);
 
   const handleLineCountChange = useCallback((count: number) => {
     setLineCount(count);
