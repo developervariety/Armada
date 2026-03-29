@@ -6,7 +6,7 @@ import ActionMenu from '../components/shared/ActionMenu';
 import JsonViewer from '../components/shared/JsonViewer';
 import StatusBadge from '../components/shared/StatusBadge';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
-import { copyToClipboard } from '../components/shared/CopyButton';
+import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
 
 function formatTimeAbsolute(utc: string | null): string {
@@ -143,7 +143,7 @@ export default function PersonaDetail() {
           <span className="detail-label">ID</span>
           <span className="id-display">
             <span className="mono">{persona.id}</span>
-            <button className="copy-btn" onClick={() => copyToClipboard(persona.id)} title="Copy ID" />
+            <CopyButton text={persona.id} />
           </span>
         </div>
         <div className="detail-field"><span className="detail-label">Name</span><span>{persona.name}</span></div>

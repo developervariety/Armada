@@ -7,7 +7,7 @@ import ActionMenu from '../components/shared/ActionMenu';
 import JsonViewer from '../components/shared/JsonViewer';
 import StatusBadge from '../components/shared/StatusBadge';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
-import { copyToClipboard } from '../components/shared/CopyButton';
+import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
 
 interface ParameterInfo {
@@ -342,7 +342,7 @@ export default function PromptTemplateDetail() {
           <span className="detail-label">ID</span>
           <span className="id-display">
             <span className="mono">{template.id}</span>
-            <button className="copy-btn" onClick={() => copyToClipboard(template.id)} title="Copy ID" />
+            <CopyButton text={template.id} />
           </span>
         </div>
         <div className="detail-field"><span className="detail-label">Active</span><StatusBadge status={template.active !== false ? 'Active' : 'Inactive'} /></div>

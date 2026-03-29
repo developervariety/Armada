@@ -5,7 +5,7 @@ import type { Pipeline } from '../types/models';
 import ActionMenu from '../components/shared/ActionMenu';
 import JsonViewer from '../components/shared/JsonViewer';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
-import { copyToClipboard } from '../components/shared/CopyButton';
+import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
 
 function formatTimeAbsolute(utc: string | null): string {
@@ -209,7 +209,7 @@ export default function PipelineDetail() {
           <span className="detail-label">ID</span>
           <span className="id-display">
             <span className="mono">{pipeline.id}</span>
-            <button className="copy-btn" onClick={() => copyToClipboard(pipeline.id)} title="Copy ID" />
+            <CopyButton text={pipeline.id} />
           </span>
         </div>
         <div className="detail-field"><span className="detail-label">Name</span><span>{pipeline.name}</span></div>
