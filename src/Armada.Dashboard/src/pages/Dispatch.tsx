@@ -5,7 +5,9 @@ import type { Vessel, Voyage, Pipeline } from '../types/models';
 
 /**
  * Parse a natural-language prompt into discrete tasks.
- * Supports numbered lists, semicolon-separated, or single tasks.
+ * Only splits on explicit delimiters: numbered lists ("1. foo\n2. bar")
+ * or semicolons ("foo; bar; baz"). Does NOT split on bare newlines
+ * or bullet points -- those are part of a single task description.
  */
 function parseTasks(prompt: string): string[] {
   if (!prompt || !prompt.trim()) return [];
@@ -28,14 +30,7 @@ function parseTasks(prompt: string): string[] {
     if (parts.length >= 2) return parts;
   }
 
-  // Try newline-separated with bullet points
-  const lines = prompt
-    .split('\n')
-    .map((l) => l.replace(/^[\s\-*]+/, '').trim())
-    .filter(Boolean);
-  if (lines.length >= 2) return lines;
-
-  // Single task
+  // Single task -- do not split on newlines or bullets
   return [prompt.trim()];
 }
 
@@ -96,9 +91,21 @@ export default function Dispatch() {
   const previewQuickTasks = useCallback(
     (prompt: string) => {
       setQuick((prev) => ({ ...prev, prompt }));
-      setParsedTasks(parseTasks(prompt));
+      // Only preview parsed tasks when no multi-stage pipeline is selected
+      const pipelineObj = pipelines.find((p) => p.name === selectedPipeline);
+      const isMultiStage = pipelineObj != null && pipelineObj.stages.length > 1;
+      if (isMultiStage) {
+        setParsedTasks([]);
+      } else {
+        const parsed = parseTasks(prompt);
+        // Only show preview if parser found explicit delimiters (numbered list or semicolons)
+        // Don't show for plain newline splitting -- that's too aggressive
+        const hasNumberedList = /(?:^|\n)\s*\d+\.\s+/.test(prompt);
+        const hasSemicolons = prompt.includes(';');
+        setParsedTasks((hasNumberedList || hasSemicolons) && parsed.length > 1 ? parsed : []);
+      }
     },
-    [],
+    [pipelines, selectedPipeline],
   );
 
   const handleQuickDispatch = async () => {
