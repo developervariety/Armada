@@ -173,25 +173,44 @@ export default function Dispatch() {
     setDispatching(true);
     setDispatchResult(null);
     try {
-      const body: Record<string, unknown> = {
-        title: advanced.title,
-        description: advanced.description,
-        vesselId: advanced.vesselId,
-        priority: advanced.priority || 100,
-      };
-      if (advanced.voyageId) body.voyageId = advanced.voyageId;
-
-      const mission = await createMission(body);
-      setDispatchResult({
-        ok: true,
-        message: `Mission dispatched: ${mission.id || 'OK'}`,
-      });
-      setAdvanced({ title: '', description: '', vesselId: '', priority: 100, voyageId: '' });
-      // Navigate to mission detail after a short delay
-      setTimeout(() => {
-        if (mission.id) navigate(`/missions/${mission.id}`);
-        else navigate('/missions');
-      }, 1500);
+      if (selectedPipeline || advanced.voyageId) {
+        // Use voyage dispatch to support pipelines and voyage grouping
+        const voyage = await createVoyage({
+          title: advanced.title,
+          description: advanced.description,
+          vesselId: advanced.vesselId,
+          ...(selectedPipeline ? { pipeline: selectedPipeline } : {}),
+          missions: [{ title: advanced.title, description: advanced.description || advanced.title, vesselId: advanced.vesselId, priority: advanced.priority || 100 }],
+        });
+        const pipelineObj = pipelines.find((p) => p.name === selectedPipeline);
+        const stageCount = pipelineObj ? pipelineObj.stages.length : 1;
+        setDispatchResult({
+          ok: true,
+          message: `Dispatched voyage with ${stageCount} pipeline stage${stageCount !== 1 ? 's' : ''}`,
+        });
+        setAdvanced({ title: '', description: '', vesselId: '', priority: 100, voyageId: '' });
+        setTimeout(() => {
+          navigate(`/voyages/${voyage.id}`);
+        }, 1500);
+      } else {
+        // Single mission dispatch (no pipeline)
+        const body: Record<string, unknown> = {
+          title: advanced.title,
+          description: advanced.description,
+          vesselId: advanced.vesselId,
+          priority: advanced.priority || 100,
+        };
+        const mission = await createMission(body);
+        setDispatchResult({
+          ok: true,
+          message: `Mission dispatched: ${mission.id || 'OK'}`,
+        });
+        setAdvanced({ title: '', description: '', vesselId: '', priority: 100, voyageId: '' });
+        setTimeout(() => {
+          if (mission.id) navigate(`/missions/${mission.id}`);
+          else navigate('/missions');
+        }, 1500);
+      }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Unknown error';
       setDispatchResult({ ok: false, message: `Failed: ${msg}` });
@@ -378,20 +397,37 @@ export default function Dispatch() {
                 />
               </div>
             </div>
-            <div className="form-group">
-              <label>Voyage (optional)</label>
-              <select
-                value={advanced.voyageId}
-                onChange={(e) => setAdvanced({ ...advanced, voyageId: e.target.value })}
-                title="Optionally group this mission into an existing voyage"
-              >
-                <option value="">No voyage</option>
-                {voyages.map((v) => (
-                  <option key={v.id} value={v.id}>
-                    {v.title} ({v.id})
-                  </option>
-                ))}
-              </select>
+            <div className="form-row">
+              <div className="form-group" style={{ flex: 1 }}>
+                <label>Pipeline</label>
+                <select
+                  value={selectedPipeline}
+                  onChange={(e) => setSelectedPipeline(e.target.value)}
+                  title="Override the default pipeline for this dispatch"
+                >
+                  <option value="">Inherit (vessel, then fleet, then WorkerOnly)</option>
+                  {pipelines.map((p) => (
+                    <option key={p.id} value={p.name}>
+                      {p.name} ({p.stages.map((s) => s.personaName).join(' -> ')})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-group" style={{ flex: 1 }}>
+                <label>Voyage (optional)</label>
+                <select
+                  value={advanced.voyageId}
+                  onChange={(e) => setAdvanced({ ...advanced, voyageId: e.target.value })}
+                  title="Optionally group this mission into an existing voyage"
+                >
+                  <option value="">No voyage</option>
+                  {voyages.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.title} ({v.id})
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
             <div className="form-actions">
               <button
