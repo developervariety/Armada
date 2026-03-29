@@ -444,9 +444,12 @@ export default function Layout() {
             <span aria-hidden="true">{collapsed ? '\u25B6' : '\u25C0'}</span>
           </button>
           {!collapsed && (
-            <button className="btn btn-sm" onClick={logout} title="Sign out">
-              Logout
-            </button>
+            <>
+              <button className="btn btn-sm" onClick={logout} title="Sign out">
+                Logout
+              </button>
+              <span style={{ fontSize: '0.7em', color: 'var(--text-dim)', opacity: 0.5 }}>v{__APP_VERSION__}</span>
+            </>
           )}
         </div>
       </aside>
