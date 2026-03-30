@@ -669,7 +669,9 @@ namespace Armada.Core.Services
 
             bool isActive = mission != null &&
                 (mission.Status == MissionStatusEnum.InProgress ||
-                 mission.Status == MissionStatusEnum.Assigned);
+                 mission.Status == MissionStatusEnum.Assigned ||
+                 mission.Status == MissionStatusEnum.Review ||
+                 mission.Status == MissionStatusEnum.Testing);
 
             if (!isActive && captain.ProcessId == null)
             {
@@ -972,15 +974,18 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Detect and recover orphaned missions — missions stuck in InProgress or Assigned
-        /// whose captain has moved on to a different mission. This handles the edge case where
-        /// a captain was reassigned before the health check could detect the old process exit.
+        /// Detect and recover orphaned missions — missions stuck in InProgress, Assigned,
+        /// Review, or Testing whose captain has moved on to a different mission. This handles
+        /// the edge case where a captain was reassigned before the health check could detect
+        /// the old process exit.
         /// </summary>
         private async Task RecoverOrphanedMissionsAsync(CancellationToken token)
         {
             List<Mission> inProgressMissions = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.InProgress, token).ConfigureAwait(false);
             List<Mission> assignedMissions = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Assigned, token).ConfigureAwait(false);
-            List<Mission> activeMissions = inProgressMissions.Concat(assignedMissions).ToList();
+            List<Mission> reviewMissions = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Review, token).ConfigureAwait(false);
+            List<Mission> testingMissions = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Testing, token).ConfigureAwait(false);
+            List<Mission> activeMissions = inProgressMissions.Concat(assignedMissions).Concat(reviewMissions).Concat(testingMissions).ToList();
 
             foreach (Mission mission in activeMissions)
             {
