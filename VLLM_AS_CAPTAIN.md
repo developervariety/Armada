@@ -23,7 +23,7 @@ Armada Admiral
 VllmRuntime (C# class, extends BaseAgentRuntime)
     |
     v
-armada-vllm-agent (Python CLI wrapper)
+Armada.Agent.Vllm (C# CLI, .NET global tool)
     |
     +--> Reads CLAUDE.md from working directory
     +--> Reads file tree for context
@@ -39,10 +39,10 @@ armada-vllm-agent (Python CLI wrapper)
 ## Key Difference from Ollama
 
 vLLM uses the OpenAI API format, which means:
-- You can use the `openai` Python library directly (just point `base_url` to vLLM)
+- The C# wrapper can use any OpenAI-compatible HTTP client (the API is well-documented JSON)
 - Tool/function calling works if the model supports it (e.g., Hermes, Qwen)
 - Structured output via JSON mode is available
-- The wrapper agent can be simpler because the API is more standardized
+- The `VllmClient.cs` can share most code with `OllamaClient.cs` since both are HTTP+JSON
 
 ## Implementation Steps
 
@@ -56,7 +56,7 @@ public class VllmRuntime : BaseAgentRuntime
     public override string Name => "vLLM";
     public override bool SupportsResume => false;
 
-    private string _ExecutablePath = "armada-vllm-agent"; // the wrapper CLI
+    private string _ExecutablePath = "armada-vllm"; // the .NET global tool
     private string _Model = "Qwen/Qwen2.5-Coder-32B-Instruct";
     private string _BaseUrl = "http://localhost:8000/v1";
 
@@ -97,38 +97,107 @@ case AgentRuntimeEnum.vLLM:
     return new VllmRuntime(_Logging);
 ```
 
-### Step 4: Build the Wrapper Agent (`armada-vllm-agent`)
+### Step 4: Build the Wrapper Agent (`Armada.Agent.Vllm`)
 
-The wrapper agent is nearly identical to the Ollama wrapper (see `OLLAMA_AS_CAPTAIN.md`) but uses the OpenAI client library instead of the Ollama API:
+A new C# project in the Armada solution, packaged as a .NET global tool (`armada-vllm`).
 
-```python
-from openai import OpenAI
+**Project structure:**
 
-client = OpenAI(
-    base_url="http://localhost:8000/v1",
-    api_key="not-needed"  # vLLM doesn't require auth by default
-)
-
-response = client.chat.completions.create(
-    model="Qwen/Qwen2.5-Coder-32B-Instruct",
-    messages=[
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_prompt}
-    ],
-    tools=tools,  # function calling definitions
-    temperature=0.1
-)
+```
+src/Armada.Agent.Vllm/
+    Armada.Agent.Vllm.csproj       (PackAsTool, ToolCommandName: armada-vllm)
+    Program.cs                      (entry point, argument parsing)
+    VllmClient.cs                   (HTTP client for OpenAI-compatible API)
+    AgentLoop.cs                    (tool-use loop orchestrator)
+    Tools/                          (same as Ollama -- shared via Armada.Agent.Common)
+        ReadFileTool.cs
+        WriteFileTool.cs
+        EditFileTool.cs
+        RunCommandTool.cs
+        ListFilesTool.cs
+        SearchFilesTool.cs
+    Context/                        (same as Ollama -- shared via Armada.Agent.Common)
+        ClaudeMdReader.cs
+        FileTreeBuilder.cs
+        ContextManager.cs
+    Git/
+        GitCommitter.cs
 ```
 
-The wrapper must implement the same tool-use loop:
-1. Read CLAUDE.md and build context
-2. Call vLLM with tools defined (read_file, write_file, edit_file, run_command, etc.)
-3. Execute tool calls
-4. Feed results back
-5. Loop until done
-6. Commit and exit
+**`VllmClient.cs`** wraps the OpenAI-compatible chat completions API:
 
-### Step 5: vLLM Server Setup
+```csharp
+public class VllmClient
+{
+    private HttpClient _Http;
+    private string _BaseUrl;
+
+    public async Task<ChatResponse> ChatAsync(
+        string model,
+        List<ChatMessage> messages,
+        List<ToolDefinition> tools,
+        double temperature = 0.1,
+        int maxTokens = 4096)
+    {
+        // POST /v1/chat/completions
+        // Body:
+        // {
+        //   "model": "Qwen/Qwen2.5-Coder-32B-Instruct",
+        //   "messages": [...],
+        //   "tools": [...],
+        //   "temperature": 0.1,
+        //   "max_tokens": 4096
+        // }
+        //
+        // Response follows OpenAI format:
+        // { "choices": [{ "message": { "content": "...", "tool_calls": [...] } }] }
+    }
+}
+```
+
+The agent loop is identical to the Ollama wrapper -- only the HTTP client differs.
+
+### Step 5: Shared Agent Library (`Armada.Agent.Common`)
+
+Since the Ollama and vLLM wrappers share 90% of their code (tools, context, git, agent loop), extract the shared components into a common library:
+
+```
+src/Armada.Agent.Common/
+    Armada.Agent.Common.csproj
+    AgentLoop.cs                    (abstract, backend-agnostic)
+    ILlmClient.cs                   (interface for chat API)
+    Tools/
+        ITool.cs
+        ReadFileTool.cs
+        WriteFileTool.cs
+        EditFileTool.cs
+        RunCommandTool.cs
+        ListFilesTool.cs
+        SearchFilesTool.cs
+    Context/
+        ClaudeMdReader.cs
+        FileTreeBuilder.cs
+        ContextManager.cs
+    Git/
+        GitCommitter.cs
+    Models/
+        ChatMessage.cs
+        ChatResponse.cs
+        ToolCall.cs
+        ToolDefinition.cs
+
+src/Armada.Agent.Ollama/
+    Armada.Agent.Ollama.csproj      (references Armada.Agent.Common)
+    Program.cs
+    OllamaClient.cs                 (implements ILlmClient)
+
+src/Armada.Agent.Vllm/
+    Armada.Agent.Vllm.csproj        (references Armada.Agent.Common)
+    Program.cs
+    VllmClient.cs                   (implements ILlmClient)
+```
+
+### Step 6: vLLM Server Setup
 
 Unlike Ollama (which manages its own server), vLLM must be started separately:
 
@@ -149,9 +218,54 @@ Armada does NOT manage the vLLM server lifecycle. The user is responsible for:
 - Ensuring the model is loaded and ready
 - Managing GPU memory and model selection
 
-### Step 6: Update Dashboard
+### Step 7: Update Dashboard
 
 Add "vLLM" to the runtime dropdown in Captain creation.
+
+## Captain Settings for Model Parameters
+
+Model-related settings should be stored on the Captain, not on the runtime class. This allows different captains to use different models and parameters even with the same runtime type.
+
+**New fields on the Captain model:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `ModelName` | string? | null | Model name/path (e.g. `Qwen/Qwen2.5-Coder-32B-Instruct`) |
+| `ModelHost` | string? | null | Inference server URL (e.g. `http://localhost:8000/v1`) |
+| `Temperature` | double? | null | Generation temperature (0.0-2.0) |
+| `MaxTokens` | int? | null | Max tokens per generation |
+| `MaxIterations` | int? | null | Max tool-use loop iterations |
+| `ContextBudget` | int? | null | Max context tokens to send |
+
+When these are null, the runtime uses its built-in defaults. When set, they override.
+
+**How to pass to the wrapper:** The runtime reads these from the captain record and passes them as CLI arguments:
+
+```csharp
+protected override List<string> BuildArguments(string prompt)
+{
+    List<string> args = new List<string>();
+    args.Add("--model"); args.Add(_Model);
+    args.Add("--base-url"); args.Add(_BaseUrl);
+    if (_Temperature.HasValue) { args.Add("--temperature"); args.Add(_Temperature.Value.ToString()); }
+    if (_MaxTokens.HasValue) { args.Add("--max-tokens"); args.Add(_MaxTokens.Value.ToString()); }
+    if (_MaxIterations.HasValue) { args.Add("--max-iterations"); args.Add(_MaxIterations.Value.ToString()); }
+    args.Add("--prompt"); args.Add(prompt);
+    return args;
+}
+```
+
+**Database migration:** Add nullable columns to the `captains` table:
+```sql
+ALTER TABLE captains ADD COLUMN model_name TEXT;
+ALTER TABLE captains ADD COLUMN model_host TEXT;
+ALTER TABLE captains ADD COLUMN temperature REAL;
+ALTER TABLE captains ADD COLUMN max_tokens INTEGER;
+ALTER TABLE captains ADD COLUMN max_iterations INTEGER;
+ALTER TABLE captains ADD COLUMN context_budget INTEGER;
+```
+
+**Dashboard:** Add these fields to the Captain create/edit form, visible when the runtime is Ollama or vLLM.
 
 ## Model Requirements
 
@@ -166,17 +280,6 @@ vLLM supports any HuggingFace-compatible model. For coding agents, recommended m
 | `mistralai/Codestral-22B-v0.1` | 22B | Limited | 32K | Fast, decent quality |
 
 Tool calling support is critical. Without it, the wrapper must parse natural language for actions, which is fragile.
-
-## Configuration
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `BaseUrl` | `http://localhost:8000/v1` | vLLM server URL |
-| `Model` | `Qwen/Qwen2.5-Coder-32B-Instruct` | Model name (must match what vLLM loaded) |
-| `MaxIterations` | 20 | Maximum tool-use loop iterations |
-| `Temperature` | 0.1 | Generation temperature |
-| `MaxTokens` | 4096 | Max tokens per generation |
-| `ToolCallParser` | `hermes` | Tool call format parser |
 
 ## vLLM vs Ollama: Which to Choose
 
@@ -195,42 +298,30 @@ Tool calling support is critical. Without it, the wrapper must parse natural lan
 
 **Choose vLLM** if you want production throughput, multiple concurrent captains, or multi-GPU inference.
 
-## Shared Wrapper Agent
-
-The Ollama and vLLM wrapper agents are nearly identical -- the only difference is the API client. Consider building a single `armada-local-agent` that accepts a `--backend` flag:
-
-```bash
-armada-local-agent --backend ollama --model codellama:13b --prompt "..."
-armada-local-agent --backend vllm --model Qwen/Qwen2.5-Coder-32B-Instruct --prompt "..."
-```
-
-This avoids maintaining two separate wrapper implementations.
-
 ## Challenges and Limitations
 
 1. **vLLM server must be pre-started:** Armada cannot start/stop vLLM on demand. The user manages the server lifecycle independently.
 
 2. **GPU memory:** Large coding models (32B+) require 40-80GB VRAM. Consumer GPUs (24GB) can only run smaller models or quantized versions.
 
-3. **Model quality gap:** Even the best open models are significantly behind Claude Opus/Sonnet for autonomous coding. Expect:
-   - More failed missions
-   - Simpler implementations
-   - Worse multi-file coordination
-   - More iterations needed
+3. **Model quality gap:** Even the best open models are significantly behind Claude Opus/Sonnet for autonomous coding. Expect more failed missions, simpler implementations, worse multi-file coordination, and more iterations needed.
 
 4. **Quantization tradeoffs:** Running quantized models (GPTQ, AWQ, GGUF) saves VRAM but reduces quality. For coding tasks, quality matters more than speed.
 
-5. **Context window:** Most open models have smaller context windows than frontier APIs. The wrapper must be aggressive about context management.
+5. **Context window:** Most open models have smaller context windows than frontier APIs. The `ContextManager` must be aggressive about context management.
 
 ## Effort Estimate
 
 | Component | Effort |
 |-----------|--------|
 | `VllmRuntime.cs` + enum + factory | 1 hour |
-| Shared wrapper agent (`armada-local-agent`) | 2-3 days |
-| Full tool-use loop with error handling | 1-2 weeks |
-| Testing across multiple models | 1-2 weeks |
+| `Armada.Agent.Common` (shared library) | 2-3 days |
+| `Armada.Agent.Vllm` project + `VllmClient.cs` | 1 day |
+| Tool implementations (read, write, edit, command, list, search) | 1-2 days |
+| `AgentLoop.cs` (tool-use orchestration) | 2-3 days |
+| `ContextManager.cs` (token budgeting) | 1-2 days |
+| Captain model settings (DB migration, MCP, REST, dashboard) | 1 day |
+| Testing across models | 1-2 weeks |
 | Dashboard integration | 1 hour |
-| Documentation | 2-3 hours |
 
-If building the shared wrapper agent alongside the Ollama integration, the vLLM-specific work is minimal (swap the API client).
+If building the shared `Armada.Agent.Common` library alongside the Ollama integration, the vLLM-specific work is minimal (swap the API client -- `VllmClient` implements the same `ILlmClient` interface as `OllamaClient`).

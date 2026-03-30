@@ -24,7 +24,7 @@ Armada Admiral
 OllamaRuntime (C# class, extends BaseAgentRuntime)
     |
     v
-armada-ollama-agent (Python/Node CLI wrapper)
+Armada.Agent.Ollama (C# CLI, .NET global tool)
     |
     +--> Reads CLAUDE.md from working directory
     +--> Reads file tree for context
@@ -37,7 +37,7 @@ armada-ollama-agent (Python/Node CLI wrapper)
     +--> Exits with code 0
 ```
 
-The wrapper agent is the key piece. It turns Ollama from a text generator into an autonomous coding agent.
+The wrapper agent is the key piece. It turns Ollama from a text generator into an autonomous coding agent. Built in C# as a .NET global tool, it shares the same ecosystem as Armada itself.
 
 ## Implementation Steps
 
@@ -51,7 +51,7 @@ public class OllamaRuntime : BaseAgentRuntime
     public override string Name => "Ollama";
     public override bool SupportsResume => false;
 
-    private string _ExecutablePath = "armada-ollama-agent"; // the wrapper CLI
+    private string _ExecutablePath = "armada-ollama"; // the .NET global tool
     private string _Model = "codellama:13b";
     private string _OllamaHost = "http://localhost:11434";
 
@@ -92,37 +92,138 @@ case AgentRuntimeEnum.Ollama:
     return new OllamaRuntime(_Logging);
 ```
 
-### Step 4: Build the Wrapper Agent (`armada-ollama-agent`)
+### Step 4: Build the Wrapper Agent (`Armada.Agent.Ollama`)
 
-This is the hard part. The wrapper agent must:
+A new C# project in the Armada solution, packaged as a .NET global tool (`armada-ollama`).
 
-1. **Parse arguments:** `--model`, `--host`, `--prompt`
-2. **Read CLAUDE.md** from the current working directory for mission instructions
-3. **Build context:** read the file tree, read relevant files mentioned in the prompt
-4. **Construct system prompt:** combine CLAUDE.md instructions with file context
-5. **Call Ollama API** in a loop:
-   - Send the prompt + context to `POST /api/chat`
-   - Parse the response for intended actions (file creates, edits, shell commands)
-   - Execute those actions
-   - Feed results back to the model
-   - Repeat until the model indicates completion
-6. **Handle tool use:** The model needs to output structured tool calls. Options:
-   - Use a structured output format (JSON tool calls)
-   - Parse natural language instructions ("Create file X with content Y")
-   - Use a framework like LangChain or similar
-7. **Commit changes:** run `git add -A && git commit -m "..."` with Armada trailers
-8. **Report progress:** print `[ARMADA:PROGRESS] N` and `[ARMADA:STATUS] ...` to stdout
-9. **Exit cleanly** with code 0
+**Project structure:**
 
-**Recommended language:** Python (best Ollama client library support)
+```
+src/Armada.Agent.Ollama/
+    Armada.Agent.Ollama.csproj    (PackAsTool, ToolCommandName: armada-ollama)
+    Program.cs                     (entry point, argument parsing)
+    OllamaClient.cs                (HTTP client for Ollama API)
+    AgentLoop.cs                   (tool-use loop orchestrator)
+    Tools/
+        ReadFileTool.cs
+        WriteFileTool.cs
+        EditFileTool.cs
+        RunCommandTool.cs
+        ListFilesTool.cs
+        SearchFilesTool.cs
+    Context/
+        ClaudeMdReader.cs          (reads and parses CLAUDE.md)
+        FileTreeBuilder.cs         (builds file tree for context)
+        ContextManager.cs          (manages context window budget)
+    Git/
+        GitCommitter.cs            (stages, commits with Armada trailers)
+```
 
-**Recommended approach:** Use Ollama's tool/function calling support (available in newer models) to define tools for:
-- `read_file(path)` -- read a file from the working directory
-- `write_file(path, content)` -- create or overwrite a file
-- `edit_file(path, old_text, new_text)` -- find and replace in a file
-- `run_command(command)` -- execute a shell command
-- `list_files(directory)` -- list directory contents
-- `search_files(pattern)` -- search for files matching a glob
+**Core loop in `AgentLoop.cs`:**
+
+```csharp
+public async Task<int> RunAsync(string workingDirectory, string prompt, string model, string host)
+{
+    // 1. Read CLAUDE.md
+    string claudeMd = ClaudeMdReader.Read(workingDirectory);
+
+    // 2. Build initial context
+    string fileTree = FileTreeBuilder.Build(workingDirectory);
+    string systemPrompt = BuildSystemPrompt(claudeMd, fileTree);
+
+    // 3. Initialize conversation
+    List<ChatMessage> messages = new List<ChatMessage>();
+    messages.Add(new ChatMessage("system", systemPrompt));
+    messages.Add(new ChatMessage("user", prompt));
+
+    // 4. Tool-use loop
+    for (int iteration = 0; iteration < _MaxIterations; iteration++)
+    {
+        ChatResponse response = await _Client.ChatAsync(model, messages, _Tools);
+
+        if (response.Done || !response.HasToolCalls)
+        {
+            Console.WriteLine(response.Content);
+            break;
+        }
+
+        // Execute tool calls
+        foreach (ToolCall call in response.ToolCalls)
+        {
+            string result = await ExecuteToolAsync(call, workingDirectory);
+            messages.Add(new ChatMessage("tool", result, call.Id));
+            Console.WriteLine("[ARMADA:PROGRESS] " + ((iteration + 1) * 100 / _MaxIterations));
+        }
+    }
+
+    // 5. Commit changes
+    await GitCommitter.CommitAsync(workingDirectory, prompt, _ArmadaTrailers);
+
+    return 0; // success
+}
+```
+
+**`OllamaClient.cs`** wraps the Ollama HTTP API:
+
+```csharp
+public class OllamaClient
+{
+    private HttpClient _Http;
+    private string _BaseUrl;
+
+    public async Task<ChatResponse> ChatAsync(
+        string model,
+        List<ChatMessage> messages,
+        List<ToolDefinition> tools)
+    {
+        // POST /api/chat with model, messages, tools
+        // Parse response including tool_calls array
+    }
+}
+```
+
+**Tool definitions** follow Ollama's tool calling format (JSON schema):
+
+```csharp
+public static List<ToolDefinition> GetTools()
+{
+    return new List<ToolDefinition>
+    {
+        new ToolDefinition("read_file", "Read a file from the working directory",
+            new { type = "object", properties = new {
+                path = new { type = "string", description = "File path relative to working directory" }
+            }, required = new[] { "path" } }),
+
+        new ToolDefinition("write_file", "Create or overwrite a file",
+            new { type = "object", properties = new {
+                path = new { type = "string", description = "File path" },
+                content = new { type = "string", description = "File content" }
+            }, required = new[] { "path", "content" } }),
+
+        new ToolDefinition("edit_file", "Find and replace text in a file",
+            new { type = "object", properties = new {
+                path = new { type = "string", description = "File path" },
+                old_text = new { type = "string", description = "Text to find" },
+                new_text = new { type = "string", description = "Replacement text" }
+            }, required = new[] { "path", "old_text", "new_text" } }),
+
+        new ToolDefinition("run_command", "Execute a shell command",
+            new { type = "object", properties = new {
+                command = new { type = "string", description = "Command to execute" }
+            }, required = new[] { "command" } }),
+
+        new ToolDefinition("list_files", "List directory contents",
+            new { type = "object", properties = new {
+                directory = new { type = "string", description = "Directory path (default: .)" }
+            } }),
+
+        new ToolDefinition("search_files", "Search for files matching a pattern",
+            new { type = "object", properties = new {
+                pattern = new { type = "string", description = "Glob pattern" }
+            }, required = new[] { "pattern" } }),
+    };
+}
+```
 
 ### Step 5: Update Dashboard
 
@@ -132,19 +233,104 @@ Add "Ollama" to the runtime dropdown in Captain creation (dashboard + MCP tool s
 
 Not all Ollama models are suitable for coding agents. Recommended:
 
-| Model | Size | Coding Quality | Speed |
-|-------|------|---------------|-------|
-| `codellama:34b` | 34B | Good | Slow |
-| `codellama:13b` | 13B | Decent | Moderate |
-| `deepseek-coder:33b` | 33B | Very good | Slow |
-| `qwen2.5-coder:32b` | 32B | Very good | Slow |
-| `llama3.1:70b` | 70B | Good (general) | Very slow |
+| Model | Size | Coding Quality | Tool Calling | Speed |
+|-------|------|---------------|-------------|-------|
+| `qwen2.5-coder:32b` | 32B | Very good | Yes | Slow |
+| `deepseek-coder:33b` | 33B | Very good | Limited | Slow |
+| `codellama:34b` | 34B | Good | No | Slow |
+| `codellama:13b` | 13B | Decent | No | Moderate |
+| `llama3.1:70b` | 70B | Good (general) | Yes | Very slow |
 
-Smaller models (7B) are generally too weak for autonomous coding tasks.
+Smaller models (7B) are generally too weak for autonomous coding tasks. Tool calling support varies by model -- without it, the agent loop must parse natural language for tool invocations, which is fragile.
+
+## Captain Settings for Model Parameters
+
+Model-related settings should be stored on the Captain, not on the runtime class. This allows different captains to use different models and parameters even with the same runtime type.
+
+**New fields on the Captain model:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `ModelName` | string? | null | Model name (e.g. `codellama:13b`, `qwen2.5-coder:32b`) |
+| `ModelHost` | string? | null | Ollama server URL (e.g. `http://localhost:11434`) |
+| `Temperature` | double? | null | Generation temperature (0.0-2.0) |
+| `MaxTokens` | int? | null | Max tokens per generation |
+| `MaxIterations` | int? | null | Max tool-use loop iterations |
+| `ContextBudget` | int? | null | Max context tokens to send |
+
+When these are null, the runtime uses its built-in defaults. When set, they override.
+
+**How to pass to the wrapper:** The runtime reads these from the captain record and passes them as CLI arguments:
+
+```csharp
+protected override List<string> BuildArguments(string prompt)
+{
+    List<string> args = new List<string>();
+    args.Add("--model"); args.Add(_Model);
+    args.Add("--host"); args.Add(_OllamaHost);
+    if (_Temperature.HasValue) { args.Add("--temperature"); args.Add(_Temperature.Value.ToString()); }
+    if (_MaxTokens.HasValue) { args.Add("--max-tokens"); args.Add(_MaxTokens.Value.ToString()); }
+    if (_MaxIterations.HasValue) { args.Add("--max-iterations"); args.Add(_MaxIterations.Value.ToString()); }
+    args.Add("--prompt"); args.Add(prompt);
+    return args;
+}
+```
+
+**Database migration:** Add nullable columns to the `captains` table:
+```sql
+ALTER TABLE captains ADD COLUMN model_name TEXT;
+ALTER TABLE captains ADD COLUMN model_host TEXT;
+ALTER TABLE captains ADD COLUMN temperature REAL;
+ALTER TABLE captains ADD COLUMN max_tokens INTEGER;
+ALTER TABLE captains ADD COLUMN max_iterations INTEGER;
+ALTER TABLE captains ADD COLUMN context_budget INTEGER;
+```
+
+**Dashboard:** Add these fields to the Captain create/edit form, visible when the runtime is Ollama or vLLM.
+
+## Shared Agent Library
+
+Since the Ollama and vLLM wrappers share 90% of their code (tools, context, git, agent loop), extract the shared components into a common library:
+
+```
+src/Armada.Agent.Common/
+    Armada.Agent.Common.csproj
+    AgentLoop.cs                    (abstract, backend-agnostic)
+    ILlmClient.cs                   (interface for chat API)
+    Tools/
+        ITool.cs
+        ReadFileTool.cs
+        WriteFileTool.cs
+        EditFileTool.cs
+        RunCommandTool.cs
+        ListFilesTool.cs
+        SearchFilesTool.cs
+    Context/
+        ClaudeMdReader.cs
+        FileTreeBuilder.cs
+        ContextManager.cs
+    Git/
+        GitCommitter.cs
+    Models/
+        ChatMessage.cs
+        ChatResponse.cs
+        ToolCall.cs
+        ToolDefinition.cs
+
+src/Armada.Agent.Ollama/
+    Armada.Agent.Ollama.csproj      (references Armada.Agent.Common)
+    Program.cs
+    OllamaClient.cs                 (implements ILlmClient)
+
+src/Armada.Agent.Vllm/
+    Armada.Agent.Vllm.csproj        (references Armada.Agent.Common)
+    Program.cs
+    VllmClient.cs                   (implements ILlmClient)
+```
 
 ## Configuration
 
-Settings that should be configurable per-captain or globally:
+Default settings (overridden by captain-level settings when set):
 
 | Setting | Default | Description |
 |---------|---------|-------------|
@@ -157,26 +343,31 @@ Settings that should be configurable per-captain or globally:
 
 ## Challenges and Limitations
 
-1. **No native tool use in most models:** Unlike Claude or GPT-4, most open models don't natively support tool calling. The wrapper must handle this via prompt engineering or structured output parsing.
+1. **No native tool use in most models:** Unlike Claude or GPT-4, most open models don't natively support tool calling. The wrapper must handle this via prompt engineering or structured output parsing. Models with Hermes-format tool calling (Qwen, Llama 3.1) work best.
 
-2. **Context window limits:** Most open models have 4K-8K context windows (vs 200K for Claude). The wrapper must be aggressive about context management -- only include relevant files, not the entire codebase.
+2. **Context window limits:** Most open models have 4K-8K context windows (vs 200K for Claude). The `ContextManager` must be aggressive -- only include relevant files, not the entire codebase. Budget tokens carefully between system prompt, file context, and conversation history.
 
 3. **Code quality:** Open models produce lower quality code than frontier models. Expect more iterations, more failures, and simpler implementations.
 
-4. **No CLAUDE.md awareness:** The model doesn't know what CLAUDE.md is. The wrapper must read it and inject the instructions into the system prompt.
+4. **No CLAUDE.md awareness:** The model doesn't know what CLAUDE.md is. The `ClaudeMdReader` must parse it and inject the instructions into the system prompt.
 
 5. **Speed:** Local inference on consumer hardware is 10-100x slower than API calls to Claude/GPT-4. Expect missions to take significantly longer.
 
-6. **Multi-file edits:** Open models struggle with coordinated changes across multiple files. The wrapper may need to break complex edits into single-file steps.
+6. **Multi-file edits:** Open models struggle with coordinated changes across multiple files. The agent loop may need to break complex edits into single-file steps with intermediate commits.
 
 ## Effort Estimate
 
 | Component | Effort |
 |-----------|--------|
 | `OllamaRuntime.cs` + enum + factory | 1 hour |
-| Wrapper agent (basic, single-file edits) | 2-3 days |
-| Wrapper agent (full tool-use loop) | 1-2 weeks |
-| Testing and iteration | 1-2 weeks |
+| `Armada.Agent.Ollama` project scaffold + arg parsing | 2-3 hours |
+| `OllamaClient.cs` (HTTP client) | 4-6 hours |
+| Tool implementations (read, write, edit, command, list, search) | 1-2 days |
+| `AgentLoop.cs` (tool-use orchestration) | 2-3 days |
+| `ContextManager.cs` (token budgeting) | 1-2 days |
+| `ClaudeMdReader.cs` + `FileTreeBuilder.cs` | 4-6 hours |
+| `GitCommitter.cs` (commit with Armada trailers) | 2-3 hours |
+| Testing across models | 1-2 weeks |
 | Dashboard integration | 1 hour |
 
 The wrapper agent is 95% of the work. The Armada integration is trivial.
