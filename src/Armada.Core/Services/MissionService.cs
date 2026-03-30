@@ -915,6 +915,28 @@ namespace Armada.Core.Services
                     "completed mission \"" + completedMission.Title + "\" (" + completedMission.Id + ").\n" +
                     "Branch: " + (completedMission.BranchName ?? "unknown") + "\n";
 
+                // Include the agent's stdout output (from mission log) for context
+                string missionLogPath = Path.Combine(_Settings.LogDirectory, "missions", completedMission.Id + ".log");
+                if (File.Exists(missionLogPath))
+                {
+                    try
+                    {
+                        string logContent = await File.ReadAllTextAsync(missionLogPath).ConfigureAwait(false);
+                        if (!String.IsNullOrEmpty(logContent))
+                        {
+                            // Truncate to avoid overwhelming the next agent's context
+                            int maxLogChars = 8000;
+                            if (logContent.Length > maxLogChars)
+                            {
+                                logContent = logContent.Substring(logContent.Length - maxLogChars);
+                                logContent = "...(truncated)\n" + logContent;
+                            }
+                            handoffContext += "\n### Agent Output (from " + completedMission.Persona + " stage)\n```\n" + logContent.Trim() + "\n```\n";
+                        }
+                    }
+                    catch { }
+                }
+
                 // Include the diff snapshot if available
                 if (!String.IsNullOrEmpty(completedMission.DiffSnapshot))
                 {

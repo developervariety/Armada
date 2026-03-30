@@ -31,6 +31,11 @@ namespace Armada.Server
         private Func<string, string, string?, string?, string?, string?, string?, string?, Task> _EmitEventAsync;
 
         /// <summary>
+        /// Accumulates agent stdout per mission for pipeline handoff.
+        /// </summary>
+        private System.Collections.Concurrent.ConcurrentDictionary<string, System.Text.StringBuilder> _MissionOutput = new System.Collections.Concurrent.ConcurrentDictionary<string, System.Text.StringBuilder>();
+
+        /// <summary>
         /// Maps process IDs to captain IDs for progress tracking.
         /// </summary>
         private Dictionary<int, string> _ProcessToCaptain = new Dictionary<int, string>();
@@ -85,6 +90,21 @@ namespace Armada.Server
         /// <summary>
         /// Set or update the WebSocket hub reference (created after this handler).
         /// </summary>
+        /// <summary>
+        /// Retrieve and clear accumulated stdout output for a mission.
+        /// Used by pipeline handoff to pass agent output to the next stage.
+        /// </summary>
+        public string? GetAndClearMissionOutput(string missionId)
+        {
+            if (String.IsNullOrEmpty(missionId)) return null;
+            if (_MissionOutput.TryRemove(missionId, out System.Text.StringBuilder? sb))
+            {
+                string output = sb.ToString().Trim();
+                return String.IsNullOrEmpty(output) ? null : output;
+            }
+            return null;
+        }
+
         public void SetWebSocketHub(ArmadaWebSocketHub? hub)
         {
             _WebSocketHub = hub;
@@ -206,6 +226,18 @@ namespace Armada.Server
         /// </summary>
         public void HandleAgentOutput(int processId, string line)
         {
+            // Accumulate stdout for pipeline handoff
+            string? outputMissionId = null;
+            lock (_ProcessToCaptain)
+            {
+                _ProcessToMission.TryGetValue(processId, out outputMissionId);
+            }
+            if (!String.IsNullOrEmpty(outputMissionId))
+            {
+                System.Text.StringBuilder sb = _MissionOutput.GetOrAdd(outputMissionId, _ => new System.Text.StringBuilder());
+                sb.AppendLine(line);
+            }
+
             ProgressParser.ProgressSignal? signal = ProgressParser.TryParse(line);
             if (signal == null) return;
 
