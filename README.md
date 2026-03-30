@@ -11,60 +11,75 @@
 </p>
 
 <p align="center">
-  <a href="#the-problem">The Problem</a> |
-  <a href="#how-armada-works">How It Works</a> |
+  <a href="#why-armada">Why Armada</a> |
+  <a href="#how-it-works">How It Works</a> |
   <a href="#quick-start">Quick Start</a> |
   <a href="#pipelines">Pipelines</a> |
+  <a href="#use-cases">Use Cases</a> |
   <a href="#architecture">Architecture</a> |
-  <a href="#cli-reference">CLI</a> |
   <a href="#rest-api">API</a> |
   <a href="#mcp-integration">MCP</a>
 </p>
 
 ---
 
-## The Problem
+## Why Armada
 
-You have AI coding agents. They're fast. But you're still the bottleneck -- scoping work, reviewing output, juggling terminal windows, copy-pasting between repos. One agent finishes while you're babysitting another. Three are idle because you forgot about them. The code they produce goes unreviewed because you ran out of hours in the day.
+You already have AI coding agents. They write code fast. But you are still the bottleneck.
 
-Armada fixes this. You describe what you want. Armada plans it, assigns it to agents, runs them in parallel on isolated branches, tests their output, reviews it, and merges the results. You go from managing agents to managing outcomes.
+You scope each task by hand. You babysit agents one at a time. You copy output between terminals. Three agents sit idle because you forgot about them. The code they produce goes unreviewed because you ran out of hours in the day. And when something fails, you start over from scratch.
 
-## How Armada Works
+Armada eliminates the bottleneck. You describe what you want built. Armada handles the rest: planning, implementation, testing, review, and merge. You stop managing agents and start managing outcomes.
+
+### What You Get
+
+- **Parallel execution across repos.** Dispatch work to multiple agents across multiple repositories simultaneously. Five agents working on five tasks while you focus on something else entirely.
+- **Quality gates that run automatically.** Every piece of work can flow through a pipeline: plan it, implement it, test it, review it. No manual intervention between steps.
+- **Git isolation by default.** Every agent works in its own git worktree on its own branch. Agents cannot interfere with each other. Your main branch stays clean until you are ready to merge.
+- **Agents that learn your codebase.** Model context accumulates across missions. The tenth agent to work on a repository knows things the first one didn't -- architecture patterns, testing conventions, common pitfalls.
+- **Full visibility from one dashboard.** Monitor every agent, every mission, every repo from a single screen. Logs, diffs, status, and history are all preserved.
+- **Every prompt is configurable.** Don't like how agents are instructed? Edit the prompt templates. Every instruction Armada sends to an agent is a user-editable template with placeholder parameters.
+- **Works with the agents you already have.** Claude Code, Codex, Gemini, Cursor -- Armada orchestrates them all through a pluggable runtime system.
+
+### Who It's For
+
+- **Solo developers** who want to parallelize their backlog instead of working tasks sequentially.
+- **Tech leads** who want consistent quality gates across AI-generated code without reviewing every diff by hand.
+- **Teams** who need visibility into what AI agents are doing across multiple repositories.
+- **Anyone** who has tried using AI coding agents and hit the wall of "this doesn't scale past one task at a time."
+
+---
+
+## How It Works
 
 ```
-  You: "Build a FastAPI backend with user auth and tests"
-   |
-   v
-+-------------------------------------------------------------------------+
-|                            ADMIRAL                                      |
-|                     (coordinator process)                               |
-+-------------------------------------------------------------------------+
-   |
-   |  Pipeline: FullPipeline
-   |
-   v
-+------------------+     +------------------+     +------------------+     +------------------+
-|    ARCHITECT     |     |     WORKER       |     |  TEST ENGINEER   |     |      JUDGE       |
-|    (Plan)        | --> |  (Implement)     | --> |  (Write Tests)   | --> |  (Review)        |
-+------------------+     +------------------+     +------------------+     +------------------+
-|                  |     |                  |     |                  |     |                  |
-| Reads codebase,  |     | Writes code on   |     | Reads the diff,  |     | Reads the diff,  |
-| decomposes goal   |     | its own branch.  |     | writes tests     |     | checks quality,  |
-| into missions,   |     | Each mission     |     | covering the     |     | completeness,    |
-| identifies files  |     | gets a dedicated |     | changes. Commits |     | scope, and       |
-| and dependencies. |     | git worktree.    |     | to same branch.  |     | style. Produces  |
-|                  |     |                  |     |                  |     | PASS/FAIL        |
-| Output: mission  |     | Output: code     |     | Output: test     |     | verdict.         |
-| definitions      |     | changes + diff   |     | files + diff     |     |                  |
-+------------------+     +------------------+     +------------------+     +------------------+
-         |                        |                        |                        |
-         v                        v                        v                        v
-   No code changes          Merged into             Merged into              Merged into
-   (planning only)        working directory       working directory        working directory
+You: "Build a FastAPI backend with user auth and tests"
+ |
+ v
++-----------------------------------------------------------------------+
+|                           ADMIRAL                                     |
+|                    (coordinator process)                              |
++-----------------------------------------------------------------------+
+ |
+ |  Resolves pipeline --> creates missions --> assigns to captains
+ |
+ v
++-----------------+      +-----------------+      +-----------------+      +-----------------+
+|   ARCHITECT     |      |    WORKER       |      | TEST ENGINEER   |      |     JUDGE       |
+|   (Plan)        | ---> |  (Implement)    | ---> | (Write Tests)   | ---> |  (Review)       |
++-----------------+      +-----------------+      +-----------------+      +-----------------+
+| Reads codebase. |      | Writes code on  |      | Reads the diff. |      | Reads the diff. |
+| Decomposes the  |      | its own branch  |      | Writes tests    |      | Checks quality, |
+| goal into right-|      | in a dedicated  |      | covering the    |      | completeness,   |
+| sized missions. |      | git worktree.   |      | changes.        |      | scope, style.   |
+|                 |      |                 |      |                 |      |                 |
+| Produces:       |      | Produces:       |      | Produces:       |      | Produces:       |
+| mission list    |      | code + diff     |      | tests + diff    |      | PASS/FAIL       |
++-----------------+      +-----------------+      +-----------------+      +-----------------+
 ```
 
-1. **You describe the goal.** One sentence or a detailed spec -- your call.
-2. **The Architect plans.** Analyzes the codebase, decomposes the work into right-sized missions, identifies which files each mission should touch.
+1. **You describe the goal.** One sentence or a detailed spec.
+2. **The Architect plans.** Analyzes the codebase, decomposes the work into missions, identifies which files each mission touches.
 3. **Workers implement in parallel.** Each agent gets its own git worktree. No interference. Clean branches.
 4. **TestEngineers write tests.** They see the diff from the Worker and add coverage.
 5. **Judges review.** They check correctness, completeness, scope, and style. Pass or fail.
