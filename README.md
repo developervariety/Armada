@@ -66,9 +66,9 @@ Everything else in Armada exists to support that: isolated worktrees, parallel d
 ```mermaid
 flowchart TD
     classDef input fill:#f8fafc,stroke:#64748b,color:#0f172a,stroke-width:1.5px;
-    classDef control fill:#eef4ff,stroke:#3159a6,color:#0f172a,stroke-width:2px;
+    classDef control fill:#eaf1fb,stroke:#2b4c7e,color:#0f172a,stroke-width:2px;
     classDef stage fill:#fcfcfd,stroke:#475569,color:#0f172a,stroke-width:1.5px;
-    classDef output fill:#eefbf3,stroke:#2f7a4b,color:#0f172a,stroke-width:1.5px;
+    classDef output fill:#f1f5f9,stroke:#516274,color:#0f172a,stroke-width:1.5px;
 
     U["You<br/>Build a FastAPI backend with user auth and tests"]
     A["Admiral<br/>Resolve pipeline<br/>Assign captains<br/>Track state"]
