@@ -329,6 +329,38 @@ namespace Armada.Core.Services
             if (captain == null) throw new ArgumentNullException(nameof(captain));
             if (String.IsNullOrEmpty(missionId)) return;
 
+            // In-flight deduplication: ensure only one completion handler runs per mission.
+            // Both the process exit callback and the health check can trigger completion
+            // concurrently for the same mission. TryAdd returns false if another caller
+            // is already processing this mission.
+            TaskCompletionSource<bool> gate = new TaskCompletionSource<bool>();
+            if (!_InFlightCompletions.TryAdd(missionId, gate.Task))
+            {
+                _Logging.Debug(_Header + "mission " + missionId + " completion already in flight -- skipping duplicate");
+                return;
+            }
+
+            try
+            {
+                await HandleCompletionCoreAsync(captain, missionId, token).ConfigureAwait(false);
+            }
+            finally
+            {
+                gate.TrySetResult(true);
+                // Remove after a delay so late-arriving duplicate calls still see the entry
+                _ = Task.Run(async () =>
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(30)).ConfigureAwait(false);
+                    _InFlightCompletions.TryRemove(missionId, out _);
+                });
+            }
+        }
+
+        /// <summary>
+        /// Core completion logic, called under in-flight deduplication guard.
+        /// </summary>
+        private async Task HandleCompletionCoreAsync(Captain captain, string missionId, CancellationToken token)
+        {
             Mission? mission = null;
             if (!String.IsNullOrEmpty(captain.TenantId))
             {
@@ -349,7 +381,7 @@ namespace Armada.Core.Services
                 mission.Status == MissionStatusEnum.LandingFailed ||
                 mission.Status == MissionStatusEnum.PullRequestOpen)
             {
-                _Logging.Debug(_Header + "mission " + missionId + " already in post-work state " + mission.Status + " — skipping completion handler");
+                _Logging.Debug(_Header + "mission " + missionId + " already in post-work state " + mission.Status + " -- skipping completion handler");
                 return;
             }
 
@@ -629,7 +661,10 @@ namespace Armada.Core.Services
             string templateName = "persona.worker";
             if (!String.IsNullOrEmpty(persona))
             {
-                templateName = "persona." + persona.ToLowerInvariant();
+                // Convert PascalCase persona names to snake_case for template lookup.
+                // e.g. "TestEngineer" -> "persona.test_engineer", "Worker" -> "persona.worker"
+                string normalized = System.Text.RegularExpressions.Regex.Replace(persona, "(?<!^)([A-Z])", "_$1").ToLowerInvariant();
+                templateName = "persona." + normalized;
             }
 
             if (_PromptTemplates != null)
@@ -958,59 +993,20 @@ namespace Armada.Core.Services
                     "completed mission \"" + completedMission.Title + "\" (" + completedMission.Id + ").\n" +
                     "Branch: " + (completedMission.BranchName ?? "unknown") + "\n";
 
-                // Include the agent's actual output (from mission log), stripping the
-                // launch preamble (command line, original prompt, commit trailers) to avoid
-                // repeating what the next agent already has in its own description.
-                string missionLogPath = Path.Combine(_Settings.LogDirectory, "missions", completedMission.Id + ".log");
-                if (File.Exists(missionLogPath))
+                // Use the canonical persisted AgentOutput for handoff instead of reparsing
+                // the mission log file. AgentOutput is captured from accumulated stdout by
+                // HandleCompletionAsync and is the single source of truth for agent output.
+                if (!String.IsNullOrEmpty(completedMission.AgentOutput))
                 {
-                    try
+                    string agentOutput = completedMission.AgentOutput.Trim();
+                    int maxOutputChars = 8000;
+                    if (agentOutput.Length > maxOutputChars)
                     {
-                        string[] logLines = await File.ReadAllLinesAsync(missionLogPath).ConfigureAwait(false);
-
-                        // Find where the agent's actual output starts -- after the launch preamble.
-                        // The preamble ends after the last "IMPORTANT:" trailer instruction line
-                        // or after the blank line following the prompt.
-                        int outputStart = 0;
-                        for (int i = 0; i < logLines.Length; i++)
-                        {
-                            string trimmed = logLines[i].Trim();
-                            // Skip past "IMPORTANT: For every git commit" and the trailer lines
-                            if (trimmed.StartsWith("Armada-Vessel-Id:") ||
-                                trimmed.StartsWith("Armada-Captain-Id:") ||
-                                trimmed.StartsWith("Armada-Mission-Id:") ||
-                                trimmed.StartsWith("Armada-Voyage-Id:"))
-                            {
-                                outputStart = i + 1;
-                            }
-                            // Also skip past the "[Agent exited" line at the end
-                        }
-                        // Skip any blank lines after the preamble
-                        while (outputStart < logLines.Length && String.IsNullOrWhiteSpace(logLines[outputStart]))
-                            outputStart++;
-
-                        // Collect agent output lines, excluding the final exit line
-                        List<string> outputLines = new List<string>();
-                        for (int i = outputStart; i < logLines.Length; i++)
-                        {
-                            if (logLines[i].Contains("] Agent exited with code"))
-                                continue;
-                            outputLines.Add(logLines[i]);
-                        }
-
-                        string agentOutput = String.Join("\n", outputLines).Trim();
-                        if (!String.IsNullOrEmpty(agentOutput))
-                        {
-                            int maxLogChars = 8000;
-                            if (agentOutput.Length > maxLogChars)
-                            {
-                                agentOutput = agentOutput.Substring(agentOutput.Length - maxLogChars);
-                                agentOutput = "...(truncated)\n" + agentOutput;
-                            }
-                            handoffContext += "\n### Agent Output (from " + completedMission.Persona + " stage)\n```\n" + agentOutput + "\n```\n";
-                        }
+                        // Truncate from the end (keep the beginning which typically contains
+                        // the plan/structure) rather than the beginning
+                        agentOutput = agentOutput.Substring(0, maxOutputChars) + "\n...(truncated)";
                     }
-                    catch { }
+                    handoffContext += "\n### Agent Output (from " + completedMission.Persona + " stage)\n```\n" + agentOutput + "\n```\n";
                 }
 
                 // Include the diff snapshot if available

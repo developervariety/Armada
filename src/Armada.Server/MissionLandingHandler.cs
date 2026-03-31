@@ -574,15 +574,9 @@ namespace Armada.Server
                 _WebSocketHub.BroadcastMissionChange(mission.Id, mission.Status.ToString(), mission.Title);
             }
 
-            // Reclaim dock through DockService (single owner for worktree teardown)
-            try
-            {
-                await _Docks.ReclaimAsync(dock.Id).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _Logging.Warn(_Header + "error reclaiming dock " + dock.Id + ": " + ex.Message);
-            }
+            // NOTE: Dock reclaim is NOT done here. MissionService.HandleCompletionAsync
+            // owns the full finalization sequence (reclaim dock, release captain, dispatch next)
+            // to prevent duplicate reclaim calls from racing.
         }
 
         /// <summary>

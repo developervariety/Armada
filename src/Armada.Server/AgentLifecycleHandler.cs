@@ -335,9 +335,30 @@ namespace Armada.Server
                 _ProcessToMission.TryGetValue(processId, out missionId);
             }
 
+            // The process exit event can fire before HandleLaunchAgentAsync finishes
+            // registering the PID-to-captain/mission mapping (race between process.Start()
+            // returning and the mapping being written). Retry briefly to close this window.
             if (String.IsNullOrEmpty(captainId) || String.IsNullOrEmpty(missionId))
             {
-                _Logging.Debug(_Header + "process " + processId + " exited (code " + (exitCode?.ToString() ?? "unknown") + ") but no captain/mission mapping found — likely already handled");
+                for (int attempt = 0; attempt < 20; attempt++)
+                {
+                    Thread.Sleep(100);
+                    lock (_ProcessToCaptain)
+                    {
+                        _ProcessToCaptain.TryGetValue(processId, out captainId);
+                        _ProcessToMission.TryGetValue(processId, out missionId);
+                    }
+                    if (!String.IsNullOrEmpty(captainId) && !String.IsNullOrEmpty(missionId))
+                    {
+                        _Logging.Info(_Header + "process " + processId + " exit handler resolved mapping after " + (attempt + 1) + " retries");
+                        break;
+                    }
+                }
+            }
+
+            if (String.IsNullOrEmpty(captainId) || String.IsNullOrEmpty(missionId))
+            {
+                _Logging.Warn(_Header + "process " + processId + " exited (code " + (exitCode?.ToString() ?? "unknown") + ") but no captain/mission mapping found after retries -- exit may be lost");
                 return;
             }
 
