@@ -30,6 +30,15 @@ namespace Armada.Test.Unit.Suites.Database
             return (tA.Id, tB.Id);
         }
 
+        private async Task<string> CreateCaptainAsync(SqliteDatabaseDriver db, string tenantId, string name)
+        {
+            Captain captain = new Captain(name);
+            captain.TenantId = tenantId;
+            captain.State = CaptainStateEnum.Idle;
+            captain = await db.Captains.CreateAsync(captain);
+            return captain.Id;
+        }
+
         #endregion
 
         protected override async Task RunTestsAsync()
@@ -42,19 +51,23 @@ namespace Armada.Test.Unit.Suites.Database
                 {
                     SqliteDatabaseDriver db = testDb.Driver;
                     (string t1, string t2) = await CreateTwoTenantsAsync(db);
+                    List<string> captainIds = new List<string>();
 
                     for (int i = 0; i < 4; i++)
                     {
+                        string captainId = await CreateCaptainAsync(db, t1, "capt_target_" + i);
+                        captainIds.Add(captainId);
                         Signal s = new Signal(SignalTypeEnum.Nudge, "{\"index\":" + i + "}");
                         s.TenantId = t1;
-                        s.ToCaptainId = "capt_target_" + i;
+                        s.ToCaptainId = captainId;
                         s.CreatedUtc = BaseTime.AddMinutes(i);
                         await db.Signals.CreateAsync(s);
                     }
 
+                    string noiseCaptainId = await CreateCaptainAsync(db, t2, "capt_noise");
                     Signal noise = new Signal(SignalTypeEnum.Heartbeat, "{\"noise\":true}");
                     noise.TenantId = t2;
-                    noise.ToCaptainId = "capt_noise";
+                    noise.ToCaptainId = noiseCaptainId;
                     noise.CreatedUtc = BaseTime.AddMinutes(10);
                     await db.Signals.CreateAsync(noise);
 
@@ -79,15 +92,18 @@ namespace Armada.Test.Unit.Suites.Database
 
                     for (int i = 0; i < 4; i++)
                     {
+                        string captainId = await CreateCaptainAsync(db, t1, "capt_target_" + i);
                         Signal s = new Signal(SignalTypeEnum.Nudge, "{\"index\":" + i + "}");
                         s.TenantId = t1;
-                        s.ToCaptainId = "capt_target_" + i;
+                        s.ToCaptainId = captainId;
                         s.CreatedUtc = BaseTime.AddMinutes(i);
                         await db.Signals.CreateAsync(s);
                     }
 
+                    string noiseCaptainId = await CreateCaptainAsync(db, t2, "capt_noise");
                     Signal noise = new Signal(SignalTypeEnum.Heartbeat);
                     noise.TenantId = t2;
+                    noise.ToCaptainId = noiseCaptainId;
                     await db.Signals.CreateAsync(noise);
 
                     EnumerationQuery query = new EnumerationQuery();
@@ -109,15 +125,18 @@ namespace Armada.Test.Unit.Suites.Database
 
                     for (int i = 0; i < 4; i++)
                     {
+                        string captainId = await CreateCaptainAsync(db, t1, "capt_target_" + i);
                         Signal s = new Signal(SignalTypeEnum.Nudge, "{\"index\":" + i + "}");
                         s.TenantId = t1;
-                        s.ToCaptainId = "capt_target_" + i;
+                        s.ToCaptainId = captainId;
                         s.CreatedUtc = BaseTime.AddMinutes(i);
                         await db.Signals.CreateAsync(s);
                     }
 
+                    string noiseCaptainId = await CreateCaptainAsync(db, t2, "capt_noise");
                     Signal noise = new Signal(SignalTypeEnum.Heartbeat);
                     noise.TenantId = t2;
+                    noise.ToCaptainId = noiseCaptainId;
                     await db.Signals.CreateAsync(noise);
 
                     EnumerationQuery query = new EnumerationQuery();
@@ -137,10 +156,11 @@ namespace Armada.Test.Unit.Suites.Database
                 {
                     SqliteDatabaseDriver db = testDb.Driver;
                     (string t1, string t2) = await CreateTwoTenantsAsync(db);
+                    string validateCaptainId = await CreateCaptainAsync(db, t1, "capt_validate");
 
                     Signal original = new Signal(SignalTypeEnum.Assignment, "{\"task\":\"validate\"}");
                     original.TenantId = t1;
-                    original.ToCaptainId = "capt_validate";
+                    original.ToCaptainId = validateCaptainId;
                     original.CreatedUtc = BaseTime;
                     await db.Signals.CreateAsync(original);
 
@@ -155,7 +175,7 @@ namespace Armada.Test.Unit.Suites.Database
                     AssertEqual(t1, readBack.TenantId);
                     AssertEqual(SignalTypeEnum.Assignment, readBack.Type);
                     AssertEqual("{\"task\":\"validate\"}", readBack.Payload);
-                    AssertEqual("capt_validate", readBack.ToCaptainId);
+                    AssertEqual(validateCaptainId, readBack.ToCaptainId);
                     AssertNotEqual(default(DateTime), readBack.CreatedUtc, "CreatedUtc should not be default");
                 }
             });

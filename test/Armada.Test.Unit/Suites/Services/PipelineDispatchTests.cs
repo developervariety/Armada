@@ -265,6 +265,96 @@ namespace Armada.Test.Unit.Suites.Services
 
                         bool assignedAfterHandoff = await missionService.TryAssignAsync(workerMission, vessel).ConfigureAwait(false);
                         AssertTrue(assignedAfterHandoff, "Worker mission should assign after handoff stamps the branch");
+
+                        Mission? assignedMission = await testDb.Driver.Missions.ReadAsync(workerMission.Id).ConfigureAwait(false);
+                        AssertNotNull(assignedMission, "Assigned worker mission should be readable");
+                        AssertEqual(architectMission.BranchName, assignedMission!.BranchName, "Dependent mission should continue on the architect branch");
+                        AssertTrue(git.WorktreeBranches.Contains(architectMission.BranchName!), "Provisioned worktree should use the inherited handoff branch");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(settings.DocksDirectory, true); } catch { }
+                    }
+                }
+            });
+
+            await RunTest("Architect failure during handoff does not trigger landing", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    DirCreatingGitStub git = new DirCreatingGitStub();
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+
+                    int landingCalls = 0;
+                    missionService.OnMissionComplete = (Mission mission, Dock dock) =>
+                    {
+                        landingCalls++;
+                        return Task.CompletedTask;
+                    };
+                    missionService.OnGetMissionOutput = _ => "Architect summary without mission markers";
+
+                    Vessel vessel = new Vessel("architect-failure-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_test_bare_" + Guid.NewGuid().ToString("N"));
+                    vessel.WorkingDirectory = Path.Combine(Path.GetTempPath(), "armada_test_work_" + Guid.NewGuid().ToString("N"));
+                    vessel.DefaultBranch = "main";
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain captain = new Captain("architect-failure-captain");
+                    captain.State = CaptainStateEnum.Working;
+                    captain = await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    Voyage voyage = new Voyage("architect-failure-voyage");
+                    voyage = await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+
+                    Dock dock = new Dock(vessel.Id);
+                    dock.CaptainId = captain.Id;
+                    dock.WorktreePath = Path.Combine(Path.GetTempPath(), "armada_test_wt_" + Guid.NewGuid().ToString("N"));
+                    dock.BranchName = "armada/architect-failure/msn_arch";
+                    dock.Active = true;
+                    dock = await testDb.Driver.Docks.CreateAsync(dock).ConfigureAwait(false);
+
+                    Mission architectMission = new Mission("[Architect] Plan work", "Break this down");
+                    architectMission.VesselId = vessel.Id;
+                    architectMission.VoyageId = voyage.Id;
+                    architectMission.CaptainId = captain.Id;
+                    architectMission.DockId = dock.Id;
+                    architectMission.Persona = "Architect";
+                    architectMission.Status = MissionStatusEnum.InProgress;
+                    architectMission.BranchName = dock.BranchName;
+                    architectMission = await testDb.Driver.Missions.CreateAsync(architectMission).ConfigureAwait(false);
+
+                    Mission workerMission = new Mission("[Worker] Placeholder", "Original dispatch description");
+                    workerMission.VesselId = vessel.Id;
+                    workerMission.VoyageId = voyage.Id;
+                    workerMission.Persona = "Worker";
+                    workerMission.Status = MissionStatusEnum.Pending;
+                    workerMission.DependsOnMissionId = architectMission.Id;
+                    workerMission = await testDb.Driver.Missions.CreateAsync(workerMission).ConfigureAwait(false);
+
+                    captain.CurrentMissionId = architectMission.Id;
+                    captain.CurrentDockId = dock.Id;
+                    await testDb.Driver.Captains.UpdateAsync(captain).ConfigureAwait(false);
+
+                    try
+                    {
+                        await missionService.HandleCompletionAsync(captain, architectMission.Id).ConfigureAwait(false);
+
+                        Mission? updatedArchitect = await testDb.Driver.Missions.ReadAsync(architectMission.Id).ConfigureAwait(false);
+                        Captain? updatedCaptain = await testDb.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                        Dock? updatedDock = await testDb.Driver.Docks.ReadAsync(dock.Id).ConfigureAwait(false);
+
+                        AssertNotNull(updatedArchitect, "Architect mission should still exist");
+                        AssertEqual(MissionStatusEnum.Failed, updatedArchitect!.Status, "Architect mission should fail when no mission markers are produced");
+                        AssertContains("no [ARMADA:MISSION] markers", updatedArchitect.FailureReason ?? String.Empty);
+                        AssertEqual(0, landingCalls, "Landing should not run when handoff fails");
+                        AssertNotNull(updatedCaptain, "Captain should still exist");
+                        AssertEqual(CaptainStateEnum.Idle, updatedCaptain!.State, "Captain should be released after architect handoff failure");
+                        AssertNotNull(updatedDock, "Dock should still exist");
+                        AssertFalse(updatedDock!.Active, "Dock should be reclaimed after architect handoff failure");
                     }
                     finally
                     {
@@ -398,6 +488,9 @@ namespace Armada.Test.Unit.Suites.Services
             /// <summary>Call tracking for worktree operations.</summary>
             public List<string> WorktreeCalls { get; } = new List<string>();
 
+            /// <summary>Branch names used for worktree creation.</summary>
+            public List<string> WorktreeBranches { get; } = new List<string>();
+
             /// <inheritdoc />
             public Task CloneBareAsync(string repoUrl, string localPath, CancellationToken token = default)
             {
@@ -411,6 +504,7 @@ namespace Armada.Test.Unit.Suites.Services
                 // Create the directory on disk so CLAUDE.md can be written
                 Directory.CreateDirectory(worktreePath);
                 WorktreeCalls.Add(worktreePath);
+                WorktreeBranches.Add(branchName);
                 return Task.CompletedTask;
             }
 
@@ -462,7 +556,8 @@ namespace Armada.Test.Unit.Suites.Services
             public Task<string?> GetHeadCommitHashAsync(string worktreePath, CancellationToken token = default) => Task.FromResult<string?>("abc123def456");
 
             /// <inheritdoc />
-            public Task<bool> BranchExistsAsync(string repoPath, string branchName, CancellationToken token = default) => Task.FromResult(false);
+            public Task<bool> BranchExistsAsync(string repoPath, string branchName, CancellationToken token = default)
+                => Task.FromResult(branchName == "main" || WorktreeBranches.Contains(branchName));
 
             /// <inheritdoc />
             public Task<bool> IsWorktreeRegisteredAsync(string repoPath, string worktreePath, CancellationToken token = default) => Task.FromResult(false);

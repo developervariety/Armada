@@ -175,8 +175,11 @@ namespace Armada.Core.Services
                 return false;
             }
 
-            // Generate branch name
-            string branchName = Constants.BranchPrefix + captain.Name.ToLowerInvariant() + "/" + mission.Id;
+            // Downstream pipeline stages continue on the upstream branch prepared during handoff.
+            // Standalone missions still get a fresh captain/mission branch.
+            string branchName = !String.IsNullOrEmpty(mission.DependsOnMissionId) && !String.IsNullOrEmpty(mission.BranchName)
+                ? mission.BranchName
+                : Constants.BranchPrefix + captain.Name.ToLowerInvariant() + "/" + mission.Id;
             mission.BranchName = branchName;
             mission.CaptainId = captain.Id;
             mission.Status = MissionStatusEnum.Assigned;
@@ -468,10 +471,25 @@ namespace Armada.Core.Services
             // Pipeline handoff: if missions in the same voyage depend on this one, prepare them
             await TryHandoffToNextStageAsync(mission, token).ConfigureAwait(false);
 
+            Mission? missionAfterHandoff = await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);
+            if (missionAfterHandoff != null)
+            {
+                mission = missionAfterHandoff;
+            }
+
+            bool shouldAttemptLanding = mission.Status == MissionStatusEnum.WorkProduced ||
+                mission.Status == MissionStatusEnum.PullRequestOpen;
+
+            if (!shouldAttemptLanding)
+            {
+                _Logging.Info(_Header + "skipping landing for mission " + mission.Id +
+                    " because handoff changed status to " + mission.Status);
+            }
+
             // Invoke OnMissionComplete synchronously (Phase A: push branch, create PR, or enqueue).
             // Captain stays in Working state until the handoff completes, preventing the captain
             // from being reassigned while git operations are still in progress.
-            if (dock != null && OnMissionComplete != null)
+            if (shouldAttemptLanding && dock != null && OnMissionComplete != null)
             {
                 _Logging.Info(_Header + "executing synchronous landing handoff for mission " + mission.Id);
                 try
@@ -571,7 +589,8 @@ namespace Armada.Core.Services
             if (mission == null) throw new ArgumentNullException(nameof(mission));
             if (vessel == null) throw new ArgumentNullException(nameof(vessel));
 
-            string claudeMdPath = Path.Combine(worktreePath, "CLAUDE.md");
+            string instructionsFileName = MissionPromptBuilder.GetInstructionsFileName(captain != null ? captain.Runtime.ToString() : null);
+            string instructionsPath = Path.Combine(worktreePath, instructionsFileName);
 
             Dictionary<string, string> templateParams = MissionPromptBuilder.BuildTemplateParams(mission, vessel, captain);
 
@@ -625,18 +644,32 @@ namespace Armada.Core.Services
                 content += await ResolveSectionAsync("mission.model_context_updates", templateParams, token).ConfigureAwait(false);
             }
 
-            // If there's an existing CLAUDE.md, preserve it and prepend our instructions
-            if (File.Exists(claudeMdPath))
+            // If there's an existing runtime instruction file, preserve it and prepend our instructions
+            if (File.Exists(instructionsPath))
             {
-                string existing = await File.ReadAllTextAsync(claudeMdPath).ConfigureAwait(false);
+                string existing = await File.ReadAllTextAsync(instructionsPath).ConfigureAwait(false);
                 templateParams["ExistingClaudeMd"] = existing;
                 content += await ResolveSectionAsync("mission.existing_instructions_wrapper", templateParams, token).ConfigureAwait(false);
             }
 
-            Directory.CreateDirectory(Path.GetDirectoryName(claudeMdPath)!);
-            await File.WriteAllTextAsync(claudeMdPath, content).ConfigureAwait(false);
+            Directory.CreateDirectory(Path.GetDirectoryName(instructionsPath)!);
+            await File.WriteAllTextAsync(instructionsPath, content).ConfigureAwait(false);
 
-            // Ensure CLAUDE.md is gitignored so agents don't commit it.
+            // Persist a stable copy outside the dock so the dashboard and APIs can still
+            // show the generated mission instructions after the worktree is reclaimed.
+            try
+            {
+                string instructionsSnapshotDir = Path.Combine(_Settings.LogDirectory, "instructions");
+                Directory.CreateDirectory(instructionsSnapshotDir);
+                string snapshotPath = Path.Combine(instructionsSnapshotDir, mission.Id + "." + instructionsFileName);
+                await File.WriteAllTextAsync(snapshotPath, content).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not persist mission instructions snapshot for " + mission.Id + ": " + ex.Message);
+            }
+
+            // Ensure the generated instruction file is gitignored so agents don't commit it.
             // It's mission-specific and causes merge conflicts during landing.
             string gitignorePath = Path.Combine(worktreePath, ".gitignore");
             try
@@ -644,18 +677,18 @@ namespace Armada.Core.Services
                 string gitignoreContent = File.Exists(gitignorePath)
                     ? await File.ReadAllTextAsync(gitignorePath).ConfigureAwait(false)
                     : "";
-                if (!gitignoreContent.Contains("CLAUDE.md"))
+                if (!gitignoreContent.Contains(instructionsFileName))
                 {
-                    string entry = (gitignoreContent.Length > 0 && !gitignoreContent.EndsWith("\n") ? "\n" : "") + "CLAUDE.md\n";
+                    string entry = (gitignoreContent.Length > 0 && !gitignoreContent.EndsWith("\n") ? "\n" : "") + instructionsFileName + "\n";
                     await File.AppendAllTextAsync(gitignorePath, entry).ConfigureAwait(false);
                 }
             }
             catch (Exception ex)
             {
-                _Logging.Warn(_Header + "could not update .gitignore for CLAUDE.md: " + ex.Message);
+                _Logging.Warn(_Header + "could not update .gitignore for " + instructionsFileName + ": " + ex.Message);
             }
 
-            _Logging.Info(_Header + "generated mission CLAUDE.md at " + claudeMdPath);
+            _Logging.Info(_Header + "generated mission instructions at " + instructionsPath);
         }
 
         /// <summary>
@@ -873,6 +906,7 @@ namespace Armada.Core.Services
                 List<ParsedArchitectMission> parsed = ParseArchitectOutput(completedMission);
                 if (parsed.Count > 0)
                 {
+                    await ProjectArchitectMissionsToLogAsync(completedMission, parsed, token).ConfigureAwait(false);
                     _Logging.Info(_Header + "architect produced " + parsed.Count + " mission definitions");
 
                     foreach (Mission nextMission in dependentMissions)
@@ -901,6 +935,7 @@ namespace Armada.Core.Services
                                 additionalWorker.VesselId = completedMission.VesselId;
                                 additionalWorker.Persona = "Worker";
                                 additionalWorker.DependsOnMissionId = completedMission.Id;
+                                additionalWorker.BranchName = completedMission.BranchName;
                                 additionalWorker = await _Database.Missions.CreateAsync(additionalWorker, token).ConfigureAwait(false);
                                 _Logging.Info(_Header + "architect created additional worker mission " + additionalWorker.Id + ": " + parsed[i].Title);
 
@@ -1096,6 +1131,51 @@ namespace Armada.Core.Services
             }
 
             return results;
+        }
+
+        /// <summary>
+        /// Ensure parsed architect mission definitions are visible in the mission log even when
+        /// the source was a diff snapshot or other non-stdout artifact.
+        /// </summary>
+        private async Task ProjectArchitectMissionsToLogAsync(Mission architectMission, List<ParsedArchitectMission> parsed, CancellationToken token)
+        {
+            if (architectMission == null) throw new ArgumentNullException(nameof(architectMission));
+            if (parsed == null || parsed.Count == 0) return;
+
+            try
+            {
+                string missionLogDir = Path.Combine(_Settings.LogDirectory, "missions");
+                Directory.CreateDirectory(missionLogDir);
+                string logFilePath = Path.Combine(missionLogDir, architectMission.Id + ".log");
+
+                string existing = File.Exists(logFilePath)
+                    ? await File.ReadAllTextAsync(logFilePath, token).ConfigureAwait(false)
+                    : String.Empty;
+
+                if (existing.Contains("[ARMADA:MISSION]"))
+                {
+                    return;
+                }
+
+                using (StreamWriter writer = new StreamWriter(logFilePath, append: true))
+                {
+                    await writer.WriteLineAsync(String.Empty).ConfigureAwait(false);
+                    await writer.WriteLineAsync("[Armada] Parsed architect mission definitions:").ConfigureAwait(false);
+                    foreach (ParsedArchitectMission mission in parsed)
+                    {
+                        await writer.WriteLineAsync("[ARMADA:MISSION] " + mission.Title).ConfigureAwait(false);
+                        if (!String.IsNullOrEmpty(mission.Description))
+                        {
+                            await writer.WriteLineAsync(mission.Description).ConfigureAwait(false);
+                        }
+                        await writer.WriteLineAsync(String.Empty).ConfigureAwait(false);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not project architect mission definitions into log for " + architectMission.Id + ": " + ex.Message);
+            }
         }
 
         private async Task<Captain?> FindAvailableCaptainAsync(string? persona, CancellationToken token)

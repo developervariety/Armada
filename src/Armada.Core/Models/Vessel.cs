@@ -105,13 +105,13 @@ namespace Armada.Core.Models
         /// Null means use the voyage or global setting. When set, this takes precedence over
         /// the legacy boolean flags (AutoPush, AutoCreatePullRequests, AutoMergePullRequests).
         /// </summary>
-        public LandingModeEnum? LandingMode { get; set; } = LandingModeEnum.LocalMerge;
+        public LandingModeEnum? LandingMode { get; set; } = null;
 
         /// <summary>
         /// Branch cleanup policy for this vessel. Determines when and how mission branches
         /// are deleted after successful landing. Null means use the global setting (default: LocalOnly).
         /// </summary>
-        public BranchCleanupPolicyEnum? BranchCleanupPolicy { get; set; } = BranchCleanupPolicyEnum.LocalAndRemote;
+        public BranchCleanupPolicyEnum? BranchCleanupPolicy { get; set; } = null;
 
         /// <summary>
         /// Whether this vessel allows multiple concurrent missions. Default false.

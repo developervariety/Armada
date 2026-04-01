@@ -53,15 +53,14 @@ namespace Armada.Core.Services
 
                 // A mission is "done" if it's in a terminal state or if it's an
                 // intermediate pipeline stage (WorkProduced) that has already handed
-                // off to a downstream mission. PullRequestOpen missions are also
-                // considered done for voyage completion purposes (PR is open, work is out).
+                // off to a downstream mission. PullRequestOpen remains active until
+                // the PR is merged and reconciled to Complete.
                 bool allDone = missions.All(m =>
                     m.Status == MissionStatusEnum.Complete ||
                     m.Status == MissionStatusEnum.Failed ||
                     m.Status == MissionStatusEnum.Cancelled ||
                     m.Status == MissionStatusEnum.LandingFailed ||
-                    m.Status == MissionStatusEnum.WorkProduced ||
-                    m.Status == MissionStatusEnum.PullRequestOpen);
+                    m.Status == MissionStatusEnum.WorkProduced);
 
                 if (allDone)
                 {

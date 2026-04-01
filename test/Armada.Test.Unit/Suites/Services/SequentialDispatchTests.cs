@@ -205,6 +205,8 @@ namespace Armada.Test.Unit.Suites.Services
                     TestFixture fixture = await SetupFixtureAsync(db, captainCount: 2, missionCount: 5);
                     List<Captain> captains = fixture.Captains;
                     Vessel vessel = fixture.Vessel;
+                    vessel.AllowConcurrentMissions = true;
+                    await db.Vessels.UpdateAsync(vessel);
                     List<Mission> missions = fixture.Missions;
 
                     // Assign first 2 missions — each captain should get one
@@ -333,9 +335,8 @@ namespace Armada.Test.Unit.Suites.Services
                     Dock? dock2 = await db.Docks.ReadAsync(m2.DockId!);
                     AssertNotNull(dock2, "Dock for mission 2 should exist");
 
-                    // The worktree path should be the same directory (same vessel + same captain name)
-                    // because DockService uses {DocksDirectory}/{vesselName}/{captainName}
-                    AssertEqual(worktreePath1!, dock2!.WorktreePath!, "Worktree path should be reused for same captain on same vessel");
+                    // Dock paths are mission-scoped to eliminate reuse races between sequential assignments.
+                    AssertNotEqual(worktreePath1!, dock2!.WorktreePath!, "Worktree path should be unique per mission");
 
                     // Verify git worktree creation was called for both missions
                     AssertTrue(git.WorktreeCalls.Count >= 2, "Should have at least 2 worktree create calls");

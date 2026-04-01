@@ -66,8 +66,17 @@ namespace Armada.Core.Services
             // Fetch latest before creating worktree
             await FetchAsync(repoPath, token).ConfigureAwait(false);
 
-            // Create worktree with new branch from base
-            await RunGitAsync(repoPath, "worktree", "add", "-b", branchName, worktreePath, baseBranch).ConfigureAwait(false);
+            bool branchExists = await BranchExistsAsync(repoPath, branchName, token).ConfigureAwait(false);
+            if (branchExists)
+            {
+                _Logging.Info(_Header + "attaching worktree to existing branch: " + branchName);
+                await RunGitAsync(repoPath, "worktree", "add", worktreePath, branchName).ConfigureAwait(false);
+            }
+            else
+            {
+                // Create worktree with new branch from base
+                await RunGitAsync(repoPath, "worktree", "add", "-b", branchName, worktreePath, baseBranch).ConfigureAwait(false);
+            }
         }
 
         /// <summary>

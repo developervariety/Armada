@@ -22,6 +22,8 @@ namespace Armada.Test.Unit.TestHelpers
         public bool IsPrMergedResult { get; set; } = true;
         public string CreatePrResult { get; set; } = "https://github.com/test/repo/pull/1";
         public string DiffResult { get; set; } = "";
+        public bool DefaultBranchExistsResult { get; set; } = true;
+        public HashSet<string> ExistingBranches { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "main" };
 
         // Failure injection
         public bool ShouldThrowOnWorktree { get; set; } = false;
@@ -39,6 +41,7 @@ namespace Armada.Test.Unit.TestHelpers
         public Task CreateWorktreeAsync(string repoPath, string worktreePath, string branchName, string baseBranch = "main", CancellationToken token = default)
         {
             if (ShouldThrowOnWorktree) throw new InvalidOperationException("Simulated worktree failure");
+            ExistingBranches.Add(branchName);
             WorktreeCalls.Add(worktreePath);
             return Task.CompletedTask;
         }
@@ -100,7 +103,12 @@ namespace Armada.Test.Unit.TestHelpers
 
         public Task<bool> IsPrMergedAsync(string workingDirectory, string prUrl, CancellationToken token = default) => Task.FromResult(IsPrMergedResult);
         public Task<string?> GetHeadCommitHashAsync(string worktreePath, CancellationToken token = default) => Task.FromResult<string?>("abc123def456");
-        public Task<bool> BranchExistsAsync(string repoPath, string branchName, CancellationToken token = default) => Task.FromResult(false);
+        public Task<bool> BranchExistsAsync(string repoPath, string branchName, CancellationToken token = default)
+        {
+            if (ExistingBranches.Contains(branchName)) return Task.FromResult(true);
+            if (branchName == "main") return Task.FromResult(DefaultBranchExistsResult);
+            return Task.FromResult(false);
+        }
         public Task<bool> IsWorktreeRegisteredAsync(string repoPath, string worktreePath, CancellationToken token = default) => Task.FromResult(false);
     }
 }

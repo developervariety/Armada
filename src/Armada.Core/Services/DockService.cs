@@ -197,19 +197,8 @@ namespace Armada.Core.Services
                     await ForceRemoveDirectoryAsync(worktreePath, token).ConfigureAwait(false);
                 }
 
-                // Delete stale branch only if it actually exists
-                bool branchExists = await _Git.BranchExistsAsync(repoPath, branchName, token).ConfigureAwait(false);
-                if (branchExists)
-                {
-                    _Logging.Debug(_Header + "deleting stale branch: " + branchName);
-                    try
-                    {
-                        await _Git.DeleteLocalBranchAsync(repoPath, branchName, token).ConfigureAwait(false);
-                    }
-                    catch { }
-                }
-
-                // Create worktree
+                // Create worktree. If the branch already exists, GitService will attach to it
+                // instead of recreating it so downstream pipeline stages and retries preserve work.
                 await _Git.CreateWorktreeAsync(repoPath, worktreePath, branchName, vessel.DefaultBranch, token).ConfigureAwait(false);
 
                 // Create dock record
