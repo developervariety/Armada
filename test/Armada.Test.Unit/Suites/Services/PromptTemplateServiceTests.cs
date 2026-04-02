@@ -85,6 +85,22 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Mission rules embedded default constrains file scope", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    PromptTemplateService service = new PromptTemplateService(testDb.Driver, logging);
+
+                    PromptTemplate? resolved = await service.ResolveAsync("mission.rules").ConfigureAwait(false);
+                    AssertNotNull(resolved, "Resolved template should not be null");
+                    AssertContains("Stay strictly within the mission scope and listed files", resolved!.Content, "Mission rules should explicitly constrain scope to the assigned files");
+                    AssertContains("report it in your result instead of expanding scope on your own", resolved.Content, "Mission rules should tell agents to report needed out-of-scope changes instead of freelancing");
+                }
+            });
+
             await RunTest("Render substitutes placeholders", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

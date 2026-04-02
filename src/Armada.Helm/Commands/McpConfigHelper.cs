@@ -15,12 +15,16 @@ namespace Armada.Helm.Commands
             string? CliCommand = null,
             string[]? InstallArgs = null,
             string[]? RemoveArgs = null,
+            string? RemoveBeforeInstallName = null,
             string? ManualInstallCommand = null,
             string? ManualRemoveCommand = null);
 
         internal sealed record ApplyResult(string ClientName, string FilePath, bool Changed, string Message, bool IsProjectScoped = false);
+        internal sealed record InstructionTarget(string ClientName, string FilePath, string Content, bool IsProjectScoped = false);
 
         internal static JsonSerializerOptions JsonOptions { get; } = new JsonSerializerOptions { WriteIndented = true };
+        private const string ManagedBlockStart = "<!-- armada:mcp:begin -->";
+        private const string ManagedBlockEnd = "<!-- armada:mcp:end -->";
 
         internal static string GetMcpRpcUrl(int mcpPort)
         {
@@ -40,6 +44,16 @@ namespace Armada.Helm.Commands
         internal static string GetCodexConfigPath()
         {
             return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex", "config.toml");
+        }
+
+        internal static string GetProjectAgentsPath()
+        {
+            return Path.Combine(Environment.CurrentDirectory, "AGENTS.md");
+        }
+
+        internal static string GetProjectGeminiInstructionsPath()
+        {
+            return Path.Combine(Environment.CurrentDirectory, "GEMINI.md");
         }
 
         internal static string GetGeminiConfigPath()
@@ -74,9 +88,10 @@ namespace Armada.Helm.Commands
                     "Codex",
                     GetCodexConfigPath(),
                     CliCommand: codexCommand,
-                    InstallArgs: new[] { "mcp", "add", "armada", "--url", mcpRpcUrl },
+                    InstallArgs: BuildCodexInstallArgs(),
                     RemoveArgs: new[] { "mcp", "remove", "armada" },
-                    ManualInstallCommand: codexCommand + " mcp add armada --url " + mcpRpcUrl,
+                    RemoveBeforeInstallName: "armada",
+                    ManualInstallCommand: BuildCodexManualInstallCommand(codexCommand),
                     ManualRemoveCommand: codexCommand + " mcp remove armada"),
                 new(
                     "Gemini CLI",
@@ -98,12 +113,29 @@ namespace Armada.Helm.Commands
             };
         }
 
+        internal static List<InstructionTarget> BuildInstructionTargets()
+        {
+            return new List<InstructionTarget>
+            {
+                new(
+                    "Codex/Cursor Rules",
+                    GetProjectAgentsPath(),
+                    GenerateAgentsInstructions(),
+                    IsProjectScoped: true),
+                new(
+                    "Gemini CLI Instructions",
+                    GetProjectGeminiInstructionsPath(),
+                    GenerateGeminiInstructions(),
+                    IsProjectScoped: true),
+            };
+        }
+
         internal static async Task<ApplyResult> InstallTargetAsync(ConfigTarget target)
         {
             if (!String.IsNullOrEmpty(target.CliCommand) && target.InstallArgs != null)
             {
-                if (target.RemoveArgs != null)
-                    await RunCliCommandAsync(target.CliCommand, target.RemoveArgs).ConfigureAwait(false);
+                if (!String.IsNullOrEmpty(target.RemoveBeforeInstallName))
+                    await RunCliCommandAsync(target.CliCommand, new[] { "mcp", "remove", target.RemoveBeforeInstallName }).ConfigureAwait(false);
 
                 bool success = await RunCliCommandAsync(target.CliCommand, target.InstallArgs).ConfigureAwait(false);
                 return new ApplyResult(
@@ -204,6 +236,27 @@ namespace Armada.Helm.Commands
             return new ApplyResult("Claude Code Agent", agentPath, changed, changed ? "Installed/updated armada agent definition." : "Armada agent definition already up to date.");
         }
 
+        internal static async Task<ApplyResult> InstallInstructionTargetAsync(InstructionTarget target)
+        {
+            string managedContent = WrapManagedBlock(target.Content);
+            string filePath = target.FilePath;
+            string? existing = File.Exists(filePath) ? await File.ReadAllTextAsync(filePath).ConfigureAwait(false) : null;
+            string updated = UpsertManagedBlock(existing, managedContent);
+            bool changed = !String.Equals(existing ?? String.Empty, updated, StringComparison.Ordinal);
+
+            Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
+            await File.WriteAllTextAsync(filePath, updated).ConfigureAwait(false);
+
+            return new ApplyResult(
+                target.ClientName,
+                filePath,
+                changed,
+                changed
+                    ? "Installed/updated Armada orchestration instructions."
+                    : "Armada orchestration instructions already up to date.",
+                target.IsProjectScoped);
+        }
+
         internal static Task<ApplyResult> RemoveClaudeAgentAsync()
         {
             string agentPath = GetClaudeAgentPath();
@@ -214,6 +267,31 @@ namespace Armada.Helm.Commands
 
             File.Delete(agentPath);
             return Task.FromResult(new ApplyResult("Claude Code Agent", agentPath, true, "Removed armada agent definition."));
+        }
+
+        internal static async Task<ApplyResult> RemoveInstructionTargetAsync(InstructionTarget target)
+        {
+            string filePath = target.FilePath;
+            if (!File.Exists(filePath))
+            {
+                return new ApplyResult(target.ClientName, filePath, false, "Instruction file does not exist; nothing to remove.", target.IsProjectScoped);
+            }
+
+            string existing = await File.ReadAllTextAsync(filePath).ConfigureAwait(false);
+            string updated = RemoveManagedBlock(existing);
+            if (String.Equals(existing, updated, StringComparison.Ordinal))
+            {
+                return new ApplyResult(target.ClientName, filePath, false, "No Armada-managed instructions were present.", target.IsProjectScoped);
+            }
+
+            if (String.IsNullOrWhiteSpace(updated))
+            {
+                File.Delete(filePath);
+                return new ApplyResult(target.ClientName, filePath, true, "Removed Armada-managed instructions and deleted the empty file.", target.IsProjectScoped);
+            }
+
+            await File.WriteAllTextAsync(filePath, updated).ConfigureAwait(false);
+            return new ApplyResult(target.ClientName, filePath, true, "Removed Armada-managed instructions.", target.IsProjectScoped);
         }
 
         internal static string BuildManualSnippet(ConfigTarget target)
@@ -250,6 +328,129 @@ namespace Armada.Helm.Commands
         internal static string BuildClaudeStdioCommand()
         {
             return "claude mcp add --scope user armada -- armada mcp stdio";
+        }
+
+        internal static string BuildCodexManualInstallCommand(string codexCommand)
+        {
+            return String.Join(" ", BuildCliCommandParts(codexCommand, BuildCodexInstallArgs()));
+        }
+
+        private static string[] BuildCodexInstallArgs()
+        {
+            List<string> args = new List<string> { "mcp", "add", "armada", "--" };
+            args.AddRange(BuildCodexStdioCommandParts());
+            return args.ToArray();
+        }
+
+        private static IEnumerable<string> BuildCodexStdioCommandParts()
+        {
+            if (TryGetSourceHelmProjectPath(out string? helmProjectPath))
+            {
+                return new[]
+                {
+                    "dotnet",
+                    "run",
+                    "--project",
+                    helmProjectPath!,
+                    "-f",
+                    "net8.0",
+                    "--",
+                    "mcp",
+                    "stdio"
+                };
+            }
+
+            return new[] { "armada", "mcp", "stdio" };
+        }
+
+        private static bool TryGetSourceHelmProjectPath(out string? helmProjectPath)
+        {
+            helmProjectPath = null;
+
+            try
+            {
+                string assemblyDir = AppContext.BaseDirectory;
+                DirectoryInfo? current = new DirectoryInfo(assemblyDir);
+                while (current != null)
+                {
+                    string candidate = Path.Combine(current.FullName, "src", "Armada.Helm", "Armada.Helm.csproj");
+                    if (File.Exists(candidate))
+                    {
+                        helmProjectPath = candidate;
+                        return true;
+                    }
+                    current = current.Parent;
+                }
+            }
+            catch
+            {
+            }
+
+            return false;
+        }
+
+        private static IEnumerable<string> BuildCliCommandParts(string command, IEnumerable<string> args)
+        {
+            yield return QuoteIfNeeded(command);
+            foreach (string arg in args)
+                yield return QuoteIfNeeded(arg);
+        }
+
+        private static string QuoteIfNeeded(string value)
+        {
+            if (String.IsNullOrEmpty(value)) return "\"\"";
+            return value.Any(Char.IsWhiteSpace) ? $"\"{value}\"" : value;
+        }
+
+        private static string WrapManagedBlock(string content)
+        {
+            return $"{ManagedBlockStart}{Environment.NewLine}{content.Trim()}{Environment.NewLine}{ManagedBlockEnd}";
+        }
+
+        private static string UpsertManagedBlock(string? existing, string managedContent)
+        {
+            if (String.IsNullOrWhiteSpace(existing))
+                return managedContent + Environment.NewLine;
+
+            int start = existing.IndexOf(ManagedBlockStart, StringComparison.Ordinal);
+            int end = existing.IndexOf(ManagedBlockEnd, StringComparison.Ordinal);
+            if (start >= 0 && end >= start)
+            {
+                int afterEnd = end + ManagedBlockEnd.Length;
+                string prefix = existing[..start].TrimEnd();
+                string suffix = existing[afterEnd..].TrimStart();
+                return CombineSections(prefix, managedContent, suffix);
+            }
+
+            return CombineSections(existing.TrimEnd(), managedContent, String.Empty);
+        }
+
+        private static string RemoveManagedBlock(string existing)
+        {
+            int start = existing.IndexOf(ManagedBlockStart, StringComparison.Ordinal);
+            int end = existing.IndexOf(ManagedBlockEnd, StringComparison.Ordinal);
+            if (start < 0 || end < start)
+                return existing;
+
+            int afterEnd = end + ManagedBlockEnd.Length;
+            string prefix = existing[..start].TrimEnd();
+            string suffix = existing[afterEnd..].TrimStart();
+            return CombineSections(prefix, String.Empty, suffix);
+        }
+
+        private static string CombineSections(string prefix, string middle, string suffix)
+        {
+            List<string> sections = new List<string>();
+            if (!String.IsNullOrWhiteSpace(prefix))
+                sections.Add(prefix);
+            if (!String.IsNullOrWhiteSpace(middle))
+                sections.Add(middle);
+            if (!String.IsNullOrWhiteSpace(suffix))
+                sections.Add(suffix);
+
+            return sections.Count == 0
+                ? String.Empty
+                : String.Join($"{Environment.NewLine}{Environment.NewLine}", sections) + Environment.NewLine;
         }
 
         private static async Task<JsonObject> ReadOrCreateRootAsync(string path)
@@ -376,6 +577,78 @@ namespace Armada.Helm.Commands
 
                 Pending -> Assigned -> InProgress -> Testing/Review/Complete/Failed
                 Most states allow -> Cancelled
+                """;
+        }
+
+        internal static string GenerateAgentsInstructions()
+        {
+            return """
+                # Armada Orchestrator
+
+                This project is configured to let Codex and Cursor orchestrate Armada through its MCP tools.
+
+                ## Primary Rules
+
+                - When the user asks about Armada state or operations, prefer `armada_*` MCP tools over shell commands or local file inspection.
+                - Start with `armada_status` for broad "what is happening?" questions.
+                - Use `armada_enumerate` to browse fleets, vessels, captains, missions, voyages, docks, signals, events, merge queue entries, personas, prompt templates, and pipelines.
+                - Use `armada_voyage_status` and `armada_mission_status` for status checks.
+                - Use `armada_get_mission_log`, `armada_get_captain_log`, and `armada_get_mission_diff` when investigating progress or failures.
+                - Confirm destructive actions before deleting, purging, cancelling, stopping captains, or stopping the server.
+
+                ## Common Flow
+
+                1. Check `armada_status`.
+                2. Drill into the relevant voyage, mission, captain, or vessel.
+                3. Summarize the state clearly.
+                4. Take follow-up actions with MCP tools only when the user has asked for them.
+
+                ## Useful IDs
+
+                - `flt_` fleet
+                - `vsl_` vessel
+                - `cpt_` captain
+                - `msn_` mission
+                - `vyg_` voyage
+                - `dck_` dock
+                - `sig_` signal
+                - `mrg_` merge queue entry
+                """;
+        }
+
+        internal static string GenerateGeminiInstructions()
+        {
+            return """
+                # Armada Orchestrator
+
+                This project is configured to let Gemini CLI orchestrate Armada through its MCP tools.
+
+                ## Primary Rules
+
+                - When the user asks about Armada state or operations, prefer `armada_*` MCP tools over shell commands or local file inspection.
+                - Start with `armada_status` for broad "what is happening?" questions.
+                - Use `armada_enumerate` to browse fleets, vessels, captains, missions, voyages, docks, signals, events, merge queue entries, personas, prompt templates, and pipelines.
+                - Use `armada_voyage_status` and `armada_mission_status` for status checks.
+                - Use `armada_get_mission_log`, `armada_get_captain_log`, and `armada_get_mission_diff` when investigating progress or failures.
+                - Confirm destructive actions before deleting, purging, cancelling, stopping captains, or stopping the server.
+
+                ## Common Flow
+
+                1. Check `armada_status`.
+                2. Drill into the relevant voyage, mission, captain, or vessel.
+                3. Summarize the state clearly.
+                4. Take follow-up actions with MCP tools only when the user has asked for them.
+
+                ## Useful IDs
+
+                - `flt_` fleet
+                - `vsl_` vessel
+                - `cpt_` captain
+                - `msn_` mission
+                - `vyg_` voyage
+                - `dck_` dock
+                - `sig_` signal
+                - `mrg_` merge queue entry
                 """;
         }
     }

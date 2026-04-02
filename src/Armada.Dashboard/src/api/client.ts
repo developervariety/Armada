@@ -19,6 +19,7 @@ import type {
   Dock,
   DiffResult,
   LogResult,
+  InstructionsResult,
   DispatchRequest,
   VoyageCreateRequest,
   TransitionRequest,
@@ -217,6 +218,7 @@ export const retryMissionLanding = (id: string) => post<any>(`/api/v1/missions/$
 export const transitionMission = (id: string, data: TransitionRequest) => put<Mission>(`/api/v1/missions/${id}/status`, data);
 export const getMissionDiff = (id: string) => get<DiffResult>(`/api/v1/missions/${id}/diff`, { timeout: 30000 });
 export const getMissionLog = (id: string, lines = 500) => get<LogResult>(`/api/v1/missions/${id}/log?lines=${lines}`);
+export const getMissionInstructions = (id: string) => get<InstructionsResult>(`/api/v1/missions/${id}/instructions`);
 
 // ==================== Voyages ====================
 export const listVoyages = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>

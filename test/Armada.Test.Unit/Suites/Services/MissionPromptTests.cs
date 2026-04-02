@@ -1,6 +1,7 @@
 namespace Armada.Test.Unit.Suites.Services
 {
     using Armada.Core.Database.Sqlite;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
@@ -71,6 +72,40 @@ namespace Armada.Test.Unit.Suites.Services
                         string content = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
                         AssertContains("## Project Context", content);
                         AssertContains("This is a React TypeScript frontend with Redux state management.", content);
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(tempDir, true); } catch { }
+                    }
+                }
+            });
+
+            await RunTest("GenerateClaudeMdAsync writes runtime-specific instruction file", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    MissionService service = CreateMissionService(logging, testDb.Driver, settings, git);
+
+                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(tempDir);
+
+                    try
+                    {
+                        Vessel vessel = new Vessel("CodexVessel", "https://github.com/test/repo");
+                        Captain captain = new Captain("CodexCaptain");
+                        captain.Runtime = AgentRuntimeEnum.Codex;
+
+                        Mission mission = new Mission();
+                        mission.Title = "Implement feature";
+                        mission.Description = "Use runtime-specific instruction files.";
+
+                        await service.GenerateClaudeMdAsync(tempDir, mission, vessel, captain);
+
+                        AssertTrue(File.Exists(Path.Combine(tempDir, "CODEX.md")), "Codex missions should write CODEX.md");
+                        AssertFalse(File.Exists(Path.Combine(tempDir, "CLAUDE.md")), "Codex missions should not write CLAUDE.md by default");
                     }
                     finally
                     {
@@ -405,6 +440,43 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Template-resolved CLAUDE.md contains structured result and verdict markers", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    IPromptTemplateService templateService;
+                    MissionService service = CreateMissionServiceWithTemplates(logging, testDb.Driver, settings, git, out templateService);
+                    await templateService.SeedDefaultsAsync();
+
+                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(tempDir);
+
+                    try
+                    {
+                        Vessel vessel = new Vessel("SignalPromptVessel", "https://github.com/test/repo");
+
+                        Mission mission = new Mission();
+                        mission.Title = "Judge signal test";
+                        mission.Description = "Verify structured output markers are present.";
+                        mission.Persona = "Judge";
+
+                        await service.GenerateClaudeMdAsync(tempDir, mission, vessel);
+
+                        string content = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
+                        AssertContains("[ARMADA:RESULT] COMPLETE", content);
+                        AssertContains("[ARMADA:VERDICT] PASS", content);
+                        AssertContains("standalone", content.ToLowerInvariant());
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(tempDir, true); } catch { }
+                    }
+                }
+            });
+
             await RunTest("Template-resolved CLAUDE.md contains persona prompt", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
@@ -517,7 +589,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("Shared launch prompt builder includes persona and vessel context", async () =>
+            await RunTest("Shared launch prompt builder produces compact prompt and defers to runtime instruction file", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
@@ -532,6 +604,7 @@ namespace Armada.Test.Unit.Suites.Services
                     vessel.ModelContext = "Background jobs are scheduled from ArmadaServer.";
 
                     Captain captain = new Captain("prompt-captain");
+                    captain.Runtime = AgentRuntimeEnum.Codex;
                     captain.SystemInstructions = "Be concise and careful.";
 
                     Mission mission = new Mission("Write tests", "Add unit tests for the service layer.");
@@ -545,11 +618,75 @@ namespace Armada.Test.Unit.Suites.Services
                         mission, vessel, captain, dock, templateService).ConfigureAwait(false);
 
                     AssertContains("test engineer", prompt.ToLowerInvariant());
-                    AssertContains("Service-oriented C# backend.", prompt);
-                    AssertContains("Prefer explicit types.", prompt);
-                    AssertContains("Background jobs are scheduled from ArmadaServer.", prompt);
-                    AssertContains("Be concise and careful.", prompt);
                     AssertContains("Write tests", prompt);
+                    AssertContains("CODEX.md", prompt);
+                    AssertFalse(prompt.Contains("CLAUDE.md"), "Non-Claude runtimes should not be pointed at CLAUDE.md");
+                    AssertFalse(prompt.Contains("Be concise and careful."), "Launch prompt should defer captain instructions to the runtime instruction file");
+                    AssertFalse(prompt.Contains("Service-oriented C# backend."), "Launch prompt should defer project context to the runtime instruction file");
+                    AssertFalse(prompt.Contains("Prefer explicit types."), "Launch prompt should defer style guide to the runtime instruction file");
+                    AssertFalse(prompt.Contains("Background jobs are scheduled from ArmadaServer."), "Launch prompt should defer model context to the runtime instruction file");
+                }
+            });
+
+            await RunTest("Shared launch prompt builder caps oversized prompts", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    IPromptTemplateService templateService = new PromptTemplateService(testDb.Driver, logging);
+                    await templateService.SeedDefaultsAsync();
+
+                    Vessel vessel = new Vessel("LargePromptVessel", "https://github.com/test/repo");
+                    vessel.ProjectContext = new string('P', 5000);
+                    vessel.StyleGuide = new string('S', 5000);
+                    vessel.EnableModelContext = true;
+                    vessel.ModelContext = new string('M', 5000);
+
+                    Captain captain = new Captain("large-prompt-captain");
+                    captain.Runtime = AgentRuntimeEnum.Gemini;
+                    captain.SystemInstructions = new string('I', 2000);
+
+                    Mission mission = new Mission("Large mission", new string('D', 20000));
+                    mission.Persona = "Architect";
+                    mission.BranchName = "armada/large-prompt";
+
+                    Dock dock = new Dock(vessel.Id);
+                    dock.BranchName = mission.BranchName;
+
+                    string prompt = await MissionPromptBuilder.BuildLaunchPromptAsync(
+                        mission, vessel, captain, dock, templateService).ConfigureAwait(false);
+
+                    AssertTrue(prompt.Length <= 6000, "Launch prompt should stay under the hard cap");
+                    AssertContains("GEMINI.md", prompt);
+                    AssertContains("Large mission", prompt);
+                }
+            });
+
+            await RunTest("Architect launch prompt explicitly requires ARMADA mission markers", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    IPromptTemplateService templateService = new PromptTemplateService(testDb.Driver, logging);
+                    await templateService.SeedDefaultsAsync();
+
+                    Vessel vessel = new Vessel("ArchitectVessel", "https://github.com/test/repo");
+                    Captain captain = new Captain("architect-captain");
+                    captain.Runtime = AgentRuntimeEnum.ClaudeCode;
+
+                    Mission mission = new Mission("Plan work", "Break this objective into missions.");
+                    mission.Persona = "Architect";
+                    mission.BranchName = "armada/architect";
+
+                    Dock dock = new Dock(vessel.Id);
+                    dock.BranchName = mission.BranchName;
+
+                    string prompt = await MissionPromptBuilder.BuildLaunchPromptAsync(
+                        mission, vessel, captain, dock, templateService).ConfigureAwait(false);
+
+                    AssertContains("[ARMADA:MISSION]", prompt);
+                    AssertContains("Do not ask for more input.", prompt);
+                    AssertContains("respond only with real [ARMADA:MISSION] blocks", prompt);
                 }
             });
         }

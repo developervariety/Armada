@@ -6,6 +6,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
+    using Armada.Server;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
     using SyslogLogging;
@@ -284,6 +285,52 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Successful local landing removes active worktree before deleting branch", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    StubGitService git = new StubGitService();
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    IMessageTemplateService templateService = new MessageTemplateService(logging);
+                    MissionLandingHandler handler = new MissionLandingHandler(
+                        logging,
+                        testDb.Driver,
+                        settings,
+                        git,
+                        new StubMergeQueueService(),
+                        templateService,
+                        null,
+                        dockService,
+                        null);
+
+                    LandingTestEntitiesResult entities = await CreateTestEntitiesAsync(
+                        testDb.Driver,
+                        LandingModeEnum.LocalMerge,
+                        BranchCleanupPolicyEnum.LocalAndRemote);
+
+                    git.ExistingBranches.Add(entities.Dock.BranchName!);
+                    entities.Mission.Status = MissionStatusEnum.WorkProduced;
+                    entities.Mission.DiffSnapshot = "diff --git a/app/routes_ops.py b/app/routes_ops.py";
+                    await testDb.Driver.Missions.UpdateAsync(entities.Mission).ConfigureAwait(false);
+
+                    await handler.HandleMissionCompleteAsync(entities.Mission, entities.Dock).ConfigureAwait(false);
+
+                    int removeIndex = git.OperationCalls.IndexOf("remove-worktree:" + entities.Dock.WorktreePath);
+                    int deleteLocalIndex = git.OperationCalls.IndexOf("delete-local-branch:" + entities.Dock.BranchName);
+                    int deleteRemoteIndex = git.OperationCalls.IndexOf("delete-remote-branch:" + entities.Dock.BranchName);
+
+                    AssertTrue(removeIndex >= 0, "Landing cleanup should remove the active worktree");
+                    AssertTrue(deleteLocalIndex > removeIndex, "Local branch deletion should happen after the worktree is removed");
+                    AssertTrue(deleteRemoteIndex > deleteLocalIndex, "Remote branch deletion should happen after the local branch delete attempt");
+
+                    Mission? updatedMission = await testDb.Driver.Missions.ReadAsync(entities.Mission.Id).ConfigureAwait(false);
+                    AssertNotNull(updatedMission, "Mission should still exist");
+                    AssertEqual(MissionStatusEnum.Complete, updatedMission!.Status, "Mission should be marked Complete after successful landing");
+                }
+            });
+
             // === Status Transition Validation ===
 
             await RunTest("PullRequestOpen allows transition to Complete", () =>
@@ -321,6 +368,21 @@ namespace Armada.Test.Unit.Suites.Services
 
                 return Task.CompletedTask;
             });
+        }
+
+        private sealed class StubMergeQueueService : IMergeQueueService
+        {
+            public Task<MergeEntry> EnqueueAsync(MergeEntry entry, CancellationToken token = default) => Task.FromResult(entry);
+            public Task ProcessQueueAsync(CancellationToken token = default) => Task.CompletedTask;
+            public Task CancelAsync(string entryId, string? tenantId = null, CancellationToken token = default) => Task.CompletedTask;
+            public Task<List<MergeEntry>> ListAsync(string? tenantId = null, CancellationToken token = default) => Task.FromResult(new List<MergeEntry>());
+            public Task<MergeEntry?> ProcessSingleAsync(string entryId, string? tenantId = null, CancellationToken token = default) => Task.FromResult<MergeEntry?>(null);
+            public Task<MergeEntry?> GetAsync(string entryId, string? tenantId = null, CancellationToken token = default) => Task.FromResult<MergeEntry?>(null);
+            public Task<bool> DeleteAsync(string entryId, string? tenantId = null, CancellationToken token = default) => Task.FromResult(false);
+            public Task<MergeQueuePurgeResult> DeleteMultipleAsync(List<string> entryIds, string? tenantId = null, CancellationToken token = default)
+                => Task.FromResult(new MergeQueuePurgeResult());
+            public Task<int> PurgeTerminalAsync(string? vesselId = null, MergeStatusEnum? status = null, string? tenantId = null, CancellationToken token = default)
+                => Task.FromResult(0);
         }
     }
 }

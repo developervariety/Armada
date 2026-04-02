@@ -10,6 +10,28 @@ namespace Armada.Core.Services
     /// </summary>
     public static class MissionPromptBuilder
     {
+        private const int MaxLaunchPromptChars = 6000;
+        private const int MaxPersonaSummaryChars = 320;
+        private const int MaxCaptainInstructionChars = 800;
+        private const int MaxMissionDescriptionChars = 3500;
+
+        /// <summary>
+        /// Resolve the runtime-specific mission instructions filename.
+        /// </summary>
+        public static string GetInstructionsFileName(string? runtime)
+        {
+            if (String.IsNullOrWhiteSpace(runtime)) return "CLAUDE.md";
+
+            return runtime.Trim() switch
+            {
+                "ClaudeCode" => "CLAUDE.md",
+                "Codex" => "CODEX.md",
+                "Cursor" => "CURSOR.md",
+                "Gemini" => "GEMINI.md",
+                _ => "CLAUDE.md"
+            };
+        }
+
         /// <summary>
         /// Build a consistent template parameter dictionary for mission prompt rendering.
         /// </summary>
@@ -94,33 +116,69 @@ namespace Armada.Core.Services
             if (captain == null) throw new ArgumentNullException(nameof(captain));
             if (dock == null) throw new ArgumentNullException(nameof(dock));
 
-            Dictionary<string, string> templateParams = BuildTemplateParams(mission, vessel, captain, dock);
-            string personaPrompt = await ResolvePersonaPromptAsync(mission.Persona, templateParams, promptTemplates, token).ConfigureAwait(false);
-
-            string renderedLaunch = "";
-            if (promptTemplates != null)
-            {
-                renderedLaunch = await promptTemplates.RenderAsync("agent.launch_prompt", templateParams, token).ConfigureAwait(false);
-            }
-            if (String.IsNullOrEmpty(renderedLaunch))
-            {
-                renderedLaunch = "Mission: " + mission.Title + "\n\n" + (mission.Description ?? "");
-            }
+            string instructionsFileName = GetInstructionsFileName(captain.Runtime.ToString());
 
             List<string> sections = new List<string>();
-            if (!String.IsNullOrEmpty(personaPrompt))
-                sections.Add(personaPrompt);
-            if (!String.IsNullOrEmpty(captain.SystemInstructions))
-                sections.Add("## Captain Instructions\n" + captain.SystemInstructions);
-            if (!String.IsNullOrEmpty(vessel.ProjectContext))
-                sections.Add("## Project Context\n" + vessel.ProjectContext);
-            if (!String.IsNullOrEmpty(vessel.StyleGuide))
-                sections.Add("## Style Guide\n" + vessel.StyleGuide);
-            if (vessel.EnableModelContext && !String.IsNullOrEmpty(vessel.ModelContext))
-                sections.Add("## Model Context\n" + vessel.ModelContext);
-            sections.Add(renderedLaunch);
+            sections.Add("Role: " + BuildBootstrapRoleSummary(mission.Persona));
+            sections.Add("Mission: " + mission.Title);
+            sections.Add("Branch: " + (dock.BranchName ?? mission.BranchName ?? vessel.DefaultBranch ?? "main"));
 
-            return String.Join("\n\n", sections);
+            if (String.Equals(mission.Persona, "Architect", StringComparison.OrdinalIgnoreCase))
+            {
+                sections.Add(
+                    "Read " + instructionsFileName + " in the working directory. " +
+                    "It contains the objective, repository context, and mission-format requirements. " +
+                    "Do not ask for more input. Read the file immediately and respond only with real [ARMADA:MISSION] blocks derived from that file.");
+            }
+            else
+            {
+                sections.Add(
+                    "Read " + instructionsFileName + " in the working directory. " +
+                    "It contains the full mission objective, repository context, style guide, model context, and execution rules. Do not ask for more input. Read the file immediately and follow it exactly.");
+            }
+
+            string prompt = String.Join(" ", sections.Select(s => s.Replace("\r", " ").Replace("\n", " ").Trim())).Trim();
+            if (prompt.Length <= MaxLaunchPromptChars)
+                return prompt;
+
+            string overflowMessage = "\n\n" + instructionsFileName + " contains the remaining context. Keep working from that file if this launch prompt was truncated.";
+            int allowed = Math.Max(256, MaxLaunchPromptChars - overflowMessage.Length);
+            return prompt.Substring(0, allowed).TrimEnd() + overflowMessage;
+        }
+
+        private static string BuildBootstrapRoleSummary(string? persona)
+        {
+            return persona switch
+            {
+                "Architect" => "You are an Armada architect agent.",
+                "Worker" => "You are an Armada worker agent.",
+                "TestEngineer" => "You are an Armada test engineer agent.",
+                "Judge" => "You are an Armada judge agent.",
+                _ => "You are an Armada captain executing a mission."
+            };
+        }
+
+        private static string SummarizeText(string? input, int maxChars)
+        {
+            if (String.IsNullOrWhiteSpace(input)) return "";
+
+            string compact = Regex.Replace(input, "\\s+", " ").Trim();
+            if (compact.Length <= maxChars) return compact;
+            if (maxChars <= 3) return compact.Substring(0, maxChars);
+            return compact.Substring(0, maxChars - 3).TrimEnd() + "...";
+        }
+
+        private static string BuildRoleSummary(string? persona, string personaSummary)
+        {
+            if (String.Equals(persona, "Architect", StringComparison.OrdinalIgnoreCase))
+            {
+                return "You are an Armada architect agent. Analyze the objective and decompose it into right-sized missions using [ARMADA:MISSION] markers.";
+            }
+
+            if (!String.IsNullOrEmpty(personaSummary))
+                return personaSummary;
+
+            return GetPersonaPromptFallback(persona);
         }
 
         private static string GetPersonaPromptFallback(string? persona)
@@ -128,9 +186,9 @@ namespace Armada.Core.Services
             return persona switch
             {
                 "Architect" => "You are an Armada architect agent. Analyze the codebase and decompose the objective into right-sized missions using [ARMADA:MISSION] markers.",
-                "Worker" => "You are an Armada worker agent. Implement the requested code changes carefully and stay within scope.",
-                "TestEngineer" => "You are an Armada test engineer agent. Write tests that verify the changes made in the previous stage.",
-                "Judge" => "You are an Armada judge agent. Review the completed work for correctness, completeness, and scope compliance.",
+                "Worker" => "You are an Armada worker agent. Implement the requested code changes carefully, stay within scope, and end with a standalone [ARMADA:RESULT] COMPLETE line.",
+                "TestEngineer" => "You are an Armada test engineer agent. Write tests for the current mission scope and end with a standalone [ARMADA:RESULT] COMPLETE line.",
+                "Judge" => "You are an Armada judge agent. Review the completed work for correctness, completeness, and scope compliance, then end with a standalone [ARMADA:VERDICT] PASS, FAIL, or NEEDS_REVISION line.",
                 _ => "You are an Armada captain executing a mission. Follow these instructions carefully."
             };
         }

@@ -52,13 +52,26 @@ namespace Armada.Test.Runtimes.Suites
                 AssertEqual("full-auto", runtime.ApprovalMode);
             });
 
-            await RunTest("BuildArguments Uses Exec FullAuto", () =>
+            await RunTest("BuildArguments Uses Exec With Platform Appropriate Auto Mode", () =>
             {
                 InspectableCodexRuntime runtime = CreateRuntime();
                 List<string> args = runtime.Args("test prompt");
                 AssertEqual("exec", args[0]);
-                AssertTrue(args.Contains("--full-auto"));
-                AssertEqual("test prompt", args[args.Count - 1]);
+                if (OperatingSystem.IsWindows())
+                    AssertTrue(args.Contains("--dangerously-bypass-approvals-and-sandbox"));
+                else
+                    AssertTrue(args.Contains("--full-auto"));
+                AssertEqual("-", args[args.Count - 1]);
+            });
+
+            await RunTest("BuildArguments Dangerous Uses Dangerous Flag", () =>
+            {
+                InspectableCodexRuntime runtime = CreateRuntime();
+                runtime.ApprovalMode = "dangerous";
+                List<string> args = runtime.Args("test prompt");
+                AssertEqual("exec", args[0]);
+                AssertTrue(args.Contains("--dangerously-bypass-approvals-and-sandbox"));
+                AssertEqual("-", args[args.Count - 1]);
             });
 
             await RunTest("Windows Command Resolves Cmd Wrapper", () =>

@@ -13,6 +13,9 @@ namespace Armada.Core.Services
     {
         #region Private-Members
 
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim> _RepoProvisionLocks =
+            new System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.OrdinalIgnoreCase);
+
         private string _Header = "[DockService] ";
         private LoggingModule _Logging;
         private DatabaseDriver _Database;
@@ -55,9 +58,15 @@ namespace Armada.Core.Services
             // Falls back to per-captain path for backward compatibility.
             string dockDirName = !String.IsNullOrEmpty(missionId) ? missionId : captain.Name;
             string worktreePath = Path.Combine(_Settings.DocksDirectory, vessel.Name, dockDirName);
+            string normalizedRepoPath = Path.GetFullPath(repoPath);
+            SemaphoreSlim repoLock = _RepoProvisionLocks.GetOrAdd(normalizedRepoPath, _ => new SemaphoreSlim(1, 1));
+            bool repoLockAcquired = false;
 
             try
             {
+                await repoLock.WaitAsync(token).ConfigureAwait(false);
+                repoLockAcquired = true;
+
                 // Ensure bare clone exists. If the directory exists but isn't a valid repo
                 // (e.g. leftover from a failed clone/seed), remove it and re-clone.
                 if (Directory.Exists(repoPath) && !await _Git.IsRepositoryAsync(repoPath, token).ConfigureAwait(false))
@@ -75,12 +84,13 @@ namespace Armada.Core.Services
                     await _Database.Vessels.UpdateAsync(vessel, token).ConfigureAwait(false);
                 }
 
-                // Handle empty repos (no commits, no branches) by seeding an initial commit.
-                // Without at least one commit, git worktree add fails with "invalid reference".
-                bool hasDefaultBranch = await _Git.BranchExistsAsync(repoPath, vessel.DefaultBranch, token).ConfigureAwait(false);
+                // Ensure the configured default branch exists locally. Missing configured branches
+                // in non-empty repos should be created from the remote/default history rather than
+                // being treated as an empty repository.
+                bool hasDefaultBranch = await _Git.EnsureLocalBranchAsync(repoPath, vessel.DefaultBranch, token).ConfigureAwait(false);
                 if (!hasDefaultBranch)
                 {
-                    _Logging.Info(_Header + "bare repo for " + vessel.Name + " has no " + vessel.DefaultBranch + " branch -- seeding initial commit");
+                    _Logging.Info(_Header + "bare repo for " + vessel.Name + " has no usable branch history for " + vessel.DefaultBranch + " -- seeding initial commit");
                     await SeedEmptyRepoAsync(vessel, repoPath, token).ConfigureAwait(false);
                 }
                 else if (String.IsNullOrEmpty(vessel.LocalPath))
@@ -201,6 +211,13 @@ namespace Armada.Core.Services
                 // instead of recreating it so downstream pipeline stages and retries preserve work.
                 await _Git.CreateWorktreeAsync(repoPath, worktreePath, branchName, vessel.DefaultBranch, token).ConfigureAwait(false);
 
+                string? headCommit = await _Git.GetHeadCommitHashAsync(worktreePath, token).ConfigureAwait(false);
+                if (String.IsNullOrEmpty(headCommit))
+                {
+                    throw new InvalidOperationException("Provisioned worktree " + worktreePath +
+                        " for branch " + branchName + " without a valid HEAD commit");
+                }
+
                 // Create dock record
                 Dock dock = new Dock(vessel.Id);
                 dock.TenantId = vessel.TenantId;
@@ -224,6 +241,11 @@ namespace Armada.Core.Services
                 }
 
                 return null;
+            }
+            finally
+            {
+                if (repoLockAcquired)
+                    repoLock.Release();
             }
         }
 

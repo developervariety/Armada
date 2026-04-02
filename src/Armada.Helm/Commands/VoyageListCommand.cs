@@ -49,6 +49,7 @@ namespace Armada.Helm.Commands
                 string statusColor = voyage.Status switch
                 {
                     VoyageStatusEnum.Complete => "green",
+                    VoyageStatusEnum.Failed => "red",
                     VoyageStatusEnum.InProgress => "gold1",
                     VoyageStatusEnum.Cancelled => "grey",
                     _ => "dodgerblue1"

@@ -11,11 +11,13 @@ namespace Armada.Test.Unit.TestHelpers
         public List<string> CloneCalls { get; } = new List<string>();
         public List<string> WorktreeCalls { get; } = new List<string>();
         public List<string> DeleteBranchCalls { get; } = new List<string>();
+        public List<string> RemoveWorktreeCalls { get; } = new List<string>();
         public List<string> MergeBranchCalls { get; } = new List<string>();
         public List<string> PushCalls { get; } = new List<string>();
         public List<string> PrCalls { get; } = new List<string>();
         public List<string> PullCalls { get; } = new List<string>();
         public List<string> DiffCalls { get; } = new List<string>();
+        public List<string> OperationCalls { get; } = new List<string>();
 
         // Result controls
         public bool IsRepositoryResult { get; set; } = true;
@@ -35,6 +37,7 @@ namespace Armada.Test.Unit.TestHelpers
         public Task CloneBareAsync(string repoUrl, string localPath, CancellationToken token = default)
         {
             CloneCalls.Add(repoUrl + " -> " + localPath);
+            OperationCalls.Add("clone:" + localPath);
             return Task.CompletedTask;
         }
 
@@ -43,16 +46,23 @@ namespace Armada.Test.Unit.TestHelpers
             if (ShouldThrowOnWorktree) throw new InvalidOperationException("Simulated worktree failure");
             ExistingBranches.Add(branchName);
             WorktreeCalls.Add(worktreePath);
+            OperationCalls.Add("create-worktree:" + worktreePath);
             return Task.CompletedTask;
         }
 
-        public Task RemoveWorktreeAsync(string worktreePath, CancellationToken token = default) => Task.CompletedTask;
+        public Task RemoveWorktreeAsync(string worktreePath, CancellationToken token = default)
+        {
+            RemoveWorktreeCalls.Add(worktreePath);
+            OperationCalls.Add("remove-worktree:" + worktreePath);
+            return Task.CompletedTask;
+        }
         public Task FetchAsync(string repoPath, CancellationToken token = default) => Task.CompletedTask;
 
         public Task PushBranchAsync(string worktreePath, string remoteName = "origin", CancellationToken token = default)
         {
             if (ShouldThrowOnPush) throw new InvalidOperationException("Simulated push failure");
             PushCalls.Add(worktreePath);
+            OperationCalls.Add("push:" + worktreePath);
             return Task.CompletedTask;
         }
 
@@ -60,6 +70,7 @@ namespace Armada.Test.Unit.TestHelpers
         {
             if (ShouldThrowOnCreatePr) throw new InvalidOperationException("Simulated PR creation failure");
             PrCalls.Add(title);
+            OperationCalls.Add("create-pr:" + title);
             return Task.FromResult(CreatePrResult);
         }
 
@@ -70,12 +81,14 @@ namespace Armada.Test.Unit.TestHelpers
         {
             if (ShouldThrowOnDeleteBranch) throw new InvalidOperationException("Simulated branch delete failure");
             DeleteBranchCalls.Add(repoPath + ":" + branchName);
+            OperationCalls.Add("delete-local-branch:" + branchName);
             return Task.CompletedTask;
         }
 
         public Task DeleteRemoteBranchAsync(string repoPath, string branchName, CancellationToken token = default)
         {
             DeleteBranchCalls.Add("remote:" + branchName);
+            OperationCalls.Add("delete-remote-branch:" + branchName);
             return Task.CompletedTask;
         }
 
@@ -86,6 +99,7 @@ namespace Armada.Test.Unit.TestHelpers
         {
             if (ShouldThrowOnMergeLocal) throw new InvalidOperationException("Simulated merge failure");
             MergeBranchCalls.Add(branchName + " -> " + targetWorkDir);
+            OperationCalls.Add("merge-local:" + branchName);
             return Task.CompletedTask;
         }
 
@@ -109,6 +123,8 @@ namespace Armada.Test.Unit.TestHelpers
             if (branchName == "main") return Task.FromResult(DefaultBranchExistsResult);
             return Task.FromResult(false);
         }
+        public Task<bool> EnsureLocalBranchAsync(string repoPath, string branchName, CancellationToken token = default)
+            => BranchExistsAsync(repoPath, branchName, token);
         public Task<bool> IsWorktreeRegisteredAsync(string repoPath, string worktreePath, CancellationToken token = default) => Task.FromResult(false);
     }
 }

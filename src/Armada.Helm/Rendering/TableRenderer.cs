@@ -108,6 +108,7 @@ namespace Armada.Helm.Rendering
                 VoyageStatusEnum.Open => "dodgerblue1",
                 VoyageStatusEnum.InProgress => "green",
                 VoyageStatusEnum.Complete => "dim",
+                VoyageStatusEnum.Failed => "red",
                 VoyageStatusEnum.Cancelled => "grey",
                 _ => "white"
             };

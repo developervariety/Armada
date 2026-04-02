@@ -17,6 +17,7 @@ namespace Armada.Helm.Commands
             ArmadaSettings armadaSettings = await ArmadaSettings.LoadAsync().ConfigureAwait(false);
             string mcpRpcUrl = McpConfigHelper.GetMcpRpcUrl(armadaSettings.McpPort);
             List<McpConfigHelper.ConfigTarget> targets = McpConfigHelper.BuildTargets(armadaSettings.McpPort);
+            List<McpConfigHelper.InstructionTarget> instructionTargets = McpConfigHelper.BuildInstructionTargets();
 
             AnsiConsole.MarkupLine("[bold dodgerblue1]Armada MCP Install[/]");
             AnsiConsole.MarkupLine($"[dim]MCP endpoint:[/] [green]{Markup.Escape(mcpRpcUrl)}[/]");
@@ -30,6 +31,8 @@ namespace Armada.Helm.Commands
 
             foreach (McpConfigHelper.ConfigTarget target in targets)
             {
+                WriteClientHeader(target.ClientName);
+
                 bool shouldWrite = settings.DryRun || settings.Yes || AnsiConsole.Confirm(
                     $"[dodgerblue1]Configure[/] [green]{target.ClientName}[/] at [green]{Markup.Escape(target.FilePath)}[/]?",
                     true);
@@ -72,13 +75,41 @@ namespace Armada.Helm.Commands
                 WriteManualSection(target, armadaSettings.McpPort);
             }
 
-            AnsiConsole.MarkupLine("[bold]What You Need To Do[/]");
-            AnsiConsole.MarkupLine("[green]1.[/] Start the Admiral server if you plan to use HTTP MCP: [green]armada server start[/]");
-            AnsiConsole.MarkupLine("[green]2.[/] Restart the MCP client after config changes so it reloads the entry.");
-            AnsiConsole.MarkupLine($"[green]3.[/] Cursor is project-scoped. The file was targeted at [green]{Markup.Escape(McpConfigHelper.GetCursorConfigPath())}[/]. Run the command from the project you want Cursor to use.");
-            AnsiConsole.MarkupLine("[green]4.[/] If automatic config was skipped or blocked, use the snippets shown above and edit the files manually.");
+            foreach (McpConfigHelper.InstructionTarget target in instructionTargets)
+            {
+                WriteClientHeader(target.ClientName);
+
+                bool shouldWrite = settings.DryRun || settings.Yes || AnsiConsole.Confirm(
+                    $"[dodgerblue1]Install/update[/] Armada instructions for [green]{target.ClientName}[/] at [green]{Markup.Escape(target.FilePath)}[/]?",
+                    true);
+
+                if (!shouldWrite)
+                {
+                    AnsiConsole.MarkupLine($"[yellow]{target.ClientName}[/]: skipped.");
+                }
+                else if (!settings.DryRun)
+                {
+                    WriteResult(await McpConfigHelper.InstallInstructionTargetAsync(target).ConfigureAwait(false));
+                }
+                else
+                {
+                    AnsiConsole.MarkupLine($"[yellow]{target.ClientName}[/]: would configure [green]{Markup.Escape(target.FilePath)}[/].");
+                }
+            }
+
             AnsiConsole.WriteLine();
-            AnsiConsole.MarkupLine("[dim]HTTP mode requires the Admiral server running. Claude Code also supports stdio mode via the command shown above.[/]");
+            AnsiConsole.MarkupLine("[bold]What You Need To Do[/]");
+            AnsiConsole.WriteLine();
+            AnsiConsole.MarkupLine("[bold]Required[/]");
+            AnsiConsole.MarkupLine("[green]1.[/] Start the Admiral server for Claude Code, Gemini CLI, and Cursor: [green]armada server start[/]");
+            AnsiConsole.MarkupLine("[green]2.[/] Restart any MCP client you want to use so it reloads the new config.");
+            AnsiConsole.WriteLine();
+            AnsiConsole.MarkupLine("[bold]Only If Needed[/]");
+            AnsiConsole.MarkupLine("[green]3.[/] Re-run [green]install-mcp[/] from each project where you want project-scoped files updated.");
+            AnsiConsole.MarkupLine($"[dim]Project-scoped files:[/] [green]{Markup.Escape(McpConfigHelper.GetProjectAgentsPath())}[/], [green]{Markup.Escape(McpConfigHelper.GetProjectGeminiInstructionsPath())}[/], [green]{Markup.Escape(McpConfigHelper.GetCursorConfigPath())}[/]");
+            AnsiConsole.MarkupLine("[green]4.[/] Use the manual snippets above only if automatic setup was skipped or failed.");
+            AnsiConsole.WriteLine();
+            AnsiConsole.MarkupLine("[dim]Codex uses stdio MCP by default, so it does not need the HTTP server.[/]");
 
             return 0;
         }
@@ -112,6 +143,13 @@ namespace Armada.Helm.Commands
                 AnsiConsole.MarkupLine($"[green]  {Markup.Escape(McpConfigHelper.BuildClaudeStdioCommand())}[/]");
                 AnsiConsole.MarkupLine($"[dim]Claude agent file:[/] [green]{Markup.Escape(McpConfigHelper.GetClaudeAgentPath())}[/]");
             }
+            AnsiConsole.WriteLine();
+        }
+
+        private static void WriteClientHeader(string clientName)
+        {
+            AnsiConsole.WriteLine();
+            AnsiConsole.Write(new Rule($"[bold]{Markup.Escape(clientName)}[/]").RuleStyle("grey"));
             AnsiConsole.WriteLine();
         }
     }

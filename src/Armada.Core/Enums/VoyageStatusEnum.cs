@@ -28,6 +28,12 @@ namespace Armada.Core.Enums
         Complete,
 
         /// <summary>
+        /// Voyage reached a terminal state with one or more failed missions.
+        /// </summary>
+        [EnumMember(Value = "Failed")]
+        Failed,
+
+        /// <summary>
         /// Voyage was cancelled.
         /// </summary>
         [EnumMember(Value = "Cancelled")]

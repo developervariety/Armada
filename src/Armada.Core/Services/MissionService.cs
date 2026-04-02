@@ -31,9 +31,19 @@ namespace Armada.Core.Services
         private LoggingModule _Logging;
         private DatabaseDriver _Database;
         private ArmadaSettings _Settings;
+        private IGitService? _Git;
         private IDockService _Docks;
         private ICaptainService _Captains;
         private IPromptTemplateService? _PromptTemplates;
+        private const string ArchitectHandoffMarker = "<!-- ARMADA:ARCHITECT-HANDOFF -->";
+
+        /// <summary>
+        /// Tracks in-flight mission assignment operations by mission ID.
+        /// Prevents duplicate provisioning/launch when multiple dispatch paths
+        /// race on the same mission.
+        /// </summary>
+        private System.Collections.Concurrent.ConcurrentDictionary<string, byte> _InFlightAssignments =
+            new System.Collections.Concurrent.ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
 
         /// <summary>
         /// Tracks in-flight mission complete handler operations by mission ID.
@@ -56,6 +66,17 @@ namespace Armada.Core.Services
             public string Description { get; set; } = "";
         }
 
+        /// <summary>
+        /// Verdict extracted from a judge mission's output.
+        /// </summary>
+        private enum JudgeVerdict
+        {
+            None,
+            Pass,
+            Fail,
+            NeedsRevision
+        }
+
         #endregion
 
         #region Constructors-and-Factories
@@ -69,17 +90,20 @@ namespace Armada.Core.Services
         /// <param name="docks">Dock service.</param>
         /// <param name="captains">Captain service.</param>
         /// <param name="promptTemplates">Prompt template service (optional for backward compatibility).</param>
+        /// <param name="git">Git service used for branch cleanup on non-landed intermediate stages.</param>
         public MissionService(
             LoggingModule logging,
             DatabaseDriver database,
             ArmadaSettings settings,
             IDockService docks,
             ICaptainService captains,
-            IPromptTemplateService? promptTemplates = null)
+            IPromptTemplateService? promptTemplates = null,
+            IGitService? git = null)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
+            _Git = git;
             _Docks = docks ?? throw new ArgumentNullException(nameof(docks));
             _Captains = captains ?? throw new ArgumentNullException(nameof(captains));
             _PromptTemplates = promptTemplates;
@@ -94,6 +118,35 @@ namespace Armada.Core.Services
         {
             if (mission == null) throw new ArgumentNullException(nameof(mission));
             if (vessel == null) throw new ArgumentNullException(nameof(vessel));
+
+            if (!_InFlightAssignments.TryAdd(mission.Id, 0))
+            {
+                _Logging.Debug(_Header + "mission " + mission.Id + " assignment already in flight -- skipping duplicate");
+                return false;
+            }
+
+            try
+            {
+                Mission? latestMission = null;
+                if (!String.IsNullOrEmpty(mission.TenantId))
+                {
+                    latestMission = await _Database.Missions.ReadAsync(mission.TenantId, mission.Id, token).ConfigureAwait(false);
+                }
+                if (latestMission == null)
+                {
+                    latestMission = await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);
+                }
+                if (latestMission != null)
+                {
+                    mission = latestMission;
+                }
+
+                if (mission.Status != MissionStatusEnum.Pending)
+                {
+                    _Logging.Debug(_Header + "mission " + mission.Id + " is " + mission.Status +
+                        " in the database -- skipping assignment");
+                    return false;
+                }
 
             // Check pipeline dependency -- skip if the mission depends on another that hasn't completed
             // or if the downstream handoff has not yet populated the mission's branch/context.
@@ -125,6 +178,13 @@ namespace Armada.Core.Services
                         " which is WorkProduced, but handoff is not prepared yet -- deferring assignment");
                     return false;
                 }
+            }
+
+            if (await ShouldDeferArchitectSequencedMissionAsync(mission, token).ConfigureAwait(false))
+            {
+                _Logging.Info(_Header + "mission " + mission.Id +
+                    " is architect-marked as sequential after implementation work -- deferring assignment");
+                return false;
             }
 
             // Check for vessel-level lock (broad-scope missions block new assignments)
@@ -270,6 +330,7 @@ namespace Armada.Core.Services
 
             // Generate mission CLAUDE.md into worktree
             await GenerateClaudeMdAsync(dock.WorktreePath!, mission, vessel, captain, token).ConfigureAwait(false);
+            await EnsureMissionInstructionsPresentAsync(dock.WorktreePath!, mission, captain, token).ConfigureAwait(false);
 
             // Launch agent process via captain service
             if (_Captains.OnLaunchAgent != null)
@@ -305,6 +366,16 @@ namespace Armada.Core.Services
                     mission.LastUpdateUtc = DateTime.UtcNow;
                     await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
 
+                    try
+                    {
+                        await _Docks.ReclaimAsync(dock.Id, token: token).ConfigureAwait(false);
+                    }
+                    catch (Exception reclaimEx)
+                    {
+                        _Logging.Warn(_Header + "failed to reclaim dock " + dock.Id +
+                            " after launch failure for mission " + mission.Id + ": " + reclaimEx.Message);
+                    }
+
                     Signal errorSignal = new Signal(SignalTypeEnum.Error, "Failed to launch agent: " + ex.Message);
                     errorSignal.TenantId = mission.TenantId;
                     errorSignal.UserId = mission.UserId;
@@ -330,11 +401,26 @@ namespace Armada.Core.Services
                 mission.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
 
+                try
+                {
+                    await _Docks.ReclaimAsync(dock.Id, token: token).ConfigureAwait(false);
+                }
+                catch (Exception reclaimEx)
+                {
+                    _Logging.Warn(_Header + "failed to reclaim dock " + dock.Id +
+                        " after missing launch handler for mission " + mission.Id + ": " + reclaimEx.Message);
+                }
+
                 return false;
             }
 
             _Logging.Info(_Header + "assigned mission " + mission.Id + " to captain " + captain.Id + " at " + dock.WorktreePath);
             return true;
+            }
+            finally
+            {
+                _InFlightAssignments.TryRemove(mission.Id, out _);
+            }
         }
 
         /// <inheritdoc />
@@ -483,6 +569,25 @@ namespace Armada.Core.Services
                 }
             }
 
+            if (String.Equals(mission.Persona, "Judge", StringComparison.OrdinalIgnoreCase))
+            {
+                JudgeVerdict verdict = ParseJudgeVerdict(mission.AgentOutput);
+                if (verdict != JudgeVerdict.Pass)
+                {
+                    mission.Status = MissionStatusEnum.Failed;
+                    mission.CompletedUtc = DateTime.UtcNow;
+                    mission.LastUpdateUtc = DateTime.UtcNow;
+                    mission.FailureReason = verdict switch
+                    {
+                        JudgeVerdict.Fail => "Judge verdict: FAIL",
+                        JudgeVerdict.NeedsRevision => "Judge verdict: NEEDS_REVISION",
+                        _ => "Judge mission did not emit an explicit PASS verdict"
+                    };
+                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                    _Logging.Warn(_Header + "judge mission " + mission.Id + " blocked landing with verdict " + verdict);
+                }
+            }
+
             // Pipeline handoff: if missions in the same voyage depend on this one, prepare them
             bool preparedDownstreamStages = await TryHandoffToNextStageAsync(mission, token).ConfigureAwait(false);
 
@@ -490,6 +595,14 @@ namespace Armada.Core.Services
             if (missionAfterHandoff != null)
             {
                 mission = missionAfterHandoff;
+            }
+
+            if (mission.Status == MissionStatusEnum.Failed ||
+                mission.Status == MissionStatusEnum.Cancelled ||
+                mission.Status == MissionStatusEnum.LandingFailed)
+            {
+                await CancelDependentPipelineStagesAsync(mission, token).ConfigureAwait(false);
+                await UpdateVoyageTerminalStatusAsync(mission.VoyageId, token).ConfigureAwait(false);
             }
 
             bool hasDependentPipelineStages = await HasDependentPipelineStages(mission.VoyageId, mission.Id, token).ConfigureAwait(false);
@@ -523,6 +636,10 @@ namespace Armada.Core.Services
 
             // Reclaim the dock after the handoff completes (or if no handler was set)
             string? completionDockId = dock?.Id;
+            bool cleanupArchitectBranch =
+                preparedDownstreamStages &&
+                String.Equals(mission.Persona, "Architect", StringComparison.OrdinalIgnoreCase);
+
             if (!String.IsNullOrEmpty(completionDockId))
             {
                 try
@@ -533,6 +650,11 @@ namespace Armada.Core.Services
                 {
                     _Logging.Warn(_Header + "error reclaiming dock " + completionDockId + " after mission " + mission.Id + ": " + reclaimEx.Message);
                 }
+            }
+
+            if (cleanupArchitectBranch)
+            {
+                await CleanupArchitectBranchAsync(mission, dock, token).ConfigureAwait(false);
             }
 
             // Log work produced signal
@@ -688,23 +810,31 @@ namespace Armada.Core.Services
                 _Logging.Warn(_Header + "could not persist mission instructions snapshot for " + mission.Id + ": " + ex.Message);
             }
 
-            // Ensure the generated instruction file is gitignored so agents don't commit it.
-            // It's mission-specific and causes merge conflicts during landing.
-            string gitignorePath = Path.Combine(worktreePath, ".gitignore");
+            // Ensure the generated instruction file is ignored locally so agents don't commit it.
+            // Mission instructions are ephemeral and should not alter tracked repository files.
             try
             {
-                string gitignoreContent = File.Exists(gitignorePath)
-                    ? await File.ReadAllTextAsync(gitignorePath).ConfigureAwait(false)
-                    : "";
-                if (!gitignoreContent.Contains(instructionsFileName))
+                string? excludePath = ResolveGitInfoExcludePath(worktreePath);
+                if (!String.IsNullOrEmpty(excludePath))
                 {
-                    string entry = (gitignoreContent.Length > 0 && !gitignoreContent.EndsWith("\n") ? "\n" : "") + instructionsFileName + "\n";
-                    await File.AppendAllTextAsync(gitignorePath, entry).ConfigureAwait(false);
+                    Directory.CreateDirectory(Path.GetDirectoryName(excludePath)!);
+                    string excludeContent = File.Exists(excludePath)
+                        ? await File.ReadAllTextAsync(excludePath).ConfigureAwait(false)
+                        : "";
+                    bool hasEntry = excludeContent
+                        .Split('\n')
+                        .Select(l => l.Trim())
+                        .Any(l => String.Equals(l, instructionsFileName, StringComparison.Ordinal));
+                    if (!hasEntry)
+                    {
+                        string entry = (excludeContent.Length > 0 && !excludeContent.EndsWith("\n") ? "\n" : "") + instructionsFileName + "\n";
+                        await File.AppendAllTextAsync(excludePath, entry).ConfigureAwait(false);
+                    }
                 }
             }
             catch (Exception ex)
             {
-                _Logging.Warn(_Header + "could not update .gitignore for " + instructionsFileName + ": " + ex.Message);
+                _Logging.Warn(_Header + "could not update git exclude for " + instructionsFileName + ": " + ex.Message);
             }
 
             _Logging.Info(_Header + "generated mission instructions at " + instructionsPath);
@@ -903,6 +1033,69 @@ namespace Armada.Core.Services
 
         #region Private-Methods
 
+        private async Task CleanupArchitectBranchAsync(Mission mission, Dock? dock, CancellationToken token)
+        {
+            if (_Git == null)
+            {
+                _Logging.Debug(_Header + "git service unavailable -- skipping architect branch cleanup for mission " + mission.Id);
+                return;
+            }
+
+            string? branchName = mission.BranchName ?? dock?.BranchName;
+            if (String.IsNullOrEmpty(branchName) || String.IsNullOrEmpty(mission.VesselId))
+            {
+                return;
+            }
+
+            Vessel? vessel = !String.IsNullOrEmpty(mission.TenantId)
+                ? await _Database.Vessels.ReadAsync(mission.TenantId, mission.VesselId, token).ConfigureAwait(false)
+                : await _Database.Vessels.ReadAsync(mission.VesselId, token).ConfigureAwait(false);
+
+            if (vessel == null || String.IsNullOrEmpty(vessel.LocalPath))
+            {
+                _Logging.Warn(_Header + "unable to clean architect branch " + branchName +
+                    " for mission " + mission.Id + " because vessel metadata is incomplete");
+                return;
+            }
+
+            BranchCleanupPolicyEnum cleanupPolicy = vessel.BranchCleanupPolicy ?? _Settings.BranchCleanupPolicy;
+            if (cleanupPolicy == BranchCleanupPolicyEnum.None)
+            {
+                _Logging.Info(_Header + "branch cleanup policy is None - retaining architect branch " + branchName + " after handoff");
+                return;
+            }
+
+            try
+            {
+                await _Git.DeleteLocalBranchAsync(vessel.LocalPath, branchName, token).ConfigureAwait(false);
+                _Logging.Info(_Header + "deleted architect branch " + branchName + " from bare repo after successful handoff");
+            }
+            catch (Exception branchEx)
+            {
+                _Logging.Warn(_Header + "failed to delete architect branch " + branchName + " from bare repo: " + branchEx.Message);
+            }
+
+            if (cleanupPolicy == BranchCleanupPolicyEnum.LocalAndRemote)
+            {
+                if (String.IsNullOrEmpty(vessel.WorkingDirectory))
+                {
+                    _Logging.Warn(_Header + "cannot delete remote architect branch " + branchName +
+                        " because vessel working directory is not configured");
+                    return;
+                }
+
+                try
+                {
+                    await _Git.DeleteRemoteBranchAsync(vessel.WorkingDirectory, branchName, token).ConfigureAwait(false);
+                    _Logging.Info(_Header + "deleted remote architect branch " + branchName + " after successful handoff");
+                }
+                catch (Exception remoteBranchEx)
+                {
+                    _Logging.Warn(_Header + "failed to delete remote architect branch " + branchName + ": " + remoteBranchEx.Message);
+                }
+            }
+        }
+
         /// <summary>
         /// After a mission produces work, check if any missions in the same voyage depend on it
         /// and prepare them for assignment (inject prior stage context into description).
@@ -930,45 +1123,51 @@ namespace Armada.Core.Services
 
                     foreach (Mission nextMission in dependentMissions)
                     {
-                        if (String.Equals(nextMission.Persona, "Worker", StringComparison.OrdinalIgnoreCase))
-                        {
-                            // Update the first parsed mission into this existing Worker mission slot
-                            ParsedArchitectMission first = parsed[0];
-                            nextMission.Title = first.Title + " [Worker]";
-                            nextMission.Description = first.Description;
-                            nextMission.BranchName = completedMission.BranchName;
-                            nextMission.LastUpdateUtc = DateTime.UtcNow;
-                            await _Database.Missions.UpdateAsync(nextMission, token).ConfigureAwait(false);
+                if (String.Equals(nextMission.Persona, "Worker", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Update the first parsed mission into this existing Worker mission slot
+                    ParsedArchitectMission first = parsed[0];
+                    nextMission.Title = first.Title + " [Worker]";
+                    nextMission.Description = ArchitectHandoffMarker + "\n" + first.Description;
+                    nextMission.BranchName = null;
+                    nextMission.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.Missions.UpdateAsync(nextMission, token).ConfigureAwait(false);
+                    await RetitleDependentChainAsync(voyageMissions, nextMission, first.Title, first.Description, token).ConfigureAwait(false);
 
-                            // Find what depends on this worker mission (Judge, TestEngineer stages)
-                            // Create additional worker missions for remaining parsed items
-                            for (int i = 1; i < parsed.Count; i++)
-                            {
-                                Mission additionalWorker = new Mission(parsed[i].Title + " [Worker]", parsed[i].Description);
+                    // Find what depends on this worker mission (Judge, TestEngineer stages)
+                    // Create additional worker missions for remaining parsed items
+                    for (int i = 1; i < parsed.Count; i++)
+                    {
+                                Mission additionalWorker = new Mission(parsed[i].Title + " [Worker]", ArchitectHandoffMarker + "\n" + parsed[i].Description);
                                 additionalWorker.TenantId = completedMission.TenantId;
                                 additionalWorker.UserId = completedMission.UserId;
                                 additionalWorker.VoyageId = completedMission.VoyageId;
                                 additionalWorker.VesselId = completedMission.VesselId;
-                                additionalWorker.Persona = "Worker";
-                                additionalWorker.DependsOnMissionId = completedMission.Id;
-                                additionalWorker.BranchName = completedMission.BranchName;
-                                additionalWorker = await _Database.Missions.CreateAsync(additionalWorker, token).ConfigureAwait(false);
-                                _Logging.Info(_Header + "architect created additional worker mission " + additionalWorker.Id + ": " + parsed[i].Title);
+                        additionalWorker.Persona = "Worker";
+                        additionalWorker.DependsOnMissionId = completedMission.Id;
+                        additionalWorker.BranchName = null;
+                        additionalWorker = await _Database.Missions.CreateAsync(additionalWorker, token).ConfigureAwait(false);
+                        _Logging.Info(_Header + "architect created additional worker mission " + additionalWorker.Id + ": " + parsed[i].Title);
 
-                                await CloneDependentChainAsync(voyageMissions, nextMission, additionalWorker, parsed[i].Title, token).ConfigureAwait(false);
-                            }
-                        }
+                        await CloneDependentChainAsync(voyageMissions, nextMission, additionalWorker, parsed[i].Title, parsed[i].Description, token).ConfigureAwait(false);
                     }
+                }
+            }
 
                     return true; // Architect special handling complete, skip normal handoff
                 }
 
-                // Architect produced no [ARMADA:MISSION] markers -- mark as failed so it can be
-                // retried rather than handing off empty context to downstream Worker missions.
+                bool hadArchitectMarkers = !String.IsNullOrEmpty(completedMission.AgentOutput) &&
+                    completedMission.AgentOutput.Contains("[ARMADA:MISSION]", StringComparison.Ordinal);
+
+                string failureReason = hadArchitectMarkers
+                    ? "Architect produced no valid [ARMADA:MISSION] definitions in output"
+                    : "Architect produced no [ARMADA:MISSION] markers in output";
+
                 _Logging.Warn(_Header + "architect mission " + completedMission.Id +
-                    " produced no [ARMADA:MISSION] markers -- marking as failed");
+                    " produced no valid mission definitions -- marking as failed");
                 completedMission.Status = MissionStatusEnum.Failed;
-                completedMission.FailureReason = "Architect produced no [ARMADA:MISSION] markers in output";
+                completedMission.FailureReason = failureReason;
                 completedMission.CompletedUtc = DateTime.UtcNow;
                 completedMission.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.Missions.UpdateAsync(completedMission, token).ConfigureAwait(false);
@@ -990,13 +1189,17 @@ namespace Armada.Core.Services
                         personaPreamble = "## Your Role: TestEngineer (Write Tests)\n\n" +
                             "You are writing tests for code changes made by the Worker. " +
                             "Review the diff below and write unit tests, integration tests, or test harness updates " +
-                            "that cover the changes. Follow existing test patterns in the repository.\n\n";
+                            "that cover the changes. Follow existing test patterns in the repository. " +
+                            "Scope yourself only to this mission, not sibling missions in the same voyage. " +
+                            "End with a standalone `[ARMADA:RESULT] COMPLETE` line and a short summary.\n\n";
                         break;
                     case "Judge":
                         personaPreamble = "## Your Role: Judge (Review)\n\n" +
                             "You are reviewing the completed work for correctness, completeness, scope compliance, " +
-                            "and style. Examine the diff below against the original mission description. " +
-                            "Produce a clear verdict: PASS, FAIL (with reasons), or NEEDS_REVISION (with feedback).\n\n";
+                            "and style. Examine the diff below against the current mission description only, " +
+                            "not sibling missions in the same voyage. Produce a clear verdict: PASS, FAIL " +
+                            "(with reasons), or NEEDS_REVISION (with feedback). End with a standalone line " +
+                            "`[ARMADA:VERDICT] PASS`, `[ARMADA:VERDICT] FAIL`, or `[ARMADA:VERDICT] NEEDS_REVISION`.\n\n";
                         break;
                 }
 
@@ -1049,11 +1252,79 @@ namespace Armada.Core.Services
             return true;
         }
 
+        private async Task CancelDependentPipelineStagesAsync(Mission failedMission, CancellationToken token)
+        {
+            if (failedMission == null) throw new ArgumentNullException(nameof(failedMission));
+            if (String.IsNullOrEmpty(failedMission.VoyageId)) return;
+
+            List<Mission> voyageMissions = await _Database.Missions.EnumerateByVoyageAsync(failedMission.VoyageId, token).ConfigureAwait(false);
+            List<Mission> directDependents = voyageMissions.Where(m =>
+                m.DependsOnMissionId == failedMission.Id &&
+                (m.Status == MissionStatusEnum.Pending ||
+                 m.Status == MissionStatusEnum.Assigned ||
+                 m.Status == MissionStatusEnum.InProgress ||
+                 m.Status == MissionStatusEnum.Testing ||
+                 m.Status == MissionStatusEnum.Review)).ToList();
+
+            foreach (Mission dependent in directDependents)
+            {
+                dependent.Status = MissionStatusEnum.Cancelled;
+                dependent.FailureReason = "Blocked by failed dependency " + failedMission.Id;
+                dependent.CompletedUtc = DateTime.UtcNow;
+                dependent.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.Missions.UpdateAsync(dependent, token).ConfigureAwait(false);
+                _Logging.Info(_Header + "cancelled dependent mission " + dependent.Id +
+                    " because upstream mission " + failedMission.Id + " ended in " + failedMission.Status);
+                await CancelDependentPipelineStagesAsync(dependent, token).ConfigureAwait(false);
+            }
+        }
+
+        private async Task UpdateVoyageTerminalStatusAsync(string? voyageId, CancellationToken token)
+        {
+            if (String.IsNullOrEmpty(voyageId)) return;
+
+            Voyage? voyage = await _Database.Voyages.ReadAsync(voyageId, token).ConfigureAwait(false);
+            if (voyage == null) return;
+
+            List<Mission> missions = await _Database.Missions.EnumerateByVoyageAsync(voyageId, token).ConfigureAwait(false);
+            if (missions.Count == 0) return;
+
+            bool anyActive = missions.Any(m =>
+                m.Status == MissionStatusEnum.Pending ||
+                m.Status == MissionStatusEnum.Assigned ||
+                m.Status == MissionStatusEnum.InProgress ||
+                m.Status == MissionStatusEnum.Testing ||
+                m.Status == MissionStatusEnum.Review ||
+                m.Status == MissionStatusEnum.PullRequestOpen);
+
+            if (anyActive) return;
+
+            bool allDone = missions.All(m =>
+                m.Status == MissionStatusEnum.Complete ||
+                m.Status == MissionStatusEnum.Failed ||
+                m.Status == MissionStatusEnum.Cancelled ||
+                m.Status == MissionStatusEnum.LandingFailed ||
+                m.Status == MissionStatusEnum.WorkProduced);
+
+            if (!allDone) return;
+
+            bool anyFailed = missions.Any(m =>
+                m.Status == MissionStatusEnum.Failed ||
+                m.Status == MissionStatusEnum.LandingFailed);
+
+            voyage.Status = anyFailed ? VoyageStatusEnum.Failed : VoyageStatusEnum.Complete;
+            voyage.CompletedUtc = DateTime.UtcNow;
+            voyage.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.Voyages.UpdateAsync(voyage, token).ConfigureAwait(false);
+            _Logging.Info(_Header + "voyage " + voyage.Id + " reached terminal status " + voyage.Status + " during mission completion");
+        }
+
         private async Task CloneDependentChainAsync(
             List<Mission> voyageMissions,
             Mission templateMission,
             Mission newDependency,
             string parsedTitle,
+            string parsedDescription,
             CancellationToken token)
         {
             List<Mission> directDependents = voyageMissions
@@ -1065,18 +1336,41 @@ namespace Armada.Core.Services
             {
                 Mission clonedStage = new Mission(
                     parsedTitle + " [" + templateChild.Persona + "]",
-                    templateChild.Description);
+                    parsedDescription);
                 clonedStage.TenantId = templateChild.TenantId;
                 clonedStage.UserId = templateChild.UserId;
                 clonedStage.VoyageId = templateChild.VoyageId;
                 clonedStage.VesselId = templateChild.VesselId;
                 clonedStage.Persona = templateChild.Persona;
                 clonedStage.DependsOnMissionId = newDependency.Id;
-                clonedStage.BranchName = newDependency.BranchName;
+                clonedStage.BranchName = null;
                 clonedStage = await _Database.Missions.CreateAsync(clonedStage, token).ConfigureAwait(false);
                 _Logging.Info(_Header + "architect created chained stage " + clonedStage.Id +
                     " (" + clonedStage.Persona + ") depending on " + newDependency.Id);
-                await CloneDependentChainAsync(voyageMissions, templateChild, clonedStage, parsedTitle, token).ConfigureAwait(false);
+                await CloneDependentChainAsync(voyageMissions, templateChild, clonedStage, parsedTitle, parsedDescription, token).ConfigureAwait(false);
+            }
+        }
+
+        private async Task RetitleDependentChainAsync(
+            List<Mission> voyageMissions,
+            Mission dependency,
+            string parsedTitle,
+            string parsedDescription,
+            CancellationToken token)
+        {
+            List<Mission> directDependents = voyageMissions
+                .Where(m => m.DependsOnMissionId == dependency.Id)
+                .OrderBy(m => m.CreatedUtc)
+                .ToList();
+
+            foreach (Mission dependent in directDependents)
+            {
+                dependent.Title = parsedTitle + " [" + dependent.Persona + "]";
+                dependent.Description = parsedDescription;
+                dependent.BranchName = null;
+                dependent.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.Missions.UpdateAsync(dependent, token).ConfigureAwait(false);
+                await RetitleDependentChainAsync(voyageMissions, dependent, parsedTitle, parsedDescription, token).ConfigureAwait(false);
             }
         }
 
@@ -1095,40 +1389,50 @@ namespace Armada.Core.Services
         private List<ParsedArchitectMission> ParseArchitectOutput(Mission architectMission)
         {
             List<ParsedArchitectMission> results = new List<ParsedArchitectMission>();
+            HashSet<string> seenTitles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            // Look in diff snapshot first, then description, then the mission log file.
-            // Architect agents typically output [ARMADA:MISSION] markers to stdout (captured
-            // in the mission log) rather than making file changes (which would appear in DiffSnapshot).
-            string? source = null;
-            if (!String.IsNullOrEmpty(architectMission.DiffSnapshot) &&
-                architectMission.DiffSnapshot.Contains("[ARMADA:MISSION]"))
+            string?[] candidateSources =
             {
-                source = architectMission.DiffSnapshot;
-            }
-            else if (!String.IsNullOrEmpty(architectMission.Description) &&
-                     architectMission.Description.Contains("[ARMADA:MISSION]"))
+                architectMission.AgentOutput,
+                architectMission.DiffSnapshot,
+                architectMission.Description
+            };
+
+            foreach (string? candidateSource in candidateSources)
             {
-                source = architectMission.Description;
-            }
-            else if (!String.IsNullOrEmpty(architectMission.AgentOutput) &&
-                     architectMission.AgentOutput.Contains("[ARMADA:MISSION]"))
-            {
-                source = architectMission.AgentOutput;
+                if (String.IsNullOrWhiteSpace(candidateSource)) continue;
+
+                string source = candidateSource.Replace("\r\n", "\n");
+                ParseArchitectMissionMarkers(source, results, seenTitles);
+                if (results.Count > 0) break;
+
+                ParseArchitectSummaryLines(source, results, seenTitles);
+                if (results.Count > 0) break;
             }
 
-            if (source == null) return results;
+            return results;
+        }
 
-            // Split on [ARMADA:MISSION] markers that appear at the start of a line with no indentation.
-            // Indented markers (e.g. in template examples) are ignored.
+        private void ParseArchitectMissionMarkers(
+            string source,
+            List<ParsedArchitectMission> results,
+            HashSet<string> seenTitles)
+        {
+            if (String.IsNullOrWhiteSpace(source)) return;
+
             string[] segments = System.Text.RegularExpressions.Regex.Split(source, @"(?m)^\[ARMADA:MISSION\][ \t]*");
 
-            // First segment is everything before the first marker -- skip it
             for (int i = 1; i < segments.Length; i++)
             {
                 string segment = segments[i].Trim();
                 if (String.IsNullOrEmpty(segment)) continue;
 
-                // First line is the title, rest is description
+                int closingTagIndex = segment.IndexOf("[/ARMADA:MISSION]", StringComparison.Ordinal);
+                if (closingTagIndex >= 0)
+                    segment = segment.Substring(0, closingTagIndex).Trim();
+
+                if (String.IsNullOrEmpty(segment)) continue;
+
                 int newlineIndex = segment.IndexOf('\n');
                 string title;
                 string description;
@@ -1144,16 +1448,373 @@ namespace Armada.Core.Services
                     description = "";
                 }
 
-                if (!String.IsNullOrEmpty(title))
+                TryAddParsedArchitectMission(results, seenTitles, title, description);
+            }
+        }
+
+        private void ParseArchitectSummaryLines(
+            string source,
+            List<ParsedArchitectMission> results,
+            HashSet<string> seenTitles)
+        {
+            if (String.IsNullOrWhiteSpace(source)) return;
+
+            foreach (string rawLine in source.Split('\n'))
+            {
+                string line = rawLine.Trim();
+                if (String.IsNullOrEmpty(line)) continue;
+                if (IsAgentTelemetryLine(line)) continue;
+                if (IsArchitectSummaryPreambleOrFooter(line)) continue;
+
+                if (TryParseArchitectSummaryLine(line, out string? title, out string? description))
                 {
-                    ParsedArchitectMission parsed = new ParsedArchitectMission();
-                    parsed.Title = title;
-                    parsed.Description = description;
-                    results.Add(parsed);
+                    TryAddParsedArchitectMission(results, seenTitles, title, description);
                 }
             }
+        }
 
-            return results;
+        private void TryAddParsedArchitectMission(
+            List<ParsedArchitectMission> results,
+            HashSet<string> seenTitles,
+            string? title,
+            string? description)
+        {
+            if (String.IsNullOrWhiteSpace(title)) return;
+
+            string normalizedTitle = title.Trim();
+            string normalizedDescription = NormalizeArchitectDescription(description);
+
+            if (IsArchitectPlaceholderTitle(normalizedTitle))
+                return;
+
+            if (IsArchitectPlaceholderDescription(normalizedDescription))
+                return;
+
+            if (seenTitles.Add(normalizedTitle))
+            {
+                ParsedArchitectMission parsed = new ParsedArchitectMission();
+                parsed.Title = normalizedTitle;
+                parsed.Description = normalizedDescription;
+                results.Add(parsed);
+            }
+        }
+
+        private static string NormalizeArchitectDescription(string? description)
+        {
+            if (String.IsNullOrWhiteSpace(description)) return "";
+
+            List<string> descriptionLines = description
+                .Split('\n')
+                .Select(l => l.Trim('\r'))
+                .ToList();
+
+            while (descriptionLines.Count > 0)
+            {
+                string firstLine = descriptionLines[0].Trim();
+                if (IsAgentTelemetryLine(firstLine))
+                {
+                    descriptionLines.RemoveAt(0);
+                    continue;
+                }
+
+                break;
+            }
+
+            while (descriptionLines.Count > 0)
+            {
+                string lastLine = descriptionLines[descriptionLines.Count - 1].Trim();
+                if (IsAgentTelemetryLine(lastLine))
+                {
+                    descriptionLines.RemoveAt(descriptionLines.Count - 1);
+                    continue;
+                }
+
+                break;
+            }
+
+            return String.Join("\n", descriptionLines).Trim();
+        }
+
+        private static bool TryParseArchitectSummaryLine(string line, out string? title, out string? description)
+        {
+            title = null;
+            description = null;
+
+            if (String.IsNullOrWhiteSpace(line)) return false;
+
+            System.Text.RegularExpressions.Match numberedMatch =
+                System.Text.RegularExpressions.Regex.Match(line.Trim(), @"^\d+\.\s+(?<rest>.+)$");
+            if (!numberedMatch.Success) return false;
+
+            string rest = numberedMatch.Groups["rest"].Value.Trim();
+            if (String.IsNullOrEmpty(rest)) return false;
+
+            if (rest.StartsWith("**", StringComparison.Ordinal))
+            {
+                System.Text.RegularExpressions.Match boldTitleMatch =
+                    System.Text.RegularExpressions.Regex.Match(rest, @"^\*\*(?<title>.+?)\*\*(?<tail>.*)$");
+                if (!boldTitleMatch.Success) return false;
+
+                title = boldTitleMatch.Groups["title"].Value.Trim();
+                description = ParseArchitectSummaryTail(boldTitleMatch.Groups["tail"].Value);
+                return !String.IsNullOrEmpty(title);
+            }
+
+            if (TrySplitArchitectSummaryTitleAndDescription(rest, out string? parsedTitle, out string? parsedDescription))
+            {
+                title = parsedTitle;
+                description = parsedDescription;
+                return !String.IsNullOrEmpty(title);
+            }
+
+            title = rest;
+            description = "";
+            return true;
+        }
+
+        private static bool TrySplitArchitectSummaryTitleAndDescription(
+            string summary,
+            out string? title,
+            out string? description)
+        {
+            title = null;
+            description = null;
+
+            if (String.IsNullOrWhiteSpace(summary)) return false;
+
+            string[] separators = { " -- ", ": " };
+            foreach (string separator in separators)
+            {
+                int separatorIndex = summary.IndexOf(separator, StringComparison.Ordinal);
+                if (separatorIndex < 0) continue;
+
+                string titlePart = summary.Substring(0, separatorIndex).Trim();
+                string descriptionPart = summary.Substring(separatorIndex + separator.Length).Trim();
+                if (String.IsNullOrEmpty(titlePart) || String.IsNullOrEmpty(descriptionPart)) continue;
+
+                title = TrimArchitectSummaryMetadata(titlePart);
+                description = descriptionPart;
+                return !String.IsNullOrEmpty(title);
+            }
+
+            title = TrimArchitectSummaryMetadata(summary.Trim());
+            description = "";
+            return !String.IsNullOrEmpty(title);
+        }
+
+        private static string ParseArchitectSummaryTail(string tail)
+        {
+            if (String.IsNullOrWhiteSpace(tail)) return "";
+
+            string remaining = tail.Trim();
+            while (remaining.StartsWith("(", StringComparison.Ordinal))
+            {
+                int closingIndex = remaining.IndexOf(')');
+                if (closingIndex < 0) break;
+                remaining = remaining.Substring(closingIndex + 1).TrimStart();
+            }
+
+            if (remaining.StartsWith("--", StringComparison.Ordinal))
+            {
+                remaining = remaining.Substring(2).TrimStart();
+            }
+            else if (remaining.StartsWith(":", StringComparison.Ordinal))
+            {
+                remaining = remaining.Substring(1).TrimStart();
+            }
+
+            return remaining.Trim();
+        }
+
+        private static string TrimArchitectSummaryMetadata(string title)
+        {
+            if (String.IsNullOrWhiteSpace(title)) return "";
+
+            string trimmed = title.Trim();
+            while (trimmed.EndsWith(")", StringComparison.Ordinal))
+            {
+                int openIndex = trimmed.LastIndexOf(" (", StringComparison.Ordinal);
+                if (openIndex < 0) break;
+                trimmed = trimmed.Substring(0, openIndex).TrimEnd();
+            }
+
+            return trimmed.Trim();
+        }
+
+        private static bool IsArchitectSummaryPreambleOrFooter(string line)
+        {
+            if (String.IsNullOrWhiteSpace(line)) return true;
+
+            string normalized = line.Trim().Trim('*', '_', '`').ToLowerInvariant();
+            return normalized.StartsWith("vessel context updated", StringComparison.Ordinal) ||
+                normalized.StartsWith("the architect mission is complete", StringComparison.Ordinal) ||
+                normalized.StartsWith("here's a summary of", StringComparison.Ordinal) ||
+                normalized.StartsWith("here is a summary of", StringComparison.Ordinal) ||
+                normalized.StartsWith("missions ", StringComparison.Ordinal);
+        }
+
+        private static bool IsAgentTelemetryLine(string? line)
+        {
+            if (String.IsNullOrWhiteSpace(line)) return true;
+
+            string trimmed = line.Trim();
+            return trimmed.Equals("tokens used", StringComparison.OrdinalIgnoreCase) ||
+                System.Text.RegularExpressions.Regex.IsMatch(trimmed, @"^[\d,]+$");
+        }
+
+        private static bool IsArchitectPlaceholderTitle(string? title)
+        {
+            if (String.IsNullOrWhiteSpace(title)) return true;
+
+            string trimmed = title.Trim();
+            if (trimmed.Equals("...", StringComparison.Ordinal)) return true;
+            if (trimmed.StartsWith("title:", StringComparison.OrdinalIgnoreCase)) return true;
+            if (trimmed.StartsWith("goal:", StringComparison.OrdinalIgnoreCase)) return true;
+            if (trimmed.StartsWith("inputs:", StringComparison.OrdinalIgnoreCase)) return true;
+            if (trimmed.StartsWith("deliverables:", StringComparison.OrdinalIgnoreCase)) return true;
+            if (trimmed.StartsWith("dependencies:", StringComparison.OrdinalIgnoreCase)) return true;
+            if (trimmed.StartsWith("risks:", StringComparison.OrdinalIgnoreCase)) return true;
+            if (trimmed.StartsWith("done_when:", StringComparison.OrdinalIgnoreCase)) return true;
+            if (trimmed.StartsWith("status:", StringComparison.OrdinalIgnoreCase)) return true;
+            if (trimmed.StartsWith("reason:", StringComparison.OrdinalIgnoreCase)) return true;
+
+            return false;
+        }
+
+        private static bool IsArchitectPlaceholderDescription(string? description)
+        {
+            if (String.IsNullOrWhiteSpace(description)) return false;
+
+            string[] lines = description
+                .Replace("\r\n", "\n")
+                .Split('\n')
+                .Select(l => l.Trim())
+                .Where(l => !String.IsNullOrEmpty(l))
+                .ToArray();
+
+            if (lines.Length == 0) return false;
+
+            string[] placeholderPrefixes =
+            {
+                "goal:",
+                "inputs:",
+                "deliverables:",
+                "dependencies:",
+                "risks:",
+                "done_when:"
+            };
+
+            return lines.All(line =>
+                placeholderPrefixes.Any(prefix => line.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) &&
+                line.Contains("...", StringComparison.Ordinal));
+        }
+
+        private async Task EnsureMissionInstructionsPresentAsync(
+            string worktreePath,
+            Mission mission,
+            Captain captain,
+            CancellationToken token)
+        {
+            if (String.IsNullOrEmpty(worktreePath)) throw new ArgumentNullException(nameof(worktreePath));
+            if (mission == null) throw new ArgumentNullException(nameof(mission));
+            if (captain == null) throw new ArgumentNullException(nameof(captain));
+
+            string instructionsFileName = MissionPromptBuilder.GetInstructionsFileName(captain.Runtime.ToString());
+            string instructionsPath = Path.Combine(worktreePath, instructionsFileName);
+            if (File.Exists(instructionsPath)) return;
+
+            string snapshotPath = Path.Combine(_Settings.LogDirectory, "instructions", mission.Id + "." + instructionsFileName);
+            if (!File.Exists(snapshotPath))
+            {
+                _Logging.Warn(_Header + "mission instructions missing at " + instructionsPath +
+                    " and no snapshot exists at " + snapshotPath);
+                return;
+            }
+
+            Directory.CreateDirectory(worktreePath);
+            await File.WriteAllTextAsync(instructionsPath, await File.ReadAllTextAsync(snapshotPath, token).ConfigureAwait(false), token).ConfigureAwait(false);
+            _Logging.Warn(_Header + "restored missing mission instructions from snapshot to " + instructionsPath);
+        }
+
+        private JudgeVerdict ParseJudgeVerdict(string? agentOutput)
+        {
+            if (String.IsNullOrEmpty(agentOutput)) return JudgeVerdict.None;
+
+            string[] lines = agentOutput.Replace("\r\n", "\n").Split('\n');
+            for (int i = lines.Length - 1; i >= 0; i--)
+            {
+                string line = lines[i].Trim().Trim('\r');
+                if (String.IsNullOrEmpty(line)) continue;
+
+                JudgeVerdict? signalVerdict = ParseStructuredJudgeVerdictSignal(line);
+                if (signalVerdict.HasValue) return signalVerdict.Value;
+
+                if (IsAgentTelemetryLine(line)) continue;
+
+                string normalized = line.Trim().Trim('*', '_', '`', '#', '>', '-', ' ');
+                JudgeVerdict? explicitVerdict = ParseExplicitJudgeVerdictLine(normalized);
+                if (explicitVerdict.HasValue) return explicitVerdict.Value;
+            }
+
+            return JudgeVerdict.None;
+        }
+
+        private static JudgeVerdict? ParseStructuredJudgeVerdictSignal(string line)
+        {
+            if (String.IsNullOrWhiteSpace(line)) return null;
+
+            System.Text.RegularExpressions.Match signal = System.Text.RegularExpressions.Regex.Match(
+                line.Trim(),
+                @"^\[ARMADA:(?:VERDICT|RESULT)\]\s+(?<verdict>PASS|FAIL|NEEDS_REVISION)\s*$",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (!signal.Success) return null;
+
+            return signal.Groups["verdict"].Value.ToUpperInvariant() switch
+            {
+                "PASS" => JudgeVerdict.Pass,
+                "FAIL" => JudgeVerdict.Fail,
+                "NEEDS_REVISION" => JudgeVerdict.NeedsRevision,
+                _ => null
+            };
+        }
+
+        private static JudgeVerdict? ParseExplicitJudgeVerdictLine(string normalizedLine)
+        {
+            if (String.IsNullOrEmpty(normalizedLine)) return null;
+
+            const System.Text.RegularExpressions.RegexOptions options = System.Text.RegularExpressions.RegexOptions.IgnoreCase;
+            string candidate = normalizedLine.Trim();
+            const string verdictSuffixPattern = @"(?:\s*$|\s*[\.,:;!?](?:\s+.+)?$|\s*-(?!-)\s+.+$)";
+
+            System.Text.RegularExpressions.Match labeledVerdict = System.Text.RegularExpressions.Regex.Match(
+                candidate,
+                @"^VERDICT\s*(?::|=|-|IS)?\s*(?:\*\*|__|`)?(?<verdict>PASS|FAIL|NEEDS_REVISION)(?:\*\*|__|`)?"
+                + verdictSuffixPattern,
+                options);
+            if (labeledVerdict.Success)
+                return labeledVerdict.Groups["verdict"].Value.ToUpperInvariant() switch
+                {
+                    "PASS" => JudgeVerdict.Pass,
+                    "FAIL" => JudgeVerdict.Fail,
+                    "NEEDS_REVISION" => JudgeVerdict.NeedsRevision,
+                    _ => null
+                };
+
+            System.Text.RegularExpressions.Match bareVerdict = System.Text.RegularExpressions.Regex.Match(
+                candidate,
+                @"^(?:\*\*|__|`)?(?<verdict>PASS|FAIL|NEEDS_REVISION)(?:\*\*|__|`)?"
+                + verdictSuffixPattern,
+                options);
+            if (bareVerdict.Success)
+                return bareVerdict.Groups["verdict"].Value.ToUpperInvariant() switch
+                {
+                    "PASS" => JudgeVerdict.Pass,
+                    "FAIL" => JudgeVerdict.Fail,
+                    "NEEDS_REVISION" => JudgeVerdict.NeedsRevision,
+                    _ => null
+                };
+
+            return null;
         }
 
         /// <summary>
@@ -1234,9 +1895,7 @@ namespace Armada.Core.Services
 
             if (eligible.Count == 0)
             {
-                // Fall back to any idle captain if none match persona constraints
-                // This ensures work still gets done even if persona config is incomplete
-                return idleCaptains[0];
+                return null;
             }
 
             // Prefer captains whose PreferredPersona matches
@@ -1263,11 +1922,77 @@ namespace Armada.Core.Services
             if (mission == null || dependency == null) return false;
             if (String.IsNullOrEmpty(mission.DependsOnMissionId)) return true;
 
+            if (String.Equals(dependency.Persona, "Architect", StringComparison.OrdinalIgnoreCase))
+            {
+                return !String.IsNullOrEmpty(mission.Description) &&
+                    mission.Description.Contains(ArchitectHandoffMarker, StringComparison.Ordinal);
+            }
+
             // If the dependency never had a branch, there is no stronger handoff signal
             // available here; fall back to allowing assignment.
             if (String.IsNullOrEmpty(dependency.BranchName)) return true;
 
             return String.Equals(mission.BranchName, dependency.BranchName, StringComparison.Ordinal);
+        }
+
+        private async Task<bool> ShouldDeferArchitectSequencedMissionAsync(Mission mission, CancellationToken token)
+        {
+            if (mission == null) return false;
+            if (!String.Equals(mission.Persona, "Worker", StringComparison.OrdinalIgnoreCase)) return false;
+            if (String.IsNullOrEmpty(mission.VoyageId)) return false;
+            if (String.IsNullOrEmpty(mission.Description)) return false;
+
+            string description = mission.Description.ToLowerInvariant();
+            bool requestsDeferredExecution =
+                description.Contains("after both implementation missions complete") ||
+                description.Contains("sequential after both implementation missions") ||
+                description.Contains("after the implementation missions land") ||
+                description.Contains("after the implementation details are settled") ||
+                description.Contains("after implementation details are settled") ||
+                description.Contains("after the implementation details are finalized");
+
+            if (!requestsDeferredExecution) return false;
+
+            List<Mission> voyageMissions = await _Database.Missions.EnumerateByVoyageAsync(mission.VoyageId, token).ConfigureAwait(false);
+            return voyageMissions.Any(m =>
+                m.Id != mission.Id &&
+                String.Equals(m.Persona, "Worker", StringComparison.OrdinalIgnoreCase) &&
+                m.Status != MissionStatusEnum.Complete &&
+                m.Status != MissionStatusEnum.WorkProduced &&
+                m.Status != MissionStatusEnum.Failed &&
+                m.Status != MissionStatusEnum.Cancelled &&
+                m.Status != MissionStatusEnum.LandingFailed);
+        }
+
+        private static string? ResolveGitInfoExcludePath(string worktreePath)
+        {
+            if (String.IsNullOrEmpty(worktreePath)) return null;
+
+            string gitPath = Path.Combine(worktreePath, ".git");
+            if (Directory.Exists(gitPath))
+            {
+                return Path.Combine(gitPath, "info", "exclude");
+            }
+
+            if (!File.Exists(gitPath))
+            {
+                return null;
+            }
+
+            string gitPointer = File.ReadAllText(gitPath).Trim();
+            const string prefix = "gitdir:";
+            if (!gitPointer.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            string gitDir = gitPointer.Substring(prefix.Length).Trim();
+            if (!Path.IsPathRooted(gitDir))
+            {
+                gitDir = Path.GetFullPath(Path.Combine(worktreePath, gitDir));
+            }
+
+            return Path.Combine(gitDir, "info", "exclude");
         }
 
         #endregion

@@ -191,7 +191,14 @@ namespace Armada.Runtimes
             try { OnProcessStarted?.Invoke(process.Id); }
             catch (Exception ex) { _Logging.Warn(_Header + "error in OnProcessStarted handler for process " + process.Id + ": " + ex.Message); }
 
-            // Close stdin immediately so the agent doesn't block waiting for piped input
+            if (UsePromptStdin)
+            {
+                await process.StandardInput.WriteAsync(prompt).ConfigureAwait(false);
+                await process.StandardInput.FlushAsync().ConfigureAwait(false);
+            }
+
+            // Close stdin after writing any prompt content so the agent doesn't block
+            // waiting for piped input.
             process.StandardInput.Close();
 
             process.BeginOutputReadLine();
@@ -272,6 +279,11 @@ namespace Armada.Runtimes
         /// Build the argument list for launching the agent with the given prompt.
         /// </summary>
         protected abstract List<string> BuildArguments(string prompt);
+
+        /// <summary>
+        /// Whether the runtime expects the prompt to be written to stdin instead of passed as a CLI argument.
+        /// </summary>
+        protected virtual bool UsePromptStdin => false;
 
         /// <summary>
         /// Apply runtime-specific environment variables to the process start info.

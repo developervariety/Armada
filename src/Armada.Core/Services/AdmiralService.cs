@@ -59,6 +59,8 @@ namespace Armada.Core.Services
         #region Private-Members
 
         private string _Header = "[AdmiralService] ";
+        private static readonly TimeSpan _AssignedOrphanRecoveryGracePeriod = TimeSpan.FromSeconds(30);
+        private static readonly TimeSpan _WorkProducedReleaseGracePeriod = TimeSpan.FromMinutes(2);
         private LoggingModule _Logging;
         private DatabaseDriver _Database;
         private ArmadaSettings _Settings;
@@ -664,6 +666,18 @@ namespace Armada.Core.Services
                 mission = await _Database.Missions.ReadAsync(captain.CurrentMissionId, token).ConfigureAwait(false);
             }
 
+            if (mission != null && mission.Status == MissionStatusEnum.WorkProduced)
+            {
+                TimeSpan workProducedAge = DateTime.UtcNow - mission.LastUpdateUtc;
+                if (workProducedAge < _WorkProducedReleaseGracePeriod)
+                {
+                    _Logging.Debug(_Header + "captain " + captain.Id + " mission " + captain.CurrentMissionId +
+                        " is freshly WorkProduced (" + workProducedAge.TotalSeconds.ToString("F1") +
+                        "s) - deferring captain release while handoff/landing completes");
+                    return;
+                }
+            }
+
             // Check for terminal mission state (e.g. server restart between completion and release)
             if (mission != null &&
                 (mission.Status == MissionStatusEnum.Complete ||
@@ -1012,6 +1026,22 @@ namespace Armada.Core.Services
                 // If the captain's current mission is different, this mission is orphaned
                 if (captain.CurrentMissionId != mission.Id)
                 {
+                    bool assignmentLaunchStillPending =
+                        mission.Status == MissionStatusEnum.Assigned &&
+                        !mission.ProcessId.HasValue &&
+                        !mission.StartedUtc.HasValue;
+
+                    if (assignmentLaunchStillPending)
+                    {
+                        TimeSpan assignmentAge = DateTime.UtcNow - mission.LastUpdateUtc;
+                        if (assignmentAge < _AssignedOrphanRecoveryGracePeriod)
+                        {
+                            _Logging.Debug(_Header + "skipping orphan recovery for freshly assigned mission " + mission.Id +
+                                " (" + assignmentAge.TotalSeconds.ToString("F1") + "s since assignment)");
+                            continue;
+                        }
+                    }
+
                     _Logging.Warn(_Header + "orphaned mission detected: " + mission.Id + " is " + mission.Status +
                         " but captain " + captain.Id + " is working on " + (captain.CurrentMissionId ?? "nothing") +
                         " — checking if work was completed");

@@ -25,16 +25,8 @@ namespace Armada.Helm.Commands
         /// <inheritdoc />
         public override async Task<int> ExecuteAsync(CommandContext context, McpStdioSettings settings, CancellationToken cancellationToken)
         {
-            // Load settings
-            ArmadaSettings armadaSettings = new ArmadaSettings();
-            string settingsPath = Path.Combine(Constants.DefaultDataDirectory, "settings.json");
-            if (File.Exists(settingsPath))
-            {
-                string json = File.ReadAllText(settingsPath);
-                ArmadaSettings? loaded = JsonSerializer.Deserialize<ArmadaSettings>(json);
-                if (loaded != null) armadaSettings = loaded;
-            }
-
+            // Load settings using Armada's configured serializer/options so camelCase settings.json is honored.
+            ArmadaSettings armadaSettings = await ArmadaSettings.LoadAsync().ConfigureAwait(false);
             armadaSettings.InitializeDirectories();
 
             // Quiet logging -- stderr only, no console (stdout is the MCP transport)
@@ -54,7 +46,7 @@ namespace Armada.Helm.Commands
             IDockService dockService = new DockService(logging, database, armadaSettings, git);
             ICaptainService captainService = new CaptainService(logging, database, armadaSettings, git, dockService);
             IPromptTemplateService promptTemplateService = new PromptTemplateService(database, logging);
-            IMissionService missionService = new MissionService(logging, database, armadaSettings, dockService, captainService, promptTemplateService);
+            IMissionService missionService = new MissionService(logging, database, armadaSettings, dockService, captainService, promptTemplateService, git);
             IVoyageService voyageService = new VoyageService(logging, database);
             IAdmiralService admiral = new AdmiralService(logging, database, armadaSettings, captainService, missionService, voyageService, dockService);
 

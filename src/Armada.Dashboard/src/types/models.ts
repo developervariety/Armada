@@ -267,6 +267,11 @@ export interface LogResult {
   totalLines: number;
 }
 
+export interface InstructionsResult {
+  fileName: string;
+  content: string;
+}
+
 export interface DispatchRequest {
   vesselId: string;
   title: string;

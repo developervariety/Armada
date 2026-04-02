@@ -1,5 +1,7 @@
 namespace Armada.Test.Unit.Suites.Services
 {
+    using System.Globalization;
+    using Microsoft.Data.Sqlite;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -13,6 +15,21 @@ namespace Armada.Test.Unit.Suites.Services
     public class AdmiralServiceTests : TestSuite
     {
         public override string Name => "Admiral Service";
+
+        private static async Task SetMissionLastUpdateUtcAsync(TestDatabase testDb, string missionId, DateTime lastUpdateUtc)
+        {
+            using (SqliteConnection conn = new SqliteConnection(testDb.ConnectionString))
+            {
+                await conn.OpenAsync().ConfigureAwait(false);
+                using (SqliteCommand cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "UPDATE missions SET last_update_utc = @last_update_utc WHERE id = @id;";
+                    cmd.Parameters.AddWithValue("@id", missionId);
+                    cmd.Parameters.AddWithValue("@last_update_utc", lastUpdateUtc.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffffffZ", CultureInfo.InvariantCulture));
+                    await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
+                }
+            }
+        }
 
         private static bool GetRetryDispatchNeeded(AdmiralService service)
         {
@@ -452,6 +469,7 @@ namespace Armada.Test.Unit.Suites.Services
                     mission.Status = MissionStatusEnum.Assigned;
                     mission.BranchName = "armada/test/orphan";
                     mission = await db.Missions.CreateAsync(mission);
+                    await SetMissionLastUpdateUtcAsync(testDb, mission.Id, DateTime.UtcNow.AddMinutes(-2));
 
                     originalCaptain.State = CaptainStateEnum.Working;
                     originalCaptain.CurrentMissionId = "different-mission";
@@ -464,6 +482,97 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(MissionStatusEnum.Pending, updatedMission!.Status, "Assigned orphan that never started should return to Pending");
                     AssertNull(updatedMission.CaptainId, "Pending orphan should be unassigned");
                     AssertNull(updatedMission.DockId, "Pending orphan should clear dock");
+                }
+            });
+
+            await RunTest("HealthCheckAsync FreshAssignedMissionWithoutStartedProcess SkipsOrphanRecovery", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    StubGitService git = new StubGitService();
+                    ArmadaSettings settings = CreateSettings();
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), db, settings, git);
+
+                    Vessel vessel = new Vessel("fresh-assigned-vessel", "https://github.com/test/repo.git");
+                    await db.Vessels.CreateAsync(vessel);
+
+                    Captain captain = new Captain("fresh-original");
+                    captain.State = CaptainStateEnum.Idle;
+                    await db.Captains.CreateAsync(captain);
+
+                    Mission mission = new Mission("Fresh assigned orphan candidate");
+                    mission.VesselId = vessel.Id;
+                    mission.CaptainId = captain.Id;
+                    mission.Status = MissionStatusEnum.Assigned;
+                    mission.BranchName = "armada/test/fresh";
+                    mission.LastUpdateUtc = DateTime.UtcNow;
+                    mission = await db.Missions.CreateAsync(mission);
+
+                    captain.State = CaptainStateEnum.Working;
+                    captain.CurrentMissionId = "different-mission";
+                    await db.Captains.UpdateAsync(captain);
+
+                    await service.HealthCheckAsync();
+
+                    Mission? updatedMission = await db.Missions.ReadAsync(mission.Id);
+                    AssertNotNull(updatedMission, "Mission should still exist");
+                    AssertEqual(MissionStatusEnum.Assigned, updatedMission!.Status, "Freshly assigned mission should remain Assigned during the grace window");
+                    AssertEqual(captain.Id, updatedMission.CaptainId, "Freshly assigned mission should keep its captain assignment during the grace window");
+                }
+            });
+
+            await RunTest("HealthCheckAsync FreshWorkProducedMission SkipsCaptainRelease", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    StubGitService git = new StubGitService();
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), db, CreateSettings(), git);
+
+                    Mission mission = new Mission("Fresh work produced");
+                    mission.Status = MissionStatusEnum.WorkProduced;
+                    mission.LastUpdateUtc = DateTime.UtcNow;
+                    mission = await db.Missions.CreateAsync(mission);
+
+                    Captain captain = new Captain("fresh-work-produced");
+                    captain.State = CaptainStateEnum.Working;
+                    captain.CurrentMissionId = mission.Id;
+                    await db.Captains.CreateAsync(captain);
+
+                    await service.HealthCheckAsync();
+
+                    Captain? updatedCaptain = await db.Captains.ReadAsync(captain.Id);
+                    AssertNotNull(updatedCaptain, "Captain should still exist");
+                    AssertEqual(CaptainStateEnum.Working, updatedCaptain!.State, "Freshly WorkProduced mission should not release the captain during handoff grace");
+                    AssertEqual(mission.Id, updatedCaptain.CurrentMissionId, "Freshly WorkProduced mission should keep the current mission assignment during handoff grace");
+                }
+            });
+
+            await RunTest("HealthCheckAsync StaleWorkProducedMission ReleasesCaptain", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    StubGitService git = new StubGitService();
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), db, CreateSettings(), git);
+
+                    Mission mission = new Mission("Stale work produced");
+                    mission.Status = MissionStatusEnum.WorkProduced;
+                    mission = await db.Missions.CreateAsync(mission);
+                    await SetMissionLastUpdateUtcAsync(testDb, mission.Id, DateTime.UtcNow.AddMinutes(-5));
+
+                    Captain captain = new Captain("stale-work-produced");
+                    captain.State = CaptainStateEnum.Working;
+                    captain.CurrentMissionId = mission.Id;
+                    await db.Captains.CreateAsync(captain);
+
+                    await service.HealthCheckAsync();
+
+                    Captain? updatedCaptain = await db.Captains.ReadAsync(captain.Id);
+                    AssertNotNull(updatedCaptain, "Captain should still exist");
+                    AssertEqual(CaptainStateEnum.Idle, updatedCaptain!.State, "Stale WorkProduced mission should release the captain");
+                    AssertNull(updatedCaptain.CurrentMissionId, "Stale WorkProduced mission should clear the current mission assignment when released");
                 }
             });
 
@@ -526,7 +635,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("HealthCheckAsync VoyageCompletesWithMixOfCompleteFailedCancelled", async () =>
+            await RunTest("HealthCheckAsync VoyageFailsWithMixOfCompleteFailedCancelled", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
@@ -556,7 +665,7 @@ namespace Armada.Test.Unit.Suites.Services
                     await service.HealthCheckAsync();
 
                     Voyage? result = await db.Voyages.ReadAsync(voyage.Id);
-                    AssertEqual(VoyageStatusEnum.Complete, result!.Status);
+                    AssertEqual(VoyageStatusEnum.Failed, result!.Status);
                 }
             });
 

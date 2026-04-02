@@ -8,6 +8,7 @@ import {
   purgeMission,
   getMissionDiff,
   getMissionLog,
+  getMissionInstructions,
   restartMission,
   retryMissionLanding,
   transitionMission,
@@ -59,6 +60,7 @@ export default function MissionDetail() {
 
   // Log viewer (shared modal)
   const [logModal, setLogModal] = useState<{ open: boolean; title: string; missionId: string; content: string; totalLines: number; lineCount: number }>({ open: false, title: '', missionId: '', content: '', totalLines: 0, lineCount: 200 });
+  const [instructionsModal, setInstructionsModal] = useState<{ open: boolean; title: string; content: string }>({ open: false, title: '', content: '' });
   const missionLoadedRef = useRef(false);
 
   // Transition
@@ -148,6 +150,25 @@ export default function MissionDetail() {
     if (!id) return;
     setLogModal({ open: true, title: `Log: ${mission?.title || id}`, missionId: id, content: 'Loading...', totalLines: 0, lineCount: 200 });
     fetchLog(id, 200);
+  }
+
+  async function handleViewInstructions() {
+    if (!id) return;
+    setInstructionsModal({ open: true, title: 'Mission Instructions', content: 'Loading...' });
+    try {
+      const result = await getMissionInstructions(id);
+      setInstructionsModal({
+        open: true,
+        title: `Instructions: ${result.fileName || 'Mission Instructions'}`,
+        content: result.content || 'No mission instructions found.',
+      });
+    } catch (e: unknown) {
+      setInstructionsModal({
+        open: true,
+        title: 'Mission Instructions',
+        content: 'Instructions unavailable: ' + (e instanceof Error ? e.message : String(e)),
+      });
+    }
   }
 
   // Use a ref for loadMission so the log refresh callback identity stays stable
@@ -270,6 +291,7 @@ export default function MissionDetail() {
         <div className="inline-actions">
           <button className="btn btn-sm" onClick={handleViewDiff} title="View mission diff">Diff</button>
           <button className="btn btn-sm" onClick={handleViewLog} title="View mission log">Log</button>
+          <button className="btn btn-sm" onClick={handleViewInstructions} title="View mission instructions">Instructions</button>
           {(mission.status === 'WorkProduced' || mission.status === 'LandingFailed') && (
             <button className="btn btn-sm btn-primary" onClick={async () => { try { await retryMissionLanding(mission.id); pushToast('success', 'Landing succeeded! Mission status updated.'); loadMission(); } catch (e) { setError(e instanceof Error ? e.message : 'Retry landing failed.'); } }} title="Rebase the mission branch and re-attempt merge into the target branch">Retry Landing</button>
           )}
@@ -277,6 +299,7 @@ export default function MissionDetail() {
             { label: 'Edit', onClick: openEdit },
             { label: 'View Diff', onClick: handleViewDiff },
             { label: 'View Log', onClick: handleViewLog },
+            { label: 'View Instructions', onClick: handleViewInstructions },
             { label: 'Transition Status', onClick: () => setShowTransition(true) },
             { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `Mission: ${mission.title}`, data: mission }) },
             { label: 'Restart', onClick: handleRestart },
@@ -308,6 +331,13 @@ export default function MissionDetail() {
         onClose={() => setLogModal({ open: false, title: '', missionId: '', content: '', totalLines: 0, lineCount: 200 })}
         onRefresh={handleLogRefresh}
         onLineCountChange={handleLogLineCountChange}
+      />
+      <LogViewer
+        open={instructionsModal.open}
+        title={instructionsModal.title}
+        content={instructionsModal.content}
+        completed={true}
+        onClose={() => setInstructionsModal({ open: false, title: '', content: '' })}
       />
 
       {/* Edit Modal */}

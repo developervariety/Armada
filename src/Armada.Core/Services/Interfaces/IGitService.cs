@@ -157,6 +157,18 @@ namespace Armada.Core.Services.Interfaces
         Task<bool> BranchExistsAsync(string repoPath, string branchName, CancellationToken token = default);
 
         /// <summary>
+        /// Ensure a local branch exists in the repository.
+        /// If the matching remote branch exists, sync from it. Otherwise create the branch
+        /// from the repository's effective default branch or another available base ref.
+        /// Returns false only when the repository has no usable branch history yet.
+        /// </summary>
+        /// <param name="repoPath">Path to the repository.</param>
+        /// <param name="branchName">Branch name to ensure.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True if the branch exists or was created; false if the repo has no commits/branches.</returns>
+        Task<bool> EnsureLocalBranchAsync(string repoPath, string branchName, CancellationToken token = default);
+
+        /// <summary>
         /// Check if a path is registered as a git worktree.
         /// </summary>
         /// <param name="repoPath">Path to the repository.</param>

@@ -77,13 +77,17 @@ namespace Armada.Runtimes
 
             args.Add("exec");
 
-            if (String.Equals(ApprovalMode, "full-auto", StringComparison.OrdinalIgnoreCase))
-            {
-                args.Add("--full-auto");
-            }
-            else if (String.Equals(ApprovalMode, "dangerous", StringComparison.OrdinalIgnoreCase))
+            if (String.Equals(ApprovalMode, "dangerous", StringComparison.OrdinalIgnoreCase))
             {
                 args.Add("--dangerously-bypass-approvals-and-sandbox");
+            }
+            else if (OperatingSystem.IsWindows() && String.Equals(ApprovalMode, "full-auto", StringComparison.OrdinalIgnoreCase))
+            {
+                args.Add("--dangerously-bypass-approvals-and-sandbox");
+            }
+            else if (String.Equals(ApprovalMode, "full-auto", StringComparison.OrdinalIgnoreCase))
+            {
+                args.Add("--full-auto");
             }
 
             args.Add(prompt);

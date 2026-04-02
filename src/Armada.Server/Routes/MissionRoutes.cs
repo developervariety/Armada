@@ -10,6 +10,7 @@ namespace Armada.Server.Routes
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
     using Armada.Server.WebSocket;
@@ -86,6 +87,48 @@ namespace Armada.Server.Routes
                 lines.Add(line);
             }
             return lines.ToArray();
+        }
+
+        private async Task<(string FileName, string Path)?> ResolveMissionInstructionsPathAsync(AuthContext ctx, Mission mission)
+        {
+            Captain? captain = null;
+            if (!String.IsNullOrEmpty(mission.CaptainId))
+            {
+                captain = ctx.IsAdmin
+                    ? await _database.Captains.ReadAsync(mission.CaptainId).ConfigureAwait(false)
+                    : ctx.IsTenantAdmin
+                        ? await _database.Captains.ReadAsync(ctx.TenantId!, mission.CaptainId).ConfigureAwait(false)
+                        : await _database.Captains.ReadAsync(ctx.TenantId!, ctx.UserId!, mission.CaptainId).ConfigureAwait(false);
+            }
+
+            Dock? dock = null;
+            string? dockId = mission.DockId ?? captain?.CurrentDockId;
+            if (!String.IsNullOrEmpty(dockId))
+            {
+                dock = ctx.IsAdmin
+                    ? await _database.Docks.ReadAsync(dockId).ConfigureAwait(false)
+                    : ctx.IsTenantAdmin
+                        ? await _database.Docks.ReadAsync(ctx.TenantId!, dockId).ConfigureAwait(false)
+                        : await _database.Docks.ReadAsync(ctx.TenantId!, ctx.UserId!, dockId).ConfigureAwait(false);
+            }
+
+            if (dock == null || String.IsNullOrEmpty(dock.WorktreePath) || !Directory.Exists(dock.WorktreePath))
+                return null;
+
+            string fileName = MissionPromptBuilder.GetInstructionsFileName(captain != null ? captain.Runtime.ToString() : null);
+            string path = Path.Combine(dock.WorktreePath, fileName);
+            if (File.Exists(path))
+                return (fileName, path);
+
+            string[] fallbackNames = { "CLAUDE.md", "CODEX.md", "CURSOR.md", "AGENTS.md", "GEMINI.md" };
+            foreach (string fallbackName in fallbackNames)
+            {
+                string fallbackPath = Path.Combine(dock.WorktreePath, fallbackName);
+                if (File.Exists(fallbackPath))
+                    return (fallbackName, fallbackPath);
+            }
+
+            return (fileName, path);
         }
 
         private bool IsValidTransition(MissionStatusEnum current, MissionStatusEnum target)
@@ -804,6 +847,69 @@ namespace Armada.Server.Routes
                 .WithTag("Missions")
                 .WithSummary("Get log for a mission")
                 .WithDescription("Returns the session log for a mission. Supports pagination via ?lines=N (default 200) and ?offset=N query parameters.")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Mission ID (msn_ prefix)"))
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithSecurity("ApiKey"));
+
+            app.Rest.Get("/api/v1/missions/{id}/instructions", async (AppRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                {
+                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
+                    return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
+                }
+                string id = req.Parameters["id"];
+                Mission? mission = ctx.IsAdmin
+                    ? await _database.Missions.ReadAsync(id).ConfigureAwait(false)
+                    : ctx.IsTenantAdmin
+                        ? await _database.Missions.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                        : await _database.Missions.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
+                if (mission == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found" }; }
+
+                (string FileName, string Path)? resolved = await ResolveMissionInstructionsPathAsync(ctx, mission).ConfigureAwait(false);
+                if (resolved == null)
+                {
+                    string instructionsDir = Path.Combine(_settings.LogDirectory, "instructions");
+                    string[] candidates = Directory.Exists(instructionsDir)
+                        ? Directory.GetFiles(instructionsDir, id + ".*")
+                        : Array.Empty<string>();
+
+                    if (candidates.Length > 0)
+                    {
+                        string snapshotPath = candidates[0];
+                        string snapshotFileName = Path.GetFileName(snapshotPath);
+                        try
+                        {
+                            string snapshotContent = await ReadFileSharedAsync(snapshotPath).ConfigureAwait(false);
+                            return (object)new { MissionId = id, FileName = snapshotFileName, Content = snapshotContent };
+                        }
+                        catch (IOException)
+                        {
+                            return (object)new { MissionId = id, FileName = snapshotFileName, Content = "" };
+                        }
+                    }
+
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission instructions are unavailable because neither a live dock/worktree nor a saved instructions snapshot could be found" };
+                }
+
+                try
+                {
+                    string content = File.Exists(resolved.Value.Path)
+                        ? await ReadFileSharedAsync(resolved.Value.Path).ConfigureAwait(false)
+                        : "";
+                    return (object)new { MissionId = id, FileName = resolved.Value.FileName, Content = content };
+                }
+                catch (IOException)
+                {
+                    return (object)new { MissionId = id, FileName = resolved.Value.FileName, Content = "" };
+                }
+            },
+            api => api
+                .WithTag("Missions")
+                .WithSummary("Get mission instructions")
+                .WithDescription("Returns the runtime-specific instruction file generated for a mission, such as CLAUDE.md, CODEX.md, CURSOR.md, AGENTS.md, or GEMINI.md.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Mission ID (msn_ prefix)"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));

@@ -150,25 +150,17 @@ namespace Armada.Core.Services
 
                 if (mission == null || dock == null)
                 {
-                    _Logging.Warn(_Header + "cannot recover captain " + captain.Id + ": mission or dock not found -- releasing to idle");
-                    captain.CurrentMissionId = null;
-                    captain.CurrentDockId = null;
-                    captain.ProcessId = null;
-                    captain.State = CaptainStateEnum.Idle;
-                    captain.LastUpdateUtc = DateTime.UtcNow;
-                    await _Database.Captains.UpdateAsync(captain, token).ConfigureAwait(false);
+                    string missingReason = "Auto-recovery failed because the mission or dock could not be reloaded.";
+                    _Logging.Warn(_Header + "cannot recover captain " + captain.Id + ": mission or dock not found -- failing mission and releasing to idle");
+                    await FinalizeRecoveryFailureAsync(captain, mission, missingReason, token).ConfigureAwait(false);
                     return;
                 }
 
                 if (String.IsNullOrEmpty(dock.WorktreePath))
                 {
-                    _Logging.Warn(_Header + "cannot recover captain " + captain.Id + ": dock " + dock.Id + " has no worktree path -- releasing to idle");
-                    captain.CurrentMissionId = null;
-                    captain.CurrentDockId = null;
-                    captain.ProcessId = null;
-                    captain.State = CaptainStateEnum.Idle;
-                    captain.LastUpdateUtc = DateTime.UtcNow;
-                    await _Database.Captains.UpdateAsync(captain, token).ConfigureAwait(false);
+                    string worktreeReason = "Auto-recovery failed because dock " + dock.Id + " has no worktree path.";
+                    _Logging.Warn(_Header + "cannot recover captain " + captain.Id + ": dock " + dock.Id + " has no worktree path -- failing mission and releasing to idle");
+                    await FinalizeRecoveryFailureAsync(captain, mission, worktreeReason, token).ConfigureAwait(false);
                     return;
                 }
 
@@ -203,6 +195,7 @@ namespace Armada.Core.Services
                         await _Database.Captains.UpdateAsync(captain, token).ConfigureAwait(false);
 
                         mission.ProcessId = processId;
+                        mission.Status = MissionStatusEnum.InProgress;
                         mission.LastUpdateUtc = DateTime.UtcNow;
                         await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
 
@@ -215,12 +208,8 @@ namespace Armada.Core.Services
                     catch (Exception ex)
                     {
                         _Logging.Warn(_Header + "recovery launch failed for captain " + captain.Id + ": " + ex.Message);
-                        captain.CurrentMissionId = null;
-                        captain.CurrentDockId = null;
-                        captain.ProcessId = null;
-                        captain.State = CaptainStateEnum.Idle;
-                        captain.LastUpdateUtc = DateTime.UtcNow;
-                        await _Database.Captains.UpdateAsync(captain, token).ConfigureAwait(false);
+                        string launchReason = "Auto-recovery failed while relaunching the agent: " + ex.Message;
+                        await FinalizeRecoveryFailureAsync(captain, mission, launchReason, token).ConfigureAwait(false);
                     }
                 }
             }
@@ -229,12 +218,11 @@ namespace Armada.Core.Services
                 _Logging.Warn(_Header + "unhandled error in TryRecoverAsync for captain " + captain.Id + ": " + ex.Message);
                 try
                 {
-                    captain.CurrentMissionId = null;
-                    captain.CurrentDockId = null;
-                    captain.ProcessId = null;
-                    captain.State = CaptainStateEnum.Idle;
-                    captain.LastUpdateUtc = DateTime.UtcNow;
-                    await _Database.Captains.UpdateAsync(captain, token).ConfigureAwait(false);
+                    Mission? mission = !String.IsNullOrEmpty(captain.CurrentMissionId)
+                        ? await _Database.Missions.ReadAsync(captain.CurrentMissionId, token).ConfigureAwait(false)
+                        : null;
+                    string unexpectedReason = "Auto-recovery failed unexpectedly: " + ex.Message;
+                    await FinalizeRecoveryFailureAsync(captain, mission, unexpectedReason, token).ConfigureAwait(false);
                 }
                 catch { }
             }
@@ -254,6 +242,57 @@ namespace Armada.Core.Services
             await _Database.Captains.UpdateAsync(captain, token).ConfigureAwait(false);
 
             _Logging.Info(_Header + "released captain " + captain.Id);
+        }
+
+        #endregion
+
+        #region Private-Methods
+
+        /// <summary>
+        /// Mark the mission as failed and return the captain to Idle when auto-recovery cannot continue.
+        /// </summary>
+        private async Task FinalizeRecoveryFailureAsync(Captain captain, Mission? mission, string reason, CancellationToken token)
+        {
+            if (mission != null &&
+                mission.Status != MissionStatusEnum.Complete &&
+                mission.Status != MissionStatusEnum.Failed &&
+                mission.Status != MissionStatusEnum.Cancelled &&
+                mission.Status != MissionStatusEnum.LandingFailed &&
+                mission.Status != MissionStatusEnum.PullRequestOpen)
+            {
+                mission.Status = MissionStatusEnum.Failed;
+                mission.FailureReason = reason;
+                mission.ProcessId = null;
+                mission.CompletedUtc = DateTime.UtcNow;
+                mission.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+            }
+
+            if (!String.IsNullOrEmpty(captain.CurrentDockId))
+            {
+                try
+                {
+                    await _Docks.ReclaimAsync(captain.CurrentDockId, captain.TenantId, token).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "error reclaiming dock " + captain.CurrentDockId + " during recovery failure cleanup: " + ex.Message);
+                }
+            }
+
+            captain.CurrentMissionId = null;
+            captain.CurrentDockId = null;
+            captain.ProcessId = null;
+            captain.State = CaptainStateEnum.Idle;
+            captain.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.Captains.UpdateAsync(captain, token).ConfigureAwait(false);
+
+            if (mission != null)
+            {
+                Signal signal = new Signal(SignalTypeEnum.Error, "Mission " + mission.Id + " failed during auto-recovery: " + reason);
+                signal.FromCaptainId = captain.Id;
+                await _Database.Signals.CreateAsync(signal, token).ConfigureAwait(false);
+            }
         }
 
         #endregion

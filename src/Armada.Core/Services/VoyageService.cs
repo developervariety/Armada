@@ -51,10 +51,21 @@ namespace Armada.Core.Services
                 List<Mission> missions = await _Database.Missions.EnumerateByVoyageAsync(voyage.Id, token).ConfigureAwait(false);
                 if (missions.Count == 0) continue;
 
-                // A mission is "done" if it's in a terminal state or if it's an
-                // intermediate pipeline stage (WorkProduced) that has already handed
-                // off to a downstream mission. PullRequestOpen remains active until
-                // the PR is merged and reconciled to Complete.
+                bool anyActive = missions.Any(m =>
+                    m.Status == MissionStatusEnum.Pending ||
+                    m.Status == MissionStatusEnum.Assigned ||
+                    m.Status == MissionStatusEnum.InProgress ||
+                    m.Status == MissionStatusEnum.Testing ||
+                    m.Status == MissionStatusEnum.Review ||
+                    m.Status == MissionStatusEnum.PullRequestOpen);
+
+                if (anyActive)
+                {
+                    continue;
+                }
+
+                // A mission is terminal if it is complete, failed, cancelled, landing-failed,
+                // or an intermediate pipeline stage (WorkProduced) that already handed off.
                 bool allDone = missions.All(m =>
                     m.Status == MissionStatusEnum.Complete ||
                     m.Status == MissionStatusEnum.Failed ||
@@ -64,11 +75,15 @@ namespace Armada.Core.Services
 
                 if (allDone)
                 {
-                    voyage.Status = VoyageStatusEnum.Complete;
+                    bool anyFailed = missions.Any(m =>
+                        m.Status == MissionStatusEnum.Failed ||
+                        m.Status == MissionStatusEnum.LandingFailed);
+
+                    voyage.Status = anyFailed ? VoyageStatusEnum.Failed : VoyageStatusEnum.Complete;
                     voyage.CompletedUtc = DateTime.UtcNow;
                     voyage.LastUpdateUtc = DateTime.UtcNow;
                     await _Database.Voyages.UpdateAsync(voyage, token).ConfigureAwait(false);
-                    _Logging.Info(_Header + "voyage " + voyage.Id + " completed");
+                    _Logging.Info(_Header + "voyage " + voyage.Id + " reached terminal status " + voyage.Status);
                     completedVoyages.Add(voyage);
                 }
             }

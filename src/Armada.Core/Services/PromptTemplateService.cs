@@ -212,6 +212,9 @@ namespace Armada.Core.Services
                 Content =
                     "## Rules\n" +
                     "- Work only within this worktree directory\n" +
+                    "- Stay strictly within the mission scope and listed files\n" +
+                    "- Do not create, modify, or delete files outside the listed scope unless the mission explicitly requires it\n" +
+                    "- If you discover a necessary out-of-scope change, report it in your result instead of expanding scope on your own\n" +
                     "- Commit all changes to the current branch\n" +
                     "- Commit and push your changes -- the Admiral will also push if needed\n" +
                     "- If you encounter a blocking issue, commit what you have and exit\n" +
@@ -293,12 +296,17 @@ namespace Armada.Core.Services
                 Description = "Instructions for reporting progress signals back to the Admiral.",
                 Category = "mission",
                 Content =
-                    "## Progress Signals (Optional)\n" +
-                    "You can report progress to the Admiral by printing these lines to stdout:\n" +
+                    "## Runtime Signals\n" +
+                    "If you emit Armada signals, print each signal on its own standalone line with no bullets, quoting, or extra Markdown:\n" +
                     "- `[ARMADA:PROGRESS] 50` -- report completion percentage (0-100)\n" +
                     "- `[ARMADA:STATUS] Testing` -- transition mission to Testing status\n" +
                     "- `[ARMADA:STATUS] Review` -- transition mission to Review status\n" +
-                    "- `[ARMADA:MESSAGE] your message here` -- send a progress message\n"
+                    "- `[ARMADA:MESSAGE] your message here` -- send a progress message\n" +
+                    "- `[ARMADA:RESULT] COMPLETE` -- worker/test engineer mission finished successfully\n" +
+                    "- `[ARMADA:VERDICT] PASS` -- judge approves the mission\n" +
+                    "- `[ARMADA:VERDICT] FAIL` -- judge rejects the mission\n" +
+                    "- `[ARMADA:VERDICT] NEEDS_REVISION` -- judge requests follow-up changes\n" +
+                    "Architect missions must not emit `[ARMADA:RESULT]` or `[ARMADA:VERDICT]`; they must output only real `[ARMADA:MISSION]` blocks.\n"
             };
 
             defaults["mission.model_context_updates"] = new EmbeddedTemplate
@@ -347,7 +355,10 @@ namespace Armada.Core.Services
                 Name = "persona.worker",
                 Description = "Default worker persona for captains executing missions.",
                 Category = "persona",
-                Content = "You are an Armada captain executing a mission. Follow these instructions carefully."
+                Content =
+                    "You are an Armada worker agent. Implement only the current mission description, stay within scope, " +
+                    "run the most relevant validation you can, commit your changes, and end with a standalone line " +
+                    "`[ARMADA:RESULT] COMPLETE` followed by a brief plain-text summary of what changed."
             };
 
             defaults["persona.architect"] = new EmbeddedTemplate
@@ -412,15 +423,9 @@ namespace Armada.Core.Services
                     "Each mission starts with the marker [ARMADA:MISSION] on its own line, followed by the title on " +
                     "the same line, then the description on subsequent lines until the next marker or end of output.\n" +
                     "\n" +
-                    "Example format (do NOT copy these example titles -- use real titles from your analysis):\n" +
-                    "\n" +
-                    "  [ARMADA:MISSION] Implement the user authentication module\n" +
-                    "  Create auth.py with login endpoint, password hashing, and token generation.\n" +
-                    "  Files: src/auth.py, src/models/user.py\n" +
-                    "\n" +
-                    "  [ARMADA:MISSION] Add API endpoint tests\n" +
-                    "  Write pytest tests covering all REST endpoints.\n" +
-                    "  Files: tests/test_api.py\n"
+                    "Do not echo these instructions back. Do not output placeholder fields such as title:, goal:, " +
+                    "inputs:, deliverables:, dependencies:, risks:, or done_when:. Output only real mission titles " +
+                    "and real mission descriptions from your analysis. Do not emit `[ARMADA:RESULT]` or `[ARMADA:VERDICT]` lines.\n"
             };
 
             defaults["persona.judge"] = new EmbeddedTemplate
@@ -450,6 +455,9 @@ namespace Armada.Core.Services
                     "## Previous Stage Output\n" +
                     "{PreviousStageOutput}\n" +
                     "\n" +
+                    "Evaluate only the current mission description and diff. Do not fail this mission for work that " +
+                    "belongs to a different sibling mission in the same voyage.\n" +
+                    "\n" +
                     "## Review Criteria\n" +
                     "\n" +
                     "1. **Completeness.** Does the diff address every requirement in the mission description? " +
@@ -475,7 +483,12 @@ namespace Armada.Core.Services
                     "- **PASS** -- The mission is complete and correct. No changes needed.\n" +
                     "- **FAIL** -- The mission has critical issues that cannot be easily fixed. Explain why.\n" +
                     "- **NEEDS_REVISION** -- The mission is partially complete or has fixable issues. Provide " +
-                    "specific, actionable feedback for each item that needs revision.\n"
+                    "specific, actionable feedback for each item that needs revision.\n" +
+                    "\n" +
+                    "End your response with a standalone signal line exactly in one of these forms:\n" +
+                    "- `[ARMADA:VERDICT] PASS`\n" +
+                    "- `[ARMADA:VERDICT] FAIL`\n" +
+                    "- `[ARMADA:VERDICT] NEEDS_REVISION`\n"
             };
 
             defaults["persona.test_engineer"] = new EmbeddedTemplate
@@ -505,6 +518,9 @@ namespace Armada.Core.Services
                     "## Previous Stage Output\n" +
                     "{PreviousStageOutput}\n" +
                     "\n" +
+                    "Scope yourself only to the current mission description and prior diff. Do not add work that " +
+                    "belongs to a sibling mission in the same voyage.\n" +
+                    "\n" +
                     "## Instructions\n" +
                     "\n" +
                     "1. **Analyze the diff.** Understand what was added, modified, or removed. Identify the " +
@@ -528,7 +544,14 @@ namespace Armada.Core.Services
                     "before committing. Do not commit tests that are known to fail.\n" +
                     "\n" +
                     "7. **Commit test files only.** Do not modify the production code. Your mission is solely " +
-                    "to add test coverage for the changes described in the diff.\n"
+                    "to add test coverage for the changes described in the diff.\n" +
+                    "\n" +
+                    "8. **Documentation-only diffs may require no new tests.** If the prior stage changed only " +
+                    "documentation or otherwise does not warrant automated test updates, leave the code unchanged " +
+                    "and say so explicitly.\n" +
+                    "\n" +
+                    "End your response with a standalone line `[ARMADA:RESULT] COMPLETE` and then a brief plain-text " +
+                    "summary of the tests you added or why no new tests were needed.\n"
             };
 
             // Structure/layout templates -- control how sections are framed in the CLAUDE.md

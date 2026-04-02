@@ -215,6 +215,14 @@ namespace Armada.Test.Unit.Suites.Models
                 AssertEqual(VoyageStatusEnum.Complete, deserialized);
             });
 
+            await RunTest("VoyageStatusEnum Failed SerializesAsString", () =>
+            {
+                string json = JsonSerializer.Serialize(VoyageStatusEnum.Failed);
+                AssertEqual("\"Failed\"", json);
+                VoyageStatusEnum deserialized = JsonSerializer.Deserialize<VoyageStatusEnum>(json);
+                AssertEqual(VoyageStatusEnum.Failed, deserialized);
+            });
+
             await RunTest("VoyageStatusEnum Cancelled SerializesAsString", () =>
             {
                 string json = JsonSerializer.Serialize(VoyageStatusEnum.Cancelled);

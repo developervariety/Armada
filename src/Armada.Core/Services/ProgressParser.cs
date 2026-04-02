@@ -8,6 +8,8 @@ namespace Armada.Core.Services
     /// Agents can emit lines like:
     ///   [ARMADA:PROGRESS] 75
     ///   [ARMADA:STATUS] Testing
+    ///   [ARMADA:RESULT] COMPLETE
+    ///   [ARMADA:VERDICT] PASS
     ///   [ARMADA:MESSAGE] Running unit tests now
     /// </summary>
     public static class ProgressParser
@@ -20,7 +22,7 @@ namespace Armada.Core.Services
         public class ProgressSignal
         {
             /// <summary>
-            /// Signal type: "progress", "status", or "message".
+            /// Signal type: "progress", "status", "message", "result", or "verdict".
             /// </summary>
             public string Type { get; set; } = "";
 
@@ -45,7 +47,7 @@ namespace Armada.Core.Services
         #region Private-Members
 
         private static readonly Regex _SignalPattern = new Regex(
-            @"\[ARMADA:(\w+)\]\s*(.+)",
+            @"^\s*\[ARMADA:(\w+)\]\s+(.+?)\s*$",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         #endregion

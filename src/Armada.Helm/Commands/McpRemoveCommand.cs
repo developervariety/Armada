@@ -16,6 +16,7 @@ namespace Armada.Helm.Commands
         {
             ArmadaSettings armadaSettings = await ArmadaSettings.LoadAsync().ConfigureAwait(false);
             List<McpConfigHelper.ConfigTarget> targets = McpConfigHelper.BuildTargets(armadaSettings.McpPort);
+            List<McpConfigHelper.InstructionTarget> instructionTargets = McpConfigHelper.BuildInstructionTargets();
 
             AnsiConsole.MarkupLine("[bold dodgerblue1]Armada MCP Remove[/]");
             AnsiConsole.WriteLine();
@@ -68,10 +69,31 @@ namespace Armada.Helm.Commands
                 WriteManualSection(target);
             }
 
+            foreach (McpConfigHelper.InstructionTarget target in instructionTargets)
+            {
+                bool shouldRemove = settings.DryRun || settings.Yes || AnsiConsole.Confirm(
+                    $"[dodgerblue1]Remove[/] Armada instructions for [green]{target.ClientName}[/] at [green]{Markup.Escape(target.FilePath)}[/]?",
+                    true);
+
+                if (!shouldRemove)
+                {
+                    AnsiConsole.MarkupLine($"[yellow]{target.ClientName}[/]: skipped.");
+                }
+                else if (!settings.DryRun)
+                {
+                    WriteResult(await McpConfigHelper.RemoveInstructionTargetAsync(target).ConfigureAwait(false));
+                }
+                else
+                {
+                    AnsiConsole.MarkupLine($"[yellow]{target.ClientName}[/]: would remove Armada instructions from [green]{Markup.Escape(target.FilePath)}[/].");
+                }
+            }
+
             AnsiConsole.MarkupLine("[bold]What You Need To Do[/]");
             AnsiConsole.MarkupLine("[green]1.[/] Restart the MCP client after removal so it forgets the Armada entry.");
             AnsiConsole.MarkupLine("[green]2.[/] If automatic removal was skipped or blocked, use the command or file path shown above to remove the Armada entry manually.");
-            AnsiConsole.MarkupLine($"[green]3.[/] Cursor removal is project-scoped. The command targets [green]{Markup.Escape(McpConfigHelper.GetCursorConfigPath())}[/] for the current working directory.");
+            AnsiConsole.MarkupLine($"[green]3.[/] Project-scoped instructions were targeted at [green]{Markup.Escape(McpConfigHelper.GetProjectAgentsPath())}[/] and [green]{Markup.Escape(McpConfigHelper.GetProjectGeminiInstructionsPath())}[/].");
+            AnsiConsole.MarkupLine($"[green]4.[/] Cursor removal is project-scoped. The command targets [green]{Markup.Escape(McpConfigHelper.GetCursorConfigPath())}[/] for the current working directory.");
 
             return 0;
         }

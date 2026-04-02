@@ -239,6 +239,7 @@ namespace Armada.Helm.Commands
 
                 // Check if voyage is done
                 if (detail.Voyage.Status == VoyageStatusEnum.Complete ||
+                    detail.Voyage.Status == VoyageStatusEnum.Failed ||
                     detail.Voyage.Status == VoyageStatusEnum.Cancelled)
                 {
                     // Flush any remaining log content

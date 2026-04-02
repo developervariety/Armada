@@ -325,31 +325,45 @@ namespace Armada.Server
                     // Use the DiffSnapshot (captured before handoff) and the branch existence in
                     // the bare repo as indicators -- the worktree may already be gone at this point.
                     bool hasChanges = true;
+                    bool branchExists = false;
+                    if (!String.IsNullOrEmpty(dock.BranchName) && !String.IsNullOrEmpty(vessel.LocalPath))
+                    {
+                        // Also check if the branch actually exists in the bare repo
+                        try
+                        {
+                            branchExists = await _Git.BranchExistsAsync(vessel.LocalPath, dock.BranchName).ConfigureAwait(false);
+                        }
+                        catch { }
+                    }
+
                     if (String.IsNullOrEmpty(mission.DiffSnapshot) || mission.DiffSnapshot.Trim().Length == 0)
                     {
                         hasChanges = false;
                         _Logging.Info(_Header + "mission " + mission.Id + " has no diff snapshot -- no code changes to merge");
                     }
-                    else if (!String.IsNullOrEmpty(dock.BranchName) && !String.IsNullOrEmpty(vessel.LocalPath))
+                    else if (!branchExists)
                     {
-                        // Also check if the branch actually exists in the bare repo
-                        try
-                        {
-                            bool branchExists = await _Git.BranchExistsAsync(vessel.LocalPath, dock.BranchName).ConfigureAwait(false);
-                            if (!branchExists)
-                            {
-                                hasChanges = false;
-                                _Logging.Info(_Header + "mission " + mission.Id + " branch " + dock.BranchName + " not in bare repo -- no code changes to merge");
-                            }
-                        }
-                        catch { }
+                        hasChanges = false;
+                        _Logging.Info(_Header + "mission " + mission.Id + " branch " + dock.BranchName + " not in bare repo -- no code changes to merge");
                     }
 
                     if (!hasChanges)
                     {
-                        // No code changes -- skip merge and mark as complete
+                        // No code changes -- skip merge and mark as complete.
+                        // If the branch still exists, clean it up so successful no-op
+                        // missions do not leak stale local or remote branches.
                         landingAttempted = true;
                         landingSucceeded = true;
+                        if (branchExists && !String.IsNullOrEmpty(dock.BranchName))
+                        {
+                            await CleanupMissionBranchAsync(
+                                vessel.LocalPath,
+                                vessel.WorkingDirectory,
+                                dock.BranchName,
+                                cleanupPolicy,
+                                "after successful no-op landing",
+                                dock.WorktreePath).ConfigureAwait(false);
+                        }
                     }
                     else
                     {
@@ -386,30 +400,15 @@ namespace Armada.Server
 
                         // Only clean up the mission branch after confirmed success (merge + push).
                         // Preserve branch on failure for retry.
-                        if (landingSucceeded && cleanupPolicy != BranchCleanupPolicyEnum.None)
+                        if (landingSucceeded)
                         {
-                            try
-                            {
-                                await _Git.DeleteLocalBranchAsync(vessel.LocalPath, dock.BranchName).ConfigureAwait(false);
-                                _Logging.Info(_Header + "deleted branch " + dock.BranchName + " from bare repo after successful landing");
-                            }
-                            catch (Exception branchEx)
-                            {
-                                _Logging.Warn(_Header + "failed to delete branch " + dock.BranchName + " from bare repo: " + branchEx.Message);
-                            }
-
-                            if (cleanupPolicy == BranchCleanupPolicyEnum.LocalAndRemote)
-                            {
-                                try
-                                {
-                                    await _Git.DeleteRemoteBranchAsync(vessel.WorkingDirectory, dock.BranchName).ConfigureAwait(false);
-                                    _Logging.Info(_Header + "deleted remote branch " + dock.BranchName + " after successful landing");
-                                }
-                                catch (Exception remoteBranchEx)
-                                {
-                                    _Logging.Warn(_Header + "failed to delete remote branch " + dock.BranchName + ": " + remoteBranchEx.Message);
-                                }
-                            }
+                            await CleanupMissionBranchAsync(
+                                vessel.LocalPath,
+                                vessel.WorkingDirectory,
+                                dock.BranchName,
+                                cleanupPolicy,
+                                "after successful landing",
+                                dock.WorktreePath).ConfigureAwait(false);
                         }
                         else if (!landingSucceeded)
                         {
@@ -757,6 +756,59 @@ namespace Armada.Server
             catch (Exception ex)
             {
                 _Logging.Warn(_Header + "error polling/pulling after merge for mission " + missionId + ": " + ex.Message);
+            }
+        }
+
+        private async Task CleanupMissionBranchAsync(
+            string bareRepoPath,
+            string workingDirectory,
+            string branchName,
+            BranchCleanupPolicyEnum cleanupPolicy,
+            string cleanupReason,
+            string? activeWorktreePath = null)
+        {
+            if (String.IsNullOrEmpty(branchName)) return;
+
+            if (cleanupPolicy == BranchCleanupPolicyEnum.None)
+            {
+                _Logging.Info(_Header + "branch cleanup policy is None - retaining branch " + branchName + " for inspection");
+                return;
+            }
+
+            if (!String.IsNullOrEmpty(activeWorktreePath))
+            {
+                try
+                {
+                    await _Git.RemoveWorktreeAsync(activeWorktreePath).ConfigureAwait(false);
+                    _Logging.Info(_Header + "removed active worktree " + activeWorktreePath + " before deleting branch " + branchName);
+                }
+                catch (Exception worktreeEx)
+                {
+                    _Logging.Warn(_Header + "failed to remove active worktree " + activeWorktreePath + " before deleting branch " + branchName + ": " + worktreeEx.Message);
+                }
+            }
+
+            try
+            {
+                await _Git.DeleteLocalBranchAsync(bareRepoPath, branchName).ConfigureAwait(false);
+                _Logging.Info(_Header + "deleted branch " + branchName + " from bare repo " + cleanupReason);
+            }
+            catch (Exception branchEx)
+            {
+                _Logging.Warn(_Header + "failed to delete branch " + branchName + " from bare repo: " + branchEx.Message);
+            }
+
+            if (cleanupPolicy == BranchCleanupPolicyEnum.LocalAndRemote)
+            {
+                try
+                {
+                    await _Git.DeleteRemoteBranchAsync(workingDirectory, branchName).ConfigureAwait(false);
+                    _Logging.Info(_Header + "deleted remote branch " + branchName + " " + cleanupReason);
+                }
+                catch (Exception remoteBranchEx)
+                {
+                    _Logging.Warn(_Header + "failed to delete remote branch " + branchName + ": " + remoteBranchEx.Message);
+                }
             }
         }
 

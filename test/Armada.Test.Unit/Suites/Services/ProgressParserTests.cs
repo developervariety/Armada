@@ -99,11 +99,43 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertNull(result.MissionStatus);
             });
 
-            await RunTest("TryParse EmbeddedInOutput StillMatches", () =>
+            await RunTest("TryParse ResultSignal PreservesValue", () =>
             {
-                ProgressParser.ProgressSignal? result = ProgressParser.TryParse("some prefix [ARMADA:PROGRESS] 30");
+                ProgressParser.ProgressSignal? result = ProgressParser.TryParse("[ARMADA:RESULT] COMPLETE");
+                AssertNotNull(result);
+                AssertEqual("result", result!.Type);
+                AssertEqual("COMPLETE", result.Value);
+                AssertNull(result.Percentage);
+                AssertNull(result.MissionStatus);
+            });
+
+            await RunTest("TryParse VerdictSignal PreservesValue", () =>
+            {
+                ProgressParser.ProgressSignal? result = ProgressParser.TryParse("[ARMADA:VERDICT] PASS");
+                AssertNotNull(result);
+                AssertEqual("verdict", result!.Type);
+                AssertEqual("PASS", result.Value);
+                AssertNull(result.Percentage);
+                AssertNull(result.MissionStatus);
+            });
+
+            await RunTest("TryParse StandaloneSignal WithWhitespace", () =>
+            {
+                ProgressParser.ProgressSignal? result = ProgressParser.TryParse("  [ARMADA:PROGRESS] 30  ");
                 AssertNotNull(result);
                 AssertEqual(30, result!.Percentage);
+            });
+
+            await RunTest("TryParse EmbeddedInOutput ReturnsNull", () =>
+            {
+                ProgressParser.ProgressSignal? result = ProgressParser.TryParse("some prefix [ARMADA:PROGRESS] 30");
+                AssertNull(result);
+            });
+
+            await RunTest("TryParse InstructionExample ReturnsNull", () =>
+            {
+                ProgressParser.ProgressSignal? result = ProgressParser.TryParse("- `[ARMADA:PROGRESS] 50` -- report completion percentage (0-100)");
+                AssertNull(result);
             });
         }
     }

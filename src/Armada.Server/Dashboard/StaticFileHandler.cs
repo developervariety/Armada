@@ -4,6 +4,7 @@ namespace Armada.Server.Dashboard
     using System.Collections.Generic;
     using System.IO;
     using System.Reflection;
+    using Armada.Core;
 
     /// <summary>
     /// Serves static files for the web dashboard.
@@ -73,6 +74,7 @@ namespace Armada.Server.Dashboard
             contentType = "application/octet-stream";
 
             if (String.IsNullOrEmpty(urlPath)) return false;
+            EnsureExternalPathResolved();
 
             // Strip leading /dashboard/ prefix
             string relativePath = urlPath;
@@ -107,6 +109,7 @@ namespace Armada.Server.Dashboard
         /// <returns>True if index.html was found.</returns>
         public static bool TryGetIndex(out byte[] content, out string contentType)
         {
+            EnsureExternalPathResolved();
             return TryGetFile("/dashboard/index.html", out content, out contentType);
         }
 
@@ -127,6 +130,31 @@ namespace Armada.Server.Dashboard
         #endregion
 
         #region Private-Methods
+
+        private static void EnsureExternalPathResolved()
+        {
+            if (_ExternalDashboardPath != null && Directory.Exists(_ExternalDashboardPath))
+                return;
+
+            _ExternalDashboardPath = null;
+
+            string dashboardInData = Path.Combine(Constants.DefaultDataDirectory, "dashboard");
+            if (Directory.Exists(dashboardInData) && File.Exists(Path.Combine(dashboardInData, "index.html")))
+            {
+                _ExternalDashboardPath = Path.GetFullPath(dashboardInData);
+                return;
+            }
+
+            string? exeDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+            if (exeDir == null)
+                return;
+
+            string dashboardNextToExe = Path.Combine(exeDir, "dashboard");
+            if (Directory.Exists(dashboardNextToExe) && File.Exists(Path.Combine(dashboardNextToExe, "index.html")))
+            {
+                _ExternalDashboardPath = Path.GetFullPath(dashboardNextToExe);
+            }
+        }
 
         private static bool TryGetExternalFile(string relativePath, out byte[] content, out string contentType)
         {
