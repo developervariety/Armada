@@ -65,6 +65,27 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("ValidateCaptainModelAsync returns timeout error when runtime does not exit", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                using (CursorShimScope shim = CursorShimScope.Create())
+                {
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _);
+                    Captain captain = new Captain("timeout-captain", AgentRuntimeEnum.Cursor)
+                    {
+                        Model = "hang-model"
+                    };
+
+                    string? error = await handler.ValidateCaptainModelAsync(captain).ConfigureAwait(false);
+                    string args = await WaitForRecordedArgsAsync(shim.ArgsFile, "hang-model").ConfigureAwait(false);
+
+                    AssertNotNull(error, "Timed-out validation should return an error");
+                    AssertContains("hang-model", error!, "Error should include requested model");
+                    AssertContains("timed out", error!, "Error should report validation timeout");
+                    AssertContains("--model", args, "Timed-out validation should still launch runtime with model flag");
+                }
+            });
+
             await RunTest("HandleLaunchAgentAsync passes captain model to runtime startup", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -352,6 +373,10 @@ namespace Armada.Test.Unit.Suites.Services
                     "  >&2 echo unknown model '%MODEL%'\r\n" +
                     "  exit /b 3\r\n" +
                     ")\r\n" +
+                    "if /I \"%MODEL%\"==\"hang-model\" (\r\n" +
+                    "  ping 127.0.0.1 -n 10 >nul\r\n" +
+                    "  exit /b 0\r\n" +
+                    ")\r\n" +
                     "echo ok\r\n" +
                     "exit /b 0\r\n";
             }
@@ -373,6 +398,10 @@ namespace Armada.Test.Unit.Suites.Services
                     "if [ \"$model\" = \"bad-model\" ]; then\n" +
                     "  printf '%s\\n' \"unknown model '$model'\" >&2\n" +
                     "  exit 3\n" +
+                    "fi\n" +
+                    "if [ \"$model\" = \"hang-model\" ]; then\n" +
+                    "  sleep 10\n" +
+                    "  exit 0\n" +
                     "fi\n" +
                     "printf '%s\\n' ok\n" +
                     "exit 0\n";

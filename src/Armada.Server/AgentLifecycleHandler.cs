@@ -243,7 +243,23 @@ namespace Armada.Server
                 }
 
                 token.ThrowIfCancellationRequested();
-                return null;
+
+                string? timeoutDetails;
+                lock (outputLock)
+                {
+                    timeoutDetails = ExtractModelValidationError(output.ToString());
+                }
+
+                string timeoutMessage =
+                    "Model '" + model + "' failed validation for runtime " + runtimeType +
+                    ": validation timed out after " + _ModelValidationTimeout.TotalSeconds.ToString("0") + " seconds.";
+
+                if (!String.IsNullOrEmpty(timeoutDetails))
+                {
+                    timeoutMessage += " " + timeoutDetails;
+                }
+
+                return timeoutMessage;
             }
             catch (OperationCanceledException)
             {
