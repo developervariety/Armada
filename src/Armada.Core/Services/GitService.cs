@@ -120,6 +120,8 @@ namespace Armada.Core.Services
                         " but is on " + currentBranch);
                 }
 
+                await EnsureTrackedFilesCleanAsync(worktreePath, token).ConfigureAwait(false);
+
                 // Agent-driven plain `git push` should publish the current branch rather than
                 // attempting to update the inherited base-branch upstream (commonly `main`).
                 await RunGitAsync(worktreePath, "config", "push.default", "current").ConfigureAwait(false);
@@ -556,6 +558,24 @@ namespace Armada.Core.Services
         private async Task<string> RunGitAsync(string? workingDirectory, CancellationToken token, params string[] args)
         {
             return await RunProcessAsync(workingDirectory, "git", token, args).ConfigureAwait(false);
+        }
+
+        private async Task EnsureTrackedFilesCleanAsync(string worktreePath, CancellationToken token)
+        {
+            string status = (await RunGitAsync(
+                worktreePath,
+                token,
+                "status",
+                "--porcelain",
+                "--untracked-files=no").ConfigureAwait(false)).Trim();
+
+            if (String.IsNullOrWhiteSpace(status))
+            {
+                return;
+            }
+
+            throw new InvalidOperationException(
+                "Fresh worktree " + worktreePath + " contains tracked modifications: " + status);
         }
 
         private async Task<string> ResolveCommitAsync(string workingDirectory, string gitRef)

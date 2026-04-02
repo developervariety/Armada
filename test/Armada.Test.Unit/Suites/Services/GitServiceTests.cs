@@ -306,6 +306,66 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("CreateWorktreeAsync DirtyTrackedFiles Throws And Cleans Up", async () =>
+            {
+                GitService service = CreateService();
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada-gitservice-" + Guid.NewGuid().ToString("N"));
+                string sourceDir = Path.Combine(rootDir, "source");
+                string bareDir = Path.Combine(rootDir, "bare.git");
+                string worktreeDir = Path.Combine(rootDir, "worktree");
+                string branchName = "armada/dirty-worktree";
+
+                try
+                {
+                    Directory.CreateDirectory(sourceDir);
+                    Directory.CreateDirectory(Path.Combine(sourceDir, "test"));
+                    await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+
+                    await File.WriteAllTextAsync(
+                        Path.Combine(sourceDir, "test", "Dirty.csproj"),
+                        "<Project>\r\n  <PropertyGroup />\r\n</Project>\r\n").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "add", "test/Dirty.csproj").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "commit", "-m", "Add project before attributes").ConfigureAwait(false);
+
+                    await File.WriteAllTextAsync(
+                        Path.Combine(sourceDir, ".gitattributes"),
+                        "*.csproj text eol=crlf\n").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "add", ".gitattributes").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "commit", "-m", "Add gitattributes without renormalizing").ConfigureAwait(false);
+
+                    await RunGitAsync(rootDir, "clone", "--bare", sourceDir, bareDir).ConfigureAwait(false);
+
+                    InvalidOperationException? ex = null;
+                    try
+                    {
+                        await service.CreateWorktreeAsync(bareDir, worktreeDir, branchName, "main").ConfigureAwait(false);
+                        throw new Exception("Assertion failed: expected InvalidOperationException but no exception was thrown");
+                    }
+                    catch (InvalidOperationException caught)
+                    {
+                        ex = caught;
+                    }
+
+                    AssertTrue(ex != null, "Expected dirty worktree creation to throw");
+                    AssertTrue(ex!.Message.Contains("Fresh worktree", StringComparison.Ordinal), "Exception should explain that the new worktree is dirty");
+                    AssertTrue(ex.Message.Contains("test/Dirty.csproj", StringComparison.Ordinal), "Exception should list the dirty tracked file");
+                    AssertFalse(Directory.Exists(worktreeDir), "Failed worktree creation should clean up the worktree directory");
+
+                    string branchList = await RunGitAsync(bareDir, "branch", "--list", branchName).ConfigureAwait(false);
+                    AssertEqual(String.Empty, branchList.Trim(), "Failed worktree creation should delete the created branch ref");
+                }
+                finally
+                {
+                    if (Directory.Exists(rootDir))
+                    {
+                        try { Directory.Delete(rootDir, true); }
+                        catch { }
+                    }
+                }
+            });
+
             await RunTest("FetchAsync CheckedOutWorktreeBranch UsesRemoteTrackingRefs", async () =>
             {
                 GitService service = CreateService();
