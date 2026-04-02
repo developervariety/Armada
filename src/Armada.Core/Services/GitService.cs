@@ -312,7 +312,7 @@ namespace Armada.Core.Services
             // causing subsequent merges to target the wrong branch.
             if (!String.IsNullOrEmpty(targetBranch))
             {
-                await RunGitAsync(targetWorkDir, token, "checkout", targetBranch).ConfigureAwait(false);
+                await EnsureTargetBranchCheckedOutAsync(targetWorkDir, sourceRepoPath, targetBranch, token).ConfigureAwait(false);
             }
 
             // Fetch the specific branch from the bare repo using explicit refspec
@@ -337,7 +337,7 @@ namespace Armada.Core.Services
             }
             catch
             {
-                await RestoreAfterFailedMergeAsync(targetWorkDir, targetBranch, token).ConfigureAwait(false);
+                await RestoreAfterFailedMergeAsync(targetWorkDir, sourceRepoPath, targetBranch, token).ConfigureAwait(false);
                 throw;
             }
 
@@ -753,7 +753,7 @@ namespace Armada.Core.Services
             return false;
         }
 
-        private async Task RestoreAfterFailedMergeAsync(string targetWorkDir, string? targetBranch, CancellationToken token)
+        private async Task RestoreAfterFailedMergeAsync(string targetWorkDir, string sourceRepoPath, string? targetBranch, CancellationToken token)
         {
             try
             {
@@ -785,12 +785,58 @@ namespace Armada.Core.Services
             {
                 try
                 {
-                    await RunGitAsync(targetWorkDir, token, "checkout", targetBranch).ConfigureAwait(false);
+                    await EnsureTargetBranchCheckedOutAsync(targetWorkDir, sourceRepoPath, targetBranch, token).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
                     _Logging.Warn(_Header + "unable to return to target branch " + targetBranch + " after failed merge in " + targetWorkDir + ": " + ex.Message);
                 }
+            }
+        }
+
+        private async Task EnsureTargetBranchCheckedOutAsync(string targetWorkDir, string sourceRepoPath, string targetBranch, CancellationToken token)
+        {
+            if (String.IsNullOrEmpty(targetWorkDir)) throw new ArgumentNullException(nameof(targetWorkDir));
+            if (String.IsNullOrEmpty(sourceRepoPath)) throw new ArgumentNullException(nameof(sourceRepoPath));
+            if (String.IsNullOrEmpty(targetBranch)) throw new ArgumentNullException(nameof(targetBranch));
+
+            if (await BranchExistsAsync(targetWorkDir, targetBranch, token).ConfigureAwait(false))
+            {
+                await RunGitAsync(targetWorkDir, token, "checkout", targetBranch).ConfigureAwait(false);
+                return;
+            }
+
+            if (await TryEnsureLocalBranchAsync(targetWorkDir, targetBranch, token).ConfigureAwait(false))
+            {
+                await RunGitAsync(targetWorkDir, token, "checkout", targetBranch).ConfigureAwait(false);
+                return;
+            }
+
+            try
+            {
+                await RunGitAsync(targetWorkDir, token, "fetch", sourceRepoPath, "refs/heads/" + targetBranch).ConfigureAwait(false);
+                await RunGitAsync(targetWorkDir, token, "checkout", "-b", targetBranch, "FETCH_HEAD").ConfigureAwait(false);
+                return;
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException(
+                    "Unable to materialize target branch " + targetBranch + " in " + targetWorkDir +
+                    " using origin or source repo " + sourceRepoPath + ": " + ex.Message,
+                    ex);
+            }
+        }
+
+        private async Task<bool> TryEnsureLocalBranchAsync(string repoPath, string branchName, CancellationToken token)
+        {
+            try
+            {
+                return await EnsureLocalBranchAsync(repoPath, branchName, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "unable to sync target branch " + branchName + " from origin in " + repoPath + ": " + ex.Message);
+                return false;
             }
         }
 

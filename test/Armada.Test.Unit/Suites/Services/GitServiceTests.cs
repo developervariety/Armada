@@ -502,6 +502,66 @@ namespace Armada.Test.Unit.Suites.Services
                     }
                 }
             });
+
+            await RunTest("MergeBranchLocalAsync Materializes MissingTargetBranch In Landing Checkout", async () =>
+            {
+                GitService service = CreateService();
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada-gitservice-" + Guid.NewGuid().ToString("N"));
+                string sourceDir = Path.Combine(rootDir, "source");
+                string bareDir = Path.Combine(rootDir, "bare.git");
+                string targetDir = Path.Combine(rootDir, "target");
+
+                try
+                {
+                    Directory.CreateDirectory(sourceDir);
+                    await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "base\n").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+
+                    await RunGitAsync(rootDir, "clone", "--bare", sourceDir, bareDir).ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "clone", bareDir, targetDir).ConfigureAwait(false);
+                    await RunGitAsync(targetDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await RunGitAsync(targetDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+
+                    await RunGitAsync(sourceDir, "remote", "add", "armada", bareDir).ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "checkout", "-b", "armada-v050-live").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "target-only.txt"), "target branch content\n").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "add", "target-only.txt").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "commit", "-m", "Create target branch").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "push", "armada", "armada-v050-live").ConfigureAwait(false);
+
+                    await RunGitAsync(sourceDir, "checkout", "-b", "armada/worker-1").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "base\nworker change\n").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "commit", "-am", "Worker change").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "push", "armada", "armada/worker-1").ConfigureAwait(false);
+
+                    string missingLocalBranch = (await RunGitAsync(targetDir, "branch", "--list", "armada-v050-live").ConfigureAwait(false)).Trim();
+                    AssertEqual(String.Empty, missingLocalBranch, "Landing checkout should not already have the target branch locally");
+
+                    await service.MergeBranchLocalAsync(targetDir, bareDir, "armada/worker-1", "armada-v050-live").ConfigureAwait(false);
+
+                    string currentBranch = (await RunGitAsync(targetDir, "rev-parse", "--abbrev-ref", "HEAD").ConfigureAwait(false)).Trim();
+                    string localBranch = (await RunGitAsync(targetDir, "branch", "--list", "armada-v050-live").ConfigureAwait(false)).Trim();
+                    string mergedReadme = await File.ReadAllTextAsync(Path.Combine(targetDir, "README.md")).ConfigureAwait(false);
+                    string targetBranchFile = await File.ReadAllTextAsync(Path.Combine(targetDir, "target-only.txt")).ConfigureAwait(false);
+
+                    AssertEqual("armada-v050-live", currentBranch, "Landing checkout should end on the materialized target branch");
+                    AssertTrue(!String.IsNullOrWhiteSpace(localBranch), "Landing checkout should create a local target branch when it is missing");
+                    AssertEqual("base\nworker change\n", mergedReadme, "Landing merge should include worker changes");
+                    AssertEqual("target branch content\n", targetBranchFile, "Landing merge should preserve target branch files");
+                }
+                finally
+                {
+                    if (Directory.Exists(rootDir))
+                    {
+                        try { Directory.Delete(rootDir, true); }
+                        catch { }
+                    }
+                }
+            });
         }
 
         private static async Task<string> RunGitAsync(string workingDirectory, params string[] args)
