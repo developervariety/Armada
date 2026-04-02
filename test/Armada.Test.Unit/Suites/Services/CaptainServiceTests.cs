@@ -121,6 +121,68 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertNull(updatedCaptain.CurrentMissionId, "Captain current mission should be cleared");
                 }
             });
+
+            await RunTest("Cancelled voyage does not auto-recover mission", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    StubDockService docks = new StubDockService();
+                    CaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, docks);
+
+                    int launchAttempts = 0;
+                    captainService.OnLaunchAgent = (Captain captain, Mission mission, Dock dock) =>
+                    {
+                        launchAttempts++;
+                        return Task.FromResult(7777);
+                    };
+
+                    Vessel vessel = new Vessel("recover-cancelled-vessel", "https://github.com/test/repo.git");
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Voyage voyage = new Voyage("recover-cancelled-voyage");
+                    voyage.Status = VoyageStatusEnum.Cancelled;
+                    voyage = await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+
+                    Captain captain = new Captain("recover-cancelled-captain");
+                    captain.State = CaptainStateEnum.Working;
+                    captain.CurrentMissionId = "msn_recover_cancelled";
+                    captain.CurrentDockId = "dck_recover_cancelled";
+                    captain = await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    Mission mission = new Mission("Cancelled Voyage Mission");
+                    mission.Id = "msn_recover_cancelled";
+                    mission.VesselId = vessel.Id;
+                    mission.VoyageId = voyage.Id;
+                    mission.CaptainId = captain.Id;
+                    mission.DockId = "dck_recover_cancelled";
+                    mission.Status = MissionStatusEnum.InProgress;
+                    mission.ProcessId = 5555;
+                    mission = await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    Dock dock = new Dock(vessel.Id);
+                    dock.Id = "dck_recover_cancelled";
+                    dock.CaptainId = captain.Id;
+                    dock.WorktreePath = Path.Combine(Path.GetTempPath(), "armada_test_recover_cancelled_" + Guid.NewGuid().ToString("N"));
+                    dock.Active = true;
+                    await testDb.Driver.Docks.CreateAsync(dock).ConfigureAwait(false);
+
+                    await captainService.TryRecoverAsync(captain).ConfigureAwait(false);
+
+                    Mission? updatedMission = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    Captain? updatedCaptain = await testDb.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+
+                    AssertNotNull(updatedMission, "Mission should still exist");
+                    AssertNotNull(updatedCaptain, "Captain should still exist");
+                    AssertEqual(0, launchAttempts, "Cancelled-voyage mission should not be relaunched");
+                    AssertEqual(MissionStatusEnum.Cancelled, updatedMission!.Status, "Mission should be cancelled when its voyage is cancelled");
+                    AssertEqual(CaptainStateEnum.Idle, updatedCaptain!.State, "Captain should return to Idle when recovery is skipped");
+                    AssertNull(updatedCaptain.CurrentMissionId, "Captain current mission should be cleared");
+                    AssertEqual(1, docks.ReclaimCalls, "Dock should be reclaimed when recovery is skipped");
+                }
+            });
         }
 
         private LoggingModule CreateLogging()

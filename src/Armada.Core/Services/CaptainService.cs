@@ -156,6 +156,45 @@ namespace Armada.Core.Services
                     return;
                 }
 
+                Voyage? voyage = !String.IsNullOrEmpty(mission.VoyageId)
+                    ? await _Database.Voyages.ReadAsync(mission.VoyageId, token).ConfigureAwait(false)
+                    : null;
+
+                bool voyageCancelled = voyage != null && voyage.Status == VoyageStatusEnum.Cancelled;
+                bool missionRecoverable =
+                    mission.Status == MissionStatusEnum.Assigned ||
+                    mission.Status == MissionStatusEnum.InProgress ||
+                    mission.Status == MissionStatusEnum.Testing ||
+                    mission.Status == MissionStatusEnum.Review;
+
+                if (voyageCancelled || !missionRecoverable)
+                {
+                    if (voyageCancelled && mission.Status != MissionStatusEnum.Cancelled)
+                    {
+                        mission.Status = MissionStatusEnum.Cancelled;
+                        mission.CompletedUtc = DateTime.UtcNow;
+                    }
+
+                    mission.ProcessId = null;
+                    mission.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+
+                    try
+                    {
+                        await _Docks.ReclaimAsync(dock.Id, token: token).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        _Logging.Warn(_Header + "error reclaiming dock " + dock.Id + " while skipping recovery for captain " + captain.Id + ": " + ex.Message);
+                    }
+
+                    await ReleaseAsync(captain, token: token).ConfigureAwait(false);
+                    _Logging.Info(_Header + "skipping auto-recovery for captain " + captain.Id +
+                        " because mission " + mission.Id + " is " + mission.Status +
+                        (voyageCancelled ? " and voyage " + mission.VoyageId + " is Cancelled" : String.Empty));
+                    return;
+                }
+
                 if (String.IsNullOrEmpty(dock.WorktreePath))
                 {
                     string worktreeReason = "Auto-recovery failed because dock " + dock.Id + " has no worktree path.";
