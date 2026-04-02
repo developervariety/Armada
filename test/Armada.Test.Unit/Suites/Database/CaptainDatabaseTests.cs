@@ -18,11 +18,16 @@ namespace Armada.Test.Unit.Suites.Database
                 {
                     SqliteDatabaseDriver db = testDb.Driver;
                     Captain captain = new Captain("claude-1", AgentRuntimeEnum.ClaudeCode);
+                    captain.Model = "gpt-5.4";
                     Captain result = await db.Captains.CreateAsync(captain);
+                    Captain? read = await db.Captains.ReadAsync(captain.Id);
 
                     AssertNotNull(result);
+                    AssertNotNull(read);
                     AssertEqual("claude-1", result.Name);
                     AssertEqual(AgentRuntimeEnum.ClaudeCode, result.Runtime);
+                    AssertEqual("gpt-5.4", result.Model);
+                    AssertEqual("gpt-5.4", read!.Model);
                 }
             });
 
@@ -67,6 +72,7 @@ namespace Armada.Test.Unit.Suites.Database
                     captain.CurrentMissionId = "msn_test";
                     captain.ProcessId = 12345;
                     captain.RecoveryAttempts = 2;
+                    captain.Model = "gpt-5.4-mini";
                     await db.Captains.UpdateAsync(captain);
 
                     Captain? result = await db.Captains.ReadAsync(captain.Id);
@@ -74,6 +80,24 @@ namespace Armada.Test.Unit.Suites.Database
                     AssertEqual("msn_test", result.CurrentMissionId);
                     AssertEqual(12345, result.ProcessId);
                     AssertEqual(2, result.RecoveryAttempts);
+                    AssertEqual("gpt-5.4-mini", result.Model);
+                }
+            });
+
+            await RunTest("UpdateAsync clears captain model when empty string is assigned", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    Captain captain = new Captain("clear-model-test");
+                    captain.Model = "gpt-5.4";
+                    await db.Captains.CreateAsync(captain);
+
+                    captain.Model = "";
+                    await db.Captains.UpdateAsync(captain);
+
+                    Captain? result = await db.Captains.ReadAsync(captain.Id);
+                    AssertNull(result!.Model);
                 }
             });
 

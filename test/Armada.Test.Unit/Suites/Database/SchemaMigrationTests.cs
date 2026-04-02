@@ -69,8 +69,50 @@ namespace Armada.Test.Unit.Suites.Database
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
                     int version = await testDb.Driver.GetSchemaVersionAsync();
-                    AssertTrue(version >= 1, "Schema version should be at least 1 after initialization");
+                    AssertTrue(version >= 27, "Schema version should include migrations 26 and 27 after initialization");
                 }
+            });
+
+            await RunTest("InitializeAsync applies captain model and mission runtime migrations", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    using (SqliteConnection conn = new SqliteConnection(testDb.ConnectionString))
+                    {
+                        await conn.OpenAsync();
+
+                        using (SqliteCommand versionCmd = conn.CreateCommand())
+                        {
+                            versionCmd.CommandText = "SELECT COUNT(*) FROM schema_migrations WHERE version IN (26, 27);";
+                            long appliedCount = (long)(await versionCmd.ExecuteScalarAsync() ?? 0L);
+                            AssertEqual(2L, appliedCount);
+                        }
+
+                        AssertTrue(await ColumnExistsAsync(conn, "captains", "model").ConfigureAwait(false), "captains.model should exist");
+                        AssertTrue(await ColumnExistsAsync(conn, "missions", "total_runtime_ms").ConfigureAwait(false), "missions.total_runtime_ms should exist");
+                    }
+                }
+            });
+
+            await RunTest("Versioned migration scripts include captain model and mission runtime statements", async () =>
+            {
+                string repoRoot = FindRepositoryRoot();
+                string shellScript = await File.ReadAllTextAsync(Path.Combine(repoRoot, "migrations", "migrate_v0.4.0_to_v0.5.0.sh")).ConfigureAwait(false);
+                string batchScript = await File.ReadAllTextAsync(Path.Combine(repoRoot, "migrations", "migrate_v0.4.0_to_v0.5.0.bat")).ConfigureAwait(false);
+
+                AssertContains("ALTER TABLE captains ADD COLUMN model TEXT NULL;", shellScript, "Shell script sqlite/postgresql/mysql model migration");
+                AssertContains("ALTER TABLE missions ADD COLUMN total_runtime_ms BIGINT NULL;", shellScript, "Shell script mission runtime migration");
+                AssertContains("ALTER TABLE captains ADD model NVARCHAR(MAX) NULL;", shellScript, "Shell script sqlserver model migration");
+                AssertContains("ALTER TABLE missions ADD total_runtime_ms BIGINT NULL;", shellScript, "Shell script sqlserver mission runtime migration");
+                AssertContains("VALUES (26, 'Add model to captains'", shellScript, "Shell script migration version 26");
+                AssertContains("VALUES (27, 'Add total_runtime_ms to missions'", shellScript, "Shell script migration version 27");
+
+                AssertContains("echo ALTER TABLE captains ADD COLUMN model TEXT NULL;", batchScript, "Batch script sqlite/postgresql/mysql model migration");
+                AssertContains("echo ALTER TABLE missions ADD COLUMN total_runtime_ms BIGINT NULL;", batchScript, "Batch script mission runtime migration");
+                AssertContains("echo ALTER TABLE captains ADD model NVARCHAR^(MAX^) NULL;", batchScript, "Batch script sqlserver model migration");
+                AssertContains("echo ALTER TABLE missions ADD total_runtime_ms BIGINT NULL;", batchScript, "Batch script sqlserver mission runtime migration");
+                AssertContains("VALUES ^(26, 'Add model to captains'", batchScript, "Batch script migration version 26");
+                AssertContains("VALUES ^(27, 'Add total_runtime_ms to missions'", batchScript, "Batch script migration version 27");
             });
 
             await RunTest("InitializeAsync idempotent run twice", async () =>
@@ -144,6 +186,43 @@ namespace Armada.Test.Unit.Suites.Database
                     try { File.Delete(tempFile); } catch { }
                 }
             });
+        }
+
+        private static async Task<bool> ColumnExistsAsync(SqliteConnection conn, string tableName, string columnName)
+        {
+            using (SqliteCommand cmd = conn.CreateCommand())
+            {
+                cmd.CommandText = "PRAGMA table_info(" + tableName + ");";
+                using (SqliteDataReader reader = await cmd.ExecuteReaderAsync().ConfigureAwait(false))
+                {
+                    while (await reader.ReadAsync().ConfigureAwait(false))
+                    {
+                        if (String.Equals(reader["name"]?.ToString(), columnName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        private static string FindRepositoryRoot()
+        {
+            DirectoryInfo? current = new DirectoryInfo(AppContext.BaseDirectory);
+            while (current != null)
+            {
+                if (Directory.Exists(Path.Combine(current.FullName, "migrations")) &&
+                    Directory.Exists(Path.Combine(current.FullName, "src")))
+                {
+                    return current.FullName;
+                }
+
+                current = current.Parent;
+            }
+
+            throw new DirectoryNotFoundException("Could not locate repository root from test base directory.");
         }
     }
 }

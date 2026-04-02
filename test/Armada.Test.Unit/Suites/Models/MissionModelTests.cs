@@ -40,6 +40,7 @@ namespace Armada.Test.Unit.Suites.Models
                 AssertNull(mission.PrUrl);
                 AssertNull(mission.StartedUtc);
                 AssertNull(mission.CompletedUtc);
+                AssertNull(mission.TotalRuntimeMs);
             });
 
             await RunTest("Mission SetTitle Null Throws", () =>
@@ -62,6 +63,8 @@ namespace Armada.Test.Unit.Suites.Models
                 mission.VoyageId = "vyg_test";
                 mission.VesselId = "vsl_test";
                 mission.CaptainId = "cpt_test";
+                mission.StartedUtc = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+                mission.CompletedUtc = mission.StartedUtc.Value.AddMilliseconds(1500);
 
                 string json = JsonSerializer.Serialize(mission);
                 Mission deserialized = JsonSerializer.Deserialize<Mission>(json)!;
@@ -71,6 +74,8 @@ namespace Armada.Test.Unit.Suites.Models
                 AssertEqual(mission.Status, deserialized.Status);
                 AssertEqual(mission.Priority, deserialized.Priority);
                 AssertEqual(mission.VoyageId, deserialized.VoyageId);
+                AssertNotNull(deserialized.TotalRuntimeMs);
+                AssertEqual(1500L, deserialized.TotalRuntimeMs.Value);
             });
 
             await RunTest("Mission StatusEnum SerializesAsString", () =>
@@ -113,6 +118,47 @@ namespace Armada.Test.Unit.Suites.Models
                 string json = JsonSerializer.Serialize(mission);
                 Mission deserialized = JsonSerializer.Deserialize<Mission>(json)!;
                 AssertNull(deserialized.DiffSnapshot);
+            });
+
+            await RunTest("Mission TotalRuntimeMs CalculatesFromStartedAndCompleted", () =>
+            {
+                Mission mission = new Mission();
+                mission.StartedUtc = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+                mission.CompletedUtc = mission.StartedUtc.Value.AddMilliseconds(2500);
+
+                AssertNotNull(mission.TotalRuntimeMs);
+                AssertEqual(2500L, mission.TotalRuntimeMs.Value);
+            });
+
+            await RunTest("Mission TotalRuntimeMs RecalculatesRegardlessOfAssignmentOrder", () =>
+            {
+                DateTime startedUtc = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+                DateTime completedUtc = startedUtc.AddMilliseconds(3750);
+                Mission mission = new Mission();
+
+                mission.CompletedUtc = completedUtc;
+                mission.StartedUtc = startedUtc;
+
+                AssertNotNull(mission.TotalRuntimeMs);
+                AssertEqual(3750L, mission.TotalRuntimeMs.Value);
+            });
+
+            await RunTest("Mission TotalRuntimeMs ClearsForMissingOrNegativeDuration", () =>
+            {
+                DateTime startedUtc = new DateTime(2025, 1, 1, 0, 0, 5, DateTimeKind.Utc);
+                DateTime completedUtc = startedUtc.AddMilliseconds(1000);
+                Mission mission = new Mission();
+
+                mission.StartedUtc = startedUtc;
+                mission.CompletedUtc = completedUtc;
+                AssertNotNull(mission.TotalRuntimeMs);
+
+                mission.CompletedUtc = startedUtc.AddMilliseconds(-1);
+                AssertNull(mission.TotalRuntimeMs);
+
+                mission.CompletedUtc = completedUtc;
+                mission.StartedUtc = null;
+                AssertNull(mission.TotalRuntimeMs);
             });
         }
     }

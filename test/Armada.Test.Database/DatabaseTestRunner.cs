@@ -377,9 +377,19 @@ namespace Armada.Test.Database
                 DatabaseAssert.Equal(user.Id, read.UserId, "Captain.UserId");
                 DatabaseAssert.Equal(captain.Name, read.Name, "Captain.Name");
 
+                Captain modeledCaptain = await fixture.CreateCaptainAsync(tenant.Id, user.Id, "modeled-captain", token: token, model: "gpt-5.4").ConfigureAwait(false);
+                Captain? modeledRead = await _Driver.Captains.ReadAsync(modeledCaptain.Id, token).ConfigureAwait(false);
+                modeledRead = DatabaseAssert.NotNull(modeledRead, "Modeled captain read returned null");
+                DatabaseAssert.Equal("gpt-5.4", modeledRead.Model, "Captain.Model");
+
                 read.RecoveryAttempts = 2;
+                read.Model = "gpt-5.4-mini";
                 Captain updated = await _Driver.Captains.UpdateAsync(read, token).ConfigureAwait(false);
                 DatabaseAssert.Equal(2, updated.RecoveryAttempts, "Captain.RecoveryAttempts");
+                DatabaseAssert.Equal("gpt-5.4-mini", updated.Model, "Updated Captain.Model");
+                Captain? updatedRead = await _Driver.Captains.ReadAsync(read.Id, token).ConfigureAwait(false);
+                updatedRead = DatabaseAssert.NotNull(updatedRead, "Updated captain read returned null");
+                DatabaseAssert.Equal("gpt-5.4-mini", updatedRead.Model, "Persisted Captain.Model");
             }
             finally
             {
@@ -420,11 +430,33 @@ namespace Armada.Test.Database
                 DatabaseAssert.Equal(captain.Id, read.CaptainId, "Mission.CaptainId");
                 DatabaseAssert.Equal(voyage.Id, read.VoyageId, "Mission.VoyageId");
 
+                DateTime startedUtc = DateTime.UtcNow.AddMinutes(-5);
+                DateTime completedUtc = startedUtc.AddMilliseconds(2500);
+                Mission timedMission = await fixture.CreateMissionAsync(
+                    mission.TenantId,
+                    mission.UserId,
+                    voyage.Id,
+                    vessel.Id,
+                    captain.Id,
+                    "timed-mission",
+                    token: token,
+                    startedUtc: startedUtc,
+                    completedUtc: completedUtc).ConfigureAwait(false);
+                Mission? timedRead = await _Driver.Missions.ReadAsync(timedMission.Id, token).ConfigureAwait(false);
+                timedRead = DatabaseAssert.NotNull(timedRead, "Timed mission read returned null");
+                DatabaseAssert.Equal(2500L, timedRead.TotalRuntimeMs ?? -1L, "Mission.TotalRuntimeMs");
+
                 read.Status = MissionStatusEnum.InProgress;
                 read.Priority = 3;
+                read.StartedUtc = startedUtc;
+                read.CompletedUtc = completedUtc;
                 Mission updated = await _Driver.Missions.UpdateAsync(read, token).ConfigureAwait(false);
                 DatabaseAssert.Equal(MissionStatusEnum.InProgress, updated.Status, "Mission.Status");
                 DatabaseAssert.Equal(3, updated.Priority, "Mission.Priority");
+                DatabaseAssert.Equal(2500L, updated.TotalRuntimeMs ?? -1L, "Updated Mission.TotalRuntimeMs");
+                Mission? updatedRead = await _Driver.Missions.ReadAsync(read.Id, token).ConfigureAwait(false);
+                updatedRead = DatabaseAssert.NotNull(updatedRead, "Updated mission read returned null");
+                DatabaseAssert.Equal(2500L, updatedRead.TotalRuntimeMs ?? -1L, "Persisted Mission.TotalRuntimeMs");
             }
             finally
             {
