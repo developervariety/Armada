@@ -24,6 +24,7 @@ namespace Armada.Test.Unit.TestHelpers
         public bool IsPrMergedResult { get; set; } = true;
         public string CreatePrResult { get; set; } = "https://github.com/test/repo/pull/1";
         public string DiffResult { get; set; } = "";
+        public IReadOnlyList<string> ChangedFilesSinceResult { get; set; } = Array.Empty<string>();
         public bool DefaultBranchExistsResult { get; set; } = true;
         public HashSet<string> ExistingBranches { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "main" };
 
@@ -114,6 +115,9 @@ namespace Armada.Test.Unit.TestHelpers
             DiffCalls.Add(worktreePath);
             return Task.FromResult(DiffResult);
         }
+
+        public Task<IReadOnlyList<string>> GetChangedFilesSinceAsync(string worktreePath, string startCommit, CancellationToken token = default)
+            => Task.FromResult(ChangedFilesSinceResult);
 
         public Task<bool> IsPrMergedAsync(string workingDirectory, string prUrl, CancellationToken token = default) => Task.FromResult(IsPrMergedResult);
         public Task<string?> GetHeadCommitHashAsync(string worktreePath, CancellationToken token = default) => Task.FromResult<string?>("abc123def456");

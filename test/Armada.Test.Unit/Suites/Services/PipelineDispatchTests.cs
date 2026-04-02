@@ -1877,6 +1877,97 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Completion fails mission that modifies files outside scoped list", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+                    StubGitService git = new StubGitService();
+                    git.ChangedFilesSinceResult = new[]
+                    {
+                        "src/Armada.Server/Routes/CaptainRoutes.cs",
+                        "src/Armada.Server/Routes/MissionRoutes.cs",
+                        "CODEX.md"
+                    };
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git);
+
+                    bool landingCalled = false;
+                    missionService.OnMissionComplete = (m, d) =>
+                    {
+                        landingCalled = true;
+                        return Task.CompletedTask;
+                    };
+                    missionService.OnGetMissionOutput = _ => "worker complete";
+
+                    Vessel vessel = new Vessel("scope-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_test_bare_" + Guid.NewGuid().ToString("N"));
+                    vessel.WorkingDirectory = Path.Combine(Path.GetTempPath(), "armada_test_work_" + Guid.NewGuid().ToString("N"));
+                    vessel.DefaultBranch = "main";
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain workerCaptain = new Captain("scope-worker");
+                    workerCaptain.State = CaptainStateEnum.Working;
+                    workerCaptain = await testDb.Driver.Captains.CreateAsync(workerCaptain).ConfigureAwait(false);
+
+                    Voyage voyage = new Voyage("scope-voyage");
+                    voyage = await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+
+                    Mission worker = new Mission(
+                        "REST route scope check",
+                        "Touch only src/Armada.Server/Routes/CaptainRoutes.cs, docs/REST_API.md, and Armada.postman_collection.json.");
+                    worker.VesselId = vessel.Id;
+                    worker.VoyageId = voyage.Id;
+                    worker.Persona = "Worker";
+                    worker.Status = MissionStatusEnum.InProgress;
+                    worker.CaptainId = workerCaptain.Id;
+                    worker = await testDb.Driver.Missions.CreateAsync(worker).ConfigureAwait(false);
+
+                    Dock workerDock = new Dock(vessel.Id);
+                    workerDock.CaptainId = workerCaptain.Id;
+                    workerDock.WorktreePath = Path.Combine(settings.DocksDirectory, vessel.Name, worker.Id);
+                    workerDock.BranchName = "armada/scope/shared";
+                    workerDock.Active = true;
+                    workerDock = await testDb.Driver.Docks.CreateAsync(workerDock).ConfigureAwait(false);
+
+                    worker.DockId = workerDock.Id;
+                    worker.LastUpdateUtc = DateTime.UtcNow;
+                    await testDb.Driver.Missions.UpdateAsync(worker).ConfigureAwait(false);
+
+                    workerCaptain.CurrentMissionId = worker.Id;
+                    workerCaptain.CurrentDockId = workerDock.Id;
+                    await testDb.Driver.Captains.UpdateAsync(workerCaptain).ConfigureAwait(false);
+
+                    Mission dependent = new Mission("[TestEngineer] Downstream should be cancelled", "Write tests");
+                    dependent.VesselId = vessel.Id;
+                    dependent.VoyageId = voyage.Id;
+                    dependent.Persona = "TestEngineer";
+                    dependent.Status = MissionStatusEnum.Pending;
+                    dependent.DependsOnMissionId = worker.Id;
+                    dependent = await testDb.Driver.Missions.CreateAsync(dependent).ConfigureAwait(false);
+
+                    Directory.CreateDirectory(Path.Combine(settings.LogDirectory, "docks"));
+                    await File.WriteAllTextAsync(
+                        Path.Combine(settings.LogDirectory, "docks", workerDock.Id + ".start"),
+                        "abc123def456\n").ConfigureAwait(false);
+
+                    await missionService.HandleCompletionAsync(workerCaptain, worker.Id).ConfigureAwait(false);
+
+                    Mission? failedWorker = await testDb.Driver.Missions.ReadAsync(worker.Id).ConfigureAwait(false);
+                    Mission? cancelledDependent = await testDb.Driver.Missions.ReadAsync(dependent.Id).ConfigureAwait(false);
+
+                    AssertNotNull(failedWorker, "Failed worker mission should remain readable");
+                    AssertEqual(MissionStatusEnum.Failed, failedWorker!.Status, "Out-of-scope file changes should fail the mission");
+                    AssertContains("MissionRoutes.cs", failedWorker.FailureReason, "Failure reason should list the out-of-scope file");
+                    AssertNotNull(cancelledDependent, "Dependent mission should remain readable");
+                    AssertEqual(MissionStatusEnum.Cancelled, cancelledDependent!.Status, "Dependent missions should be cancelled when scope validation fails");
+                    AssertFalse(landingCalled, "Scope validation failure should block landing");
+                }
+            });
+
             await RunTest("Persona-aware captain routing prefers matching captain", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
@@ -2236,6 +2327,10 @@ namespace Armada.Test.Unit.Suites.Services
 
             /// <inheritdoc />
             public Task<string?> GetHeadCommitHashAsync(string worktreePath, CancellationToken token = default) => Task.FromResult<string?>("abc123def456");
+
+            /// <inheritdoc />
+            public Task<IReadOnlyList<string>> GetChangedFilesSinceAsync(string worktreePath, string startCommit, CancellationToken token = default)
+                => Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
 
             /// <inheritdoc />
             public Task<bool> BranchExistsAsync(string repoPath, string branchName, CancellationToken token = default)

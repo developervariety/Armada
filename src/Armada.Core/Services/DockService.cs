@@ -227,6 +227,15 @@ namespace Armada.Core.Services
                 dock.BranchName = branchName;
                 dock = await _Database.Docks.CreateAsync(dock, token).ConfigureAwait(false);
 
+                try
+                {
+                    await PersistDockStartCommitAsync(dock.Id, headCommit, token).ConfigureAwait(false);
+                }
+                catch (Exception metadataEx)
+                {
+                    _Logging.Warn(_Header + "unable to persist dock start commit for " + dock.Id + ": " + metadataEx.Message);
+                }
+
                 _Logging.Info(_Header + "provisioned dock " + dock.Id + " at " + worktreePath);
                 return dock;
             }
@@ -296,6 +305,8 @@ namespace Armada.Core.Services
                 // from the just-exited agent process can linger and block deletion.
                 await ForceRemoveDirectoryAsync(dock.WorktreePath, token).ConfigureAwait(false);
             }
+
+            TryDeleteDockStartCommitFile(dock.Id);
 
             // Update the dock record so DataExpiryService can purge it
             dock.Active = false;
@@ -391,6 +402,36 @@ namespace Armada.Core.Services
                 }
 
                 await ForceRemoveDirectoryAsync(dock.WorktreePath, token).ConfigureAwait(false);
+            }
+
+            TryDeleteDockStartCommitFile(dock.Id);
+        }
+
+        private async Task PersistDockStartCommitAsync(string dockId, string headCommit, CancellationToken token)
+        {
+            string metadataDirectory = Path.Combine(_Settings.LogDirectory, "docks");
+            Directory.CreateDirectory(metadataDirectory);
+            await File.WriteAllTextAsync(Path.Combine(metadataDirectory, dockId + ".start"), headCommit + "\n", token).ConfigureAwait(false);
+        }
+
+        private void TryDeleteDockStartCommitFile(string dockId)
+        {
+            if (String.IsNullOrEmpty(dockId))
+            {
+                return;
+            }
+
+            try
+            {
+                string metadataPath = Path.Combine(_Settings.LogDirectory, "docks", dockId + ".start");
+                if (File.Exists(metadataPath))
+                {
+                    File.Delete(metadataPath);
+                }
+            }
+            catch (Exception ex)
+            {
+                _Logging.Debug(_Header + "could not remove dock start commit metadata for " + dockId + ": " + ex.Message);
             }
         }
 

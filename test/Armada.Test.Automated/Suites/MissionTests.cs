@@ -578,6 +578,35 @@ namespace Armada.Test.Automated.Suites
                 AssertTrue(transitioned.CompletedUtc != null);
             });
 
+            await RunTest("StatusTransition_AssignedToInProgress_SetsStartedUtc", async () =>
+            {
+                string vesselId = await SetupVesselAsync();
+                Mission created = await CreateMissionAsync(vesselId, "Start Timestamp");
+                string missionId = created.Id;
+
+                await TransitionAndAssertAsync(missionId, "Assigned");
+
+                HttpResponseMessage response = await TransitionAsync(missionId, "InProgress");
+                AssertEqual(HttpStatusCode.OK, response.StatusCode);
+                Mission transitioned = await JsonHelper.DeserializeAsync<Mission>(response);
+                AssertTrue(transitioned.StartedUtc != null, "InProgress transition should stamp StartedUtc");
+            });
+
+            await RunTest("StatusTransition_InProgressToComplete_SetsTotalRuntimeMs", async () =>
+            {
+                string vesselId = await SetupVesselAsync();
+                Mission created = await CreateMissionAsync(vesselId, "Runtime Timestamp");
+                string missionId = created.Id;
+
+                await TransitionAndAssertAsync(missionId, "Assigned");
+                await TransitionAndAssertAsync(missionId, "InProgress");
+
+                HttpResponseMessage response = await TransitionAsync(missionId, "Complete");
+                AssertEqual(HttpStatusCode.OK, response.StatusCode);
+                Mission transitioned = await JsonHelper.DeserializeAsync<Mission>(response);
+                AssertTrue(transitioned.TotalRuntimeMs != null, "Complete transition should preserve TotalRuntimeMs when StartedUtc exists");
+            });
+
             await RunTest("StatusTransition_FullLifecycle_SetsCompletedUtcOnFailed", async () =>
             {
                 string vesselId = await SetupVesselAsync();

@@ -1,6 +1,8 @@
 namespace Armada.Core.Services
 {
+    using System.Collections.Generic;
     using System.Diagnostics;
+    using System.Linq;
     using SyslogLogging;
     using Armada.Core.Services.Interfaces;
 
@@ -424,6 +426,28 @@ namespace Armada.Core.Services
             }
         }
 
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<string>> GetChangedFilesSinceAsync(string worktreePath, string startCommit, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(worktreePath)) throw new ArgumentNullException(nameof(worktreePath));
+            if (String.IsNullOrEmpty(startCommit)) throw new ArgumentNullException(nameof(startCommit));
+
+            HashSet<string> changedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            string committedOutput = await RunGitAsync(worktreePath, token, "diff", "--name-only", startCommit + "..HEAD").ConfigureAwait(false);
+            AddChangedPaths(committedOutput, changedFiles);
+
+            string workingTreeOutput = await RunGitAsync(worktreePath, token, "diff", "--name-only", "HEAD").ConfigureAwait(false);
+            AddChangedPaths(workingTreeOutput, changedFiles);
+
+            string untrackedOutput = await RunGitAsync(worktreePath, token, "ls-files", "--others", "--exclude-standard").ConfigureAwait(false);
+            AddChangedPaths(untrackedOutput, changedFiles);
+
+            return changedFiles
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
         /// <summary>
         /// Delete a local branch from a repository.
         /// </summary>
@@ -577,6 +601,26 @@ namespace Armada.Core.Services
 
             throw new InvalidOperationException(
                 "Git checkout " + worktreePath + " contains tracked modifications: " + status);
+        }
+
+        private static void AddChangedPaths(string gitOutput, HashSet<string> changedFiles)
+        {
+            if (String.IsNullOrWhiteSpace(gitOutput))
+            {
+                return;
+            }
+
+            string[] lines = gitOutput.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            foreach (string line in lines)
+            {
+                string trimmed = line.Trim();
+                if (String.IsNullOrEmpty(trimmed))
+                {
+                    continue;
+                }
+
+                changedFiles.Add(trimmed.Replace('\\', '/'));
+            }
         }
 
         private async Task<string> ResolveCommitAsync(string workingDirectory, string gitRef)

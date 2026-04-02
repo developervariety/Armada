@@ -1,5 +1,7 @@
 namespace Armada.Core.Services.Interfaces
 {
+    using System.Collections.Generic;
+
     /// <summary>
     /// Git operations for repository and worktree management.
     /// </summary>
@@ -137,6 +139,16 @@ namespace Armada.Core.Services.Interfaces
         /// <param name="token">Cancellation token.</param>
         /// <returns>The full SHA-1 commit hash, or null if it cannot be determined.</returns>
         Task<string?> GetHeadCommitHashAsync(string worktreePath, CancellationToken token = default);
+
+        /// <summary>
+        /// List repository-relative files changed during a mission since the worktree was provisioned.
+        /// Includes committed changes plus current tracked and untracked working tree changes.
+        /// </summary>
+        /// <param name="worktreePath">Path to the worktree.</param>
+        /// <param name="startCommit">Commit hash recorded when the dock was provisioned.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Normalized changed file paths.</returns>
+        Task<IReadOnlyList<string>> GetChangedFilesSinceAsync(string worktreePath, string startCommit, CancellationToken token = default);
 
         /// <summary>
         /// Check if a pull request has been merged using the gh CLI.

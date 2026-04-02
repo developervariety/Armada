@@ -36,6 +36,21 @@ namespace Armada.Core.Services
         private ICaptainService _Captains;
         private IPromptTemplateService? _PromptTemplates;
         private const string ArchitectHandoffMarker = "<!-- ARMADA:ARCHITECT-HANDOFF -->";
+        private static readonly System.Text.RegularExpressions.Regex _ScopedFilesDirectiveRegex =
+            new System.Text.RegularExpressions.Regex(@"^\s*(?:Touch|Edit|Modify)\s+only\s+(?<files>.+)$",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase |
+                System.Text.RegularExpressions.RegexOptions.Multiline |
+                System.Text.RegularExpressions.RegexOptions.Compiled);
+        private static readonly System.Text.RegularExpressions.Regex _ScopedFileTokenRegex =
+            new System.Text.RegularExpressions.Regex(
+                @"(?<path>(?:[A-Za-z0-9_.-]+[\\/])+[A-Za-z0-9_.-]+|[A-Za-z0-9_.-]+\.(?:cs|csproj|sln|md|json|yaml|yml|ts|tsx|js|jsx|css|html|sh|bat))",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase |
+                System.Text.RegularExpressions.RegexOptions.Compiled);
+        private static readonly HashSet<string> _IgnoredMissionArtifactFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "CODEX.md",
+            "CLAUDE.md"
+        };
 
         /// <summary>
         /// Tracks in-flight mission assignment operations by mission ID.
@@ -563,6 +578,12 @@ namespace Armada.Core.Services
                 }
             }
 
+            bool failedForScopeViolation = false;
+            if (dock != null)
+            {
+                failedForScopeViolation = await TryFailMissionForScopeViolationAsync(mission, dock, token).ConfigureAwait(false);
+            }
+
             // Capture accumulated agent stdout output before pipeline handoff
             if (OnGetMissionOutput != null)
             {
@@ -574,7 +595,7 @@ namespace Armada.Core.Services
                 }
             }
 
-            if (String.Equals(mission.Persona, "Judge", StringComparison.OrdinalIgnoreCase))
+            if (!failedForScopeViolation && String.Equals(mission.Persona, "Judge", StringComparison.OrdinalIgnoreCase))
             {
                 JudgeVerdict verdict = ParseJudgeVerdict(mission.AgentOutput);
                 string? verdictFailureReason = null;
@@ -600,7 +621,11 @@ namespace Armada.Core.Services
             }
 
             // Pipeline handoff: if missions in the same voyage depend on this one, prepare them
-            bool preparedDownstreamStages = await TryHandoffToNextStageAsync(mission, token).ConfigureAwait(false);
+            bool preparedDownstreamStages = false;
+            if (!failedForScopeViolation)
+            {
+                preparedDownstreamStages = await TryHandoffToNextStageAsync(mission, token).ConfigureAwait(false);
+            }
 
             Mission? missionAfterHandoff = await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);
             if (missionAfterHandoff != null)
@@ -2011,6 +2036,119 @@ namespace Armada.Core.Services
             return lines.All(line =>
                 placeholderPrefixes.Any(prefix => line.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) &&
                 line.Contains("...", StringComparison.Ordinal));
+        }
+
+        private async Task<bool> TryFailMissionForScopeViolationAsync(Mission mission, Dock dock, CancellationToken token)
+        {
+            if (_Git == null ||
+                String.IsNullOrEmpty(mission.Description) ||
+                String.IsNullOrEmpty(dock.Id) ||
+                String.IsNullOrEmpty(dock.WorktreePath))
+            {
+                return false;
+            }
+
+            HashSet<string> allowedFiles = ParseMissionScopedFiles(mission.Description);
+            if (allowedFiles.Count < 1)
+            {
+                return false;
+            }
+
+            string? startCommit = TryReadDockStartCommit(dock.Id);
+            if (String.IsNullOrEmpty(startCommit))
+            {
+                _Logging.Warn(_Header + "scope validation skipped for mission " + mission.Id +
+                    " because dock start commit metadata is missing for " + dock.Id);
+                return false;
+            }
+
+            IReadOnlyList<string> changedFiles;
+            try
+            {
+                changedFiles = await _Git.GetChangedFilesSinceAsync(dock.WorktreePath, startCommit, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "scope validation failed for mission " + mission.Id +
+                    " while reading changed files: " + ex.Message);
+                return false;
+            }
+
+            List<string> outOfScopeFiles = new List<string>();
+            foreach (string changedFile in changedFiles)
+            {
+                string normalizedPath = NormalizeMissionPath(changedFile);
+                if (_IgnoredMissionArtifactFiles.Contains(normalizedPath))
+                {
+                    continue;
+                }
+
+                if (!allowedFiles.Contains(normalizedPath))
+                {
+                    outOfScopeFiles.Add(normalizedPath);
+                }
+            }
+
+            if (outOfScopeFiles.Count < 1)
+            {
+                return false;
+            }
+
+            mission.Status = MissionStatusEnum.Failed;
+            mission.CompletedUtc = DateTime.UtcNow;
+            mission.LastUpdateUtc = DateTime.UtcNow;
+            mission.FailureReason = "Mission modified files outside its scoped file list: " + String.Join(", ", outOfScopeFiles);
+            await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+            _Logging.Warn(_Header + "mission " + mission.Id + " failed scope validation: " + mission.FailureReason);
+            return true;
+        }
+
+        private HashSet<string> ParseMissionScopedFiles(string description)
+        {
+            HashSet<string> files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (String.IsNullOrWhiteSpace(description))
+            {
+                return files;
+            }
+
+            foreach (System.Text.RegularExpressions.Match directiveMatch in _ScopedFilesDirectiveRegex.Matches(description))
+            {
+                string fileSegment = directiveMatch.Groups["files"].Value;
+                foreach (System.Text.RegularExpressions.Match pathMatch in _ScopedFileTokenRegex.Matches(fileSegment))
+                {
+                    string normalizedPath = NormalizeMissionPath(pathMatch.Groups["path"].Value);
+                    if (!String.IsNullOrEmpty(normalizedPath))
+                    {
+                        files.Add(normalizedPath);
+                    }
+                }
+            }
+
+            return files;
+        }
+
+        private string? TryReadDockStartCommit(string dockId)
+        {
+            try
+            {
+                string metadataPath = Path.Combine(_Settings.LogDirectory, "docks", dockId + ".start");
+                if (!File.Exists(metadataPath))
+                {
+                    return null;
+                }
+
+                return File.ReadAllText(metadataPath).Trim();
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not read dock start commit metadata for " + dockId + ": " + ex.Message);
+                return null;
+            }
+        }
+
+        private static string NormalizeMissionPath(string path)
+        {
+            return (path ?? String.Empty).Trim().Replace('\\', '/');
         }
 
         private async Task EnsureMissionInstructionsPresentAsync(

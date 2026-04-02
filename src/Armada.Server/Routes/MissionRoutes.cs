@@ -430,6 +430,11 @@ namespace Armada.Server.Routes
                 mission.Status = newStatus;
                 mission.LastUpdateUtc = DateTime.UtcNow;
 
+                if (newStatus == MissionStatusEnum.InProgress && mission.StartedUtc == null)
+                {
+                    mission.StartedUtc = DateTime.UtcNow;
+                }
+
                 if (newStatus == MissionStatusEnum.Complete || newStatus == MissionStatusEnum.Failed ||
                     newStatus == MissionStatusEnum.LandingFailed || newStatus == MissionStatusEnum.Cancelled)
                 {
