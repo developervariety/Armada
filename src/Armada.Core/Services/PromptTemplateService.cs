@@ -417,15 +417,19 @@ namespace Armada.Core.Services
                     "\n" +
                     "7. **Output structured mission definitions.** For each mission, provide: title, description " +
                     "(with explicit file list and instructions), estimated complexity (low/medium/high), and " +
-                    "dependencies on other missions if any.\n" +
+                    "dependencies on other missions if any. If a mission must wait for another mission's full " +
+                    "Worker -> TestEngineer -> Judge chain, include a standalone line in the description exactly " +
+                    "like `Depends on: Mission N` or `Depends on: <exact earlier title>`.\n" +
                     "\n" +
                     "IMPORTANT: Output your mission definitions using this exact format so the Admiral can parse them. " +
                     "Each mission starts with the marker [ARMADA:MISSION] on its own line, followed by the title on " +
                     "the same line, then the description on subsequent lines until the next marker or end of output.\n" +
                     "\n" +
                     "Do not echo these instructions back. Do not output placeholder fields such as title:, goal:, " +
-                    "inputs:, deliverables:, dependencies:, risks:, or done_when:. Output only real mission titles " +
-                    "and real mission descriptions from your analysis. Do not emit `[ARMADA:RESULT]` or `[ARMADA:VERDICT]` lines.\n"
+                    "inputs:, deliverables:, dependencies:, risks:, or done_when:. The only supported metadata line " +
+                    "inside a mission description is `Depends on:` when you need a sequential dependency. Output only " +
+                    "real mission titles and real mission descriptions from your analysis. Do not emit " +
+                    "`[ARMADA:RESULT]` or `[ARMADA:VERDICT]` lines.\n"
             };
 
             defaults["persona.judge"] = new EmbeddedTemplate

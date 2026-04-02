@@ -64,6 +64,11 @@ namespace Armada.Core.Services
             /// Mission description.
             /// </summary>
             public string Description { get; set; } = "";
+
+            /// <summary>
+            /// Optional dependency reference emitted by the architect.
+            /// </summary>
+            public string? DependsOnReference { get; set; } = null;
         }
 
         /// <summary>
@@ -1154,6 +1159,7 @@ namespace Armada.Core.Services
                 }
             }
 
+                    await ApplyArchitectMissionDependenciesAsync(completedMission, parsed, token).ConfigureAwait(false);
                     return true; // Architect special handling complete, skip normal handoff
                 }
 
@@ -1374,6 +1380,90 @@ namespace Armada.Core.Services
             }
         }
 
+        private async Task ApplyArchitectMissionDependenciesAsync(
+            Mission architectMission,
+            List<ParsedArchitectMission> parsed,
+            CancellationToken token)
+        {
+            if (architectMission == null) throw new ArgumentNullException(nameof(architectMission));
+            if (String.IsNullOrEmpty(architectMission.VoyageId)) return;
+            if (parsed == null || parsed.Count == 0) return;
+
+            List<Mission> voyageMissions = await _Database.Missions.EnumerateByVoyageAsync(architectMission.VoyageId, token).ConfigureAwait(false);
+            Dictionary<int, Mission> workerRootsByIndex = new Dictionary<int, Mission>();
+            Dictionary<int, Mission> terminalStagesByIndex = new Dictionary<int, Mission>();
+            Dictionary<string, Mission> terminalStagesByTitle = new Dictionary<string, Mission>(StringComparer.OrdinalIgnoreCase);
+
+            for (int i = 0; i < parsed.Count; i++)
+            {
+                string workerTitle = parsed[i].Title + " [Worker]";
+                Mission? workerRoot = voyageMissions.FirstOrDefault(m =>
+                    String.Equals(m.Persona, "Worker", StringComparison.OrdinalIgnoreCase) &&
+                    String.Equals(m.Title, workerTitle, StringComparison.OrdinalIgnoreCase));
+                if (workerRoot == null) continue;
+
+                Mission terminalStage = FindTerminalPipelineStage(voyageMissions, workerRoot);
+                workerRootsByIndex[i + 1] = workerRoot;
+                terminalStagesByIndex[i + 1] = terminalStage;
+                terminalStagesByTitle[parsed[i].Title] = terminalStage;
+            }
+
+            for (int i = 0; i < parsed.Count; i++)
+            {
+                string? dependencyReference = parsed[i].DependsOnReference;
+                if (String.IsNullOrWhiteSpace(dependencyReference)) continue;
+                if (!workerRootsByIndex.TryGetValue(i + 1, out Mission? workerRoot)) continue;
+
+                Mission? resolvedDependency = ResolveArchitectDependencyTerminalStage(
+                    terminalStagesByIndex,
+                    terminalStagesByTitle,
+                    i + 1,
+                    dependencyReference);
+                if (resolvedDependency == null)
+                {
+                    _Logging.Warn(_Header + "could not resolve architect dependency '" + dependencyReference +
+                        "' for mission '" + parsed[i].Title + "' -- leaving dependency on architect");
+                    continue;
+                }
+
+                if (resolvedDependency.Id == workerRoot.Id)
+                {
+                    _Logging.Warn(_Header + "ignoring self-referential architect dependency '" + dependencyReference +
+                        "' for mission '" + parsed[i].Title + "'");
+                    continue;
+                }
+
+                workerRoot.DependsOnMissionId = resolvedDependency.Id;
+                workerRoot.BranchName = null;
+                workerRoot.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.Missions.UpdateAsync(workerRoot, token).ConfigureAwait(false);
+
+                _Logging.Info(_Header + "architect sequenced worker mission " + workerRoot.Id +
+                    " to depend on terminal stage " + resolvedDependency.Id +
+                    " from reference '" + dependencyReference + "'");
+            }
+        }
+
+        private static Mission FindTerminalPipelineStage(IEnumerable<Mission> voyageMissions, Mission root)
+        {
+            if (root == null) throw new ArgumentNullException(nameof(root));
+
+            Mission current = root;
+            HashSet<string> visited = new HashSet<string>(StringComparer.Ordinal);
+
+            while (!String.IsNullOrEmpty(current.Id) && visited.Add(current.Id))
+            {
+                Mission? next = voyageMissions
+                    .Where(m => m.DependsOnMissionId == current.Id)
+                    .OrderBy(m => m.CreatedUtc)
+                    .FirstOrDefault();
+                if (next == null) break;
+                current = next;
+            }
+
+            return current;
+        }
+
         private async Task<bool> HasDependentPipelineStages(string? voyageId, string missionId, CancellationToken token)
         {
             if (String.IsNullOrEmpty(voyageId)) return false;
@@ -1483,6 +1573,7 @@ namespace Armada.Core.Services
 
             string normalizedTitle = title.Trim();
             string normalizedDescription = NormalizeArchitectDescription(description);
+            (normalizedDescription, string? dependencyReference) = ExtractArchitectDependencyReference(normalizedDescription);
 
             if (IsArchitectPlaceholderTitle(normalizedTitle))
                 return;
@@ -1495,6 +1586,7 @@ namespace Armada.Core.Services
                 ParsedArchitectMission parsed = new ParsedArchitectMission();
                 parsed.Title = normalizedTitle;
                 parsed.Description = normalizedDescription;
+                parsed.DependsOnReference = dependencyReference;
                 results.Add(parsed);
             }
         }
@@ -1533,6 +1625,82 @@ namespace Armada.Core.Services
             }
 
             return String.Join("\n", descriptionLines).Trim();
+        }
+
+        private static (string Description, string? DependsOnReference) ExtractArchitectDependencyReference(string description)
+        {
+            if (String.IsNullOrWhiteSpace(description)) return ("", null);
+
+            List<string> keptLines = new List<string>();
+            string? dependencyReference = null;
+
+            foreach (string rawLine in description.Replace("\r\n", "\n").Split('\n'))
+            {
+                string trimmed = rawLine.Trim();
+                System.Text.RegularExpressions.Match dependencyMatch =
+                    System.Text.RegularExpressions.Regex.Match(
+                        trimmed,
+                        @"^(?:[-*]\s*)?depends on:\s*(?<dependency>.+)$",
+                        System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                if (dependencyMatch.Success)
+                {
+                    if (String.IsNullOrWhiteSpace(dependencyReference))
+                    {
+                        dependencyReference = NormalizeArchitectDependencyReference(dependencyMatch.Groups["dependency"].Value);
+                    }
+
+                    continue;
+                }
+
+                keptLines.Add(rawLine.TrimEnd('\r'));
+            }
+
+            return (String.Join("\n", keptLines).Trim(), String.IsNullOrWhiteSpace(dependencyReference) ? null : dependencyReference);
+        }
+
+        private static string NormalizeArchitectDependencyReference(string dependencyReference)
+        {
+            if (String.IsNullOrWhiteSpace(dependencyReference)) return "";
+
+            string normalized = dependencyReference.Trim().Trim('"', '\'', '`');
+            int commentIndex = normalized.IndexOf(" (", StringComparison.Ordinal);
+            if (commentIndex > 0)
+            {
+                normalized = normalized.Substring(0, commentIndex).Trim();
+            }
+
+            return normalized.Trim().TrimEnd('.', ';', ',');
+        }
+
+        private static Mission? ResolveArchitectDependencyTerminalStage(
+            IReadOnlyDictionary<int, Mission> terminalStagesByIndex,
+            IReadOnlyDictionary<string, Mission> terminalStagesByTitle,
+            int currentMissionIndex,
+            string dependencyReference)
+        {
+            string normalizedReference = NormalizeArchitectDependencyReference(dependencyReference);
+            if (String.IsNullOrWhiteSpace(normalizedReference)) return null;
+
+            System.Text.RegularExpressions.Match numericMatch =
+                System.Text.RegularExpressions.Regex.Match(
+                    normalizedReference,
+                    @"^(?:mission\s+)?(?<index>\d+)\b",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (numericMatch.Success &&
+                Int32.TryParse(numericMatch.Groups["index"].Value, out int dependencyIndex) &&
+                dependencyIndex > 0 &&
+                dependencyIndex < currentMissionIndex &&
+                terminalStagesByIndex.TryGetValue(dependencyIndex, out Mission? terminalStage))
+            {
+                return terminalStage;
+            }
+
+            if (terminalStagesByTitle.TryGetValue(normalizedReference, out Mission? byTitle))
+            {
+                return byTitle;
+            }
+
+            return null;
         }
 
         private static bool TryParseArchitectSummaryLine(string line, out string? title, out string? description)
@@ -1848,6 +2016,10 @@ namespace Armada.Core.Services
                     foreach (ParsedArchitectMission mission in parsed)
                     {
                         await writer.WriteLineAsync("[ARMADA:MISSION] " + mission.Title).ConfigureAwait(false);
+                        if (!String.IsNullOrEmpty(mission.DependsOnReference))
+                        {
+                            await writer.WriteLineAsync("Depends on: " + mission.DependsOnReference).ConfigureAwait(false);
+                        }
                         if (!String.IsNullOrEmpty(mission.Description))
                         {
                             await writer.WriteLineAsync(mission.Description).ConfigureAwait(false);
