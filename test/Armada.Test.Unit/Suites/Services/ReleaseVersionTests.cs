@@ -7,6 +7,8 @@ namespace Armada.Test.Unit.Suites.Services
 
     public class ReleaseVersionTests : TestSuite
     {
+        private static readonly string[] _StaleReleaseVersions = { "0.4.0", "0.3.0" };
+
         public override string Name => "Release Version";
 
         protected override async Task RunTestsAsync()
@@ -50,6 +52,48 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("-f net10.0 -- mcp remove --yes", removeMcpBatContents, "remove-mcp.bat should use net10.0");
                 AssertContains("-f net10.0 -- mcp remove --yes", removeMcpShContents, "remove-mcp.sh should use net10.0");
             });
+
+            await RunTest("Status Health Route Uses ProductVersion Constant", () =>
+            {
+                string statusRoutesContents = ReadRepositoryFile("src", "Armada.Server", "Routes", "StatusRoutes.cs");
+                Match healthRouteMatch = Regex.Match(
+                    statusRoutesContents,
+                    @"app\.Rest\.Get\(""/api/v1/status/health"",[\s\S]*?\.WithDescription\(""Returns health status\. Does not require authentication\.""\)\);");
+
+                AssertTrue(healthRouteMatch.Success, "StatusRoutes should include the REST health route");
+
+                string healthRouteBlock = healthRouteMatch.Value;
+                AssertContains("Version = ArmadaConstants.ProductVersion,", healthRouteBlock, "Health route should return ArmadaConstants.ProductVersion");
+                AssertFalse(
+                    healthRouteBlock.Contains("Version = \"" + Constants.ProductVersion + "\"", StringComparison.Ordinal),
+                    "Health route should not hard-code the canonical release version");
+
+                AssertNoStaleVersionSurfaces(
+                    healthRouteBlock,
+                    "StatusRoutes health route",
+                    staleVersion => "Version = \"" + staleVersion + "\"");
+            });
+
+            await RunTest("Versioned Docs And Examples Match ProductVersion", () =>
+            {
+                string restApiContents = ReadRepositoryFile("docs", "REST_API.md");
+                string mcpApiContents = ReadRepositoryFile("docs", "MCP_API.md");
+                string postmanContents = ReadRepositoryFile("Armada.postman_collection.json");
+                string restHealthSample = ExtractRestHealthResponseSample(restApiContents);
+                string postmanHealthResponseBody = ExtractPostmanHealthyResponseBody(postmanContents);
+
+                AssertContains("**Version:** " + Constants.ProductVersion, restApiContents, "REST API header should use the shared release version");
+                AssertContains("**Version:** " + Constants.ProductVersion, mcpApiContents, "MCP API header should use the shared release version");
+                AssertContains("Version: " + Constants.ProductVersion, postmanContents, "Postman collection description should use the shared release version");
+                AssertContains("\"Version\": \"" + Constants.ProductVersion + "\"", restHealthSample, "REST API health example should use the shared release version");
+                AssertContains("\"Version\": \"" + Constants.ProductVersion + "\"", postmanHealthResponseBody, "Postman health response body should use the shared release version");
+
+                AssertNoStaleVersionSurfaces(restApiContents, "REST API version header", staleVersion => "**Version:** " + staleVersion);
+                AssertNoStaleVersionSurfaces(mcpApiContents, "MCP API version header", staleVersion => "**Version:** " + staleVersion);
+                AssertNoStaleVersionSurfaces(postmanContents, "Postman collection version header", staleVersion => "Version: " + staleVersion);
+                AssertNoStaleVersionSurfaces(restHealthSample, "REST API health example", staleVersion => "\"Version\": \"" + staleVersion + "\"");
+                AssertNoStaleVersionSurfaces(postmanHealthResponseBody, "Postman health response body", staleVersion => "\"Version\": \"" + staleVersion + "\"");
+            });
         }
 
         private static string FindRepositoryRoot()
@@ -67,6 +111,50 @@ namespace Armada.Test.Unit.Suites.Services
             }
 
             throw new DirectoryNotFoundException("Could not locate repository root from test base directory.");
+        }
+
+        private void AssertNoStaleVersionSurfaces(string contents, string surfaceName, Func<string, string> staleSurfaceFactory)
+        {
+            foreach (string staleVersion in _StaleReleaseVersions)
+            {
+                string staleSurface = staleSurfaceFactory(staleVersion);
+                AssertFalse(
+                    contents.Contains(staleSurface, StringComparison.Ordinal),
+                    surfaceName + " should not contain stale release literal " + staleSurface);
+            }
+        }
+
+        private static string ReadRepositoryFile(params string[] relativePath)
+        {
+            return File.ReadAllText(Path.Combine(FindRepositoryRoot(), Path.Combine(relativePath)));
+        }
+
+        private static string ExtractRestHealthResponseSample(string restApiContents)
+        {
+            Match match = Regex.Match(
+                restApiContents,
+                @"#### GET /api/v1/status/health[\s\S]*?```json\s*(?<body>\{[\s\S]*?\})\s*```");
+
+            if (!match.Success)
+            {
+                throw new Exception("Could not locate the REST API health response sample.");
+            }
+
+            return match.Groups["body"].Value;
+        }
+
+        private static string ExtractPostmanHealthyResponseBody(string postmanContents)
+        {
+            Match match = Regex.Match(
+                postmanContents,
+                @"""name"":\s*""Healthy""[\s\S]*?""body"":\s*""(?<body>(?:\\.|[^""\\])*)""");
+
+            if (!match.Success)
+            {
+                throw new Exception("Could not locate the Postman health response body.");
+            }
+
+            return Regex.Unescape(match.Groups["body"].Value);
         }
     }
 }
