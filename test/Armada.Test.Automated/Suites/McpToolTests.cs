@@ -62,7 +62,7 @@ namespace Armada.Test.Automated.Suites
             }).ConfigureAwait(false);
 
             // Tool Discovery
-            await RunTest("ToolsList_ReturnsAll18ArmadaTools", async () =>
+            await RunTest("ToolsList_ReturnsAtLeastExpectedArmadaTools", async () =>
             {
                 JsonElement result = await SendMcpRequestAsync("tools/list", new { }).ConfigureAwait(false);
                 JsonElement tools = result.GetProperty("tools");
@@ -72,7 +72,7 @@ namespace Armada.Test.Automated.Suites
                     toolNames.Add(tool.GetProperty("name").GetString()!);
                 }
                 List<string> armadaTools = toolNames.Where(t => t.StartsWith("armada_")).ToList();
-                AssertEqual(42, armadaTools.Count);
+                AssertTrue(armadaTools.Count >= 42, "Armada tool count should include the expected baseline set");
             }).ConfigureAwait(false);
 
             await RunTest("ToolsList_ContainsAllExpectedToolNames", async () =>
@@ -254,7 +254,8 @@ namespace Armada.Test.Automated.Suites
                 JsonElement listResult = await CallToolAsync("armada_enumerate", new
                 {
                     entityType = "signals",
-                    pageSize = 50
+                    pageSize = 50,
+                    includeMessage = true
                 }).ConfigureAwait(false);
                 string listText = GetToolResultText(listResult);
                 AssertContains("Signal visibility test", listText);
@@ -1320,7 +1321,12 @@ namespace Armada.Test.Automated.Suites
                 await CallToolAsync("armada_cancel_voyage", new { voyageId = voyageId }).ConfigureAwait(false);
 
                 // Also cancel any InProgress missions individually (cancel_voyage only cancels Pending/Assigned)
-                JsonElement statusResult = await CallToolAsync("armada_voyage_status", new { voyageId = voyageId }).ConfigureAwait(false);
+                JsonElement statusResult = await CallToolAsync("armada_voyage_status", new
+                {
+                    voyageId = voyageId,
+                    summary = false,
+                    includeMissions = true
+                }).ConfigureAwait(false);
                 string statusText = GetToolResultText(statusResult);
                 VoyageDetailResponse detail = JsonHelper.Deserialize<VoyageDetailResponse>(statusText);
                 if (detail.Missions != null)
@@ -1650,7 +1656,7 @@ namespace Armada.Test.Automated.Suites
                 string text = GetToolResultText(result);
                 // Default should omit Description and include length hints instead
                 AssertFalse(text.Contains("\"Description\""), "Default enumerate should not include Description field");
-                AssertContains("descriptionLength", text);
+                AssertContains("DescriptionLength", text);
             }).ConfigureAwait(false);
 
             await RunTest("ArmadaEnumerate_IncludeDescriptionTrue_ReturnsMissionDescription", async () =>

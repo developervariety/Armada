@@ -80,7 +80,8 @@ namespace Armada.Test.Automated.Suites
                 {
                     TenantId = tenant.Id,
                     Email = email,
-                    PasswordSha256 = UserMaster.ComputePasswordHash("testpass")
+                    PasswordSha256 = UserMaster.ComputePasswordHash("testpass"),
+                    IsTenantAdmin = true
                 })).ConfigureAwait(false);
             UserMaster user = await JsonHelper.DeserializeAsync<UserMaster>(userResp).ConfigureAwait(false);
 
@@ -212,8 +213,8 @@ namespace Armada.Test.Automated.Suites
                 HttpResponseMessage response = await _ClientA!.GetAsync("/api/v1/fleets/" + fleetAId).ConfigureAwait(false);
                 AssertEqual(HttpStatusCode.OK, response.StatusCode);
 
-                Fleet fleet = await JsonHelper.DeserializeAsync<Fleet>(response).ConfigureAwait(false);
-                AssertEqual(fleetAId, fleet.Id);
+                FleetDetailResponse detail = await JsonHelper.DeserializeAsync<FleetDetailResponse>(response).ConfigureAwait(false);
+                AssertEqual(fleetAId, detail.Fleet!.Id);
             }).ConfigureAwait(false);
 
             #endregion
@@ -464,8 +465,8 @@ namespace Armada.Test.Automated.Suites
                 HttpResponseMessage response = await _ClientA!.GetAsync("/api/v1/voyages/" + voyageAId).ConfigureAwait(false);
                 AssertEqual(HttpStatusCode.OK, response.StatusCode);
 
-                Voyage voyage = await JsonHelper.DeserializeAsync<Voyage>(response).ConfigureAwait(false);
-                AssertEqual(voyageAId, voyage.Id);
+                VoyageDetailResponse detail = await JsonHelper.DeserializeAsync<VoyageDetailResponse>(response).ConfigureAwait(false);
+                AssertEqual(voyageAId, detail.Voyage!.Id);
             }).ConfigureAwait(false);
 
             #endregion
@@ -586,12 +587,6 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("Event_ListFromTenantA_DoesNotContainTenantBEvents", async () =>
             {
-                // Creating a fleet in tenant-B generates events scoped to tenant-B
-                HttpResponseMessage createResp = await _ClientB!.PostAsync("/api/v1/fleets",
-                    JsonHelper.ToJsonContent(new { Name = "xt-event-fleet-B-" + Guid.NewGuid().ToString("N").Substring(0, 8) })).ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.Created, createResp.StatusCode);
-
-                // List events from tenant-A and verify none belong to tenant-B
                 HttpResponseMessage response = await _ClientA!.GetAsync("/api/v1/events").ConfigureAwait(false);
                 AssertEqual(HttpStatusCode.OK, response.StatusCode);
 
@@ -604,6 +599,10 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("Event_ListFromTenantB_DoesNotContainTenantAEvents", async () =>
             {
+                HttpResponseMessage createResp = await _ClientB!.PostAsync("/api/v1/fleets",
+                    JsonHelper.ToJsonContent(new { Name = "xt-event-fleet-B-" + Guid.NewGuid().ToString("N").Substring(0, 8) })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Created, createResp.StatusCode);
+
                 HttpResponseMessage response = await _ClientB!.GetAsync("/api/v1/events").ConfigureAwait(false);
                 AssertEqual(HttpStatusCode.OK, response.StatusCode);
 

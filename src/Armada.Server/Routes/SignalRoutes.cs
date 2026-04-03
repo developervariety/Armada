@@ -124,6 +124,30 @@ namespace Armada.Server.Routes
                 .WithResponse(201, OpenApiResponseMetadata.Json<Signal>("Created signal"))
                 .WithSecurity("ApiKey"));
 
+            app.Rest.Get("/api/v1/signals/recent", async (AppRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                {
+                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
+                    return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
+                }
+                string countStr = req.Query.GetValueOrDefault("count");
+                int count = 50;
+                if (!String.IsNullOrEmpty(countStr) && int.TryParse(countStr, out int parsedCount)) count = parsedCount;
+                List<Signal> signals = ctx.IsAdmin
+                    ? await _database.Signals.EnumerateRecentAsync(count).ConfigureAwait(false)
+                    : await _database.Signals.EnumerateRecentAsync(ctx.TenantId!, count).ConfigureAwait(false);
+                return signals;
+            },
+            api => api
+                .WithTag("Signals")
+                .WithSummary("Get recent signals")
+                .WithDescription("Returns the most recent signals, ordered by creation time descending.")
+                .WithParameter(OpenApiParameterMetadata.Query("count", "Maximum number of signals to return (default: 50)", false, OpenApiSchemaMetadata.Integer()))
+                .WithResponse(200, OpenApiResponseMetadata.Json<List<Signal>>("Signal list"))
+                .WithSecurity("ApiKey"));
+
             app.Rest.Get("/api/v1/signals/{id}", async (AppRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
@@ -216,30 +240,6 @@ namespace Armada.Server.Routes
                 .WithDescription("Returns signals addressed to a specific captain. Defaults to unread only.")
                 .WithParameter(OpenApiParameterMetadata.Path("captainId", "Captain ID (cpt_ prefix)"))
                 .WithParameter(OpenApiParameterMetadata.Query("unreadOnly", "Filter to unread signals only (default: true)", false, OpenApiSchemaMetadata.Boolean()))
-                .WithResponse(200, OpenApiResponseMetadata.Json<List<Signal>>("Signal list"))
-                .WithSecurity("ApiKey"));
-
-            app.Rest.Get("/api/v1/signals/recent", async (AppRequest req) =>
-            {
-                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
-                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
-                {
-                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
-                    return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
-                }
-                string countStr = req.Query.GetValueOrDefault("count");
-                int count = 50;
-                if (!String.IsNullOrEmpty(countStr) && int.TryParse(countStr, out int parsedCount)) count = parsedCount;
-                List<Signal> signals = ctx.IsAdmin
-                    ? await _database.Signals.EnumerateRecentAsync(count).ConfigureAwait(false)
-                    : await _database.Signals.EnumerateRecentAsync(ctx.TenantId!, count).ConfigureAwait(false);
-                return signals;
-            },
-            api => api
-                .WithTag("Signals")
-                .WithSummary("Get recent signals")
-                .WithDescription("Returns the most recent signals, ordered by creation time descending.")
-                .WithParameter(OpenApiParameterMetadata.Query("count", "Maximum number of signals to return (default: 50)", false, OpenApiSchemaMetadata.Integer()))
                 .WithResponse(200, OpenApiResponseMetadata.Json<List<Signal>>("Signal list"))
                 .WithSecurity("ApiKey"));
 

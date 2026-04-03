@@ -313,6 +313,54 @@ namespace Armada.Test.Unit.Suites.Database
 
             // ── Voyage Tenant-Scoped Paginated Enumeration ──────────────────
 
+            await RunTest("Event tenant-scoped enumerate applies combined EventType and VesselId filters", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    (string t1, string t2) = await CreateTwoTenantsAsync(db);
+
+                    ArmadaEvent matching = new ArmadaEvent("mission.status_changed", "Matching event");
+                    matching.TenantId = t1;
+                    matching.VesselId = "vsl_target";
+                    matching.MissionId = "msn_target";
+                    await db.Events.CreateAsync(matching);
+
+                    ArmadaEvent wrongType = new ArmadaEvent("mission.created", "Wrong type");
+                    wrongType.TenantId = t1;
+                    wrongType.VesselId = "vsl_target";
+                    wrongType.MissionId = "msn_wrong_type";
+                    await db.Events.CreateAsync(wrongType);
+
+                    ArmadaEvent wrongVessel = new ArmadaEvent("mission.status_changed", "Wrong vessel");
+                    wrongVessel.TenantId = t1;
+                    wrongVessel.VesselId = "vsl_other";
+                    wrongVessel.MissionId = "msn_wrong_vessel";
+                    await db.Events.CreateAsync(wrongVessel);
+
+                    ArmadaEvent otherTenant = new ArmadaEvent("mission.status_changed", "Other tenant");
+                    otherTenant.TenantId = t2;
+                    otherTenant.VesselId = "vsl_target";
+                    otherTenant.MissionId = "msn_other_tenant";
+                    await db.Events.CreateAsync(otherTenant);
+
+                    EnumerationQuery query = new EnumerationQuery
+                    {
+                        EventType = "mission.status_changed",
+                        VesselId = "vsl_target",
+                        PageSize = 10,
+                        PageNumber = 1
+                    };
+
+                    EnumerationResult<ArmadaEvent> result = await db.Events.EnumerateAsync(t1, query);
+
+                    AssertEqual(1, result.Objects.Count);
+                    AssertEqual(matching.Id, result.Objects[0].Id);
+                    AssertEqual("vsl_target", result.Objects[0].VesselId);
+                    AssertEqual("mission.status_changed", result.Objects[0].EventType);
+                }
+            });
+
             await RunTest("Voyage tenant-scoped enumerate page 1 returns correct count and totals", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

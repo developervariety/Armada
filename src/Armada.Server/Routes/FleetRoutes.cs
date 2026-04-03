@@ -192,6 +192,16 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
                 string id = req.Parameters["id"];
+                Fleet? existing = ctx.IsAdmin
+                    ? await _database.Fleets.ReadAsync(id).ConfigureAwait(false)
+                    : ctx.IsTenantAdmin
+                        ? await _database.Fleets.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                        : await _database.Fleets.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
+                if (existing == null)
+                {
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Fleet not found" };
+                }
                 if (ctx.IsAdmin)
                     await _database.Fleets.DeleteAsync(id).ConfigureAwait(false);
                 else if (ctx.IsTenantAdmin)

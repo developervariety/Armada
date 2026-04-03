@@ -62,12 +62,11 @@ namespace Armada.Server.Routes
                 EnumerationQuery query = new EnumerationQuery();
                 query.ApplyQuerystringOverrides(key => req.Query.GetValueOrDefault(key));
                 Stopwatch sw = Stopwatch.StartNew();
-                List<MergeEntry> all = await _mergeQueue.ListAsync().ConfigureAwait(false);
-                if (!String.IsNullOrEmpty(query.Status))
-                    all = all.Where(e => String.Equals(e.Status.ToString(), query.Status, StringComparison.OrdinalIgnoreCase)).ToList();
-                int totalCount = all.Count;
-                List<MergeEntry> page = all.Skip(query.Offset).Take(query.PageSize).ToList();
-                EnumerationResult<MergeEntry> result = EnumerationResult<MergeEntry>.Create(query, page, totalCount);
+                EnumerationResult<MergeEntry> result = ctx.IsAdmin
+                    ? await _database.MergeEntries.EnumerateAsync(query).ConfigureAwait(false)
+                    : ctx.IsTenantAdmin
+                        ? await _database.MergeEntries.EnumerateAsync(ctx.TenantId!, query).ConfigureAwait(false)
+                        : await _database.MergeEntries.EnumerateAsync(ctx.TenantId!, ctx.UserId!, query).ConfigureAwait(false);
                 result.TotalMs = Math.Round(sw.Elapsed.TotalMilliseconds, 2);
                 return result;
             },
@@ -89,12 +88,11 @@ namespace Armada.Server.Routes
                 EnumerationQuery query = JsonSerializer.Deserialize<EnumerationQuery>(req.Http.Request.DataAsString, _jsonOptions) ?? new EnumerationQuery();
                 query.ApplyQuerystringOverrides(key => req.Query.GetValueOrDefault(key));
                 Stopwatch sw = Stopwatch.StartNew();
-                List<MergeEntry> all = await _mergeQueue.ListAsync().ConfigureAwait(false);
-                if (!String.IsNullOrEmpty(query.Status))
-                    all = all.Where(e => String.Equals(e.Status.ToString(), query.Status, StringComparison.OrdinalIgnoreCase)).ToList();
-                int totalCount = all.Count;
-                List<MergeEntry> page = all.Skip(query.Offset).Take(query.PageSize).ToList();
-                EnumerationResult<MergeEntry> result = EnumerationResult<MergeEntry>.Create(query, page, totalCount);
+                EnumerationResult<MergeEntry> result = ctx.IsAdmin
+                    ? await _database.MergeEntries.EnumerateAsync(query).ConfigureAwait(false)
+                    : ctx.IsTenantAdmin
+                        ? await _database.MergeEntries.EnumerateAsync(ctx.TenantId!, query).ConfigureAwait(false)
+                        : await _database.MergeEntries.EnumerateAsync(ctx.TenantId!, ctx.UserId!, query).ConfigureAwait(false);
                 result.TotalMs = Math.Round(sw.Elapsed.TotalMilliseconds, 2);
                 return result;
             },
@@ -115,6 +113,8 @@ namespace Armada.Server.Routes
                 }
                 MergeEntry entry = JsonSerializer.Deserialize<MergeEntry>(req.Http.Request.DataAsString, _jsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as MergeEntry.");
+                entry.TenantId = ctx.TenantId;
+                entry.UserId = ctx.UserId;
                 entry = await _mergeQueue.EnqueueAsync(entry).ConfigureAwait(false);
                 req.Http.Response.StatusCode = 201;
                 return entry;
@@ -136,8 +136,16 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
                 string id = req.Parameters["id"];
-                MergeEntry? entry = await _mergeQueue.GetAsync(id).ConfigureAwait(false);
-                if (entry == null) return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Merge entry not found" };
+                MergeEntry? entry = ctx.IsAdmin
+                    ? await _mergeQueue.GetAsync(id).ConfigureAwait(false)
+                    : ctx.IsTenantAdmin
+                        ? await _mergeQueue.GetAsync(id, ctx.TenantId).ConfigureAwait(false)
+                        : await _database.MergeEntries.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
+                if (entry == null)
+                {
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Merge entry not found" };
+                }
                 return (object)entry;
             },
             api => api
@@ -158,11 +166,22 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
                 string id = req.Parameters["id"];
-                bool deleted = await _mergeQueue.DeleteAsync(id).ConfigureAwait(false);
+                MergeEntry? existing = ctx.IsAdmin
+                    ? await _mergeQueue.GetAsync(id).ConfigureAwait(false)
+                    : await _mergeQueue.GetAsync(id, ctx.TenantId).ConfigureAwait(false);
+                if (existing == null)
+                {
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Merge entry not found" };
+                }
+
+                bool deleted = ctx.IsAdmin
+                    ? await _mergeQueue.DeleteAsync(id).ConfigureAwait(false)
+                    : await _mergeQueue.DeleteAsync(id, ctx.TenantId).ConfigureAwait(false);
                 if (!deleted)
                 {
                     // Fall back to cancel if not in a terminal state
-                    await _mergeQueue.CancelAsync(id).ConfigureAwait(false);
+                    await _mergeQueue.CancelAsync(id, ctx.IsAdmin ? null : ctx.TenantId).ConfigureAwait(false);
                 }
                 req.Http.Response.StatusCode = 204;
                 return null;
@@ -184,8 +203,14 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
                 string id = req.Parameters["id"];
-                MergeEntry? entry = await _mergeQueue.ProcessSingleAsync(id).ConfigureAwait(false);
-                if (entry == null) return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Merge entry not found or not in Queued status" };
+                MergeEntry? entry = ctx.IsAdmin
+                    ? await _mergeQueue.ProcessSingleAsync(id).ConfigureAwait(false)
+                    : await _mergeQueue.ProcessSingleAsync(id, ctx.TenantId).ConfigureAwait(false);
+                if (entry == null)
+                {
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Merge entry not found or not in Queued status" };
+                }
                 return (object)entry;
             },
             api => api
@@ -223,10 +248,18 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
                 string id = req.Parameters["id"];
-                MergeEntry? entry = await _mergeQueue.GetAsync(id).ConfigureAwait(false);
-                if (entry == null) return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Merge entry not found" };
+                MergeEntry? entry = ctx.IsAdmin
+                    ? await _mergeQueue.GetAsync(id).ConfigureAwait(false)
+                    : await _mergeQueue.GetAsync(id, ctx.TenantId).ConfigureAwait(false);
+                if (entry == null)
+                {
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Merge entry not found" };
+                }
 
-                bool deleted = await _mergeQueue.DeleteAsync(id).ConfigureAwait(false);
+                bool deleted = ctx.IsAdmin
+                    ? await _mergeQueue.DeleteAsync(id).ConfigureAwait(false)
+                    : await _mergeQueue.DeleteAsync(id, ctx.TenantId).ConfigureAwait(false);
                 if (!deleted)
                 {
                     req.Http.Response.StatusCode = 409;

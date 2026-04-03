@@ -239,10 +239,10 @@ namespace Armada.Test.Automated.Suites
                 AssertEqual(HttpStatusCode.NoContent, response.StatusCode);
             }).ConfigureAwait(false);
 
-            await RunTest("Cancel_NonExistent_Returns204", async () =>
+            await RunTest("Cancel_NonExistent_Returns404", async () =>
             {
                 HttpResponseMessage response = await _AuthClient.DeleteAsync("/api/v1/merge-queue/mrg_nonexistent").ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.NoContent, response.StatusCode);
+                AssertEqual(HttpStatusCode.NotFound, response.StatusCode);
             }).ConfigureAwait(false);
 
             await RunTest("Cancel_ThenGet_ShowsCancelledStatus", async () =>

@@ -192,7 +192,7 @@ namespace Armada.Test.Automated.Suites
                 string body = await response.Content.ReadAsStringAsync();
 
                 // Try to detect if it's an error response (route conflict)
-                ArmadaErrorResponse errorCheck = JsonHelper.Deserialize<ArmadaErrorResponse>(body);
+                ArmadaErrorResponse? errorCheck = null;
                 if (errorCheck != null && errorCheck.Error != null)
                     return; // Route conflict — /signals/{id} matched "recent" as an ID; skip test
 
