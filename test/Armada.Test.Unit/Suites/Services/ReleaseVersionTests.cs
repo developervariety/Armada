@@ -80,19 +80,43 @@ namespace Armada.Test.Unit.Suites.Services
                 string mcpApiContents = ReadRepositoryFile("docs", "MCP_API.md");
                 string postmanContents = ReadRepositoryFile("Armada.postman_collection.json");
                 string restHealthSample = ExtractRestHealthResponseSample(restApiContents);
+                string restJsonExamples = ExtractMarkdownJsonExamples(restApiContents);
+                string mcpJsonExamples = ExtractMarkdownJsonExamples(mcpApiContents);
+                string postmanResponseBodies = ExtractPostmanResponseBodies(postmanContents);
                 string postmanHealthResponseBody = ExtractPostmanHealthyResponseBody(postmanContents);
 
+                AssertEqual(1, Regex.Matches(restApiContents, @"#### GET /api/v1/status/health").Count, "REST API should document the health endpoint exactly once");
+                AssertEqual(1, Regex.Matches(postmanContents, @"""raw"":\s*""\{\{baseUrl\}\}/api/v1/status/health""").Count, "Postman collection should include the health request exactly once");
+                AssertEqual(1, Regex.Matches(postmanContents, @"""name"":\s*""Healthy""").Count, "Postman collection should include the healthy response example exactly once");
                 AssertContains("**Version:** " + Constants.ProductVersion, restApiContents, "REST API header should use the shared release version");
                 AssertContains("**Version:** " + Constants.ProductVersion, mcpApiContents, "MCP API header should use the shared release version");
                 AssertContains("Version: " + Constants.ProductVersion, postmanContents, "Postman collection description should use the shared release version");
                 AssertContains("\"Version\": \"" + Constants.ProductVersion + "\"", restHealthSample, "REST API health example should use the shared release version");
                 AssertContains("\"Version\": \"" + Constants.ProductVersion + "\"", postmanHealthResponseBody, "Postman health response body should use the shared release version");
 
-                AssertNoStaleVersionSurfaces(restApiContents, "REST API version header", staleVersion => "**Version:** " + staleVersion);
-                AssertNoStaleVersionSurfaces(mcpApiContents, "MCP API version header", staleVersion => "**Version:** " + staleVersion);
-                AssertNoStaleVersionSurfaces(postmanContents, "Postman collection version header", staleVersion => "Version: " + staleVersion);
+                AssertNoStaleVersionSurfaces(restJsonExamples, "REST API JSON examples", staleVersion => staleVersion);
+                AssertNoStaleVersionSurfaces(mcpJsonExamples, "MCP API JSON examples", staleVersion => staleVersion);
+                AssertNoStaleVersionSurfaces(postmanResponseBodies, "Postman response bodies", staleVersion => staleVersion);
                 AssertNoStaleVersionSurfaces(restHealthSample, "REST API health example", staleVersion => "\"Version\": \"" + staleVersion + "\"");
                 AssertNoStaleVersionSurfaces(postmanHealthResponseBody, "Postman health response body", staleVersion => "\"Version\": \"" + staleVersion + "\"");
+            });
+
+            await RunTest("Release Surface Extractors Fail Closed When Health Samples Drift", () =>
+            {
+                string restApiContents = ReadRepositoryFile("docs", "REST_API.md");
+                string postmanContents = ReadRepositoryFile("Armada.postman_collection.json");
+
+                AssertThrows<Exception>(
+                    () => ExtractRestHealthResponseSample(
+                        restApiContents.Replace("#### GET /api/v1/status/health", "#### GET /api/v1/status", StringComparison.Ordinal)),
+                    "REST API extractor should fail when the health section heading is missing");
+                AssertThrows<Exception>(
+                    () => ExtractPostmanHealthyResponseBody(
+                        postmanContents.Replace("\"name\": \"Healthy\"", "\"name\": \"HealthyExample\"", StringComparison.Ordinal)),
+                    "Postman extractor should fail when the healthy response example is missing");
+                AssertThrows<Exception>(
+                    () => AssertNoStaleVersionSurfaces("Version: 0.4.0", "synthetic release surface", staleVersion => staleVersion),
+                    "Stale release helper should fail when a prior version literal is present");
             });
         }
 
@@ -141,6 +165,56 @@ namespace Armada.Test.Unit.Suites.Services
             }
 
             return match.Groups["body"].Value;
+        }
+
+        private static string ExtractMarkdownJsonExamples(string markdownContents)
+        {
+            MatchCollection matches = Regex.Matches(
+                markdownContents,
+                @"```json\s*(?<body>[\s\S]*?)\s*```");
+
+            if (matches.Count == 0)
+            {
+                throw new Exception("Could not locate any markdown JSON examples.");
+            }
+
+            System.Text.StringBuilder combined = new System.Text.StringBuilder();
+            foreach (Match match in matches)
+            {
+                if (combined.Length > 0)
+                {
+                    combined.Append('\n');
+                }
+
+                combined.Append(match.Groups["body"].Value);
+            }
+
+            return combined.ToString();
+        }
+
+        private static string ExtractPostmanResponseBodies(string postmanContents)
+        {
+            MatchCollection matches = Regex.Matches(
+                postmanContents,
+                @"""body"":\s*""(?<body>(?:\\.|[^""\\])*)""");
+
+            if (matches.Count == 0)
+            {
+                throw new Exception("Could not locate any Postman response bodies.");
+            }
+
+            System.Text.StringBuilder combined = new System.Text.StringBuilder();
+            foreach (Match match in matches)
+            {
+                if (combined.Length > 0)
+                {
+                    combined.Append('\n');
+                }
+
+                combined.Append(Regex.Unescape(match.Groups["body"].Value));
+            }
+
+            return combined.ToString();
         }
 
         private static string ExtractPostmanHealthyResponseBody(string postmanContents)
