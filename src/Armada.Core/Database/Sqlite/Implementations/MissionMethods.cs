@@ -189,6 +189,39 @@ namespace Armada.Core.Database.Sqlite.Implementations
         }
 
         /// <inheritdoc />
+        public async Task UpdateHeartbeatAsync(string id, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(id)) throw new ArgumentNullException(nameof(id));
+
+            DateTime lastUpdateUtc = DateTime.UtcNow;
+
+            using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+
+                string? voyageId = null;
+                using (SqliteCommand lookup = conn.CreateCommand())
+                {
+                    lookup.CommandText = "SELECT voyage_id FROM missions WHERE id = @id;";
+                    lookup.Parameters.AddWithValue("@id", id);
+                    object? result = await lookup.ExecuteScalarAsync(token).ConfigureAwait(false);
+                    if (result != null && result != DBNull.Value)
+                        voyageId = result.ToString();
+                }
+
+                using (SqliteCommand cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "UPDATE missions SET last_update_utc = @last_update_utc WHERE id = @id;";
+                    cmd.Parameters.AddWithValue("@id", id);
+                    cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(lastUpdateUtc));
+                    await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                }
+
+                await TouchVoyageAsync(conn, voyageId, lastUpdateUtc, token).ConfigureAwait(false);
+            }
+        }
+
+        /// <inheritdoc />
         public async Task DeleteAsync(string id, CancellationToken token = default)
         {
             if (string.IsNullOrEmpty(id)) throw new ArgumentNullException(nameof(id));

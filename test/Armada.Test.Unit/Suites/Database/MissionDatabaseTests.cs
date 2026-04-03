@@ -52,6 +52,7 @@ namespace Armada.Test.Unit.Suites.Database
             await Mission_ExistsNotFound();
             await Mission_Create_TouchesParentVoyageLastUpdateUtc();
             await Mission_Update_TouchesParentVoyageLastUpdateUtc();
+            await Mission_UpdateHeartbeat_TouchesMissionAndVoyageLastUpdateUtc();
         }
 
         #endregion
@@ -625,6 +626,43 @@ namespace Armada.Test.Unit.Suites.Database
                     Voyage? afterUpdate = await db.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
                     AssertNotNull(afterUpdate);
                     AssertTrue(afterUpdate!.LastUpdateUtc > originalLastUpdateUtc, "Voyage.LastUpdateUtc should advance when a mission is updated");
+                }
+            });
+        }
+
+        private async Task Mission_UpdateHeartbeat_TouchesMissionAndVoyageLastUpdateUtc()
+        {
+            await RunTest("Mission_UpdateHeartbeat_TouchesMissionAndVoyageLastUpdateUtc", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    MissionTestPrerequisites prereqs = await CreatePrerequisitesAsync(db);
+
+                    Mission mission = new Mission("Heartbeat mission")
+                    {
+                        VesselId = prereqs.Vessel.Id,
+                        VoyageId = prereqs.Voyage.Id
+                    };
+
+                    await db.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    Mission? beforeMission = await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    Voyage? beforeVoyage = await db.Voyages.ReadAsync(prereqs.Voyage.Id).ConfigureAwait(false);
+
+                    AssertNotNull(beforeMission);
+                    AssertNotNull(beforeVoyage);
+
+                    await Task.Delay(20).ConfigureAwait(false);
+                    await db.Missions.UpdateHeartbeatAsync(mission.Id).ConfigureAwait(false);
+
+                    Mission? afterMission = await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    Voyage? afterVoyage = await db.Voyages.ReadAsync(prereqs.Voyage.Id).ConfigureAwait(false);
+
+                    AssertNotNull(afterMission);
+                    AssertNotNull(afterVoyage);
+                    AssertTrue(afterMission!.LastUpdateUtc > beforeMission!.LastUpdateUtc, "Mission.LastUpdateUtc should advance when a heartbeat is recorded");
+                    AssertTrue(afterVoyage!.LastUpdateUtc > beforeVoyage!.LastUpdateUtc, "Voyage.LastUpdateUtc should advance when a mission heartbeat is recorded");
                 }
             });
         }

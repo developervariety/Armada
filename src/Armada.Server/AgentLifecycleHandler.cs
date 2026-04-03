@@ -31,11 +31,17 @@ namespace Armada.Server
         private ArmadaWebSocketHub? _WebSocketHub;
         private Func<string, string, string?, string?, string?, string?, string?, string?, Task> _EmitEventAsync;
         private readonly TimeSpan _ModelValidationTimeout = TimeSpan.FromSeconds(5);
+        private readonly TimeSpan _MissionHeartbeatPersistInterval = TimeSpan.FromSeconds(15);
 
         /// <summary>
         /// Accumulates agent stdout per mission for pipeline handoff.
         /// </summary>
         private System.Collections.Concurrent.ConcurrentDictionary<string, System.Text.StringBuilder> _MissionOutput = new System.Collections.Concurrent.ConcurrentDictionary<string, System.Text.StringBuilder>();
+
+        /// <summary>
+        /// Throttles mission heartbeat persistence so verbose logs do not rewrite mission/voyage rows on every output line.
+        /// </summary>
+        private System.Collections.Concurrent.ConcurrentDictionary<string, DateTime> _MissionHeartbeatWrites = new System.Collections.Concurrent.ConcurrentDictionary<string, DateTime>();
 
         /// <summary>
         /// Tracks launches that have started but have not yet completed HandleLaunchAgentAsync registration.
@@ -388,15 +394,54 @@ namespace Armada.Server
         public void HandleAgentHeartbeat(int processId, string line)
         {
             string? captainId = null;
+            string? missionId = null;
             lock (_ProcessToCaptain)
             {
                 _ProcessToCaptain.TryGetValue(processId, out captainId);
+                _ProcessToMission.TryGetValue(processId, out missionId);
             }
             if (String.IsNullOrEmpty(captainId)) return;
+
+            bool persistMissionHeartbeat = false;
+            DateTime nowUtc = DateTime.UtcNow;
+            if (!String.IsNullOrEmpty(missionId))
+            {
+                string capturedMissionId = missionId;
+                _MissionHeartbeatWrites.AddOrUpdate(
+                    capturedMissionId,
+                    _ =>
+                    {
+                        persistMissionHeartbeat = true;
+                        return nowUtc;
+                    },
+                    (_, previous) =>
+                    {
+                        if (nowUtc - previous >= _MissionHeartbeatPersistInterval)
+                        {
+                            persistMissionHeartbeat = true;
+                            return nowUtc;
+                        }
+
+                        return previous;
+                    });
+            }
+
+            string capturedCaptainId = captainId;
             _ = Task.Run(async () =>
             {
                 try { await _Database.Captains.UpdateHeartbeatAsync(captainId).ConfigureAwait(false); }
                 catch { }
+
+                if (!persistMissionHeartbeat || String.IsNullOrEmpty(missionId)) return;
+
+                try
+                {
+                    await _Database.Missions.UpdateHeartbeatAsync(missionId).ConfigureAwait(false);
+                }
+                catch
+                {
+                    _MissionHeartbeatWrites.TryRemove(missionId, out _);
+                }
             });
         }
 
@@ -517,6 +562,7 @@ namespace Armada.Server
                 _ProcessToCaptain.Remove(processId);
                 _ProcessToMission.Remove(processId);
             }
+            _MissionHeartbeatWrites.TryRemove(missionId, out _);
 
             // Track this PID as handled BEFORE the async work begins.
             // The health check consults this set to avoid racing with the async exit handler

@@ -195,6 +195,43 @@ namespace Armada.Core.Database.Mysql.Implementations
         }
 
         /// <summary>
+        /// Update the mission heartbeat timestamp without rewriting the full record.
+        /// </summary>
+        /// <param name="id">Mission identifier.</param>
+        /// <param name="token">Cancellation token.</param>
+        public async Task UpdateHeartbeatAsync(string id, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(id)) throw new ArgumentNullException(nameof(id));
+
+            DateTime lastUpdateUtc = DateTime.UtcNow;
+
+            using (MySqlConnection conn = new MySqlConnection(_ConnectionString))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+
+                string? voyageId = null;
+                using (MySqlCommand lookup = conn.CreateCommand())
+                {
+                    lookup.CommandText = "SELECT voyage_id FROM missions WHERE id = @id;";
+                    lookup.Parameters.AddWithValue("@id", id);
+                    object? result = await lookup.ExecuteScalarAsync(token).ConfigureAwait(false);
+                    if (result != null && result != DBNull.Value)
+                        voyageId = result.ToString();
+                }
+
+                using (MySqlCommand cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "UPDATE missions SET last_update_utc = @last_update_utc WHERE id = @id;";
+                    cmd.Parameters.AddWithValue("@id", id);
+                    cmd.Parameters.AddWithValue("@last_update_utc", ToIso8601(lastUpdateUtc));
+                    await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                }
+
+                await TouchVoyageAsync(conn, voyageId, lastUpdateUtc, token).ConfigureAwait(false);
+            }
+        }
+
+        /// <summary>
         /// Delete a mission by identifier.
         /// </summary>
         /// <param name="id">Mission identifier.</param>

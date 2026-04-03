@@ -1,6 +1,7 @@
 namespace Armada.Test.Unit.Suites.Services
 {
     using System.IO;
+    using System.Reflection;
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -127,6 +128,49 @@ namespace Armada.Test.Unit.Suites.Services
                     }
                 }
             });
+
+            await RunTest("HandleAgentHeartbeat updates mission and voyage timestamps", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _);
+
+                    Captain captain = new Captain("heartbeat-captain", AgentRuntimeEnum.Cursor);
+                    await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    Voyage voyage = new Voyage("Heartbeat voyage", "Telemetry proof");
+                    await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+
+                    Mission mission = new Mission("Heartbeat mission")
+                    {
+                        VoyageId = voyage.Id
+                    };
+                    await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    Mission? beforeMission = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    Voyage? beforeVoyage = await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
+                    AssertNotNull(beforeMission);
+                    AssertNotNull(beforeVoyage);
+
+                    RegisterTrackedProcess(handler, 424242, captain.Id, mission.Id);
+
+                    await Task.Delay(20).ConfigureAwait(false);
+                    handler.HandleAgentHeartbeat(424242, "still running");
+
+                    await WaitForConditionAsync(async () =>
+                    {
+                        Captain? refreshedCaptain = await testDb.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                        Mission? refreshedMission = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                        Voyage? refreshedVoyage = await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
+
+                        return refreshedCaptain?.LastHeartbeatUtc.HasValue == true
+                            && refreshedMission != null
+                            && refreshedMission.LastUpdateUtc > beforeMission!.LastUpdateUtc
+                            && refreshedVoyage != null
+                            && refreshedVoyage.LastUpdateUtc > beforeVoyage!.LastUpdateUtc;
+                    }).ConfigureAwait(false);
+                }
+            });
         }
 
         private AgentLifecycleHandler CreateHandler(DatabaseDriver database, out ArmadaSettings settings)
@@ -211,6 +255,40 @@ namespace Armada.Test.Unit.Suites.Services
             using FileStream stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
             using StreamReader reader = new StreamReader(stream);
             return await reader.ReadToEndAsync().ConfigureAwait(false);
+        }
+
+        private static void RegisterTrackedProcess(AgentLifecycleHandler handler, int processId, string captainId, string missionId)
+        {
+            FieldInfo captainField = typeof(AgentLifecycleHandler).GetField("_ProcessToCaptain", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException("Could not find _ProcessToCaptain field");
+            FieldInfo missionField = typeof(AgentLifecycleHandler).GetField("_ProcessToMission", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException("Could not find _ProcessToMission field");
+
+            Dictionary<int, string> captainMap = (Dictionary<int, string>)(captainField.GetValue(handler)
+                ?? throw new InvalidOperationException("Captain process map was null"));
+            Dictionary<int, string> missionMap = (Dictionary<int, string>)(missionField.GetValue(handler)
+                ?? throw new InvalidOperationException("Mission process map was null"));
+
+            lock (captainMap)
+            {
+                captainMap[processId] = captainId;
+                missionMap[processId] = missionId;
+            }
+        }
+
+        private static async Task WaitForConditionAsync(Func<Task<bool>> predicate)
+        {
+            DateTime deadline = DateTime.UtcNow.AddSeconds(3);
+
+            while (DateTime.UtcNow < deadline)
+            {
+                if (await predicate().ConfigureAwait(false))
+                    return;
+
+                await Task.Delay(50).ConfigureAwait(false);
+            }
+
+            throw new TimeoutException("Timed out waiting for asynchronous condition");
         }
 
         private sealed class StubAdmiralService : IAdmiralService

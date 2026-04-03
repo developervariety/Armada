@@ -24,6 +24,12 @@ namespace Armada.Core.Database.Interfaces
         Task<Mission> UpdateAsync(Mission mission, CancellationToken token = default);
 
         /// <summary>
+        /// Update the mission heartbeat timestamp without rewriting the full record.
+        /// Implementations should also advance the parent voyage LastUpdateUtc when applicable.
+        /// </summary>
+        Task UpdateHeartbeatAsync(string id, CancellationToken token = default);
+
+        /// <summary>
         /// Delete a mission by identifier.
         /// </summary>
         Task DeleteAsync(string id, CancellationToken token = default);
