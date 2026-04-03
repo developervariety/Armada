@@ -900,14 +900,14 @@ v0.5.0 adds captain model selection, startup model validation, and mission runti
 
 ### v0.5.0 to v0.6.0
 
-v0.6.0 starts the remote-control foundation in Armada itself. This release adds the local outbound tunnel client, a first shipped `Armada.ControlPlane` service, tunnel telemetry, and server/dashboard configuration surfaces needed for future remote operations work. No database schema migration is required for this release.
+v0.6.0 starts the remote-control foundation in Armada itself. This release adds the local outbound tunnel client, a first shipped `Armada.ControlPlane` service, tunnel telemetry, server/dashboard configuration surfaces, and a bounded remote management shell for day-one operator workflows. No database schema migration is required for this release.
 
 Key changes:
 
 - New `RemoteControl` settings in `settings.json`, exposed through `GET /api/v1/settings` and `PUT /api/v1/settings`
 - New `RemoteTunnel` health/status telemetry, exposed through `/api/v1/status`, `/api/v1/status/health`, the React dashboard, the legacy dashboard, and `armada status`
 - Experimental outbound websocket tunnel client with URL normalization, handshake, heartbeat, reconnect, request/response handling, and event forwarding
-- New `Armada.ControlPlane` service with websocket tunnel termination, in-memory instance registry APIs, and live forwarded status/health requests
+- New `Armada.ControlPlane` service with websocket tunnel termination, a mobile-first remote operations shell, focused instance inspection APIs, live forwarded status/health/detail requests, and bounded remote management for fleets, vessels, voyages, missions, and captain stop
 - New operator docs: `docs/TUNNEL_PROTOCOL.md`, `docs/CONTROL_PLANE_API.md`, and `docs/TUNNEL_OPERATIONS.md`
 - Release metadata, Docker image tags, Postman examples, and API documentation are updated for `v0.6.0`
 - Standalone no-op release scripts are available in `migrations/` for `v0.5.0 -> v0.6.0`

@@ -13,15 +13,19 @@ This guide covers the shipped remote-control tunnel and control-plane MVP surfac
 - the Armada-side outbound websocket tunnel client
 - remote tunnel configuration in Armada settings and dashboards
 - a minimal `Armada.ControlPlane` service with websocket termination and instance registry APIs
+- a control-plane-hosted remote operations shell served at `/`
 - live forwarded status/health requests from the control plane into a connected Armada instance
+- focused remote inspection requests for recent activity, missions, voyages, captains, logs, and diffs
+- bounded remote management requests for fleets, vessels, voyages, missions, and captain control
+- shell workflows for fleet and vessel editing, voyage dispatch and cancellation, mission create/update/cancel/restart, and captain stop
 
 Still not included:
 
 - user-facing SaaS auth
 - delegated identity or local-session brokerage
-- guarded remote actions
 - notification delivery
 - persistent control-plane storage
+- server-side remote action policy evaluation beyond current shell confirmation prompts
 
 Treat the current control plane as an implementation-stage operator service, not a hardened public SaaS surface.
 
@@ -100,6 +104,7 @@ Default endpoints:
 
 - health: `http://localhost:7893/api/v1/status/health`
 - instance list: `http://localhost:7893/api/v1/instances`
+- remote shell: `http://localhost:7893/`
 - tunnel websocket: `ws://localhost:7893/tunnel`
 
 Point Armada at the control plane by setting:
@@ -147,6 +152,21 @@ Key fields:
 - `GET /api/v1/instances/{instanceId}`
 - `GET /api/v1/instances/{instanceId}/status/snapshot`
 - `GET /api/v1/instances/{instanceId}/health`
+- `GET /api/v1/instances/{instanceId}/fleets`
+- `GET /api/v1/instances/{instanceId}/vessels`
+- `GET /api/v1/instances/{instanceId}/voyages`
+- `GET /api/v1/instances/{instanceId}/missions`
+- `POST /api/v1/instances/{instanceId}/fleets`
+- `PUT /api/v1/instances/{instanceId}/fleets/{fleetId}`
+- `POST /api/v1/instances/{instanceId}/vessels`
+- `PUT /api/v1/instances/{instanceId}/vessels/{vesselId}`
+- `POST /api/v1/instances/{instanceId}/voyages/dispatch`
+- `DELETE /api/v1/instances/{instanceId}/voyages/{voyageId}`
+- `POST /api/v1/instances/{instanceId}/missions`
+- `PUT /api/v1/instances/{instanceId}/missions/{missionId}`
+- `DELETE /api/v1/instances/{instanceId}/missions/{missionId}`
+- `POST /api/v1/instances/{instanceId}/missions/{missionId}/restart`
+- `POST /api/v1/instances/{instanceId}/captains/{captainId}/stop`
 
 Control-plane instance states:
 
@@ -241,8 +261,38 @@ Fix:
 
 The control plane currently supports live requests for:
 
+- `armada.instance.summary`
+- `armada.fleets.list`
+- `armada.fleet.detail`
+- `armada.fleet.create`
+- `armada.fleet.update`
+- `armada.vessels.list`
+- `armada.vessel.detail`
+- `armada.vessel.create`
+- `armada.vessel.update`
+- `armada.activity.recent`
+- `armada.missions.list`
+- `armada.missions.recent`
+- `armada.mission.create`
+- `armada.mission.update`
+- `armada.mission.cancel`
+- `armada.mission.restart`
+- `armada.voyages.list`
+- `armada.voyages.recent`
+- `armada.voyage.dispatch`
+- `armada.voyage.cancel`
+- `armada.captains.recent`
+- `armada.captain.stop`
+- `armada.mission.detail`
+- `armada.mission.log`
+- `armada.mission.diff`
+- `armada.voyage.detail`
+- `armada.captain.detail`
+- `armada.captain.log`
 - `armada.status.snapshot`
 - `armada.status.health`
+
+The remote shell uses simple browser confirmation prompts before destructive actions such as mission cancellation, voyage cancellation, mission restart, and captain stop. These are operator safety rails, not a substitute for the future delegated identity and policy model.
 
 If the instance is offline, those endpoints return an error instead of cached data.
 

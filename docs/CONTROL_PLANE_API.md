@@ -9,7 +9,10 @@ This document describes the first shipped Armada control-plane API surface in `v
 - websocket tunnel termination at `/tunnel`
 - in-memory instance registration keyed by `instanceId`
 - live instance summary and detail endpoints
-- live request/response forwarding for Armada health and status snapshots
+- a mobile-first remote operations shell served at `/`
+- focused remote inspection endpoints for activity, missions, voyages, captains, logs, and diffs
+- bounded remote management endpoints for fleets, vessels, voyages, missions, and captain control
+- live request/response forwarding for Armada health, status, detail snapshots, and management actions
 
 `v0.6.0` does not yet include:
 
@@ -17,7 +20,8 @@ This document describes the first shipped Armada control-plane API surface in `v
 - enrollment workflows beyond static token validation
 - delegated identity or remote authorization mapping
 - notification inboxes
-- guarded remote action APIs
+- persistent control-plane storage
+- server-side remote action policy evaluation beyond the current shell confirmation prompts
 
 ---
 
@@ -48,6 +52,24 @@ Configuration is read from the `ArmadaControlPlane` section:
 ---
 
 ## REST Endpoints
+
+### GET /
+
+Serves the control-plane remote operations shell.
+
+The shell is designed for quick remote triage rather than full local-dashboard parity. In `v0.6.0` it includes:
+
+- instance list
+- instance summary cards
+- recent activity feed
+- mission, voyage, captain, fleet, and vessel lists
+- focused mission, voyage, captain, fleet, and vessel detail
+- fleet creation and editing
+- vessel creation and editing
+- voyage dispatch and cancellation
+- mission creation, editing, cancellation, and restart
+- captain stop
+- inline mission log, mission diff, and captain log viewers
 
 ### GET /api/v1/status/health
 
@@ -157,6 +179,143 @@ Returns the current summary plus recent inbound event history for an instance.
 }
 ```
 
+### GET /api/v1/instances/{instanceId}/summary
+
+Returns the aggregated remote-shell summary for a connected instance by issuing `armada.instance.summary` over the tunnel and unwrapping the successful payload.
+
+```json
+{
+  "generatedUtc": "2026-04-03T21:05:00Z",
+  "health": {
+    "status": "healthy",
+    "version": "0.6.0"
+  },
+  "status": {
+    "activeVoyages": 1,
+    "workingCaptains": 1
+  },
+  "recentActivity": [],
+  "recentMissions": [],
+  "recentVoyages": [],
+  "recentCaptains": []
+}
+```
+
+### Focused Remote Inspection Endpoints
+
+The following control-plane routes unwrap the successful payload returned by the instance:
+
+- `GET /api/v1/instances/{instanceId}/activity?limit=20`
+- `GET /api/v1/instances/{instanceId}/missions/recent?limit=10`
+- `GET /api/v1/instances/{instanceId}/voyages/recent?limit=10`
+- `GET /api/v1/instances/{instanceId}/captains/recent?limit=10`
+- `GET /api/v1/instances/{instanceId}/missions/{missionId}`
+- `GET /api/v1/instances/{instanceId}/missions/{missionId}/log?lines=200&offset=0`
+- `GET /api/v1/instances/{instanceId}/missions/{missionId}/diff`
+- `GET /api/v1/instances/{instanceId}/voyages/{voyageId}`
+- `GET /api/v1/instances/{instanceId}/captains/{captainId}`
+- `GET /api/v1/instances/{instanceId}/captains/{captainId}/log?lines=50&offset=0`
+
+Example mission detail response:
+
+```json
+{
+  "mission": {
+    "id": "msn_abc123",
+    "title": "Update prompt templates",
+    "status": "Review",
+    "persona": "Judge"
+  },
+  "captain": {
+    "id": "cpt_abc123",
+    "name": "judge-1",
+    "runtime": "ClaudeCode"
+  },
+  "voyage": {
+    "id": "vyg_abc123",
+    "title": "Remote control tranche"
+  },
+  "vessel": {
+    "id": "vsl_abc123",
+    "name": "armada-repo"
+  },
+  "dock": {
+    "id": "dck_abc123",
+    "branchName": "armada/remote-shell"
+  }
+}
+```
+
+### Remote Management Endpoints
+
+The control plane now forwards a bounded management surface into the connected Armada instance.
+
+Fleet management:
+
+- `GET /api/v1/instances/{instanceId}/fleets?limit=25`
+- `GET /api/v1/instances/{instanceId}/fleets/{fleetId}`
+- `POST /api/v1/instances/{instanceId}/fleets`
+- `PUT /api/v1/instances/{instanceId}/fleets/{fleetId}`
+
+Vessel management:
+
+- `GET /api/v1/instances/{instanceId}/vessels?limit=25&fleetId={fleetId}`
+- `GET /api/v1/instances/{instanceId}/vessels/{vesselId}`
+- `POST /api/v1/instances/{instanceId}/vessels`
+- `PUT /api/v1/instances/{instanceId}/vessels/{vesselId}`
+
+Voyage management:
+
+- `GET /api/v1/instances/{instanceId}/voyages?limit=25&status=InProgress`
+- `POST /api/v1/instances/{instanceId}/voyages/dispatch`
+- `DELETE /api/v1/instances/{instanceId}/voyages/{voyageId}`
+
+Mission management:
+
+- `GET /api/v1/instances/{instanceId}/missions?limit=25&status=Review&voyageId={voyageId}&vesselId={vesselId}`
+- `POST /api/v1/instances/{instanceId}/missions`
+- `PUT /api/v1/instances/{instanceId}/missions/{missionId}`
+- `DELETE /api/v1/instances/{instanceId}/missions/{missionId}`
+- `POST /api/v1/instances/{instanceId}/missions/{missionId}/restart`
+
+Captain control:
+
+- `POST /api/v1/instances/{instanceId}/captains/{captainId}/stop`
+
+Example voyage dispatch request:
+
+```json
+{
+  "title": "Remote release hardening",
+  "description": "Ship the v0.6.0 control-plane management surface.",
+  "vesselId": "vsl_abc123",
+  "pipeline": "FullPipeline",
+  "missions": [
+    {
+      "title": "Tighten remote shell UX",
+      "description": "Add mission and voyage browser filters to the control-plane shell."
+    },
+    {
+      "title": "Update control-plane docs",
+      "description": "Document the shipped management endpoints and shell workflows."
+    }
+  ]
+}
+```
+
+Example mission update request:
+
+```json
+{
+  "title": "Update control-plane docs",
+  "description": "Document the shipped management endpoints and shell workflows.",
+  "persona": "Worker",
+  "priority": 50,
+  "vesselId": "vsl_abc123",
+  "voyageId": "vyg_abc123"
+}
+```
+
 ### GET /api/v1/instances/{instanceId}/status/snapshot
 
 Sends a live tunnel request to the connected Armada instance using method `armada.status.snapshot`.
@@ -259,7 +418,35 @@ See [docs/TUNNEL_PROTOCOL.md](TUNNEL_PROTOCOL.md) for envelope details.
 - the registry is process-local and in-memory
 - only static enrollment-token validation is supported
 - routed requests currently support:
+  - `armada.instance.summary`
+  - `armada.fleets.list`
+  - `armada.fleet.detail`
+  - `armada.fleet.create`
+  - `armada.fleet.update`
+  - `armada.vessels.list`
+  - `armada.vessel.detail`
+  - `armada.vessel.create`
+  - `armada.vessel.update`
+  - `armada.activity.recent`
+  - `armada.missions.list`
+  - `armada.missions.recent`
+  - `armada.mission.create`
+  - `armada.mission.update`
+  - `armada.mission.cancel`
+  - `armada.mission.restart`
+  - `armada.voyages.list`
+  - `armada.voyages.recent`
+  - `armada.voyage.dispatch`
+  - `armada.voyage.cancel`
+  - `armada.captains.recent`
+  - `armada.captain.stop`
+  - `armada.mission.detail`
+  - `armada.mission.log`
+  - `armada.mission.diff`
+  - `armada.voyage.detail`
+  - `armada.captain.detail`
+  - `armada.captain.log`
   - `armada.status.snapshot`
   - `armada.status.health`
 - recent event history is bounded by `maxRecentEvents`
-- there is no authn/authz layer on control-plane REST yet; this is still an implementation-stage service
+- destructive actions are client-confirmed in the remote shell, but there is no control-plane authn/authz or policy engine yet; this is still an implementation-stage operator service

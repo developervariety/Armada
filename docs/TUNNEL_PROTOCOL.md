@@ -11,6 +11,7 @@ This document describes the shipped tunnel contract between `Armada.Server` and 
 - handshake with protocol version, instance ID, enrollment token, and capability manifest
 - request/response correlation IDs
 - event forwarding from Armada to the control plane
+- bounded control-plane management routing for fleets, vessels, voyages, missions, and captain control
 - `ping` / `pong` heartbeat handling
 - reconnect with capped exponential backoff and jitter
 - control-plane stale/offline instance semantics
@@ -21,7 +22,7 @@ Not yet shipped:
 - resumable subscriptions
 - chunked streaming for large payloads
 - delegated remote identity
-- general-purpose remote action routing
+- general-purpose remote action routing or policy evaluation
 
 ---
 
@@ -82,6 +83,34 @@ The first message from Armada must be:
       "remoteControl.heartbeat",
       "remoteControl.events",
       "remoteControl.requests",
+      "instance.summary",
+      "fleets.list",
+      "fleet.detail",
+      "fleet.create",
+      "fleet.update",
+      "vessels.list",
+      "vessel.detail",
+      "vessel.create",
+      "vessel.update",
+      "activity.recent",
+      "missions.recent",
+      "missions.list",
+      "mission.create",
+      "mission.update",
+      "mission.cancel",
+      "mission.restart",
+      "voyages.recent",
+      "voyages.list",
+      "voyage.dispatch",
+      "voyage.cancel",
+      "captains.recent",
+      "captain.stop",
+      "mission.detail",
+      "mission.log",
+      "mission.diff",
+      "voyage.detail",
+      "captain.detail",
+      "captain.log",
       "status.health",
       "status.snapshot",
       "settings.remoteControl"
@@ -115,6 +144,34 @@ Accepted handshake response:
     "capabilities": [
       "instances.summary",
       "instances.detail",
+      "instances.shell.summary",
+      "instances.fleets.list",
+      "instances.fleet.detail",
+      "instances.fleet.create",
+      "instances.fleet.update",
+      "instances.vessels.list",
+      "instances.vessel.detail",
+      "instances.vessel.create",
+      "instances.vessel.update",
+      "instances.activity",
+      "instances.missions.list",
+      "instances.missions.recent",
+      "instances.mission.create",
+      "instances.mission.update",
+      "instances.mission.cancel",
+      "instances.mission.restart",
+      "instances.voyages.list",
+      "instances.voyages.recent",
+      "instances.voyage.dispatch",
+      "instances.voyage.cancel",
+      "instances.captains.recent",
+      "instances.mission.detail",
+      "instances.mission.log",
+      "instances.mission.diff",
+      "instances.voyage.detail",
+      "instances.captain.detail",
+      "instances.captain.log",
+      "instances.captain.stop",
       "armada.status.snapshot",
       "armada.status.health"
     ]
@@ -170,6 +227,34 @@ Armada also responds to inbound `ping` messages with a matching `pong`.
 
 The control plane currently issues these live requests:
 
+- `armada.instance.summary`
+- `armada.fleets.list`
+- `armada.fleet.detail`
+- `armada.fleet.create`
+- `armada.fleet.update`
+- `armada.vessels.list`
+- `armada.vessel.detail`
+- `armada.vessel.create`
+- `armada.vessel.update`
+- `armada.activity.recent`
+- `armada.missions.list`
+- `armada.missions.recent`
+- `armada.mission.create`
+- `armada.mission.update`
+- `armada.mission.cancel`
+- `armada.mission.restart`
+- `armada.voyages.list`
+- `armada.voyages.recent`
+- `armada.voyage.dispatch`
+- `armada.voyage.cancel`
+- `armada.captains.recent`
+- `armada.captain.stop`
+- `armada.mission.detail`
+- `armada.mission.log`
+- `armada.mission.diff`
+- `armada.voyage.detail`
+- `armada.captain.detail`
+- `armada.captain.log`
 - `armada.status.snapshot`
 - `armada.status.health`
 

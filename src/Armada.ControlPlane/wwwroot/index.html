@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Armada Remote Ops</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <div class="shell">
+    <header class="hero">
+      <div>
+        <div class="eyebrow">Armada Remote Operations</div>
+        <h1>Control plane shell for quick remote triage</h1>
+        <p class="lede">Instance status, fleet and vessel management, voyage dispatch, mission editing, and fast log or diff inspection without tunneling a whole dashboard.</p>
+      </div>
+      <div class="hero-actions">
+        <button id="refreshButton" class="button button-primary">Refresh</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="panel panel-list">
+        <div class="panel-header">
+          <h2>Instances</h2>
+          <span id="instanceCount" class="pill">0</span>
+        </div>
+        <div id="instanceList" class="instance-list"></div>
+      </section>
+
+      <section class="workspace">
+        <div id="emptyState" class="panel empty-state">
+          <h2>No instance selected</h2>
+          <p>Connect an Armada instance to the control plane, then choose it here to inspect health, missions, voyages, captains, logs, and diffs.</p>
+        </div>
+
+        <div id="instanceWorkspace" class="workspace-content hidden">
+          <section class="panel panel-summary">
+            <div class="panel-header">
+              <div>
+                <h2 id="summaryTitle">Instance Summary</h2>
+                <p id="summarySubtitle" class="text-muted"></p>
+              </div>
+              <div class="summary-actions">
+                <button id="refreshSummaryButton" class="button">Refresh Instance</button>
+              </div>
+            </div>
+            <div id="summaryCards" class="summary-cards"></div>
+          </section>
+
+          <div class="content-grid">
+            <section class="panel">
+              <div class="panel-header">
+                <h2>Recent Activity</h2>
+              </div>
+              <div id="activityFeed" class="feed"></div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Missions</h2>
+                  <p class="text-muted">Browse recent work or filter live remote missions.</p>
+                </div>
+              </div>
+              <form id="missionBrowseForm" class="form-stack panel-filters">
+                <div class="field-row">
+                  <label class="field">
+                    <span>Status</span>
+                    <input id="missionBrowseStatus" type="text" placeholder="InProgress">
+                  </label>
+                  <label class="field">
+                    <span>Limit</span>
+                    <input id="missionBrowseLimit" type="number" min="1" max="100" value="12">
+                  </label>
+                </div>
+                <div class="field-row">
+                  <label class="field">
+                    <span>Voyage Id</span>
+                    <input id="missionBrowseVoyageId" type="text" placeholder="vyg_...">
+                  </label>
+                  <label class="field">
+                    <span>Vessel Id</span>
+                    <input id="missionBrowseVesselId" type="text" placeholder="vsl_...">
+                  </label>
+                </div>
+                <div class="form-actions">
+                  <button type="submit" class="button">Browse Missions</button>
+                  <button id="missionBrowseRecentButton" type="button" class="button">Load Recent</button>
+                </div>
+                <div id="missionBrowseStatusText" class="form-status"></div>
+              </form>
+              <div id="missionList" class="entity-stack"></div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Voyages</h2>
+                  <p class="text-muted">Dispatch new voyages and browse remote voyage state.</p>
+                </div>
+              </div>
+              <form id="voyageBrowseForm" class="form-stack panel-filters">
+                <div class="field-row">
+                  <label class="field">
+                    <span>Status</span>
+                    <input id="voyageBrowseStatus" type="text" placeholder="InProgress">
+                  </label>
+                  <label class="field">
+                    <span>Limit</span>
+                    <input id="voyageBrowseLimit" type="number" min="1" max="100" value="12">
+                  </label>
+                </div>
+                <div class="form-actions">
+                  <button type="submit" class="button">Browse Voyages</button>
+                  <button id="voyageBrowseRecentButton" type="button" class="button">Load Recent</button>
+                </div>
+                <div id="voyageBrowseStatusText" class="form-status"></div>
+              </form>
+              <div id="voyageList" class="entity-stack"></div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-header">
+                <h2>Recent Captains</h2>
+              </div>
+              <div id="captainList" class="entity-stack"></div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-header">
+                <h2>Fleets</h2>
+              </div>
+              <div id="fleetList" class="entity-stack"></div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-header">
+                <h2>Vessels</h2>
+              </div>
+              <div id="vesselList" class="entity-stack"></div>
+            </section>
+          </div>
+
+          <div class="management-grid">
+            <section class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Fleet Studio</h2>
+                  <p class="text-muted">Create a new fleet or update the selected fleet.</p>
+                </div>
+              </div>
+              <form id="fleetForm" class="form-stack">
+                <label class="field">
+                  <span>Name</span>
+                  <input id="fleetName" type="text" maxlength="128" placeholder="Production Fleet">
+                </label>
+                <label class="field">
+                  <span>Description</span>
+                  <textarea id="fleetDescription" rows="3" placeholder="Primary repositories and deployment context"></textarea>
+                </label>
+                <label class="field">
+                  <span>Default Pipeline Id</span>
+                  <input id="fleetDefaultPipelineId" type="text" placeholder="ppl_...">
+                </label>
+                <label class="field field-checkbox">
+                  <input id="fleetActive" type="checkbox" checked>
+                  <span>Fleet is active</span>
+                </label>
+                <div class="form-actions">
+                  <button type="submit" class="button button-primary">Save Fleet</button>
+                  <button id="fleetResetButton" type="button" class="button">New Fleet</button>
+                </div>
+                <div id="fleetFormStatus" class="form-status"></div>
+              </form>
+            </section>
+
+            <section class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Vessel Studio</h2>
+                  <p class="text-muted">Register a vessel or update the selected vessel.</p>
+                </div>
+              </div>
+              <form id="vesselForm" class="form-stack">
+                <label class="field">
+                  <span>Fleet Id</span>
+                  <input id="vesselFleetId" type="text" placeholder="flt_...">
+                </label>
+                <label class="field">
+                  <span>Name</span>
+                  <input id="vesselName" type="text" maxlength="128" placeholder="armada-prod">
+                </label>
+                <label class="field">
+                  <span>Repo URL</span>
+                  <input id="vesselRepoUrl" type="text" placeholder="https://github.com/org/repo">
+                </label>
+                <label class="field">
+                  <span>Working Directory</span>
+                  <input id="vesselWorkingDirectory" type="text" placeholder="C:\\code\\repo">
+                </label>
+                <div class="field-row">
+                  <label class="field">
+                    <span>Default Branch</span>
+                    <input id="vesselDefaultBranch" type="text" placeholder="main">
+                  </label>
+                  <label class="field">
+                    <span>Default Pipeline Id</span>
+                    <input id="vesselDefaultPipelineId" type="text" placeholder="ppl_...">
+                  </label>
+                </div>
+                <div class="field-row">
+                  <label class="field field-checkbox">
+                    <input id="vesselAllowConcurrentMissions" type="checkbox">
+                    <span>Allow concurrent missions</span>
+                  </label>
+                  <label class="field field-checkbox">
+                    <input id="vesselActive" type="checkbox" checked>
+                    <span>Vessel is active</span>
+                  </label>
+                </div>
+                <div class="form-actions">
+                  <button type="submit" class="button button-primary">Save Vessel</button>
+                  <button id="vesselResetButton" type="button" class="button">New Vessel</button>
+                </div>
+                <div id="vesselFormStatus" class="form-status"></div>
+              </form>
+            </section>
+
+            <section class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Voyage Dispatch</h2>
+                  <p class="text-muted">Dispatch a new voyage through the selected instance.</p>
+                </div>
+              </div>
+              <form id="dispatchForm" class="form-stack">
+                <label class="field">
+                  <span>Vessel Id</span>
+                  <input id="dispatchVesselId" type="text" placeholder="vsl_...">
+                </label>
+                <label class="field">
+                  <span>Title</span>
+                  <input id="dispatchTitle" type="text" placeholder="Remote release hardening">
+                </label>
+                <label class="field">
+                  <span>Description</span>
+                  <textarea id="dispatchDescription" rows="3" placeholder="High-level voyage objective"></textarea>
+                </label>
+                <div class="field-row">
+                  <label class="field">
+                    <span>Pipeline Id</span>
+                    <input id="dispatchPipelineId" type="text" placeholder="ppl_...">
+                  </label>
+                  <label class="field">
+                    <span>Pipeline Name</span>
+                    <input id="dispatchPipeline" type="text" placeholder="FullPipeline">
+                  </label>
+                </div>
+                <label class="field">
+                  <span>Missions</span>
+                  <textarea id="dispatchMissions" rows="6" placeholder="One mission per line. Use Title :: Description to provide detailed instructions."></textarea>
+                </label>
+                <div class="form-actions">
+                  <button type="submit" class="button button-primary">Dispatch Voyage</button>
+                </div>
+                <div id="dispatchFormStatus" class="form-status"></div>
+              </form>
+            </section>
+
+            <section class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Mission Studio</h2>
+                  <p class="text-muted">Create a standalone mission or edit the mission selected from recent activity.</p>
+                </div>
+              </div>
+              <form id="missionForm" class="form-stack">
+                <label class="field">
+                  <span>Title</span>
+                  <input id="missionTitle" type="text" placeholder="Investigate remote shell regression">
+                </label>
+                <label class="field">
+                  <span>Description</span>
+                  <textarea id="missionDescription" rows="4" placeholder="Mission instructions"></textarea>
+                </label>
+                <div class="field-row">
+                  <label class="field">
+                    <span>Vessel Id</span>
+                    <input id="missionVesselId" type="text" placeholder="vsl_...">
+                  </label>
+                  <label class="field">
+                    <span>Voyage Id</span>
+                    <input id="missionVoyageId" type="text" placeholder="vyg_...">
+                  </label>
+                </div>
+                <div class="field-row">
+                  <label class="field">
+                    <span>Persona</span>
+                    <input id="missionPersona" type="text" placeholder="Worker">
+                  </label>
+                  <label class="field">
+                    <span>Priority</span>
+                    <input id="missionPriority" type="number" min="0" max="1000" value="100">
+                  </label>
+                </div>
+                <div class="form-actions">
+                  <button type="submit" class="button button-primary">Save Mission</button>
+                  <button id="missionResetButton" type="button" class="button">New Mission</button>
+                </div>
+                <div id="missionFormStatus" class="form-status"></div>
+              </form>
+            </section>
+          </div>
+
+          <section class="panel panel-detail">
+            <div class="panel-header">
+              <div>
+                <h2 id="detailTitle">Focused Detail</h2>
+                <p id="detailSubtitle" class="text-muted">Select a mission, voyage, or captain card to inspect it here.</p>
+              </div>
+            </div>
+            <div id="detailBody" class="detail-body">
+              <div class="detail-empty">
+                No focused entity selected yet.
+              </div>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <template id="entityCardTemplate">
+    <button class="entity-card" type="button">
+      <div class="entity-card-top">
+        <span class="entity-title"></span>
+        <span class="badge"></span>
+      </div>
+      <div class="entity-meta"></div>
+      <div class="entity-meta-secondary"></div>
+    </button>
+  </template>
+
+  <script src="/app.js"></script>
+</body>
+</html>

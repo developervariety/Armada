@@ -62,6 +62,8 @@ namespace Armada.Server
         private LogRotationService _LogRotation = null!;
         private DataExpiryService _DataExpiry = null!;
         private RemoteTunnelManager _RemoteTunnel = null!;
+        private RemoteControlQueryService _RemoteControlQueries = null!;
+        private RemoteControlManagementService _RemoteControlManagement = null!;
 
         private ISessionTokenService _SessionTokenService = null!;
         private IAuthenticationService _AuthenticationService = null!;
@@ -131,6 +133,17 @@ namespace Armada.Server
             _RuntimeFactory = new AgentRuntimeFactory(_Logging);
             _RemoteTunnel = new RemoteTunnelManager(_Logging, _Settings);
             admiralService.OnGetRemoteTunnelStatus = _RemoteTunnel.GetStatus;
+            _RemoteControlQueries = new RemoteControlQueryService(
+                _Database,
+                _Settings,
+                _Git,
+                token => _Admiral.GetStatusAsync(token),
+                _RemoteTunnel.GetStatus,
+                _StartUtc);
+            _RemoteControlManagement = new RemoteControlManagementService(
+                _Database,
+                _Admiral,
+                EmitEventAsync);
             _RemoteTunnel.OnHandleRequest = HandleRemoteTunnelRequestAsync;
 
             // Seed built-in prompt templates, personas, and pipelines
@@ -642,52 +655,29 @@ namespace Armada.Server
         private async Task<RemoteTunnelRequestResult> HandleRemoteTunnelRequestAsync(RemoteTunnelEnvelope envelope, CancellationToken token)
         {
             string method = envelope.Method?.Trim().ToLowerInvariant() ?? String.Empty;
-
             switch (method)
             {
-                case "armada.status.snapshot":
-                    return new RemoteTunnelRequestResult
-                    {
-                        StatusCode = 200,
-                        Payload = await _Admiral.GetStatusAsync(token).ConfigureAwait(false),
-                        Message = "Armada status snapshot captured."
-                    };
-                case "armada.status.health":
-                    return new RemoteTunnelRequestResult
-                    {
-                        StatusCode = 200,
-                        Payload = new
-                        {
-                            Status = "healthy",
-                            StartUtc = _StartUtc,
-                            Timestamp = DateTime.UtcNow,
-                            Uptime = (DateTime.UtcNow - _StartUtc).ToString(@"d\.hh\:mm\:ss"),
-                            Version = ArmadaConstants.ProductVersion,
-                            Ports = new
-                            {
-                                Admiral = _Settings.AdmiralPort,
-                                Mcp = _Settings.McpPort,
-                                WebSocket = _Settings.WebSocketPort
-                            },
-                            RemoteTunnel = _RemoteTunnel.GetStatus()
-                        },
-                        Message = "Armada health snapshot captured."
-                    };
-                case "armada.settings.remotecontrol":
-                    return new RemoteTunnelRequestResult
-                    {
-                        StatusCode = 200,
-                        Payload = _Settings.RemoteControl,
-                        Message = "Remote-control settings captured."
-                    };
-                default:
-                    return new RemoteTunnelRequestResult
-                    {
-                        StatusCode = 404,
-                        ErrorCode = "unsupported_method",
-                        Message = "Unsupported tunnel method " + envelope.Method + "."
-                    };
+                case "armada.fleets.list":
+                case "armada.fleet.detail":
+                case "armada.fleet.create":
+                case "armada.fleet.update":
+                case "armada.vessels.list":
+                case "armada.vessel.detail":
+                case "armada.vessel.create":
+                case "armada.vessel.update":
+                case "armada.voyages.list":
+                case "armada.voyage.dispatch":
+                case "armada.voyage.cancel":
+                case "armada.missions.list":
+                case "armada.mission.create":
+                case "armada.mission.update":
+                case "armada.mission.cancel":
+                case "armada.mission.restart":
+                case "armada.captain.stop":
+                    return await _RemoteControlManagement.HandleAsync(envelope, token).ConfigureAwait(false);
             }
+
+            return await _RemoteControlQueries.HandleAsync(envelope, token).ConfigureAwait(false);
         }
 
         #endregion

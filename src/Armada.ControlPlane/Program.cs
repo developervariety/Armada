@@ -8,6 +8,7 @@ using Armada.Core;
 using Armada.Core.Models;
 
 ControlPlaneSettings settings = new ControlPlaneSettings();
+DateTime controlPlaneStartUtc = DateTime.UtcNow;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 builder.Configuration.GetSection("ArmadaControlPlane").Bind(settings);
@@ -23,6 +24,8 @@ builder.Services.AddSingleton<InstanceRegistry>();
 
 WebApplication app = builder.Build();
 app.UseWebSockets();
+app.UseDefaultFiles();
+app.UseStaticFiles();
 
 app.MapGet("/api/v1/status/health", (InstanceRegistry registry) =>
 {
@@ -34,7 +37,7 @@ app.MapGet("/api/v1/status/health", (InstanceRegistry registry) =>
         version = Constants.ProductVersion,
         protocolVersion = Constants.RemoteTunnelProtocolVersion,
         port = settings.Port,
-        startedUtc = DateTime.UtcNow,
+        startedUtc = controlPlaneStartUtc,
         instances = new
         {
             total = instances.Count,
@@ -70,6 +73,11 @@ app.MapGet("/api/v1/instances/{instanceId}", (string instanceId, InstanceRegistr
     });
 });
 
+app.MapGet("/api/v1/instances/{instanceId}/summary", async (string instanceId, InstanceRegistry registry, CancellationToken token) =>
+{
+    return await ForwardPayloadAsync(registry, instanceId, "armada.instance.summary", null, token).ConfigureAwait(false);
+});
+
 app.MapGet("/api/v1/instances/{instanceId}/status/snapshot", async (string instanceId, InstanceRegistry registry, CancellationToken token) =>
 {
     try
@@ -94,6 +102,298 @@ app.MapGet("/api/v1/instances/{instanceId}/health", async (string instanceId, In
     {
         return Results.BadRequest(new { error = ex.Message });
     }
+});
+
+app.MapGet("/api/v1/instances/{instanceId}/activity", async (HttpContext context, string instanceId, InstanceRegistry registry, CancellationToken token) =>
+{
+    int limit = ParsePositiveInt(context.Request.Query["limit"], 20, 1, 100);
+    return await ForwardPayloadAsync(
+        registry,
+        instanceId,
+        "armada.activity.recent",
+        new RemoteTunnelQueryRequest { Limit = limit },
+        token).ConfigureAwait(false);
+});
+
+app.MapGet("/api/v1/instances/{instanceId}/missions/recent", async (HttpContext context, string instanceId, InstanceRegistry registry, CancellationToken token) =>
+{
+    int limit = ParsePositiveInt(context.Request.Query["limit"], 10, 1, 100);
+    return await ForwardPayloadAsync(
+        registry,
+        instanceId,
+        "armada.missions.recent",
+        new RemoteTunnelQueryRequest { Limit = limit },
+        token).ConfigureAwait(false);
+});
+
+app.MapGet("/api/v1/instances/{instanceId}/voyages/recent", async (HttpContext context, string instanceId, InstanceRegistry registry, CancellationToken token) =>
+{
+    int limit = ParsePositiveInt(context.Request.Query["limit"], 10, 1, 100);
+    return await ForwardPayloadAsync(
+        registry,
+        instanceId,
+        "armada.voyages.recent",
+        new RemoteTunnelQueryRequest { Limit = limit },
+        token).ConfigureAwait(false);
+});
+
+app.MapGet("/api/v1/instances/{instanceId}/captains/recent", async (HttpContext context, string instanceId, InstanceRegistry registry, CancellationToken token) =>
+{
+    int limit = ParsePositiveInt(context.Request.Query["limit"], 10, 1, 100);
+    return await ForwardPayloadAsync(
+        registry,
+        instanceId,
+        "armada.captains.recent",
+        new RemoteTunnelQueryRequest { Limit = limit },
+        token).ConfigureAwait(false);
+});
+
+app.MapGet("/api/v1/instances/{instanceId}/missions/{missionId}", async (string instanceId, string missionId, InstanceRegistry registry, CancellationToken token) =>
+{
+    return await ForwardPayloadAsync(
+        registry,
+        instanceId,
+        "armada.mission.detail",
+        new RemoteTunnelQueryRequest { MissionId = missionId },
+        token).ConfigureAwait(false);
+});
+
+app.MapGet("/api/v1/instances/{instanceId}/missions/{missionId}/log", async (HttpContext context, string instanceId, string missionId, InstanceRegistry registry, CancellationToken token) =>
+{
+    int offset = ParsePositiveInt(context.Request.Query["offset"], 0, 0, Int32.MaxValue);
+    int lines = ParsePositiveInt(context.Request.Query["lines"], 200, 1, 2000);
+    return await ForwardPayloadAsync(
+        registry,
+        instanceId,
+        "armada.mission.log",
+        new RemoteTunnelQueryRequest { MissionId = missionId, Offset = offset, Lines = lines },
+        token).ConfigureAwait(false);
+});
+
+app.MapGet("/api/v1/instances/{instanceId}/missions/{missionId}/diff", async (string instanceId, string missionId, InstanceRegistry registry, CancellationToken token) =>
+{
+    return await ForwardPayloadAsync(
+        registry,
+        instanceId,
+        "armada.mission.diff",
+        new RemoteTunnelQueryRequest { MissionId = missionId },
+        token).ConfigureAwait(false);
+});
+
+app.MapGet("/api/v1/instances/{instanceId}/voyages/{voyageId}", async (string instanceId, string voyageId, InstanceRegistry registry, CancellationToken token) =>
+{
+    return await ForwardPayloadAsync(
+        registry,
+        instanceId,
+        "armada.voyage.detail",
+        new RemoteTunnelQueryRequest { VoyageId = voyageId },
+        token).ConfigureAwait(false);
+});
+
+app.MapGet("/api/v1/instances/{instanceId}/captains/{captainId}", async (string instanceId, string captainId, InstanceRegistry registry, CancellationToken token) =>
+{
+    return await ForwardPayloadAsync(
+        registry,
+        instanceId,
+        "armada.captain.detail",
+        new RemoteTunnelQueryRequest { CaptainId = captainId },
+        token).ConfigureAwait(false);
+});
+
+app.MapGet("/api/v1/instances/{instanceId}/captains/{captainId}/log", async (HttpContext context, string instanceId, string captainId, InstanceRegistry registry, CancellationToken token) =>
+{
+    int offset = ParsePositiveInt(context.Request.Query["offset"], 0, 0, Int32.MaxValue);
+    int lines = ParsePositiveInt(context.Request.Query["lines"], 50, 1, 1000);
+    return await ForwardPayloadAsync(
+        registry,
+        instanceId,
+        "armada.captain.log",
+        new RemoteTunnelQueryRequest { CaptainId = captainId, Offset = offset, Lines = lines },
+        token).ConfigureAwait(false);
+});
+
+app.MapGet("/api/v1/instances/{instanceId}/fleets", async (HttpContext context, string instanceId, InstanceRegistry registry, CancellationToken token) =>
+{
+    int limit = ParsePositiveInt(context.Request.Query["limit"], 12, 1, 200);
+    return await ForwardPayloadAsync(
+        registry,
+        instanceId,
+        "armada.fleets.list",
+        new RemoteTunnelQueryRequest { Limit = limit },
+        token).ConfigureAwait(false);
+});
+
+app.MapGet("/api/v1/instances/{instanceId}/fleets/{fleetId}", async (string instanceId, string fleetId, InstanceRegistry registry, CancellationToken token) =>
+{
+    return await ForwardPayloadAsync(
+        registry,
+        instanceId,
+        "armada.fleet.detail",
+        new RemoteTunnelQueryRequest { FleetId = fleetId },
+        token).ConfigureAwait(false);
+});
+
+app.MapPost("/api/v1/instances/{instanceId}/fleets", async (HttpContext context, string instanceId, InstanceRegistry registry, CancellationToken token) =>
+{
+    JsonElement payload = await ReadJsonBodyAsync(context).ConfigureAwait(false);
+    return await ForwardPayloadAsync(registry, instanceId, "armada.fleet.create", payload, token).ConfigureAwait(false);
+});
+
+app.MapPut("/api/v1/instances/{instanceId}/fleets/{fleetId}", async (HttpContext context, string instanceId, string fleetId, InstanceRegistry registry, CancellationToken token) =>
+{
+    JsonElement fleet = await ReadJsonBodyAsync(context).ConfigureAwait(false);
+    return await ForwardPayloadAsync(
+        registry,
+        instanceId,
+        "armada.fleet.update",
+        new
+        {
+            fleetId = fleetId,
+            fleet = fleet
+        },
+        token).ConfigureAwait(false);
+});
+
+app.MapGet("/api/v1/instances/{instanceId}/vessels", async (HttpContext context, string instanceId, InstanceRegistry registry, CancellationToken token) =>
+{
+    int limit = ParsePositiveInt(context.Request.Query["limit"], 12, 1, 200);
+    string? fleetId = context.Request.Query["fleetId"];
+    return await ForwardPayloadAsync(
+        registry,
+        instanceId,
+        "armada.vessels.list",
+        new RemoteTunnelQueryRequest { Limit = limit, FleetId = fleetId },
+        token).ConfigureAwait(false);
+});
+
+app.MapGet("/api/v1/instances/{instanceId}/vessels/{vesselId}", async (string instanceId, string vesselId, InstanceRegistry registry, CancellationToken token) =>
+{
+    return await ForwardPayloadAsync(
+        registry,
+        instanceId,
+        "armada.vessel.detail",
+        new RemoteTunnelQueryRequest { VesselId = vesselId },
+        token).ConfigureAwait(false);
+});
+
+app.MapPost("/api/v1/instances/{instanceId}/vessels", async (HttpContext context, string instanceId, InstanceRegistry registry, CancellationToken token) =>
+{
+    JsonElement payload = await ReadJsonBodyAsync(context).ConfigureAwait(false);
+    return await ForwardPayloadAsync(registry, instanceId, "armada.vessel.create", payload, token).ConfigureAwait(false);
+});
+
+app.MapPut("/api/v1/instances/{instanceId}/vessels/{vesselId}", async (HttpContext context, string instanceId, string vesselId, InstanceRegistry registry, CancellationToken token) =>
+{
+    JsonElement vessel = await ReadJsonBodyAsync(context).ConfigureAwait(false);
+    return await ForwardPayloadAsync(
+        registry,
+        instanceId,
+        "armada.vessel.update",
+        new
+        {
+            vesselId = vesselId,
+            vessel = vessel
+        },
+        token).ConfigureAwait(false);
+});
+
+app.MapGet("/api/v1/instances/{instanceId}/voyages", async (HttpContext context, string instanceId, InstanceRegistry registry, CancellationToken token) =>
+{
+    int limit = ParsePositiveInt(context.Request.Query["limit"], 12, 1, 200);
+    string? status = context.Request.Query["status"];
+    return await ForwardPayloadAsync(
+        registry,
+        instanceId,
+        "armada.voyages.list",
+        new RemoteTunnelQueryRequest { Limit = limit, Status = status },
+        token).ConfigureAwait(false);
+});
+
+app.MapPost("/api/v1/instances/{instanceId}/voyages/dispatch", async (HttpContext context, string instanceId, InstanceRegistry registry, CancellationToken token) =>
+{
+    JsonElement payload = await ReadJsonBodyAsync(context).ConfigureAwait(false);
+    return await ForwardPayloadAsync(registry, instanceId, "armada.voyage.dispatch", payload, token).ConfigureAwait(false);
+});
+
+app.MapDelete("/api/v1/instances/{instanceId}/voyages/{voyageId}", async (string instanceId, string voyageId, InstanceRegistry registry, CancellationToken token) =>
+{
+    return await ForwardPayloadAsync(
+        registry,
+        instanceId,
+        "armada.voyage.cancel",
+        new RemoteTunnelQueryRequest { VoyageId = voyageId },
+        token).ConfigureAwait(false);
+});
+
+app.MapGet("/api/v1/instances/{instanceId}/missions", async (HttpContext context, string instanceId, InstanceRegistry registry, CancellationToken token) =>
+{
+    int limit = ParsePositiveInt(context.Request.Query["limit"], 16, 1, 200);
+    string? status = context.Request.Query["status"];
+    string? voyageId = context.Request.Query["voyageId"];
+    string? vesselId = context.Request.Query["vesselId"];
+    return await ForwardPayloadAsync(
+        registry,
+        instanceId,
+        "armada.missions.list",
+        new RemoteTunnelQueryRequest { Limit = limit, Status = status, VoyageId = voyageId, VesselId = vesselId },
+        token).ConfigureAwait(false);
+});
+
+app.MapPost("/api/v1/instances/{instanceId}/missions", async (HttpContext context, string instanceId, InstanceRegistry registry, CancellationToken token) =>
+{
+    JsonElement payload = await ReadJsonBodyAsync(context).ConfigureAwait(false);
+    return await ForwardPayloadAsync(registry, instanceId, "armada.mission.create", payload, token).ConfigureAwait(false);
+});
+
+app.MapPut("/api/v1/instances/{instanceId}/missions/{missionId}", async (HttpContext context, string instanceId, string missionId, InstanceRegistry registry, CancellationToken token) =>
+{
+    JsonElement mission = await ReadJsonBodyAsync(context).ConfigureAwait(false);
+    return await ForwardPayloadAsync(
+        registry,
+        instanceId,
+        "armada.mission.update",
+        new
+        {
+            missionId = missionId,
+            mission = mission
+        },
+        token).ConfigureAwait(false);
+});
+
+app.MapDelete("/api/v1/instances/{instanceId}/missions/{missionId}", async (string instanceId, string missionId, InstanceRegistry registry, CancellationToken token) =>
+{
+    return await ForwardPayloadAsync(
+        registry,
+        instanceId,
+        "armada.mission.cancel",
+        new RemoteTunnelQueryRequest { MissionId = missionId },
+        token).ConfigureAwait(false);
+});
+
+app.MapPost("/api/v1/instances/{instanceId}/missions/{missionId}/restart", async (HttpContext context, string instanceId, string missionId, InstanceRegistry registry, CancellationToken token) =>
+{
+    JsonElement payload = await ReadJsonBodyAsync(context, allowEmpty: true).ConfigureAwait(false);
+    return await ForwardPayloadAsync(
+        registry,
+        instanceId,
+        "armada.mission.restart",
+        new
+        {
+            missionId = missionId,
+            title = GetOptionalProperty(payload, "title"),
+            description = GetOptionalProperty(payload, "description")
+        },
+        token).ConfigureAwait(false);
+});
+
+app.MapPost("/api/v1/instances/{instanceId}/captains/{captainId}/stop", async (string instanceId, string captainId, InstanceRegistry registry, CancellationToken token) =>
+{
+    return await ForwardPayloadAsync(
+        registry,
+        instanceId,
+        "armada.captain.stop",
+        new RemoteTunnelQueryRequest { CaptainId = captainId },
+        token).ConfigureAwait(false);
 });
 
 app.Map("/tunnel", async context =>
@@ -168,6 +468,34 @@ app.Map("/tunnel", async context =>
                         {
                             "instances.summary",
                             "instances.detail",
+                            "instances.shell.summary",
+                            "instances.fleets.list",
+                            "instances.fleet.detail",
+                            "instances.fleet.create",
+                            "instances.fleet.update",
+                            "instances.vessels.list",
+                            "instances.vessel.detail",
+                            "instances.vessel.create",
+                            "instances.vessel.update",
+                            "instances.activity",
+                            "instances.missions.list",
+                            "instances.missions.recent",
+                            "instances.voyages.list",
+                            "instances.voyages.recent",
+                            "instances.captains.recent",
+                            "instances.mission.detail",
+                            "instances.mission.log",
+                            "instances.mission.diff",
+                            "instances.mission.create",
+                            "instances.mission.update",
+                            "instances.mission.cancel",
+                            "instances.mission.restart",
+                            "instances.voyage.detail",
+                            "instances.voyage.dispatch",
+                            "instances.voyage.cancel",
+                            "instances.captain.detail",
+                            "instances.captain.log",
+                            "instances.captain.stop",
                             "armada.status.snapshot",
                             "armada.status.health"
                         }
@@ -305,4 +633,82 @@ static object BuildTunnelProxyResponse(RemoteTunnelEnvelope response)
         message = response.Message,
         payload = payload
     };
+}
+
+static async Task<IResult> ForwardPayloadAsync(InstanceRegistry registry, string instanceId, string method, object? payload, CancellationToken token)
+{
+    try
+    {
+        RemoteTunnelEnvelope response = await registry.SendRequestAsync(instanceId, method, payload, token).ConfigureAwait(false);
+        return BuildForwardedPayloadResult(response);
+    }
+    catch (Exception ex)
+    {
+        return Results.BadRequest(new { error = ex.Message });
+    }
+}
+
+static IResult BuildForwardedPayloadResult(RemoteTunnelEnvelope response)
+{
+    object? payload = null;
+    if (response.Payload.HasValue)
+    {
+        payload = JsonSerializer.Deserialize<object>(response.Payload.Value.GetRawText(), RemoteTunnelProtocol.JsonOptions);
+    }
+
+    int statusCode = response.StatusCode ?? (response.Success == false ? 502 : 200);
+    if (statusCode >= 200 && statusCode < 300 && String.IsNullOrWhiteSpace(response.ErrorCode))
+    {
+        return Results.Json(payload ?? new { });
+    }
+
+    return Results.Json(new
+    {
+        error = response.Message ?? "Tunnel request failed.",
+        errorCode = response.ErrorCode,
+        correlationId = response.CorrelationId,
+        payload = payload
+    }, statusCode: statusCode);
+}
+
+static int ParsePositiveInt(string? rawValue, int defaultValue, int minimum, int maximum)
+{
+    if (!Int32.TryParse(rawValue, out int parsed))
+    {
+        parsed = defaultValue;
+    }
+
+    if (parsed < minimum) parsed = minimum;
+    if (parsed > maximum) parsed = maximum;
+    return parsed;
+}
+
+static async Task<JsonElement> ReadJsonBodyAsync(HttpContext context, bool allowEmpty = false)
+{
+    using StreamReader reader = new StreamReader(context.Request.Body, Encoding.UTF8, leaveOpen: true);
+    string body = await reader.ReadToEndAsync().ConfigureAwait(false);
+    if (String.IsNullOrWhiteSpace(body))
+    {
+        return JsonDocument.Parse("{}").RootElement.Clone();
+    }
+
+    return JsonDocument.Parse(body).RootElement.Clone();
+}
+
+static string? GetOptionalProperty(JsonElement element, string propertyName)
+{
+    if (element.ValueKind != JsonValueKind.Object)
+    {
+        return null;
+    }
+
+    foreach (JsonProperty property in element.EnumerateObject())
+    {
+        if (String.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase))
+        {
+            return property.Value.ValueKind == JsonValueKind.Null ? null : property.Value.ToString();
+        }
+    }
+
+    return null;
 }

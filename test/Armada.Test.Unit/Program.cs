@@ -72,6 +72,8 @@ namespace Armada.Test.Unit
             runner.AddSuite(new RuntimeDetectionServiceTests());
             runner.AddSuite(new RemoteTunnelManagerTests());
             runner.AddSuite(new ControlPlaneRegistryTests());
+            runner.AddSuite(new RemoteControlQueryServiceTests());
+            runner.AddSuite(new RemoteControlManagementServiceTests());
             runner.AddSuite(new CaptainServiceTests());
             runner.AddSuite(new AgentLifecycleHandlerTests());
             runner.AddSuite(new MissionPromptTests());

@@ -227,6 +227,9 @@ Primary views:
 - instance summary
 - mission summary and recent mission activity
 - voyage summary and recent voyage activity
+- fleet and vessel management
+- voyage dispatch
+- mission create and edit
 - captain status
 - logs and diffs for focused inspection
 - notification inbox and read state
@@ -391,17 +394,17 @@ Goal: expose remote-control APIs designed for remote workflows, not raw local-da
 ### Checklist
 
 - [x] define instance summary endpoint(s)
-- [-] define recent activity and alert rollup endpoint(s)
-- [ ] define focused detail endpoint(s) for missions, voyages, captains, logs, and diffs
+- [x] define recent activity and alert rollup endpoint(s)
+- [x] define focused detail endpoint(s) for missions, voyages, captains, logs, and diffs
 - [ ] define notification inbox and read-state endpoint(s)
-- [ ] define guarded action endpoint(s)
+- [x] define guarded action endpoint(s)
 - [ ] define action confirmation and policy evaluation responses
-- [ ] define pagination, filtering, stale-data markers, and capability-dependent field rules
+- [-] define pagination, filtering, stale-data markers, and capability-dependent field rules
 - [ ] define audit and rate-limit behavior for each endpoint family
 
 ### Tests
 
-- [ ] automated tests for each aggregated endpoint
+- [-] automated tests for each aggregated endpoint
 - [ ] automated tests for authorization and instance isolation
 - [ ] automated tests for stale/offline instance responses
 - [ ] automated tests for guarded action confirmation flows
@@ -427,14 +430,14 @@ Goal: deliver the first high-value remote experience for phone and browser users
 
 ### Checklist
 
-- [ ] implement instance list with online/offline/stale state
-- [ ] implement instance detail summary
-- [ ] implement activity feed
-- [ ] implement mission and voyage focused views
-- [ ] implement captain status view
-- [ ] implement log and diff viewers tuned for mobile inspection
+- [x] implement instance list with online/offline/stale state
+- [x] implement instance detail summary
+- [x] implement activity feed
+- [x] implement mission and voyage focused views
+- [x] implement captain status view
+- [x] implement log and diff viewers tuned for mobile inspection
 - [ ] implement notification inbox with synced read state
-- [ ] implement guarded remote actions with confirmations
+- [-] implement guarded remote actions with confirmations
 - [ ] implement auth/session UX for mobile web
 - [ ] implement clear degraded/offline UI states
 
@@ -447,9 +450,9 @@ Goal: deliver the first high-value remote experience for phone and browser users
 
 ### Documentation
 
-- [ ] update `README.md` with remote operations shell scope and usage once available
+- [x] update `README.md` with remote operations shell scope and usage once available
 - [ ] create a user-facing remote-shell doc if the UX surface becomes large enough to warrant it
-- [ ] update `docs/TUNNEL_OPERATIONS.md` with operator troubleshooting for disconnected or stale instances
+- [x] update `docs/TUNNEL_OPERATIONS.md` with operator troubleshooting for disconnected or stale instances
 
 ### Exit Criteria
 

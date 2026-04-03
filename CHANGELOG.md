@@ -13,6 +13,9 @@ All notable changes to Armada are documented in this file.
 - React dashboard, legacy dashboard, and `armada status` now surface remote tunnel configuration and live state
 - Added request/response handling and server event forwarding on the tunnel contract
 - Added `Armada.ControlPlane` with websocket tunnel termination, instance summaries, recent-event inspection, and live `armada.status.snapshot` / `armada.status.health` forwarding
+- Added focused tunnel-backed remote inspection routes for recent activity, missions, voyages, captains, logs, and diffs
+- Added bounded tunnel-backed management routes for fleets, vessels, voyages, missions, and captain stop
+- Added a control-plane-hosted remote operations shell at `/` for mobile-first remote triage, fleet and vessel management, voyage dispatch, mission editing, and captain control
 - Added `docs/TUNNEL_PROTOCOL.md`, `docs/CONTROL_PLANE_API.md`, and `docs/TUNNEL_OPERATIONS.md` for the shipped tunnel and control-plane contract
 
 ### Release and Docs
