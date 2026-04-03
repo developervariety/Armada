@@ -265,7 +265,7 @@ namespace Armada.Test.Unit.Suites.Services
 
             // === VoyageService Progress Counting ===
 
-            await RunTest("VoyageService counts WorkProduced as in-progress", async () =>
+            await RunTest("VoyageService counts WorkProduced as completed", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
@@ -283,8 +283,8 @@ namespace Armada.Test.Unit.Suites.Services
                     VoyageProgress? progress = await voyageService.GetProgressAsync(voyage.Id);
                     AssertNotNull(progress, "Progress should not be null");
                     AssertEqual(1, progress!.TotalMissions, "Total missions");
-                    AssertEqual(1, progress.InProgressMissions, "WorkProduced should count as in-progress");
-                    AssertEqual(0, progress.CompletedMissions, "Should not count as completed");
+                    AssertEqual(0, progress.InProgressMissions, "WorkProduced should not count as active");
+                    AssertEqual(1, progress.CompletedMissions, "WorkProduced should count as completed");
                     AssertEqual(0, progress.FailedMissions, "Should not count as failed");
                 }
             });
@@ -308,6 +308,30 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertNotNull(progress, "Progress should not be null");
                     AssertEqual(1, progress!.TotalMissions, "Total missions");
                     AssertEqual(1, progress.InProgressMissions, "PullRequestOpen should count as in-progress");
+                    AssertEqual(0, progress.CompletedMissions, "Should not count as completed");
+                    AssertEqual(0, progress.FailedMissions, "Should not count as failed");
+                }
+            });
+
+            await RunTest("VoyageService counts Review as in-progress", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    IVoyageService voyageService = new VoyageService(logging, testDb.Driver);
+
+                    Voyage voyage = new Voyage("Test voyage");
+                    await testDb.Driver.Voyages.CreateAsync(voyage);
+
+                    Mission m = new Mission("review-mission");
+                    m.VoyageId = voyage.Id;
+                    m.Status = MissionStatusEnum.Review;
+                    await testDb.Driver.Missions.CreateAsync(m);
+
+                    VoyageProgress? progress = await voyageService.GetProgressAsync(voyage.Id);
+                    AssertNotNull(progress, "Progress should not be null");
+                    AssertEqual(1, progress!.TotalMissions, "Total missions");
+                    AssertEqual(1, progress.InProgressMissions, "Review should count as in-progress");
                     AssertEqual(0, progress.CompletedMissions, "Should not count as completed");
                     AssertEqual(0, progress.FailedMissions, "Should not count as failed");
                 }
@@ -387,9 +411,9 @@ namespace Armada.Test.Unit.Suites.Services
                     VoyageProgress? progress = await voyageService.GetProgressAsync(voyage.Id);
                     AssertNotNull(progress, "Progress should not be null");
                     AssertEqual(7, progress!.TotalMissions, "Total missions");
-                    AssertEqual(1, progress.CompletedMissions, "Completed count");
+                    AssertEqual(2, progress.CompletedMissions, "Complete + WorkProduced count");
                     AssertEqual(2, progress.FailedMissions, "Failed + LandingFailed count");
-                    AssertEqual(3, progress.InProgressMissions, "InProgress + WorkProduced + PullRequestOpen count");
+                    AssertEqual(2, progress.InProgressMissions, "InProgress + PullRequestOpen count");
                 }
             });
 
