@@ -13,6 +13,7 @@ namespace Armada.Helm.Commands
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
     using Armada.Runtimes;
+    using Armada.Server;
     using Armada.Server.Mcp;
 
     /// <summary>
