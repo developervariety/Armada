@@ -123,6 +123,48 @@ namespace Armada.Test.Runtimes.Suites
                 AssertTrue(outputLines.Count > 0, "Expected at least one output line");
             });
 
+            await RunTest("OnOutputReceived Preserves Utf8 Stderr Content", async () =>
+            {
+                TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());
+                string tempDir = Path.GetTempPath();
+                string expected = "I\u2019m";
+
+                if (OperatingSystem.IsWindows())
+                {
+                    runtime.CommandOverride = "powershell";
+                    runtime.ArgsOverride = new List<string>
+                    {
+                        "-Command",
+                        "[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false); " +
+                        "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); " +
+                        "[Console]::Error.WriteLine('I' + [char]0x2019 + 'm')"
+                    };
+                }
+                else
+                {
+                    runtime.CommandOverride = "bash";
+                    runtime.ArgsOverride = new List<string>
+                    {
+                        "-lc",
+                        "printf 'I\\342\\200\\231m\\n' 1>&2"
+                    };
+                }
+
+                List<string> outputLines = new List<string>();
+                runtime.OnOutputReceived += (pid, line) =>
+                {
+                    lock (outputLines)
+                    {
+                        outputLines.Add(line);
+                    }
+                };
+
+                await runtime.StartAsync(tempDir, "test prompt");
+                await Task.Delay(2000);
+
+                AssertTrue(outputLines.Contains(expected), "Expected UTF-8 stderr content to be preserved");
+            });
+
             await RunTest("OnProcessStarted Fires WithPid", async () =>
             {
                 TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());

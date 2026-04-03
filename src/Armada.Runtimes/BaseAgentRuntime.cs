@@ -1,6 +1,7 @@
 namespace Armada.Runtimes
 {
     using System.Diagnostics;
+    using System.Text;
     using SyslogLogging;
     using Armada.Runtimes.Interfaces;
 
@@ -94,6 +95,9 @@ namespace Armada.Runtimes
                 RedirectStandardInput = true,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
+                StandardInputEncoding = Encoding.UTF8,
+                StandardOutputEncoding = Encoding.UTF8,
+                StandardErrorEncoding = Encoding.UTF8,
                 CreateNoWindow = true
             };
 
