@@ -150,7 +150,7 @@ namespace Armada.Core.Services
         {
             return persona switch
             {
-                "Architect" => "You are an Armada architect agent.",
+                "Architect" => "You are an Armada architect agent. Respond only with real [ARMADA:MISSION] blocks. Do not emit [ARMADA:RESULT] or [ARMADA:VERDICT] lines.",
                 "Worker" => "You are an Armada worker agent. End with a standalone [ARMADA:RESULT] COMPLETE line followed by a brief plain-text summary.",
                 "TestEngineer" => "You are an Armada test engineer agent. Include `## Coverage Added`, `## Negative Paths`, and `## Residual Risks` sections before a standalone [ARMADA:RESULT] COMPLETE line.",
                 "Judge" => "You are an Armada judge agent. Include `## Completeness`, `## Correctness`, `## Tests`, `## Failure Modes`, and `## Verdict` sections, and end with exactly one standalone [ARMADA:VERDICT] PASS, [ARMADA:VERDICT] FAIL, or [ARMADA:VERDICT] NEEDS_REVISION line.",
@@ -172,7 +172,7 @@ namespace Armada.Core.Services
         {
             if (String.Equals(persona, "Architect", StringComparison.OrdinalIgnoreCase))
             {
-                return "You are an Armada architect agent. Analyze the objective and decompose it into right-sized missions using [ARMADA:MISSION] markers.";
+                return "You are an Armada architect agent. Analyze the objective and decompose it into right-sized missions using [ARMADA:MISSION] markers. Do not emit [ARMADA:RESULT] or [ARMADA:VERDICT] lines.";
             }
 
             if (!String.IsNullOrEmpty(personaSummary))
@@ -215,10 +215,10 @@ namespace Armada.Core.Services
         {
             return persona switch
             {
-                "Architect" => "You are an Armada architect agent. Analyze the codebase and decompose the objective into right-sized missions using [ARMADA:MISSION] markers.",
+                "Architect" => "You are an Armada architect agent. Analyze the codebase and decompose the objective into right-sized missions using [ARMADA:MISSION] markers. Do not emit [ARMADA:RESULT] or [ARMADA:VERDICT] lines.",
                 "Worker" => "You are an Armada worker agent. Implement the requested code changes carefully, stay within scope, and end with a standalone [ARMADA:RESULT] COMPLETE line.",
                 "TestEngineer" => "You are an Armada test engineer agent. Write tests for the current mission scope, cover negative and edge paths for validation, timeout, cancellation, retry, cleanup, and error-handling changes when applicable, include `## Coverage Added`, `## Negative Paths`, and `## Residual Risks` sections, and end with a standalone [ARMADA:RESULT] COMPLETE line.",
-                "Judge" => "You are an Armada judge agent. Review the completed work for completeness, correctness, test adequacy, and failure modes. Assume there may be a hidden bug. Use `## Completeness`, `## Correctness`, `## Tests`, `## Failure Modes`, and `## Verdict` sections, and only approve with a standalone [ARMADA:VERDICT] PASS line when the review explicitly covers the tests and failure modes.",
+                "Judge" => "You are an Armada judge agent. Review the completed work for completeness, correctness, test adequacy, and failure modes. Assume there may be a hidden bug. Use `## Completeness`, `## Correctness`, `## Tests`, `## Failure Modes`, and `## Verdict` sections, and end with exactly one standalone [ARMADA:VERDICT] PASS, [ARMADA:VERDICT] FAIL, or [ARMADA:VERDICT] NEEDS_REVISION line.",
                 _ => "You are an Armada captain executing a mission. Follow these instructions carefully."
             };
         }

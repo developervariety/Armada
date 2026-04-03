@@ -1030,7 +1030,12 @@ namespace Armada.Core.Services
                         "- `[ARMADA:PROGRESS] 50` -- report completion percentage (0-100)\n" +
                         "- `[ARMADA:STATUS] Testing` -- transition mission to Testing status\n" +
                         "- `[ARMADA:STATUS] Review` -- transition mission to Review status\n" +
-                        "- `[ARMADA:MESSAGE] your message here` -- send a progress message\n";
+                        "- `[ARMADA:MESSAGE] your message here` -- send a progress message\n" +
+                        "- `[ARMADA:RESULT] COMPLETE` -- worker/test engineer mission finished successfully\n" +
+                        "- `[ARMADA:VERDICT] PASS` -- judge approves the mission\n" +
+                        "- `[ARMADA:VERDICT] FAIL` -- judge rejects the mission\n" +
+                        "- `[ARMADA:VERDICT] NEEDS_REVISION` -- judge requests follow-up changes\n" +
+                        "Architect missions must not emit `[ARMADA:RESULT]` or `[ARMADA:VERDICT]`; they must output only real `[ARMADA:MISSION]` blocks.\n";
 
                 case "mission.model_context_updates":
                     return
@@ -2281,7 +2286,7 @@ namespace Armada.Core.Services
 
             System.Text.RegularExpressions.Match signal = System.Text.RegularExpressions.Regex.Match(
                 line.Trim(),
-                @"^\[ARMADA:(?:VERDICT|RESULT)\]\s+(?<verdict>PASS|FAIL|NEEDS_REVISION)\s*$",
+                @"^\[ARMADA:VERDICT\]\s+(?<verdict>PASS|FAIL|NEEDS_REVISION)\s*$",
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase);
             if (!signal.Success) return null;
 
