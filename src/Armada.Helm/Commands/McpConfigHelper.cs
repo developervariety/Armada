@@ -25,6 +25,7 @@ namespace Armada.Helm.Commands
         internal static JsonSerializerOptions JsonOptions { get; } = new JsonSerializerOptions { WriteIndented = true };
         private const string ManagedBlockStart = "<!-- armada:mcp:begin -->";
         private const string ManagedBlockEnd = "<!-- armada:mcp:end -->";
+        private const string SourceMcpFramework = "net10.0";
 
         internal static string GetMcpRpcUrl(int mcpPort)
         {
@@ -353,7 +354,7 @@ namespace Armada.Helm.Commands
                     "--project",
                     helmProjectPath!,
                     "-f",
-                    "net8.0",
+                    SourceMcpFramework,
                     "--",
                     "mcp",
                     "stdio"

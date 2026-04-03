@@ -34,6 +34,22 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertFalse(programContents.Contains("\"v0.5.0\""), "Helm entry point should compose the prefixed version instead of hard-coding it");
                 AssertFalse(programContents.Contains("SetApplicationVersion(\"0.5.0\")"), "Helm CLI version should not be hard-coded");
             });
+
+            await RunTest("Source MCP Helpers Use Net10 Framework", () =>
+            {
+                string mcpConfigHelperContents = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "Armada.Helm", "Commands", "McpConfigHelper.cs"));
+                string installMcpBatContents = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "install-mcp.bat"));
+                string installMcpShContents = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "install-mcp.sh"));
+                string removeMcpBatContents = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "remove-mcp.bat"));
+                string removeMcpShContents = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "remove-mcp.sh"));
+
+                AssertContains("private const string SourceMcpFramework = \"net10.0\";", mcpConfigHelperContents, "McpConfigHelper should pin source MCP installs to net10.0");
+                AssertFalse(mcpConfigHelperContents.Contains("\"net8.0\""), "McpConfigHelper should not pin source MCP installs to net8.0");
+                AssertContains("-f net10.0 -- mcp install --yes", installMcpBatContents, "install-mcp.bat should use net10.0");
+                AssertContains("-f net10.0 -- mcp install --yes", installMcpShContents, "install-mcp.sh should use net10.0");
+                AssertContains("-f net10.0 -- mcp remove --yes", removeMcpBatContents, "remove-mcp.bat should use net10.0");
+                AssertContains("-f net10.0 -- mcp remove --yes", removeMcpShContents, "remove-mcp.sh should use net10.0");
+            });
         }
 
         private static string FindRepositoryRoot()
