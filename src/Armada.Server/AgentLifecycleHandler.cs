@@ -66,6 +66,11 @@ namespace Armada.Server
         /// </summary>
         private System.Collections.Concurrent.ConcurrentDictionary<int, DateTime> _HandledProcessExits = new System.Collections.Concurrent.ConcurrentDictionary<int, DateTime>();
 
+        /// <summary>
+        /// Tracks per-process liveness heartbeat loops so silent-but-busy runtimes still refresh telemetry.
+        /// </summary>
+        private System.Collections.Concurrent.ConcurrentDictionary<int, CancellationTokenSource> _ProcessHeartbeatLoops = new System.Collections.Concurrent.ConcurrentDictionary<int, CancellationTokenSource>();
+
         #endregion
 
         #region Constructors-and-Factories
@@ -359,6 +364,7 @@ namespace Armada.Server
             _PendingLaunches.TryRemove(launchKey, out _);
 
             _Logging.Info(_Header + "agent process " + processId + " started for captain " + captain.Id + " (log: " + logFilePath + ")");
+            StartProcessLivenessHeartbeat(processId, captain.Id, mission.Id);
 
             await _EmitEventAsync("captain.launched", "Agent process started for captain " + captain.Name,
                 "captain", captain.Id,
@@ -371,6 +377,93 @@ namespace Armada.Server
             }
 
             return processId;
+        }
+
+        /// <summary>
+        /// Start a periodic heartbeat loop for a tracked process so telemetry stays fresh
+        /// even when the runtime is busy but not emitting output.
+        /// </summary>
+        private void StartProcessLivenessHeartbeat(int processId, string captainId, string missionId)
+        {
+            CancellationTokenSource cts = new CancellationTokenSource();
+            if (!_ProcessHeartbeatLoops.TryAdd(processId, cts))
+            {
+                cts.Dispose();
+                return;
+            }
+
+            TimeSpan interval = TimeSpan.FromSeconds(Math.Max(5, _Settings.HeartbeatIntervalSeconds));
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    while (!cts.Token.IsCancellationRequested)
+                    {
+                        await Task.Delay(interval, cts.Token).ConfigureAwait(false);
+                        if (cts.Token.IsCancellationRequested) break;
+                        if (!IsTrackedProcessAlive(processId)) break;
+
+                        string? mappedCaptainId = null;
+                        string? mappedMissionId = null;
+                        lock (_ProcessToCaptain)
+                        {
+                            _ProcessToCaptain.TryGetValue(processId, out mappedCaptainId);
+                            _ProcessToMission.TryGetValue(processId, out mappedMissionId);
+                        }
+
+                        if (!String.Equals(mappedCaptainId, captainId, StringComparison.Ordinal) ||
+                            !String.Equals(mappedMissionId, missionId, StringComparison.Ordinal))
+                        {
+                            break;
+                        }
+
+                        try { await _Database.Captains.UpdateHeartbeatAsync(captainId).ConfigureAwait(false); }
+                        catch { }
+
+                        try { await _Database.Missions.UpdateHeartbeatAsync(missionId).ConfigureAwait(false); }
+                        catch { }
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                }
+                finally
+                {
+                    if (_ProcessHeartbeatLoops.TryRemove(processId, out CancellationTokenSource? removed))
+                    {
+                        removed.Dispose();
+                    }
+                }
+            });
+        }
+
+        /// <summary>
+        /// Stop the periodic heartbeat loop for a tracked process.
+        /// </summary>
+        private void StopProcessLivenessHeartbeat(int processId)
+        {
+            if (_ProcessHeartbeatLoops.TryRemove(processId, out CancellationTokenSource? cts))
+            {
+                try { cts.Cancel(); }
+                catch { }
+                cts.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// Determine whether the tracked wrapper process is still alive.
+        /// </summary>
+        private static bool IsTrackedProcessAlive(int processId)
+        {
+            try
+            {
+                using Process process = Process.GetProcessById(processId);
+                return !process.HasExited;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         /// <summary>
@@ -520,6 +613,8 @@ namespace Armada.Server
         /// </summary>
         public void HandleAgentProcessExited(int processId, int? exitCode)
         {
+            StopProcessLivenessHeartbeat(processId);
+
             string? captainId = null;
             string? missionId = null;
             lock (_ProcessToCaptain)

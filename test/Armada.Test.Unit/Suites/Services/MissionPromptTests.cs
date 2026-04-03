@@ -797,6 +797,8 @@ namespace Armada.Test.Unit.Suites.Services
                         mission, vessel, captain, dock, templateService).ConfigureAwait(false);
 
                     AssertContains("test engineer", prompt.ToLowerInvariant());
+                    AssertContains("## Coverage Added", prompt);
+                    AssertContains("[ARMADA:RESULT] COMPLETE", prompt);
                     AssertContains("Write tests", prompt);
                     AssertContains("CODEX.md", prompt);
                     AssertFalse(prompt.Contains("CLAUDE.md"), "Non-Claude runtimes should not be pointed at CLAUDE.md");
@@ -866,6 +868,36 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertContains("[ARMADA:MISSION]", prompt);
                     AssertContains("Do not ask for more input.", prompt);
                     AssertContains("respond only with real [ARMADA:MISSION] blocks", prompt);
+                }
+            });
+
+            await RunTest("Judge launch prompt repeats structured verdict contract", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    IPromptTemplateService templateService = new PromptTemplateService(testDb.Driver, logging);
+                    await templateService.SeedDefaultsAsync();
+
+                    Vessel vessel = new Vessel("JudgeLaunchVessel", "https://github.com/test/repo");
+                    Captain captain = new Captain("judge-launch-captain");
+                    captain.Runtime = AgentRuntimeEnum.ClaudeCode;
+                    captain.SystemInstructions = "End with exactly one standalone verdict line and give a brief explanation.";
+
+                    Mission mission = new Mission("Review work", "Assess the submitted change.");
+                    mission.Persona = "Judge";
+                    mission.BranchName = "armada/judge-launch";
+
+                    Dock dock = new Dock(vessel.Id);
+                    dock.BranchName = mission.BranchName;
+
+                    string prompt = await MissionPromptBuilder.BuildLaunchPromptAsync(
+                        mission, vessel, captain, dock, templateService).ConfigureAwait(false);
+
+                    AssertContains("## Completeness", prompt);
+                    AssertContains("## Failure Modes", prompt);
+                    AssertContains("[ARMADA:VERDICT] PASS", prompt);
+                    AssertContains("follow it exactly", prompt);
                 }
             });
         }

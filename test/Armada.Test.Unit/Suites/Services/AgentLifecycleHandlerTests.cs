@@ -1,5 +1,6 @@
 namespace Armada.Test.Unit.Suites.Services
 {
+    using System.Diagnostics;
     using System.IO;
     using System.Reflection;
     using Armada.Core.Database;
@@ -171,6 +172,64 @@ namespace Armada.Test.Unit.Suites.Services
                     }).ConfigureAwait(false);
                 }
             });
+
+            await RunTest("Silent running process still refreshes captain and mission heartbeats", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out ArmadaSettings settings);
+                    settings.HeartbeatIntervalSeconds = 5;
+
+                    Captain captain = new Captain("silent-heartbeat-captain", AgentRuntimeEnum.Cursor);
+                    await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    Voyage voyage = new Voyage("Silent heartbeat voyage", "Telemetry proof");
+                    await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+
+                    Mission mission = new Mission("Silent heartbeat mission")
+                    {
+                        VoyageId = voyage.Id
+                    };
+                    await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    Mission? beforeMission = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    Voyage? beforeVoyage = await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
+                    AssertNotNull(beforeMission);
+                    AssertNotNull(beforeVoyage);
+
+                    using Process process = StartSilentProcess();
+                    RegisterTrackedProcess(handler, process.Id, captain.Id, mission.Id);
+                    StartTrackedProcessHeartbeat(handler, process.Id, captain.Id, mission.Id);
+
+                    try
+                    {
+                        await WaitForConditionAsync(async () =>
+                        {
+                            Captain? refreshedCaptain = await testDb.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                            Mission? refreshedMission = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                            Voyage? refreshedVoyage = await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
+
+                            return refreshedCaptain?.LastHeartbeatUtc.HasValue == true
+                                && refreshedMission != null
+                                && refreshedMission.LastUpdateUtc > beforeMission!.LastUpdateUtc
+                                && refreshedVoyage != null
+                                && refreshedVoyage.LastUpdateUtc > beforeVoyage!.LastUpdateUtc;
+                        }, TimeSpan.FromSeconds(8)).ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        try
+                        {
+                            if (!process.HasExited)
+                            {
+                                process.Kill(entireProcessTree: true);
+                                process.WaitForExit(5000);
+                            }
+                        }
+                        catch { }
+                    }
+                }
+            });
         }
 
         private AgentLifecycleHandler CreateHandler(DatabaseDriver database, out ArmadaSettings settings)
@@ -276,9 +335,44 @@ namespace Armada.Test.Unit.Suites.Services
             }
         }
 
-        private static async Task WaitForConditionAsync(Func<Task<bool>> predicate)
+        private static void StartTrackedProcessHeartbeat(AgentLifecycleHandler handler, int processId, string captainId, string missionId)
         {
-            DateTime deadline = DateTime.UtcNow.AddSeconds(3);
+            MethodInfo method = typeof(AgentLifecycleHandler).GetMethod("StartProcessLivenessHeartbeat", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException("Could not find StartProcessLivenessHeartbeat method");
+            method.Invoke(handler, new object[] { processId, captainId, missionId });
+        }
+
+        private static Process StartSilentProcess()
+        {
+            ProcessStartInfo startInfo;
+            if (OperatingSystem.IsWindows())
+            {
+                startInfo = new ProcessStartInfo
+                {
+                    FileName = "cmd.exe",
+                    Arguments = "/c ping 127.0.0.1 -n 10 >nul",
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+            }
+            else
+            {
+                startInfo = new ProcessStartInfo
+                {
+                    FileName = "/bin/sh",
+                    Arguments = "-c \"sleep 10\"",
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+            }
+
+            return Process.Start(startInfo)
+                ?? throw new InvalidOperationException("Failed to start silent heartbeat test process");
+        }
+
+        private static async Task WaitForConditionAsync(Func<Task<bool>> predicate, TimeSpan? timeout = null)
+        {
+            DateTime deadline = DateTime.UtcNow.Add(timeout ?? TimeSpan.FromSeconds(3));
 
             while (DateTime.UtcNow < deadline)
             {

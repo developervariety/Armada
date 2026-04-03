@@ -151,9 +151,9 @@ namespace Armada.Core.Services
             return persona switch
             {
                 "Architect" => "You are an Armada architect agent.",
-                "Worker" => "You are an Armada worker agent.",
-                "TestEngineer" => "You are an Armada test engineer agent.",
-                "Judge" => "You are an Armada judge agent.",
+                "Worker" => "You are an Armada worker agent. End with a standalone [ARMADA:RESULT] COMPLETE line followed by a brief plain-text summary.",
+                "TestEngineer" => "You are an Armada test engineer agent. Include `## Coverage Added`, `## Negative Paths`, and `## Residual Risks` sections before a standalone [ARMADA:RESULT] COMPLETE line.",
+                "Judge" => "You are an Armada judge agent. Include `## Completeness`, `## Correctness`, `## Tests`, `## Failure Modes`, and `## Verdict` sections, and end with exactly one standalone [ARMADA:VERDICT] PASS, [ARMADA:VERDICT] FAIL, or [ARMADA:VERDICT] NEEDS_REVISION line.",
                 _ => "You are an Armada captain executing a mission."
             };
         }
