@@ -53,18 +53,7 @@
                     </div>
                     <div class="form-group">
                         <label>Tasks</label>
-                        <textarea x-model="quickDispatch.prompt" rows="5" placeholder="Describe your tasks in natural language.&#10;&#10;Use numbered lists, semicolons, or just describe a single task:&#10;1. Add user authentication&#10;2. Create dashboard page&#10;3. Write unit tests" @input="previewQuickTasks()" title="Enter tasks as a numbered list, semicolon-separated, or as a single task"></textarea>
-                    </div>
-                    <!-- Task preview -->
-                    <div x-show="quickParsedTasks.length > 0" class="dispatch-preview">
-                        <div class="dispatch-preview-header">
-                            <span x-text="quickParsedTasks.length + ' task' + (quickParsedTasks.length !== 1 ? 's' : '') + ' detected'"></span>
-                        </div>
-                        <ol class="dispatch-preview-list">
-                            <template x-for="(task, i) in quickParsedTasks" :key="i">
-                                <li x-text="task"></li>
-                            </template>
-                        </ol>
+                        <textarea x-model="quickDispatch.prompt" rows="5" placeholder="Describe your tasks in natural language.&#10;&#10;Use numbered lists, semicolons, or just describe a single task:&#10;1. Add user authentication&#10;2. Create dashboard page&#10;3. Write unit tests" title="Enter tasks as a numbered list, semicolon-separated, or as a single task"></textarea>
                     </div>
                     <div class="form-actions">
                         <button type="button" class="btn btn-primary" :disabled="quickDispatching || !quickDispatch.vesselId || !quickDispatch.prompt.trim()" @click="quickDispatchVoyage()" title="Create a voyage with the parsed tasks">

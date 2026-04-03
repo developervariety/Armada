@@ -122,6 +122,7 @@
                         <div class="detail-field"><span class="detail-label">ID</span><span class="id-display"><span class="mono" x-text="detail.id"></span><button class="copy-btn" @click.stop="copyId(detail.id, $event)" title="Copy ID"></button></span></div>
                         <div class="detail-field"><span class="detail-label">State</span><span class="tag" :class="(detail.state || '').toLowerCase()" x-text="detail.state" :title="statusTooltip(detail.state)"></span></div>
                         <div class="detail-field"><span class="detail-label">Runtime</span><span x-text="detail.runtime || 'ClaudeCode'"></span></div>
+                        <div class="detail-field"><span class="detail-label">Model</span><span x-text="detail.model || 'Runtime default'"></span></div>
                         <div class="detail-field"><span class="detail-label">Process ID</span><span x-text="detail.processId || '-'"></span></div>
                         <div class="detail-field"><span class="detail-label">Current Mission</span>
                             <span x-show="detail.currentMissionId" class="id-display"><a class="mono" href="#" @click.prevent="navigate('missions', 'mission-detail', detail.currentMissionId)" x-text="detail.currentMissionId"></a><button class="copy-btn" @click.stop="copyId(detail.currentMissionId, $event)" title="Copy ID"></button></span>

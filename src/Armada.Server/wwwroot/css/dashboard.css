@@ -673,6 +673,10 @@ tr.clickable { cursor: pointer; }
     margin-bottom: 1rem;
 }
 
+.mission-detail-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .detail-field {
     display: flex;
     flex-direction: column;
@@ -1724,32 +1728,6 @@ a:hover { text-decoration: underline; }
     background: var(--bg-hover);
     font-weight: 600;
     border-radius: var(--radius) var(--radius) 0 0;
-}
-
-.dispatch-preview {
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 0.75rem 1rem;
-    margin-bottom: 1rem;
-}
-
-.dispatch-preview-header {
-    font-size: 0.8rem;
-    font-weight: 500;
-    color: var(--text-dim);
-    margin-bottom: 0.4rem;
-}
-
-.dispatch-preview-list {
-    margin: 0;
-    padding-left: 1.5rem;
-    font-size: 0.85rem;
-    color: var(--text);
-}
-
-.dispatch-preview-list li {
-    padding: 0.15rem 0;
 }
 
 /* Responsive */

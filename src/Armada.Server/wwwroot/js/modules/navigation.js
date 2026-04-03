@@ -17,7 +17,6 @@ window.ArmadaModules.navigation = {
         this.showDispatchForm = false;
         this.dispatchResult = null;
         this.quickDispatchResult = null;
-        this.quickParsedTasks = [];
         this.updateBreadcrumbs();
 
         // Reset pagination to page 1 when navigating to a view

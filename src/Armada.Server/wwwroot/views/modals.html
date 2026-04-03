@@ -1,5 +1,5 @@
     <!-- ========== Modals ========== -->
-    <div class="modal-overlay" x-show="modal" @click.self="modal === 'confirm-dialog' ? confirmNo() : (modal = null)" x-cloak>
+    <div class="modal-overlay" x-show="modal" @click.self="modal === 'confirm-dialog' ? confirmNo() : (modal === 'alert-dialog' ? closeAlert() : (modal = null))" x-cloak>
 
         <!-- Create Fleet -->
         <div class="modal-box" x-show="modal === 'create-fleet'">
@@ -114,6 +114,10 @@
                         <option value="Custom">Custom</option>
                     </select>
                 </div>
+                <div class="form-group">
+                    <label>Model</label>
+                    <input type="text" x-model="modalData.model" placeholder="e.g. gpt-5.4-mini" title="Optional model identifier. Leave blank to let the runtime choose its default model.">
+                </div>
                 <div class="modal-actions">
                     <button type="button" class="btn btn-sm" @click="modal = null" title="Cancel without adding">Cancel</button>
                     <button type="submit" class="btn btn-primary btn-sm" :disabled="modalLoading" title="Register the captain">Add</button>
@@ -135,6 +139,10 @@
                         <option value="Cursor">Cursor</option>
                         <option value="Custom">Custom</option>
                     </select>
+                </div>
+                <div class="form-group">
+                    <label>Model</label>
+                    <input type="text" x-model="modalData.model" placeholder="e.g. gpt-5.4-mini" title="Optional model identifier. Leave blank to let the runtime choose its default model.">
                 </div>
                 <div class="modal-actions">
                     <button type="button" class="btn btn-sm" @click="modal = null" title="Cancel without saving">Cancel</button>
@@ -279,6 +287,14 @@
             <div class="modal-actions">
                 <button type="button" class="btn btn-sm" @click="confirmNo()">Cancel</button>
                 <button type="button" class="btn btn-danger btn-sm" @click="confirmYes()">OK</button>
+            </div>
+        </div>
+
+        <div class="modal-box" x-show="modal === 'alert-dialog'">
+            <h3 x-text="alertTitle || 'Error'"></h3>
+            <p x-text="alertMessage" style="margin:1rem 0;white-space:pre-wrap"></p>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-primary btn-sm" @click="closeAlert()">OK</button>
             </div>
         </div>
     </div>

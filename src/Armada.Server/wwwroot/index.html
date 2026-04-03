@@ -348,7 +348,7 @@
                             </div>
                         </div>
                     </div>
-                    <div class="detail-grid">
+                    <div class="detail-grid mission-detail-grid">
                         <div class="detail-field"><span class="detail-label">ID</span><span class="id-display"><span class="mono" x-text="detail.id"></span><button class="copy-btn" @click.stop="copyId(detail.id, $event)" title="Copy ID"></button></span></div>
                         <div class="detail-field"><span class="detail-label">Status</span><span class="tag" :class="(detail.status || '').toLowerCase()" x-text="detail.status" :title="statusTooltip(detail.status)"></span></div>
                         <div class="detail-field"><span class="detail-label">Priority</span><span x-text="detail.priority"></span></div>
@@ -362,6 +362,7 @@
                         <div class="detail-field"><span class="detail-label">Created</span><span x-text="formatTimeAbsolute(detail.createdUtc)"></span></div>
                         <div class="detail-field" x-show="detail.startedUtc"><span class="detail-label">Started</span><span x-text="formatTimeAbsolute(detail.startedUtc)"></span></div>
                         <div class="detail-field" x-show="detail.completedUtc"><span class="detail-label">Completed</span><span x-text="formatTimeAbsolute(detail.completedUtc)"></span></div>
+                        <div class="detail-field"><span class="detail-label">Total Runtime</span><span x-text="formatDuration(detail.totalRuntimeMs)"></span></div>
                     </div>
 
                     <!-- Status transitions -->

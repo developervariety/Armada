@@ -34,7 +34,7 @@ export default function Captains() {
   // Modal state
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Captain | null>(null);
-  const [form, setForm] = useState({ name: '', runtime: '', systemInstructions: '' });
+  const [form, setForm] = useState({ name: '', runtime: '', systemInstructions: '', model: '' });
 
   // JSON viewer
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
@@ -126,19 +126,22 @@ export default function Captains() {
   function clearSelection() { setSelected([]); }
 
   // CRUD
-  function openCreate() { setForm({ name: '', runtime: '', systemInstructions: '' }); setEditing(null); setShowForm(true); }
-  function openEdit(c: Captain) { setForm({ name: c.name, runtime: c.runtime, systemInstructions: c.systemInstructions ?? '' }); setEditing(c); setShowForm(true); }
+  function openCreate() { setForm({ name: '', runtime: '', systemInstructions: '', model: '' }); setEditing(null); setShowForm(true); }
+  function openEdit(c: Captain) { setForm({ name: c.name, runtime: c.runtime, systemInstructions: c.systemInstructions ?? '', model: c.model ?? '' }); setEditing(c); setShowForm(true); }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     try {
       const payload = { ...form } as Record<string, unknown>;
       if (!payload.systemInstructions) delete payload.systemInstructions;
+      payload.model = form.model.trim() ? form.model.trim() : null;
       if (editing) await updateCaptain(editing.id, payload);
       else await createCaptain(payload);
       setShowForm(false);
       load();
-    } catch { setError('Save failed.'); }
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Save failed.');
+    }
   }
 
   function handleDelete(id: string, name: string) {
@@ -200,7 +203,7 @@ export default function Captains() {
     setConfirm({
       open: true,
       title: 'Restart Captain',
-      message: `Restart captain "${name}"? The captain will be deleted and recreated with the same name and runtime.`,
+      message: `Restart captain "${name}"? The captain will be deleted and recreated with the same saved configuration.`,
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
         try { await restartCaptain(id); load(); } catch { setError('Restart failed.'); }
@@ -255,6 +258,10 @@ export default function Captains() {
                 <option value="Gemini">Gemini</option>
                 <option value="Cursor">Cursor</option>
               </select>
+            </label>
+            <label title="Optional AI model identifier. Leave blank to let the runtime choose its default model.">
+              Model
+              <input value={form.model} onChange={e => setForm({ ...form, model: e.target.value })} placeholder="e.g., gpt-5.4-mini" />
             </label>
             <label title="Optional instructions injected into every mission prompt for this captain. Use this to specialize behavior, add guardrails, or provide persistent context.">
               System Instructions

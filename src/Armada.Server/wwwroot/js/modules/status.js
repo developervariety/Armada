@@ -22,6 +22,18 @@ window.ArmadaModules.status = {
         return new Date(utcStr).toLocaleString();
     },
 
+    formatDuration(totalRuntimeMs) {
+        if (totalRuntimeMs == null || totalRuntimeMs < 0) return 'N/A';
+        let totalSeconds = totalRuntimeMs / 1000;
+        if (totalSeconds < 60) return totalSeconds.toFixed(1) + 's';
+        let hours = Math.floor(totalSeconds / 3600);
+        let minutes = Math.floor((totalSeconds % 3600) / 60);
+        let seconds = Math.floor(totalSeconds % 60);
+        if (hours > 0) return hours + 'h ' + minutes + 'm';
+        if (minutes > 0 && seconds > 0) return minutes + 'm ' + seconds + 's';
+        return minutes + 'm';
+    },
+
     statusTooltip(status) {
         if (!status && status !== false) return '';
         let tooltips = {

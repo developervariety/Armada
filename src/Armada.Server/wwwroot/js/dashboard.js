@@ -158,7 +158,6 @@ function dashboard() {
 
         // Quick dispatch (NLP task parsing)
         quickDispatch: { prompt: '', vesselId: '' },
-        quickParsedTasks: [],
         quickDispatching: false,
         quickDispatchResult: null,
 
@@ -189,6 +188,8 @@ function dashboard() {
         confirmMessage: '',
         confirmResolve: null,
         confirmWidth: null,
+        alertTitle: '',
+        alertMessage: '',
 
         // Mission restart
         restartTarget: null,
@@ -721,6 +722,18 @@ function dashboard() {
             this.confirmWidth = null;
         },
 
+        showAlert(message, title) {
+            this.alertTitle = title || 'Error';
+            this.alertMessage = message;
+            this.modal = 'alert-dialog';
+        },
+
+        closeAlert() {
+            this.alertTitle = '';
+            this.alertMessage = '';
+            if (this.modal === 'alert-dialog') this.modal = null;
+        },
+
         // ============================================================
         // Toast notifications
         // ============================================================
@@ -892,16 +905,8 @@ function dashboard() {
             return [prompt.trim()];
         },
 
-        previewQuickTasks() {
-            this.quickParsedTasks = this.parseTasks(this.quickDispatch.prompt);
-        },
-
         async quickDispatchVoyage() {
-            let tasks = this.quickParsedTasks;
-            if (!tasks.length) {
-                tasks = this.parseTasks(this.quickDispatch.prompt);
-                this.quickParsedTasks = tasks;
-            }
+            let tasks = this.parseTasks(this.quickDispatch.prompt);
             if (!tasks.length) return;
             let vesselId = this.quickDispatch.vesselId;
             if (!vesselId) { this.toast('Please select a vessel', 'error'); return; }
@@ -917,7 +922,6 @@ function dashboard() {
                 this.quickDispatchResult = { ok: true, message: 'Dispatched 1 voyage with ' + missionCount + ' mission' + (missionCount !== 1 ? 's' : '') };
                 this.toast('Voyage dispatched: ' + voyage.id);
                 this.quickDispatch = { prompt: '', vesselId: vesselId };
-                this.quickParsedTasks = [];
                 await this.refresh();
             } catch (e) {
                 this.quickDispatchResult = { ok: false, message: 'Failed: ' + e.message };
@@ -1179,12 +1183,13 @@ function dashboard() {
             try {
                 let captain = await this.api('POST', '/api/v1/captains', {
                     name: this.modalData.name,
-                    runtime: this.modalData.runtime || 'ClaudeCode'
+                    runtime: this.modalData.runtime || 'ClaudeCode',
+                    model: this.modalData.model && this.modalData.model.trim() ? this.modalData.model.trim() : null
                 });
                 this.toast('Captain added: ' + captain.name);
                 this.modal = null;
                 await this.loadCaptains();
-            } catch (e) { this.toast('Failed: ' + e.message, 'error'); }
+            } catch (e) { this.showAlert(e.message, 'Captain Validation Failed'); }
             finally { this.modalLoading = false; }
         },
 
@@ -1193,13 +1198,14 @@ function dashboard() {
             try {
                 await this.api('PUT', '/api/v1/captains/' + this.modalData.id, {
                     name: this.modalData.name,
-                    runtime: this.modalData.runtime
+                    runtime: this.modalData.runtime,
+                    model: this.modalData.model && this.modalData.model.trim() ? this.modalData.model.trim() : null
                 });
                 this.toast('Captain updated');
                 this.modal = null;
                 if (this.detailView === 'captain-detail') this.loadDetail('captain-detail', this.modalData.id);
                 await this.loadCaptains();
-            } catch (e) { this.toast('Failed: ' + e.message, 'error'); }
+            } catch (e) { this.showAlert(e.message, 'Captain Validation Failed'); }
             finally { this.modalLoading = false; }
         },
 
@@ -1488,8 +1494,8 @@ function dashboard() {
         openEditFleet(f) { this.modal = 'edit-fleet'; this.modalData = { id: f.id, name: f.name, description: f.description || '' }; },
         openCreateVessel(fleetId) { this.modal = 'create-vessel'; this.modalData = { name: '', repoUrl: '', defaultBranch: 'main', fleetId: fleetId || '', localPath: '', workingDirectory: '', projectContext: '', styleGuide: '' }; },
         openEditVessel(v) { this.modal = 'edit-vessel'; this.modalData = { id: v.id, name: v.name, repoUrl: v.repoUrl || '', defaultBranch: v.defaultBranch || 'main', fleetId: v.fleetId || '', localPath: v.localPath || '', workingDirectory: v.workingDirectory || '', projectContext: v.projectContext || '', styleGuide: v.styleGuide || '' }; },
-        openAddCaptain() { this.modal = 'add-captain'; this.modalData = { name: '', runtime: 'ClaudeCode' }; },
-        openEditCaptain(c) { this.modal = 'edit-captain'; this.modalData = { id: c.id, name: c.name, runtime: c.runtime || 'ClaudeCode' }; },
+        openAddCaptain() { this.modal = 'add-captain'; this.modalData = { name: '', runtime: 'ClaudeCode', model: '' }; },
+        openEditCaptain(c) { this.modal = 'edit-captain'; this.modalData = { id: c.id, name: c.name, runtime: c.runtime || 'ClaudeCode', model: c.model || '' }; },
         openEditMission(m) { this.modal = 'edit-mission'; this.modalData = { id: m.id, title: m.title, description: m.description || '', priority: m.priority || 100, vesselId: m.vesselId || '', voyageId: m.voyageId || '' }; },
         openCreateVoyage() { this.modal = 'create-voyage'; this.voyageForm = { title: '', description: '', vesselId: '', missions: [{ title: '', description: '' }] }; },
         openSendSignal() { this.modal = 'send-signal'; this.modalData = { type: 'Nudge', payload: '', fromCaptainId: '', toCaptainId: '' }; },
@@ -1512,7 +1518,10 @@ function dashboard() {
             if (this.logViewer.open && e.key === 'Escape') { this.closeLogViewer(); return; }
             if (this.viewer.open && e.key === 'Escape') { this.closeViewer(); return; }
             if (this.modal) {
-                if (e.key === 'Escape') this.modal = null;
+                if (e.key === 'Escape') {
+                    if (this.modal === 'alert-dialog') this.closeAlert();
+                    else this.modal = null;
+                }
                 return;
             }
             if (e.key === 'r') this.refresh();
