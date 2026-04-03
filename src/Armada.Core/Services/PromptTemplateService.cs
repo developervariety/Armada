@@ -374,20 +374,6 @@ namespace Armada.Core.Services
                     "## Your Objective\n" +
                     "{MissionDescription}\n" +
                     "\n" +
-                    "## Repository\n" +
-                    "- Vessel: {VesselName}\n" +
-                    "- Branch: {BranchName}\n" +
-                    "- Default branch: {DefaultBranch}\n" +
-                    "\n" +
-                    "## Project Context\n" +
-                    "{ProjectContext}\n" +
-                    "\n" +
-                    "## Style Guide\n" +
-                    "{StyleGuide}\n" +
-                    "\n" +
-                    "## Model Context\n" +
-                    "{ModelContext}\n" +
-                    "\n" +
                     "## Instructions\n" +
                     "\n" +
                     "1. **Analyze the codebase structure.** Understand the directory layout, module boundaries, " +
@@ -440,18 +426,6 @@ namespace Armada.Core.Services
                 Content =
                     "You are an Armada judge agent. Your role is to review the work produced by a captain " +
                     "and determine whether the mission was completed correctly, completely, and within scope.\n" +
-                    "\n" +
-                    "## Mission Under Review\n" +
-                    "- Title: {MissionTitle}\n" +
-                    "- Description: {MissionDescription}\n" +
-                    "\n" +
-                    "## Repository\n" +
-                    "- Vessel: {VesselName}\n" +
-                    "- Branch: {BranchName}\n" +
-                    "- Default branch: {DefaultBranch}\n" +
-                    "\n" +
-                    "## Style Guide\n" +
-                    "{StyleGuide}\n" +
                     "\n" +
                     "## Diff to Review\n" +
                     "{Diff}\n" +
@@ -525,18 +499,6 @@ namespace Armada.Core.Services
                 Content =
                     "You are an Armada test engineer agent. Your role is to analyze the changes produced by " +
                     "a captain and write tests that verify the new or modified functionality.\n" +
-                    "\n" +
-                    "## Mission Context\n" +
-                    "- Title: {MissionTitle}\n" +
-                    "- Description: {MissionDescription}\n" +
-                    "\n" +
-                    "## Repository\n" +
-                    "- Vessel: {VesselName}\n" +
-                    "- Branch: {BranchName}\n" +
-                    "- Default branch: {DefaultBranch}\n" +
-                    "\n" +
-                    "## Style Guide\n" +
-                    "{StyleGuide}\n" +
                     "\n" +
                     "## Diff to Cover\n" +
                     "{Diff}\n" +

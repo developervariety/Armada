@@ -1,5 +1,6 @@
 namespace Armada.Test.Unit.Suites.Services
 {
+    using System.Text.RegularExpressions;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -469,6 +470,50 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertContains("[ARMADA:RESULT] COMPLETE", content);
                         AssertContains("[ARMADA:VERDICT] PASS", content);
                         AssertContains("standalone", content.ToLowerInvariant());
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(tempDir, true); } catch { }
+                    }
+                }
+            });
+
+            await RunTest("Template-resolved CLAUDE.md de-duplicates shared context sections", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    IPromptTemplateService templateService;
+                    MissionService service = CreateMissionServiceWithTemplates(logging, testDb.Driver, settings, git, out templateService);
+                    await templateService.SeedDefaultsAsync();
+
+                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(tempDir);
+
+                    try
+                    {
+                        Vessel vessel = new Vessel("DedupVessel", "https://github.com/test/repo");
+                        vessel.ProjectContext = "Service-oriented C# backend.";
+                        vessel.StyleGuide = "Prefer explicit types.";
+                        vessel.EnableModelContext = true;
+                        vessel.ModelContext = "Background jobs are scheduled from ArmadaServer.";
+
+                        Captain captain = new Captain("architect-prompt-captain");
+                        captain.Runtime = AgentRuntimeEnum.Codex;
+                        captain.SystemInstructions = "Be concise and careful.";
+
+                        Mission mission = new Mission("Plan work", "Break this objective into missions.");
+                        mission.Persona = "Architect";
+
+                        await service.GenerateClaudeMdAsync(tempDir, mission, vessel, captain);
+
+                        string content = await File.ReadAllTextAsync(Path.Combine(tempDir, "CODEX.md"));
+                        AssertEqual(1, Regex.Matches(content, "^## Project Context$", RegexOptions.Multiline).Count);
+                        AssertEqual(1, Regex.Matches(content, "^## Code Style$", RegexOptions.Multiline).Count);
+                        AssertEqual(1, Regex.Matches(content, "^## Model Context$", RegexOptions.Multiline).Count);
+                        AssertEqual(1, Regex.Matches(content, "^## Repository$", RegexOptions.Multiline).Count);
                     }
                     finally
                     {
