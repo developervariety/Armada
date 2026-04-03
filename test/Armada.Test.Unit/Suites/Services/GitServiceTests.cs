@@ -312,6 +312,7 @@ namespace Armada.Test.Unit.Suites.Services
                 string rootDir = Path.Combine(Path.GetTempPath(), "armada-gitservice-" + Guid.NewGuid().ToString("N"));
                 string sourceDir = Path.Combine(rootDir, "source");
                 string bareDir = Path.Combine(rootDir, "bare.git");
+                string hooksDir = Path.Combine(rootDir, "hooks");
                 string worktreeDir = Path.Combine(rootDir, "worktree");
                 string branchName = "armada/dirty-worktree";
 
@@ -325,17 +326,19 @@ namespace Armada.Test.Unit.Suites.Services
 
                     await File.WriteAllTextAsync(
                         Path.Combine(sourceDir, "test", "Dirty.csproj"),
-                        "<Project>\r\n  <PropertyGroup />\r\n</Project>\r\n").ConfigureAwait(false);
+                        "<Project>\n  <PropertyGroup />\n</Project>\n").ConfigureAwait(false);
                     await RunGitAsync(sourceDir, "add", "test/Dirty.csproj").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "commit", "-m", "Add project before attributes").ConfigureAwait(false);
-
-                    await File.WriteAllTextAsync(
-                        Path.Combine(sourceDir, ".gitattributes"),
-                        "*.csproj text eol=crlf\n").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "add", ".gitattributes").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "commit", "-m", "Add gitattributes without renormalizing").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "commit", "-m", "Add tracked file").ConfigureAwait(false);
 
                     await RunGitAsync(rootDir, "clone", "--bare", sourceDir, bareDir).ConfigureAwait(false);
+                    Directory.CreateDirectory(hooksDir);
+
+                    // Dirty the tracked checkout deterministically during `git worktree add`
+                    // without depending on line-ending behavior in the host Git install.
+                    await File.WriteAllTextAsync(
+                        Path.Combine(hooksDir, "post-checkout"),
+                        "#!/bin/sh\nprintf '\\n<!-- dirty -->\\n' >> test/Dirty.csproj\n").ConfigureAwait(false);
+                    await RunGitAsync(bareDir, "config", "core.hooksPath", hooksDir).ConfigureAwait(false);
 
                     InvalidOperationException? ex = null;
                     try
@@ -482,16 +485,78 @@ namespace Armada.Test.Unit.Suites.Services
                     await File.WriteAllTextAsync(Path.Combine(targetDir, "README.md"), "target change\n").ConfigureAwait(false);
                     await RunGitAsync(targetDir, "commit", "-am", "Target change").ConfigureAwait(false);
 
-                    await AssertThrowsAsync<InvalidOperationException>(() =>
-                        service.MergeBranchLocalAsync(targetDir, bareDir, "armada/conflict", "main"));
+                    InvalidOperationException? mergeEx = null;
+                    try
+                    {
+                        await service.MergeBranchLocalAsync(targetDir, bareDir, "armada/conflict", "main").ConfigureAwait(false);
+                    }
+                    catch (InvalidOperationException ex)
+                    {
+                        mergeEx = ex;
+                    }
 
                     string status = (await RunGitAsync(targetDir, "status", "--porcelain", "--untracked-files=no").ConfigureAwait(false)).Trim();
                     string currentBranch = (await RunGitAsync(targetDir, "rev-parse", "--abbrev-ref", "HEAD").ConfigureAwait(false)).Trim();
                     string fileContents = await File.ReadAllTextAsync(Path.Combine(targetDir, "README.md")).ConfigureAwait(false);
 
+                    AssertNotNull(mergeEx, "Conflicting landing merge should throw");
+                    AssertTrue(
+                        mergeEx.Message.Contains("CONFLICT", StringComparison.OrdinalIgnoreCase) ||
+                        mergeEx.Message.Contains("Automatic merge failed", StringComparison.OrdinalIgnoreCase),
+                        "Conflict exception should include git's merge details");
                     AssertEqual(String.Empty, status, "Conflict cleanup should leave no staged or unmerged changes");
                     AssertEqual("main", currentBranch, "Conflict cleanup should return to the target branch");
                     AssertEqual("target change\n", fileContents, "Conflict cleanup should restore the pre-merge working tree");
+                }
+                finally
+                {
+                    if (Directory.Exists(rootDir))
+                    {
+                        try { Directory.Delete(rootDir, true); }
+                        catch { }
+                    }
+                }
+            });
+
+            await RunTest("MergeBranchLocalAsync Succeeds When TargetCheckout Is A GitWorktree", async () =>
+            {
+                GitService service = CreateService();
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada-gitservice-" + Guid.NewGuid().ToString("N"));
+                string sourceDir = Path.Combine(rootDir, "source");
+                string bareDir = Path.Combine(rootDir, "bare.git");
+                string targetRepoDir = Path.Combine(rootDir, "target");
+                string landingWorktreeDir = Path.Combine(rootDir, "landing-worktree");
+
+                try
+                {
+                    Directory.CreateDirectory(sourceDir);
+                    await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "base\n").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+
+                    await RunGitAsync(rootDir, "clone", "--bare", sourceDir, bareDir).ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "remote", "add", "armada", bareDir).ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "checkout", "-b", "armada/worktree-merge").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "base\nworker change\n").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "commit", "-am", "Worker change").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "push", "armada", "armada/worktree-merge").ConfigureAwait(false);
+
+                    await RunGitAsync(rootDir, "clone", bareDir, targetRepoDir).ConfigureAwait(false);
+                    await RunGitAsync(targetRepoDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await RunGitAsync(targetRepoDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                    await RunGitAsync(targetRepoDir, "checkout", "-b", "hold").ConfigureAwait(false);
+                    await RunGitAsync(targetRepoDir, "worktree", "add", landingWorktreeDir, "main").ConfigureAwait(false);
+
+                    await service.MergeBranchLocalAsync(landingWorktreeDir, bareDir, "armada/worktree-merge", "main").ConfigureAwait(false);
+
+                    string currentBranch = (await RunGitAsync(landingWorktreeDir, "rev-parse", "--abbrev-ref", "HEAD").ConfigureAwait(false)).Trim();
+                    string mergedReadme = await File.ReadAllTextAsync(Path.Combine(landingWorktreeDir, "README.md")).ConfigureAwait(false);
+
+                    AssertEqual("main", currentBranch, "Landing worktree should stay on the target branch");
+                    AssertEqual("base\nworker change\n", mergedReadme, "Landing merge should succeed in a git worktree checkout");
                 }
                 finally
                 {

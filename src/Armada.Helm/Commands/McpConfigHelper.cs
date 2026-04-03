@@ -345,23 +345,42 @@ namespace Armada.Helm.Commands
 
         private static IEnumerable<string> BuildCodexStdioCommandParts()
         {
-            if (TryGetSourceHelmProjectPath(out string? helmProjectPath))
+            if (TryGetSourceHelmAssemblyPath(out string? helmAssemblyPath))
             {
                 return new[]
                 {
                     "dotnet",
-                    "run",
-                    "--project",
-                    helmProjectPath!,
-                    "-f",
-                    SourceMcpFramework,
-                    "--",
+                    helmAssemblyPath!,
                     "mcp",
                     "stdio"
                 };
             }
 
             return new[] { "armada", "mcp", "stdio" };
+        }
+
+        private static bool TryGetSourceHelmAssemblyPath(out string? helmAssemblyPath)
+        {
+            helmAssemblyPath = null;
+
+            try
+            {
+                string assemblyDir = AppContext.BaseDirectory;
+                string candidate = Path.Combine(assemblyDir, "Armada.Helm.dll");
+                if (!File.Exists(candidate))
+                    return false;
+
+                if (TryGetSourceHelmProjectPath(out _))
+                {
+                    helmAssemblyPath = candidate;
+                    return true;
+                }
+            }
+            catch
+            {
+            }
+
+            return false;
         }
 
         private static bool TryGetSourceHelmProjectPath(out string? helmProjectPath)

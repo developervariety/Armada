@@ -321,21 +321,22 @@ namespace Armada.Core.Services
             // Fetch the specific branch from the bare repo using explicit refspec
             // Branch names with slashes (e.g. armada/claude-code-1/msn_xxx) require
             // the full refs/heads/ prefix to resolve correctly from bare repos.
-            string refspec = "refs/heads/" + branchName;
-            await RunGitAsync(targetWorkDir, token, "fetch", sourceRepoPath, refspec).ConfigureAwait(false);
+            string fetchedBranchRef = await FetchBranchIntoLocalRefAsync(targetWorkDir, sourceRepoPath, branchName, token).ConfigureAwait(false);
 
-            // Merge FETCH_HEAD into the current branch
+            // Merge the fetched local ref into the current branch.
+            // Using a concrete ref avoids FETCH_HEAD resolution issues across separate git
+            // invocations and keeps landing stable even when the target checkout is a worktree.
             string message = commitMessage ?? ("Merge armada mission: " + branchName);
             try
             {
                 try
                 {
-                    await RunGitAsync(targetWorkDir, token, "merge", "FETCH_HEAD", "--no-edit", "-m", message).ConfigureAwait(false);
+                    await RunGitAsync(targetWorkDir, token, "merge", fetchedBranchRef, "--no-edit", "-m", message).ConfigureAwait(false);
                 }
                 catch (InvalidOperationException ex) when (ex.Message.Contains("refusing to merge unrelated histories", StringComparison.OrdinalIgnoreCase))
                 {
                     _Logging.Warn(_Header + "merge reported unrelated histories for " + branchName + ", retrying with --allow-unrelated-histories");
-                    await RunGitAsync(targetWorkDir, token, "merge", "FETCH_HEAD", "--no-edit", "--allow-unrelated-histories", "-m", message).ConfigureAwait(false);
+                    await RunGitAsync(targetWorkDir, token, "merge", fetchedBranchRef, "--no-edit", "--allow-unrelated-histories", "-m", message).ConfigureAwait(false);
                 }
             }
             catch
@@ -859,8 +860,8 @@ namespace Armada.Core.Services
 
             try
             {
-                await RunGitAsync(targetWorkDir, token, "fetch", sourceRepoPath, "refs/heads/" + targetBranch).ConfigureAwait(false);
-                await RunGitAsync(targetWorkDir, token, "checkout", "-b", targetBranch, "FETCH_HEAD").ConfigureAwait(false);
+                string fetchedTargetBranchRef = await FetchBranchIntoLocalRefAsync(targetWorkDir, sourceRepoPath, targetBranch, token).ConfigureAwait(false);
+                await RunGitAsync(targetWorkDir, token, "checkout", "-B", targetBranch, fetchedTargetBranchRef).ConfigureAwait(false);
                 return;
             }
             catch (Exception ex)
@@ -870,6 +871,20 @@ namespace Armada.Core.Services
                     " using origin or source repo " + sourceRepoPath + ": " + ex.Message,
                     ex);
             }
+        }
+
+        private async Task<string> FetchBranchIntoLocalRefAsync(string targetWorkDir, string sourceRepoPath, string branchName, CancellationToken token)
+        {
+            if (String.IsNullOrEmpty(targetWorkDir)) throw new ArgumentNullException(nameof(targetWorkDir));
+            if (String.IsNullOrEmpty(sourceRepoPath)) throw new ArgumentNullException(nameof(sourceRepoPath));
+            if (String.IsNullOrEmpty(branchName)) throw new ArgumentNullException(nameof(branchName));
+
+            string localRef = "refs/heads/armada-landing/" + branchName;
+            string remoteRef = "refs/heads/" + branchName;
+            string refspec = "+" + remoteRef + ":" + localRef;
+
+            await RunGitAsync(targetWorkDir, token, "fetch", sourceRepoPath, refspec).ConfigureAwait(false);
+            return localRef;
         }
 
         private async Task<bool> TryEnsureLocalBranchAsync(string repoPath, string branchName, CancellationToken token)
@@ -932,7 +947,12 @@ namespace Armada.Core.Services
 
             if (process.ExitCode != 0)
             {
-                string errorMessage = command + " failed (exit " + process.ExitCode + "): " + stderr.Trim();
+                string trimmedStdErr = stderr.Trim();
+                string trimmedStdOut = stdout.Trim();
+                string detail = !String.IsNullOrEmpty(trimmedStdErr)
+                    ? trimmedStdErr
+                    : trimmedStdOut;
+                string errorMessage = command + " failed (exit " + process.ExitCode + "): " + detail;
 
                 // Demote expected "not found" messages during cleanup to Debug level
                 bool isExpectedFailure =
