@@ -4,6 +4,23 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## v0.6.0
+
+### Remote Control Foundation
+- Added an experimental outbound remote-control tunnel foundation in `Armada.Server`
+- New `RemoteControl` settings are persisted in `settings.json` and exposed through `GET/PUT /api/v1/settings`
+- Health and status responses now expose `RemoteTunnel` telemetry including state, instance ID, latency, and last error
+- React dashboard, legacy dashboard, and `armada status` now surface remote tunnel configuration and live state
+- Added request/response handling and server event forwarding on the tunnel contract
+- Added `Armada.ControlPlane` with websocket tunnel termination, instance summaries, recent-event inspection, and live `armada.status.snapshot` / `armada.status.health` forwarding
+- Added `docs/TUNNEL_PROTOCOL.md`, `docs/CONTROL_PLANE_API.md`, and `docs/TUNNEL_OPERATIONS.md` for the shipped tunnel and control-plane contract
+
+### Release and Docs
+- Updated shared release metadata, docker tags, Postman examples, REST docs, MCP docs, and WebSocket docs to `v0.6.0`
+- Added no-op `v0.5.0 -> v0.6.0` migration scripts to reflect the release even though no database schema change is required
+
+---
+
 ## v0.5.0
 
 ### Captains and Runtime Selection

@@ -1324,6 +1324,16 @@ function dashboard() {
             } catch (e) { this.toast('Failed: ' + e.message, 'error'); }
         },
 
+        async saveRemoteControlSettings() {
+            try {
+                this.serverSettings = await this.api('PUT', '/api/v1/settings', {
+                    remoteControl: this.serverSettings.remoteControl
+                });
+                this.healthInfo = await this.api('GET', '/api/v1/status/health');
+                this.toast('Remote control settings saved');
+            } catch (e) { this.toast('Failed: ' + e.message, 'error'); }
+        },
+
         async healthCheck() {
             try {
                 let result = await this.api('GET', '/api/v1/status/health');

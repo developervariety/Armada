@@ -35,6 +35,10 @@
                 <div class="detail-field"><span class="detail-label">Admiral Port</span><span class="mono" x-text="healthInfo?.ports?.admiral || window.location.port"></span></div>
                 <div class="detail-field"><span class="detail-label">MCP Port</span><span class="mono" x-text="healthInfo?.ports?.mcp || '-'"></span></div>
                 <div class="detail-field"><span class="detail-label">WebSocket Port</span><span class="mono" x-text="healthInfo?.ports?.webSocket || wsPort"></span></div>
+                <div class="detail-field"><span class="detail-label">Tunnel State</span><span class="mono" x-text="healthInfo?.remoteTunnel?.state || '-'"></span></div>
+                <div class="detail-field"><span class="detail-label">Tunnel Instance</span><span class="mono" x-text="healthInfo?.remoteTunnel?.instanceId || '-'"></span></div>
+                <div class="detail-field"><span class="detail-label">Tunnel Latency</span><span class="mono" x-text="healthInfo?.remoteTunnel?.latencyMs != null ? healthInfo.remoteTunnel.latencyMs + ' ms' : '-'"></span></div>
+                <div class="detail-field"><span class="detail-label">Tunnel Last Heartbeat</span><span class="mono" x-text="formatTimeAbsolute(healthInfo?.remoteTunnel?.lastHeartbeatUtc) || '-'"></span></div>
             </div>
 
             <!-- Server Configuration Section -->
@@ -81,6 +85,55 @@
                     </div>
                 </div>
                 <button class="btn btn-primary btn-sm" @click="saveAgentSettings()" title="Save agent settings changes">Save Agent Settings</button>
+            </div>
+
+            <div class="settings-section" x-show="serverSettings">
+                <h3 class="settings-section-title">Remote Control</h3>
+                <p class="text-dim" style="margin-bottom:0.75rem">Experimental outbound tunnel foundation for the future Armada control plane.</p>
+                <div class="settings-grid">
+                    <div class="form-group">
+                        <label class="settings-checkbox-label">
+                            <input type="checkbox" x-model="serverSettings.remoteControl.enabled">
+                            <span>Enable Remote Tunnel</span>
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label>Tunnel URL</label>
+                        <input type="text" x-model="serverSettings.remoteControl.tunnelUrl" placeholder="wss://control-plane.example.com/tunnel" title="WebSocket tunnel endpoint. http/https will be normalized to ws/wss.">
+                    </div>
+                    <div class="form-group">
+                        <label>Instance ID Override</label>
+                        <input type="text" x-model="serverSettings.remoteControl.instanceId" placeholder="Leave blank for auto-generated">
+                    </div>
+                    <div class="form-group">
+                        <label>Enrollment Token</label>
+                        <input type="password" x-model="serverSettings.remoteControl.enrollmentToken" placeholder="Optional bootstrap token">
+                    </div>
+                    <div class="form-group">
+                        <label>Connect Timeout (seconds)</label>
+                        <input type="number" x-model.number="serverSettings.remoteControl.connectTimeoutSeconds" min="5" max="300">
+                    </div>
+                    <div class="form-group">
+                        <label>Heartbeat Interval (seconds)</label>
+                        <input type="number" x-model.number="serverSettings.remoteControl.heartbeatIntervalSeconds" min="5" max="300">
+                    </div>
+                    <div class="form-group">
+                        <label>Reconnect Base Delay (seconds)</label>
+                        <input type="number" x-model.number="serverSettings.remoteControl.reconnectBaseDelaySeconds" min="1" max="300">
+                    </div>
+                    <div class="form-group">
+                        <label>Reconnect Max Delay (seconds)</label>
+                        <input type="number" x-model.number="serverSettings.remoteControl.reconnectMaxDelaySeconds" min="1" max="3600">
+                    </div>
+                    <div class="form-group">
+                        <label class="settings-checkbox-label">
+                            <input type="checkbox" x-model="serverSettings.remoteControl.allowInvalidCertificates">
+                            <span>Allow Invalid Certificates</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="alert alert-error" style="margin-top:0.75rem" x-show="healthInfo?.remoteTunnel?.lastError" x-text="healthInfo?.remoteTunnel?.lastError"></div>
+                <button class="btn btn-primary btn-sm" @click="saveRemoteControlSettings()" title="Save remote-control tunnel configuration">Save Remote Control Settings</button>
             </div>
 
             <!-- MCP Configuration Section -->

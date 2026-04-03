@@ -94,6 +94,10 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(settings.Notifications);
                 AssertTrue(settings.TerminalBell);
                 AssertEqual(Constants.DefaultIdleCaptainTimeoutSeconds, settings.IdleCaptainTimeoutSeconds);
+                AssertNotNull(settings.RemoteControl);
+                AssertFalse(settings.RemoteControl.Enabled);
+                AssertEqual(Constants.DefaultRemoteConnectTimeoutSeconds, settings.RemoteControl.ConnectTimeoutSeconds);
+                AssertEqual(Constants.DefaultRemoteHeartbeatIntervalSeconds, settings.RemoteControl.HeartbeatIntervalSeconds);
             });
 
             await RunTest("ArmadaSettings IdleCaptainTimeoutSeconds NegativeThrows", () =>
@@ -175,6 +179,42 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual("Custom: {MissionId}", loaded.MessageTemplates.CommitMessageTemplate);
                     AssertEqual("PR: {MissionId}", loaded.MessageTemplates.PrDescriptionTemplate);
                     AssertEqual("Merge: {BranchName}", loaded.MessageTemplates.MergeCommitTemplate);
+                }
+                finally
+                {
+                    if (File.Exists(tempFile)) File.Delete(tempFile);
+                }
+            });
+
+            await RunTest("ArmadaSettings RemoteControl RoundTripSaveLoad", async () =>
+            {
+                string tempFile = Path.Combine(Path.GetTempPath(), "armada_test_settings_remote_" + Guid.NewGuid().ToString("N") + ".json");
+
+                try
+                {
+                    ArmadaSettings original = new ArmadaSettings();
+                    original.RemoteControl.Enabled = true;
+                    original.RemoteControl.TunnelUrl = "https://control.example.com/tunnel";
+                    original.RemoteControl.InstanceId = "armada-test-instance";
+                    original.RemoteControl.EnrollmentToken = "token-123";
+                    original.RemoteControl.ConnectTimeoutSeconds = 25;
+                    original.RemoteControl.HeartbeatIntervalSeconds = 45;
+                    original.RemoteControl.ReconnectBaseDelaySeconds = 8;
+                    original.RemoteControl.ReconnectMaxDelaySeconds = 120;
+                    original.RemoteControl.AllowInvalidCertificates = true;
+
+                    await original.SaveAsync(tempFile);
+
+                    ArmadaSettings loaded = await ArmadaSettings.LoadAsync(tempFile);
+                    AssertTrue(loaded.RemoteControl.Enabled);
+                    AssertEqual("https://control.example.com/tunnel", loaded.RemoteControl.TunnelUrl);
+                    AssertEqual("armada-test-instance", loaded.RemoteControl.InstanceId);
+                    AssertEqual("token-123", loaded.RemoteControl.EnrollmentToken);
+                    AssertEqual(25, loaded.RemoteControl.ConnectTimeoutSeconds);
+                    AssertEqual(45, loaded.RemoteControl.HeartbeatIntervalSeconds);
+                    AssertEqual(8, loaded.RemoteControl.ReconnectBaseDelaySeconds);
+                    AssertEqual(120, loaded.RemoteControl.ReconnectMaxDelaySeconds);
+                    AssertTrue(loaded.RemoteControl.AllowInvalidCertificates);
                 }
                 finally
                 {

@@ -54,6 +54,13 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         public Func<int, bool>? OnIsProcessExitHandled { get; set; }
 
+        /// <summary>
+        /// Optional callback for retrieving outbound remote-tunnel status.
+        /// This is kept as a concrete AdmiralService hook so server-only infrastructure
+        /// can surface tunnel state without expanding the public orchestration interface yet.
+        /// </summary>
+        public Func<RemoteTunnelStatus>? OnGetRemoteTunnelStatus { get; set; }
+
         #endregion
 
         #region Private-Members
@@ -323,6 +330,11 @@ namespace Armada.Core.Services
 
             // Recent signals
             status.RecentSignals = await _Database.Signals.EnumerateRecentAsync(10, token).ConfigureAwait(false);
+
+            if (OnGetRemoteTunnelStatus != null)
+            {
+                status.RemoteTunnel = OnGetRemoteTunnelStatus();
+            }
 
             return status;
         }

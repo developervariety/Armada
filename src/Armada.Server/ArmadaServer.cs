@@ -61,6 +61,7 @@ namespace Armada.Server
         private PersonaSeedService _PersonaSeedService = null!;
         private LogRotationService _LogRotation = null!;
         private DataExpiryService _DataExpiry = null!;
+        private RemoteTunnelManager _RemoteTunnel = null!;
 
         private ISessionTokenService _SessionTokenService = null!;
         private IAuthenticationService _AuthenticationService = null!;
@@ -122,11 +123,15 @@ namespace Armada.Server
             IMissionService missionService = new MissionService(_Logging, _Database, _Settings, dockService, captainService, _PromptTemplateService, _Git);
             IVoyageService voyageService = new VoyageService(_Logging, _Database);
             IEscalationService escalationService = new EscalationService(_Logging, _Database, _Settings);
-            _Admiral = new AdmiralService(_Logging, _Database, _Settings, captainService, missionService, voyageService, dockService, escalationService);
+            AdmiralService admiralService = new AdmiralService(_Logging, _Database, _Settings, captainService, missionService, voyageService, dockService, escalationService);
+            _Admiral = admiralService;
             _MergeQueue = new MergeQueueService(_Logging, _Database, _Settings, _Git);
             _LandingService = new LandingService(_Logging, _Database, _Settings, _Git);
             _TemplateService = new MessageTemplateService(_Logging, _PromptTemplateService);
             _RuntimeFactory = new AgentRuntimeFactory(_Logging);
+            _RemoteTunnel = new RemoteTunnelManager(_Logging, _Settings);
+            admiralService.OnGetRemoteTunnelStatus = _RemoteTunnel.GetStatus;
+            _RemoteTunnel.OnHandleRequest = HandleRemoteTunnelRequestAsync;
 
             // Seed built-in prompt templates, personas, and pipelines
             await _PromptTemplateService.SeedDefaultsAsync().ConfigureAwait(false);
@@ -264,6 +269,9 @@ namespace Armada.Server
             Task wsTask = Task.Run(() => _WebSocketHub.StartAsync(_TokenSource.Token));
             _Logging.Info(_Header + "WebSocket hub started on port " + _Settings.WebSocketPort);
 
+            _RemoteTunnel.Start(_TokenSource.Token);
+            _Logging.Info(_Header + "remote tunnel manager started");
+
             // Inject WebSocket hub into handlers now that it's created
             _AgentLifecycle.SetWebSocketHub(_WebSocketHub);
             _MissionLanding.SetWebSocketHub(_WebSocketHub);
@@ -279,6 +287,7 @@ namespace Armada.Server
         {
             _Logging.Info(_Header + "stopping");
             _TokenSource.Cancel();
+            _RemoteTunnel?.StopAsync().GetAwaiter().GetResult();
             _McpServer?.Stop();
             _Database?.Dispose();
             OnStopping?.Invoke();
@@ -342,7 +351,7 @@ namespace Armada.Server
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Status, health, doctor, settings, server control
-            new StatusRoutes(_Database, _Settings, _Admiral, () => Stop(), _StartUtc, _JsonOptions, _Logging)
+            new StatusRoutes(_Database, _Settings, _Admiral, () => Stop(), _StartUtc, _JsonOptions, _Logging, _RemoteTunnel.GetStatus, _RemoteTunnel.ReloadAsync)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Fleets
@@ -555,6 +564,17 @@ namespace Armada.Server
                         voyageId = voyageId
                     });
                 }
+
+                await _RemoteTunnel.PublishEventAsync(eventType, new
+                {
+                    message = message,
+                    entityType = entityType,
+                    entityId = entityId,
+                    captainId = captainId,
+                    missionId = missionId,
+                    vesselId = vesselId,
+                    voyageId = voyageId
+                }).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -616,6 +636,57 @@ namespace Armada.Server
                 {
                     _Logging.Warn(_Header + "health check error: " + ex.Message);
                 }
+            }
+        }
+
+        private async Task<RemoteTunnelRequestResult> HandleRemoteTunnelRequestAsync(RemoteTunnelEnvelope envelope, CancellationToken token)
+        {
+            string method = envelope.Method?.Trim().ToLowerInvariant() ?? String.Empty;
+
+            switch (method)
+            {
+                case "armada.status.snapshot":
+                    return new RemoteTunnelRequestResult
+                    {
+                        StatusCode = 200,
+                        Payload = await _Admiral.GetStatusAsync(token).ConfigureAwait(false),
+                        Message = "Armada status snapshot captured."
+                    };
+                case "armada.status.health":
+                    return new RemoteTunnelRequestResult
+                    {
+                        StatusCode = 200,
+                        Payload = new
+                        {
+                            Status = "healthy",
+                            StartUtc = _StartUtc,
+                            Timestamp = DateTime.UtcNow,
+                            Uptime = (DateTime.UtcNow - _StartUtc).ToString(@"d\.hh\:mm\:ss"),
+                            Version = ArmadaConstants.ProductVersion,
+                            Ports = new
+                            {
+                                Admiral = _Settings.AdmiralPort,
+                                Mcp = _Settings.McpPort,
+                                WebSocket = _Settings.WebSocketPort
+                            },
+                            RemoteTunnel = _RemoteTunnel.GetStatus()
+                        },
+                        Message = "Armada health snapshot captured."
+                    };
+                case "armada.settings.remotecontrol":
+                    return new RemoteTunnelRequestResult
+                    {
+                        StatusCode = 200,
+                        Payload = _Settings.RemoteControl,
+                        Message = "Remote-control settings captured."
+                    };
+                default:
+                    return new RemoteTunnelRequestResult
+                    {
+                        StatusCode = 404,
+                        ErrorCode = "unsupported_method",
+                        Message = "Unsupported tunnel method " + envelope.Method + "."
+                    };
             }
         }
 

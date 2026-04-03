@@ -26,6 +26,8 @@ namespace Armada.Test.Unit.Suites.Models
                 AssertNotNull(status.RecentSignals);
                 AssertEqual(0, status.RecentSignals.Count);
                 AssertTrue(status.TimestampUtc <= DateTime.UtcNow);
+                AssertNotNull(status.RemoteTunnel);
+                AssertEqual(RemoteTunnelStateEnum.Disabled, status.RemoteTunnel.State);
             });
 
             await RunTest("ArmadaStatus MissionsByStatus NullSetterResetsToEmpty", () =>
@@ -50,6 +52,14 @@ namespace Armada.Test.Unit.Suites.Models
                 status.RecentSignals = null!;
                 AssertNotNull(status.RecentSignals);
                 AssertEqual(0, status.RecentSignals.Count);
+            });
+
+            await RunTest("ArmadaStatus RemoteTunnel NullSetterResetsToDefault", () =>
+            {
+                ArmadaStatus status = new ArmadaStatus();
+                status.RemoteTunnel = null!;
+                AssertNotNull(status.RemoteTunnel);
+                AssertEqual(RemoteTunnelStateEnum.Disabled, status.RemoteTunnel.State);
             });
 
             await RunTest("ArmadaStatus MissionsByStatus PopulateAndRead", () =>
@@ -92,6 +102,9 @@ namespace Armada.Test.Unit.Suites.Models
                 status.StalledCaptains = 1;
                 status.ActiveVoyages = 3;
                 status.MissionsByStatus["Pending"] = 4;
+                status.RemoteTunnel.State = RemoteTunnelStateEnum.Connected;
+                status.RemoteTunnel.TunnelUrl = "wss://control.example.com/tunnel";
+                status.RemoteTunnel.InstanceId = "armada-abc123";
 
                 string json = JsonSerializer.Serialize(status);
                 ArmadaStatus? deserialized = JsonSerializer.Deserialize<ArmadaStatus>(json);
@@ -102,6 +115,8 @@ namespace Armada.Test.Unit.Suites.Models
                 AssertEqual(2, deserialized.WorkingCaptains);
                 AssertEqual(1, deserialized.StalledCaptains);
                 AssertEqual(3, deserialized.ActiveVoyages);
+                AssertEqual(RemoteTunnelStateEnum.Connected, deserialized.RemoteTunnel.State);
+                AssertEqual("wss://control.example.com/tunnel", deserialized.RemoteTunnel.TunnelUrl);
             });
 
             await RunTest("VoyageProgress Constructor DefaultValues", () =>

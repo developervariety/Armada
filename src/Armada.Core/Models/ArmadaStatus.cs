@@ -67,6 +67,15 @@ namespace Armada.Core.Models
         /// </summary>
         public DateTime TimestampUtc { get; set; } = DateTime.UtcNow;
 
+        /// <summary>
+        /// Remote tunnel connectivity status.
+        /// </summary>
+        public RemoteTunnelStatus RemoteTunnel
+        {
+            get => _RemoteTunnel;
+            set => _RemoteTunnel = value ?? new RemoteTunnelStatus();
+        }
+
         #endregion
 
         #region Private-Members
@@ -74,6 +83,7 @@ namespace Armada.Core.Models
         private Dictionary<string, int> _MissionsByStatus = new Dictionary<string, int>();
         private List<VoyageProgress> _Voyages = new List<VoyageProgress>();
         private List<Signal> _RecentSignals = new List<Signal>();
+        private RemoteTunnelStatus _RemoteTunnel = new RemoteTunnelStatus();
 
         #endregion
 

@@ -366,6 +366,15 @@ namespace Armada.Core.Settings
         /// </summary>
         public MessageTemplateSettings MessageTemplates { get; set; } = new MessageTemplateSettings();
 
+        /// <summary>
+        /// Remote-control tunnel settings.
+        /// </summary>
+        public RemoteControlSettings RemoteControl
+        {
+            get => _RemoteControl;
+            set => _RemoteControl = value ?? new RemoteControlSettings();
+        }
+
         #endregion
 
         #region Private-Members
@@ -401,6 +410,7 @@ namespace Armada.Core.Settings
         private int _MinIdleCaptains = 0;
         private int _MaxCaptains = 0;
         private int _IdleCaptainTimeoutSeconds = Constants.DefaultIdleCaptainTimeoutSeconds;
+        private RemoteControlSettings _RemoteControl = new RemoteControlSettings();
 
         #endregion
 

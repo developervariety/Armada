@@ -1,10 +1,22 @@
 # Armada MCP API Reference
 
-**Version:** 0.5.0
+**Version:** 0.6.0
 **Default URL:** `http://localhost:7891`
 **Protocol:** [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) over HTTP
 **Server Library:** Voltaic (McpHttpServer)
 **Server Name:** `Armada`
+
+## Remote Control Note
+
+`v0.6.0` does not proxy Armada MCP traffic through the new remote-control tunnel or `Armada.ControlPlane`.
+
+Remote control in this release is limited to:
+
+- Armada-side tunnel configuration and status surfaces
+- control-plane websocket tunnel termination
+- control-plane REST instance summary/detail endpoints
+
+If/when MCP-over-tunnel is added, this document will gain explicit routed-tool semantics and capability rules.
 
 ---
 
@@ -240,6 +252,26 @@ No parameters required.
     }
   ],
   "recentSignals": [],
+  "remoteTunnel": {
+    "enabled": false,
+    "state": "Disabled",
+    "tunnelUrl": null,
+    "instanceId": "armada-1f2e3d4c5b6a",
+    "lastError": null,
+    "reconnectAttempts": 0,
+    "latencyMs": null,
+    "capabilityManifest": {
+      "protocolVersion": "2026-04-03",
+      "armadaVersion": "0.6.0",
+      "features": [
+        "remoteControl.handshake",
+        "remoteControl.heartbeat",
+        "status.health",
+        "status.snapshot",
+        "settings.remoteControl"
+      ]
+    }
+  },
   "timestampUtc": "2026-03-07T12:34:56.789Z"
 }
 ```
@@ -2491,7 +2523,25 @@ Restore Armada from a previously created backup ZIP file.
 | `missionsByStatus` | object | Map of status string to count (e.g., `{"Pending": 3}`) |
 | `voyages` | array | List of [VoyageProgress](#voyageprogress) objects |
 | `recentSignals` | array | List of recent [Signal](#signal) objects |
+| `remoteTunnel` | [RemoteTunnelStatus](#remotetunnelstatus) | Current outbound remote tunnel status |
 | `timestampUtc` | string | ISO 8601 UTC timestamp |
+
+#### RemoteTunnelStatus
+
+| Field | Type | Description |
+|---|---|---|
+| `enabled` | bool | Whether the remote tunnel feature is enabled |
+| `state` | string | Tunnel state (`Disabled`, `Disconnected`, `Connecting`, `Connected`, `Error`, `Stopping`) |
+| `tunnelUrl` | string \| null | Configured or normalized websocket endpoint |
+| `instanceId` | string \| null | Stable instance identifier advertised during handshake |
+| `lastConnectAttemptUtc` | string \| null | Last connection attempt timestamp |
+| `connectedUtc` | string \| null | Last successful connection timestamp |
+| `lastHeartbeatUtc` | string \| null | Last heartbeat or inbound tunnel activity timestamp |
+| `lastDisconnectUtc` | string \| null | Last disconnect timestamp |
+| `lastError` | string \| null | Last recorded error |
+| `reconnectAttempts` | int | Consecutive reconnect attempts since the last successful connection |
+| `latencyMs` | int \| null | Last successful ping/pong latency in milliseconds |
+| `capabilityManifest` | object | Current handshake capability manifest |
 
 #### VoyageProgress
 

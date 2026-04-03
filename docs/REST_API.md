@@ -1,6 +1,6 @@
 # Armada REST API Reference
 
-**Version:** 0.5.0
+**Version:** 0.6.0
 **Base URL:** `http://localhost:7890`
 **Content-Type:** `application/json`
 
@@ -104,6 +104,8 @@ Operational entities persist both `TenantId` and `UserId`. Those ownership colum
 | `/api/v1/onboarding` | POST | NoAuthRequired | Gated by `AllowSelfRegistration` setting |
 | `/api/v1/whoami` | GET | Authenticated | |
 | `/api/v1/status` | GET | Authenticated | Tenant-scoped |
+| `/api/v1/settings` | GET | AdminOnly | Server configuration and remote-control settings |
+| `/api/v1/settings` | PUT | AdminOnly | Partial update of server configuration and remote-control settings |
 | `/api/v1/fleets` | ALL | Authenticated | Tenant-scoped |
 | `/api/v1/vessels` | ALL | Authenticated | Tenant-scoped |
 | `/api/v1/captains` | ALL | Authenticated | Tenant-scoped |
@@ -669,6 +671,26 @@ Returns aggregate status including captain counts, mission breakdown, active voy
   },
   "Voyages": [],
   "RecentSignals": [],
+  "RemoteTunnel": {
+    "Enabled": false,
+    "State": "Disabled",
+    "TunnelUrl": null,
+    "InstanceId": "armada-1f2e3d4c5b6a",
+    "LastError": null,
+    "ReconnectAttempts": 0,
+    "LatencyMs": null,
+    "CapabilityManifest": {
+      "ProtocolVersion": "2026-04-03",
+      "ArmadaVersion": "0.6.0",
+      "Features": [
+        "remoteControl.handshake",
+        "remoteControl.heartbeat",
+        "status.health",
+        "status.snapshot",
+        "settings.remoteControl"
+      ]
+    }
+  },
   "TimestampUtc": "2026-03-07T12:00:00Z"
 }
 ```
@@ -687,14 +709,87 @@ Health check endpoint. **Does not require authentication.**
   "Timestamp": "2026-03-07T12:00:00Z",
   "StartUtc": "2026-03-07T08:00:00Z",
   "Uptime": "0.04:00:00",
-  "Version": "0.5.0",
+  "Version": "0.6.0",
   "Ports": {
     "Admiral": 7890,
     "Mcp": 7891,
     "WebSocket": 7892
+  },
+  "RemoteTunnel": {
+    "Enabled": false,
+    "State": "Disabled",
+    "TunnelUrl": null,
+    "InstanceId": "armada-1f2e3d4c5b6a",
+    "LastError": null,
+    "ReconnectAttempts": 0,
+    "LatencyMs": null
   }
 }
 ```
+
+---
+
+#### GET /api/v1/settings
+
+Returns current server settings including ports, agent configuration, system paths, and remote-control tunnel configuration.
+
+**Response:** `200 OK`
+
+```json
+{
+  "AdmiralPort": 7890,
+  "McpPort": 7891,
+  "MaxCaptains": 0,
+  "HeartbeatIntervalSeconds": 30,
+  "StallThresholdMinutes": 10,
+  "IdleCaptainTimeoutSeconds": 0,
+  "AutoCreatePr": false,
+  "DataDirectory": "C:\\Users\\joelc\\.armada",
+  "DatabasePath": "C:\\Users\\joelc\\.armada\\armada.db",
+  "LogDirectory": "C:\\Users\\joelc\\.armada\\logs",
+  "DocksDirectory": "C:\\Users\\joelc\\.armada\\docks",
+  "ReposDirectory": "C:\\Users\\joelc\\.armada\\repos",
+  "RemoteControl": {
+    "Enabled": false,
+    "TunnelUrl": null,
+    "InstanceId": null,
+    "EnrollmentToken": null,
+    "ConnectTimeoutSeconds": 15,
+    "HeartbeatIntervalSeconds": 30,
+    "ReconnectBaseDelaySeconds": 5,
+    "ReconnectMaxDelaySeconds": 60,
+    "AllowInvalidCertificates": false
+  }
+}
+```
+
+---
+
+#### PUT /api/v1/settings
+
+Accepts partial updates to editable server settings. When `RemoteControl` is supplied, it replaces the full `RemoteControl` settings object.
+
+**Request Body:** partial settings object
+
+```json
+{
+  "RemoteControl": {
+    "Enabled": true,
+    "TunnelUrl": "wss://control-plane.example.com/tunnel",
+    "InstanceId": null,
+    "EnrollmentToken": "bootstrap-token",
+    "ConnectTimeoutSeconds": 15,
+    "HeartbeatIntervalSeconds": 30,
+    "ReconnectBaseDelaySeconds": 5,
+    "ReconnectMaxDelaySeconds": 60,
+    "AllowInvalidCertificates": false
+  }
+}
+```
+
+**Response:** `200 OK`
+
+Returns the updated settings payload in the same shape as `GET /api/v1/settings`.
 
 ---
 
@@ -3093,6 +3188,26 @@ Aggregate status summary returned by the status endpoint.
     }
   ],
   "RecentSignals": [],
+  "RemoteTunnel": {
+    "Enabled": false,
+    "State": "Disabled",
+    "TunnelUrl": null,
+    "InstanceId": "armada-1f2e3d4c5b6a",
+    "LastError": null,
+    "ReconnectAttempts": 0,
+    "LatencyMs": null,
+    "CapabilityManifest": {
+      "ProtocolVersion": "2026-04-03",
+      "ArmadaVersion": "0.6.0",
+      "Features": [
+        "remoteControl.handshake",
+        "remoteControl.heartbeat",
+        "status.health",
+        "status.snapshot",
+        "settings.remoteControl"
+      ]
+    }
+  },
   "TimestampUtc": "2026-03-07T12:00:00Z"
 }
 ```
@@ -3107,7 +3222,29 @@ Aggregate status summary returned by the status endpoint.
 | `MissionsByStatus` | dict\<string, int\> | Mission counts grouped by status |
 | `Voyages` | array | Active [VoyageProgress](#voyageprogress) objects |
 | `RecentSignals` | array | Recent [Signal](#signal) objects |
+| `RemoteTunnel` | [RemoteTunnelStatus](#remotetunnelstatus) | Current outbound remote tunnel status |
 | `TimestampUtc` | datetime | Snapshot timestamp (UTC) |
+
+---
+
+#### RemoteTunnelStatus
+
+Current outbound remote tunnel status and telemetry.
+
+| Field | Type | Description |
+|---|---|---|
+| `Enabled` | bool | Whether the remote tunnel feature is enabled |
+| `State` | string | Tunnel state (`Disabled`, `Disconnected`, `Connecting`, `Connected`, `Error`, `Stopping`) |
+| `TunnelUrl` | string? | Configured or normalized websocket endpoint |
+| `InstanceId` | string? | Stable instance identifier advertised during handshake |
+| `LastConnectAttemptUtc` | datetime? | Most recent connection attempt |
+| `ConnectedUtc` | datetime? | Timestamp when the current/last successful connection was established |
+| `LastHeartbeatUtc` | datetime? | Last heartbeat or inbound tunnel activity timestamp |
+| `LastDisconnectUtc` | datetime? | Most recent disconnect timestamp |
+| `LastError` | string? | Last recorded tunnel error |
+| `ReconnectAttempts` | int | Consecutive reconnect attempts since the last successful connection |
+| `LatencyMs` | int? | Round-trip latency from the last successful ping/pong |
+| `CapabilityManifest` | object | Current handshake capability manifest |
 
 ---
 

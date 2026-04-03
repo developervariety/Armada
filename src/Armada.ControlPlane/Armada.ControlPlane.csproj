@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <Description>Remote control-plane service for Armada remote operations</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Armada.Core\Armada.Core.csproj" />
+  </ItemGroup>
+
+</Project>

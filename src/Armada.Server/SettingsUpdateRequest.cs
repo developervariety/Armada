@@ -63,5 +63,11 @@ namespace Armada.Server
         /// Whether to auto-create pull requests on mission completion.
         /// </summary>
         public bool? AutoCreatePr { get; set; }
+
+        /// <summary>
+        /// Optional remote-control tunnel settings update.
+        /// When supplied, replaces the full remoteControl settings object.
+        /// </summary>
+        public RemoteControlSettings? RemoteControl { get; set; }
     }
 }

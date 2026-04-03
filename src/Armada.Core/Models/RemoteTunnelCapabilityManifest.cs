@@ -1,0 +1,37 @@
+namespace Armada.Core.Models
+{
+    /// <summary>
+    /// Capability manifest advertised by an Armada instance to a remote control plane.
+    /// </summary>
+    public class RemoteTunnelCapabilityManifest
+    {
+        #region Public-Members
+
+        /// <summary>
+        /// Tunnel protocol version understood by this Armada instance.
+        /// </summary>
+        public string ProtocolVersion { get; set; } = "2026-04-03";
+
+        /// <summary>
+        /// Armada product version.
+        /// </summary>
+        public string ArmadaVersion { get; set; } = Constants.ProductVersion;
+
+        /// <summary>
+        /// Supported feature identifiers.
+        /// </summary>
+        public List<string> Features
+        {
+            get => _Features;
+            set => _Features = value ?? new List<string>();
+        }
+
+        #endregion
+
+        #region Private-Members
+
+        private List<string> _Features = new List<string>();
+
+        #endregion
+    }
+}

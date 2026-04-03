@@ -26,6 +26,40 @@ interface HealthInfo {
     mcp: number;
     webSocket: number;
   };
+  remoteTunnel?: RemoteTunnelStatus;
+}
+
+interface RemoteTunnelCapabilityManifest {
+  protocolVersion: string;
+  armadaVersion: string;
+  features: string[];
+}
+
+interface RemoteTunnelStatus {
+  enabled: boolean;
+  state: string;
+  tunnelUrl: string | null;
+  instanceId: string | null;
+  lastConnectAttemptUtc: string | null;
+  connectedUtc: string | null;
+  lastHeartbeatUtc: string | null;
+  lastDisconnectUtc: string | null;
+  lastError: string | null;
+  reconnectAttempts: number;
+  latencyMs: number | null;
+  capabilityManifest: RemoteTunnelCapabilityManifest;
+}
+
+interface RemoteControlSettings {
+  enabled: boolean;
+  tunnelUrl: string | null;
+  instanceId: string | null;
+  enrollmentToken: string | null;
+  connectTimeoutSeconds: number;
+  heartbeatIntervalSeconds: number;
+  reconnectBaseDelaySeconds: number;
+  reconnectMaxDelaySeconds: number;
+  allowInvalidCertificates: boolean;
 }
 
 interface ServerSettings {
@@ -41,11 +75,37 @@ interface ServerSettings {
   logDirectory: string;
   docksDirectory: string;
   reposDirectory: string;
+  remoteControl: RemoteControlSettings;
 }
 
 function formatTimeAbsolute(utc: string | null | undefined): string {
   if (!utc) return '';
   return new Date(utc).toLocaleString();
+}
+
+function getDefaultRemoteControlSettings(): RemoteControlSettings {
+  return {
+    enabled: false,
+    tunnelUrl: null,
+    instanceId: null,
+    enrollmentToken: null,
+    connectTimeoutSeconds: 15,
+    heartbeatIntervalSeconds: 30,
+    reconnectBaseDelaySeconds: 5,
+    reconnectMaxDelaySeconds: 60,
+    allowInvalidCertificates: false,
+  };
+}
+
+function mergeServerSettings(data: ServerSettings | null): ServerSettings | null {
+  if (!data) return null;
+  return {
+    ...data,
+    remoteControl: {
+      ...getDefaultRemoteControlSettings(),
+      ...(data.remoteControl ?? {}),
+    },
+  };
 }
 
 export default function Server() {
@@ -79,7 +139,7 @@ export default function Server() {
         getSettings().catch(() => null),
       ]);
       if (h) setHealth(h as unknown as HealthInfo);
-      if (s) setSettings(s as unknown as ServerSettings);
+      if (s) setSettings(mergeServerSettings(s as unknown as ServerSettings));
       if (!h && !s) setError('Failed to load server data.');
       else if (!s) setError('Failed to load server settings. Health data is available, but configuration and backup sections could not be loaded.');
     } catch {
@@ -101,7 +161,7 @@ export default function Server() {
         mcpPort: settings.mcpPort,
         maxCaptains: settings.maxCaptains,
       });
-      setSettings(updated as unknown as ServerSettings);
+      setSettings(mergeServerSettings(updated as unknown as ServerSettings));
       showToast('Server configuration saved');
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Unknown error';
@@ -118,8 +178,24 @@ export default function Server() {
         idleCaptainTimeoutSeconds: settings.idleCaptainTimeoutSeconds,
         autoCreatePr: settings.autoCreatePr,
       });
-      setSettings(updated as unknown as ServerSettings);
+      setSettings(mergeServerSettings(updated as unknown as ServerSettings));
       showToast('Agent settings saved');
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Unknown error';
+      showToast(`Failed: ${msg}`);
+    }
+  };
+
+  const handleSaveRemoteControlSettings = async () => {
+    if (!settings) return;
+    try {
+      const updated = await updateSettings({
+        remoteControl: settings.remoteControl,
+      });
+      setSettings(mergeServerSettings(updated as unknown as ServerSettings));
+      showToast('Remote control settings saved');
+      const refreshedHealth = (await getHealth()) as unknown as HealthInfo;
+      setHealth(refreshedHealth);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Unknown error';
       showToast(`Failed: ${msg}`);
@@ -297,6 +373,18 @@ export default function Server() {
             <span>{connected ? 'Live (WebSocket)' : 'Online (HTTP)'}</span>
           </div>
         </div>
+
+        <div className="card" title="Current outbound remote-control tunnel status">
+          <div className="card-label">Remote Tunnel</div>
+          <div className="card-value" style={{ fontSize: '1.2rem' }}>
+            {health?.remoteTunnel?.state || 'Disabled'}
+          </div>
+          {health?.remoteTunnel && (
+            <div className="card-detail text-muted">
+              {health.remoteTunnel.tunnelUrl || 'No tunnel URL configured'}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Detail Fields */}
@@ -320,6 +408,22 @@ export default function Server() {
         <div className="detail-field">
           <span className="detail-label">WebSocket Port</span>
           <span className="mono">{health?.ports?.webSocket || '-'}</span>
+        </div>
+        <div className="detail-field">
+          <span className="detail-label">Tunnel State</span>
+          <span className="mono">{health?.remoteTunnel?.state || '-'}</span>
+        </div>
+        <div className="detail-field">
+          <span className="detail-label">Tunnel Instance</span>
+          <span className="mono">{health?.remoteTunnel?.instanceId || '-'}</span>
+        </div>
+        <div className="detail-field">
+          <span className="detail-label">Tunnel Latency</span>
+          <span className="mono">{health?.remoteTunnel?.latencyMs != null ? `${health.remoteTunnel.latencyMs} ms` : '-'}</span>
+        </div>
+        <div className="detail-field">
+          <span className="detail-label">Tunnel Last Heartbeat</span>
+          <span className="mono">{formatTimeAbsolute(health?.remoteTunnel?.lastHeartbeatUtc)}</span>
         </div>
       </div>
 
@@ -444,6 +548,186 @@ export default function Server() {
             title="Save agent settings changes"
           >
             Save Agent Settings
+          </button>
+        </div>
+      )}
+
+      {settings && (
+        <div className="settings-section" style={{ marginTop: '1.5rem' }}>
+          <h3>Remote Control</h3>
+          <p className="text-muted" style={{ marginBottom: '0.75rem' }}>
+            Experimental outbound tunnel foundation for the future Armada control plane.
+          </p>
+          <div className="settings-grid">
+            <div className="form-group">
+              <label className="settings-checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={settings.remoteControl.enabled}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      remoteControl: { ...settings.remoteControl, enabled: e.target.checked },
+                    })
+                  }
+                />
+                <span>Enable Remote Tunnel</span>
+              </label>
+            </div>
+            <div className="form-group">
+              <label>Tunnel URL</label>
+              <input
+                type="text"
+                value={settings.remoteControl.tunnelUrl ?? ''}
+                onChange={(e) =>
+                  setSettings({
+                    ...settings,
+                    remoteControl: {
+                      ...settings.remoteControl,
+                      tunnelUrl: e.target.value || null,
+                    },
+                  })
+                }
+                placeholder="wss://control-plane.example.com/tunnel"
+                title="WebSocket tunnel endpoint. http/https will be normalized to ws/wss."
+              />
+            </div>
+            <div className="form-group">
+              <label>Instance ID Override</label>
+              <input
+                type="text"
+                value={settings.remoteControl.instanceId ?? ''}
+                onChange={(e) =>
+                  setSettings({
+                    ...settings,
+                    remoteControl: {
+                      ...settings.remoteControl,
+                      instanceId: e.target.value || null,
+                    },
+                  })
+                }
+                placeholder="Leave blank for auto-generated"
+              />
+            </div>
+            <div className="form-group">
+              <label>Enrollment Token</label>
+              <input
+                type="password"
+                value={settings.remoteControl.enrollmentToken ?? ''}
+                onChange={(e) =>
+                  setSettings({
+                    ...settings,
+                    remoteControl: {
+                      ...settings.remoteControl,
+                      enrollmentToken: e.target.value || null,
+                    },
+                  })
+                }
+                placeholder="Optional bootstrap token"
+              />
+            </div>
+            <div className="form-group">
+              <label>Connect Timeout (seconds)</label>
+              <input
+                type="number"
+                value={settings.remoteControl.connectTimeoutSeconds}
+                onChange={(e) =>
+                  setSettings({
+                    ...settings,
+                    remoteControl: {
+                      ...settings.remoteControl,
+                      connectTimeoutSeconds: parseInt(e.target.value) || 15,
+                    },
+                  })
+                }
+                min={5}
+                max={300}
+              />
+            </div>
+            <div className="form-group">
+              <label>Heartbeat Interval (seconds)</label>
+              <input
+                type="number"
+                value={settings.remoteControl.heartbeatIntervalSeconds}
+                onChange={(e) =>
+                  setSettings({
+                    ...settings,
+                    remoteControl: {
+                      ...settings.remoteControl,
+                      heartbeatIntervalSeconds: parseInt(e.target.value) || 30,
+                    },
+                  })
+                }
+                min={5}
+                max={300}
+              />
+            </div>
+            <div className="form-group">
+              <label>Reconnect Base Delay (seconds)</label>
+              <input
+                type="number"
+                value={settings.remoteControl.reconnectBaseDelaySeconds}
+                onChange={(e) =>
+                  setSettings({
+                    ...settings,
+                    remoteControl: {
+                      ...settings.remoteControl,
+                      reconnectBaseDelaySeconds: parseInt(e.target.value) || 5,
+                    },
+                  })
+                }
+                min={1}
+                max={300}
+              />
+            </div>
+            <div className="form-group">
+              <label>Reconnect Max Delay (seconds)</label>
+              <input
+                type="number"
+                value={settings.remoteControl.reconnectMaxDelaySeconds}
+                onChange={(e) =>
+                  setSettings({
+                    ...settings,
+                    remoteControl: {
+                      ...settings.remoteControl,
+                      reconnectMaxDelaySeconds: parseInt(e.target.value) || 60,
+                    },
+                  })
+                }
+                min={1}
+                max={3600}
+              />
+            </div>
+            <div className="form-group">
+              <label className="settings-checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={settings.remoteControl.allowInvalidCertificates}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      remoteControl: {
+                        ...settings.remoteControl,
+                        allowInvalidCertificates: e.target.checked,
+                      },
+                    })
+                  }
+                />
+                <span>Allow Invalid Certificates</span>
+              </label>
+            </div>
+          </div>
+          {health?.remoteTunnel?.lastError && (
+            <div className="alert alert-error" style={{ marginTop: '0.75rem' }}>
+              {health.remoteTunnel.lastError}
+            </div>
+          )}
+          <button
+            className="btn-primary btn-sm"
+            onClick={handleSaveRemoteControlSettings}
+            title="Save remote-control tunnel configuration"
+          >
+            Save Remote Control Settings
           </button>
         </div>
       )}

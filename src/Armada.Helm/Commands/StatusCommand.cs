@@ -158,6 +158,37 @@ namespace Armada.Helm.Commands
                 AnsiConsole.Write(signalTable);
             }
 
+            if (status.RemoteTunnel != null)
+            {
+                AnsiConsole.WriteLine();
+                Table tunnelTable = TableRenderer.CreateTable("Remote Tunnel", null);
+                tunnelTable.AddColumn("State");
+                tunnelTable.AddColumn("URL");
+                tunnelTable.AddColumn("Latency");
+                tunnelTable.AddColumn("Error");
+
+                string stateColor = status.RemoteTunnel.State switch
+                {
+                    RemoteTunnelStateEnum.Connected => "green",
+                    RemoteTunnelStateEnum.Connecting => "yellow",
+                    RemoteTunnelStateEnum.Error => "red",
+                    RemoteTunnelStateEnum.Disabled => "grey",
+                    _ => "dodgerblue1"
+                };
+
+                string latency = status.RemoteTunnel.LatencyMs.HasValue
+                    ? status.RemoteTunnel.LatencyMs.Value + " ms"
+                    : "-";
+
+                tunnelTable.AddRow(
+                    $"[{stateColor}]{status.RemoteTunnel.State}[/]",
+                    Markup.Escape(status.RemoteTunnel.TunnelUrl ?? "-"),
+                    Markup.Escape(latency),
+                    Markup.Escape(status.RemoteTunnel.LastError ?? "-"));
+
+                AnsiConsole.Write(tunnelTable);
+            }
+
             AnsiConsole.WriteLine();
             AnsiConsole.MarkupLine($"[dim]Snapshot: {status.TimestampUtc:yyyy-MM-dd HH:mm:ss} UTC[/]");
 

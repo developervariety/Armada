@@ -1,9 +1,15 @@
 # Armada WebSocket API Reference
 
-**Version:** 0.5.0
+**Version:** 0.6.0
 **Default URL:** `ws://localhost:7892`
 **Protocol:** WebSocket (RFC 6455) via WatsonWebsocket
 **Transport:** JSON text frames
+
+## Remote Control Note
+
+`v0.6.0` does not expose the local Armada dashboard websocket API through `Armada.ControlPlane`.
+
+The new remote-control tunnel forwards Armada server events to the control plane for instance activity tracking, but it does not provide dashboard-websocket compatibility mode yet. When that changes, this document will be updated with the proxied event and auth model.
 
 ---
 

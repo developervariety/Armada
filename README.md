@@ -7,7 +7,7 @@
 <p align="center">
   <strong>Reduce context switching across projects. Keep agent work in queryable memory.</strong>
   <br />
-  <em>v0.5.0 alpha -- APIs and schemas may change</em>
+  <em>v0.6.0 alpha -- APIs and schemas may change</em>
 </p>
 
 <p align="center">
@@ -897,6 +897,20 @@ v0.5.0 adds captain model selection, startup model validation, and mission runti
 - React dashboard captain detail now exposes the captain model field and shows validation errors in a modal
 - Mission detail now shows total runtime, and dispatch cleanup removes the redundant parsed-task UI
 - Docker image tags, release metadata, and API documentation are updated for `v0.5.0`
+
+### v0.5.0 to v0.6.0
+
+v0.6.0 starts the remote-control foundation in Armada itself. This release adds the local outbound tunnel client, a first shipped `Armada.ControlPlane` service, tunnel telemetry, and server/dashboard configuration surfaces needed for future remote operations work. No database schema migration is required for this release.
+
+Key changes:
+
+- New `RemoteControl` settings in `settings.json`, exposed through `GET /api/v1/settings` and `PUT /api/v1/settings`
+- New `RemoteTunnel` health/status telemetry, exposed through `/api/v1/status`, `/api/v1/status/health`, the React dashboard, the legacy dashboard, and `armada status`
+- Experimental outbound websocket tunnel client with URL normalization, handshake, heartbeat, reconnect, request/response handling, and event forwarding
+- New `Armada.ControlPlane` service with websocket tunnel termination, in-memory instance registry APIs, and live forwarded status/health requests
+- New operator docs: `docs/TUNNEL_PROTOCOL.md`, `docs/CONTROL_PLANE_API.md`, and `docs/TUNNEL_OPERATIONS.md`
+- Release metadata, Docker image tags, Postman examples, and API documentation are updated for `v0.6.0`
+- Standalone no-op release scripts are available in `migrations/` for `v0.5.0 -> v0.6.0`
 
 ## Issues and Discussions
 

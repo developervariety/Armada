@@ -20,7 +20,7 @@ namespace Armada.Core
         /// <summary>
         /// Product version.
         /// </summary>
-        public static readonly string ProductVersion = "0.5.0";
+        public static readonly string ProductVersion = "0.6.0";
 
         /// <summary>
         /// Default data directory.
@@ -48,6 +48,11 @@ namespace Armada.Core
         /// Default WebSocket port.
         /// </summary>
         public static readonly int DefaultWebSocketPort = 7892;
+
+        /// <summary>
+        /// Default control-plane port.
+        /// </summary>
+        public static readonly int DefaultControlPlanePort = 7893;
 
         /// <summary>
         /// Default heartbeat interval in seconds.
@@ -139,6 +144,46 @@ namespace Armada.Core
         /// 0 = disabled.
         /// </summary>
         public static readonly int DefaultIdleCaptainTimeoutSeconds = 0;
+
+        /// <summary>
+        /// Default remote tunnel connect timeout in seconds.
+        /// </summary>
+        public static readonly int DefaultRemoteConnectTimeoutSeconds = 15;
+
+        /// <summary>
+        /// Default remote tunnel heartbeat interval in seconds.
+        /// </summary>
+        public static readonly int DefaultRemoteHeartbeatIntervalSeconds = 30;
+
+        /// <summary>
+        /// Default base reconnect delay in seconds for the remote tunnel.
+        /// </summary>
+        public static readonly int DefaultRemoteReconnectBaseDelaySeconds = 5;
+
+        /// <summary>
+        /// Default maximum reconnect delay in seconds for the remote tunnel.
+        /// </summary>
+        public static readonly int DefaultRemoteReconnectMaxDelaySeconds = 60;
+
+        /// <summary>
+        /// Current remote tunnel protocol version.
+        /// </summary>
+        public static readonly string RemoteTunnelProtocolVersion = "2026-04-03";
+
+        /// <summary>
+        /// Default control-plane handshake timeout in seconds.
+        /// </summary>
+        public static readonly int DefaultControlPlaneHandshakeTimeoutSeconds = 15;
+
+        /// <summary>
+        /// Default control-plane stale-instance threshold in seconds.
+        /// </summary>
+        public static readonly int DefaultControlPlaneStaleAfterSeconds = 90;
+
+        /// <summary>
+        /// Default control-plane tunnel request timeout in seconds.
+        /// </summary>
+        public static readonly int DefaultControlPlaneRequestTimeoutSeconds = 20;
 
         /// <summary>
         /// Tenant ID prefix.

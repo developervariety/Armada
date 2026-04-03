@@ -28,6 +28,8 @@ namespace Armada.Server.Routes
         private readonly DateTime _startUtc;
         private readonly JsonSerializerOptions _jsonOptions;
         private readonly LoggingModule _logging;
+        private readonly Func<RemoteTunnelStatus>? _getRemoteTunnelStatus;
+        private readonly Func<Task>? _onRemoteControlSettingsChanged;
 
         /// <summary>
         /// Instantiate.
@@ -39,6 +41,8 @@ namespace Armada.Server.Routes
         /// <param name="startUtc">Server start timestamp.</param>
         /// <param name="jsonOptions">JSON serializer options.</param>
         /// <param name="logging">Logging module.</param>
+        /// <param name="getRemoteTunnelStatus">Optional callback that returns the current remote tunnel status.</param>
+        /// <param name="onRemoteControlSettingsChanged">Optional callback invoked after remote-control settings are updated.</param>
         public StatusRoutes(
             DatabaseDriver database,
             ArmadaSettings settings,
@@ -46,7 +50,9 @@ namespace Armada.Server.Routes
             Action stopCallback,
             DateTime startUtc,
             JsonSerializerOptions jsonOptions,
-            LoggingModule logging)
+            LoggingModule logging,
+            Func<RemoteTunnelStatus>? getRemoteTunnelStatus = null,
+            Func<Task>? onRemoteControlSettingsChanged = null)
         {
             _database = database;
             _settings = settings;
@@ -55,6 +61,8 @@ namespace Armada.Server.Routes
             _startUtc = startUtc;
             _jsonOptions = jsonOptions;
             _logging = logging;
+            _getRemoteTunnelStatus = getRemoteTunnelStatus;
+            _onRemoteControlSettingsChanged = onRemoteControlSettingsChanged;
         }
 
         /// <summary>
@@ -104,7 +112,8 @@ namespace Armada.Server.Routes
                         Admiral = _settings.AdmiralPort,
                         Mcp = _settings.McpPort,
                         WebSocket = _settings.WebSocketPort
-                    }
+                    },
+                    RemoteTunnel = BuildRemoteTunnelStatus()
                 };
             },
             api => api
@@ -316,21 +325,7 @@ namespace Armada.Server.Routes
                     req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
-                return new
-                {
-                    AdmiralPort = _settings.AdmiralPort,
-                    McpPort = _settings.McpPort,
-                    MaxCaptains = _settings.MaxCaptains,
-                    HeartbeatIntervalSeconds = _settings.HeartbeatIntervalSeconds,
-                    StallThresholdMinutes = _settings.StallThresholdMinutes,
-                    IdleCaptainTimeoutSeconds = _settings.IdleCaptainTimeoutSeconds,
-                    AutoCreatePr = _settings.AutoCreatePullRequests,
-                    DataDirectory = _settings.DataDirectory,
-                    DatabasePath = _settings.DatabasePath,
-                    LogDirectory = _settings.LogDirectory,
-                    DocksDirectory = _settings.DocksDirectory,
-                    ReposDirectory = _settings.ReposDirectory
-                };
+                return BuildSettingsResponse();
             },
             api => api
                 .WithTag("Settings")
@@ -370,24 +365,18 @@ namespace Armada.Server.Routes
                 if (body.AutoCreatePr.HasValue)
                     _settings.AutoCreatePullRequests = body.AutoCreatePr.Value;
 
+                bool remoteControlChanged = body.RemoteControl != null;
+                if (remoteControlChanged)
+                    _settings.RemoteControl = body.RemoteControl!;
+
                 await _settings.SaveAsync().ConfigureAwait(false);
+
+                if (remoteControlChanged && _onRemoteControlSettingsChanged != null)
+                    await _onRemoteControlSettingsChanged().ConfigureAwait(false);
+
                 _logging.Info(_Header + "settings updated via API");
 
-                return new
-                {
-                    AdmiralPort = _settings.AdmiralPort,
-                    McpPort = _settings.McpPort,
-                    MaxCaptains = _settings.MaxCaptains,
-                    HeartbeatIntervalSeconds = _settings.HeartbeatIntervalSeconds,
-                    StallThresholdMinutes = _settings.StallThresholdMinutes,
-                    IdleCaptainTimeoutSeconds = _settings.IdleCaptainTimeoutSeconds,
-                    AutoCreatePr = _settings.AutoCreatePullRequests,
-                    DataDirectory = _settings.DataDirectory,
-                    DatabasePath = _settings.DatabasePath,
-                    LogDirectory = _settings.LogDirectory,
-                    DocksDirectory = _settings.DocksDirectory,
-                    ReposDirectory = _settings.ReposDirectory
-                };
+                return BuildSettingsResponse();
             },
             api => api
                 .WithTag("Settings")
@@ -445,6 +434,36 @@ namespace Armada.Server.Routes
                 .WithSummary("Factory reset")
                 .WithDescription("Deletes database, logs, docks, and repos directories. Preserves settings file.")
                 .WithSecurity("ApiKey"));
+        }
+
+        private object BuildSettingsResponse()
+        {
+            return new
+            {
+                AdmiralPort = _settings.AdmiralPort,
+                McpPort = _settings.McpPort,
+                MaxCaptains = _settings.MaxCaptains,
+                HeartbeatIntervalSeconds = _settings.HeartbeatIntervalSeconds,
+                StallThresholdMinutes = _settings.StallThresholdMinutes,
+                IdleCaptainTimeoutSeconds = _settings.IdleCaptainTimeoutSeconds,
+                AutoCreatePr = _settings.AutoCreatePullRequests,
+                DataDirectory = _settings.DataDirectory,
+                DatabasePath = _settings.DatabasePath,
+                LogDirectory = _settings.LogDirectory,
+                DocksDirectory = _settings.DocksDirectory,
+                ReposDirectory = _settings.ReposDirectory,
+                RemoteControl = _settings.RemoteControl
+            };
+        }
+
+        private RemoteTunnelStatus BuildRemoteTunnelStatus()
+        {
+            return _getRemoteTunnelStatus?.Invoke() ?? new RemoteTunnelStatus
+            {
+                Enabled = _settings.RemoteControl.Enabled,
+                State = _settings.RemoteControl.Enabled ? RemoteTunnelStateEnum.Disconnected : RemoteTunnelStateEnum.Disabled,
+                TunnelUrl = _settings.RemoteControl.TunnelUrl
+            };
         }
     }
 }
