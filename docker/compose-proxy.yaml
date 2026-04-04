@@ -7,5 +7,5 @@ services:
       - ARMADA_PROXY_SETTINGS_FILE=/config/proxysettings.json
     volumes:
       - ./proxy/proxysettings.json:/config/proxysettings.json:ro
-      - ./proxy/data:/root/.armada
-      - ./proxy/logs:/root/.armada/logs
+      - ./proxy/data:/app/data
+      - ./proxy/logs:/app/data/logs

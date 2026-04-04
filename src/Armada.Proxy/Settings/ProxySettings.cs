@@ -12,6 +12,32 @@ namespace Armada.Proxy.Settings
         #region Public-Members
 
         /// <summary>
+        /// Root data directory for Armada.Proxy.
+        /// </summary>
+        public string DataDirectory
+        {
+            get => _DataDirectory;
+            set
+            {
+                if (String.IsNullOrWhiteSpace(value)) throw new ArgumentNullException(nameof(DataDirectory));
+                _DataDirectory = value;
+            }
+        }
+
+        /// <summary>
+        /// Directory for Armada.Proxy log files.
+        /// </summary>
+        public string LogDirectory
+        {
+            get => _LogDirectory;
+            set
+            {
+                if (String.IsNullOrWhiteSpace(value)) throw new ArgumentNullException(nameof(LogDirectory));
+                _LogDirectory = value;
+            }
+        }
+
+        /// <summary>
         /// Interface hostname to bind.
         /// </summary>
         public string Hostname { get; set; } = "localhost";
@@ -146,10 +172,21 @@ namespace Armada.Proxy.Settings
             return settings;
         }
 
+        /// <summary>
+        /// Ensure the configured proxy directories exist.
+        /// </summary>
+        public void InitializeDirectories()
+        {
+            Directory.CreateDirectory(DataDirectory);
+            Directory.CreateDirectory(LogDirectory);
+        }
+
         #endregion
 
         #region Private-Members
 
+        private string _DataDirectory = Constants.DefaultDataDirectory;
+        private string _LogDirectory = Path.Combine(Constants.DefaultDataDirectory, "logs");
         private int _Port = Constants.DefaultProxyPort;
         private int _HandshakeTimeoutSeconds = Constants.DefaultProxyHandshakeTimeoutSeconds;
         private int _StaleAfterSeconds = Constants.DefaultProxyStaleAfterSeconds;
@@ -162,6 +199,16 @@ namespace Armada.Proxy.Settings
 
         private void Apply(JsonElement section)
         {
+            if (TryGetProperty(section, nameof(DataDirectory), out JsonElement dataDirectory) && dataDirectory.ValueKind == JsonValueKind.String)
+            {
+                DataDirectory = dataDirectory.GetString() ?? DataDirectory;
+            }
+
+            if (TryGetProperty(section, nameof(LogDirectory), out JsonElement logDirectory) && logDirectory.ValueKind == JsonValueKind.String)
+            {
+                LogDirectory = logDirectory.GetString() ?? LogDirectory;
+            }
+
             if (TryGetProperty(section, nameof(Hostname), out JsonElement hostname) && hostname.ValueKind == JsonValueKind.String)
             {
                 Hostname = hostname.GetString() ?? Hostname;

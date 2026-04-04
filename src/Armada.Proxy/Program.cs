@@ -27,7 +27,7 @@ namespace Armada.Proxy
                 string msg = "[Program] FATAL unhandled exception: " + (ex?.ToString() ?? e.ExceptionObject?.ToString() ?? "unknown");
                 try { _Logging?.Warn(msg); } catch { }
                 Console.Error.WriteLine(msg);
-                try { File.AppendAllText(Path.Combine(Constants.DefaultDataDirectory, "proxy-crash.log"), DateTime.UtcNow.ToString("o") + " " + msg + Environment.NewLine); } catch { }
+                try { File.AppendAllText(GetCrashLogPath(), DateTime.UtcNow.ToString("o") + " " + msg + Environment.NewLine); } catch { }
             };
 
             TaskScheduler.UnobservedTaskException += (sender, e) =>
@@ -35,7 +35,7 @@ namespace Armada.Proxy
                 string msg = "[Program] unobserved task exception: " + e.Exception?.ToString();
                 try { _Logging?.Warn(msg); } catch { }
                 Console.Error.WriteLine(msg);
-                try { File.AppendAllText(Path.Combine(Constants.DefaultDataDirectory, "proxy-crash.log"), DateTime.UtcNow.ToString("o") + " " + msg + Environment.NewLine); } catch { }
+                try { File.AppendAllText(GetCrashLogPath(), DateTime.UtcNow.ToString("o") + " " + msg + Environment.NewLine); } catch { }
                 e.SetObserved();
             };
 
@@ -114,18 +114,11 @@ namespace Armada.Proxy
 
         private static void InitializeDirectories()
         {
-            Directory.CreateDirectory(Constants.DefaultDataDirectory);
-
-            string logDirectory = Path.Combine(Constants.DefaultDataDirectory, "logs");
-            if (!Directory.Exists(logDirectory))
-            {
-                Directory.CreateDirectory(logDirectory);
-            }
+            _Settings.InitializeDirectories();
         }
 
         private static void InitializeLogging()
         {
-            string logDirectory = Path.Combine(Constants.DefaultDataDirectory, "logs");
             List<SyslogServer> syslogServers = _Settings.SyslogServers ?? new List<SyslogServer>();
 
             _Logging = new LoggingModule(syslogServers, true);
@@ -133,7 +126,14 @@ namespace Armada.Proxy
             _Logging.Settings.EnableColors = true;
             _Logging.Settings.MinimumSeverity = Severity.Debug;
             _Logging.Settings.FileLogging = FileLoggingMode.FileWithDate;
-            _Logging.Settings.LogFilename = Path.Combine(logDirectory, "proxy.log");
+            _Logging.Settings.LogFilename = Path.Combine(_Settings.LogDirectory, "proxy.log");
+        }
+
+        private static string GetCrashLogPath()
+        {
+            string dataDirectory = _Settings?.DataDirectory ?? Constants.DefaultDataDirectory;
+            Directory.CreateDirectory(dataDirectory);
+            return Path.Combine(dataDirectory, "proxy-crash.log");
         }
     }
 }

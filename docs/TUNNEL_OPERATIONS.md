@@ -69,8 +69,11 @@ Armada stores remote tunnel configuration in `settings.json`:
 ```json
 {
   "ArmadaProxy": {
+    "dataDirectory": "/app/data",
+    "logDirectory": "/app/data/logs",
     "hostname": "localhost",
     "port": 7893,
+    "syslogServers": [],
     "requireEnrollmentToken": false,
     "enrollmentTokens": [],
     "handshakeTimeoutSeconds": 15,
@@ -83,8 +86,11 @@ Armada stores remote tunnel configuration in `settings.json`:
 
 ### Key Fields
 
+- `dataDirectory`
+- `logDirectory`
 - `hostname`
 - `port`
+- `syslogServers`
 - `requireEnrollmentToken`
 - `enrollmentTokens`
 - `handshakeTimeoutSeconds`

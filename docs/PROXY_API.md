@@ -37,8 +37,11 @@ Configuration is read from the `ArmadaProxy` section:
 ```json
 {
   "ArmadaProxy": {
+    "dataDirectory": "/app/data",
+    "logDirectory": "/app/data/logs",
     "hostname": "localhost",
     "port": 7893,
+    "syslogServers": [],
     "requireEnrollmentToken": false,
     "enrollmentTokens": [],
     "handshakeTimeoutSeconds": 15,

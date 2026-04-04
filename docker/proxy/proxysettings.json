@@ -1,5 +1,7 @@
 {
   "ArmadaProxy": {
+    "dataDirectory": "/app/data",
+    "logDirectory": "/app/data/logs",
     "hostname": "0.0.0.0",
     "port": 7893,
     "syslogServers": [],
