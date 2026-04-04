@@ -185,34 +185,43 @@ namespace Armada.Server
             string scheme = parsed.Scheme.ToLowerInvariant();
             if (scheme == Uri.UriSchemeHttp)
             {
-                UriBuilder builder = new UriBuilder(parsed)
-                {
-                    Scheme = "ws",
-                    Port = parsed.IsDefaultPort ? 80 : parsed.Port
-                };
+                UriBuilder builder = EnsureTunnelPath(parsed);
+                builder.Scheme = "ws";
+                builder.Port = parsed.IsDefaultPort ? 80 : parsed.Port;
                 normalizedUri = builder.Uri;
                 return true;
             }
 
             if (scheme == Uri.UriSchemeHttps)
             {
-                UriBuilder builder = new UriBuilder(parsed)
-                {
-                    Scheme = "wss",
-                    Port = parsed.IsDefaultPort ? 443 : parsed.Port
-                };
+                UriBuilder builder = EnsureTunnelPath(parsed);
+                builder.Scheme = "wss";
+                builder.Port = parsed.IsDefaultPort ? 443 : parsed.Port;
                 normalizedUri = builder.Uri;
                 return true;
             }
 
             if (scheme == "ws" || scheme == "wss")
             {
-                normalizedUri = parsed;
+                normalizedUri = EnsureTunnelPath(parsed).Uri;
                 return true;
             }
 
             error = "Tunnel URL must use ws, wss, http, or https.";
             return false;
+        }
+
+        private static UriBuilder EnsureTunnelPath(Uri parsed)
+        {
+            UriBuilder builder = new UriBuilder(parsed);
+            string path = builder.Path ?? String.Empty;
+
+            if (String.IsNullOrWhiteSpace(path) || path == "/")
+            {
+                builder.Path = "/tunnel";
+            }
+
+            return builder;
         }
 
         /// <summary>

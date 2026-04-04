@@ -16,7 +16,11 @@ namespace Armada.Core.Settings
         /// Full proxy tunnel endpoint URL.
         /// Accepts ws/wss directly, or http/https which are normalized to ws/wss.
         /// </summary>
-        public string? TunnelUrl { get; set; } = null;
+        public string? TunnelUrl
+        {
+            get => _TunnelUrl;
+            set => _TunnelUrl = String.IsNullOrWhiteSpace(value) ? Constants.DefaultRemoteTunnelUrl : value;
+        }
 
         /// <summary>
         /// Optional instance identifier override.
@@ -95,6 +99,7 @@ namespace Armada.Core.Settings
         private int _HeartbeatIntervalSeconds = Constants.DefaultRemoteHeartbeatIntervalSeconds;
         private int _ReconnectBaseDelaySeconds = Constants.DefaultRemoteReconnectBaseDelaySeconds;
         private int _ReconnectMaxDelaySeconds = Constants.DefaultRemoteReconnectMaxDelaySeconds;
+        private string? _TunnelUrl = Constants.DefaultRemoteTunnelUrl;
 
         #endregion
     }

@@ -10,6 +10,7 @@ import {
 } from '../api/client';
 import RefreshButton from '../components/shared/RefreshButton';
 import { useWebSocket } from '../context/WebSocketContext';
+import { useNotifications, type Severity } from '../context/NotificationContext';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import CopyButton, { copyToClipboard } from '../components/shared/CopyButton';
 import { useAuth } from '../context/AuthContext';
@@ -78,6 +79,23 @@ interface ServerSettings {
   remoteControl: RemoteControlSettings;
 }
 
+type McpClientKey = 'claude' | 'codex' | 'gemini' | 'cursor';
+
+interface McpClientReference {
+  key: McpClientKey;
+  title: string;
+  location: string;
+}
+
+const DEFAULT_REMOTE_TUNNEL_URL = 'http://proxy.armadago.ai:7893/tunnel';
+
+const MCP_CLIENTS: McpClientReference[] = [
+  { key: 'claude', title: 'Claude Code', location: '~/.claude.json -> mcpServers.armada' },
+  { key: 'codex', title: 'Codex', location: '~/.codex/config.json -> mcpServers.armada' },
+  { key: 'gemini', title: 'Gemini', location: '~/.gemini/settings.json -> mcpServers.armada' },
+  { key: 'cursor', title: 'Cursor', location: '.cursor/mcp.json -> mcpServers.armada' },
+];
+
 function formatTimeAbsolute(utc: string | null | undefined): string {
   if (!utc) return '';
   return new Date(utc).toLocaleString();
@@ -86,7 +104,7 @@ function formatTimeAbsolute(utc: string | null | undefined): string {
 function getDefaultRemoteControlSettings(): RemoteControlSettings {
   return {
     enabled: false,
-    tunnelUrl: null,
+    tunnelUrl: DEFAULT_REMOTE_TUNNEL_URL,
     instanceId: null,
     enrollmentToken: null,
     connectTimeoutSeconds: 15,
@@ -111,12 +129,12 @@ function mergeServerSettings(data: ServerSettings | null): ServerSettings | null
 export default function Server() {
   const { isAdmin } = useAuth();
   const { connected } = useWebSocket();
+  const { pushToast } = useNotifications();
 
   const [health, setHealth] = useState<HealthInfo | null>(null);
   const [settings, setSettings] = useState<ServerSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [toast, setToast] = useState('');
   const [backupLoading, setBackupLoading] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState<{
     open: boolean;
@@ -126,10 +144,9 @@ export default function Server() {
 
   const restoreFileRef = useRef<HTMLInputElement>(null);
 
-  const showToast = (msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(''), 4000);
-  };
+  const showToast = useCallback((severity: Severity, msg: string) => {
+    pushToast(severity, msg);
+  }, [pushToast]);
 
   const loadData = useCallback(async () => {
     try {
@@ -162,10 +179,10 @@ export default function Server() {
         maxCaptains: settings.maxCaptains,
       });
       setSettings(mergeServerSettings(updated as unknown as ServerSettings));
-      showToast('Server configuration saved');
+      showToast('success', 'Server configuration saved');
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Unknown error';
-      showToast(`Failed: ${msg}`);
+      showToast('error', `Failed: ${msg}`);
     }
   };
 
@@ -179,10 +196,10 @@ export default function Server() {
         autoCreatePr: settings.autoCreatePr,
       });
       setSettings(mergeServerSettings(updated as unknown as ServerSettings));
-      showToast('Agent settings saved');
+      showToast('success', 'Agent settings saved');
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Unknown error';
-      showToast(`Failed: ${msg}`);
+      showToast('error', `Failed: ${msg}`);
     }
   };
 
@@ -193,12 +210,12 @@ export default function Server() {
         remoteControl: settings.remoteControl,
       });
       setSettings(mergeServerSettings(updated as unknown as ServerSettings));
-      showToast('Remote control settings saved');
+      showToast('success', 'Remote control settings saved');
       const refreshedHealth = (await getHealth()) as unknown as HealthInfo;
       setHealth(refreshedHealth);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Unknown error';
-      showToast(`Failed: ${msg}`);
+      showToast('error', `Failed: ${msg}`);
     }
   };
 
@@ -206,10 +223,10 @@ export default function Server() {
     try {
       const result = (await getHealth()) as unknown as HealthInfo;
       setHealth(result);
-      showToast(`Health: ${result.status} | Uptime: ${result.uptime}`);
+      showToast('info', `Health: ${result.status} | Uptime: ${result.uptime}`);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Unknown error';
-      showToast(`Health check failed: ${msg}`);
+      showToast('error', `Health check failed: ${msg}`);
     }
   };
 
@@ -217,10 +234,10 @@ export default function Server() {
     setBackupLoading(true);
     try {
       await downloadBackup();
-      showToast('Backup downloaded');
+      showToast('success', 'Backup downloaded');
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Unknown error';
-      showToast(`Backup failed: ${msg}`);
+      showToast('error', `Backup failed: ${msg}`);
     } finally {
       setBackupLoading(false);
     }
@@ -235,11 +252,11 @@ export default function Server() {
     if (!file) return;
     try {
       await restoreBackup(file);
-      showToast('Restore completed successfully. Server restart recommended.');
+      showToast('success', 'Restore completed successfully. Server restart recommended.');
       loadData();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Unknown error';
-      showToast(`Restore failed: ${msg}`);
+      showToast('error', `Restore failed: ${msg}`);
     }
     if (restoreFileRef.current) restoreFileRef.current.value = '';
   };
@@ -251,10 +268,10 @@ export default function Server() {
       onConfirm: async () => {
         try {
           await stopServer();
-          showToast('Server shutting down...');
+          showToast('warning', 'Server shutting down...');
         } catch (e: unknown) {
           const msg = e instanceof Error ? e.message : 'Unknown error';
-          showToast(`Failed: ${msg}`);
+          showToast('error', `Failed: ${msg}`);
         }
         setConfirmDialog({ open: false, message: '', onConfirm: () => {} });
       },
@@ -269,42 +286,103 @@ export default function Server() {
       onConfirm: async () => {
         try {
           await resetServer();
-          showToast('Factory reset complete');
+          showToast('success', 'Factory reset complete');
         } catch (e: unknown) {
           const msg = e instanceof Error ? e.message : 'Unknown error';
-          showToast(`Factory reset failed: ${msg}`);
+          showToast('error', `Factory reset failed: ${msg}`);
         }
         setConfirmDialog({ open: false, message: '', onConfirm: () => {} });
       },
     });
   };
 
-  const getMcpConfigHttp = (): string => {
+  const getMcpRpcUrl = (): string => {
     const port = health?.ports?.mcp || settings?.mcpPort || 7891;
-    return JSON.stringify(
-      {
-        type: 'streamableHttp',
-        url: `http://localhost:${port}/mcp`,
-      },
-      null,
-      2,
-    );
+    return `http://localhost:${port}/rpc`;
   };
 
-  const getMcpConfigStdio = (): string => {
-    return JSON.stringify(
-      {
-        type: 'stdio',
-        command: 'armada',
-        args: ['mcp'],
-      },
-      null,
-      2,
-    );
+  const getMcpConfigHttp = (client: McpClientKey): string => {
+    const rpcUrl = getMcpRpcUrl();
+
+    switch (client) {
+      case 'claude':
+      case 'codex':
+        return JSON.stringify(
+          {
+            mcpServers: {
+              armada: {
+                type: 'http',
+                url: rpcUrl,
+              },
+            },
+          },
+          null,
+          2,
+        );
+      case 'gemini':
+        return JSON.stringify(
+          {
+            mcpServers: {
+              armada: {
+                httpUrl: rpcUrl,
+              },
+            },
+          },
+          null,
+          2,
+        );
+      case 'cursor':
+        return JSON.stringify(
+          {
+            mcpServers: {
+              armada: {
+                url: rpcUrl,
+              },
+            },
+          },
+          null,
+          2,
+        );
+    }
+  };
+
+  const getMcpConfigStdio = (client: McpClientKey): string => {
+    switch (client) {
+      case 'claude':
+        return 'claude mcp add --scope user armada -- armada mcp stdio';
+      case 'cursor':
+        return JSON.stringify(
+          {
+            mcpServers: {
+              armada: {
+                command: 'armada',
+                args: ['mcp', 'stdio'],
+              },
+            },
+          },
+          null,
+          2,
+        );
+      case 'codex':
+      case 'gemini':
+        return JSON.stringify(
+          {
+            mcpServers: {
+              armada: {
+                type: 'stdio',
+                command: 'armada',
+                args: ['mcp', 'stdio'],
+              },
+            },
+          },
+          null,
+          2,
+        );
+    }
   };
 
   const copyAndToast = (text: string) => {
-    copyToClipboard(text).then(() => showToast('Copied to clipboard')).catch(() => {});
+    copyToClipboard(text).then(() => showToast('success', 'Copied to clipboard')).catch(() => {});
   };
 
   if (loading) {
@@ -331,11 +409,6 @@ export default function Server() {
       </div>
 
       <ErrorModal error={error} onClose={() => setError('')} />
-      {toast && (
-        <div className="alert alert-success" style={{ marginBottom: '1rem' }}>
-          {toast}
-        </div>
-      )}
 
       {/* Health Status Cards */}
       <div className="card-grid">
@@ -388,7 +461,7 @@ export default function Server() {
       </div>
 
       {/* Detail Fields */}
-      <div className="detail-grid" style={{ marginTop: '1rem' }}>
+      <div className="detail-grid server-detail-grid" style={{ marginTop: '1rem' }}>
         <div className="detail-field">
           <span className="detail-label">Version</span>
           <span className="mono">{health?.version || '-'}</span>
@@ -588,8 +661,8 @@ export default function Server() {
                     },
                   })
                 }
-                placeholder="wss://proxy.example.com/tunnel"
-                title="WebSocket tunnel endpoint. http/https will be normalized to ws/wss."
+                placeholder={DEFAULT_REMOTE_TUNNEL_URL}
+                title="Proxy base URL or tunnel endpoint. http/https will be normalized to ws/wss and /tunnel will be added automatically when needed."
               />
             </div>
             <div className="form-group">
@@ -737,35 +810,46 @@ export default function Server() {
         <div className="settings-section" style={{ marginTop: '1.5rem' }}>
           <h3>MCP Configuration</h3>
           <p className="text-muted" style={{ marginBottom: '0.75rem' }}>
-            Add to <span className="mono">~/.claude.json</span> under{' '}
-            <span className="mono">mcpServers.armada</span>
+            Client-specific MCP references for Claude, Codex, Gemini, and Cursor.
           </p>
-          <div className="settings-config-block">
-            <div className="settings-config-header">
-              <span className="text-muted">HTTP (Streamable)</span>
-              <button
-                className="btn-sm"
-                onClick={() => copyAndToast(getMcpConfigHttp())}
-                title="Copy HTTP config to clipboard"
-              >
-                Copy
-              </button>
+          {MCP_CLIENTS.map((client) => (
+            <div key={client.key} className="settings-config-block" style={{ marginTop: '0.75rem' }}>
+              <div className="settings-config-header">
+                <div>
+                  <div>{client.title}</div>
+                  <div className="text-muted mono" style={{ marginTop: '0.2rem' }}>
+                    {client.location}
+                  </div>
+                </div>
+              </div>
+              <div className="settings-config-block" style={{ margin: '0.75rem' }}>
+                <div className="settings-config-header">
+                  <span className="text-muted">HTTP</span>
+                  <button
+                    className="btn-sm"
+                    onClick={() => copyAndToast(getMcpConfigHttp(client.key))}
+                    title={`Copy ${client.title} HTTP config to clipboard`}
+                  >
+                    Copy
+                  </button>
+                </div>
+                <pre className="settings-config-code">{getMcpConfigHttp(client.key)}</pre>
+              </div>
+              <div className="settings-config-block" style={{ margin: '0 0.75rem 0.75rem' }}>
+                <div className="settings-config-header">
+                  <span className="text-muted">STDIO</span>
+                  <button
+                    className="btn-sm"
+                    onClick={() => copyAndToast(getMcpConfigStdio(client.key))}
+                    title={`Copy ${client.title} STDIO config to clipboard`}
+                  >
+                    Copy
+                  </button>
+                </div>
+                <pre className="settings-config-code">{getMcpConfigStdio(client.key)}</pre>
+              </div>
             </div>
-            <pre className="settings-config-code">{getMcpConfigHttp()}</pre>
-          </div>
-          <div className="settings-config-block" style={{ marginTop: '0.75rem' }}>
-            <div className="settings-config-header">
-              <span className="text-muted">STDIO</span>
-              <button
-                className="btn-sm"
-                onClick={() => copyAndToast(getMcpConfigStdio())}
-                title="Copy STDIO config to clipboard"
-              >
-                Copy
-              </button>
-            </div>
-            <pre className="settings-config-code">{getMcpConfigStdio()}</pre>
-          </div>
+          ))}
         </div>
       )}
 

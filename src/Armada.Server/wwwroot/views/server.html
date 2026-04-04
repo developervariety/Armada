@@ -29,7 +29,7 @@
                     </div>
                 </div>
             </div>
-            <div class="detail-grid" style="margin-top:1rem">
+            <div class="detail-grid server-detail-grid" style="margin-top:1rem">
                 <div class="detail-field"><span class="detail-label">Version</span><span class="mono" x-text="healthInfo?.version || '-'"></span></div>
                 <div class="detail-field"><span class="detail-label">API URL</span><span class="mono" x-text="window.location.origin"></span></div>
                 <div class="detail-field"><span class="detail-label">Admiral Port</span><span class="mono" x-text="healthInfo?.ports?.admiral || window.location.port"></span></div>
@@ -99,7 +99,7 @@
                     </div>
                     <div class="form-group">
                         <label>Tunnel URL</label>
-                        <input type="text" x-model="serverSettings.remoteControl.tunnelUrl" placeholder="wss://proxy.example.com/tunnel" title="WebSocket tunnel endpoint. http/https will be normalized to ws/wss.">
+                        <input type="text" x-model="serverSettings.remoteControl.tunnelUrl" placeholder="http://proxy.armadago.ai:7893/tunnel" title="Proxy base URL or tunnel endpoint. http/https will be normalized to ws/wss and /tunnel will be added automatically when needed.">
                     </div>
                     <div class="form-group">
                         <label>Instance ID Override</label>
@@ -139,20 +139,94 @@
             <!-- MCP Configuration Section -->
             <div class="settings-section" x-show="serverSettings">
                 <h3 class="settings-section-title">MCP Configuration</h3>
-                <p class="text-dim" style="margin-bottom:0.75rem">Add to <span class="mono">~/.claude.json</span> under <span class="mono">mcpServers.armada</span></p>
+                <p class="text-dim" style="margin-bottom:0.75rem">Client-specific MCP references for Claude, Codex, Gemini, and Cursor.</p>
                 <div class="settings-config-block">
                     <div class="settings-config-header">
-                        <span class="text-dim">HTTP (Streamable)</span>
-                        <button class="btn btn-sm" @click="copyMcpConfig('http', $el)" title="Copy HTTP config to clipboard">Copy</button>
+                        <div>
+                            <div>Claude Code</div>
+                            <div class="text-dim mono" style="margin-top:0.2rem">~/.claude.json -> mcpServers.armada</div>
+                        </div>
                     </div>
-                    <pre class="settings-config-code" x-text="getMcpConfigHttp()"></pre>
+                    <div class="settings-config-block" style="margin:0.75rem">
+                        <div class="settings-config-header">
+                            <span class="text-dim">HTTP</span>
+                            <button class="btn btn-sm" @click="copyMcpConfig('claude', 'http', $el)" title="Copy Claude Code HTTP config to clipboard">Copy</button>
+                        </div>
+                        <pre class="settings-config-code" x-text="getMcpConfigHttp('claude')"></pre>
+                    </div>
+                    <div class="settings-config-block" style="margin:0 0.75rem 0.75rem">
+                        <div class="settings-config-header">
+                            <span class="text-dim">STDIO</span>
+                            <button class="btn btn-sm" @click="copyMcpConfig('claude', 'stdio', $el)" title="Copy Claude Code STDIO config to clipboard">Copy</button>
+                        </div>
+                        <pre class="settings-config-code" x-text="getMcpConfigStdio('claude')"></pre>
+                    </div>
                 </div>
                 <div class="settings-config-block" style="margin-top:0.75rem">
                     <div class="settings-config-header">
-                        <span class="text-dim">STDIO</span>
-                        <button class="btn btn-sm" @click="copyMcpConfig('stdio', $el)" title="Copy STDIO config to clipboard">Copy</button>
+                        <div>
+                            <div>Codex</div>
+                            <div class="text-dim mono" style="margin-top:0.2rem">~/.codex/config.json -> mcpServers.armada</div>
+                        </div>
                     </div>
-                    <pre class="settings-config-code" x-text="getMcpConfigStdio()"></pre>
+                    <div class="settings-config-block" style="margin:0.75rem">
+                        <div class="settings-config-header">
+                            <span class="text-dim">HTTP</span>
+                            <button class="btn btn-sm" @click="copyMcpConfig('codex', 'http', $el)" title="Copy Codex HTTP config to clipboard">Copy</button>
+                        </div>
+                        <pre class="settings-config-code" x-text="getMcpConfigHttp('codex')"></pre>
+                    </div>
+                    <div class="settings-config-block" style="margin:0 0.75rem 0.75rem">
+                        <div class="settings-config-header">
+                            <span class="text-dim">STDIO</span>
+                            <button class="btn btn-sm" @click="copyMcpConfig('codex', 'stdio', $el)" title="Copy Codex STDIO config to clipboard">Copy</button>
+                        </div>
+                        <pre class="settings-config-code" x-text="getMcpConfigStdio('codex')"></pre>
+                    </div>
+                </div>
+                <div class="settings-config-block" style="margin-top:0.75rem">
+                    <div class="settings-config-header">
+                        <div>
+                            <div>Gemini</div>
+                            <div class="text-dim mono" style="margin-top:0.2rem">~/.gemini/settings.json -> mcpServers.armada</div>
+                        </div>
+                    </div>
+                    <div class="settings-config-block" style="margin:0.75rem">
+                        <div class="settings-config-header">
+                            <span class="text-dim">HTTP</span>
+                            <button class="btn btn-sm" @click="copyMcpConfig('gemini', 'http', $el)" title="Copy Gemini HTTP config to clipboard">Copy</button>
+                        </div>
+                        <pre class="settings-config-code" x-text="getMcpConfigHttp('gemini')"></pre>
+                    </div>
+                    <div class="settings-config-block" style="margin:0 0.75rem 0.75rem">
+                        <div class="settings-config-header">
+                            <span class="text-dim">STDIO</span>
+                            <button class="btn btn-sm" @click="copyMcpConfig('gemini', 'stdio', $el)" title="Copy Gemini STDIO config to clipboard">Copy</button>
+                        </div>
+                        <pre class="settings-config-code" x-text="getMcpConfigStdio('gemini')"></pre>
+                    </div>
+                </div>
+                <div class="settings-config-block" style="margin-top:0.75rem">
+                    <div class="settings-config-header">
+                        <div>
+                            <div>Cursor</div>
+                            <div class="text-dim mono" style="margin-top:0.2rem">.cursor/mcp.json -> mcpServers.armada</div>
+                        </div>
+                    </div>
+                    <div class="settings-config-block" style="margin:0.75rem">
+                        <div class="settings-config-header">
+                            <span class="text-dim">HTTP</span>
+                            <button class="btn btn-sm" @click="copyMcpConfig('cursor', 'http', $el)" title="Copy Cursor HTTP config to clipboard">Copy</button>
+                        </div>
+                        <pre class="settings-config-code" x-text="getMcpConfigHttp('cursor')"></pre>
+                    </div>
+                    <div class="settings-config-block" style="margin:0 0.75rem 0.75rem">
+                        <div class="settings-config-header">
+                            <span class="text-dim">STDIO</span>
+                            <button class="btn btn-sm" @click="copyMcpConfig('cursor', 'stdio', $el)" title="Copy Cursor STDIO config to clipboard">Copy</button>
+                        </div>
+                        <pre class="settings-config-code" x-text="getMcpConfigStdio('cursor')"></pre>
+                    </div>
                 </div>
             </div>
 

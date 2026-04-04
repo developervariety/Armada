@@ -1404,17 +1404,39 @@ function dashboard() {
             } catch (e) { this.toast('Restore failed: ' + e.message, 'error'); }
         },
 
-        getMcpConfigHttp() {
-            let port = this.serverSettings?.mcpPort || 8001;
-            return JSON.stringify({ type: 'http', url: 'http://localhost:' + port }, null, 2);
+        getMcpRpcUrl() {
+            let port = this.healthInfo?.ports?.mcp || this.serverSettings?.mcpPort || 7891;
+            return 'http://localhost:' + port + '/rpc';
         },
 
-        getMcpConfigStdio() {
-            return JSON.stringify({ type: 'stdio', command: 'armada', args: ['mcp', 'stdio'] }, null, 2);
+        getMcpConfigHttp(client) {
+            let rpcUrl = this.getMcpRpcUrl();
+
+            if (client === 'gemini') {
+                return JSON.stringify({ mcpServers: { armada: { httpUrl: rpcUrl } } }, null, 2);
+            }
+
+            if (client === 'cursor') {
+                return JSON.stringify({ mcpServers: { armada: { url: rpcUrl } } }, null, 2);
+            }
+
+            return JSON.stringify({ mcpServers: { armada: { type: 'http', url: rpcUrl } } }, null, 2);
         },
 
-        copyMcpConfig(type, buttonEl) {
-            let text = type === 'http' ? this.getMcpConfigHttp() : this.getMcpConfigStdio();
+        getMcpConfigStdio(client) {
+            if (client === 'claude') {
+                return 'claude mcp add --scope user armada -- armada mcp stdio';
+            }
+
+            if (client === 'cursor') {
+                return JSON.stringify({ mcpServers: { armada: { command: 'armada', args: ['mcp', 'stdio'] } } }, null, 2);
+            }
+
+            return JSON.stringify({ mcpServers: { armada: { type: 'stdio', command: 'armada', args: ['mcp', 'stdio'] } } }, null, 2);
+        },
+
+        copyMcpConfig(client, transport, buttonEl) {
+            let text = transport === 'http' ? this.getMcpConfigHttp(client) : this.getMcpConfigStdio(client);
             this.copyToClipboard(text, buttonEl);
         },
 

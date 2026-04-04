@@ -55,6 +55,11 @@ namespace Armada.Core
         public static readonly int DefaultProxyPort = 7893;
 
         /// <summary>
+        /// Default remote tunnel URL.
+        /// </summary>
+        public static readonly string DefaultRemoteTunnelUrl = "http://proxy.armadago.ai:7893/tunnel";
+
+        /// <summary>
         /// Default heartbeat interval in seconds.
         /// </summary>
         public static readonly int DefaultHeartbeatIntervalSeconds = 30;

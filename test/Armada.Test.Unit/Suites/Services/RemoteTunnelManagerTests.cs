@@ -24,6 +24,16 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(RemoteTunnelManager.TryNormalizeTunnelUrl("http://control.example.com/tunnel", out Uri? wsUri, out string? httpError), httpError ?? "HTTP tunnel URL should normalize");
                 AssertNotNull(wsUri);
                 AssertEqual("ws", wsUri!.Scheme);
+
+                AssertTrue(RemoteTunnelManager.TryNormalizeTunnelUrl("http://control.example.com:7893", out Uri? shorthandUri, out string? shorthandError), shorthandError ?? "Base proxy URL should normalize");
+                AssertNotNull(shorthandUri);
+                AssertEqual("ws", shorthandUri!.Scheme);
+                AssertEqual("/tunnel", shorthandUri.AbsolutePath);
+
+                AssertTrue(RemoteTunnelManager.TryNormalizeTunnelUrl("wss://control.example.com", out Uri? shorthandSecureUri, out string? shorthandSecureError), shorthandSecureError ?? "Base websocket URL should normalize");
+                AssertNotNull(shorthandSecureUri);
+                AssertEqual("wss", shorthandSecureUri!.Scheme);
+                AssertEqual("/tunnel", shorthandSecureUri.AbsolutePath);
             });
 
             await RunTest("TryNormalizeTunnelUrl Rejects Invalid Inputs", () =>
