@@ -3,60 +3,145 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Armada Remote Ops</title>
+  <title>Armada Proxy</title>
   <link rel="stylesheet" href="/app.css">
 </head>
 <body>
-  <div class="shell">
-    <header class="hero">
-      <div>
-        <div class="eyebrow">Armada Proxy</div>
-        <h1>Proxy shell for quick remote triage</h1>
-        <p class="lede">Instance status, fleet and vessel management, voyage dispatch, mission editing, and fast log or diff inspection without tunneling a whole dashboard.</p>
+  <div id="loginView" class="login-container">
+    <section class="login-card proxy-login-card">
+      <div class="proxy-login-brand">
+        <div class="brand-mark" aria-hidden="true">A</div>
+        <div>
+          <div class="eyebrow">Armada Proxy</div>
+          <h1>Connect To A Deployment</h1>
+        </div>
       </div>
-      <div class="hero-actions">
-        <button id="refreshButton" class="button button-primary">Refresh</button>
-      </div>
-    </header>
 
-    <main class="layout">
-      <section class="panel panel-list">
-        <div class="panel-header">
-          <h2>Instances</h2>
+      <p class="login-copy">
+        Enter the deployment identifier for the Armada instance you want to manage through this proxy.
+        If the deployment is not connected, the proxy will tell you before opening the shell.
+      </p>
+
+      <form id="loginForm" class="form-stack login-form">
+        <label class="field">
+          <span>Deployment Identifier</span>
+          <input id="loginInstanceId" type="text" placeholder="armada-1f2e3d4c5b6a" autocomplete="off" spellcheck="false">
+        </label>
+
+        <div class="form-actions">
+          <button type="submit" class="button button-primary">Open Deployment</button>
+          <button id="loginRefreshButton" type="button" class="button">Refresh Registry</button>
+        </div>
+
+        <div id="loginStatus" class="form-status"></div>
+      </form>
+
+      <section class="login-available card-block">
+        <div class="section-head">
+          <div>
+            <h2>Available Deployments</h2>
+            <p class="text-muted">Identifiers currently visible through this proxy.</p>
+          </div>
           <span id="instanceCount" class="pill">0</span>
         </div>
-        <div id="instanceList" class="instance-list"></div>
+        <div id="instanceList" class="deployment-list"></div>
       </section>
+    </section>
+  </div>
 
-      <section class="workspace">
-        <div id="emptyState" class="panel empty-state">
-          <h2>No instance selected</h2>
-          <p>Connect an Armada instance to the proxy, then choose it here to inspect health, missions, voyages, captains, logs, and diffs.</p>
+  <div id="appView" class="app-layout hidden">
+    <aside id="sidebar" class="sidebar">
+      <div class="sidebar-brand">
+        <div class="brand-mark brand-mark-sidebar" aria-hidden="true">A</div>
+        <div class="sidebar-brand-copy">
+          <h1>Armada</h1>
+          <p>Proxy</p>
         </div>
+      </div>
+
+      <div class="sidebar-deployment">
+        <div class="sidebar-section-label">Deployment</div>
+        <div id="sidebarDeploymentId" class="sidebar-deployment-id mono">-</div>
+        <div id="sidebarDeploymentState" class="tag idle">Offline</div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <button type="button" class="sidebar-nav-item" data-scroll-target="overviewSection">Overview</button>
+        <button type="button" class="sidebar-nav-item" data-scroll-target="activitySection">Activity</button>
+        <button type="button" class="sidebar-nav-item" data-scroll-target="missionsSection">Missions</button>
+        <button type="button" class="sidebar-nav-item" data-scroll-target="voyagesSection">Voyages</button>
+        <button type="button" class="sidebar-nav-item" data-scroll-target="captainsSection">Captains</button>
+        <button type="button" class="sidebar-nav-item" data-scroll-target="fleetsSection">Fleets</button>
+        <button type="button" class="sidebar-nav-item" data-scroll-target="vesselsSection">Vessels</button>
+        <button type="button" class="sidebar-nav-item" data-scroll-target="studiosSection">Studios</button>
+        <button type="button" class="sidebar-nav-item" data-scroll-target="detailSection">Focused Detail</button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <button id="sidebarSwitchDeploymentButton" type="button" class="button sidebar-action">Change Deployment</button>
+      </div>
+    </aside>
+
+    <div id="sidebarOverlay" class="sidebar-overlay hidden"></div>
+
+    <div class="main-content-area">
+      <div class="top-bar">
+        <button id="mobileMenuButton" type="button" class="menu-button" aria-label="Open navigation">☰</button>
+        <div class="top-bar-group">
+          <span class="top-bar-label">Deployment</span>
+          <span id="currentDeploymentLabel" class="top-bar-value mono">-</span>
+          <span id="currentDeploymentState" class="tag idle">Offline</span>
+        </div>
+        <div class="top-bar-actions">
+          <button id="refreshButton" type="button" class="button">Refresh</button>
+          <button id="switchDeploymentButton" type="button" class="button">Change Deployment</button>
+        </div>
+      </div>
+
+      <main class="main">
+        <section class="page-header proxy-hero">
+          <div>
+            <div class="eyebrow">Remote Operations</div>
+            <h2>Manage one Armada deployment through the proxy</h2>
+            <p class="text-muted hero-copy">
+              This shell is tied to a single deployment at a time. Review live status, dispatch voyages,
+              edit missions, inspect logs and diffs, and manage fleets or vessels from a phone-sized screen
+              without exposing the full local dashboard.
+            </p>
+          </div>
+          <div class="hero-actions">
+            <button id="refreshSummaryButton" type="button" class="button button-primary">Refresh Deployment</button>
+          </div>
+        </section>
+
+        <section id="emptyState" class="panel empty-state hidden">
+          <h2>No deployment selected</h2>
+          <p>Select a deployment identifier through the proxy login screen to begin remote management.</p>
+        </section>
 
         <div id="instanceWorkspace" class="workspace-content hidden">
-          <section class="panel panel-summary">
+          <section id="overviewSection" class="panel panel-summary">
             <div class="panel-header">
               <div>
-                <h2 id="summaryTitle">Instance Summary</h2>
+                <h2 id="summaryTitle">Deployment Summary</h2>
                 <p id="summarySubtitle" class="text-muted"></p>
-              </div>
-              <div class="summary-actions">
-                <button id="refreshSummaryButton" class="button">Refresh Instance</button>
               </div>
             </div>
             <div id="summaryCards" class="summary-cards"></div>
           </section>
 
           <div class="content-grid">
-            <section class="panel">
+            <section id="activitySection" class="panel">
               <div class="panel-header">
-                <h2>Recent Activity</h2>
+                <div>
+                  <h2>Recent Activity</h2>
+                  <p class="text-muted">Fast signal on what changed most recently.</p>
+                </div>
               </div>
               <div id="activityFeed" class="feed"></div>
             </section>
 
-            <section class="panel">
+            <section id="missionsSection" class="panel">
               <div class="panel-header">
                 <div>
                   <h2>Missions</h2>
@@ -93,7 +178,7 @@
               <div id="missionList" class="entity-stack"></div>
             </section>
 
-            <section class="panel">
+            <section id="voyagesSection" class="panel">
               <div class="panel-header">
                 <div>
                   <h2>Voyages</h2>
@@ -120,29 +205,38 @@
               <div id="voyageList" class="entity-stack"></div>
             </section>
 
-            <section class="panel">
+            <section id="captainsSection" class="panel">
               <div class="panel-header">
-                <h2>Recent Captains</h2>
+                <div>
+                  <h2>Captains</h2>
+                  <p class="text-muted">Inspect recent captain state without leaving the proxy shell.</p>
+                </div>
               </div>
               <div id="captainList" class="entity-stack"></div>
             </section>
 
-            <section class="panel">
+            <section id="fleetsSection" class="panel">
               <div class="panel-header">
-                <h2>Fleets</h2>
+                <div>
+                  <h2>Fleets</h2>
+                  <p class="text-muted">Review current fleet definitions before editing them below.</p>
+                </div>
               </div>
               <div id="fleetList" class="entity-stack"></div>
             </section>
 
-            <section class="panel">
+            <section id="vesselsSection" class="panel">
               <div class="panel-header">
-                <h2>Vessels</h2>
+                <div>
+                  <h2>Vessels</h2>
+                  <p class="text-muted">Review current repository registrations and deployment targets.</p>
+                </div>
               </div>
               <div id="vesselList" class="entity-stack"></div>
             </section>
           </div>
 
-          <div class="management-grid">
+          <div id="studiosSection" class="management-grid">
             <section class="panel">
               <div class="panel-header">
                 <div>
@@ -231,7 +325,7 @@
               <div class="panel-header">
                 <div>
                   <h2>Voyage Dispatch</h2>
-                  <p class="text-muted">Dispatch a new voyage through the selected instance.</p>
+                  <p class="text-muted">Dispatch a new voyage through the selected deployment.</p>
                 </div>
               </div>
               <form id="dispatchForm" class="form-stack">
@@ -313,11 +407,11 @@
             </section>
           </div>
 
-          <section class="panel panel-detail">
+          <section id="detailSection" class="panel panel-detail">
             <div class="panel-header">
               <div>
                 <h2 id="detailTitle">Focused Detail</h2>
-                <p id="detailSubtitle" class="text-muted">Select a mission, voyage, or captain card to inspect it here.</p>
+                <p id="detailSubtitle" class="text-muted">Select a mission, voyage, captain, fleet, or vessel card to inspect it here.</p>
               </div>
             </div>
             <div id="detailBody" class="detail-body">
@@ -327,8 +421,8 @@
             </div>
           </section>
         </div>
-      </section>
-    </main>
+      </main>
+    </div>
   </div>
 
   <template id="entityCardTemplate">

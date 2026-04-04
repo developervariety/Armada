@@ -1,6 +1,10 @@
+const DEPLOYMENT_STORAGE_KEY = 'armada_proxy_instance_id';
+
 const state = {
   instances: [],
   selectedInstanceId: null,
+  isAuthenticated: false,
+  sidebarOpen: false,
   summary: null,
   detail: null,
   fleets: [],
@@ -11,8 +15,23 @@ const state = {
 };
 
 const elements = {
+  loginView: document.getElementById('loginView'),
+  appView: document.getElementById('appView'),
+  loginForm: document.getElementById('loginForm'),
+  loginInstanceId: document.getElementById('loginInstanceId'),
+  loginStatus: document.getElementById('loginStatus'),
+  loginRefreshButton: document.getElementById('loginRefreshButton'),
   instanceCount: document.getElementById('instanceCount'),
   instanceList: document.getElementById('instanceList'),
+  sidebar: document.getElementById('sidebar'),
+  sidebarOverlay: document.getElementById('sidebarOverlay'),
+  sidebarDeploymentId: document.getElementById('sidebarDeploymentId'),
+  sidebarDeploymentState: document.getElementById('sidebarDeploymentState'),
+  switchDeploymentButton: document.getElementById('switchDeploymentButton'),
+  sidebarSwitchDeploymentButton: document.getElementById('sidebarSwitchDeploymentButton'),
+  mobileMenuButton: document.getElementById('mobileMenuButton'),
+  currentDeploymentLabel: document.getElementById('currentDeploymentLabel'),
+  currentDeploymentState: document.getElementById('currentDeploymentState'),
   refreshButton: document.getElementById('refreshButton'),
   refreshSummaryButton: document.getElementById('refreshSummaryButton'),
   emptyState: document.getElementById('emptyState'),
@@ -143,6 +162,122 @@ async function fetchJson(url, options = {}) {
   return body;
 }
 
+function getStoredDeploymentId() {
+  try {
+    return localStorage.getItem(DEPLOYMENT_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function storeDeploymentId(instanceId) {
+  try {
+    if (instanceId) {
+      localStorage.setItem(DEPLOYMENT_STORAGE_KEY, instanceId);
+    } else {
+      localStorage.removeItem(DEPLOYMENT_STORAGE_KEY);
+    }
+  } catch {
+    // Ignore storage failures in private/incognito contexts.
+  }
+}
+
+function getInstanceById(instanceId) {
+  return state.instances.find((instance) => instance.instanceId === instanceId) || null;
+}
+
+function setLoginStatus(message, kind) {
+  setFormStatus(elements.loginStatus, message, kind);
+}
+
+function setDeploymentChrome() {
+  const instance = getInstanceById(state.selectedInstanceId);
+  const summaryHealth = state.summary?.health || {};
+  const tunnel = summaryHealth.remoteTunnel || {};
+  const statusValue = tunnel.state || instance?.state || 'Offline';
+
+  elements.currentDeploymentLabel.textContent = state.selectedInstanceId || '-';
+  elements.currentDeploymentState.textContent = String(statusValue);
+  elements.currentDeploymentState.className = `tag ${badgeClass(statusValue) || 'idle'}`;
+
+  elements.sidebarDeploymentId.textContent = state.selectedInstanceId || '-';
+  elements.sidebarDeploymentState.textContent = String(statusValue);
+  elements.sidebarDeploymentState.className = `tag ${badgeClass(statusValue) || 'idle'}`;
+}
+
+function closeSidebar() {
+  state.sidebarOpen = false;
+  elements.sidebar.classList.remove('sidebar-open');
+  elements.sidebarOverlay.classList.add('hidden');
+}
+
+function openSidebar() {
+  state.sidebarOpen = true;
+  elements.sidebar.classList.add('sidebar-open');
+  elements.sidebarOverlay.classList.remove('hidden');
+}
+
+function renderSessionState() {
+  const authenticated = state.isAuthenticated && Boolean(state.selectedInstanceId);
+
+  elements.loginView.classList.toggle('hidden', authenticated);
+  elements.appView.classList.toggle('hidden', !authenticated);
+
+  if (authenticated) {
+    setDeploymentChrome();
+  } else {
+    closeSidebar();
+  }
+}
+
+function resetProxyState() {
+  state.summary = null;
+  state.detail = null;
+  state.fleets = [];
+  state.vessels = [];
+  resetFleetForm();
+  resetVesselForm();
+  resetMissionForm();
+  renderDetail();
+}
+
+async function authenticateInstance(instanceId) {
+  const normalized = String(instanceId || '').trim();
+  if (!normalized) {
+    setLoginStatus('Deployment identifier is required.', 'error');
+    return;
+  }
+
+  const instance = getInstanceById(normalized);
+  if (!instance) {
+    setLoginStatus(`No Armada deployment with identifier "${normalized}" is connected to this proxy.`, 'error');
+    return;
+  }
+
+  state.selectedInstanceId = normalized;
+  state.isAuthenticated = true;
+  storeDeploymentId(normalized);
+  elements.loginInstanceId.value = normalized;
+  setLoginStatus('', null);
+  resetProxyState();
+  renderSessionState();
+  await loadSelectedInstance();
+}
+
+function logoutToLogin(message = '', prefill = '') {
+  state.isAuthenticated = false;
+  state.selectedInstanceId = null;
+  storeDeploymentId(null);
+  resetProxyState();
+  renderSessionState();
+  elements.loginInstanceId.value = prefill || '';
+  if (message) {
+    setLoginStatus(message, 'error');
+  } else {
+    setLoginStatus('', null);
+  }
+}
+
 function instanceBaseUrl() {
   return `/api/v1/instances/${encodeURIComponent(state.selectedInstanceId)}`;
 }
@@ -166,67 +301,76 @@ async function loadInstances() {
   elements.instanceCount.textContent = String(data.count || state.instances.length || 0);
   renderInstanceList();
 
-  if (!state.selectedInstanceId && state.instances.length > 0) {
-    state.selectedInstanceId = state.instances[0].instanceId;
-  }
+  if (state.isAuthenticated && state.selectedInstanceId) {
+    if (!getInstanceById(state.selectedInstanceId)) {
+      const missingId = state.selectedInstanceId;
+      logoutToLogin(`Deployment "${missingId}" is no longer registered with this proxy.`, missingId);
+      return;
+    }
 
-  if (state.selectedInstanceId) {
     await loadSelectedInstance();
   } else {
-    renderSelectedInstance();
+    renderSessionState();
   }
 }
 
 async function loadSelectedInstance() {
   if (!state.selectedInstanceId) return;
 
-  const base = instanceBaseUrl();
-  const [summary, fleets, vessels] = await Promise.all([
-    fetchJson(`${base}/summary`),
-    fetchJson(`${base}/fleets?limit=12`),
-    fetchJson(`${base}/vessels?limit=12`),
-  ]);
+  try {
+    const base = instanceBaseUrl();
+    const [summary, fleets, vessels] = await Promise.all([
+      fetchJson(`${base}/summary`),
+      fetchJson(`${base}/fleets?limit=12`),
+      fetchJson(`${base}/vessels?limit=12`),
+    ]);
 
-  state.summary = summary;
-  state.fleets = fleets.fleets || [];
-  state.vessels = vessels.vessels || [];
-  renderSelectedInstance();
+    state.summary = summary;
+    state.fleets = fleets.fleets || [];
+    state.vessels = vessels.vessels || [];
+    renderSessionState();
+    renderSelectedInstance();
+  } catch (error) {
+    state.summary = null;
+    renderSessionState();
+    elements.emptyState.classList.remove('hidden');
+    elements.instanceWorkspace.classList.add('hidden');
+    elements.emptyState.innerHTML = `
+      <h2>Deployment Unavailable</h2>
+      <p>${escapeHtml(error instanceof Error ? error.message : 'Unable to load deployment summary through the proxy.')}</p>
+    `;
+    throw error;
+  }
 }
 
 function renderInstanceList() {
   elements.instanceList.innerHTML = '';
 
   if (state.instances.length === 0) {
-    elements.instanceList.innerHTML = '<div class="text-muted">No instances are connected to this proxy yet.</div>';
+    elements.instanceList.innerHTML = '<div class="text-muted">No Armada deployments are connected to this proxy yet.</div>';
     return;
   }
 
   for (const instance of state.instances) {
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = 'instance-card';
+    button.className = 'deployment-card';
     button.innerHTML = `
-      <div class="instance-card-top">
-        <span class="instance-title">${escapeHtml(instance.instanceId)}</span>
+      <div class="entity-card-top">
+        <span class="entity-title">${escapeHtml(instance.instanceId)}</span>
         ${renderBadge(instance.state)}
       </div>
-      <div class="instance-meta">${escapeHtml(instance.armadaVersion || 'unknown version')} · ${escapeHtml(instance.protocolVersion || 'unknown protocol')}</div>
-      <div class="instance-meta">${escapeHtml(instance.lastError || instance.remoteAddress || 'No current error')}</div>
+      <div class="entity-meta">${escapeHtml(instance.armadaVersion || 'unknown version')} · ${escapeHtml(instance.protocolVersion || 'unknown protocol')}</div>
+      <div class="entity-meta-secondary">${escapeHtml(instance.lastError || instance.remoteAddress || 'No current error')}</div>
     `;
 
     button.addEventListener('click', async () => {
-      state.selectedInstanceId = instance.instanceId;
-      state.detail = null;
-      resetFleetForm();
-      resetVesselForm();
-      resetMissionForm();
-      renderInstanceList();
-      await loadSelectedInstance();
+      elements.loginInstanceId.value = instance.instanceId;
+      await authenticateInstance(instance.instanceId);
     });
 
     if (state.selectedInstanceId === instance.instanceId) {
-      button.style.borderColor = 'rgba(15, 109, 119, 0.32)';
-      button.style.boxShadow = '0 12px 24px rgba(18, 36, 33, 0.08)';
+      button.classList.add('is-selected');
     }
 
     elements.instanceList.appendChild(button);
@@ -237,6 +381,7 @@ function renderSelectedInstance() {
   if (!state.selectedInstanceId || !state.summary) {
     elements.emptyState.classList.remove('hidden');
     elements.instanceWorkspace.classList.add('hidden');
+    setDeploymentChrome();
     return;
   }
 
@@ -248,6 +393,7 @@ function renderSelectedInstance() {
   elements.instanceWorkspace.classList.remove('hidden');
   elements.summaryTitle.textContent = state.selectedInstanceId;
   elements.summarySubtitle.textContent = `${health.version || 'unknown version'} · tunnel ${health.remoteTunnel?.state || 'unknown'} · generated ${formatTimestamp(summary.generatedUtc)}`;
+  setDeploymentChrome();
 
   elements.summaryCards.innerHTML = [
     makeSummaryCard('Tunnel', health.remoteTunnel?.state || 'unknown', health.remoteTunnel?.tunnelUrl || 'No tunnel URL configured'),
@@ -935,6 +1081,59 @@ async function submitVoyageBrowseForm(event) {
   }
 }
 
+function bindSidebarNavigation() {
+  document.querySelectorAll('[data-scroll-target]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const targetId = button.getAttribute('data-scroll-target');
+      if (!targetId) return;
+
+      const target = document.getElementById(targetId);
+      if (!target) return;
+
+      document.querySelectorAll('.sidebar-nav-item').forEach((item) => item.classList.remove('active'));
+      button.classList.add('active');
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      closeSidebar();
+    });
+  });
+}
+
+async function initializeProxyShell() {
+  const storedDeploymentId = getStoredDeploymentId();
+
+  try {
+    await loadInstances();
+
+    if (storedDeploymentId && getInstanceById(storedDeploymentId)) {
+      await authenticateInstance(storedDeploymentId);
+    } else {
+      renderSessionState();
+      if (storedDeploymentId && !getInstanceById(storedDeploymentId)) {
+        elements.loginInstanceId.value = storedDeploymentId;
+        setLoginStatus(`Deployment "${storedDeploymentId}" is not currently connected to this proxy.`, 'error');
+      }
+    }
+  } catch (error) {
+    renderSessionState();
+    setLoginStatus(error instanceof Error ? error.message : 'Failed to load proxy data.', 'error');
+  }
+}
+
+elements.loginForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  await authenticateInstance(elements.loginInstanceId.value);
+});
+
+elements.loginRefreshButton.addEventListener('click', async () => {
+  try {
+    setLoginStatus('Refreshing proxy registry...', null);
+    await loadInstances();
+    setLoginStatus('Registry refreshed.', 'success');
+  } catch (error) {
+    setLoginStatus(error instanceof Error ? error.message : 'Failed to refresh proxy registry.', 'error');
+  }
+});
+
 elements.refreshButton.addEventListener('click', async () => {
   await loadInstances();
 });
@@ -955,6 +1154,28 @@ elements.dispatchForm.addEventListener('submit', submitDispatchForm);
 elements.missionForm.addEventListener('submit', submitMissionForm);
 elements.missionResetButton.addEventListener('click', resetMissionForm);
 
-loadInstances().catch((error) => {
+elements.switchDeploymentButton.addEventListener('click', () => {
+  logoutToLogin('', state.selectedInstanceId || '');
+});
+
+elements.sidebarSwitchDeploymentButton.addEventListener('click', () => {
+  logoutToLogin('', state.selectedInstanceId || '');
+});
+
+elements.mobileMenuButton.addEventListener('click', () => {
+  if (state.sidebarOpen) {
+    closeSidebar();
+  } else {
+    openSidebar();
+  }
+});
+
+elements.sidebarOverlay.addEventListener('click', closeSidebar);
+
+bindSidebarNavigation();
+renderSessionState();
+initializeProxyShell().catch((error) => {
+  renderSessionState();
   elements.instanceList.innerHTML = `<div class="text-muted">${escapeHtml(error instanceof Error ? error.message : 'Failed to load proxy data.')}</div>`;
+  setLoginStatus(error instanceof Error ? error.message : 'Failed to load proxy data.', 'error');
 });
