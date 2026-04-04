@@ -1820,6 +1820,21 @@ a:hover { text-decoration: underline; }
     overflow: hidden;
 }
 
+.tunnel-status-card {
+    display: inline-block;
+    width: fit-content;
+    min-width: 16rem;
+    max-width: 100%;
+    margin-bottom: 0.75rem;
+}
+
+.tunnel-status-card-header {
+    justify-content: flex-start;
+    gap: 1rem;
+    padding: 0.85rem 1rem;
+    border-bottom: none;
+}
+
 .settings-config-header {
     display: flex;
     justify-content: space-between;

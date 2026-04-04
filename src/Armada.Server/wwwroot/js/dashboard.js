@@ -1409,6 +1409,32 @@ function dashboard() {
             return 'http://localhost:' + port + '/rpc';
         },
 
+        getRemoteTunnelIndicatorLabel() {
+            if (!this.serverSettings?.remoteControl?.enabled) return 'Disabled';
+            let state = this.healthInfo?.remoteTunnel?.state || '';
+            switch (state.toLowerCase()) {
+                case 'connected':
+                    return 'Connected';
+                case 'connecting':
+                case 'stopping':
+                    return state || 'Connecting';
+                case 'error':
+                    return 'Error';
+                case 'disconnected':
+                    return 'Disconnected';
+                default:
+                    return 'Checking status';
+            }
+        },
+
+        getRemoteTunnelIndicatorClass() {
+            if (!this.serverSettings?.remoteControl?.enabled) return 'disconnected';
+            let state = (this.healthInfo?.remoteTunnel?.state || '').toLowerCase();
+            if (state === 'connected') return 'connected';
+            if (state === 'connecting' || state === 'stopping') return 'warning';
+            return 'disconnected';
+        },
+
         getMcpConfigHttp(client) {
             let rpcUrl = this.getMcpRpcUrl();
 

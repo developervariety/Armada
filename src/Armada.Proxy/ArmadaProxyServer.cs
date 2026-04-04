@@ -149,9 +149,11 @@ namespace Armada.Proxy
                 api.Tags.Add(new OpenApiTag { Name = "Instances", Description = "Remote instance inspection and tunnel forwarding" });
             });
 
-            RegisterStaticContent(server);
             RegisterApiRoutes(server);
             RegisterWebSocketRoutes(server);
+            // Register static content last so the catch-all asset mount at "/"
+            // does not shadow API or websocket routes.
+            RegisterStaticContent(server);
         }
 
         private void RegisterStaticContent(Webserver server)
@@ -160,8 +162,11 @@ namespace Armada.Proxy
 
             if (Directory.Exists(_WwwrootDirectory))
             {
-                server.Routes.PreAuthentication.Content.BaseDirectory = _WwwrootDirectory;
-                server.Routes.PreAuthentication.Content.Add("/", true);
+                server.Routes.PreAuthentication.Static.Add(HttpMethod.GET, "/app.css", ctx => ServeStaticFileAsync(ctx, "app.css", "text/css"));
+                server.Routes.PreAuthentication.Static.Add(HttpMethod.GET, "/app.js", ctx => ServeStaticFileAsync(ctx, "app.js", "application/javascript"));
+                server.Routes.PreAuthentication.Static.Add(HttpMethod.GET, "/img/logo-dark-grey.png", ctx => ServeStaticFileAsync(ctx, Path.Combine("img", "logo-dark-grey.png"), "image/png"));
+                server.Routes.PreAuthentication.Static.Add(HttpMethod.GET, "/img/logo-light-grey.png", ctx => ServeStaticFileAsync(ctx, Path.Combine("img", "logo-light-grey.png"), "image/png"));
+                server.Routes.PreAuthentication.Static.Add(HttpMethod.GET, "/img/logo.ico", ctx => ServeStaticFileAsync(ctx, Path.Combine("img", "logo.ico"), "image/x-icon"));
             }
             else
             {
@@ -538,6 +543,7 @@ namespace Armada.Proxy
         private async Task HandleTunnelInternalAsync(HttpContextBase ctx, WebSocketSession session)
         {
             string? instanceId = null;
+            string remoteAddress = String.IsNullOrWhiteSpace(session.RemoteIp) ? "unknown" : session.RemoteIp + ":" + session.RemotePort;
 
             try
             {
@@ -548,6 +554,7 @@ namespace Armada.Proxy
                 if (!String.Equals(firstEnvelope.Type, "request", StringComparison.OrdinalIgnoreCase) ||
                     !String.Equals(firstEnvelope.Method, "armada.tunnel.handshake", StringComparison.OrdinalIgnoreCase))
                 {
+                    _Logging.Warn(_Header + "invalid handshake from " + remoteAddress + ": first message was " + (firstEnvelope.Method ?? firstEnvelope.Type ?? "unknown"));
                     await SendEnvelopeAsync(session, RemoteTunnelProtocol.CreateError(firstEnvelope.CorrelationId, "invalid_handshake", "First tunnel message must be armada.tunnel.handshake.", 400), ctx.Token).ConfigureAwait(false);
                     await session.CloseAsync(WebSocketCloseStatus.PolicyViolation, "Handshake required", ctx.Token).ConfigureAwait(false);
                     return;
@@ -556,6 +563,7 @@ namespace Armada.Proxy
                 RemoteTunnelHandshakePayload? handshake = firstEnvelope.Payload?.Deserialize<RemoteTunnelHandshakePayload>(RemoteTunnelProtocol.JsonOptions);
                 if (!_Registry.TryValidateHandshake(handshake, out string? handshakeError))
                 {
+                    _Logging.Warn(_Header + "handshake rejected from " + remoteAddress + ": " + (handshakeError ?? "unknown reason"));
                     await SendEnvelopeAsync(
                         session,
                         RemoteTunnelProtocol.CreateResponse(
@@ -573,8 +581,8 @@ namespace Armada.Proxy
 
                 RemoteInstanceSession proxySession = new RemoteInstanceSession((envelope, token) => SendEnvelopeAsync(session, envelope, token));
                 instanceId = handshake!.InstanceId!.Trim();
-                string remoteAddress = String.IsNullOrWhiteSpace(session.RemoteIp) ? "unknown" : session.RemoteIp + ":" + session.RemotePort;
                 _Registry.RegisterHandshake(handshake, remoteAddress, proxySession);
+                _Logging.Info(_Header + "handshake accepted for " + instanceId + " from " + remoteAddress);
 
                 await SendEnvelopeAsync(
                     session,
@@ -689,18 +697,7 @@ namespace Armada.Proxy
 
         private async Task ServeIndexAsync(HttpContextBase ctx)
         {
-            string indexPath = Path.Combine(_WwwrootDirectory, "index.html");
-            if (!File.Exists(indexPath))
-            {
-                ctx.Response.StatusCode = 404;
-                ctx.Response.ContentType = "text/plain";
-                await ctx.Response.Send("Armada.Proxy dashboard assets are missing.", ctx.Token).ConfigureAwait(false);
-                return;
-            }
-
-            ctx.Response.StatusCode = 200;
-            ctx.Response.ContentType = "text/html";
-            await ctx.Response.Send(await File.ReadAllTextAsync(indexPath, ctx.Token).ConfigureAwait(false), ctx.Token).ConfigureAwait(false);
+            await ServeStaticFileAsync(ctx, "index.html", "text/html").ConfigureAwait(false);
         }
 
         private Task DefaultRouteAsync(HttpContextBase ctx)
@@ -718,6 +715,23 @@ namespace Armada.Proxy
             }
 
             return JsonSerializer.Deserialize<object>(payload.Value.GetRawText(), RemoteTunnelProtocol.JsonOptions);
+        }
+
+        private async Task ServeStaticFileAsync(HttpContextBase ctx, string relativePath, string contentType)
+        {
+            string fullPath = Path.Combine(_WwwrootDirectory, relativePath);
+            if (!File.Exists(fullPath))
+            {
+                ctx.Response.StatusCode = 404;
+                ctx.Response.ContentType = "text/plain";
+                await ctx.Response.Send("Armada.Proxy asset is missing.", ctx.Token).ConfigureAwait(false);
+                return;
+            }
+
+            ctx.Response.StatusCode = 200;
+            ctx.Response.ContentType = contentType;
+            byte[] bytes = await File.ReadAllBytesAsync(fullPath, ctx.Token).ConfigureAwait(false);
+            await ctx.Response.Send(bytes, ctx.Token).ConfigureAwait(false);
         }
 
         private static string RequireParameter(ApiRequest req, string name)

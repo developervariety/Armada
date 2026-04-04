@@ -126,6 +126,29 @@ function mergeServerSettings(data: ServerSettings | null): ServerSettings | null
   };
 }
 
+function getRemoteTunnelIndicator(
+  enabled: boolean,
+  state: string | null | undefined,
+): { label: string; dotClass: 'connected' | 'warning' | 'disconnected' } {
+  if (!enabled) {
+    return { label: 'Disabled', dotClass: 'disconnected' };
+  }
+
+  switch ((state || '').toLowerCase()) {
+    case 'connected':
+      return { label: 'Connected', dotClass: 'connected' };
+    case 'connecting':
+    case 'stopping':
+      return { label: state || 'Connecting', dotClass: 'warning' };
+    case 'error':
+      return { label: 'Error', dotClass: 'disconnected' };
+    case 'disconnected':
+      return { label: 'Disconnected', dotClass: 'disconnected' };
+    default:
+      return { label: 'Checking status', dotClass: 'warning' };
+  }
+}
+
 export default function Server() {
   const { isAdmin } = useAuth();
   const { connected } = useWebSocket();
@@ -384,6 +407,11 @@ export default function Server() {
   const copyAndToast = (text: string) => {
     copyToClipboard(text).then(() => showToast('success', 'Copied to clipboard')).catch(() => {});
   };
+
+  const remoteTunnelIndicator = getRemoteTunnelIndicator(
+    settings?.remoteControl.enabled ?? false,
+    health?.remoteTunnel?.state,
+  );
 
   if (loading) {
     return (
@@ -790,6 +818,20 @@ export default function Server() {
               </label>
             </div>
           </div>
+          {settings.remoteControl.enabled && (
+            <div className="settings-config-block tunnel-status-card">
+              <div className="settings-config-header tunnel-status-card-header">
+                <span className="text-muted">Tunnel Status</span>
+                <span
+                  className="mono"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}
+                >
+                  <span className={`status-dot ${remoteTunnelIndicator.dotClass}`} />
+                  <span>{remoteTunnelIndicator.label}</span>
+                </span>
+              </div>
+            </div>
+          )}
           {health?.remoteTunnel?.lastError && (
             <div className="alert alert-error" style={{ marginTop: '0.75rem' }}>
               {health.remoteTunnel.lastError}

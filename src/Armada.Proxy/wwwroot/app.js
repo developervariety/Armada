@@ -182,8 +182,33 @@ function storeDeploymentId(instanceId) {
   }
 }
 
+function getInstanceIdValue(instance) {
+  return instance?.instanceId || instance?.InstanceId || '';
+}
+
+function getInstanceStateValue(instance) {
+  return instance?.state || instance?.State || '';
+}
+
+function getInstanceArmadaVersionValue(instance) {
+  return instance?.armadaVersion || instance?.ArmadaVersion || '';
+}
+
+function getInstanceProtocolVersionValue(instance) {
+  return instance?.protocolVersion || instance?.ProtocolVersion || '';
+}
+
+function getInstanceLastErrorValue(instance) {
+  return instance?.lastError || instance?.LastError || '';
+}
+
+function getInstanceRemoteAddressValue(instance) {
+  return instance?.remoteAddress || instance?.RemoteAddress || '';
+}
+
 function getInstanceById(instanceId) {
-  return state.instances.find((instance) => instance.instanceId === instanceId) || null;
+  const normalized = String(instanceId || '').trim().toLowerCase();
+  return state.instances.find((instance) => getInstanceIdValue(instance).toLowerCase() === normalized) || null;
 }
 
 function setLoginStatus(message, kind) {
@@ -194,7 +219,7 @@ function setDeploymentChrome() {
   const instance = getInstanceById(state.selectedInstanceId);
   const summaryHealth = state.summary?.health || {};
   const tunnel = summaryHealth.remoteTunnel || {};
-  const statusValue = tunnel.state || instance?.state || 'Offline';
+  const statusValue = tunnel.state || getInstanceStateValue(instance) || 'Offline';
 
   elements.currentDeploymentLabel.textContent = state.selectedInstanceId || '-';
   elements.currentDeploymentState.textContent = String(statusValue);
@@ -244,20 +269,31 @@ function resetProxyState() {
 async function authenticateInstance(instanceId) {
   const normalized = String(instanceId || '').trim();
   if (!normalized) {
-    setLoginStatus('Deployment identifier is required.', 'error');
+    setLoginStatus('Deployment ID is required.', 'error');
     return;
   }
 
-  const instance = getInstanceById(normalized);
+  let instance = getInstanceById(normalized);
+  if (!instance) {
+    try {
+      await loadInstances();
+    } catch {
+      // Keep the original not-found flow if the refresh itself fails.
+    }
+
+    instance = getInstanceById(normalized);
+  }
+
   if (!instance) {
     setLoginStatus(`No Armada deployment with identifier "${normalized}" is connected to this proxy.`, 'error');
     return;
   }
 
-  state.selectedInstanceId = normalized;
+  const resolvedInstanceId = getInstanceIdValue(instance);
+  state.selectedInstanceId = resolvedInstanceId;
   state.isAuthenticated = true;
-  storeDeploymentId(normalized);
-  elements.loginInstanceId.value = normalized;
+  storeDeploymentId(resolvedInstanceId);
+  elements.loginInstanceId.value = resolvedInstanceId;
   setLoginStatus('', null);
   resetProxyState();
   renderSessionState();
@@ -297,8 +333,8 @@ function buildQuery(params) {
 
 async function loadInstances() {
   const data = await fetchJson('/api/v1/instances');
-  state.instances = data.instances || [];
-  elements.instanceCount.textContent = String(data.count || state.instances.length || 0);
+  state.instances = data.instances || data.Instances || [];
+  elements.instanceCount.textContent = String(data.count || data.Count || state.instances.length || 0);
   renderInstanceList();
 
   if (state.isAuthenticated && state.selectedInstanceId) {
@@ -347,29 +383,30 @@ function renderInstanceList() {
   elements.instanceList.innerHTML = '';
 
   if (state.instances.length === 0) {
-    elements.instanceList.innerHTML = '<div class="text-muted">No Armada deployments are connected to this proxy yet.</div>';
     return;
   }
 
   for (const instance of state.instances) {
+    const instanceId = getInstanceIdValue(instance);
+    const instanceState = getInstanceStateValue(instance);
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'deployment-card';
     button.innerHTML = `
       <div class="entity-card-top">
-        <span class="entity-title">${escapeHtml(instance.instanceId)}</span>
-        ${renderBadge(instance.state)}
+        <span class="entity-title">${escapeHtml(instanceId)}</span>
+        ${renderBadge(instanceState)}
       </div>
-      <div class="entity-meta">${escapeHtml(instance.armadaVersion || 'unknown version')} · ${escapeHtml(instance.protocolVersion || 'unknown protocol')}</div>
-      <div class="entity-meta-secondary">${escapeHtml(instance.lastError || instance.remoteAddress || 'No current error')}</div>
+      <div class="entity-meta">${escapeHtml(getInstanceArmadaVersionValue(instance) || 'unknown version')} | ${escapeHtml(getInstanceProtocolVersionValue(instance) || 'unknown protocol')}</div>
+      <div class="entity-meta-secondary">${escapeHtml(getInstanceLastErrorValue(instance) || getInstanceRemoteAddressValue(instance) || 'No current error')}</div>
     `;
 
     button.addEventListener('click', async () => {
-      elements.loginInstanceId.value = instance.instanceId;
-      await authenticateInstance(instance.instanceId);
+      elements.loginInstanceId.value = instanceId;
+      await authenticateInstance(instanceId);
     });
 
-    if (state.selectedInstanceId === instance.instanceId) {
+    if (state.selectedInstanceId === instanceId) {
       button.classList.add('is-selected');
     }
 
@@ -392,7 +429,7 @@ function renderSelectedInstance() {
   elements.emptyState.classList.add('hidden');
   elements.instanceWorkspace.classList.remove('hidden');
   elements.summaryTitle.textContent = state.selectedInstanceId;
-  elements.summarySubtitle.textContent = `${health.version || 'unknown version'} · tunnel ${health.remoteTunnel?.state || 'unknown'} · generated ${formatTimestamp(summary.generatedUtc)}`;
+  elements.summarySubtitle.textContent = `${health.version || 'unknown version'} | tunnel ${health.remoteTunnel?.state || 'unknown'} | generated ${formatTimestamp(summary.generatedUtc)}`;
   setDeploymentChrome();
 
   elements.summaryCards.innerHTML = [
@@ -436,7 +473,7 @@ function makeSummaryCard(label, value, detail) {
 function countMissionStates(states) {
   const entries = Object.entries(states);
   if (entries.length === 0) return 'none';
-  return entries.map(([key, value]) => `${key}: ${value}`).join(' · ');
+  return entries.map(([key, value]) => `${key}: ${value}`).join(' | ');
 }
 
 function renderActivity(activity) {
@@ -452,7 +489,7 @@ function renderActivity(activity) {
     node.innerHTML = `
       <div class="feed-type">${escapeHtml(item.eventType || 'event')}</div>
       <div class="feed-message">${escapeHtml(item.message || 'No message')}</div>
-      <div class="feed-meta">${formatTimestamp(item.createdUtc)} · ${escapeHtml(item.entityType || 'system')} ${escapeHtml(item.entityId || '')}</div>
+      <div class="feed-meta">${formatTimestamp(item.createdUtc)} | ${escapeHtml(item.entityType || 'system')} ${escapeHtml(item.entityId || '')}</div>
     `;
     elements.activityFeed.appendChild(node);
   }
@@ -480,7 +517,7 @@ function renderEntityList(container, rows, kind) {
     badge.classList.add(badgeClass(badgeValue));
 
     if (kind === 'mission') {
-      meta.textContent = `${row.persona || 'Worker'} · ${row.id}`;
+      meta.textContent = `${row.persona || 'Worker'} | ${row.id}`;
       secondary.textContent = `Updated ${formatTimestamp(row.lastUpdateUtc)}`;
     } else if (kind === 'captain') {
       meta.textContent = `${row.runtime || 'runtime'} · ${row.id}`;

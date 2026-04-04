@@ -132,6 +132,15 @@
                         </label>
                     </div>
                 </div>
+                <div class="settings-config-block tunnel-status-card" x-show="serverSettings?.remoteControl?.enabled">
+                    <div class="settings-config-header tunnel-status-card-header">
+                        <span class="text-dim">Tunnel Status</span>
+                        <span class="mono" style="display:inline-flex;align-items:center;gap:0.5rem">
+                            <span class="status-dot" :class="getRemoteTunnelIndicatorClass()"></span>
+                            <span x-text="getRemoteTunnelIndicatorLabel()"></span>
+                        </span>
+                    </div>
+                </div>
                 <div class="alert alert-error" style="margin-top:0.75rem" x-show="healthInfo?.remoteTunnel?.lastError" x-text="healthInfo?.remoteTunnel?.lastError"></div>
                 <button class="btn btn-primary btn-sm" @click="saveRemoteControlSettings()" title="Save remote-control tunnel configuration">Save Remote Control Settings</button>
             </div>
