@@ -2,19 +2,19 @@
 
 **Version:** 0.6.0
 
-This document describes the shipped tunnel contract between `Armada.Server` and `Armada.ControlPlane` in `v0.6.0`.
+This document describes the shipped tunnel contract between `Armada.Server` and `Armada.Proxy` in `v0.6.0`.
 
 `v0.6.0` now ships:
 
 - outbound websocket tunnel initiation from Armada
-- control-plane websocket termination at `/tunnel`
+- proxy websocket termination at `/tunnel`
 - handshake with protocol version, instance ID, enrollment token, and capability manifest
 - request/response correlation IDs
-- event forwarding from Armada to the control plane
-- bounded control-plane management routing for fleets, vessels, voyages, missions, and captain control
+- event forwarding from Armada to the proxy
+- bounded proxy management routing for fleets, vessels, voyages, missions, and captain control
 - `ping` / `pong` heartbeat handling
 - reconnect with capped exponential backoff and jitter
-- control-plane stale/offline instance semantics
+- proxy stale/offline instance semantics
 
 Not yet shipped:
 
@@ -119,11 +119,11 @@ The first message from Armada must be:
 }
 ```
 
-The control plane validates:
+The proxy validates:
 
 - `instanceId` is present
 - `protocolVersion` is present
-- enrollment token rules from `ArmadaControlPlane`
+- enrollment token rules from `ArmadaProxy`
 
 Accepted handshake response:
 
@@ -137,7 +137,7 @@ Accepted handshake response:
   "message": "Handshake accepted.",
   "payload": {
     "accepted": true,
-    "controlPlaneVersion": "0.6.0",
+    "proxyVersion": "0.6.0",
     "protocolVersion": "2026-04-03",
     "instanceId": "armada-1f2e3d4c5b6a",
     "message": "Handshake accepted.",
@@ -207,7 +207,7 @@ Armada periodically sends:
 }
 ```
 
-The control plane answers:
+The proxy answers:
 
 ```json
 {
@@ -225,7 +225,7 @@ Armada also responds to inbound `ping` messages with a matching `pong`.
 
 ## Routed Requests
 
-The control plane currently issues these live requests:
+The proxy currently issues these live requests:
 
 - `armada.instance.summary`
 - `armada.fleets.list`
@@ -305,7 +305,7 @@ Unsupported requests return:
 
 ## Forwarded Events
 
-Armada forwards server-side events to the control plane as `event` envelopes.
+Armada forwards server-side events to the proxy as `event` envelopes.
 
 Example:
 
@@ -323,7 +323,7 @@ Example:
 }
 ```
 
-The control plane stores recent inbound events per instance for detail inspection.
+The proxy stores recent inbound events per instance for detail inspection.
 
 ---
 
@@ -362,7 +362,7 @@ The timing is controlled by:
 
 ## Offline And Stale Semantics
 
-The control plane computes instance state as:
+The proxy computes instance state as:
 
 - `connected`: websocket open and recent tunnel activity is within `staleAfterSeconds`
 - `stale`: websocket still attached but no tunnel activity has been observed within `staleAfterSeconds`
@@ -380,7 +380,7 @@ Armada exposes tunnel state through:
 - `armada status`
 - the React and legacy server dashboards
 
-The control plane exposes tunnel-derived state through:
+The proxy exposes tunnel-derived state through:
 
 - `GET /api/v1/status/health`
 - `GET /api/v1/instances`

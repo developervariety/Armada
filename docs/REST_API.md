@@ -775,7 +775,7 @@ Accepts partial updates to editable server settings. When `RemoteControl` is sup
 {
   "RemoteControl": {
     "Enabled": true,
-    "TunnelUrl": "wss://control-plane.example.com/tunnel",
+    "TunnelUrl": "wss://proxy.example.com/tunnel",
     "InstanceId": null,
     "EnrollmentToken": "bootstrap-token",
     "ConnectTimeoutSeconds": 15,

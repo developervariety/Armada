@@ -4,7 +4,7 @@ namespace Armada.Core
     using Armada.Core.Models;
 
     /// <summary>
-    /// Shared tunnel protocol helpers used by Armada instances and the control plane.
+    /// Shared tunnel protocol helpers used by Armada instances and the proxy.
     /// </summary>
     public static class RemoteTunnelProtocol
     {

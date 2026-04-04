@@ -1,10 +1,10 @@
-namespace Armada.ControlPlane.Models
+namespace Armada.Proxy.Models
 {
-    using Armada.ControlPlane.Services;
+    using Armada.Proxy.Services;
     using Armada.Core.Models;
 
     /// <summary>
-    /// In-memory representation of an Armada instance tracked by the control plane.
+    /// In-memory representation of an Armada instance tracked by the proxy.
     /// </summary>
     public class RemoteInstanceRecord
     {
@@ -36,7 +36,7 @@ namespace Armada.ControlPlane.Models
         public string? RemoteAddress { get; set; } = null;
 
         /// <summary>
-        /// First time this instance was seen by the control plane process.
+        /// First time this instance was seen by the proxy process.
         /// </summary>
         public DateTime FirstSeenUtc { get; set; } = DateTime.UtcNow;
 

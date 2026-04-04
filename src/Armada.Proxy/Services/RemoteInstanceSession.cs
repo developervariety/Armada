@@ -1,4 +1,4 @@
-namespace Armada.ControlPlane.Services
+namespace Armada.Proxy.Services
 {
     using System.Collections.Concurrent;
     using Armada.Core;

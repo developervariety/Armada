@@ -19,7 +19,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Armada.Core\Armada.Core.csproj" />
-    <ProjectReference Include="..\..\src\Armada.ControlPlane\Armada.ControlPlane.csproj" />
+    <ProjectReference Include="..\..\src\Armada.Proxy\Armada.Proxy.csproj" />
     <ProjectReference Include="..\..\src\Armada.Server\Armada.Server.csproj" />
     <ProjectReference Include="..\Armada.Test.Common\Armada.Test.Common.csproj" />
   </ItemGroup>

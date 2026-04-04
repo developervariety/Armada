@@ -1,8 +1,8 @@
-# Control Plane API
+# Proxy API
 
 **Version:** 0.6.0
 
-This document describes the first shipped Armada control-plane API surface in `v0.6.0`.
+This document describes the first shipped Armada proxy API surface in `v0.6.0`.
 
 `v0.6.0` includes:
 
@@ -20,23 +20,23 @@ This document describes the first shipped Armada control-plane API surface in `v
 - enrollment workflows beyond static token validation
 - delegated identity or remote authorization mapping
 - notification inboxes
-- persistent control-plane storage
+- persistent proxy storage
 - server-side remote action policy evaluation beyond the current shell confirmation prompts
 
 ---
 
 ## Default Bind
 
-The control plane binds to:
+The proxy binds to:
 
 - Host: `localhost`
 - Port: `7893`
 
-Configuration is read from the `ArmadaControlPlane` section:
+Configuration is read from the `ArmadaProxy` section:
 
 ```json
 {
-  "ArmadaControlPlane": {
+  "ArmadaProxy": {
     "hostname": "localhost",
     "port": 7893,
     "requireEnrollmentToken": false,
@@ -55,7 +55,7 @@ Configuration is read from the `ArmadaControlPlane` section:
 
 ### GET /
 
-Serves the control-plane remote operations shell.
+Serves the proxy remote operations shell.
 
 The shell is designed for quick remote triage rather than full local-dashboard parity. In `v0.6.0` it includes:
 
@@ -73,12 +73,12 @@ The shell is designed for quick remote triage rather than full local-dashboard p
 
 ### GET /api/v1/status/health
 
-Returns control-plane process health and instance counts.
+Returns proxy process health and instance counts.
 
 ```json
 {
   "healthy": true,
-  "product": "Armada.ControlPlane",
+  "product": "Armada.Proxy",
   "version": "0.6.0",
   "protocolVersion": "2026-04-03",
   "port": 7893,
@@ -203,7 +203,7 @@ Returns the aggregated remote-shell summary for a connected instance by issuing 
 
 ### Focused Remote Inspection Endpoints
 
-The following control-plane routes unwrap the successful payload returned by the instance:
+The following proxy routes unwrap the successful payload returned by the instance:
 
 - `GET /api/v1/instances/{instanceId}/activity?limit=20`
 - `GET /api/v1/instances/{instanceId}/missions/recent?limit=10`
@@ -248,7 +248,7 @@ Example mission detail response:
 
 ### Remote Management Endpoints
 
-The control plane now forwards a bounded management surface into the connected Armada instance.
+The proxy now forwards a bounded management surface into the connected Armada instance.
 
 Fleet management:
 
@@ -287,16 +287,16 @@ Example voyage dispatch request:
 ```json
 {
   "title": "Remote release hardening",
-  "description": "Ship the v0.6.0 control-plane management surface.",
+  "description": "Ship the v0.6.0 proxy management surface.",
   "vesselId": "vsl_abc123",
   "pipeline": "FullPipeline",
   "missions": [
     {
       "title": "Tighten remote shell UX",
-      "description": "Add mission and voyage browser filters to the control-plane shell."
+      "description": "Add mission and voyage browser filters to the proxy shell."
     },
     {
-      "title": "Update control-plane docs",
+      "title": "Update proxy docs",
       "description": "Document the shipped management endpoints and shell workflows."
     }
   ]
@@ -307,7 +307,7 @@ Example mission update request:
 
 ```json
 {
-  "title": "Update control-plane docs",
+  "title": "Update proxy docs",
   "description": "Document the shipped management endpoints and shell workflows.",
   "persona": "Worker",
   "priority": 50,
@@ -342,7 +342,7 @@ Sends a live tunnel request to the connected Armada instance using method `armad
     "remoteTunnel": {
       "enabled": true,
       "state": "Connected",
-      "tunnelUrl": "wss://control-plane.example.com/tunnel",
+      "tunnelUrl": "wss://proxy.example.com/tunnel",
       "instanceId": "armada-1f2e3d4c5b6a",
       "lastError": null,
       "reconnectAttempts": 0,
@@ -378,7 +378,7 @@ Sends a live tunnel request to the connected Armada instance using method `armad
     "remoteTunnel": {
       "enabled": true,
       "state": "Connected",
-      "tunnelUrl": "wss://control-plane.example.com/tunnel",
+      "tunnelUrl": "wss://proxy.example.com/tunnel",
       "instanceId": "armada-1f2e3d4c5b6a",
       "lastError": null,
       "reconnectAttempts": 0,
@@ -449,4 +449,6 @@ See [docs/TUNNEL_PROTOCOL.md](TUNNEL_PROTOCOL.md) for envelope details.
   - `armada.status.snapshot`
   - `armada.status.health`
 - recent event history is bounded by `maxRecentEvents`
-- destructive actions are client-confirmed in the remote shell, but there is no control-plane authn/authz or policy engine yet; this is still an implementation-stage operator service
+- destructive actions are client-confirmed in the remote shell, but there is no proxy authn/authz or policy engine yet; this is still an implementation-stage operator service
+
+

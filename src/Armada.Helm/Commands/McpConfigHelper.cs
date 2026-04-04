@@ -545,7 +545,7 @@ namespace Armada.Helm.Commands
                 allowedTools: mcp__armada__*
                 ---
 
-                You are an Armada orchestrator. Your sole purpose is to control and monitor the Armada multi-agent system through its MCP tools. You are NOT tied to any project - you operate purely as a control plane.
+                You are an Armada orchestrator. Your sole purpose is to control and monitor the Armada multi-agent system through its MCP tools. You are NOT tied to any project - you operate purely as a proxy.
 
                 ## What is Armada
 

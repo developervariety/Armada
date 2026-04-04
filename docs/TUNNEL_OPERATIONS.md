@@ -2,7 +2,9 @@
 
 **Version:** 0.6.0
 
-This guide covers the shipped remote-control tunnel and control-plane MVP surfaces in Armada `v0.6.0`.
+This guide covers the shipped remote-control tunnel and proxy MVP surfaces in Armada `v0.6.0`.
+
+For a step-by-step operator setup path, see [REMOTE_MGMT.md](../REMOTE_MGMT.md).
 
 ---
 
@@ -12,9 +14,9 @@ This guide covers the shipped remote-control tunnel and control-plane MVP surfac
 
 - the Armada-side outbound websocket tunnel client
 - remote tunnel configuration in Armada settings and dashboards
-- a minimal `Armada.ControlPlane` service with websocket termination and instance registry APIs
-- a control-plane-hosted remote operations shell served at `/`
-- live forwarded status/health requests from the control plane into a connected Armada instance
+- a minimal `Armada.Proxy` service with websocket termination and instance registry APIs
+- a proxy-hosted remote operations shell served at `/`
+- live forwarded status/health requests from the proxy into a connected Armada instance
 - focused remote inspection requests for recent activity, missions, voyages, captains, logs, and diffs
 - bounded remote management requests for fleets, vessels, voyages, missions, and captain control
 - shell workflows for fleet and vessel editing, voyage dispatch and cancellation, mission create/update/cancel/restart, and captain stop
@@ -24,10 +26,10 @@ Still not included:
 - user-facing SaaS auth
 - delegated identity or local-session brokerage
 - notification delivery
-- persistent control-plane storage
+- persistent proxy storage
 - server-side remote action policy evaluation beyond current shell confirmation prompts
 
-Treat the current control plane as an implementation-stage operator service, not a hardened public SaaS surface.
+Treat the current proxy as an implementation-stage operator service, not a hardened public SaaS surface.
 
 ---
 
@@ -60,13 +62,13 @@ Armada stores remote tunnel configuration in `settings.json`:
 
 ---
 
-## Control Plane Configuration
+## Proxy Configuration
 
-`Armada.ControlPlane` reads configuration from `ArmadaControlPlane`:
+`Armada.Proxy` reads configuration from `ArmadaProxy`:
 
 ```json
 {
-  "ArmadaControlPlane": {
+  "ArmadaProxy": {
     "hostname": "localhost",
     "port": 7893,
     "requireEnrollmentToken": false,
@@ -92,12 +94,12 @@ Armada stores remote tunnel configuration in `settings.json`:
 
 ---
 
-## Starting The Control Plane
+## Starting The Proxy
 
 From the repo root:
 
 ```powershell
-dotnet run --project src/Armada.ControlPlane/Armada.ControlPlane.csproj --framework net10.0
+dotnet run --project src/Armada.Proxy/Armada.Proxy.csproj --framework net10.0
 ```
 
 Default endpoints:
@@ -107,7 +109,7 @@ Default endpoints:
 - remote shell: `http://localhost:7893/`
 - tunnel websocket: `ws://localhost:7893/tunnel`
 
-Point Armada at the control plane by setting:
+Point Armada at the proxy by setting:
 
 ```json
 {
@@ -145,7 +147,7 @@ Key fields:
 - `reconnectAttempts`
 - `latencyMs`
 
-### On The Control Plane
+### On The Proxy
 
 - `GET /api/v1/status/health`
 - `GET /api/v1/instances`
@@ -168,7 +170,7 @@ Key fields:
 - `POST /api/v1/instances/{instanceId}/missions/{missionId}/restart`
 - `POST /api/v1/instances/{instanceId}/captains/{captainId}/stop`
 
-Control-plane instance states:
+Proxy instance states:
 
 - `connected`
 - `stale`
@@ -201,20 +203,20 @@ Fix:
 
 - correct the URL scheme
 
-### Control plane rejects handshake
+### Proxy rejects handshake
 
 Symptoms:
 
 - websocket connects and then closes quickly
-- the control plane logs a handshake rejection
+- the proxy logs a handshake rejection
 - Armada eventually reports a disconnect/error cycle
 
 Fix:
 
 - check `instanceId` presence
-- verify `ArmadaControlPlane.requireEnrollmentToken`
+- verify `ArmadaProxy.requireEnrollmentToken`
 - verify the instance `remoteControl.enrollmentToken`
-- verify the token exists in `ArmadaControlPlane.enrollmentTokens`
+- verify the token exists in `ArmadaProxy.enrollmentTokens`
 
 ### TLS validation failure
 
@@ -228,13 +230,13 @@ Fix:
 - use a valid server certificate
 - for local-only development, temporarily enable `allowInvalidCertificates`
 
-### Unreachable control plane
+### Unreachable proxy
 
 Symptoms:
 
 - Armada cycles through `Connecting` -> `Error`
 - `reconnectAttempts` increases
-- control-plane instance list never shows the Armada instance
+- proxy instance list never shows the Armada instance
 
 Fix:
 
@@ -242,11 +244,11 @@ Fix:
 - verify the websocket endpoint path
 - inspect firewall and egress rules
 
-### Stale control-plane instance
+### Stale proxy instance
 
 Symptoms:
 
-- control-plane instance state becomes `stale`
+- proxy instance state becomes `stale`
 - detail endpoints still show the instance, but live activity has stopped
 
 Fix:
@@ -259,7 +261,7 @@ Fix:
 
 ## Live Request Notes
 
-The control plane currently supports live requests for:
+The proxy currently supports live requests for:
 
 - `armada.instance.summary`
 - `armada.fleets.list`

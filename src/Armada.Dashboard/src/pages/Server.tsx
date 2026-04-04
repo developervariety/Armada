@@ -556,7 +556,7 @@ export default function Server() {
         <div className="settings-section" style={{ marginTop: '1.5rem' }}>
           <h3>Remote Control</h3>
           <p className="text-muted" style={{ marginBottom: '0.75rem' }}>
-            Experimental outbound tunnel foundation for the future Armada control plane.
+            Outbound tunnel settings for connecting this Armada server to Armada.Proxy.
           </p>
           <div className="settings-grid">
             <div className="form-group">
@@ -588,7 +588,7 @@ export default function Server() {
                     },
                   })
                 }
-                placeholder="wss://control-plane.example.com/tunnel"
+                placeholder="wss://proxy.example.com/tunnel"
                 title="WebSocket tunnel endpoint. http/https will be normalized to ws/wss."
               />
             </div>

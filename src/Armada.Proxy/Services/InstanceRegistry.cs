@@ -1,8 +1,8 @@
-namespace Armada.ControlPlane.Services
+namespace Armada.Proxy.Services
 {
     using System.Collections.Concurrent;
-    using Armada.ControlPlane.Models;
-    using Armada.ControlPlane.Settings;
+    using Armada.Proxy.Models;
+    using Armada.Proxy.Settings;
     using Armada.Core.Models;
 
     /// <summary>
@@ -15,7 +15,7 @@ namespace Armada.ControlPlane.Services
         /// <summary>
         /// Instantiate.
         /// </summary>
-        public InstanceRegistry(ControlPlaneSettings settings, Func<DateTime>? utcNow = null)
+        public InstanceRegistry(ProxySettings settings, Func<DateTime>? utcNow = null)
         {
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _UtcNow = utcNow ?? (() => DateTime.UtcNow);
@@ -26,7 +26,7 @@ namespace Armada.ControlPlane.Services
         #region Public-Methods
 
         /// <summary>
-        /// Validate a handshake payload against control-plane settings.
+        /// Validate a handshake payload against proxy settings.
         /// </summary>
         public bool TryValidateHandshake(RemoteTunnelHandshakePayload? payload, out string? error)
         {
@@ -182,7 +182,7 @@ namespace Armada.ControlPlane.Services
 
         #region Private-Members
 
-        private readonly ControlPlaneSettings _Settings;
+        private readonly ProxySettings _Settings;
         private readonly Func<DateTime> _UtcNow;
         private readonly ConcurrentDictionary<string, RemoteInstanceRecord> _Records = new ConcurrentDictionary<string, RemoteInstanceRecord>(StringComparer.Ordinal);
 

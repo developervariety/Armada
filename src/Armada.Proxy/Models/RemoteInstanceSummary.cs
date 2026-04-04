@@ -1,4 +1,4 @@
-namespace Armada.ControlPlane.Models
+namespace Armada.Proxy.Models
 {
     /// <summary>
     /// API-friendly summary of a connected or recently seen Armada instance.
@@ -38,7 +38,7 @@ namespace Armada.ControlPlane.Models
         public string? RemoteAddress { get; set; } = null;
 
         /// <summary>
-        /// First time the instance was seen by this control-plane process.
+        /// First time the instance was seen by this proxy process.
         /// </summary>
         public DateTime FirstSeenUtc { get; set; } = DateTime.UtcNow;
 

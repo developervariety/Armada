@@ -50,9 +50,9 @@ namespace Armada.Core
         public static readonly int DefaultWebSocketPort = 7892;
 
         /// <summary>
-        /// Default control-plane port.
+        /// Default proxy port.
         /// </summary>
-        public static readonly int DefaultControlPlanePort = 7893;
+        public static readonly int DefaultProxyPort = 7893;
 
         /// <summary>
         /// Default heartbeat interval in seconds.
@@ -171,19 +171,19 @@ namespace Armada.Core
         public static readonly string RemoteTunnelProtocolVersion = "2026-04-03";
 
         /// <summary>
-        /// Default control-plane handshake timeout in seconds.
+        /// Default proxy handshake timeout in seconds.
         /// </summary>
-        public static readonly int DefaultControlPlaneHandshakeTimeoutSeconds = 15;
+        public static readonly int DefaultProxyHandshakeTimeoutSeconds = 15;
 
         /// <summary>
-        /// Default control-plane stale-instance threshold in seconds.
+        /// Default proxy stale-instance threshold in seconds.
         /// </summary>
-        public static readonly int DefaultControlPlaneStaleAfterSeconds = 90;
+        public static readonly int DefaultProxyStaleAfterSeconds = 90;
 
         /// <summary>
-        /// Default control-plane tunnel request timeout in seconds.
+        /// Default proxy tunnel request timeout in seconds.
         /// </summary>
-        public static readonly int DefaultControlPlaneRequestTimeoutSeconds = 20;
+        public static readonly int DefaultProxyRequestTimeoutSeconds = 20;
 
         /// <summary>
         /// Tenant ID prefix.

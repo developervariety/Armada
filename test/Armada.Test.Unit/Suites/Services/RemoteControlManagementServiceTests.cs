@@ -30,7 +30,7 @@ namespace Armada.Test.Unit.Suites.Services
                         RemoteTunnelProtocol.CreateRequest("armada.fleet.create", new
                         {
                             name = "Remote Fleet",
-                            description = "Fleet from control plane"
+                            description = "Fleet from proxy"
                         }),
                         CancellationToken.None).ConfigureAwait(false);
 
@@ -165,7 +165,7 @@ namespace Armada.Test.Unit.Suites.Services
                         RemoteTunnelProtocol.CreateRequest("armada.mission.create", new
                         {
                             title = "Remote Mission",
-                            description = "Create mission from control plane",
+                            description = "Create mission from proxy",
                             vesselId = vessel.Id,
                             persona = "Worker",
                             priority = 25

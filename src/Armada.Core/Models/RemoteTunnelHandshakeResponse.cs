@@ -1,7 +1,7 @@
 namespace Armada.Core.Models
 {
     /// <summary>
-    /// Control-plane response payload returned after handshake validation.
+    /// Proxy response payload returned after handshake validation.
     /// </summary>
     public class RemoteTunnelHandshakeResponse
     {
@@ -13,9 +13,9 @@ namespace Armada.Core.Models
         public bool Accepted { get; set; } = false;
 
         /// <summary>
-        /// Control-plane release version.
+        /// Proxy release version.
         /// </summary>
-        public string? ControlPlaneVersion { get; set; } = null;
+        public string? ProxyVersion { get; set; } = null;
 
         /// <summary>
         /// Negotiated protocol version.
@@ -23,7 +23,7 @@ namespace Armada.Core.Models
         public string? ProtocolVersion { get; set; } = null;
 
         /// <summary>
-        /// Stable instance identifier registered by the control plane.
+        /// Stable instance identifier registered by the proxy.
         /// </summary>
         public string? InstanceId { get; set; } = null;
 
@@ -33,7 +33,7 @@ namespace Armada.Core.Models
         public string? Message { get; set; } = null;
 
         /// <summary>
-        /// Control-plane capability list advertised back to the instance.
+        /// Proxy capability list advertised back to the instance.
         /// </summary>
         public List<string> Capabilities { get; set; } = new List<string>();
 

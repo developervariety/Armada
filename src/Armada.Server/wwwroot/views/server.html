@@ -89,7 +89,7 @@
 
             <div class="settings-section" x-show="serverSettings">
                 <h3 class="settings-section-title">Remote Control</h3>
-                <p class="text-dim" style="margin-bottom:0.75rem">Experimental outbound tunnel foundation for the future Armada control plane.</p>
+                <p class="text-dim" style="margin-bottom:0.75rem">Outbound tunnel settings for connecting this Armada server to Armada.Proxy.</p>
                 <div class="settings-grid">
                     <div class="form-group">
                         <label class="settings-checkbox-label">
@@ -99,7 +99,7 @@
                     </div>
                     <div class="form-group">
                         <label>Tunnel URL</label>
-                        <input type="text" x-model="serverSettings.remoteControl.tunnelUrl" placeholder="wss://control-plane.example.com/tunnel" title="WebSocket tunnel endpoint. http/https will be normalized to ws/wss.">
+                        <input type="text" x-model="serverSettings.remoteControl.tunnelUrl" placeholder="wss://proxy.example.com/tunnel" title="WebSocket tunnel endpoint. http/https will be normalized to ws/wss.">
                     </div>
                     <div class="form-group">
                         <label>Instance ID Override</label>

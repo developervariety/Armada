@@ -88,7 +88,7 @@
       "type": "string"
     },
     {
-      "key": "controlPlaneBaseUrl",
+      "key": "proxyBaseUrl",
       "value": "http://localhost:7893",
       "type": "string"
     },
@@ -848,7 +848,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"RemoteControl\": {\n    \"Enabled\": true,\n    \"TunnelUrl\": \"wss://control-plane.example.com/tunnel\",\n    \"InstanceId\": null,\n    \"EnrollmentToken\": \"bootstrap-token\",\n    \"ConnectTimeoutSeconds\": 15,\n    \"HeartbeatIntervalSeconds\": 30,\n    \"ReconnectBaseDelaySeconds\": 5,\n    \"ReconnectMaxDelaySeconds\": 60,\n    \"AllowInvalidCertificates\": false\n  }\n}"
+              "raw": "{\n  \"RemoteControl\": {\n    \"Enabled\": true,\n    \"TunnelUrl\": \"wss://proxy.example.com/tunnel\",\n    \"InstanceId\": null,\n    \"EnrollmentToken\": \"bootstrap-token\",\n    \"ConnectTimeoutSeconds\": 15,\n    \"HeartbeatIntervalSeconds\": 30,\n    \"ReconnectBaseDelaySeconds\": 5,\n    \"ReconnectMaxDelaySeconds\": 60,\n    \"AllowInvalidCertificates\": false\n  }\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/v1/settings",
@@ -868,7 +868,7 @@
               "name": "Updated Settings",
               "status": "OK",
               "code": 200,
-              "body": "{\n  \"AdmiralPort\": 7890,\n  \"McpPort\": 7891,\n  \"MaxCaptains\": 0,\n  \"HeartbeatIntervalSeconds\": 30,\n  \"StallThresholdMinutes\": 10,\n  \"IdleCaptainTimeoutSeconds\": 0,\n  \"AutoCreatePr\": false,\n  \"DataDirectory\": \"C:\\\\Users\\\\joelc\\\\.armada\",\n  \"DatabasePath\": \"C:\\\\Users\\\\joelc\\\\.armada\\\\armada.db\",\n  \"LogDirectory\": \"C:\\\\Users\\\\joelc\\\\.armada\\\\logs\",\n  \"DocksDirectory\": \"C:\\\\Users\\\\joelc\\\\.armada\\\\docks\",\n  \"ReposDirectory\": \"C:\\\\Users\\\\joelc\\\\.armada\\\\repos\",\n  \"RemoteControl\": {\n    \"Enabled\": true,\n    \"TunnelUrl\": \"wss://control-plane.example.com/tunnel\",\n    \"InstanceId\": null,\n    \"EnrollmentToken\": \"bootstrap-token\",\n    \"ConnectTimeoutSeconds\": 15,\n    \"HeartbeatIntervalSeconds\": 30,\n    \"ReconnectBaseDelaySeconds\": 5,\n    \"ReconnectMaxDelaySeconds\": 60,\n    \"AllowInvalidCertificates\": false\n  }\n}"
+              "body": "{\n  \"AdmiralPort\": 7890,\n  \"McpPort\": 7891,\n  \"MaxCaptains\": 0,\n  \"HeartbeatIntervalSeconds\": 30,\n  \"StallThresholdMinutes\": 10,\n  \"IdleCaptainTimeoutSeconds\": 0,\n  \"AutoCreatePr\": false,\n  \"DataDirectory\": \"C:\\\\Users\\\\joelc\\\\.armada\",\n  \"DatabasePath\": \"C:\\\\Users\\\\joelc\\\\.armada\\\\armada.db\",\n  \"LogDirectory\": \"C:\\\\Users\\\\joelc\\\\.armada\\\\logs\",\n  \"DocksDirectory\": \"C:\\\\Users\\\\joelc\\\\.armada\\\\docks\",\n  \"ReposDirectory\": \"C:\\\\Users\\\\joelc\\\\.armada\\\\repos\",\n  \"RemoteControl\": {\n    \"Enabled\": true,\n    \"TunnelUrl\": \"wss://proxy.example.com/tunnel\",\n    \"InstanceId\": null,\n    \"EnrollmentToken\": \"bootstrap-token\",\n    \"ConnectTimeoutSeconds\": 15,\n    \"HeartbeatIntervalSeconds\": 30,\n    \"ReconnectBaseDelaySeconds\": 5,\n    \"ReconnectMaxDelaySeconds\": 60,\n    \"AllowInvalidCertificates\": false\n  }\n}"
             }
           ]
         },
@@ -3490,12 +3490,12 @@
       ]
     },
     {
-      "name": "Control Plane",
-      "description": "Remote-control control-plane endpoints.",
+      "name": "Proxy",
+      "description": "Remote-control proxy endpoints.",
       "item": [
         {
           "name": "Shell & Inspection",
-          "description": "Read-oriented control-plane endpoints and live inspection routes.",
+          "description": "Read-oriented proxy endpoints and live inspection routes.",
           "item": [
             {
               "name": "Health Check",
@@ -3506,9 +3506,9 @@
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{controlPlaneBaseUrl}}/api/v1/status/health",
+                  "raw": "{{proxyBaseUrl}}/api/v1/status/health",
                   "host": [
-                    "{{controlPlaneBaseUrl}}"
+                    "{{proxyBaseUrl}}"
                   ],
                   "path": [
                     "api",
@@ -3517,14 +3517,14 @@
                     "health"
                   ]
                 },
-                "description": "Returns control-plane health and connected-instance counts."
+                "description": "Returns proxy health and connected-instance counts."
               },
               "response": [
                 {
-                  "name": "Control Plane Healthy",
+                  "name": "Proxy Healthy",
                   "status": "OK",
                   "code": 200,
-                  "body": "{\n  \"healthy\": true,\n  \"product\": \"Armada.ControlPlane\",\n  \"version\": \"0.6.0\",\n  \"protocolVersion\": \"2026-04-03\",\n  \"port\": 7893,\n  \"startedUtc\": \"2026-04-03T21:00:00Z\",\n  \"instances\": {\n    \"total\": 2,\n    \"connected\": 1,\n    \"stale\": 1,\n    \"offline\": 0\n  }\n}"
+                  "body": "{\n  \"healthy\": true,\n  \"product\": \"Armada.Proxy\",\n  \"version\": \"0.6.0\",\n  \"protocolVersion\": \"2026-04-03\",\n  \"port\": 7893,\n  \"startedUtc\": \"2026-04-03T21:00:00Z\",\n  \"instances\": {\n    \"total\": 2,\n    \"connected\": 1,\n    \"stale\": 1,\n    \"offline\": 0\n  }\n}"
                 }
               ]
             },
@@ -3537,9 +3537,9 @@
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{controlPlaneBaseUrl}}/api/v1/instances",
+                  "raw": "{{proxyBaseUrl}}/api/v1/instances",
                   "host": [
-                    "{{controlPlaneBaseUrl}}"
+                    "{{proxyBaseUrl}}"
                   ],
                   "path": [
                     "api",
@@ -3567,9 +3567,9 @@
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{controlPlaneBaseUrl}}/api/v1/instances/{{instanceId}}",
+                  "raw": "{{proxyBaseUrl}}/api/v1/instances/{{instanceId}}",
                   "host": [
-                    "{{controlPlaneBaseUrl}}"
+                    "{{proxyBaseUrl}}"
                   ],
                   "path": [
                     "api",
@@ -3598,9 +3598,9 @@
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{controlPlaneBaseUrl}}/api/v1/instances/{{instanceId}}/status/snapshot",
+                  "raw": "{{proxyBaseUrl}}/api/v1/instances/{{instanceId}}/status/snapshot",
                   "host": [
-                    "{{controlPlaneBaseUrl}}"
+                    "{{proxyBaseUrl}}"
                   ],
                   "path": [
                     "api",
@@ -3631,9 +3631,9 @@
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{controlPlaneBaseUrl}}/api/v1/instances/{{instanceId}}/health",
+                  "raw": "{{proxyBaseUrl}}/api/v1/instances/{{instanceId}}/health",
                   "host": [
-                    "{{controlPlaneBaseUrl}}"
+                    "{{proxyBaseUrl}}"
                   ],
                   "path": [
                     "api",
@@ -3650,7 +3650,7 @@
                   "name": "Live Health",
                   "status": "OK",
                   "code": 200,
-                  "body": "{\n  \"correlationId\": \"a81ec0a5ee024679b719046d1bf8de85\",\n  \"success\": true,\n  \"statusCode\": 200,\n  \"errorCode\": null,\n  \"message\": \"Armada health snapshot captured.\",\n  \"payload\": {\n    \"status\": \"healthy\",\n    \"timestamp\": \"2026-04-03T21:02:00Z\",\n    \"startUtc\": \"2026-04-03T20:00:00Z\",\n    \"uptime\": \"0.01:02:00\",\n    \"version\": \"0.6.0\",\n    \"ports\": {\n      \"admiral\": 7890,\n      \"mcp\": 7891,\n      \"webSocket\": 7892\n    },\n    \"remoteTunnel\": {\n      \"enabled\": true,\n      \"state\": \"Connected\",\n      \"tunnelUrl\": \"wss://control-plane.example.com/tunnel\",\n      \"instanceId\": \"armada-1f2e3d4c5b6a\",\n      \"lastError\": null,\n      \"reconnectAttempts\": 0,\n      \"latencyMs\": 42\n    }\n  }\n}"
+                  "body": "{\n  \"correlationId\": \"a81ec0a5ee024679b719046d1bf8de85\",\n  \"success\": true,\n  \"statusCode\": 200,\n  \"errorCode\": null,\n  \"message\": \"Armada health snapshot captured.\",\n  \"payload\": {\n    \"status\": \"healthy\",\n    \"timestamp\": \"2026-04-03T21:02:00Z\",\n    \"startUtc\": \"2026-04-03T20:00:00Z\",\n    \"uptime\": \"0.01:02:00\",\n    \"version\": \"0.6.0\",\n    \"ports\": {\n      \"admiral\": 7890,\n      \"mcp\": 7891,\n      \"webSocket\": 7892\n    },\n    \"remoteTunnel\": {\n      \"enabled\": true,\n      \"state\": \"Connected\",\n      \"tunnelUrl\": \"wss://proxy.example.com/tunnel\",\n      \"instanceId\": \"armada-1f2e3d4c5b6a\",\n      \"lastError\": null,\n      \"reconnectAttempts\": 0,\n      \"latencyMs\": 42\n    }\n  }\n}"
                 }
               ]
             },
@@ -3663,9 +3663,9 @@
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{controlPlaneBaseUrl}}/api/v1/instances/{{instanceId}}/summary",
+                  "raw": "{{proxyBaseUrl}}/api/v1/instances/{{instanceId}}/summary",
                   "host": [
-                    "{{controlPlaneBaseUrl}}"
+                    "{{proxyBaseUrl}}"
                   ],
                   "path": [
                     "api",
@@ -3688,9 +3688,9 @@
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{controlPlaneBaseUrl}}/api/v1/instances/{{instanceId}}/activity?limit=20",
+                  "raw": "{{proxyBaseUrl}}/api/v1/instances/{{instanceId}}/activity?limit=20",
                   "host": [
-                    "{{controlPlaneBaseUrl}}"
+                    "{{proxyBaseUrl}}"
                   ],
                   "path": [
                     "api",
@@ -3719,9 +3719,9 @@
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{controlPlaneBaseUrl}}/api/v1/instances/{{instanceId}}/missions/recent?limit=10",
+                  "raw": "{{proxyBaseUrl}}/api/v1/instances/{{instanceId}}/missions/recent?limit=10",
                   "host": [
-                    "{{controlPlaneBaseUrl}}"
+                    "{{proxyBaseUrl}}"
                   ],
                   "path": [
                     "api",
@@ -3751,9 +3751,9 @@
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{controlPlaneBaseUrl}}/api/v1/instances/{{instanceId}}/voyages/recent?limit=10",
+                  "raw": "{{proxyBaseUrl}}/api/v1/instances/{{instanceId}}/voyages/recent?limit=10",
                   "host": [
-                    "{{controlPlaneBaseUrl}}"
+                    "{{proxyBaseUrl}}"
                   ],
                   "path": [
                     "api",
@@ -3783,9 +3783,9 @@
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{controlPlaneBaseUrl}}/api/v1/instances/{{instanceId}}/captains/recent?limit=10",
+                  "raw": "{{proxyBaseUrl}}/api/v1/instances/{{instanceId}}/captains/recent?limit=10",
                   "host": [
-                    "{{controlPlaneBaseUrl}}"
+                    "{{proxyBaseUrl}}"
                   ],
                   "path": [
                     "api",
@@ -3815,9 +3815,9 @@
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{controlPlaneBaseUrl}}/api/v1/instances/{{instanceId}}/missions/{{missionId}}",
+                  "raw": "{{proxyBaseUrl}}/api/v1/instances/{{instanceId}}/missions/{{missionId}}",
                   "host": [
-                    "{{controlPlaneBaseUrl}}"
+                    "{{proxyBaseUrl}}"
                   ],
                   "path": [
                     "api",
@@ -3841,9 +3841,9 @@
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{controlPlaneBaseUrl}}/api/v1/instances/{{instanceId}}/missions/{{missionId}}/log?lines=200&offset=0",
+                  "raw": "{{proxyBaseUrl}}/api/v1/instances/{{instanceId}}/missions/{{missionId}}/log?lines=200&offset=0",
                   "host": [
-                    "{{controlPlaneBaseUrl}}"
+                    "{{proxyBaseUrl}}"
                   ],
                   "path": [
                     "api",
@@ -3878,9 +3878,9 @@
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{controlPlaneBaseUrl}}/api/v1/instances/{{instanceId}}/missions/{{missionId}}/diff",
+                  "raw": "{{proxyBaseUrl}}/api/v1/instances/{{instanceId}}/missions/{{missionId}}/diff",
                   "host": [
-                    "{{controlPlaneBaseUrl}}"
+                    "{{proxyBaseUrl}}"
                   ],
                   "path": [
                     "api",
@@ -3905,9 +3905,9 @@
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{controlPlaneBaseUrl}}/api/v1/instances/{{instanceId}}/voyages/{{voyageId}}",
+                  "raw": "{{proxyBaseUrl}}/api/v1/instances/{{instanceId}}/voyages/{{voyageId}}",
                   "host": [
-                    "{{controlPlaneBaseUrl}}"
+                    "{{proxyBaseUrl}}"
                   ],
                   "path": [
                     "api",
@@ -3931,9 +3931,9 @@
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{controlPlaneBaseUrl}}/api/v1/instances/{{instanceId}}/captains/{{captainId}}",
+                  "raw": "{{proxyBaseUrl}}/api/v1/instances/{{instanceId}}/captains/{{captainId}}",
                   "host": [
-                    "{{controlPlaneBaseUrl}}"
+                    "{{proxyBaseUrl}}"
                   ],
                   "path": [
                     "api",
@@ -3957,9 +3957,9 @@
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{controlPlaneBaseUrl}}/api/v1/instances/{{instanceId}}/captains/{{captainId}}/log?lines=50&offset=0",
+                  "raw": "{{proxyBaseUrl}}/api/v1/instances/{{instanceId}}/captains/{{captainId}}/log?lines=50&offset=0",
                   "host": [
-                    "{{controlPlaneBaseUrl}}"
+                    "{{proxyBaseUrl}}"
                   ],
                   "path": [
                     "api",
@@ -3989,7 +3989,7 @@
         },
         {
           "name": "Management",
-          "description": "Write-oriented control-plane endpoints for fleets, vessels, voyages, missions, and captain control.",
+          "description": "Write-oriented proxy endpoints for fleets, vessels, voyages, missions, and captain control.",
           "item": [
             {
               "name": "List Fleets",
@@ -4000,9 +4000,9 @@
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{controlPlaneBaseUrl}}/api/v1/instances/{{instanceId}}/fleets?limit=25",
+                  "raw": "{{proxyBaseUrl}}/api/v1/instances/{{instanceId}}/fleets?limit=25",
                   "host": [
-                    "{{controlPlaneBaseUrl}}"
+                    "{{proxyBaseUrl}}"
                   ],
                   "path": [
                     "api",
@@ -4018,7 +4018,7 @@
                     }
                   ]
                 },
-                "description": "List fleets on the connected Armada instance through the control plane."
+                "description": "List fleets on the connected Armada instance through the proxy."
               },
               "response": []
             },
@@ -4031,9 +4031,9 @@
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{controlPlaneBaseUrl}}/api/v1/instances/{{instanceId}}/fleets/{{fleetId}}",
+                  "raw": "{{proxyBaseUrl}}/api/v1/instances/{{instanceId}}/fleets/{{fleetId}}",
                   "host": [
-                    "{{controlPlaneBaseUrl}}"
+                    "{{proxyBaseUrl}}"
                   ],
                   "path": [
                     "api",
@@ -4062,9 +4062,9 @@
                   }
                 ],
                 "url": {
-                  "raw": "{{controlPlaneBaseUrl}}/api/v1/instances/{{instanceId}}/fleets",
+                  "raw": "{{proxyBaseUrl}}/api/v1/instances/{{instanceId}}/fleets",
                   "host": [
-                    "{{controlPlaneBaseUrl}}"
+                    "{{proxyBaseUrl}}"
                   ],
                   "path": [
                     "api",
@@ -4077,7 +4077,7 @@
                 "description": "Create a fleet on the connected Armada instance.",
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"name\": \"Remote Control Fleet\",\n  \"description\": \"Created through the control plane management API.\",\n  \"defaultPipelineId\": null,\n  \"active\": true\n}",
+                  "raw": "{\n  \"name\": \"Remote Control Fleet\",\n  \"description\": \"Created through the proxy management API.\",\n  \"defaultPipelineId\": null,\n  \"active\": true\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -4101,9 +4101,9 @@
                   }
                 ],
                 "url": {
-                  "raw": "{{controlPlaneBaseUrl}}/api/v1/instances/{{instanceId}}/fleets/{{fleetId}}",
+                  "raw": "{{proxyBaseUrl}}/api/v1/instances/{{instanceId}}/fleets/{{fleetId}}",
                   "host": [
-                    "{{controlPlaneBaseUrl}}"
+                    "{{proxyBaseUrl}}"
                   ],
                   "path": [
                     "api",
@@ -4114,10 +4114,10 @@
                     "{{fleetId}}"
                   ]
                 },
-                "description": "Update an existing fleet through the control plane.",
+                "description": "Update an existing fleet through the proxy.",
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"name\": \"Remote Control Fleet\",\n  \"description\": \"Updated through the control plane management API.\",\n  \"defaultPipelineId\": null,\n  \"active\": true\n}",
+                  "raw": "{\n  \"name\": \"Remote Control Fleet\",\n  \"description\": \"Updated through the proxy management API.\",\n  \"defaultPipelineId\": null,\n  \"active\": true\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -4136,9 +4136,9 @@
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{controlPlaneBaseUrl}}/api/v1/instances/{{instanceId}}/vessels?limit=25&fleetId={{fleetId}}",
+                  "raw": "{{proxyBaseUrl}}/api/v1/instances/{{instanceId}}/vessels?limit=25&fleetId={{fleetId}}",
                   "host": [
-                    "{{controlPlaneBaseUrl}}"
+                    "{{proxyBaseUrl}}"
                   ],
                   "path": [
                     "api",
@@ -4158,7 +4158,7 @@
                     }
                   ]
                 },
-                "description": "List vessels on the connected Armada instance through the control plane."
+                "description": "List vessels on the connected Armada instance through the proxy."
               },
               "response": []
             },
@@ -4171,9 +4171,9 @@
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{controlPlaneBaseUrl}}/api/v1/instances/{{instanceId}}/vessels/{{vesselId}}",
+                  "raw": "{{proxyBaseUrl}}/api/v1/instances/{{instanceId}}/vessels/{{vesselId}}",
                   "host": [
-                    "{{controlPlaneBaseUrl}}"
+                    "{{proxyBaseUrl}}"
                   ],
                   "path": [
                     "api",
@@ -4202,9 +4202,9 @@
                   }
                 ],
                 "url": {
-                  "raw": "{{controlPlaneBaseUrl}}/api/v1/instances/{{instanceId}}/vessels",
+                  "raw": "{{proxyBaseUrl}}/api/v1/instances/{{instanceId}}/vessels",
                   "host": [
-                    "{{controlPlaneBaseUrl}}"
+                    "{{proxyBaseUrl}}"
                   ],
                   "path": [
                     "api",
@@ -4241,9 +4241,9 @@
                   }
                 ],
                 "url": {
-                  "raw": "{{controlPlaneBaseUrl}}/api/v1/instances/{{instanceId}}/vessels/{{vesselId}}",
+                  "raw": "{{proxyBaseUrl}}/api/v1/instances/{{instanceId}}/vessels/{{vesselId}}",
                   "host": [
-                    "{{controlPlaneBaseUrl}}"
+                    "{{proxyBaseUrl}}"
                   ],
                   "path": [
                     "api",
@@ -4254,7 +4254,7 @@
                     "{{vesselId}}"
                   ]
                 },
-                "description": "Update a vessel through the control plane.",
+                "description": "Update a vessel through the proxy.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"fleetId\": \"{{fleetId}}\",\n  \"name\": \"armada-remote-vessel\",\n  \"repoUrl\": \"https://github.com/jchristn/armada\",\n  \"workingDirectory\": \"C:\\\\code\\\\armada\\\\armada\",\n  \"defaultBranch\": \"main\",\n  \"defaultPipelineId\": null,\n  \"allowConcurrentMissions\": false,\n  \"active\": true\n}",
@@ -4276,9 +4276,9 @@
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{controlPlaneBaseUrl}}/api/v1/instances/{{instanceId}}/voyages?limit=25&status=InProgress",
+                  "raw": "{{proxyBaseUrl}}/api/v1/instances/{{instanceId}}/voyages?limit=25&status=InProgress",
                   "host": [
-                    "{{controlPlaneBaseUrl}}"
+                    "{{proxyBaseUrl}}"
                   ],
                   "path": [
                     "api",
@@ -4298,7 +4298,7 @@
                     }
                   ]
                 },
-                "description": "List voyages on the connected Armada instance through the control plane."
+                "description": "List voyages on the connected Armada instance through the proxy."
               },
               "response": []
             },
@@ -4316,9 +4316,9 @@
                   }
                 ],
                 "url": {
-                  "raw": "{{controlPlaneBaseUrl}}/api/v1/instances/{{instanceId}}/voyages/dispatch",
+                  "raw": "{{proxyBaseUrl}}/api/v1/instances/{{instanceId}}/voyages/dispatch",
                   "host": [
-                    "{{controlPlaneBaseUrl}}"
+                    "{{proxyBaseUrl}}"
                   ],
                   "path": [
                     "api",
@@ -4332,7 +4332,7 @@
                 "description": "Dispatch a voyage on the connected Armada instance.",
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"title\": \"Remote Control Dispatch\",\n  \"description\": \"Create a bounded control-plane management test voyage.\",\n  \"vesselId\": \"{{vesselId}}\",\n  \"pipeline\": \"FullPipeline\",\n  \"missions\": [\n    {\n      \"title\": \"Update docs\",\n      \"description\": \"Refresh the control-plane operator docs.\"\n    },\n    {\n      \"title\": \"Validate shell UX\",\n      \"description\": \"Verify the remote shell can browse and manage the new surface.\"\n    }\n  ]\n}",
+                  "raw": "{\n  \"title\": \"Remote Control Dispatch\",\n  \"description\": \"Create a bounded proxy management test voyage.\",\n  \"vesselId\": \"{{vesselId}}\",\n  \"pipeline\": \"FullPipeline\",\n  \"missions\": [\n    {\n      \"title\": \"Update docs\",\n      \"description\": \"Refresh the proxy operator docs.\"\n    },\n    {\n      \"title\": \"Validate shell UX\",\n      \"description\": \"Verify the remote shell can browse and manage the new surface.\"\n    }\n  ]\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -4351,9 +4351,9 @@
                 "method": "DELETE",
                 "header": [],
                 "url": {
-                  "raw": "{{controlPlaneBaseUrl}}/api/v1/instances/{{instanceId}}/voyages/{{voyageId}}",
+                  "raw": "{{proxyBaseUrl}}/api/v1/instances/{{instanceId}}/voyages/{{voyageId}}",
                   "host": [
-                    "{{controlPlaneBaseUrl}}"
+                    "{{proxyBaseUrl}}"
                   ],
                   "path": [
                     "api",
@@ -4364,7 +4364,7 @@
                     "{{voyageId}}"
                   ]
                 },
-                "description": "Cancel an active or pending voyage through the control plane."
+                "description": "Cancel an active or pending voyage through the proxy."
               },
               "response": []
             },
@@ -4377,9 +4377,9 @@
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{controlPlaneBaseUrl}}/api/v1/instances/{{instanceId}}/missions?limit=25&status=InProgress&voyageId={{voyageId}}&vesselId={{vesselId}}",
+                  "raw": "{{proxyBaseUrl}}/api/v1/instances/{{instanceId}}/missions?limit=25&status=InProgress&voyageId={{voyageId}}&vesselId={{vesselId}}",
                   "host": [
-                    "{{controlPlaneBaseUrl}}"
+                    "{{proxyBaseUrl}}"
                   ],
                   "path": [
                     "api",
@@ -4407,7 +4407,7 @@
                     }
                   ]
                 },
-                "description": "List missions on the connected Armada instance through the control plane."
+                "description": "List missions on the connected Armada instance through the proxy."
               },
               "response": []
             },
@@ -4425,9 +4425,9 @@
                   }
                 ],
                 "url": {
-                  "raw": "{{controlPlaneBaseUrl}}/api/v1/instances/{{instanceId}}/missions",
+                  "raw": "{{proxyBaseUrl}}/api/v1/instances/{{instanceId}}/missions",
                   "host": [
-                    "{{controlPlaneBaseUrl}}"
+                    "{{proxyBaseUrl}}"
                   ],
                   "path": [
                     "api",
@@ -4437,10 +4437,10 @@
                     "missions"
                   ]
                 },
-                "description": "Create a mission through the control plane.",
+                "description": "Create a mission through the proxy.",
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"title\": \"Investigate control-plane regression\",\n  \"description\": \"Inspect the remote shell and fix issues as needed.\",\n  \"vesselId\": \"{{vesselId}}\",\n  \"voyageId\": \"{{voyageId}}\",\n  \"persona\": \"Worker\",\n  \"priority\": 100\n}",
+                  "raw": "{\n  \"title\": \"Investigate proxy regression\",\n  \"description\": \"Inspect the remote shell and fix issues as needed.\",\n  \"vesselId\": \"{{vesselId}}\",\n  \"voyageId\": \"{{voyageId}}\",\n  \"persona\": \"Worker\",\n  \"priority\": 100\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -4464,9 +4464,9 @@
                   }
                 ],
                 "url": {
-                  "raw": "{{controlPlaneBaseUrl}}/api/v1/instances/{{instanceId}}/missions/{{missionId}}",
+                  "raw": "{{proxyBaseUrl}}/api/v1/instances/{{instanceId}}/missions/{{missionId}}",
                   "host": [
-                    "{{controlPlaneBaseUrl}}"
+                    "{{proxyBaseUrl}}"
                   ],
                   "path": [
                     "api",
@@ -4477,10 +4477,10 @@
                     "{{missionId}}"
                   ]
                 },
-                "description": "Update a mission through the control plane.",
+                "description": "Update a mission through the proxy.",
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"title\": \"Investigate control-plane regression\",\n  \"description\": \"Inspect the remote shell and fix issues as needed.\",\n  \"vesselId\": \"{{vesselId}}\",\n  \"voyageId\": \"{{voyageId}}\",\n  \"persona\": \"Worker\",\n  \"priority\": 50\n}",
+                  "raw": "{\n  \"title\": \"Investigate proxy regression\",\n  \"description\": \"Inspect the remote shell and fix issues as needed.\",\n  \"vesselId\": \"{{vesselId}}\",\n  \"voyageId\": \"{{voyageId}}\",\n  \"persona\": \"Worker\",\n  \"priority\": 50\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -4499,9 +4499,9 @@
                 "method": "DELETE",
                 "header": [],
                 "url": {
-                  "raw": "{{controlPlaneBaseUrl}}/api/v1/instances/{{instanceId}}/missions/{{missionId}}",
+                  "raw": "{{proxyBaseUrl}}/api/v1/instances/{{instanceId}}/missions/{{missionId}}",
                   "host": [
-                    "{{controlPlaneBaseUrl}}"
+                    "{{proxyBaseUrl}}"
                   ],
                   "path": [
                     "api",
@@ -4512,7 +4512,7 @@
                     "{{missionId}}"
                   ]
                 },
-                "description": "Cancel a mission through the control plane."
+                "description": "Cancel a mission through the proxy."
               },
               "response": []
             },
@@ -4530,9 +4530,9 @@
                   }
                 ],
                 "url": {
-                  "raw": "{{controlPlaneBaseUrl}}/api/v1/instances/{{instanceId}}/missions/{{missionId}}/restart",
+                  "raw": "{{proxyBaseUrl}}/api/v1/instances/{{instanceId}}/missions/{{missionId}}/restart",
                   "host": [
-                    "{{controlPlaneBaseUrl}}"
+                    "{{proxyBaseUrl}}"
                   ],
                   "path": [
                     "api",
@@ -4544,10 +4544,10 @@
                     "restart"
                   ]
                 },
-                "description": "Restart a mission through the control plane.",
+                "description": "Restart a mission through the proxy.",
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"title\": \"Investigate control-plane regression\",\n  \"description\": \"Re-run the mission after fixes land.\"\n}",
+                  "raw": "{\n  \"title\": \"Investigate proxy regression\",\n  \"description\": \"Re-run the mission after fixes land.\"\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -4566,9 +4566,9 @@
                 "method": "POST",
                 "header": [],
                 "url": {
-                  "raw": "{{controlPlaneBaseUrl}}/api/v1/instances/{{instanceId}}/captains/{{captainId}}/stop",
+                  "raw": "{{proxyBaseUrl}}/api/v1/instances/{{instanceId}}/captains/{{captainId}}/stop",
                   "host": [
-                    "{{controlPlaneBaseUrl}}"
+                    "{{proxyBaseUrl}}"
                   ],
                   "path": [
                     "api",
@@ -4580,7 +4580,7 @@
                     "stop"
                   ]
                 },
-                "description": "Stop a captain through the control plane."
+                "description": "Stop a captain through the proxy."
               },
               "response": []
             }

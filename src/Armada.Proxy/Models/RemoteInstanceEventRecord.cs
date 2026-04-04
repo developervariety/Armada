@@ -1,4 +1,4 @@
-namespace Armada.ControlPlane.Models
+namespace Armada.Proxy.Models
 {
     using System.Text.Json;
 

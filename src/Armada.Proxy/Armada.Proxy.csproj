@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <Description>Remote proxy service for Armada remote operations</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Watson" Version="7.0.9" />
+    <ProjectReference Include="..\Armada.Core\Armada.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="wwwroot\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+</Project>

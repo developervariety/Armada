@@ -8,13 +8,13 @@
 
 ## Remote Control Note
 
-`v0.6.0` does not proxy Armada MCP traffic through the new remote-control tunnel or `Armada.ControlPlane`.
+`v0.6.0` does not proxy Armada MCP traffic through the new remote-control tunnel or `Armada.Proxy`.
 
 Remote control in this release is limited to:
 
 - Armada-side tunnel configuration and status surfaces
-- control-plane websocket tunnel termination
-- control-plane REST instance summary/detail endpoints
+- proxy websocket tunnel termination
+- proxy REST instance summary/detail endpoints
 
 If/when MCP-over-tunnel is added, this document will gain explicit routed-tool semantics and capability rules.
 
@@ -123,7 +123,7 @@ If/when MCP-over-tunnel is added, this document will gain explicit routed-tool s
 
 ## Overview
 
-Armada exposes a full MCP server that allows AI agents and MCP-compatible clients to interact with the Admiral orchestrator. Through MCP tools, agents have **full parity** with the REST API — every capability available via HTTP is also available via MCP:
+Armada exposes a full MCP server that allows AI agents and MCP-compatible clients to interact with the Admiral orchestrator. Through MCP tools, agents have **full parity** with the REST API Ã¢â‚¬â€ every capability available via HTTP is also available via MCP:
 
 - Query system status, stop the server
 - Full CRUD on fleets, vessels, captains
@@ -152,9 +152,9 @@ http://localhost:7891
 
 MCP clients communicate using the standard MCP JSON-RPC protocol over HTTP. The server supports the full MCP tool-calling lifecycle:
 
-1. **Initialize** — Client discovers server capabilities and available tools
-2. **Call Tool** — Client invokes a tool with arguments
-3. **Response** — Server returns the tool result
+1. **Initialize** Ã¢â‚¬â€ Client discovers server capabilities and available tools
+2. **Call Tool** Ã¢â‚¬â€ Client invokes a tool with arguments
+3. **Response** Ã¢â‚¬â€ Server returns the tool result
 
 ### Stdio Transport
 
@@ -2591,8 +2591,8 @@ Paginated result wrapper returned by `armada_enumerate`.
 | `defaultBranch` | string | Default branch name (default: `"main"`) |
 | `projectContext` | string \| null | Project context describing architecture, key files, and dependencies |
 | `styleGuide` | string \| null | Style guide describing naming conventions, patterns, and library preferences |
-| `landingMode` | string \| null | [LandingModeEnum](#landingmodeenum) — per-vessel landing policy override |
-| `branchCleanupPolicy` | string \| null | [BranchCleanupPolicyEnum](#branchcleanuppolicyenum) — per-vessel branch cleanup override |
+| `landingMode` | string \| null | [LandingModeEnum](#landingmodeenum) Ã¢â‚¬â€ per-vessel landing policy override |
+| `branchCleanupPolicy` | string \| null | [BranchCleanupPolicyEnum](#branchcleanuppolicyenum) Ã¢â‚¬â€ per-vessel branch cleanup override |
 | `active` | bool | Whether the vessel is active |
 | `createdUtc` | string | ISO 8601 creation timestamp |
 | `lastUpdateUtc` | string | ISO 8601 last update timestamp |
@@ -2611,7 +2611,7 @@ Paginated result wrapper returned by `armada_enumerate`.
 | `autoPush` | bool \| null | Override global auto-push setting |
 | `autoCreatePullRequests` | bool \| null | Override global auto-create PR setting |
 | `autoMergePullRequests` | bool \| null | Override global auto-merge PR setting |
-| `landingMode` | string \| null | [LandingModeEnum](#landingmodeenum) — per-voyage landing policy override |
+| `landingMode` | string \| null | [LandingModeEnum](#landingmodeenum) Ã¢â‚¬â€ per-voyage landing policy override |
 
 #### Mission
 

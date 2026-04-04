@@ -7,9 +7,9 @@
 
 ## Remote Control Note
 
-`v0.6.0` does not expose the local Armada dashboard websocket API through `Armada.ControlPlane`.
+`v0.6.0` does not expose the local Armada dashboard websocket API through `Armada.Proxy`.
 
-The new remote-control tunnel forwards Armada server events to the control plane for instance activity tracking, but it does not provide dashboard-websocket compatibility mode yet. When that changes, this document will be updated with the proxied event and auth model.
+The new remote-control tunnel forwards Armada server events to the proxy for instance activity tracking, but it does not provide dashboard-websocket compatibility mode yet. When that changes, this document will be updated with the proxied event and auth model.
 
 ---
 
@@ -167,7 +167,7 @@ See [Command Actions](#command-actions) for the full list of 35 supported action
 
 ## Server-Pushed Events
 
-These events are broadcast to **all connected clients** whenever state changes occur in the Armada system. Clients do not need to request these — they are pushed automatically after subscribing.
+These events are broadcast to **all connected clients** whenever state changes occur in the Armada system. Clients do not need to request these Ã¢â‚¬â€ they are pushed automatically after subscribing.
 
 ### status.snapshot
 
@@ -286,9 +286,9 @@ Commands are sent via the `command` route. Each command returns a `command.resul
 
 | Category | Action | Description | Required Fields |
 |---|---|---|---|
-| **Status & Control** | `status` | Get current ArmadaStatus | — |
+| **Status & Control** | `status` | Get current ArmadaStatus | Ã¢â‚¬â€ |
 | | `stop_captain` | Stop specific captain | `captainId` |
-| | `stop_all` | Emergency stop all captains | — |
+| | `stop_all` | Emergency stop all captains | Ã¢â‚¬â€ |
 | **Fleet** | `list_fleets` | List/enumerate fleets | optional `query` |
 | | `get_fleet` | Get fleet by ID | `id` |
 | | `create_fleet` | Create fleet | `data` |
@@ -326,7 +326,7 @@ Commands are sent via the `command` route. Each command returns a `command.resul
 | | `get_merge_entry` | Get merge entry by ID | `id` |
 | | `enqueue_merge` | Enqueue branch for merge | `data` |
 | | `cancel_merge` | Cancel merge entry | `id` |
-| | `process_merge_queue` | Process the merge queue | — |
+| | `process_merge_queue` | Process the merge queue | Ã¢â‚¬â€ |
 | **Persona** | `get_persona` | Get a persona by name | `id` (persona name) |
 | | `create_persona` | Create a persona | `data` (Persona object) |
 | | `update_persona` | Update persona properties | `id` (persona name), `data` (partial Persona) |
@@ -2020,7 +2020,7 @@ If a message is sent without a route:
 | `autoPush` | bool \| null | Override global auto-push setting |
 | `autoCreatePullRequests` | bool \| null | Override global auto-create PR setting |
 | `autoMergePullRequests` | bool \| null | Override global auto-merge PR setting |
-| `landingMode` | string \| null | [LandingModeEnum](#landingmodeenum) — per-voyage landing policy override |
+| `landingMode` | string \| null | [LandingModeEnum](#landingmodeenum) Ã¢â‚¬â€ per-voyage landing policy override |
 
 #### Vessel
 
@@ -2035,8 +2035,8 @@ If a message is sent without a route:
 | `defaultBranch` | string | Default branch name (default `"main"`) |
 | `projectContext` | string \| null | Project context describing architecture, key files, and dependencies |
 | `styleGuide` | string \| null | Style guide describing naming conventions, patterns, and library preferences |
-| `landingMode` | string \| null | [LandingModeEnum](#landingmodeenum) — per-vessel landing policy override |
-| `branchCleanupPolicy` | string \| null | [BranchCleanupPolicyEnum](#branchcleanuppolicyenum) — per-vessel branch cleanup override |
+| `landingMode` | string \| null | [LandingModeEnum](#landingmodeenum) Ã¢â‚¬â€ per-vessel landing policy override |
+| `branchCleanupPolicy` | string \| null | [BranchCleanupPolicyEnum](#branchcleanuppolicyenum) Ã¢â‚¬â€ per-vessel branch cleanup override |
 | `active` | bool | Whether the vessel is active |
 | `createdUtc` | string | ISO 8601 creation timestamp |
 | `lastUpdateUtc` | string | ISO 8601 last update timestamp |

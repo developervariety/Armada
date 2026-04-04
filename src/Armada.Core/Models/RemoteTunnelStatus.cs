@@ -25,7 +25,7 @@ namespace Armada.Core.Models
         public string? TunnelUrl { get; set; } = null;
 
         /// <summary>
-        /// Effective instance identifier sent to the control plane.
+        /// Effective instance identifier sent to the proxy.
         /// </summary>
         public string? InstanceId { get; set; } = null;
 
@@ -65,7 +65,7 @@ namespace Armada.Core.Models
         public long? LatencyMs { get; set; } = null;
 
         /// <summary>
-        /// Capability manifest advertised to the control plane.
+        /// Capability manifest advertised to the proxy.
         /// </summary>
         public RemoteTunnelCapabilityManifest CapabilityManifest
         {

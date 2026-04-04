@@ -28,7 +28,7 @@ namespace Armada.Core.Enums
         Connecting,
 
         /// <summary>
-        /// The tunnel is connected to the control plane.
+        /// The tunnel is connected to the proxy.
         /// </summary>
         [EnumMember(Value = "Connected")]
         Connected,

@@ -7,10 +7,10 @@ Enable a remote user on any network to securely monitor and control their privat
 Core architecture:
 
 ```text
-[Phone / Browser] -> [SaaS Control Plane] <= outbound WSS => [Private Armada Instance]
+[Phone / Browser] -> [SaaS Proxy] <= outbound WSS => [Private Armada Instance]
 ```
 
-The Armada instance initiates and maintains the outbound tunnel. The control plane brokers user identity, routes requests and events, and hosts the remote UX.
+The Armada instance initiates and maintains the outbound tunnel. The proxy brokers user identity, routes requests and events, and hosts the remote UX.
 
 ---
 
@@ -89,7 +89,7 @@ Full remote desktop/dashboard compatibility comes later, after trust, identity, 
 The earlier draft underweighted several first-order concerns:
 
 - security and authorization were too late in the plan
-- the identity model between control plane users and local Armada users was missing
+- the identity model between proxy users and local Armada users was missing
 - version and capability negotiation across Armada releases was underspecified
 - notification state was treated like local UI state instead of a server-backed remote feature
 - the plan leaned too hard on generic dashboard reuse despite the current dashboard being tightly coupled to:
@@ -105,7 +105,7 @@ That makes "just make the dashboard responsive" an architectural trap for the ph
 
 ## Target Architecture
 
-### 1. Control Plane
+### 1. Proxy
 
 Cloud-hosted service responsible for:
 
@@ -120,7 +120,7 @@ Cloud-hosted service responsible for:
 
 ### 2. Tunnel Client In Armada
 
-Armada.Server runs a persistent outbound `wss` connection to the control plane and:
+Armada.Server runs a persistent outbound `wss` connection to the proxy and:
 
 - registers the instance and capabilities
 - receives proxied requests
@@ -133,7 +133,7 @@ Armada.Server runs a persistent outbound `wss` connection to the control plane a
 - Local dashboard
   - current Armada-local admin experience
 - Remote operations shell
-  - mobile-first control-plane-hosted app for remote use
+  - mobile-first proxy-hosted app for remote use
 
 Both should share extracted primitives where possible:
 
@@ -144,7 +144,7 @@ Both should share extracted primitives where possible:
 - action controls
 - common query and formatting utilities
 
-Later, the control plane can also support remote desktop/dashboard compatibility using the REST proxy and remote-aware providers.
+Later, the proxy can also support remote desktop/dashboard compatibility using the REST proxy and remote-aware providers.
 
 ---
 
@@ -154,16 +154,16 @@ This is a core requirement, not a later enhancement.
 
 ### Requirements
 
-- control plane users authenticate to the SaaS control plane
+- proxy users authenticate to the SaaS proxy
 - each remote user must map to a locally meaningful Armada identity or delegated local session
 - local Armada authorization remains authoritative for local actions
 - audit logs must attribute actions to the human remote operator, the mapped local identity, the instance, and the action performed
 
 ### Design Targets
 
-- control plane account/user model for SaaS access
+- proxy account/user model for SaaS access
 - per-instance enrollment and ownership
-- delegated session issuance from instance to control plane
+- delegated session issuance from instance to proxy
 - short-lived local session or service-principal tokens scoped to the mapped role
 - support for session revocation and lost-device response
 - per-device trust model with explicit device/session inventory
@@ -171,7 +171,7 @@ This is a core requirement, not a later enhancement.
 ### Non-Goals
 
 - flattening all remote users into a single shared instance token
-- bypassing Armada's native authz model with a control-plane-only role check
+- bypassing Armada's native authz model with a proxy-only role check
 
 ---
 
@@ -205,7 +205,7 @@ The tunnel is message-oriented and must support both compatibility and native re
 
 - REST proxying remains supported for dashboard compatibility and deep-link scenarios
 - event forwarding remains supported for existing live-update patterns
-- the mobile-first remote shell should prefer aggregated control-plane APIs over raw endpoint passthrough
+- the mobile-first remote shell should prefer aggregated proxy APIs over raw endpoint passthrough
 
 ---
 
@@ -270,7 +270,7 @@ Required artifact set for this effort:
 - `Armada.postman_collection.json`
 - new tunnel/remote-control docs as they become real product surface area:
   - `docs/TUNNEL_PROTOCOL.md`
-  - `docs/CONTROL_PLANE_API.md`
+  - `docs/PROXY_API.md`
   - `docs/TUNNEL_OPERATIONS.md`
 
 If a tunnel feature lands and one of those docs still does not exist, create it before calling the phase complete.
@@ -288,7 +288,7 @@ Goal: convert architecture intent into implementation contracts that teams can e
 - [x] Define capability manifest schema and versioning rules
 - [ ] Define delegated identity model and token/session lifecycle
 - [x] Define tunnel message schema, handshake, and error model
-- [-] Define control-plane aggregated API surface for remote shell MVP
+- [-] Define proxy aggregated API surface for remote shell MVP
 - [ ] Define remote action policy matrix: allowed, guarded, blocked
 - [ ] Define audit event taxonomy for enrollment, auth, tunnel, and remote actions
 - [ ] Define rollout plan for mixed-version Armada instances
@@ -307,7 +307,7 @@ Goal: establish the security model before remote control exists in practice.
 
 ### Checklist
 
-- [ ] Implement control-plane account and user model
+- [ ] Implement proxy account and user model
 - [ ] Implement instance enrollment and pairing flow
 - [ ] Implement per-instance ownership and revocation
 - [ ] Implement delegated local identity mapping
@@ -330,7 +330,7 @@ Goal: establish the security model before remote control exists in practice.
 - [ ] update `README.md` with remote control overview and security caveats when feature is user-visible
 - [ ] update `docs/REST_API.md` for any enrollment/auth endpoints added on the Armada side
 - [ ] update `docs/MCP_API.md` if MCP gains remote-control-aware tools or constraints
-- [ ] create or update `docs/CONTROL_PLANE_API.md` for account, enrollment, identity, and action policy endpoints
+- [ ] create or update `docs/PROXY_API.md` for account, enrollment, identity, and action policy endpoints
 - [ ] create or update `docs/TUNNEL_OPERATIONS.md` with enrollment, credential rotation, and revocation procedures
 - [ ] update `Armada.postman_collection.json` for any new REST endpoints
 
@@ -344,12 +344,12 @@ Goal: establish the security model before remote control exists in practice.
 
 ## Workstream 2: Tunnel Foundation
 
-Goal: establish the secure outbound transport between private Armada instances and the control plane.
+Goal: establish the secure outbound transport between private Armada instances and the proxy.
 
 ### Checklist
 
 - [x] implement persistent outbound `wss` tunnel client in Armada.Server
-- [x] implement control-plane tunnel termination
+- [x] implement proxy tunnel termination
 - [x] implement handshake with protocol version and capability manifest
 - [x] implement request/response multiplexing with correlation IDs
 - [-] implement event forwarding and subscription lifecycle
@@ -358,7 +358,7 @@ Goal: establish the secure outbound transport between private Armada instances a
 - [x] implement explicit offline and stale-instance semantics
 - [ ] implement payload chunking/streaming for large logs, diffs, backups, or restores
 - [ ] implement capability-based behavior gates for mixed-version instances
-- [x] define fallback behavior when control plane is unavailable
+- [x] define fallback behavior when proxy is unavailable
 
 ### Tests
 
@@ -381,13 +381,13 @@ Goal: establish the secure outbound transport between private Armada instances a
 ### Exit Criteria
 
 - a private Armada instance can enroll and maintain a secure outbound tunnel
-- the control plane can send an authenticated request through the tunnel and receive a response
-- events flow from Armada to the control plane
+- the proxy can send an authenticated request through the tunnel and receive a response
+- events flow from Armada to the proxy
 - tunnel health, latency, and offline state are observable
 
 ---
 
-## Workstream 3: Control-Plane Aggregated APIs
+## Workstream 3: Proxy Aggregated APIs
 
 Goal: expose remote-control APIs designed for remote workflows, not raw local-dashboard coupling.
 
@@ -408,11 +408,11 @@ Goal: expose remote-control APIs designed for remote workflows, not raw local-da
 - [ ] automated tests for authorization and instance isolation
 - [ ] automated tests for stale/offline instance responses
 - [ ] automated tests for guarded action confirmation flows
-- [ ] contract tests to detect drift between control-plane API responses and remote UI expectations
+- [ ] contract tests to detect drift between proxy API responses and remote UI expectations
 
 ### Documentation
 
-- [x] create or update `docs/CONTROL_PLANE_API.md`
+- [x] create or update `docs/PROXY_API.md`
 - [x] update `README.md` if any public remote shell API usage is documented there
 - [x] update `Armada.postman_collection.json` to cover all REST endpoints that are part of this remote surface
 - [x] ensure request/response examples stay current with the latest schema
@@ -555,7 +555,7 @@ Goal: grow from single-instance remote control into a broader SaaS operating sur
 ### Documentation
 
 - [ ] update `README.md` for SaaS-level capabilities that are user-visible
-- [ ] update `docs/CONTROL_PLANE_API.md` for account-level APIs
+- [ ] update `docs/PROXY_API.md` for account-level APIs
 - [ ] update `docs/TUNNEL_OPERATIONS.md` for HA/routing behavior
 
 ---
@@ -589,7 +589,7 @@ This workstream is mandatory and should be reviewed at the end of every PR in th
 ### New Docs Required For This Endeavor
 
 - [x] `docs/TUNNEL_PROTOCOL.md` exists and matches the shipped tunnel behavior
-- [x] `docs/CONTROL_PLANE_API.md` exists and matches the shipped control-plane API behavior
+- [x] `docs/PROXY_API.md` exists and matches the shipped proxy API behavior
 - [x] `docs/TUNNEL_OPERATIONS.md` exists and covers enrollment, rotation, observability, reconnect, and failure handling
 
 ### Rules
@@ -700,7 +700,7 @@ These are MVP-level concerns, not backlog polish:
 
 - [ ] What is the exact delegated identity shape on the Armada side: mapped user, service principal, or both?
 - [ ] Which destructive actions should be blocked entirely on mobile vs allowed with stronger confirmation?
-- [ ] Should approvals be local-instance policy driven, control-plane policy driven, or both?
+- [ ] Should approvals be local-instance policy driven, proxy policy driven, or both?
 - [ ] What minimum capability manifest is required to safely support mixed-version fleets?
 - [ ] What large-payload strategy is preferred for backups/restores: chunked tunnel streaming or separate upload/download channels?
 - [ ] How much MCP/tool traffic should be first-class in the tunnel protocol from day one?

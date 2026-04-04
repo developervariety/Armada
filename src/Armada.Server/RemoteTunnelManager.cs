@@ -32,7 +32,7 @@ namespace Armada.Server
         private CancellationToken _ServerToken = CancellationToken.None;
 
         /// <summary>
-        /// Optional request handler for control-plane initiated tunnel requests.
+        /// Optional request handler for proxy-initiated tunnel requests.
         /// </summary>
         public Func<RemoteTunnelEnvelope, CancellationToken, Task<RemoteTunnelRequestResult>>? OnHandleRequest { get; set; }
 
@@ -132,7 +132,7 @@ namespace Armada.Server
         }
 
         /// <summary>
-        /// Publish a server-side event to the connected control plane, if any.
+        /// Publish a server-side event to the connected proxy, if any.
         /// </summary>
         /// <param name="eventType">Event type.</param>
         /// <param name="payload">Event payload.</param>

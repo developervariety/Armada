@@ -9,7 +9,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Armada.Runtimes", "Armada.R
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Armada.Server", "Armada.Server\Armada.Server.csproj", "{1D118B8B-EFAD-4923-AA26-AB998A02F8F0}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Armada.ControlPlane", "Armada.ControlPlane\Armada.ControlPlane.csproj", "{B1A47690-AED9-4F4E-8B31-8A4A1D5A3D45}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Armada.Proxy", "Armada.Proxy\Armada.Proxy.csproj", "{B1A47690-AED9-4F4E-8B31-8A4A1D5A3D45}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Armada.Helm", "Armada.Helm\Armada.Helm.csproj", "{81A514DE-5C3A-4921-AB8A-158BC9255CF7}"
 EndProject

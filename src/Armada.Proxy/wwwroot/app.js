@@ -197,7 +197,7 @@ function renderInstanceList() {
   elements.instanceList.innerHTML = '';
 
   if (state.instances.length === 0) {
-    elements.instanceList.innerHTML = '<div class="text-muted">No instances are connected to this control plane yet.</div>';
+    elements.instanceList.innerHTML = '<div class="text-muted">No instances are connected to this proxy yet.</div>';
     return;
   }
 
@@ -956,5 +956,5 @@ elements.missionForm.addEventListener('submit', submitMissionForm);
 elements.missionResetButton.addEventListener('click', resetMissionForm);
 
 loadInstances().catch((error) => {
-  elements.instanceList.innerHTML = `<div class="text-muted">${escapeHtml(error instanceof Error ? error.message : 'Failed to load control plane data.')}</div>`;
+  elements.instanceList.innerHTML = `<div class="text-muted">${escapeHtml(error instanceof Error ? error.message : 'Failed to load proxy data.')}</div>`;
 });

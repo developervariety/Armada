@@ -78,12 +78,12 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 string restApiContents = ReadRepositoryFile("docs", "REST_API.md");
                 string mcpApiContents = ReadRepositoryFile("docs", "MCP_API.md");
-                string controlPlaneApiContents = ReadRepositoryFile("docs", "CONTROL_PLANE_API.md");
+                string proxyApiContents = ReadRepositoryFile("docs", "PROXY_API.md");
                 string postmanContents = ReadRepositoryFile("Armada.postman_collection.json");
                 string restHealthSample = ExtractRestHealthResponseSample(restApiContents);
                 string restJsonExamples = ExtractMarkdownJsonExamples(restApiContents);
                 string mcpJsonExamples = ExtractMarkdownJsonExamples(mcpApiContents);
-                string controlPlaneJsonExamples = ExtractMarkdownJsonExamples(controlPlaneApiContents);
+                string proxyJsonExamples = ExtractMarkdownJsonExamples(proxyApiContents);
                 string postmanResponseBodies = ExtractPostmanResponseBodies(postmanContents);
                 string postmanHealthResponseBody = ExtractPostmanHealthyResponseBody(postmanContents);
 
@@ -92,14 +92,14 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(1, Regex.Matches(postmanContents, @"""name"":\s*""Healthy""").Count, "Postman collection should include the healthy response example exactly once");
                 AssertContains("**Version:** " + Constants.ProductVersion, restApiContents, "REST API header should use the shared release version");
                 AssertContains("**Version:** " + Constants.ProductVersion, mcpApiContents, "MCP API header should use the shared release version");
-                AssertContains("**Version:** " + Constants.ProductVersion, controlPlaneApiContents, "Control plane API header should use the shared release version");
+                AssertContains("**Version:** " + Constants.ProductVersion, proxyApiContents, "Proxy API header should use the shared release version");
                 AssertContains("Version: " + Constants.ProductVersion, postmanContents, "Postman collection description should use the shared release version");
                 AssertContains("\"Version\": \"" + Constants.ProductVersion + "\"", restHealthSample, "REST API health example should use the shared release version");
                 AssertContains("\"Version\": \"" + Constants.ProductVersion + "\"", postmanHealthResponseBody, "Postman health response body should use the shared release version");
 
                 AssertNoStaleVersionSurfaces(restJsonExamples, "REST API JSON examples", staleVersion => staleVersion);
                 AssertNoStaleVersionSurfaces(mcpJsonExamples, "MCP API JSON examples", staleVersion => staleVersion);
-                AssertNoStaleVersionSurfaces(controlPlaneJsonExamples, "Control plane API JSON examples", staleVersion => staleVersion);
+                AssertNoStaleVersionSurfaces(proxyJsonExamples, "Proxy API JSON examples", staleVersion => staleVersion);
                 AssertNoStaleVersionSurfaces(postmanResponseBodies, "Postman response bodies", staleVersion => staleVersion);
                 AssertNoStaleVersionSurfaces(restHealthSample, "REST API health example", staleVersion => "\"Version\": \"" + staleVersion + "\"");
                 AssertNoStaleVersionSurfaces(postmanHealthResponseBody, "Postman health response body", staleVersion => "\"Version\": \"" + staleVersion + "\"");

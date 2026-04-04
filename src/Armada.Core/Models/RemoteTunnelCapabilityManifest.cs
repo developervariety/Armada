@@ -1,7 +1,7 @@
 namespace Armada.Core.Models
 {
     /// <summary>
-    /// Capability manifest advertised by an Armada instance to a remote control plane.
+    /// Capability manifest advertised by an Armada instance to the remote proxy.
     /// </summary>
     public class RemoteTunnelCapabilityManifest
     {

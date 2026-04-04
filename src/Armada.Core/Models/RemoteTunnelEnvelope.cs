@@ -3,7 +3,7 @@ namespace Armada.Core.Models
     using System.Text.Json;
 
     /// <summary>
-    /// Generic tunnel envelope shared by Armada instances and the control plane.
+    /// Generic tunnel envelope shared by Armada instances and the proxy.
     /// </summary>
     public class RemoteTunnelEnvelope
     {

@@ -13,7 +13,7 @@ namespace Armada.Core.Settings
         public bool Enabled { get; set; } = false;
 
         /// <summary>
-        /// Full control-plane tunnel endpoint URL.
+        /// Full proxy tunnel endpoint URL.
         /// Accepts ws/wss directly, or http/https which are normalized to ws/wss.
         /// </summary>
         public string? TunnelUrl { get; set; } = null;

@@ -1,20 +1,20 @@
 namespace Armada.Test.Unit.Suites.Services
 {
-    using Armada.ControlPlane.Services;
-    using Armada.ControlPlane.Settings;
+    using Armada.Proxy.Services;
+    using Armada.Proxy.Settings;
     using Armada.Core;
     using Armada.Core.Models;
     using Armada.Test.Common;
 
-    public class ControlPlaneRegistryTests : TestSuite
+    public class ProxyRegistryTests : TestSuite
     {
-        public override string Name => "Control Plane Registry";
+        public override string Name => "Proxy Registry";
 
         protected override async Task RunTestsAsync()
         {
             await RunTest("TryValidateHandshake EnforcesRequiredFieldsAndTokens", () =>
             {
-                ControlPlaneSettings settings = new ControlPlaneSettings
+                ProxySettings settings = new ProxySettings
                 {
                     RequireEnrollmentToken = true,
                     EnrollmentTokens = new List<string> { "secret-token" }
@@ -55,7 +55,7 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("RegisterHandshake TracksConnectedStaleAndOfflineStates", () =>
             {
                 DateTime nowUtc = new DateTime(2026, 4, 3, 12, 0, 0, DateTimeKind.Utc);
-                ControlPlaneSettings settings = new ControlPlaneSettings
+                ProxySettings settings = new ProxySettings
                 {
                     StaleAfterSeconds = 30
                 };
@@ -89,7 +89,7 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("SendRequestAsync CompletesMatchingResponses", async () =>
             {
-                ControlPlaneSettings settings = new ControlPlaneSettings
+                ProxySettings settings = new ProxySettings
                 {
                     RequestTimeoutSeconds = 5
                 };
@@ -134,7 +134,7 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("RecordEvent RetainsRecentActivityWithinConfiguredLimit", () =>
             {
-                ControlPlaneSettings settings = new ControlPlaneSettings
+                ProxySettings settings = new ProxySettings
                 {
                     MaxRecentEvents = 2
                 };

@@ -136,7 +136,7 @@ namespace Armada.Server
 
             fleet.LastUpdateUtc = _UtcNow();
             fleet = await _Database.Fleets.CreateAsync(fleet, token).ConfigureAwait(false);
-            await _EmitEventAsync("fleet.created", "Fleet created from control plane: " + fleet.Name, "fleet", fleet.Id, null, null, null, null).ConfigureAwait(false);
+            await _EmitEventAsync("fleet.created", "Fleet created from proxy: " + fleet.Name, "fleet", fleet.Id, null, null, null, null).ConfigureAwait(false);
             return Created(fleet, "Fleet created.");
         }
 
@@ -167,7 +167,7 @@ namespace Armada.Server
             existing.LastUpdateUtc = _UtcNow();
 
             Fleet updated = await _Database.Fleets.UpdateAsync(existing, token).ConfigureAwait(false);
-            await _EmitEventAsync("fleet.updated", "Fleet updated from control plane: " + updated.Name, "fleet", updated.Id, null, null, null, null).ConfigureAwait(false);
+            await _EmitEventAsync("fleet.updated", "Fleet updated from proxy: " + updated.Name, "fleet", updated.Id, null, null, null, null).ConfigureAwait(false);
             return Ok(updated, "Fleet updated.");
         }
 
@@ -235,7 +235,7 @@ namespace Armada.Server
 
             vessel.LastUpdateUtc = _UtcNow();
             vessel = await _Database.Vessels.CreateAsync(vessel, token).ConfigureAwait(false);
-            await _EmitEventAsync("vessel.created", "Vessel created from control plane: " + vessel.Name, "vessel", vessel.Id, null, null, vessel.Id, null).ConfigureAwait(false);
+            await _EmitEventAsync("vessel.created", "Vessel created from proxy: " + vessel.Name, "vessel", vessel.Id, null, null, vessel.Id, null).ConfigureAwait(false);
             return Created(vessel, "Vessel created.");
         }
 
@@ -276,7 +276,7 @@ namespace Armada.Server
             existing.LastUpdateUtc = _UtcNow();
 
             Vessel updated = await _Database.Vessels.UpdateAsync(existing, token).ConfigureAwait(false);
-            await _EmitEventAsync("vessel.updated", "Vessel updated from control plane: " + updated.Name, "vessel", updated.Id, null, null, updated.Id, null).ConfigureAwait(false);
+            await _EmitEventAsync("vessel.updated", "Vessel updated from proxy: " + updated.Name, "vessel", updated.Id, null, null, updated.Id, null).ConfigureAwait(false);
             return Ok(updated, "Vessel updated.");
         }
 
@@ -359,7 +359,7 @@ namespace Armada.Server
                     token).ConfigureAwait(false);
             }
 
-            await _EmitEventAsync("voyage.dispatched", "Voyage dispatched from control plane: " + voyage.Title, "voyage", voyage.Id, null, null, request.VesselId, voyage.Id).ConfigureAwait(false);
+            await _EmitEventAsync("voyage.dispatched", "Voyage dispatched from proxy: " + voyage.Title, "voyage", voyage.Id, null, null, request.VesselId, voyage.Id).ConfigureAwait(false);
             return Created(voyage, "Voyage dispatched.");
         }
 
@@ -396,7 +396,7 @@ namespace Armada.Server
                 if (IsMissionActiveForCancellation(mission.Status))
                 {
                     mission.Status = MissionStatusEnum.Cancelled;
-                    mission.FailureReason = "Cancelled from control plane";
+                    mission.FailureReason = "Cancelled from proxy";
                     mission.ProcessId = null;
                     mission.CompletedUtc = _UtcNow();
                     mission.LastUpdateUtc = _UtcNow();
@@ -410,7 +410,7 @@ namespace Armada.Server
             voyage.LastUpdateUtc = _UtcNow();
             voyage = await _Database.Voyages.UpdateAsync(voyage, token).ConfigureAwait(false);
 
-            await _EmitEventAsync("voyage.cancelled", "Voyage cancelled from control plane: " + voyage.Title, "voyage", voyage.Id, null, null, null, voyage.Id).ConfigureAwait(false);
+            await _EmitEventAsync("voyage.cancelled", "Voyage cancelled from proxy: " + voyage.Title, "voyage", voyage.Id, null, null, null, voyage.Id).ConfigureAwait(false);
             return Ok(new
             {
                 voyage = voyage,
@@ -484,7 +484,7 @@ namespace Armada.Server
             }
 
             Mission created = await _Admiral.DispatchMissionAsync(mission, token).ConfigureAwait(false);
-            await _EmitEventAsync("mission.created", "Mission created from control plane: " + created.Title, "mission", created.Id, created.CaptainId, created.Id, created.VesselId, created.VoyageId).ConfigureAwait(false);
+            await _EmitEventAsync("mission.created", "Mission created from proxy: " + created.Title, "mission", created.Id, created.CaptainId, created.Id, created.VesselId, created.VoyageId).ConfigureAwait(false);
             return Created(created, "Mission created.");
         }
 
@@ -521,7 +521,7 @@ namespace Armada.Server
 
             Mission updated = await _Database.Missions.UpdateAsync(existing, token).ConfigureAwait(false);
             updated.DiffSnapshot = null;
-            await _EmitEventAsync("mission.updated", "Mission updated from control plane: " + updated.Title, "mission", updated.Id, updated.CaptainId, updated.Id, updated.VesselId, updated.VoyageId).ConfigureAwait(false);
+            await _EmitEventAsync("mission.updated", "Mission updated from proxy: " + updated.Title, "mission", updated.Id, updated.CaptainId, updated.Id, updated.VesselId, updated.VoyageId).ConfigureAwait(false);
             return Ok(updated, "Mission updated.");
         }
 
@@ -551,14 +551,14 @@ namespace Armada.Server
             }
 
             mission.Status = MissionStatusEnum.Cancelled;
-            mission.FailureReason = "Cancelled from control plane";
+            mission.FailureReason = "Cancelled from proxy";
             mission.ProcessId = null;
             mission.CompletedUtc = _UtcNow();
             mission.LastUpdateUtc = _UtcNow();
             mission = await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
             mission.DiffSnapshot = null;
 
-            await _EmitEventAsync("mission.cancelled", "Mission cancelled from control plane: " + mission.Title, "mission", mission.Id, mission.CaptainId, mission.Id, mission.VesselId, mission.VoyageId).ConfigureAwait(false);
+            await _EmitEventAsync("mission.cancelled", "Mission cancelled from proxy: " + mission.Title, "mission", mission.Id, mission.CaptainId, mission.Id, mission.VesselId, mission.VoyageId).ConfigureAwait(false);
             return Ok(mission, "Mission cancelled.");
         }
 
@@ -609,7 +609,7 @@ namespace Armada.Server
             mission = await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
             mission.DiffSnapshot = null;
 
-            await _EmitEventAsync("mission.restarted", "Mission restarted from control plane: " + mission.Title, "mission", mission.Id, null, mission.Id, mission.VesselId, mission.VoyageId).ConfigureAwait(false);
+            await _EmitEventAsync("mission.restarted", "Mission restarted from proxy: " + mission.Title, "mission", mission.Id, null, mission.Id, mission.VesselId, mission.VoyageId).ConfigureAwait(false);
             return Ok(mission, "Mission restarted.");
         }
 
@@ -630,7 +630,7 @@ namespace Armada.Server
             await _Admiral.RecallCaptainAsync(captainId, token).ConfigureAwait(false);
             captain = await _Database.Captains.ReadAsync(captainId, token).ConfigureAwait(false);
 
-            await _EmitEventAsync("captain.stopped", "Captain stopped from control plane: " + captainId, "captain", captainId, captainId, captain?.CurrentMissionId, null, null).ConfigureAwait(false);
+            await _EmitEventAsync("captain.stopped", "Captain stopped from proxy: " + captainId, "captain", captainId, captainId, captain?.CurrentMissionId, null, null).ConfigureAwait(false);
             return Ok(new
             {
                 captain = captain
