@@ -112,6 +112,12 @@ Edit `docker/server/armada.json` to customize:
   "admiralPort": 7890,
   "mcpPort": 7891,
   "webSocketPort": 7892,
+  "syslogServers": [
+    {
+      "hostname": "127.0.0.1",
+      "port": 514
+    }
+  ],
   "allowSelfRegistration": true,
   "rest": {
     "hostname": "0.0.0.0"

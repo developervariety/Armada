@@ -62,7 +62,12 @@ Optional proxy configuration lives under `ArmadaProxy`, for example:
     "logDirectory": "/app/data/logs",
     "hostname": "localhost",
     "port": 7893,
-    "syslogServers": [],
+    "syslogServers": [
+      {
+        "hostname": "127.0.0.1",
+        "port": 514
+      }
+    ],
     "requireEnrollmentToken": false,
     "enrollmentTokens": [],
     "handshakeTimeoutSeconds": 15,

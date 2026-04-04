@@ -231,10 +231,13 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
-        /// Optional syslog targets for process-level logging.
-        /// When empty, Armada logs only to console and local files.
+        /// Syslog targets for process-level logging.
+        /// Defaults to a local syslog listener on 127.0.0.1:514.
         /// </summary>
-        public List<SyslogServer> SyslogServers { get; set; } = new List<SyslogServer>();
+        public List<SyslogServer> SyslogServers { get; set; } = new List<SyslogServer>
+        {
+            new SyslogServer("127.0.0.1", 514)
+        };
 
         /// <summary>
         /// Data retention period in days for completed voyages, missions, signals, and events.

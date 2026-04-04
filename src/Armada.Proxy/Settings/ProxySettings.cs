@@ -118,10 +118,13 @@ namespace Armada.Proxy.Settings
         }
 
         /// <summary>
-        /// Optional syslog targets for proxy process logging.
-        /// When empty, the proxy logs only to console and local files.
+        /// Syslog targets for proxy process logging.
+        /// Defaults to a local syslog listener on 127.0.0.1:514.
         /// </summary>
-        public List<SyslogServer> SyslogServers { get; set; } = new List<SyslogServer>();
+        public List<SyslogServer> SyslogServers { get; set; } = new List<SyslogServer>
+        {
+            new SyslogServer("127.0.0.1", 514)
+        };
 
         /// <summary>
         /// Normalize configured enrollment tokens by trimming blanks.

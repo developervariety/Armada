@@ -73,7 +73,12 @@ Armada stores remote tunnel configuration in `settings.json`:
     "logDirectory": "/app/data/logs",
     "hostname": "localhost",
     "port": 7893,
-    "syslogServers": [],
+    "syslogServers": [
+      {
+        "hostname": "127.0.0.1",
+        "port": 514
+      }
+    ],
     "requireEnrollmentToken": false,
     "enrollmentTokens": [],
     "handshakeTimeoutSeconds": 15,
