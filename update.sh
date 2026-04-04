@@ -2,10 +2,21 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HELM_DLL="$SCRIPT_DIR/src/Armada.Helm/bin/Debug/net10.0/Armada.Helm.dll"
 
-echo
-echo "[update] Stopping Armada server if it is running..."
-armada server stop || true
+run_helm() {
+  if command -v armada >/dev/null 2>&1; then
+    armada "$@"
+    return
+  fi
+
+  if [ -f "$HELM_DLL" ]; then
+    dotnet "$HELM_DLL" "$@"
+    return
+  fi
+
+  dotnet run --project "$SCRIPT_DIR/src/Armada.Helm" -f net10.0 -- "$@"
+}
 
 echo
 echo "[update] Stopping repo-backed Armada MCP stdio hosts if they are running..."
@@ -21,9 +32,13 @@ else
 fi
 
 echo
+echo "[update] Stopping Armada server if it is running..."
+run_helm server stop || true
+
+echo
 echo "[update] Reinstalling Armada tool and redeploying dashboard..."
 "$SCRIPT_DIR/reinstall.sh"
 
 echo
 echo "[update] Starting Armada server..."
-armada server start
+run_helm server start
