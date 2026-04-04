@@ -256,16 +256,20 @@ select {
   align-items: center;
 }
 
-.proxy-login-brand h1 {
+.proxy-login-brand h2 {
   margin-top: 0.15rem;
-  font-size: 1.95rem;
-  font-weight: 800;
+  font-family: var(--font);
+  font-size: 1.7rem;
+  font-weight: 700;
   letter-spacing: -0.03em;
+  color: var(--text);
 }
 
 .login-copy {
   margin-bottom: 1.25rem;
   color: var(--text-dim);
+  font-size: 0.95rem;
+  text-align: center;
 }
 
 .login-form {
@@ -288,6 +292,14 @@ select {
 .section-head h2 {
   font-size: 1.05rem;
   margin-bottom: 0.2rem;
+}
+
+.section-head h3 {
+  font-family: var(--font);
+  font-size: 1.05rem;
+  font-weight: 700;
+  margin-bottom: 0.2rem;
+  color: var(--text);
 }
 
 .deployment-list,

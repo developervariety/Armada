@@ -14,13 +14,12 @@
         <img src="/img/logo-dark-grey.png" alt="Armada" class="login-logo proxy-login-logo">
         <div class="proxy-login-copy-block">
           <div class="eyebrow">Armada Proxy</div>
-          <h1>Connect To A Deployment</h1>
+          <h2>Select Deployment</h2>
         </div>
       </div>
 
       <p class="login-copy">
-        Enter the deployment identifier for the Armada instance you want to manage through this proxy.
-        If the deployment is not connected, the proxy will tell you before opening the shell.
+        Enter a deployment ID to continue.
       </p>
 
       <form id="loginForm" class="form-stack login-form">
@@ -30,8 +29,8 @@
         </label>
 
         <div class="form-actions">
-          <button type="submit" class="button button-primary">Open Deployment</button>
-          <button id="loginRefreshButton" type="button" class="button">Refresh Registry</button>
+          <button type="submit" class="button button-primary">Open</button>
+          <button id="loginRefreshButton" type="button" class="button">Refresh</button>
         </div>
 
         <div id="loginStatus" class="form-status"></div>
@@ -40,8 +39,8 @@
       <section class="login-available card-block">
         <div class="section-head">
           <div>
-            <h2>Available Deployments</h2>
-            <p class="text-muted">Identifiers currently visible through this proxy.</p>
+            <h3>Connected Deployments</h3>
+            <p class="text-muted">Deployments currently visible through this proxy.</p>
           </div>
           <span id="instanceCount" class="pill">0</span>
         </div>

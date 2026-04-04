@@ -1104,18 +1104,16 @@ async function initializeProxyShell() {
   try {
     await loadInstances();
 
-    if (storedDeploymentId && getInstanceById(storedDeploymentId)) {
-      await authenticateInstance(storedDeploymentId);
-    } else {
-      renderSessionState();
-      if (storedDeploymentId && !getInstanceById(storedDeploymentId)) {
-        elements.loginInstanceId.value = storedDeploymentId;
+    renderSessionState();
+    if (storedDeploymentId) {
+      elements.loginInstanceId.value = storedDeploymentId;
+      if (!getInstanceById(storedDeploymentId)) {
         setLoginStatus(`Deployment "${storedDeploymentId}" is not currently connected to this proxy.`, 'error');
       }
     }
   } catch (error) {
     renderSessionState();
-    setLoginStatus(error instanceof Error ? error.message : 'Failed to load proxy data.', 'error');
+    setLoginStatus('Unable to load connected deployments right now.', 'error');
   }
 }
 
@@ -1176,6 +1174,6 @@ bindSidebarNavigation();
 renderSessionState();
 initializeProxyShell().catch((error) => {
   renderSessionState();
-  elements.instanceList.innerHTML = `<div class="text-muted">${escapeHtml(error instanceof Error ? error.message : 'Failed to load proxy data.')}</div>`;
-  setLoginStatus(error instanceof Error ? error.message : 'Failed to load proxy data.', 'error');
+  elements.instanceList.innerHTML = '<div class="text-muted">Unable to load connected deployments right now.</div>';
+  setLoginStatus('Unable to load connected deployments right now.', 'error');
 });
