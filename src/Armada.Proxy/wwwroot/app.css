@@ -343,6 +343,68 @@ select {
   margin-bottom: 1.5rem;
 }
 
+.login-step-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin-bottom: 1.15rem;
+  flex-wrap: wrap;
+}
+
+.login-step-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  padding: 0.3rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-dim);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.login-step-chip.is-active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+}
+
+.login-step-chip.is-complete {
+  background: var(--tag-complete-bg);
+  border-color: transparent;
+  color: var(--tag-complete-fg);
+}
+
+.login-step-panel {
+  display: block;
+}
+
+.login-selection-actions {
+  margin-bottom: 1rem;
+}
+
+.selected-deployment-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: linear-gradient(180deg, var(--bg-card), var(--bg));
+}
+
+.selected-deployment-id {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text);
+  word-break: break-word;
+}
+
 .card-block {
   border-top: 1px solid var(--border);
   padding-top: 1.5rem;

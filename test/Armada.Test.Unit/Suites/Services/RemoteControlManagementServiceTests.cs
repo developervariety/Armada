@@ -230,6 +230,37 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual("Remote Mission Restarted", restarted.Title);
                 }
             });
+
+            await RunTest("PipelineListOperatesThroughTunnel", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    StubAdmiralService admiral = new StubAdmiralService(testDb.Driver);
+                    RemoteControlManagementService service = new RemoteControlManagementService(
+                        testDb.Driver,
+                        admiral,
+                        (_, _, _, _, _, _, _, _) => Task.CompletedTask);
+
+                    Pipeline pipeline = new Pipeline("Remote Pipeline");
+                    pipeline.Description = "Pipeline from proxy tests";
+                    pipeline.Stages = new List<PipelineStage>
+                    {
+                        new PipelineStage(1, "Worker")
+                    };
+                    await testDb.Driver.Pipelines.CreateAsync(pipeline).ConfigureAwait(false);
+
+                    RemoteTunnelRequestResult listPipelines = await service.HandleAsync(
+                        RemoteTunnelProtocol.CreateRequest("armada.pipelines.list", new RemoteTunnelQueryRequest
+                        {
+                            Limit = 10
+                        }),
+                        CancellationToken.None).ConfigureAwait(false);
+
+                    AssertEqual(200, listPipelines.StatusCode);
+                    string listPipelinesJson = JsonSerializer.Serialize(listPipelines.Payload, RemoteTunnelProtocol.JsonOptions);
+                    AssertContains("Remote Pipeline", listPipelinesJson);
+                }
+            });
         }
 
         private sealed class StubAdmiralService : IAdmiralService

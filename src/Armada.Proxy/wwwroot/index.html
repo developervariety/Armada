@@ -24,35 +24,67 @@
         </button>
       </div>
 
-      <p class="login-copy">
-        Enter your deployment ID and shared password.
+      <p id="loginCopy" class="login-copy">
+        Enter the shared password to unlock this proxy.
       </p>
 
-      <form id="loginForm" class="form-stack login-form">
-        <label class="field">
-          <input id="loginInstanceId" type="text" placeholder="armada-1f2e3d4c5b6a" aria-label="Deployment ID" autocomplete="off" spellcheck="false">
-        </label>
-        <label class="field">
-          <input id="loginPassword" type="password" placeholder="Shared password (defaults to armadaadmin)" aria-label="Shared password" autocomplete="current-password" spellcheck="false">
-        </label>
+      <div class="login-step-indicator" aria-label="Proxy login steps">
+        <span id="loginStepProxy" class="login-step-chip">1. Proxy</span>
+        <span id="loginStepDeployment" class="login-step-chip">2. Deployment</span>
+        <span id="loginStepAccess" class="login-step-chip">3. Access</span>
+      </div>
 
-        <div class="form-actions">
-          <button type="submit" class="button button-primary">Open</button>
-          <button id="loginRefreshButton" type="button" class="button">Refresh</button>
-        </div>
+      <section id="proxyPasswordStep" class="login-step-panel">
+        <form id="proxyUnlockForm" class="form-stack login-form">
+          <label class="field">
+            <span>Shared Password</span>
+            <input id="loginPassword" type="password" placeholder="Shared password" aria-label="Shared password" autocomplete="current-password" spellcheck="false">
+          </label>
 
-        <div id="loginStatus" class="form-status"></div>
-      </form>
-
-      <section class="login-available card-block">
-        <div class="section-head">
-          <div>
-            <p class="text-muted">No deployments available.</p>
+          <div class="form-actions">
+            <button id="proxyUnlockButton" type="submit" class="button button-primary">Continue</button>
           </div>
-          <span id="instanceCount" class="pill">0</span>
-        </div>
-        <div id="instanceList" class="deployment-list"></div>
+        </form>
       </section>
+
+      <section id="deploymentSelectionStep" class="login-step-panel hidden">
+        <div class="form-actions login-selection-actions">
+          <button id="loginRefreshButton" type="button" class="button">Refresh</button>
+          <button id="proxyRelockButton" type="button" class="button">Back</button>
+        </div>
+
+        <section class="login-available card-block">
+          <div class="section-head">
+            <div>
+              <p class="text-muted">Choose a connected deployment.</p>
+            </div>
+            <span id="instanceCount" class="pill">0</span>
+          </div>
+          <div id="instanceList" class="deployment-list"></div>
+        </section>
+      </section>
+
+      <section id="deploymentPasswordStep" class="login-step-panel hidden">
+        <div class="selected-deployment-card">
+          <div class="eyebrow">Selected Deployment</div>
+          <div id="selectedInstanceId" class="selected-deployment-id mono">-</div>
+          <div id="selectedInstanceMeta" class="entity-meta-secondary">Choose a deployment to continue.</div>
+        </div>
+
+        <form id="deploymentPasswordForm" class="form-stack login-form">
+          <label class="field">
+            <span>Deployment Password</span>
+            <input id="deploymentPassword" type="password" placeholder="Deployment password" aria-label="Deployment password" autocomplete="current-password" spellcheck="false">
+          </label>
+
+          <div class="form-actions">
+            <button id="deploymentOpenButton" type="submit" class="button button-primary">Open Deployment</button>
+            <button id="deploymentBackButton" type="button" class="button">Back</button>
+          </div>
+        </form>
+      </section>
+
+      <div id="loginStatus" class="form-status"></div>
     </section>
   </div>
 
@@ -118,7 +150,7 @@
 
         <section id="emptyState" class="panel empty-state hidden">
           <h2>No deployment selected</h2>
-          <p>Select a deployment identifier through the proxy login screen to begin remote management.</p>
+          <p>Select a deployment through the proxy login flow to begin remote management.</p>
         </section>
 
         <div id="instanceWorkspace" class="workspace-content hidden">

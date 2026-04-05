@@ -665,6 +665,7 @@ namespace Armada.Server
                 case "armada.vessel.detail":
                 case "armada.vessel.create":
                 case "armada.vessel.update":
+                case "armada.pipelines.list":
                 case "armada.voyages.list":
                 case "armada.voyage.dispatch":
                 case "armada.voyage.cancel":

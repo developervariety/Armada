@@ -198,7 +198,7 @@ namespace Armada.Proxy
 
         private void RegisterApiRoutes(Webserver server)
         {
-            server.Get("/api/v1/auth/challenge", async (req) =>
+            MapJsonGet(server, "/api/v1/auth/challenge", async (req) =>
             {
                 (string nonce, DateTime expiresUtc) = _Auth.CreateChallenge();
                 return new
@@ -208,7 +208,7 @@ namespace Armada.Proxy
                 };
             });
 
-            server.Post("/api/v1/auth/login", async (req) =>
+            MapJsonPost(server, "/api/v1/auth/login", async (req) =>
             {
                 JsonElement payload = ReadJsonBody(req);
                 string? nonce = GetOptionalProperty(payload, "nonce");
@@ -228,16 +228,16 @@ namespace Armada.Proxy
                 };
             });
 
-            server.Post("/api/v1/auth/logout", async (req) =>
+            MapJsonPost(server, "/api/v1/auth/logout", async (req) =>
             {
                 string? sessionToken = req.Http.Request.Headers.Get(Constants.ProxySessionTokenHeader);
                 _Auth.Logout(sessionToken);
                 return new { success = true };
             });
 
-            server.Get("/api/v1/status/health", async (req) => BuildHealthPayload());
+            MapJsonGet(server, "/api/v1/status/health", async (req) => BuildHealthPayload());
 
-            server.Get("/api/v1/instances", async (req) =>
+            MapJsonGet(server, "/api/v1/instances", async (req) =>
             {
                 List<RemoteInstanceSummary> instances = _Registry.ListSummaries();
                 return new
@@ -247,7 +247,7 @@ namespace Armada.Proxy
                 };
             });
 
-            server.Get("/api/v1/instances/{instanceId}", async (req) =>
+            MapJsonGet(server, "/api/v1/instances/{instanceId}", async (req) =>
             {
                 string instanceId = RequireParameter(req, "instanceId");
                 RemoteInstanceRecord? record = _Registry.GetRecord(instanceId);
@@ -263,60 +263,60 @@ namespace Armada.Proxy
                 };
             });
 
-            server.Get("/api/v1/instances/{instanceId}/summary", async (req) =>
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/summary", async (req) =>
             {
                 string instanceId = RequireParameter(req, "instanceId");
                 return await ForwardPayloadAsync(req, instanceId, "armada.instance.summary", null).ConfigureAwait(false);
             });
 
-            server.Get("/api/v1/instances/{instanceId}/status/snapshot", async (req) =>
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/status/snapshot", async (req) =>
             {
                 string instanceId = RequireParameter(req, "instanceId");
                 return await ForwardTunnelResponseAsync(req, instanceId, "armada.status.snapshot", null).ConfigureAwait(false);
             });
 
-            server.Get("/api/v1/instances/{instanceId}/health", async (req) =>
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/health", async (req) =>
             {
                 string instanceId = RequireParameter(req, "instanceId");
                 return await ForwardTunnelResponseAsync(req, instanceId, "armada.status.health", null).ConfigureAwait(false);
             });
 
-            server.Get("/api/v1/instances/{instanceId}/activity", async (req) =>
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/activity", async (req) =>
             {
                 string instanceId = RequireParameter(req, "instanceId");
                 int limit = ParsePositiveInt(req.Query["limit"], 20, 1, 100);
                 return await ForwardPayloadAsync(req, instanceId, "armada.activity.recent", new RemoteTunnelQueryRequest { Limit = limit }).ConfigureAwait(false);
             });
 
-            server.Get("/api/v1/instances/{instanceId}/missions/recent", async (req) =>
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/missions/recent", async (req) =>
             {
                 string instanceId = RequireParameter(req, "instanceId");
                 int limit = ParsePositiveInt(req.Query["limit"], 10, 1, 100);
                 return await ForwardPayloadAsync(req, instanceId, "armada.missions.recent", new RemoteTunnelQueryRequest { Limit = limit }).ConfigureAwait(false);
             });
 
-            server.Get("/api/v1/instances/{instanceId}/voyages/recent", async (req) =>
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/voyages/recent", async (req) =>
             {
                 string instanceId = RequireParameter(req, "instanceId");
                 int limit = ParsePositiveInt(req.Query["limit"], 10, 1, 100);
                 return await ForwardPayloadAsync(req, instanceId, "armada.voyages.recent", new RemoteTunnelQueryRequest { Limit = limit }).ConfigureAwait(false);
             });
 
-            server.Get("/api/v1/instances/{instanceId}/captains/recent", async (req) =>
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/captains/recent", async (req) =>
             {
                 string instanceId = RequireParameter(req, "instanceId");
                 int limit = ParsePositiveInt(req.Query["limit"], 10, 1, 100);
                 return await ForwardPayloadAsync(req, instanceId, "armada.captains.recent", new RemoteTunnelQueryRequest { Limit = limit }).ConfigureAwait(false);
             });
 
-            server.Get("/api/v1/instances/{instanceId}/missions/{missionId}", async (req) =>
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/missions/{missionId}", async (req) =>
             {
                 string instanceId = RequireParameter(req, "instanceId");
                 string missionId = RequireParameter(req, "missionId");
                 return await ForwardPayloadAsync(req, instanceId, "armada.mission.detail", new RemoteTunnelQueryRequest { MissionId = missionId }).ConfigureAwait(false);
             });
 
-            server.Get("/api/v1/instances/{instanceId}/missions/{missionId}/log", async (req) =>
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/missions/{missionId}/log", async (req) =>
             {
                 string instanceId = RequireParameter(req, "instanceId");
                 string missionId = RequireParameter(req, "missionId");
@@ -330,28 +330,28 @@ namespace Armada.Proxy
                 }).ConfigureAwait(false);
             });
 
-            server.Get("/api/v1/instances/{instanceId}/missions/{missionId}/diff", async (req) =>
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/missions/{missionId}/diff", async (req) =>
             {
                 string instanceId = RequireParameter(req, "instanceId");
                 string missionId = RequireParameter(req, "missionId");
                 return await ForwardPayloadAsync(req, instanceId, "armada.mission.diff", new RemoteTunnelQueryRequest { MissionId = missionId }).ConfigureAwait(false);
             });
 
-            server.Get("/api/v1/instances/{instanceId}/voyages/{voyageId}", async (req) =>
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/voyages/{voyageId}", async (req) =>
             {
                 string instanceId = RequireParameter(req, "instanceId");
                 string voyageId = RequireParameter(req, "voyageId");
                 return await ForwardPayloadAsync(req, instanceId, "armada.voyage.detail", new RemoteTunnelQueryRequest { VoyageId = voyageId }).ConfigureAwait(false);
             });
 
-            server.Get("/api/v1/instances/{instanceId}/captains/{captainId}", async (req) =>
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/captains/{captainId}", async (req) =>
             {
                 string instanceId = RequireParameter(req, "instanceId");
                 string captainId = RequireParameter(req, "captainId");
                 return await ForwardPayloadAsync(req, instanceId, "armada.captain.detail", new RemoteTunnelQueryRequest { CaptainId = captainId }).ConfigureAwait(false);
             });
 
-            server.Get("/api/v1/instances/{instanceId}/captains/{captainId}/log", async (req) =>
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/captains/{captainId}/log", async (req) =>
             {
                 string instanceId = RequireParameter(req, "instanceId");
                 string captainId = RequireParameter(req, "captainId");
@@ -365,21 +365,21 @@ namespace Armada.Proxy
                 }).ConfigureAwait(false);
             });
 
-            server.Get("/api/v1/instances/{instanceId}/fleets", async (req) =>
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/fleets", async (req) =>
             {
                 string instanceId = RequireParameter(req, "instanceId");
                 int limit = ParsePositiveInt(req.Query["limit"], 12, 1, 200);
                 return await ForwardPayloadAsync(req, instanceId, "armada.fleets.list", new RemoteTunnelQueryRequest { Limit = limit }).ConfigureAwait(false);
             });
 
-            server.Get("/api/v1/instances/{instanceId}/fleets/{fleetId}", async (req) =>
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/fleets/{fleetId}", async (req) =>
             {
                 string instanceId = RequireParameter(req, "instanceId");
                 string fleetId = RequireParameter(req, "fleetId");
                 return await ForwardPayloadAsync(req, instanceId, "armada.fleet.detail", new RemoteTunnelQueryRequest { FleetId = fleetId }).ConfigureAwait(false);
             });
 
-            server.Post("/api/v1/instances/{instanceId}/fleets", async (req) =>
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/fleets", async (req) =>
             {
                 string instanceId = RequireParameter(req, "instanceId");
                 JsonElement payload = ReadJsonBody(req);
@@ -387,7 +387,7 @@ namespace Armada.Proxy
                 return await ForwardPayloadAsync(req, instanceId, "armada.fleet.create", payload).ConfigureAwait(false);
             });
 
-            server.Put("/api/v1/instances/{instanceId}/fleets/{fleetId}", async (req) =>
+            MapJsonPut(server, "/api/v1/instances/{instanceId}/fleets/{fleetId}", async (req) =>
             {
                 string instanceId = RequireParameter(req, "instanceId");
                 string fleetId = RequireParameter(req, "fleetId");
@@ -395,7 +395,7 @@ namespace Armada.Proxy
                 return await ForwardPayloadAsync(req, instanceId, "armada.fleet.update", new { fleetId, fleet }).ConfigureAwait(false);
             });
 
-            server.Get("/api/v1/instances/{instanceId}/vessels", async (req) =>
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/vessels", async (req) =>
             {
                 string instanceId = RequireParameter(req, "instanceId");
                 int limit = ParsePositiveInt(req.Query["limit"], 12, 1, 200);
@@ -403,21 +403,21 @@ namespace Armada.Proxy
                 return await ForwardPayloadAsync(req, instanceId, "armada.vessels.list", new RemoteTunnelQueryRequest { Limit = limit, FleetId = fleetId }).ConfigureAwait(false);
             });
 
-            server.Get("/api/v1/instances/{instanceId}/vessels/{vesselId}", async (req) =>
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/vessels/{vesselId}", async (req) =>
             {
                 string instanceId = RequireParameter(req, "instanceId");
                 string vesselId = RequireParameter(req, "vesselId");
                 return await ForwardPayloadAsync(req, instanceId, "armada.vessel.detail", new RemoteTunnelQueryRequest { VesselId = vesselId }).ConfigureAwait(false);
             });
 
-            server.Get("/api/v1/instances/{instanceId}/pipelines", async (req) =>
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/pipelines", async (req) =>
             {
                 string instanceId = RequireParameter(req, "instanceId");
                 int limit = ParsePositiveInt(req.Query["limit"], 24, 1, 200);
                 return await ForwardPayloadAsync(req, instanceId, "armada.pipelines.list", new RemoteTunnelQueryRequest { Limit = limit }).ConfigureAwait(false);
             });
 
-            server.Post("/api/v1/instances/{instanceId}/vessels", async (req) =>
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/vessels", async (req) =>
             {
                 string instanceId = RequireParameter(req, "instanceId");
                 JsonElement payload = ReadJsonBody(req);
@@ -425,7 +425,7 @@ namespace Armada.Proxy
                 return await ForwardPayloadAsync(req, instanceId, "armada.vessel.create", payload).ConfigureAwait(false);
             });
 
-            server.Put("/api/v1/instances/{instanceId}/vessels/{vesselId}", async (req) =>
+            MapJsonPut(server, "/api/v1/instances/{instanceId}/vessels/{vesselId}", async (req) =>
             {
                 string instanceId = RequireParameter(req, "instanceId");
                 string vesselId = RequireParameter(req, "vesselId");
@@ -433,7 +433,7 @@ namespace Armada.Proxy
                 return await ForwardPayloadAsync(req, instanceId, "armada.vessel.update", new { vesselId, vessel }).ConfigureAwait(false);
             });
 
-            server.Get("/api/v1/instances/{instanceId}/voyages", async (req) =>
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/voyages", async (req) =>
             {
                 string instanceId = RequireParameter(req, "instanceId");
                 int limit = ParsePositiveInt(req.Query["limit"], 12, 1, 200);
@@ -441,7 +441,7 @@ namespace Armada.Proxy
                 return await ForwardPayloadAsync(req, instanceId, "armada.voyages.list", new RemoteTunnelQueryRequest { Limit = limit, Status = status }).ConfigureAwait(false);
             });
 
-            server.Post("/api/v1/instances/{instanceId}/voyages/dispatch", async (req) =>
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/voyages/dispatch", async (req) =>
             {
                 string instanceId = RequireParameter(req, "instanceId");
                 JsonElement payload = ReadJsonBody(req);
@@ -449,14 +449,14 @@ namespace Armada.Proxy
                 return await ForwardPayloadAsync(req, instanceId, "armada.voyage.dispatch", payload).ConfigureAwait(false);
             });
 
-            server.Delete("/api/v1/instances/{instanceId}/voyages/{voyageId}", async (req) =>
+            MapJsonDelete(server, "/api/v1/instances/{instanceId}/voyages/{voyageId}", async (req) =>
             {
                 string instanceId = RequireParameter(req, "instanceId");
                 string voyageId = RequireParameter(req, "voyageId");
                 return await ForwardPayloadAsync(req, instanceId, "armada.voyage.cancel", new RemoteTunnelQueryRequest { VoyageId = voyageId }).ConfigureAwait(false);
             });
 
-            server.Get("/api/v1/instances/{instanceId}/missions", async (req) =>
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/missions", async (req) =>
             {
                 string instanceId = RequireParameter(req, "instanceId");
                 int limit = ParsePositiveInt(req.Query["limit"], 16, 1, 200);
@@ -469,7 +469,7 @@ namespace Armada.Proxy
                 }).ConfigureAwait(false);
             });
 
-            server.Post("/api/v1/instances/{instanceId}/missions", async (req) =>
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/missions", async (req) =>
             {
                 string instanceId = RequireParameter(req, "instanceId");
                 JsonElement payload = ReadJsonBody(req);
@@ -477,7 +477,7 @@ namespace Armada.Proxy
                 return await ForwardPayloadAsync(req, instanceId, "armada.mission.create", payload).ConfigureAwait(false);
             });
 
-            server.Put("/api/v1/instances/{instanceId}/missions/{missionId}", async (req) =>
+            MapJsonPut(server, "/api/v1/instances/{instanceId}/missions/{missionId}", async (req) =>
             {
                 string instanceId = RequireParameter(req, "instanceId");
                 string missionId = RequireParameter(req, "missionId");
@@ -485,14 +485,14 @@ namespace Armada.Proxy
                 return await ForwardPayloadAsync(req, instanceId, "armada.mission.update", new { missionId, mission }).ConfigureAwait(false);
             });
 
-            server.Delete("/api/v1/instances/{instanceId}/missions/{missionId}", async (req) =>
+            MapJsonDelete(server, "/api/v1/instances/{instanceId}/missions/{missionId}", async (req) =>
             {
                 string instanceId = RequireParameter(req, "instanceId");
                 string missionId = RequireParameter(req, "missionId");
                 return await ForwardPayloadAsync(req, instanceId, "armada.mission.cancel", new RemoteTunnelQueryRequest { MissionId = missionId }).ConfigureAwait(false);
             });
 
-            server.Post("/api/v1/instances/{instanceId}/missions/{missionId}/restart", async (req) =>
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/missions/{missionId}/restart", async (req) =>
             {
                 string instanceId = RequireParameter(req, "instanceId");
                 string missionId = RequireParameter(req, "missionId");
@@ -505,12 +505,46 @@ namespace Armada.Proxy
                 }).ConfigureAwait(false);
             });
 
-            server.Post("/api/v1/instances/{instanceId}/captains/{captainId}/stop", async (req) =>
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/captains/{captainId}/stop", async (req) =>
             {
                 string instanceId = RequireParameter(req, "instanceId");
                 string captainId = RequireParameter(req, "captainId");
                 return await ForwardPayloadAsync(req, instanceId, "armada.captain.stop", new RemoteTunnelQueryRequest { CaptainId = captainId }).ConfigureAwait(false);
             });
+        }
+
+        private void MapJsonGet(Webserver server, string path, Func<ApiRequest, Task<object>> handler)
+        {
+            server.Get(path, async (req) => await SendJsonResponseAsync(req, handler).ConfigureAwait(false));
+        }
+
+        private void MapJsonPost(Webserver server, string path, Func<ApiRequest, Task<object>> handler)
+        {
+            server.Post(path, async (req) => await SendJsonResponseAsync(req, handler).ConfigureAwait(false));
+        }
+
+        private void MapJsonPut(Webserver server, string path, Func<ApiRequest, Task<object>> handler)
+        {
+            server.Put(path, async (req) => await SendJsonResponseAsync(req, handler).ConfigureAwait(false));
+        }
+
+        private void MapJsonDelete(Webserver server, string path, Func<ApiRequest, Task<object>> handler)
+        {
+            server.Delete(path, async (req) => await SendJsonResponseAsync(req, handler).ConfigureAwait(false));
+        }
+
+        private static async Task<object> SendJsonResponseAsync(ApiRequest req, Func<ApiRequest, Task<object>> handler)
+        {
+            object payload = await handler(req).ConfigureAwait(false);
+            if (req.Http.Response.StatusCode <= 0)
+            {
+                req.Http.Response.StatusCode = 200;
+            }
+
+            req.Http.Response.ContentType = "application/json";
+            string json = JsonSerializer.Serialize(payload, RemoteTunnelProtocol.JsonOptions);
+            await req.Http.Response.Send(json, req.CancellationToken).ConfigureAwait(false);
+            return new { };
         }
 
         private void RegisterWebSocketRoutes(Webserver server)

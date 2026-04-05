@@ -12,8 +12,10 @@ const BUILT_IN_PIPELINES = [
 const state = {
   instances: [],
   selectedInstanceId: null,
+  pendingInstanceId: null,
   sessionToken: null,
   isAuthenticated: false,
+  loginStep: 'proxy-password',
   sidebarOpen: false,
   summary: null,
   fleets: [],
@@ -32,14 +34,28 @@ const state = {
 const elements = {
   loginView: document.getElementById('loginView'),
   loginLogo: document.getElementById('loginLogo'),
-  loginForm: document.getElementById('loginForm'),
-  loginInstanceId: document.getElementById('loginInstanceId'),
+  loginCopy: document.getElementById('loginCopy'),
+  loginStepProxy: document.getElementById('loginStepProxy'),
+  loginStepDeployment: document.getElementById('loginStepDeployment'),
+  loginStepAccess: document.getElementById('loginStepAccess'),
+  proxyPasswordStep: document.getElementById('proxyPasswordStep'),
+  proxyUnlockForm: document.getElementById('proxyUnlockForm'),
+  proxyUnlockButton: document.getElementById('proxyUnlockButton'),
+  deploymentSelectionStep: document.getElementById('deploymentSelectionStep'),
   loginPassword: document.getElementById('loginPassword'),
   loginStatus: document.getElementById('loginStatus'),
   loginRefreshButton: document.getElementById('loginRefreshButton'),
+  proxyRelockButton: document.getElementById('proxyRelockButton'),
   loginThemeToggleButton: document.getElementById('loginThemeToggleButton'),
   instanceCount: document.getElementById('instanceCount'),
   instanceList: document.getElementById('instanceList'),
+  deploymentPasswordStep: document.getElementById('deploymentPasswordStep'),
+  selectedInstanceId: document.getElementById('selectedInstanceId'),
+  selectedInstanceMeta: document.getElementById('selectedInstanceMeta'),
+  deploymentPasswordForm: document.getElementById('deploymentPasswordForm'),
+  deploymentPassword: document.getElementById('deploymentPassword'),
+  deploymentOpenButton: document.getElementById('deploymentOpenButton'),
+  deploymentBackButton: document.getElementById('deploymentBackButton'),
   appView: document.getElementById('appView'),
   sidebar: document.getElementById('sidebar'),
   sidebarOverlay: document.getElementById('sidebarOverlay'),
@@ -471,6 +487,60 @@ function setLoginStatus(message, kind) {
   setFormStatus(elements.loginStatus, message, kind);
 }
 
+function getPendingInstance() {
+  return getInstanceById(state.pendingInstanceId);
+}
+
+function setLoginStep(step) {
+  state.loginStep = step;
+
+  const steps = [
+    { key: 'proxy-password', element: elements.loginStepProxy },
+    { key: 'deployment-select', element: elements.loginStepDeployment },
+    { key: 'deployment-password', element: elements.loginStepAccess },
+  ];
+
+  const activeIndex = steps.findIndex((entry) => entry.key === step);
+  steps.forEach((entry, index) => {
+    if (!entry.element) return;
+    entry.element.classList.toggle('is-active', index === activeIndex);
+    entry.element.classList.toggle('is-complete', activeIndex > index);
+  });
+
+  if (elements.proxyPasswordStep) {
+    elements.proxyPasswordStep.classList.toggle('hidden', step !== 'proxy-password');
+  }
+
+  if (elements.deploymentSelectionStep) {
+    elements.deploymentSelectionStep.classList.toggle('hidden', step !== 'deployment-select');
+  }
+
+  if (elements.deploymentPasswordStep) {
+    elements.deploymentPasswordStep.classList.toggle('hidden', step !== 'deployment-password');
+  }
+
+  if (elements.loginCopy) {
+    if (step === 'proxy-password') {
+      elements.loginCopy.textContent = 'Enter the shared password to unlock this proxy.';
+    } else if (step === 'deployment-select') {
+      elements.loginCopy.textContent = 'Choose a connected deployment.';
+    } else {
+      elements.loginCopy.textContent = 'Enter the password for the selected deployment.';
+    }
+  }
+
+  const pendingInstance = getPendingInstance();
+  if (elements.selectedInstanceId) {
+    elements.selectedInstanceId.textContent = pendingInstance ? getInstanceIdValue(pendingInstance) : '-';
+  }
+
+  if (elements.selectedInstanceMeta) {
+    elements.selectedInstanceMeta.textContent = pendingInstance
+      ? `${getInstanceArmadaVersionValue(pendingInstance) || 'unknown version'} | ${getInstanceProtocolVersionValue(pendingInstance) || 'unknown protocol'}`
+      : 'Choose a deployment to continue.';
+  }
+}
+
 function normalizeSharedPassword(password) {
   return String(password || '').trim();
 }
@@ -522,8 +592,12 @@ function renderSessionState() {
   const authenticated = state.isAuthenticated && Boolean(state.selectedInstanceId);
   elements.loginView.classList.toggle('hidden', authenticated);
   elements.appView.classList.toggle('hidden', !authenticated);
-  if (authenticated) setDeploymentChrome();
-  else closeSidebar();
+  if (authenticated) {
+    setDeploymentChrome();
+  } else {
+    closeSidebar();
+    setLoginStep(state.loginStep || (state.isAuthenticated ? 'deployment-select' : 'proxy-password'));
+  }
 }
 
 function isAnyModalOpen() {
@@ -786,17 +860,18 @@ function resetProxyState() {
 
 function returnToDeploymentSelection(message = '', prefill = '') {
   state.selectedInstanceId = null;
+  state.pendingInstanceId = String(prefill || '').trim() || null;
   storeDeploymentId(null);
   resetProxyState();
+  setLoginStep('deployment-select');
   renderSessionState();
-  elements.loginInstanceId.value = prefill || '';
   if (message) setLoginStatus(message, 'error');
   else setLoginStatus('', null);
 }
 
 function handleUnauthorizedProxySession(message) {
   if (!state.isAuthenticated && !state.sessionToken) return;
-  logoutToLogin(message || 'Proxy session expired. Sign in again.', state.selectedInstanceId || elements.loginInstanceId.value || '');
+  logoutToLogin(message || 'Proxy session expired. Sign in again.');
 }
 
 async function authenticateInstance(instanceId) {
@@ -827,28 +902,72 @@ async function authenticateInstance(instanceId) {
 
   const resolvedInstanceId = getInstanceIdValue(instance);
   state.selectedInstanceId = resolvedInstanceId;
+  state.pendingInstanceId = null;
   state.isAuthenticated = true;
   storeDeploymentId(resolvedInstanceId);
-  elements.loginInstanceId.value = resolvedInstanceId;
+  if (elements.deploymentPassword) {
+    elements.deploymentPassword.value = '';
+  }
   setLoginStatus('', null);
   resetProxyState();
   renderSessionState();
   await loadSelectedInstance();
 }
 
-function logoutToLogin(message = '', prefill = '') {
+function logoutToLogin(message = '') {
   state.selectedInstanceId = null;
+  state.pendingInstanceId = null;
   setProxySession(null);
   state.instances = [];
   storeDeploymentId(null);
   resetProxyState();
   renderInstanceList();
   elements.instanceCount.textContent = '0';
+  setLoginStep('proxy-password');
   renderSessionState();
-  elements.loginInstanceId.value = prefill || '';
   elements.loginPassword.value = '';
+  if (elements.deploymentPassword) {
+    elements.deploymentPassword.value = '';
+  }
   if (message) setLoginStatus(message, 'error');
   else setLoginStatus('', null);
+}
+
+async function selectInstanceForLogin(instanceId) {
+  if (!state.isAuthenticated || !state.sessionToken) {
+    setLoginStep('proxy-password');
+    setLoginStatus('Enter the shared password to unlock this proxy first.', 'error');
+    return;
+  }
+
+  const normalized = String(instanceId || '').trim();
+  if (!normalized) {
+    setLoginStatus('Select a deployment to continue.', 'error');
+    return;
+  }
+
+  let instance = getInstanceById(normalized);
+  if (!instance) {
+    try {
+      await loadInstances();
+    } catch {
+    }
+    instance = getInstanceById(normalized);
+  }
+
+  if (!instance) {
+    setLoginStatus(`No Armada deployment with identifier "${normalized}" is connected to this proxy.`, 'error');
+    return;
+  }
+
+  state.pendingInstanceId = getInstanceIdValue(instance);
+  if (elements.deploymentPassword) {
+    elements.deploymentPassword.value = '';
+    elements.deploymentPassword.focus();
+  }
+  setLoginStep('deployment-password');
+  setLoginStatus('', null);
+  renderSessionState();
 }
 
 function instanceBaseUrl() {
@@ -880,6 +999,12 @@ async function loadInstances() {
     }
     await loadSelectedInstance();
   } else {
+    if (state.isAuthenticated && state.pendingInstanceId && !getInstanceById(state.pendingInstanceId)) {
+      const missingId = state.pendingInstanceId;
+      state.pendingInstanceId = null;
+      setLoginStep('deployment-select');
+      setLoginStatus(`Deployment "${missingId}" is not currently connected to this proxy.`, 'error');
+    }
     renderSessionState();
   }
 }
@@ -970,11 +1095,10 @@ function renderInstanceList() {
     `;
 
     button.addEventListener('click', async () => {
-      elements.loginInstanceId.value = instanceId;
-      await authenticateInstance(instanceId);
+      await selectInstanceForLogin(instanceId);
     });
 
-    if (state.selectedInstanceId === instanceId) {
+    if (state.selectedInstanceId === instanceId || state.pendingInstanceId === instanceId) {
       button.classList.add('is-selected');
     }
 
@@ -1851,11 +1975,8 @@ async function initializeProxyShell() {
   const storedDeploymentId = getStoredDeploymentId();
   const storedSessionToken = getStoredProxySessionToken();
 
-  if (storedDeploymentId) {
-    elements.loginInstanceId.value = storedDeploymentId;
-  }
-
   if (!storedSessionToken) {
+    setLoginStep('proxy-password');
     renderSessionState();
     return;
   }
@@ -1864,67 +1985,100 @@ async function initializeProxyShell() {
 
   try {
     await loadInstances();
-    renderSessionState();
 
     if (storedDeploymentId) {
       if (getInstanceById(storedDeploymentId)) {
-        await authenticateInstance(storedDeploymentId);
+        state.pendingInstanceId = storedDeploymentId;
+        setLoginStep('deployment-password');
+        setLoginStatus('Enter the password for the selected deployment.', null);
+        renderSessionState();
         return;
       }
 
       setLoginStatus(`Deployment "${storedDeploymentId}" is not currently connected to this proxy.`, 'error');
+      setLoginStep('deployment-select');
+      renderSessionState();
       return;
     }
 
+    setLoginStep('deployment-select');
+    renderSessionState();
     if (state.instances.length > 0) {
-      setLoginStatus('Proxy unlocked. Select a deployment below.', 'success');
+      setLoginStatus('Choose a deployment to continue.', 'success');
+    } else {
+      setLoginStatus('No deployments available.', null);
     }
   } catch {
-    logoutToLogin('Proxy session expired. Sign in again.', storedDeploymentId || '');
+    logoutToLogin('Proxy session expired. Sign in again.');
   }
 }
 
-elements.loginForm.addEventListener('submit', async (event) => {
+elements.proxyUnlockForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   try {
-    if (!state.isAuthenticated || !state.sessionToken) {
-      setLoginStatus('Validating shared password...', null);
-      await unlockProxySession(elements.loginPassword.value);
-    }
-
-    if (String(elements.loginInstanceId.value || '').trim()) {
-      await authenticateInstance(elements.loginInstanceId.value);
-      return;
-    }
-
+    setButtonBusy(elements.proxyUnlockButton, true, 'Continue', 'Checking...');
+    setLoginStatus('Validating shared password...', null);
+    await unlockProxySession(elements.loginPassword.value);
+    setLoginStep('deployment-select');
     if (state.instances.length > 0) {
-      setLoginStatus('Proxy unlocked. Select a deployment below.', 'success');
+      setLoginStatus('Choose a deployment to continue.', 'success');
     } else {
       setLoginStatus('No deployments available.', null);
     }
   } catch (error) {
     setLoginStatus(error instanceof Error ? error.message : 'Proxy authentication failed.', 'error');
+  } finally {
+    setButtonBusy(elements.proxyUnlockButton, false, 'Continue', 'Checking...');
   }
 });
 
 elements.loginRefreshButton.addEventListener('click', async () => {
   try {
     if (!state.isAuthenticated || !state.sessionToken) {
-      setLoginStatus('Validating shared password...', null);
-      await unlockProxySession(elements.loginPassword.value);
-      if (state.instances.length > 0) {
-        setLoginStatus('Proxy unlocked. Select a deployment below.', 'success');
-      } else {
-        setLoginStatus('No deployments available.', null);
-      }
+      setLoginStep('proxy-password');
+      setLoginStatus('Enter the shared password to unlock this proxy first.', 'error');
       return;
     }
 
-    setLoginStatus('Refreshing proxy registry...', null);
+    setLoginStatus('Refreshing deployments...', null);
     await loadInstances();
-    setLoginStatus('Registry refreshed.', 'success');
+    if (state.instances.length > 0) {
+      setLoginStatus('Deployment list refreshed.', 'success');
+    } else {
+      setLoginStatus('No deployments available.', null);
+    }
   } catch (error) {
-    setLoginStatus(error instanceof Error ? error.message : 'Failed to validate the proxy password.', 'error');
+    setLoginStatus(error instanceof Error ? error.message : 'Failed to refresh deployments.', 'error');
+  }
+});
+
+elements.proxyRelockButton.addEventListener('click', async () => {
+  await revokeProxySession();
+  logoutToLogin('');
+});
+
+elements.deploymentBackButton.addEventListener('click', () => {
+  returnToDeploymentSelection('', state.pendingInstanceId || '');
+});
+
+elements.deploymentPasswordForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+
+  if (!state.pendingInstanceId) {
+    setLoginStep('deployment-select');
+    setLoginStatus('Choose a deployment to continue.', 'error');
+    return;
+  }
+
+  try {
+    setButtonBusy(elements.deploymentOpenButton, true, 'Open Deployment', 'Opening...');
+    setLoginStatus('Validating deployment password...', null);
+    await unlockProxySession(elements.deploymentPassword.value);
+    await authenticateInstance(state.pendingInstanceId);
+  } catch (error) {
+    setLoginStatus(error instanceof Error ? error.message : 'Deployment authentication failed.', 'error');
+  } finally {
+    setButtonBusy(elements.deploymentOpenButton, false, 'Open Deployment', 'Opening...');
   }
 });
 
@@ -1968,12 +2122,12 @@ elements.voyageBrowseRecentButton.addEventListener('click', loadRecentVoyageList
 
 elements.switchDeploymentButton.addEventListener('click', async () => {
   await revokeProxySession();
-  logoutToLogin('', state.selectedInstanceId || '');
+  logoutToLogin('');
 });
 
 elements.sidebarSwitchDeploymentButton.addEventListener('click', async () => {
   await revokeProxySession();
-  logoutToLogin('', state.selectedInstanceId || '');
+  logoutToLogin('');
 });
 
 elements.mobileMenuButton.addEventListener('click', () => {
