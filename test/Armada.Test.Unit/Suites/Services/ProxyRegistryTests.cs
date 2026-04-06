@@ -120,6 +120,46 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("\"ok\":true", response.Payload!.Value.GetRawText(), "Payload should round-trip through the response");
             });
 
+            await RunTest("SendRequestAsync IncludesRequesterIpWhenProvided", async () =>
+            {
+                ProxySettings settings = new ProxySettings
+                {
+                    RequestTimeoutSeconds = 5
+                };
+                InstanceRegistry registry = new InstanceRegistry(settings);
+                RemoteTunnelEnvelope? sentEnvelope = null;
+                RemoteInstanceSession session = new RemoteInstanceSession((envelope, token) =>
+                {
+                    sentEnvelope = envelope;
+                    return Task.CompletedTask;
+                });
+
+                registry.RegisterHandshake(
+                    CreateHandshakePayload("armada-ip", null, Constants.DefaultRemoteTunnelPassword, Constants.ProductVersion),
+                    "127.0.0.1",
+                    session);
+
+                Task<RemoteTunnelEnvelope> pending = registry.SendRequestAsync(
+                    "armada-ip",
+                    "armada.status.snapshot",
+                    null,
+                    CancellationToken.None,
+                    "203.0.113.10");
+
+                AssertNotNull(sentEnvelope, "Request should have been sent over the session");
+                AssertEqual("203.0.113.10", sentEnvelope!.RequesterIp);
+
+                registry.TryCompleteResponse("armada-ip", new RemoteTunnelEnvelope
+                {
+                    Type = "response",
+                    CorrelationId = sentEnvelope.CorrelationId,
+                    StatusCode = 200,
+                    Success = true
+                });
+
+                await pending.ConfigureAwait(false);
+            });
+
             await RunTest("RecordEvent RetainsRecentActivityWithinConfiguredLimit", () =>
             {
                 ProxySettings settings = new ProxySettings

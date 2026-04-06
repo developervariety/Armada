@@ -26,7 +26,7 @@ namespace Armada.Core
         /// <summary>
         /// Build a request envelope.
         /// </summary>
-        public static RemoteTunnelEnvelope CreateRequest(string method, object? payload, string? correlationId = null)
+        public static RemoteTunnelEnvelope CreateRequest(string method, object? payload, string? correlationId = null, string? requesterIp = null)
         {
             return new RemoteTunnelEnvelope
             {
@@ -34,6 +34,7 @@ namespace Armada.Core
                 CorrelationId = correlationId ?? Guid.NewGuid().ToString("N"),
                 Method = method,
                 TimestampUtc = DateTime.UtcNow,
+                RequesterIp = requesterIp,
                 Payload = SerializePayload(payload)
             };
         }

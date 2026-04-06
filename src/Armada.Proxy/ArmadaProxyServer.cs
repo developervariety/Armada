@@ -579,7 +579,8 @@ namespace Armada.Proxy
         {
             try
             {
-                RemoteTunnelEnvelope response = await _Registry.SendRequestAsync(instanceId, method, payload, req.CancellationToken).ConfigureAwait(false);
+                string? requesterIp = GetRequesterIp(req);
+                RemoteTunnelEnvelope response = await _Registry.SendRequestAsync(instanceId, method, payload, req.CancellationToken, requesterIp).ConfigureAwait(false);
                 return BuildForwardedPayloadResult(req, response);
             }
             catch (Exception ex)
@@ -593,7 +594,8 @@ namespace Armada.Proxy
         {
             try
             {
-                RemoteTunnelEnvelope response = await _Registry.SendRequestAsync(instanceId, method, payload, req.CancellationToken).ConfigureAwait(false);
+                string? requesterIp = GetRequesterIp(req);
+                RemoteTunnelEnvelope response = await _Registry.SendRequestAsync(instanceId, method, payload, req.CancellationToken, requesterIp).ConfigureAwait(false);
                 return BuildTunnelProxyResponse(response);
             }
             catch (Exception ex)
@@ -635,6 +637,93 @@ namespace Armada.Proxy
                 message = response.Message,
                 payload = DeserializePayload(response.Payload)
             };
+        }
+
+        private static string? GetRequesterIp(ApiRequest req)
+        {
+            if (req == null) return null;
+
+            string? forwardedFor = req.Http?.Request?.Headers?.Get("X-Forwarded-For");
+            string? forwarded = req.Http?.Request?.Headers?.Get("Forwarded");
+
+            string? forwardedForIp = NormalizeForwardedValue(forwardedFor?.Split(',').FirstOrDefault());
+            if (!String.IsNullOrWhiteSpace(forwardedForIp))
+            {
+                return forwardedForIp;
+            }
+
+            if (!String.IsNullOrWhiteSpace(forwarded))
+            {
+                string? fromForwardedHeader = ExtractForwardedForIp(forwarded);
+                if (!String.IsNullOrWhiteSpace(fromForwardedHeader))
+                {
+                    return fromForwardedHeader;
+                }
+            }
+
+            string? sourceIp = req.Http?.Request?.Source?.IpAddress;
+            return String.IsNullOrWhiteSpace(sourceIp) ? null : sourceIp;
+        }
+
+        private static string? ExtractForwardedForIp(string? forwardedHeader)
+        {
+            if (String.IsNullOrWhiteSpace(forwardedHeader))
+            {
+                return null;
+            }
+
+            string firstForwarded = forwardedHeader.Split(',').FirstOrDefault()?.Trim() ?? String.Empty;
+            if (String.IsNullOrWhiteSpace(firstForwarded))
+            {
+                return null;
+            }
+
+            foreach (string part in firstForwarded.Split(';'))
+            {
+                string candidate = part.Trim();
+                if (!candidate.StartsWith("for=", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                return NormalizeForwardedValue(candidate.Substring(4));
+            }
+
+            return null;
+        }
+
+        private static string? NormalizeForwardedValue(string? value)
+        {
+            if (String.IsNullOrWhiteSpace(value))
+            {
+                return null;
+            }
+
+            string candidate = value.Trim().Trim('"');
+            if (String.IsNullOrWhiteSpace(candidate) || String.Equals(candidate, "unknown", StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            if (candidate.StartsWith("[", StringComparison.Ordinal) && candidate.Contains(']'))
+            {
+                int endBracket = candidate.IndexOf(']');
+                if (endBracket > 1)
+                {
+                    return candidate.Substring(1, endBracket - 1);
+                }
+            }
+
+            if (candidate.Count(ch => ch == ':') == 1 && candidate.Contains('.'))
+            {
+                int lastColon = candidate.LastIndexOf(':');
+                if (lastColon > 0)
+                {
+                    return candidate.Substring(0, lastColon);
+                }
+            }
+
+            return candidate;
         }
 
         private Task HandleTunnelAsync(HttpContextBase ctx, WebSocketSession session)

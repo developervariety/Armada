@@ -44,7 +44,7 @@ namespace Armada.Proxy.Services
         /// <summary>
         /// Send a request and wait for the correlated response.
         /// </summary>
-        public async Task<RemoteTunnelEnvelope> SendRequestAsync(string method, object? payload, TimeSpan timeout, CancellationToken token)
+        public async Task<RemoteTunnelEnvelope> SendRequestAsync(string method, object? payload, TimeSpan timeout, CancellationToken token, string? requesterIp = null)
         {
             string correlationId = Guid.NewGuid().ToString("N");
             TaskCompletionSource<RemoteTunnelEnvelope> tcs = new TaskCompletionSource<RemoteTunnelEnvelope>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -52,7 +52,7 @@ namespace Armada.Proxy.Services
 
             try
             {
-                await SendAsync(RemoteTunnelProtocol.CreateRequest(method, payload, correlationId), token).ConfigureAwait(false);
+                await SendAsync(RemoteTunnelProtocol.CreateRequest(method, payload, correlationId, requesterIp), token).ConfigureAwait(false);
 
                 using CancellationTokenSource timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(token);
                 timeoutSource.CancelAfter(timeout);

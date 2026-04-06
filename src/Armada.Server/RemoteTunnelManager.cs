@@ -737,6 +737,14 @@ namespace Armada.Server
                 return;
             }
 
+            _Logging.Info(
+                _Header +
+                "processing tunneled request " +
+                envelope.Method +
+                " from requester " +
+                (String.IsNullOrWhiteSpace(envelope.RequesterIp) ? "unknown" : envelope.RequesterIp) +
+                (!String.IsNullOrWhiteSpace(envelope.CorrelationId) ? " correlation " + envelope.CorrelationId : String.Empty));
+
             RemoteTunnelRequestResult result;
 
             if (OnHandleRequest == null)

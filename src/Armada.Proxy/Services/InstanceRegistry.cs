@@ -207,7 +207,7 @@ namespace Armada.Proxy.Services
         /// <summary>
         /// Send a live request to a connected instance.
         /// </summary>
-        public async Task<RemoteTunnelEnvelope> SendRequestAsync(string instanceId, string method, object? payload, CancellationToken token)
+        public async Task<RemoteTunnelEnvelope> SendRequestAsync(string instanceId, string method, object? payload, CancellationToken token, string? requesterIp = null)
         {
             if (!_Records.TryGetValue(instanceId, out RemoteInstanceRecord? record) || record.Session == null)
             {
@@ -218,7 +218,8 @@ namespace Armada.Proxy.Services
                 method,
                 payload,
                 TimeSpan.FromSeconds(_Settings.RequestTimeoutSeconds),
-                token).ConfigureAwait(false);
+                token,
+                requesterIp).ConfigureAwait(false);
         }
 
         #endregion

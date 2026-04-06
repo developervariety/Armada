@@ -50,6 +50,11 @@ namespace Armada.Core.Models
         public string? Message { get; set; } = null;
 
         /// <summary>
+        /// Optional original requester IP forwarded by Armada.Proxy for tunneled commands.
+        /// </summary>
+        public string? RequesterIp { get; set; } = null;
+
+        /// <summary>
         /// Optional JSON payload.
         /// </summary>
         public JsonElement? Payload { get; set; } = null;
