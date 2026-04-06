@@ -576,7 +576,7 @@ export default function Server() {
           <h3>Server Configuration</h3>
           <div className="settings-grid">
             <div className="form-group">
-              <label>Admiral Port</label>
+              <label title="REST API port used by the Armada server and dashboard.">Admiral Port</label>
               <input
                 type="number"
                 value={settings.admiralPort}
@@ -589,7 +589,7 @@ export default function Server() {
               />
             </div>
             <div className="form-group">
-              <label>MCP Port</label>
+              <label title="Port used by the Armada MCP HTTP endpoint.">MCP Port</label>
               <input
                 type="number"
                 value={settings.mcpPort}
@@ -602,7 +602,7 @@ export default function Server() {
               />
             </div>
             <div className="form-group">
-              <label>Max Captains</label>
+              <label title="Maximum number of captains Armada may keep registered at once. Set to 0 for no fixed limit.">Max Captains</label>
               <input
                 type="number"
                 value={settings.maxCaptains}
@@ -630,7 +630,7 @@ export default function Server() {
           <h3>Agent Settings</h3>
           <div className="settings-grid">
             <div className="form-group">
-              <label>Heartbeat Interval (seconds)</label>
+              <label title="How often Armada runs its health and dispatch checks.">Heartbeat Interval (seconds)</label>
               <input
                 type="number"
                 value={settings.heartbeatIntervalSeconds}
@@ -645,7 +645,7 @@ export default function Server() {
               />
             </div>
             <div className="form-group">
-              <label>Stall Threshold (minutes)</label>
+              <label title="How long a captain may go without meaningful progress before Armada considers it stalled.">Stall Threshold (minutes)</label>
               <input
                 type="number"
                 value={settings.stallThresholdMinutes}
@@ -660,7 +660,7 @@ export default function Server() {
               />
             </div>
             <div className="form-group">
-              <label>Idle Captain Timeout (seconds)</label>
+              <label title="How long an idle captain may sit unused before Armada automatically removes it. Set to 0 to disable auto-removal.">Idle Captain Timeout (seconds)</label>
               <input
                 type="number"
                 value={settings.idleCaptainTimeoutSeconds}
@@ -675,7 +675,7 @@ export default function Server() {
               />
             </div>
             <div className="form-group">
-              <label className="settings-checkbox-label">
+              <label className="settings-checkbox-label" title="Automatically open pull requests when supported by the mission and vessel configuration.">
                 <input
                   type="checkbox"
                   checked={settings.autoCreatePr}
@@ -703,7 +703,7 @@ export default function Server() {
           </p>
           <div className="settings-grid">
             <div className="form-group">
-              <label className="settings-checkbox-label">
+              <label className="settings-checkbox-label" title="Open an outbound remote-management tunnel from this Armada instance to Armada.Proxy.">
                 <input
                   type="checkbox"
                   checked={settings.remoteControl.enabled}
@@ -713,7 +713,7 @@ export default function Server() {
               </label>
             </div>
             <div className="form-group">
-              <label>Tunnel URL</label>
+              <label title="Armada.Proxy base URL or explicit /tunnel endpoint used for remote management.">Tunnel URL</label>
               <input
                 type="text"
                 value={settings.remoteControl.tunnelUrl ?? ''}
@@ -731,7 +731,7 @@ export default function Server() {
               />
             </div>
             <div className="form-group">
-              <label>Instance ID Override</label>
+              <label title="Optional stable deployment identifier advertised to Armada.Proxy. Leave blank to let Armada derive one automatically.">Instance ID Override</label>
               <input
                 type="text"
                 value={settings.remoteControl.instanceId ?? ''}
@@ -745,10 +745,11 @@ export default function Server() {
                   })
                 }
                 placeholder="Leave blank for auto-generated"
+                title="Optional stable deployment identifier advertised to Armada.Proxy. Leave blank to let Armada derive one automatically."
               />
             </div>
             <div className="form-group">
-              <label>Enrollment Token</label>
+              <label title="Optional extra admission token used only when Armada.Proxy requires instance enrollment tokens.">Instance Enrollment Token</label>
               <div className="settings-secret-field">
                 <input
                   type={revealedRemoteField === 'enrollmentToken' ? 'text' : 'password'}
@@ -763,6 +764,7 @@ export default function Server() {
                     })
                   }
                   placeholder="Optional bootstrap token"
+                  title="Optional extra admission token used only when Armada.Proxy requires instance enrollment tokens."
                 />
                 <button
                   type="button"
@@ -786,7 +788,7 @@ export default function Server() {
               </div>
             </div>
             <div className="form-group">
-              <label>Shared Password</label>
+              <label title="Shared secret used to authenticate this Armada instance to Armada.Proxy and to unlock Armada.Proxy browser access.">Proxy Shared Password</label>
               <div className="settings-secret-field">
                 <input
                   type={revealedRemoteField === 'password' ? 'text' : 'password'}
@@ -801,7 +803,7 @@ export default function Server() {
                     })
                   }
                   placeholder="Defaults to armadaadmin"
-                  title="Shared password used by Armada.Proxy browser login and the outbound remote tunnel."
+                  title="Shared secret used to authenticate this Armada instance to Armada.Proxy and to unlock Armada.Proxy browser access."
                 />
                 <button
                   type="button"
@@ -825,7 +827,7 @@ export default function Server() {
               </div>
             </div>
             <div className="form-group">
-              <label>Connect Timeout (seconds)</label>
+              <label title="How long Armada waits for the proxy tunnel connection to open before treating the attempt as failed.">Connect Timeout (seconds)</label>
               <input
                 type="number"
                 value={settings.remoteControl.connectTimeoutSeconds}
@@ -840,10 +842,11 @@ export default function Server() {
                 }
                 min={5}
                 max={300}
+                title="How long Armada waits for the proxy tunnel connection to open before treating the attempt as failed."
               />
             </div>
             <div className="form-group">
-              <label>Heartbeat Interval (seconds)</label>
+              <label title="How often Armada sends tunnel heartbeats to keep the connection alive and measure latency.">Heartbeat Interval (seconds)</label>
               <input
                 type="number"
                 value={settings.remoteControl.heartbeatIntervalSeconds}
@@ -858,10 +861,11 @@ export default function Server() {
                 }
                 min={5}
                 max={300}
+                title="How often Armada sends tunnel heartbeats to keep the connection alive and measure latency."
               />
             </div>
             <div className="form-group">
-              <label>Reconnect Base Delay (seconds)</label>
+              <label title="Initial reconnect backoff after a tunnel failure. Later retries grow from this base delay.">Reconnect Base Delay (seconds)</label>
               <input
                 type="number"
                 value={settings.remoteControl.reconnectBaseDelaySeconds}
@@ -876,10 +880,11 @@ export default function Server() {
                 }
                 min={1}
                 max={300}
+                title="Initial reconnect backoff after a tunnel failure. Later retries grow from this base delay."
               />
             </div>
             <div className="form-group">
-              <label>Reconnect Max Delay (seconds)</label>
+              <label title="Maximum reconnect backoff between tunnel retry attempts.">Reconnect Max Delay (seconds)</label>
               <input
                 type="number"
                 value={settings.remoteControl.reconnectMaxDelaySeconds}
@@ -894,10 +899,11 @@ export default function Server() {
                 }
                 min={1}
                 max={3600}
+                title="Maximum reconnect backoff between tunnel retry attempts."
               />
             </div>
             <div className="form-group">
-              <label className="settings-checkbox-label">
+              <label className="settings-checkbox-label" title="Allow self-signed or otherwise invalid TLS certificates for https/wss tunnel endpoints. Use only in trusted environments.">
                 <input
                   type="checkbox"
                   checked={settings.remoteControl.allowInvalidCertificates}

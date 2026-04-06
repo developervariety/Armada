@@ -46,15 +46,15 @@
                 <h3 class="settings-section-title">Server Configuration</h3>
                 <div class="settings-grid">
                     <div class="form-group">
-                        <label>Admiral Port</label>
+                        <label title="REST API port used by the Armada server and dashboard.">Admiral Port</label>
                         <input type="number" x-model.number="serverSettings.admiralPort" min="1" max="65535" title="REST API port (1-65535)">
                     </div>
                     <div class="form-group">
-                        <label>MCP Port</label>
+                        <label title="Port used by the Armada MCP HTTP endpoint.">MCP Port</label>
                         <input type="number" x-model.number="serverSettings.mcpPort" min="1" max="65535" title="MCP server port (1-65535)">
                     </div>
                     <div class="form-group">
-                        <label>Max Captains</label>
+                        <label title="Maximum number of captains Armada may keep registered at once. Set to 0 for no fixed limit.">Max Captains</label>
                         <input type="number" x-model.number="serverSettings.maxCaptains" min="0" title="Maximum captains (0 = unlimited)">
                     </div>
                 </div>
@@ -66,19 +66,19 @@
                 <h3 class="settings-section-title">Agent Settings</h3>
                 <div class="settings-grid">
                     <div class="form-group">
-                        <label>Heartbeat Interval (seconds)</label>
+                        <label title="How often Armada runs its health and dispatch checks.">Heartbeat Interval (seconds)</label>
                         <input type="number" x-model.number="serverSettings.heartbeatIntervalSeconds" min="5" title="Health check interval, minimum 5 seconds">
                     </div>
                     <div class="form-group">
-                        <label>Stall Threshold (minutes)</label>
+                        <label title="How long a captain may go without meaningful progress before Armada considers it stalled.">Stall Threshold (minutes)</label>
                         <input type="number" x-model.number="serverSettings.stallThresholdMinutes" min="1" title="Minutes before a captain is considered stalled">
                     </div>
                     <div class="form-group">
-                        <label>Idle Captain Timeout (seconds)</label>
+                        <label title="How long an idle captain may sit unused before Armada automatically removes it. Set to 0 to disable auto-removal.">Idle Captain Timeout (seconds)</label>
                         <input type="number" x-model.number="serverSettings.idleCaptainTimeoutSeconds" min="0" title="Auto-remove idle captains after this many seconds (0 = disabled)">
                     </div>
                     <div class="form-group">
-                        <label class="settings-checkbox-label">
+                        <label class="settings-checkbox-label" title="Automatically open pull requests when supported by the mission and vessel configuration.">
                             <input type="checkbox" x-model="serverSettings.autoCreatePr">
                             <span>Auto-Create Pull Requests</span>
                         </label>
@@ -92,23 +92,23 @@
                 <p class="text-dim" style="margin-bottom:0.75rem">Outbound tunnel settings for connecting this Armada server to Armada.Proxy.</p>
                 <div class="settings-grid">
                     <div class="form-group">
-                        <label class="settings-checkbox-label">
+                        <label class="settings-checkbox-label" title="Open an outbound remote-management tunnel from this Armada instance to Armada.Proxy.">
                             <input type="checkbox" :checked="!!serverSettings.remoteControl.enabled" @change="handleRemoteTunnelEnabledToggle($event)">
                             <span>Enable Remote Tunnel</span>
                         </label>
                     </div>
                     <div class="form-group">
-                        <label>Tunnel URL</label>
+                        <label title="Armada.Proxy base URL or explicit /tunnel endpoint used for remote management.">Tunnel URL</label>
                         <input type="text" x-model="serverSettings.remoteControl.tunnelUrl" placeholder="http://proxy.armadago.ai:7893/tunnel" title="Proxy base URL or tunnel endpoint. http/https will be normalized to ws/wss and /tunnel will be added automatically when needed.">
                     </div>
                     <div class="form-group">
-                        <label>Instance ID Override</label>
-                        <input type="text" x-model="serverSettings.remoteControl.instanceId" placeholder="Leave blank for auto-generated">
+                        <label title="Optional stable deployment identifier advertised to Armada.Proxy. Leave blank to let Armada derive one automatically.">Instance ID Override</label>
+                        <input type="text" x-model="serverSettings.remoteControl.instanceId" placeholder="Leave blank for auto-generated" title="Optional stable deployment identifier advertised to Armada.Proxy. Leave blank to let Armada derive one automatically.">
                     </div>
                     <div class="form-group">
-                        <label>Enrollment Token</label>
+                        <label title="Optional extra admission token used only when Armada.Proxy requires instance enrollment tokens.">Instance Enrollment Token</label>
                         <div class="settings-secret-field">
-                            <input :type="revealedRemoteField === 'enrollmentToken' ? 'text' : 'password'" x-model="serverSettings.remoteControl.enrollmentToken" placeholder="Optional bootstrap token">
+                            <input :type="revealedRemoteField === 'enrollmentToken' ? 'text' : 'password'" x-model="serverSettings.remoteControl.enrollmentToken" placeholder="Optional bootstrap token" title="Optional extra admission token used only when Armada.Proxy requires instance enrollment tokens.">
                             <button type="button" class="settings-secret-toggle" :aria-label="revealedRemoteField === 'enrollmentToken' ? 'Hide enrollment token' : 'Show enrollment token'" :title="revealedRemoteField === 'enrollmentToken' ? 'Hide enrollment token' : 'Show enrollment token'" @pointerdown.prevent="beginRevealRemoteField('enrollmentToken')" @pointerup="endRevealRemoteField()" @pointerleave="endRevealRemoteField()" @pointercancel="endRevealRemoteField()" @blur="endRevealRemoteField()">
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                                     <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"></path>
@@ -118,9 +118,9 @@
                         </div>
                     </div>
                     <div class="form-group">
-                        <label>Shared Password</label>
+                        <label title="Shared secret used to authenticate this Armada instance to Armada.Proxy and to unlock Armada.Proxy browser access.">Proxy Shared Password</label>
                         <div class="settings-secret-field">
-                            <input :type="revealedRemoteField === 'password' ? 'text' : 'password'" x-model="serverSettings.remoteControl.password" placeholder="Defaults to armadaadmin" title="Shared password used by Armada.Proxy browser login and the outbound remote tunnel.">
+                            <input :type="revealedRemoteField === 'password' ? 'text' : 'password'" x-model="serverSettings.remoteControl.password" placeholder="Defaults to armadaadmin" title="Shared secret used to authenticate this Armada instance to Armada.Proxy and to unlock Armada.Proxy browser access.">
                             <button type="button" class="settings-secret-toggle" :aria-label="revealedRemoteField === 'password' ? 'Hide shared password' : 'Show shared password'" :title="revealedRemoteField === 'password' ? 'Hide shared password' : 'Show shared password'" @pointerdown.prevent="beginRevealRemoteField('password')" @pointerup="endRevealRemoteField()" @pointerleave="endRevealRemoteField()" @pointercancel="endRevealRemoteField()" @blur="endRevealRemoteField()">
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                                     <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"></path>
@@ -130,23 +130,23 @@
                         </div>
                     </div>
                     <div class="form-group">
-                        <label>Connect Timeout (seconds)</label>
-                        <input type="number" x-model.number="serverSettings.remoteControl.connectTimeoutSeconds" min="5" max="300">
+                        <label title="How long Armada waits for the proxy tunnel connection to open before treating the attempt as failed.">Connect Timeout (seconds)</label>
+                        <input type="number" x-model.number="serverSettings.remoteControl.connectTimeoutSeconds" min="5" max="300" title="How long Armada waits for the proxy tunnel connection to open before treating the attempt as failed.">
                     </div>
                     <div class="form-group">
-                        <label>Heartbeat Interval (seconds)</label>
-                        <input type="number" x-model.number="serverSettings.remoteControl.heartbeatIntervalSeconds" min="5" max="300">
+                        <label title="How often Armada sends tunnel heartbeats to keep the connection alive and measure latency.">Heartbeat Interval (seconds)</label>
+                        <input type="number" x-model.number="serverSettings.remoteControl.heartbeatIntervalSeconds" min="5" max="300" title="How often Armada sends tunnel heartbeats to keep the connection alive and measure latency.">
                     </div>
                     <div class="form-group">
-                        <label>Reconnect Base Delay (seconds)</label>
-                        <input type="number" x-model.number="serverSettings.remoteControl.reconnectBaseDelaySeconds" min="1" max="300">
+                        <label title="Initial reconnect backoff after a tunnel failure. Later retries grow from this base delay.">Reconnect Base Delay (seconds)</label>
+                        <input type="number" x-model.number="serverSettings.remoteControl.reconnectBaseDelaySeconds" min="1" max="300" title="Initial reconnect backoff after a tunnel failure. Later retries grow from this base delay.">
                     </div>
                     <div class="form-group">
-                        <label>Reconnect Max Delay (seconds)</label>
-                        <input type="number" x-model.number="serverSettings.remoteControl.reconnectMaxDelaySeconds" min="1" max="3600">
+                        <label title="Maximum reconnect backoff between tunnel retry attempts.">Reconnect Max Delay (seconds)</label>
+                        <input type="number" x-model.number="serverSettings.remoteControl.reconnectMaxDelaySeconds" min="1" max="3600" title="Maximum reconnect backoff between tunnel retry attempts.">
                     </div>
                     <div class="form-group">
-                        <label class="settings-checkbox-label">
+                        <label class="settings-checkbox-label" title="Allow self-signed or otherwise invalid TLS certificates for https/wss tunnel endpoints. Use only in trusted environments.">
                             <input type="checkbox" x-model="serverSettings.remoteControl.allowInvalidCertificates">
                             <span>Allow Invalid Certificates</span>
                         </label>
