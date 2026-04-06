@@ -1,6 +1,7 @@
 namespace Armada.Server
 {
     using System.Collections.Concurrent;
+    using System.Diagnostics;
     using System.Net.WebSockets;
     using System.Security.Cryptography;
     using System.Text;
@@ -737,13 +738,17 @@ namespace Armada.Server
                 return;
             }
 
+            string requesterIp = String.IsNullOrWhiteSpace(envelope.RequesterIp) ? "unknown" : envelope.RequesterIp;
+            string correlationSuffix = !String.IsNullOrWhiteSpace(envelope.CorrelationId)
+                ? " (correlation " + envelope.CorrelationId + ")"
+                : String.Empty;
+            Stopwatch stopwatch = Stopwatch.StartNew();
+
             _Logging.Info(
                 _Header +
-                "processing tunneled request " +
+                requesterIp + " processing " +
                 envelope.Method +
-                " from requester " +
-                (String.IsNullOrWhiteSpace(envelope.RequesterIp) ? "unknown" : envelope.RequesterIp) +
-                (!String.IsNullOrWhiteSpace(envelope.CorrelationId) ? " correlation " + envelope.CorrelationId : String.Empty));
+                correlationSuffix);
 
             RemoteTunnelRequestResult result;
 
@@ -781,6 +786,24 @@ namespace Armada.Server
                     };
                 }
             }
+
+            stopwatch.Stop();
+            int statusCode = result.StatusCode;
+            if (statusCode <= 0)
+            {
+                statusCode = result.Success ? 200 : 500;
+            }
+
+            _Logging.Info(
+                _Header +
+                "processed " +
+                envelope.Method +
+                correlationSuffix +
+                " status " +
+                statusCode +
+                " (" +
+                stopwatch.Elapsed.TotalMilliseconds.ToString("F2") +
+                "ms)");
 
             await SendEnvelopeAsync(socket, RemoteTunnelProtocol.CreateResponse(envelope.CorrelationId, result), token).ConfigureAwait(false);
         }
