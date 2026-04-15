@@ -2,9 +2,10 @@ namespace Armada.Server.Routes
 {
     using System.Diagnostics;
     using System.Text.Json;
-    using SwiftStack;
-    using SwiftStack.Rest;
-    using SwiftStack.Rest.OpenApi;
+    using WatsonWebserver;
+    using WatsonWebserver.Core;
+    using WatsonWebserver.Core.OpenApi;
+    using Armada.Server;
     using Armada.Core;
     using Armada.Core.Database;
     using Armada.Core.Models;
@@ -38,16 +39,16 @@ namespace Armada.Server.Routes
         /// <summary>
         /// Register routes with the application.
         /// </summary>
-        /// <param name="app">SwiftStack application.</param>
+        /// <param name="app">Webserver.</param>
         /// <param name="authenticate">Authentication middleware.</param>
         /// <param name="authz">Authorization service.</param>
         public void Register(
-            SwiftStackApp app,
+            Webserver app,
             Func<WatsonWebserver.Core.HttpContextBase, Task<AuthContext>> authenticate,
             IAuthorizationService authz)
         {
             // Events
-            app.Rest.Get("/api/v1/events", async (AppRequest req) =>
+            app.Get("/api/v1/events", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -78,10 +79,10 @@ namespace Armada.Server.Routes
                 .WithParameter(OpenApiParameterMetadata.Query("vesselId", "Filter by vessel ID", false))
                 .WithParameter(OpenApiParameterMetadata.Query("voyageId", "Filter by voyage ID", false))
                 .WithParameter(OpenApiParameterMetadata.Query("limit", "Maximum number of events to return (default: 50)", false, OpenApiSchemaMetadata.Integer()))
-                .WithResponse(200, OpenApiResponseMetadata.Json<EnumerationResult<ArmadaEvent>>("Paginated event list"))
+                .WithResponse(200, OpenApiJson.For<EnumerationResult<ArmadaEvent>>("Paginated event list"))
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Post<EnumerationQuery>("/api/v1/events/enumerate", async (AppRequest req) =>
+            app.Post<EnumerationQuery>("/api/v1/events/enumerate", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -106,10 +107,10 @@ namespace Armada.Server.Routes
                 .WithTag("Events")
                 .WithSummary("Enumerate events")
                 .WithDescription("Paginated enumeration of events with optional filtering and sorting.")
-                .WithRequestBody(OpenApiRequestBodyMetadata.Json<EnumerationQuery>("Enumeration query", false))
+                .WithRequestBody(OpenApiJson.BodyFor<EnumerationQuery>("Enumeration query", false))
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Delete("/api/v1/events/{id}", async (AppRequest req) =>
+            app.Delete("/api/v1/events/{id}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -144,7 +145,7 @@ namespace Armada.Server.Routes
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Post<DeleteMultipleRequest>("/api/v1/events/delete/multiple", async (AppRequest req) =>
+            app.Post<DeleteMultipleRequest>("/api/v1/events/delete/multiple", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -193,8 +194,8 @@ namespace Armada.Server.Routes
                 .WithTag("Events")
                 .WithSummary("Batch delete multiple events")
                 .WithDescription("Permanently deletes multiple events by ID. Returns a summary of deleted and skipped entries.")
-                .WithRequestBody(OpenApiRequestBodyMetadata.Json<DeleteMultipleRequest>("List of event IDs to delete"))
-                .WithResponse(200, OpenApiResponseMetadata.Json<DeleteMultipleResult>("Delete result summary"))
+                .WithRequestBody(OpenApiJson.BodyFor<DeleteMultipleRequest>("List of event IDs to delete"))
+                .WithResponse(200, OpenApiJson.For<DeleteMultipleResult>("Delete result summary"))
                 .WithSecurity("ApiKey"));
         }
     }

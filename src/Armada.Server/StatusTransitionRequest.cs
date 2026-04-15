@@ -7,9 +7,6 @@ namespace Armada.Server
     using System.Runtime.InteropServices;
     using System.Text.Json;
     using SyslogLogging;
-    using SwiftStack;
-    using SwiftStack.Rest;
-    using SwiftStack.Rest.OpenApi;
     using Voltaic;
     using Armada.Core;
     using ArmadaConstants = Armada.Core.Constants;

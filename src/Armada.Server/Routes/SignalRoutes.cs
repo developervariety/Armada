@@ -2,9 +2,10 @@ namespace Armada.Server.Routes
 {
     using System.Diagnostics;
     using System.Text.Json;
-    using SwiftStack;
-    using SwiftStack.Rest;
-    using SwiftStack.Rest.OpenApi;
+    using WatsonWebserver;
+    using WatsonWebserver.Core;
+    using WatsonWebserver.Core.OpenApi;
+    using Armada.Server;
     using Armada.Core;
     using Armada.Core.Database;
     using Armada.Core.Enums;
@@ -39,16 +40,16 @@ namespace Armada.Server.Routes
         /// <summary>
         /// Register routes with the application.
         /// </summary>
-        /// <param name="app">SwiftStack application.</param>
+        /// <param name="app">Webserver.</param>
         /// <param name="authenticate">Authentication middleware.</param>
         /// <param name="authz">Authorization service.</param>
         public void Register(
-            SwiftStackApp app,
+            Webserver app,
             Func<WatsonWebserver.Core.HttpContextBase, Task<AuthContext>> authenticate,
             IAuthorizationService authz)
         {
             // Signals
-            app.Rest.Get("/api/v1/signals", async (AppRequest req) =>
+            app.Get("/api/v1/signals", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -71,10 +72,10 @@ namespace Armada.Server.Routes
                 .WithTag("Signals")
                 .WithSummary("List recent signals")
                 .WithDescription("Returns the 50 most recent signals (inter-agent messages).")
-                .WithResponse(200, OpenApiResponseMetadata.Json<EnumerationResult<Signal>>("Paginated signal list"))
+                .WithResponse(200, OpenApiJson.For<EnumerationResult<Signal>>("Paginated signal list"))
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Post<EnumerationQuery>("/api/v1/signals/enumerate", async (AppRequest req) =>
+            app.Post<EnumerationQuery>("/api/v1/signals/enumerate", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -97,10 +98,10 @@ namespace Armada.Server.Routes
                 .WithTag("Signals")
                 .WithSummary("Enumerate signals")
                 .WithDescription("Paginated enumeration of signals with optional filtering and sorting.")
-                .WithRequestBody(OpenApiRequestBodyMetadata.Json<EnumerationQuery>("Enumeration query", false))
+                .WithRequestBody(OpenApiJson.BodyFor<EnumerationQuery>("Enumeration query", false))
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Post<Signal>("/api/v1/signals", async (AppRequest req) =>
+            app.Post<Signal>("/api/v1/signals", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -120,11 +121,11 @@ namespace Armada.Server.Routes
                 .WithTag("Signals")
                 .WithSummary("Send a signal")
                 .WithDescription("Creates a new signal (message between admiral and captains).")
-                .WithRequestBody(OpenApiRequestBodyMetadata.Json<Signal>("Signal data", true))
-                .WithResponse(201, OpenApiResponseMetadata.Json<Signal>("Created signal"))
+                .WithRequestBody(OpenApiJson.BodyFor<Signal>("Signal data", true))
+                .WithResponse(201, OpenApiJson.For<Signal>("Created signal"))
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Get("/api/v1/signals/recent", async (AppRequest req) =>
+            app.Get("/api/v1/signals/recent", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -145,10 +146,10 @@ namespace Armada.Server.Routes
                 .WithSummary("Get recent signals")
                 .WithDescription("Returns the most recent signals, ordered by creation time descending.")
                 .WithParameter(OpenApiParameterMetadata.Query("count", "Maximum number of signals to return (default: 50)", false, OpenApiSchemaMetadata.Integer()))
-                .WithResponse(200, OpenApiResponseMetadata.Json<List<Signal>>("Signal list"))
+                .WithResponse(200, OpenApiJson.For<List<Signal>>("Signal list"))
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Get("/api/v1/signals/{id}", async (AppRequest req) =>
+            app.Get("/api/v1/signals/{id}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -170,11 +171,11 @@ namespace Armada.Server.Routes
                 .WithSummary("Get a signal")
                 .WithDescription("Returns a single signal by ID.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Signal ID (sig_ prefix)"))
-                .WithResponse(200, OpenApiResponseMetadata.Json<Signal>("Signal details"))
+                .WithResponse(200, OpenApiJson.For<Signal>("Signal details"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Put("/api/v1/signals/{id}/read", async (AppRequest req) =>
+            app.Put("/api/v1/signals/{id}/read", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -214,11 +215,11 @@ namespace Armada.Server.Routes
                 .WithSummary("Mark a signal as read")
                 .WithDescription("Marks a signal as read by ID.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Signal ID (sig_ prefix)"))
-                .WithResponse(200, OpenApiResponseMetadata.Json<Signal>("Updated signal"))
+                .WithResponse(200, OpenApiJson.For<Signal>("Updated signal"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Get("/api/v1/signals/recipient/{captainId}", async (AppRequest req) =>
+            app.Get("/api/v1/signals/recipient/{captainId}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -240,10 +241,10 @@ namespace Armada.Server.Routes
                 .WithDescription("Returns signals addressed to a specific captain. Defaults to unread only.")
                 .WithParameter(OpenApiParameterMetadata.Path("captainId", "Captain ID (cpt_ prefix)"))
                 .WithParameter(OpenApiParameterMetadata.Query("unreadOnly", "Filter to unread signals only (default: true)", false, OpenApiSchemaMetadata.Boolean()))
-                .WithResponse(200, OpenApiResponseMetadata.Json<List<Signal>>("Signal list"))
+                .WithResponse(200, OpenApiJson.For<List<Signal>>("Signal list"))
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Delete("/api/v1/signals/{id}", async (AppRequest req) =>
+            app.Delete("/api/v1/signals/{id}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -276,7 +277,7 @@ namespace Armada.Server.Routes
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Post<DeleteMultipleRequest>("/api/v1/signals/delete/multiple", async (AppRequest req) =>
+            app.Post<DeleteMultipleRequest>("/api/v1/signals/delete/multiple", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -325,8 +326,8 @@ namespace Armada.Server.Routes
                 .WithTag("Signals")
                 .WithSummary("Batch delete multiple signals")
                 .WithDescription("Permanently deletes multiple signals by ID. Returns a summary of deleted and skipped entries.")
-                .WithRequestBody(OpenApiRequestBodyMetadata.Json<DeleteMultipleRequest>("List of signal IDs to delete"))
-                .WithResponse(200, OpenApiResponseMetadata.Json<DeleteMultipleResult>("Delete result summary"))
+                .WithRequestBody(OpenApiJson.BodyFor<DeleteMultipleRequest>("List of signal IDs to delete"))
+                .WithResponse(200, OpenApiJson.For<DeleteMultipleResult>("Delete result summary"))
                 .WithSecurity("ApiKey"));
         }
     }

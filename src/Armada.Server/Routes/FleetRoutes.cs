@@ -2,9 +2,10 @@ namespace Armada.Server.Routes
 {
     using System.Diagnostics;
     using System.Text.Json;
-    using SwiftStack;
-    using SwiftStack.Rest;
-    using SwiftStack.Rest.OpenApi;
+    using WatsonWebserver;
+    using WatsonWebserver.Core;
+    using WatsonWebserver.Core.OpenApi;
+    using Armada.Server;
     using Armada.Core;
     using Armada.Core.Database;
     using Armada.Core.Models;
@@ -38,16 +39,16 @@ namespace Armada.Server.Routes
         /// <summary>
         /// Register routes with the application.
         /// </summary>
-        /// <param name="app">SwiftStack application.</param>
+        /// <param name="app">Webserver.</param>
         /// <param name="authenticate">Authentication middleware.</param>
         /// <param name="authz">Authorization service.</param>
         public void Register(
-            SwiftStackApp app,
+            Webserver app,
             Func<WatsonWebserver.Core.HttpContextBase, Task<AuthContext>> authenticate,
             IAuthorizationService authz)
         {
             // Fleets
-            app.Rest.Get("/api/v1/fleets", async (AppRequest req) =>
+            app.Get("/api/v1/fleets", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -70,10 +71,10 @@ namespace Armada.Server.Routes
                 .WithTag("Fleets")
                 .WithSummary("List all fleets")
                 .WithDescription("Returns all registered fleets (repository collections).")
-                .WithResponse(200, OpenApiResponseMetadata.Json<EnumerationResult<Fleet>>("Paginated fleet list"))
+                .WithResponse(200, OpenApiJson.For<EnumerationResult<Fleet>>("Paginated fleet list"))
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Post<EnumerationQuery>("/api/v1/fleets/enumerate", async (AppRequest req) =>
+            app.Post<EnumerationQuery>("/api/v1/fleets/enumerate", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -96,10 +97,10 @@ namespace Armada.Server.Routes
                 .WithTag("Fleets")
                 .WithSummary("Enumerate fleets")
                 .WithDescription("Paginated enumeration of fleets with optional filtering and sorting.")
-                .WithRequestBody(OpenApiRequestBodyMetadata.Json<EnumerationQuery>("Enumeration query", false))
+                .WithRequestBody(OpenApiJson.BodyFor<EnumerationQuery>("Enumeration query", false))
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Post<Fleet>("/api/v1/fleets", async (AppRequest req) =>
+            app.Post<Fleet>("/api/v1/fleets", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -119,11 +120,11 @@ namespace Armada.Server.Routes
                 .WithTag("Fleets")
                 .WithSummary("Create a fleet")
                 .WithDescription("Creates a new fleet and returns it with an assigned ID.")
-                .WithRequestBody(OpenApiRequestBodyMetadata.Json<Fleet>("Fleet data", true))
-                .WithResponse(201, OpenApiResponseMetadata.Json<Fleet>("Created fleet"))
+                .WithRequestBody(OpenApiJson.BodyFor<Fleet>("Fleet data", true))
+                .WithResponse(201, OpenApiJson.For<Fleet>("Created fleet"))
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Get("/api/v1/fleets/{id}", async (AppRequest req) =>
+            app.Get("/api/v1/fleets/{id}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -148,11 +149,11 @@ namespace Armada.Server.Routes
                 .WithSummary("Get a fleet")
                 .WithDescription("Returns a single fleet by ID.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Fleet ID (flt_ prefix)"))
-                .WithResponse(200, OpenApiResponseMetadata.Json<Fleet>("Fleet details"))
+                .WithResponse(200, OpenApiJson.For<Fleet>("Fleet details"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Put<Fleet>("/api/v1/fleets/{id}", async (AppRequest req) =>
+            app.Put<Fleet>("/api/v1/fleets/{id}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -178,12 +179,12 @@ namespace Armada.Server.Routes
                 .WithSummary("Update a fleet")
                 .WithDescription("Updates an existing fleet by ID.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Fleet ID (flt_ prefix)"))
-                .WithRequestBody(OpenApiRequestBodyMetadata.Json<Fleet>("Updated fleet data", true))
-                .WithResponse(200, OpenApiResponseMetadata.Json<Fleet>("Updated fleet"))
+                .WithRequestBody(OpenApiJson.BodyFor<Fleet>("Updated fleet data", true))
+                .WithResponse(200, OpenApiJson.For<Fleet>("Updated fleet"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Delete("/api/v1/fleets/{id}", async (AppRequest req) =>
+            app.Delete("/api/v1/fleets/{id}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -219,7 +220,7 @@ namespace Armada.Server.Routes
                 .WithResponse(204, OpenApiResponseMetadata.NoContent())
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Post<DeleteMultipleRequest>("/api/v1/fleets/delete/multiple", async (AppRequest req) =>
+            app.Post<DeleteMultipleRequest>("/api/v1/fleets/delete/multiple", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -268,8 +269,8 @@ namespace Armada.Server.Routes
                 .WithTag("Fleets")
                 .WithSummary("Batch delete multiple fleets")
                 .WithDescription("Permanently deletes multiple fleets from the database by ID. Returns a summary of deleted and skipped entries. This cannot be undone.")
-                .WithRequestBody(OpenApiRequestBodyMetadata.Json<DeleteMultipleRequest>("List of fleet IDs to delete"))
-                .WithResponse(200, OpenApiResponseMetadata.Json<DeleteMultipleResult>("Delete result summary"))
+                .WithRequestBody(OpenApiJson.BodyFor<DeleteMultipleRequest>("List of fleet IDs to delete"))
+                .WithResponse(200, OpenApiJson.For<DeleteMultipleResult>("Delete result summary"))
                 .WithSecurity("ApiKey"));
         }
     }

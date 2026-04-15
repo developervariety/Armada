@@ -7,8 +7,7 @@ namespace Armada.Server.WebSocket
     using System.Threading;
     using System.Threading.Tasks;
     using SyslogLogging;
-    using SwiftStack;
-    using SwiftStack.Websockets;
+    using WatsonWebsocket;
     using Armada.Core.Database;
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
@@ -25,10 +24,10 @@ namespace Armada.Server.WebSocket
 
         private string _Header = "[WebSocketHub] ";
         private LoggingModule _Logging;
-        private SwiftStackApp _App;
-        private WebsocketsApp _WsApp;
+        private WatsonWsServer _WsServer;
         private IAdmiralService _Admiral;
         private WebSocketCommandHandler _CommandHandler;
+        private TaskCompletionSource<bool> _StopSignal = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         private static readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions
         {
@@ -45,7 +44,6 @@ namespace Armada.Server.WebSocket
         /// Instantiate the WebSocket hub.
         /// </summary>
         /// <param name="logging">Logging module.</param>
-        /// <param name="app">SwiftStack application instance.</param>
         /// <param name="port">WebSocket port.</param>
         /// <param name="ssl">Whether to enable SSL/TLS.</param>
         /// <param name="admiral">Admiral service for command handling.</param>
@@ -54,11 +52,9 @@ namespace Armada.Server.WebSocket
         /// <param name="settings">Optional Armada settings for log/diff paths.</param>
         /// <param name="git">Optional git service for diff generation.</param>
         /// <param name="onStop">Optional callback invoked when stop_server is requested.</param>
-        public ArmadaWebSocketHub(LoggingModule logging, SwiftStackApp app, int port, bool ssl, IAdmiralService admiral, DatabaseDriver database, IMergeQueueService mergeQueue, ArmadaSettings? settings = null, IGitService? git = null, Action? onStop = null)
+        public ArmadaWebSocketHub(LoggingModule logging, int port, bool ssl, IAdmiralService admiral, DatabaseDriver database, IMergeQueueService mergeQueue, ArmadaSettings? settings = null, IGitService? git = null, Action? onStop = null)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
-            _App = app ?? throw new ArgumentNullException(nameof(app));
-
             _Admiral = admiral ?? throw new ArgumentNullException(nameof(admiral));
 
             _CommandHandler = new WebSocketCommandHandler(
@@ -72,26 +68,28 @@ namespace Armada.Server.WebSocket
                 BroadcastMissionChange,
                 BroadcastVoyageChange);
 
-            _WsApp = new WebsocketsApp(_App);
-            _WsApp.WebsocketSettings = new WatsonWebsocket.WebsocketSettings
+            WebsocketSettings wsSettings = new WebsocketSettings
             {
                 Hostnames = new List<string> { "localhost" },
                 Port = port,
                 Ssl = ssl
             };
-            _WsApp.QuietStartup = true;
+            _WsServer = new WatsonWsServer(wsSettings);
 
-            _WsApp.OnConnection += (sender, args) =>
+            _WsServer.ClientConnected += (sender, args) =>
             {
                 _Logging.Info(_Header + "client connected: " + args.Client.IpPort);
             };
 
-            _WsApp.OnDisconnection += (sender, args) =>
+            _WsServer.ClientDisconnected += (sender, args) =>
             {
                 _Logging.Info(_Header + "client disconnected: " + args.Client.IpPort);
             };
 
-            RegisterRoutes();
+            _WsServer.MessageReceived += (sender, args) =>
+            {
+                _ = HandleMessageAsync(args);
+            };
         }
 
         #endregion
@@ -104,7 +102,12 @@ namespace Armada.Server.WebSocket
         /// <param name="token">Cancellation token.</param>
         public async Task StartAsync(CancellationToken token = default)
         {
-            await _WsApp.Run(token).ConfigureAwait(false);
+            _WsServer.Start();
+            using (token.Register(() => _StopSignal.TrySetResult(true)))
+            {
+                await _StopSignal.Task.ConfigureAwait(false);
+            }
+            _WsServer.Stop();
         }
 
         /// <summary>
@@ -199,13 +202,41 @@ namespace Armada.Server.WebSocket
 
         #region Private-Methods
 
-        private void RegisterRoutes()
+        private async Task HandleMessageAsync(MessageReceivedEventArgs args)
         {
-            // Subscribe route — clients connect here to receive broadcasts.
-            // On connect, send current status as initial payload.
-            _WsApp.AddRoute("subscribe", async (msg, token) =>
+            // Messages arrive as JSON envelopes. The "route" field selects the handler
+            // (subscribe, command); anything else falls through to the default branch
+            // so clients get a discoverable error.
+            string body;
+            try
             {
-                try
+                body = System.Text.Encoding.UTF8.GetString(args.Data.ToArray());
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "error decoding message: " + ex.Message);
+                return;
+            }
+
+            string? route = null;
+            try
+            {
+                using (JsonDocument doc = JsonDocument.Parse(body))
+                {
+                    if (doc.RootElement.ValueKind == JsonValueKind.Object && doc.RootElement.TryGetProperty("route", out JsonElement routeEl))
+                        route = routeEl.GetString();
+                }
+            }
+            catch
+            {
+                // Non-JSON or missing route falls through to default branch below.
+            }
+
+            Guid clientGuid = args.Client.Guid;
+
+            try
+            {
+                if (route == "subscribe")
                 {
                     ArmadaStatus status = await _Admiral.GetStatusAsync().ConfigureAwait(false);
                     object initial = new
@@ -214,71 +245,63 @@ namespace Armada.Server.WebSocket
                         data = status,
                         timestamp = DateTime.UtcNow
                     };
-
-                    string json = JsonSerializer.Serialize(initial, _JsonOptions);
-                    await msg.RespondAsync(json).ConfigureAwait(false);
+                    await SendAsync(clientGuid, JsonSerializer.Serialize(initial, _JsonOptions)).ConfigureAwait(false);
+                    return;
                 }
-                catch (Exception ex)
+
+                if (route == "command")
                 {
-                    _Logging.Warn(_Header + "error sending initial status: " + ex.Message);
+                    WebSocketCommand command = JsonSerializer.Deserialize<WebSocketCommand>(body, _JsonOptions) ?? new WebSocketCommand();
+                    object result = await _CommandHandler.HandleCommandAsync(command.Action, command, body).ConfigureAwait(false);
+                    await SendAsync(clientGuid, JsonSerializer.Serialize(result, _JsonOptions)).ConfigureAwait(false);
+                    return;
                 }
-            });
 
-            // Command route — clients can send commands to the Admiral.
-            _WsApp.AddRoute("command", async (msg, token) =>
+                string errorJson = JsonSerializer.Serialize(
+                    new { type = "error", message = "Unknown route: " + (route ?? "null") + ". Send a message with route 'subscribe' or 'command'" },
+                    _JsonOptions);
+                await SendAsync(clientGuid, errorJson).ConfigureAwait(false);
+            }
+            catch (Exception ex)
             {
+                _Logging.Warn(_Header + "error handling message: " + ex.Message);
                 try
                 {
-                    string body = msg.DataAsString();
-                    WebSocketCommand command = JsonSerializer.Deserialize<WebSocketCommand>(body, _JsonOptions) ?? new WebSocketCommand();
-                    string action = command.Action;
-
-                    object result = await _CommandHandler.HandleCommandAsync(action, command, body).ConfigureAwait(false);
-
-                    string json = JsonSerializer.Serialize(result, _JsonOptions);
-                    await msg.RespondAsync(json).ConfigureAwait(false);
+                    string errorJson = JsonSerializer.Serialize(new { type = "command.error", error = ex.Message }, _JsonOptions);
+                    await SendAsync(clientGuid, errorJson).ConfigureAwait(false);
                 }
-                catch (Exception ex)
+                catch
                 {
-                    _Logging.Warn(_Header + "error handling command: " + ex.Message);
-                    string errorJson = JsonSerializer.Serialize(
-                        new { type = "command.error", error = ex.Message }, _JsonOptions);
-                    await msg.RespondAsync(errorJson).ConfigureAwait(false);
+                    // Client may have disconnected before we could reply.
                 }
-            });
+            }
+        }
 
-            // Default route for unspecified routes
-            _WsApp.DefaultRoute = (sender, msg) =>
+        private async Task SendAsync(Guid clientGuid, string text)
+        {
+            try
             {
-                string json = JsonSerializer.Serialize(
-                    new { type = "error", message = "Send a message with route 'subscribe' or 'command'" }, _JsonOptions);
-                msg.RespondAsync(json).Wait();
-            };
-
-            // Not-found route
-            _WsApp.NotFoundRoute = (sender, msg) =>
+                await _WsServer.SendAsync(clientGuid, text).ConfigureAwait(false);
+            }
+            catch
             {
-                string json = JsonSerializer.Serialize(
-                    new { type = "error", message = "Unknown route: " + (msg.Route ?? "null") }, _JsonOptions);
-                msg.RespondAsync(json).Wait();
-            };
+                // Client may have disconnected.
+            }
         }
 
         private void BroadcastEvent(object payload)
         {
             try
             {
-                if (_WsApp.WebsocketServer == null) return;
-
                 string json = JsonSerializer.Serialize(payload, _JsonOptions);
                 byte[] bytes = System.Text.Encoding.UTF8.GetBytes(json);
 
-                List<WatsonWebsocket.ClientMetadata> clients = _WsApp.WebsocketServer.ListClients().ToList();
-                foreach (WatsonWebsocket.ClientMetadata client in clients)
+                List<ClientMetadata> clients = _WsServer.ListClients().ToList();
+                foreach (ClientMetadata client in clients)
                 {
                     try
                     {
-                        _WsApp.WebsocketServer.SendAsync(client.Guid, bytes).Wait();
+                        _WsServer.SendAsync(client.Guid, bytes).Wait();
                     }
                     catch
                     {

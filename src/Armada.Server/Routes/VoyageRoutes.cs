@@ -2,9 +2,10 @@ namespace Armada.Server.Routes
 {
     using System.Diagnostics;
     using System.Text.Json;
-    using SwiftStack;
-    using SwiftStack.Rest;
-    using SwiftStack.Rest.OpenApi;
+    using WatsonWebserver;
+    using WatsonWebserver.Core;
+    using WatsonWebserver.Core.OpenApi;
+    using Armada.Server;
     using Armada.Core;
     using Armada.Core.Database;
     using Armada.Core.Enums;
@@ -53,18 +54,18 @@ namespace Armada.Server.Routes
         /// <summary>
         /// Register routes with the application.
         /// </summary>
-        /// <param name="app">SwiftStack application.</param>
+        /// <param name="app">Webserver.</param>
         /// <param name="authenticate">Authentication middleware.</param>
         /// <param name="authz">Authorization service.</param>
         public void Register(
-            SwiftStackApp app,
+            Webserver app,
             Func<WatsonWebserver.Core.HttpContextBase, Task<AuthContext>> authenticate,
             IAuthorizationService authz)
         {
             string _Header = "[ArmadaServer] ";
 
             // Voyages
-            app.Rest.Get("/api/v1/voyages", async (AppRequest req) =>
+            app.Get("/api/v1/voyages", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -88,10 +89,10 @@ namespace Armada.Server.Routes
                 .WithSummary("List all voyages")
                 .WithDescription("Returns all voyages, optionally filtered by status (Active, Complete, Cancelled).")
                 .WithParameter(OpenApiParameterMetadata.Query("status", "Filter by voyage status", false))
-                .WithResponse(200, OpenApiResponseMetadata.Json<EnumerationResult<Voyage>>("Paginated voyage list"))
+                .WithResponse(200, OpenApiJson.For<EnumerationResult<Voyage>>("Paginated voyage list"))
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Post<EnumerationQuery>("/api/v1/voyages/enumerate", async (AppRequest req) =>
+            app.Post<EnumerationQuery>("/api/v1/voyages/enumerate", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -114,10 +115,10 @@ namespace Armada.Server.Routes
                 .WithTag("Voyages")
                 .WithSummary("Enumerate voyages")
                 .WithDescription("Paginated enumeration of voyages with optional filtering and sorting.")
-                .WithRequestBody(OpenApiRequestBodyMetadata.Json<EnumerationQuery>("Enumeration query", false))
+                .WithRequestBody(OpenApiJson.BodyFor<EnumerationQuery>("Enumeration query", false))
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Post<VoyageRequest>("/api/v1/voyages", async (AppRequest req) =>
+            app.Post<VoyageRequest>("/api/v1/voyages", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -168,11 +169,11 @@ namespace Armada.Server.Routes
                 .WithTag("Voyages")
                 .WithSummary("Create a voyage")
                 .WithDescription("Creates a new voyage with optional missions. Missions are automatically dispatched to the target vessel.")
-                .WithRequestBody(OpenApiRequestBodyMetadata.Json<VoyageRequest>("Voyage with missions", true))
-                .WithResponse(201, OpenApiResponseMetadata.Json<Voyage>("Created voyage"))
+                .WithRequestBody(OpenApiJson.BodyFor<VoyageRequest>("Voyage with missions", true))
+                .WithResponse(201, OpenApiJson.For<Voyage>("Created voyage"))
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Get("/api/v1/voyages/{id}", async (AppRequest req) =>
+            app.Get("/api/v1/voyages/{id}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -200,7 +201,7 @@ namespace Armada.Server.Routes
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Delete("/api/v1/voyages/{id}", async (AppRequest req) =>
+            app.Delete("/api/v1/voyages/{id}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -281,7 +282,7 @@ namespace Armada.Server.Routes
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Delete("/api/v1/voyages/{id}/purge", async (AppRequest req) =>
+            app.Delete("/api/v1/voyages/{id}/purge", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -335,12 +336,12 @@ namespace Armada.Server.Routes
                 .WithSummary("Permanently delete a voyage")
                 .WithDescription("Permanently deletes a voyage and all its associated missions from the database. This cannot be undone. Blocked if voyage is Open/InProgress or has active missions.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Voyage ID (vyg_ prefix)"))
-                .WithResponse(200, OpenApiResponseMetadata.Json<object>("Deleted voyage and missions"))
+                .WithResponse(200, OpenApiJson.For<object>("Deleted voyage and missions"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
-                .WithResponse(409, OpenApiResponseMetadata.Json<object>("Voyage cannot be deleted while active"))
+                .WithResponse(409, OpenApiJson.For<object>("Voyage cannot be deleted while active"))
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Post<DeleteMultipleRequest>("/api/v1/voyages/delete/multiple", async (AppRequest req) =>
+            app.Post<DeleteMultipleRequest>("/api/v1/voyages/delete/multiple", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -402,8 +403,8 @@ namespace Armada.Server.Routes
                 .WithTag("Voyages")
                 .WithSummary("Batch delete multiple voyages")
                 .WithDescription("Permanently deletes multiple voyages and their associated missions from the database by ID. Voyages that are Open/InProgress or have active missions are skipped. Returns a summary of deleted and skipped entries. This cannot be undone.")
-                .WithRequestBody(OpenApiRequestBodyMetadata.Json<DeleteMultipleRequest>("List of voyage IDs to delete"))
-                .WithResponse(200, OpenApiResponseMetadata.Json<DeleteMultipleResult>("Delete result summary"))
+                .WithRequestBody(OpenApiJson.BodyFor<DeleteMultipleRequest>("List of voyage IDs to delete"))
+                .WithResponse(200, OpenApiJson.For<DeleteMultipleResult>("Delete result summary"))
                 .WithSecurity("ApiKey"));
         }
     }

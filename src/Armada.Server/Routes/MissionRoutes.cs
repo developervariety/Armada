@@ -3,9 +3,10 @@ namespace Armada.Server.Routes
     using System.Diagnostics;
     using System.IO;
     using System.Text.Json;
-    using SwiftStack;
-    using SwiftStack.Rest;
-    using SwiftStack.Rest.OpenApi;
+    using WatsonWebserver;
+    using WatsonWebserver.Core;
+    using WatsonWebserver.Core.OpenApi;
+    using Armada.Server;
     using Armada.Core;
     using Armada.Core.Database;
     using Armada.Core.Enums;
@@ -169,18 +170,18 @@ namespace Armada.Server.Routes
         /// <summary>
         /// Register routes with the application.
         /// </summary>
-        /// <param name="app">SwiftStack application.</param>
+        /// <param name="app">Webserver.</param>
         /// <param name="authenticate">Authentication middleware.</param>
         /// <param name="authz">Authorization service.</param>
         public void Register(
-            SwiftStackApp app,
+            Webserver app,
             Func<WatsonWebserver.Core.HttpContextBase, Task<AuthContext>> authenticate,
             IAuthorizationService authz)
         {
             string _Header = "[ArmadaServer] ";
 
             // Missions
-            app.Rest.Get("/api/v1/missions", async (AppRequest req) =>
+            app.Get("/api/v1/missions", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -208,10 +209,10 @@ namespace Armada.Server.Routes
                 .WithParameter(OpenApiParameterMetadata.Query("vesselId", "Filter by vessel ID", false))
                 .WithParameter(OpenApiParameterMetadata.Query("captainId", "Filter by captain ID", false))
                 .WithParameter(OpenApiParameterMetadata.Query("voyageId", "Filter by voyage ID", false))
-                .WithResponse(200, OpenApiResponseMetadata.Json<EnumerationResult<Mission>>("Paginated mission list"))
+                .WithResponse(200, OpenApiJson.For<EnumerationResult<Mission>>("Paginated mission list"))
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Post<EnumerationQuery>("/api/v1/missions/enumerate", async (AppRequest req) =>
+            app.Post<EnumerationQuery>("/api/v1/missions/enumerate", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -235,10 +236,10 @@ namespace Armada.Server.Routes
                 .WithTag("Missions")
                 .WithSummary("Enumerate missions")
                 .WithDescription("Paginated enumeration of missions with optional filtering and sorting.")
-                .WithRequestBody(OpenApiRequestBodyMetadata.Json<EnumerationQuery>("Enumeration query", false))
+                .WithRequestBody(OpenApiJson.BodyFor<EnumerationQuery>("Enumeration query", false))
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Post<Mission>("/api/v1/missions", async (AppRequest req) =>
+            app.Post<Mission>("/api/v1/missions", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -266,11 +267,11 @@ namespace Armada.Server.Routes
                 .WithTag("Missions")
                 .WithSummary("Create a mission")
                 .WithDescription("Creates and dispatches a new mission. If a vesselId is provided, the Admiral will assign a captain and set up a worktree.")
-                .WithRequestBody(OpenApiRequestBodyMetadata.Json<Mission>("Mission data", true))
-                .WithResponse(201, OpenApiResponseMetadata.Json<Mission>("Created mission"))
+                .WithRequestBody(OpenApiJson.BodyFor<Mission>("Mission data", true))
+                .WithResponse(201, OpenApiJson.For<Mission>("Created mission"))
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Get("/api/v1/missions/{id}", async (AppRequest req) =>
+            app.Get("/api/v1/missions/{id}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -293,11 +294,11 @@ namespace Armada.Server.Routes
                 .WithSummary("Get a mission")
                 .WithDescription("Returns a single mission by ID.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Mission ID (msn_ prefix)"))
-                .WithResponse(200, OpenApiResponseMetadata.Json<Mission>("Mission details"))
+                .WithResponse(200, OpenApiJson.For<Mission>("Mission details"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Put<Mission>("/api/v1/missions/{id}", async (AppRequest req) =>
+            app.Put<Mission>("/api/v1/missions/{id}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -337,12 +338,12 @@ namespace Armada.Server.Routes
                 .WithSummary("Update a mission")
                 .WithDescription("Updates an existing mission by ID.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Mission ID (msn_ prefix)"))
-                .WithRequestBody(OpenApiRequestBodyMetadata.Json<Mission>("Updated mission data", true))
-                .WithResponse(200, OpenApiResponseMetadata.Json<Mission>("Updated mission"))
+                .WithRequestBody(OpenApiJson.BodyFor<Mission>("Updated mission data", true))
+                .WithResponse(200, OpenApiJson.For<Mission>("Updated mission"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Put<StatusTransitionRequest>("/api/v1/missions/{id}/status", async (AppRequest req) =>
+            app.Put<StatusTransitionRequest>("/api/v1/missions/{id}/status", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -473,13 +474,13 @@ namespace Armada.Server.Routes
                 .WithSummary("Transition mission status")
                 .WithDescription("Transitions a mission to a new status. Valid transitions: Pending→Assigned, Assigned→InProgress, InProgress→Testing/Review/Complete/Failed, Testing→Review/InProgress/Complete/Failed, Review→Complete/InProgress/Failed. Most states allow →Cancelled.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Mission ID (msn_ prefix)"))
-                .WithRequestBody(OpenApiRequestBodyMetadata.Json<StatusTransitionRequest>("Target status", true))
-                .WithResponse(200, OpenApiResponseMetadata.Json<Mission>("Updated mission"))
+                .WithRequestBody(OpenApiJson.BodyFor<StatusTransitionRequest>("Target status", true))
+                .WithResponse(200, OpenApiJson.For<Mission>("Updated mission"))
                 .WithResponse(400, OpenApiResponseMetadata.BadRequest())
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Delete("/api/v1/missions/{id}", async (AppRequest req) =>
+            app.Delete("/api/v1/missions/{id}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -505,11 +506,11 @@ namespace Armada.Server.Routes
                 .WithSummary("Cancel a mission")
                 .WithDescription("Cancels a mission by setting its status to Cancelled. Returns the full updated mission.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Mission ID (msn_ prefix)"))
-                .WithResponse(200, OpenApiResponseMetadata.Json<Mission>("Cancelled mission"))
+                .WithResponse(200, OpenApiJson.For<Mission>("Cancelled mission"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Delete("/api/v1/missions/{id}/purge", async (AppRequest req) =>
+            app.Delete("/api/v1/missions/{id}/purge", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -542,11 +543,11 @@ namespace Armada.Server.Routes
                 .WithSummary("Permanently delete a mission")
                 .WithDescription("Permanently deletes a mission from the database. This cannot be undone.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Mission ID (msn_ prefix)"))
-                .WithResponse(200, OpenApiResponseMetadata.Json<object>("Deleted mission"))
+                .WithResponse(200, OpenApiJson.For<object>("Deleted mission"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Post<DeleteMultipleRequest>("/api/v1/missions/delete/multiple", async (AppRequest req) =>
+            app.Post<DeleteMultipleRequest>("/api/v1/missions/delete/multiple", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -595,11 +596,11 @@ namespace Armada.Server.Routes
                 .WithTag("Missions")
                 .WithSummary("Batch delete multiple missions")
                 .WithDescription("Permanently deletes multiple missions from the database by ID. Returns a summary of deleted and skipped entries. This cannot be undone.")
-                .WithRequestBody(OpenApiRequestBodyMetadata.Json<DeleteMultipleRequest>("List of mission IDs to delete"))
-                .WithResponse(200, OpenApiResponseMetadata.Json<DeleteMultipleResult>("Delete result summary"))
+                .WithRequestBody(OpenApiJson.BodyFor<DeleteMultipleRequest>("List of mission IDs to delete"))
+                .WithResponse(200, OpenApiJson.For<DeleteMultipleResult>("Delete result summary"))
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Post<MissionRestartRequest>("/api/v1/missions/{id}/restart", async (AppRequest req) =>
+            app.Post<MissionRestartRequest>("/api/v1/missions/{id}/restart", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -660,13 +661,13 @@ namespace Armada.Server.Routes
                 .WithSummary("Restart a failed or cancelled mission")
                 .WithDescription("Resets a Failed or Cancelled mission back to Pending so it can be re-dispatched. Optionally update the title and description (instructions) before restarting. Clears captain assignment, branch, PR URL, and timing fields.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Mission ID (msn_ prefix)"))
-                .WithRequestBody(OpenApiRequestBodyMetadata.Json<MissionRestartRequest>("Optional updated instructions", false))
-                .WithResponse(200, OpenApiResponseMetadata.Json<Mission>("Restarted mission"))
+                .WithRequestBody(OpenApiJson.BodyFor<MissionRestartRequest>("Optional updated instructions", false))
+                .WithResponse(200, OpenApiJson.For<Mission>("Restarted mission"))
                 .WithResponse(400, OpenApiResponseMetadata.BadRequest())
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Post("/api/v1/missions/{id}/retry-landing", async (AppRequest req) =>
+            app.Post("/api/v1/missions/{id}/retry-landing", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -709,12 +710,12 @@ namespace Armada.Server.Routes
                 .WithSummary("Retry landing for a mission")
                 .WithDescription("Rebases the mission branch onto the current target and re-attempts landing. Only available for WorkProduced or LandingFailed missions.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Mission ID (msn_ prefix)"))
-                .WithResponse(200, OpenApiResponseMetadata.Json<object>("Landing result"))
+                .WithResponse(200, OpenApiJson.For<object>("Landing result"))
                 .WithResponse(400, OpenApiResponseMetadata.BadRequest())
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Get("/api/v1/missions/{id}/diff", async (AppRequest req) =>
+            app.Get("/api/v1/missions/{id}/diff", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -801,7 +802,7 @@ namespace Armada.Server.Routes
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Get("/api/v1/missions/{id}/log", async (AppRequest req) =>
+            app.Get("/api/v1/missions/{id}/log", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -856,7 +857,7 @@ namespace Armada.Server.Routes
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Get("/api/v1/missions/{id}/instructions", async (AppRequest req) =>
+            app.Get("/api/v1/missions/{id}/instructions", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))

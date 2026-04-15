@@ -3,9 +3,10 @@ namespace Armada.Server.Routes
     using System.Diagnostics;
     using System.IO;
     using System.Text.Json;
-    using SwiftStack;
-    using SwiftStack.Rest;
-    using SwiftStack.Rest.OpenApi;
+    using WatsonWebserver;
+    using WatsonWebserver.Core;
+    using WatsonWebserver.Core.OpenApi;
+    using Armada.Server;
     using Armada.Core;
     using Armada.Core.Database;
     using Armada.Core.Enums;
@@ -78,16 +79,16 @@ namespace Armada.Server.Routes
         /// <summary>
         /// Register routes with the application.
         /// </summary>
-        /// <param name="app">SwiftStack application.</param>
+        /// <param name="app">Webserver.</param>
         /// <param name="authenticate">Authentication middleware.</param>
         /// <param name="authz">Authorization service.</param>
         public void Register(
-            SwiftStackApp app,
+            Webserver app,
             Func<WatsonWebserver.Core.HttpContextBase, Task<AuthContext>> authenticate,
             IAuthorizationService authz)
         {
             // Captains
-            app.Rest.Get("/api/v1/captains", async (AppRequest req) =>
+            app.Get("/api/v1/captains", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -110,10 +111,10 @@ namespace Armada.Server.Routes
                 .WithTag("Captains")
                 .WithSummary("List all captains")
                 .WithDescription("Returns all registered captains (AI agents) with their current state.")
-                .WithResponse(200, OpenApiResponseMetadata.Json<EnumerationResult<Captain>>("Paginated captain list"))
+                .WithResponse(200, OpenApiJson.For<EnumerationResult<Captain>>("Paginated captain list"))
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Post<EnumerationQuery>("/api/v1/captains/enumerate", async (AppRequest req) =>
+            app.Post<EnumerationQuery>("/api/v1/captains/enumerate", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -136,10 +137,10 @@ namespace Armada.Server.Routes
                 .WithTag("Captains")
                 .WithSummary("Enumerate captains")
                 .WithDescription("Paginated enumeration of captains with optional filtering and sorting.")
-                .WithRequestBody(OpenApiRequestBodyMetadata.Json<EnumerationQuery>("Enumeration query", false))
+                .WithRequestBody(OpenApiJson.BodyFor<EnumerationQuery>("Enumeration query", false))
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Post<Captain>("/api/v1/captains", async (AppRequest req) =>
+            app.Post<Captain>("/api/v1/captains", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -165,11 +166,11 @@ namespace Armada.Server.Routes
                 .WithTag("Captains")
                 .WithSummary("Create a captain")
                 .WithDescription("Registers a new captain (AI agent).")
-                .WithRequestBody(OpenApiRequestBodyMetadata.Json<Captain>("Captain data", true))
-                .WithResponse(201, OpenApiResponseMetadata.Json<Captain>("Created captain"))
+                .WithRequestBody(OpenApiJson.BodyFor<Captain>("Captain data", true))
+                .WithResponse(201, OpenApiJson.For<Captain>("Created captain"))
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Get("/api/v1/captains/{id}", async (AppRequest req) =>
+            app.Get("/api/v1/captains/{id}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -191,11 +192,11 @@ namespace Armada.Server.Routes
                 .WithSummary("Get a captain")
                 .WithDescription("Returns a single captain by ID.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Captain ID (cpt_ prefix)"))
-                .WithResponse(200, OpenApiResponseMetadata.Json<Captain>("Captain details"))
+                .WithResponse(200, OpenApiJson.For<Captain>("Captain details"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Put<Captain>("/api/v1/captains/{id}", async (AppRequest req) =>
+            app.Put<Captain>("/api/v1/captains/{id}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -235,12 +236,12 @@ namespace Armada.Server.Routes
                 .WithSummary("Update a captain")
                 .WithDescription("Updates a captain's name, runtime, or max parallelism. Operational fields (state, process, mission) are preserved.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Captain ID (cpt_ prefix)"))
-                .WithRequestBody(OpenApiRequestBodyMetadata.Json<Captain>("Updated captain data", true))
-                .WithResponse(200, OpenApiResponseMetadata.Json<Captain>("Updated captain"))
+                .WithRequestBody(OpenApiJson.BodyFor<Captain>("Updated captain data", true))
+                .WithResponse(200, OpenApiJson.For<Captain>("Updated captain"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Post("/api/v1/captains/{id}/stop", async (AppRequest req) =>
+            app.Post("/api/v1/captains/{id}/stop", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -274,7 +275,7 @@ namespace Armada.Server.Routes
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Post("/api/v1/captains/stop-all", async (AppRequest req) =>
+            app.Post("/api/v1/captains/stop-all", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -291,7 +292,7 @@ namespace Armada.Server.Routes
                 .WithDescription("Emergency stop all running captains, recalling them to idle state.")
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Get("/api/v1/captains/{id}/log", async (AppRequest req) =>
+            app.Get("/api/v1/captains/{id}/log", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -354,7 +355,7 @@ namespace Armada.Server.Routes
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Delete("/api/v1/captains/{id}", async (AppRequest req) =>
+            app.Delete("/api/v1/captains/{id}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -404,10 +405,10 @@ namespace Armada.Server.Routes
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Captain ID (cpt_ prefix)"))
                 .WithResponse(204, OpenApiResponseMetadata.NoContent())
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
-                .WithResponse(409, OpenApiResponseMetadata.Json<object>("Captain cannot be deleted while active"))
+                .WithResponse(409, OpenApiJson.For<object>("Captain cannot be deleted while active"))
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Post<DeleteMultipleRequest>("/api/v1/captains/delete/multiple", async (AppRequest req) =>
+            app.Post<DeleteMultipleRequest>("/api/v1/captains/delete/multiple", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -470,8 +471,8 @@ namespace Armada.Server.Routes
                 .WithTag("Captains")
                 .WithSummary("Batch delete multiple captains")
                 .WithDescription("Permanently deletes multiple captains from the database by ID. Captains that are Working or have active missions are skipped. Returns a summary of deleted and skipped entries. This cannot be undone.")
-                .WithRequestBody(OpenApiRequestBodyMetadata.Json<DeleteMultipleRequest>("List of captain IDs to delete"))
-                .WithResponse(200, OpenApiResponseMetadata.Json<DeleteMultipleResult>("Delete result summary"))
+                .WithRequestBody(OpenApiJson.BodyFor<DeleteMultipleRequest>("List of captain IDs to delete"))
+                .WithResponse(200, OpenApiJson.For<DeleteMultipleResult>("Delete result summary"))
                 .WithSecurity("ApiKey"));
         }
     }

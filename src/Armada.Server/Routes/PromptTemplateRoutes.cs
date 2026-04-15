@@ -3,9 +3,10 @@ namespace Armada.Server.Routes
     using System;
     using System.Diagnostics;
     using System.Text.Json;
-    using SwiftStack;
-    using SwiftStack.Rest;
-    using SwiftStack.Rest.OpenApi;
+    using WatsonWebserver;
+    using WatsonWebserver.Core;
+    using WatsonWebserver.Core.OpenApi;
+    using Armada.Server;
     using Armada.Core;
     using Armada.Core.Database;
     using Armada.Core.Models;
@@ -39,16 +40,16 @@ namespace Armada.Server.Routes
         /// <summary>
         /// Register routes with the application.
         /// </summary>
-        /// <param name="app">SwiftStack application.</param>
+        /// <param name="app">Webserver.</param>
         /// <param name="authenticate">Authentication middleware.</param>
         /// <param name="authz">Authorization service.</param>
         public void Register(
-            SwiftStackApp app,
+            Webserver app,
             Func<WatsonWebserver.Core.HttpContextBase, Task<AuthContext>> authenticate,
             IAuthorizationService authz)
         {
             // List all prompt templates
-            app.Rest.Get("/api/v1/prompt-templates", async (AppRequest req) =>
+            app.Get("/api/v1/prompt-templates", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -67,11 +68,11 @@ namespace Armada.Server.Routes
                 .WithTag("Prompt Templates")
                 .WithSummary("List all prompt templates")
                 .WithDescription("Returns all prompt templates with optional querystring filtering.")
-                .WithResponse(200, OpenApiResponseMetadata.Json<EnumerationResult<PromptTemplate>>("Paginated prompt template list"))
+                .WithResponse(200, OpenApiJson.For<EnumerationResult<PromptTemplate>>("Paginated prompt template list"))
                 .WithSecurity("ApiKey"));
 
             // Enumerate prompt templates
-            app.Rest.Post<EnumerationQuery>("/api/v1/prompt-templates/enumerate", async (AppRequest req) =>
+            app.Post<EnumerationQuery>("/api/v1/prompt-templates/enumerate", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -90,11 +91,11 @@ namespace Armada.Server.Routes
                 .WithTag("Prompt Templates")
                 .WithSummary("Enumerate prompt templates")
                 .WithDescription("Paginated enumeration of prompt templates with optional filtering and sorting.")
-                .WithRequestBody(OpenApiRequestBodyMetadata.Json<EnumerationQuery>("Enumeration query", false))
+                .WithRequestBody(OpenApiJson.BodyFor<EnumerationQuery>("Enumeration query", false))
                 .WithSecurity("ApiKey"));
 
             // Get prompt template by name
-            app.Rest.Get("/api/v1/prompt-templates/{name}", async (AppRequest req) =>
+            app.Get("/api/v1/prompt-templates/{name}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -112,12 +113,12 @@ namespace Armada.Server.Routes
                 .WithSummary("Get a prompt template by name")
                 .WithDescription("Returns a single prompt template by its unique name.")
                 .WithParameter(OpenApiParameterMetadata.Path("name", "Template name (e.g. mission.rules)"))
-                .WithResponse(200, OpenApiResponseMetadata.Json<PromptTemplate>("Prompt template details"))
+                .WithResponse(200, OpenApiJson.For<PromptTemplate>("Prompt template details"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
             // Update prompt template by name
-            app.Rest.Put<PromptTemplate>("/api/v1/prompt-templates/{name}", async (AppRequest req) =>
+            app.Put<PromptTemplate>("/api/v1/prompt-templates/{name}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -141,13 +142,13 @@ namespace Armada.Server.Routes
                 .WithSummary("Update a prompt template")
                 .WithDescription("Updates the content and/or description of an existing prompt template by name.")
                 .WithParameter(OpenApiParameterMetadata.Path("name", "Template name (e.g. mission.rules)"))
-                .WithRequestBody(OpenApiRequestBodyMetadata.Json<PromptTemplate>("Updated template data (Content and Description fields)", true))
-                .WithResponse(200, OpenApiResponseMetadata.Json<PromptTemplate>("Updated prompt template"))
+                .WithRequestBody(OpenApiJson.BodyFor<PromptTemplate>("Updated template data (Content and Description fields)", true))
+                .WithResponse(200, OpenApiJson.For<PromptTemplate>("Updated prompt template"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
             // Reset prompt template to default
-            app.Rest.Post("/api/v1/prompt-templates/{name}/reset", async (AppRequest req) =>
+            app.Post("/api/v1/prompt-templates/{name}/reset", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -165,7 +166,7 @@ namespace Armada.Server.Routes
                 .WithSummary("Reset a prompt template to default")
                 .WithDescription("Resets a prompt template to its embedded resource default content.")
                 .WithParameter(OpenApiParameterMetadata.Path("name", "Template name (e.g. mission.rules)"))
-                .WithResponse(200, OpenApiResponseMetadata.Json<PromptTemplate>("Reset prompt template"))
+                .WithResponse(200, OpenApiJson.For<PromptTemplate>("Reset prompt template"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
         }

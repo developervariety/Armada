@@ -3,9 +3,10 @@ namespace Armada.Server.Routes
     using System;
     using System.Diagnostics;
     using System.Text.Json;
-    using SwiftStack;
-    using SwiftStack.Rest;
-    using SwiftStack.Rest.OpenApi;
+    using WatsonWebserver;
+    using WatsonWebserver.Core;
+    using WatsonWebserver.Core.OpenApi;
+    using Armada.Server;
     using Armada.Core;
     using Armada.Core.Database;
     using Armada.Core.Models;
@@ -35,16 +36,16 @@ namespace Armada.Server.Routes
         /// <summary>
         /// Register routes with the application.
         /// </summary>
-        /// <param name="app">SwiftStack application.</param>
+        /// <param name="app">Webserver.</param>
         /// <param name="authenticate">Authentication middleware.</param>
         /// <param name="authz">Authorization service.</param>
         public void Register(
-            SwiftStackApp app,
+            Webserver app,
             Func<WatsonWebserver.Core.HttpContextBase, Task<AuthContext>> authenticate,
             IAuthorizationService authz)
         {
             // List all pipelines
-            app.Rest.Get("/api/v1/pipelines", async (AppRequest req) =>
+            app.Get("/api/v1/pipelines", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -63,11 +64,11 @@ namespace Armada.Server.Routes
                 .WithTag("Pipelines")
                 .WithSummary("List all pipelines")
                 .WithDescription("Returns all pipelines including their stages with optional querystring filtering.")
-                .WithResponse(200, OpenApiResponseMetadata.Json<EnumerationResult<Pipeline>>("Paginated pipeline list"))
+                .WithResponse(200, OpenApiJson.For<EnumerationResult<Pipeline>>("Paginated pipeline list"))
                 .WithSecurity("ApiKey"));
 
             // Enumerate pipelines
-            app.Rest.Post<EnumerationQuery>("/api/v1/pipelines/enumerate", async (AppRequest req) =>
+            app.Post<EnumerationQuery>("/api/v1/pipelines/enumerate", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -86,11 +87,11 @@ namespace Armada.Server.Routes
                 .WithTag("Pipelines")
                 .WithSummary("Enumerate pipelines")
                 .WithDescription("Paginated enumeration of pipelines with optional filtering and sorting.")
-                .WithRequestBody(OpenApiRequestBodyMetadata.Json<EnumerationQuery>("Enumeration query", false))
+                .WithRequestBody(OpenApiJson.BodyFor<EnumerationQuery>("Enumeration query", false))
                 .WithSecurity("ApiKey"));
 
             // Get pipeline by name
-            app.Rest.Get("/api/v1/pipelines/{name}", async (AppRequest req) =>
+            app.Get("/api/v1/pipelines/{name}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -108,12 +109,12 @@ namespace Armada.Server.Routes
                 .WithSummary("Get a pipeline by name")
                 .WithDescription("Returns a single pipeline by its unique name, including its stages.")
                 .WithParameter(OpenApiParameterMetadata.Path("name", "Pipeline name (e.g. WorkerOnly, FullPipeline)"))
-                .WithResponse(200, OpenApiResponseMetadata.Json<Pipeline>("Pipeline details with stages"))
+                .WithResponse(200, OpenApiJson.For<Pipeline>("Pipeline details with stages"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
             // Create pipeline
-            app.Rest.Post<Pipeline>("/api/v1/pipelines", async (AppRequest req) =>
+            app.Post<Pipeline>("/api/v1/pipelines", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -131,12 +132,12 @@ namespace Armada.Server.Routes
                 .WithTag("Pipelines")
                 .WithSummary("Create a pipeline")
                 .WithDescription("Creates a new pipeline with stages defining the persona workflow.")
-                .WithRequestBody(OpenApiRequestBodyMetadata.Json<Pipeline>("Pipeline data (Name, Description, Stages array)", true))
-                .WithResponse(201, OpenApiResponseMetadata.Json<Pipeline>("Created pipeline"))
+                .WithRequestBody(OpenApiJson.BodyFor<Pipeline>("Pipeline data (Name, Description, Stages array)", true))
+                .WithResponse(201, OpenApiJson.For<Pipeline>("Created pipeline"))
                 .WithSecurity("ApiKey"));
 
             // Update pipeline by name
-            app.Rest.Put<Pipeline>("/api/v1/pipelines/{name}", async (AppRequest req) =>
+            app.Put<Pipeline>("/api/v1/pipelines/{name}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -160,13 +161,13 @@ namespace Armada.Server.Routes
                 .WithSummary("Update a pipeline")
                 .WithDescription("Updates an existing pipeline by name. Replaces stages if provided.")
                 .WithParameter(OpenApiParameterMetadata.Path("name", "Pipeline name (e.g. WorkerOnly, FullPipeline)"))
-                .WithRequestBody(OpenApiRequestBodyMetadata.Json<Pipeline>("Updated pipeline data", true))
-                .WithResponse(200, OpenApiResponseMetadata.Json<Pipeline>("Updated pipeline"))
+                .WithRequestBody(OpenApiJson.BodyFor<Pipeline>("Updated pipeline data", true))
+                .WithResponse(200, OpenApiJson.For<Pipeline>("Updated pipeline"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
             // Delete pipeline by name
-            app.Rest.Delete("/api/v1/pipelines/{name}", async (AppRequest req) =>
+            app.Delete("/api/v1/pipelines/{name}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))

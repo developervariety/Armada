@@ -3,8 +3,10 @@ namespace Armada.Server.Routes
     using System.Collections.Generic;
     using System.Linq;
     using System.Text.Json;
-    using SwiftStack;
-    using SwiftStack.Rest;
+    using WatsonWebserver;
+    using WatsonWebserver.Core;
+    using WatsonWebserver.Core.OpenApi;
+    using Armada.Server;
     using Armada.Core;
     using ArmadaConstants = Armada.Core.Constants;
     using Armada.Core.Database;
@@ -33,16 +35,16 @@ namespace Armada.Server.Routes
         /// <summary>
         /// Register routes with the application.
         /// </summary>
-        /// <param name="app">SwiftStack application.</param>
+        /// <param name="app">Webserver.</param>
         /// <param name="authenticate">Authentication middleware.</param>
         /// <param name="authz">Authorization service.</param>
         public void Register(
-            SwiftStackApp app,
+            Webserver app,
             Func<WatsonWebserver.Core.HttpContextBase, Task<AuthContext>> authenticate,
             IAuthorizationService authz)
         {
             // Tenant CRUD
-            app.Rest.Get("/api/v1/tenants", async (AppRequest req) =>
+            app.Get("/api/v1/tenants", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -58,7 +60,7 @@ namespace Armada.Server.Routes
             },
             api => api.WithTag("Tenants").WithSummary("List tenants (admin only)"));
 
-            app.Rest.Post("/api/v1/tenants", async (AppRequest req) =>
+            app.Post("/api/v1/tenants", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -77,7 +79,7 @@ namespace Armada.Server.Routes
             },
             api => api.WithTag("Tenants").WithSummary("Create tenant (admin only)"));
 
-            app.Rest.Get("/api/v1/tenants/{id}", async (AppRequest req) =>
+            app.Get("/api/v1/tenants/{id}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -93,7 +95,7 @@ namespace Armada.Server.Routes
             },
             api => api.WithTag("Tenants").WithSummary("Get tenant by ID"));
 
-            app.Rest.Put("/api/v1/tenants/{id}", async (AppRequest req) =>
+            app.Put("/api/v1/tenants/{id}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -114,7 +116,7 @@ namespace Armada.Server.Routes
             },
             api => api.WithTag("Tenants").WithSummary("Update tenant (admin only)"));
 
-            app.Rest.Delete("/api/v1/tenants/{id}", async (AppRequest req) =>
+            app.Delete("/api/v1/tenants/{id}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -132,7 +134,7 @@ namespace Armada.Server.Routes
             api => api.WithTag("Tenants").WithSummary("Delete tenant (admin only)"));
 
             // User CRUD
-            app.Rest.Get("/api/v1/users", async (AppRequest req) =>
+            app.Get("/api/v1/users", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -161,7 +163,7 @@ namespace Armada.Server.Routes
             },
             api => api.WithTag("Users").WithSummary("List users"));
 
-            app.Rest.Post("/api/v1/users", async (AppRequest req) =>
+            app.Post("/api/v1/users", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -216,7 +218,7 @@ namespace Armada.Server.Routes
             },
             api => api.WithTag("Users").WithSummary("Create user (admin only)"));
 
-            app.Rest.Get("/api/v1/users/{id}", async (AppRequest req) =>
+            app.Get("/api/v1/users/{id}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -235,7 +237,7 @@ namespace Armada.Server.Routes
             },
             api => api.WithTag("Users").WithSummary("Get user by ID"));
 
-            app.Rest.Put("/api/v1/users/{id}", async (AppRequest req) =>
+            app.Put("/api/v1/users/{id}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -283,7 +285,7 @@ namespace Armada.Server.Routes
             },
             api => api.WithTag("Users").WithSummary("Update user (admin only)"));
 
-            app.Rest.Delete("/api/v1/users/{id}", async (AppRequest req) =>
+            app.Delete("/api/v1/users/{id}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -302,7 +304,7 @@ namespace Armada.Server.Routes
             api => api.WithTag("Users").WithSummary("Delete user (admin only)"));
 
             // Credential CRUD
-            app.Rest.Get("/api/v1/credentials", async (AppRequest req) =>
+            app.Get("/api/v1/credentials", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -330,7 +332,7 @@ namespace Armada.Server.Routes
             },
             api => api.WithTag("Credentials").WithSummary("List credentials"));
 
-            app.Rest.Post("/api/v1/credentials", async (AppRequest req) =>
+            app.Post("/api/v1/credentials", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -358,7 +360,7 @@ namespace Armada.Server.Routes
             },
             api => api.WithTag("Credentials").WithSummary("Create credential"));
 
-            app.Rest.Get("/api/v1/credentials/{id}", async (AppRequest req) =>
+            app.Get("/api/v1/credentials/{id}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -373,7 +375,7 @@ namespace Armada.Server.Routes
             },
             api => api.WithTag("Credentials").WithSummary("Get credential by ID"));
 
-            app.Rest.Put("/api/v1/credentials/{id}", async (AppRequest req) =>
+            app.Put("/api/v1/credentials/{id}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -398,7 +400,7 @@ namespace Armada.Server.Routes
             },
             api => api.WithTag("Credentials").WithSummary("Update credential (admin only)"));
 
-            app.Rest.Delete("/api/v1/credentials/{id}", async (AppRequest req) =>
+            app.Delete("/api/v1/credentials/{id}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))

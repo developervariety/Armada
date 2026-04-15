@@ -3,9 +3,10 @@ namespace Armada.Server.Routes
     using System.Diagnostics;
     using System.IO;
     using System.Text.Json;
-    using SwiftStack;
-    using SwiftStack.Rest;
-    using SwiftStack.Rest.OpenApi;
+    using WatsonWebserver;
+    using WatsonWebserver.Core;
+    using WatsonWebserver.Core.OpenApi;
+    using Armada.Server;
     using Armada.Core;
     using Armada.Core.Database;
     using Armada.Core.Models;
@@ -43,16 +44,16 @@ namespace Armada.Server.Routes
         /// <summary>
         /// Register routes with the application.
         /// </summary>
-        /// <param name="app">SwiftStack application.</param>
+        /// <param name="app">Webserver.</param>
         /// <param name="authenticate">Authentication middleware.</param>
         /// <param name="authz">Authorization service.</param>
         public void Register(
-            SwiftStackApp app,
+            Webserver app,
             Func<WatsonWebserver.Core.HttpContextBase, Task<AuthContext>> authenticate,
             IAuthorizationService authz)
         {
             // Vessels
-            app.Rest.Get("/api/v1/vessels", async (AppRequest req) =>
+            app.Get("/api/v1/vessels", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -76,10 +77,10 @@ namespace Armada.Server.Routes
                 .WithSummary("List all vessels")
                 .WithDescription("Returns all registered vessels (git repositories), optionally filtered by fleet.")
                 .WithParameter(OpenApiParameterMetadata.Query("fleetId", "Filter by fleet ID", false))
-                .WithResponse(200, OpenApiResponseMetadata.Json<EnumerationResult<Vessel>>("Paginated vessel list"))
+                .WithResponse(200, OpenApiJson.For<EnumerationResult<Vessel>>("Paginated vessel list"))
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Post<EnumerationQuery>("/api/v1/vessels/enumerate", async (AppRequest req) =>
+            app.Post<EnumerationQuery>("/api/v1/vessels/enumerate", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -102,10 +103,10 @@ namespace Armada.Server.Routes
                 .WithTag("Vessels")
                 .WithSummary("Enumerate vessels")
                 .WithDescription("Paginated enumeration of vessels with optional filtering and sorting.")
-                .WithRequestBody(OpenApiRequestBodyMetadata.Json<EnumerationQuery>("Enumeration query", false))
+                .WithRequestBody(OpenApiJson.BodyFor<EnumerationQuery>("Enumeration query", false))
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Post<Vessel>("/api/v1/vessels", async (AppRequest req) =>
+            app.Post<Vessel>("/api/v1/vessels", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -130,11 +131,11 @@ namespace Armada.Server.Routes
                 .WithTag("Vessels")
                 .WithSummary("Create a vessel")
                 .WithDescription("Registers a new vessel (git repository) and returns it with an assigned ID.")
-                .WithRequestBody(OpenApiRequestBodyMetadata.Json<Vessel>("Vessel data", true))
-                .WithResponse(201, OpenApiResponseMetadata.Json<Vessel>("Created vessel"))
+                .WithRequestBody(OpenApiJson.BodyFor<Vessel>("Vessel data", true))
+                .WithResponse(201, OpenApiJson.For<Vessel>("Created vessel"))
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Get("/api/v1/vessels/{id}", async (AppRequest req) =>
+            app.Get("/api/v1/vessels/{id}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -156,11 +157,11 @@ namespace Armada.Server.Routes
                 .WithSummary("Get a vessel")
                 .WithDescription("Returns a single vessel by ID.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Vessel ID (vsl_ prefix)"))
-                .WithResponse(200, OpenApiResponseMetadata.Json<Vessel>("Vessel details"))
+                .WithResponse(200, OpenApiJson.For<Vessel>("Vessel details"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Put<Vessel>("/api/v1/vessels/{id}", async (AppRequest req) =>
+            app.Put<Vessel>("/api/v1/vessels/{id}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -186,12 +187,12 @@ namespace Armada.Server.Routes
                 .WithSummary("Update a vessel")
                 .WithDescription("Updates an existing vessel by ID.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Vessel ID (vsl_ prefix)"))
-                .WithRequestBody(OpenApiRequestBodyMetadata.Json<Vessel>("Updated vessel data", true))
-                .WithResponse(200, OpenApiResponseMetadata.Json<Vessel>("Updated vessel"))
+                .WithRequestBody(OpenApiJson.BodyFor<Vessel>("Updated vessel data", true))
+                .WithResponse(200, OpenApiJson.For<Vessel>("Updated vessel"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Patch<Vessel>("/api/v1/vessels/{id}/context", async (AppRequest req) =>
+            app.Patch<Vessel>("/api/v1/vessels/{id}/context", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -222,12 +223,12 @@ namespace Armada.Server.Routes
                 .WithSummary("Update vessel context")
                 .WithDescription("Updates only the ProjectContext and StyleGuide fields of a vessel.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Vessel ID (vsl_ prefix)"))
-                .WithRequestBody(OpenApiRequestBodyMetadata.Json<Vessel>("Vessel context data (projectContext, styleGuide)", true))
-                .WithResponse(200, OpenApiResponseMetadata.Json<Vessel>("Updated vessel"))
+                .WithRequestBody(OpenApiJson.BodyFor<Vessel>("Vessel context data (projectContext, styleGuide)", true))
+                .WithResponse(200, OpenApiJson.For<Vessel>("Updated vessel"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Get("/api/v1/vessels/{id}/git-status", async (AppRequest req) =>
+            app.Get("/api/v1/vessels/{id}/git-status", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -271,7 +272,7 @@ namespace Armada.Server.Routes
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Vessel ID (vsl_ prefix)"))
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Delete("/api/v1/vessels/{id}", async (AppRequest req) =>
+            app.Delete("/api/v1/vessels/{id}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -306,7 +307,7 @@ namespace Armada.Server.Routes
                 .WithResponse(204, OpenApiResponseMetadata.NoContent())
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Post<DeleteMultipleRequest>("/api/v1/vessels/delete/multiple", async (AppRequest req) =>
+            app.Post<DeleteMultipleRequest>("/api/v1/vessels/delete/multiple", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -358,8 +359,8 @@ namespace Armada.Server.Routes
                 .WithTag("Vessels")
                 .WithSummary("Batch delete multiple vessels")
                 .WithDescription("Permanently deletes multiple vessels from the database by ID. Returns a summary of deleted and skipped entries. This cannot be undone.")
-                .WithRequestBody(OpenApiRequestBodyMetadata.Json<DeleteMultipleRequest>("List of vessel IDs to delete"))
-                .WithResponse(200, OpenApiResponseMetadata.Json<DeleteMultipleResult>("Delete result summary"))
+                .WithRequestBody(OpenApiJson.BodyFor<DeleteMultipleRequest>("List of vessel IDs to delete"))
+                .WithResponse(200, OpenApiJson.For<DeleteMultipleResult>("Delete result summary"))
                 .WithSecurity("ApiKey"));
         }
 

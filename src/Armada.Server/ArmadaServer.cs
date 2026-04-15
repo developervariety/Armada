@@ -3,9 +3,9 @@ namespace Armada.Server
     using System.IO;
     using System.Text.Json;
     using SyslogLogging;
-    using SwiftStack;
-    using SwiftStack.Rest;
-    using SwiftStack.Rest.OpenApi;
+    using WatsonWebserver;
+    using WatsonWebserver.Core;
+    using WatsonWebserver.Core.OpenApi;
     using Voltaic;
     using Armada.Core;
     using ArmadaConstants = Armada.Core.Constants;
@@ -50,7 +50,7 @@ namespace Armada.Server
         private IAdmiralService _Admiral = null!;
         private AgentRuntimeFactory _RuntimeFactory = null!;
 
-        private SwiftStackApp _App = null!;
+        private Webserver _App = null!;
         private McpHttpServer _McpServer = null!;
         private ArmadaWebSocketHub _WebSocketHub = null!;
 
@@ -192,51 +192,56 @@ namespace Armada.Server
             _Admiral.OnReconcilePullRequest = _MissionLanding.HandleReconcilePullRequestAsync;
             _LandingService.OnPerformLanding = _MissionLanding.HandleMissionCompleteAsync;
 
-            // Initialize REST API
-            _App = new SwiftStackApp(ArmadaConstants.ProductName, _Quiet);
-            _App.Logging = _Logging;
+            // Initialize REST API (Watson7)
+            WebserverSettings wsSettings = new WebserverSettings();
+            wsSettings.Hostname = _Settings.Rest.Hostname;
+            wsSettings.Port = _Settings.AdmiralPort;
+            wsSettings.Ssl.Enable = _Settings.Rest.Ssl;
 
-            _App.Rest.WebserverSettings.Hostname = _Settings.Rest.Hostname;
-            _App.Rest.WebserverSettings.Port = _Settings.AdmiralPort;
-            _App.Rest.WebserverSettings.Ssl.Enable = _Settings.Rest.Ssl;
+            _App = new Webserver(wsSettings, DashboardDefaultRouteAsync);
+            _App.Events.Logger = (string message) => _Logging.Debug(_Header + message);
 
-            _App.Rest.UseOpenApi(openApi =>
+            _App.UseOpenApi(openApi =>
             {
                 openApi.Info.Title = ArmadaConstants.ProductName + " API";
                 openApi.Info.Version = ArmadaConstants.ProductVersion;
                 openApi.Info.Description = "Multi-agent orchestration API for scaling human developers with AI captains across git worktrees.";
 
                 // Tags for route grouping
-                openApi.Tags.Add(new OpenApiTag("Status", "Health check and system status"));
-                openApi.Tags.Add(new OpenApiTag("Fleets", "Fleet (repository collection) management"));
-                openApi.Tags.Add(new OpenApiTag("Vessels", "Vessel (git repository) management"));
-                openApi.Tags.Add(new OpenApiTag("Voyages", "Voyage (mission batch) management"));
-                openApi.Tags.Add(new OpenApiTag("Missions", "Mission (atomic work unit) management"));
-                openApi.Tags.Add(new OpenApiTag("Captains", "Captain (AI agent) management"));
-                openApi.Tags.Add(new OpenApiTag("Signals", "Signal (inter-agent messaging) management"));
-                openApi.Tags.Add(new OpenApiTag("Events", "System event log"));
-                openApi.Tags.Add(new OpenApiTag("MergeQueue", "Bors-style merge queue with batch testing"));
-                openApi.Tags.Add(new OpenApiTag("Authentication", "Authentication and identity"));
-                openApi.Tags.Add(new OpenApiTag("Tenants", "Multi-tenant management"));
-                openApi.Tags.Add(new OpenApiTag("Users", "User management"));
-                openApi.Tags.Add(new OpenApiTag("Credentials", "Credential (API token) management"));
+                openApi.Tags.Add(new OpenApiTag { Name = "Status", Description = "Health check and system status" });
+                openApi.Tags.Add(new OpenApiTag { Name = "Fleets", Description = "Fleet (repository collection) management" });
+                openApi.Tags.Add(new OpenApiTag { Name = "Vessels", Description = "Vessel (git repository) management" });
+                openApi.Tags.Add(new OpenApiTag { Name = "Voyages", Description = "Voyage (mission batch) management" });
+                openApi.Tags.Add(new OpenApiTag { Name = "Missions", Description = "Mission (atomic work unit) management" });
+                openApi.Tags.Add(new OpenApiTag { Name = "Captains", Description = "Captain (AI agent) management" });
+                openApi.Tags.Add(new OpenApiTag { Name = "Signals", Description = "Signal (inter-agent messaging) management" });
+                openApi.Tags.Add(new OpenApiTag { Name = "Events", Description = "System event log" });
+                openApi.Tags.Add(new OpenApiTag { Name = "MergeQueue", Description = "Bors-style merge queue with batch testing" });
+                openApi.Tags.Add(new OpenApiTag { Name = "Authentication", Description = "Authentication and identity" });
+                openApi.Tags.Add(new OpenApiTag { Name = "Tenants", Description = "Multi-tenant management" });
+                openApi.Tags.Add(new OpenApiTag { Name = "Users", Description = "User management" });
+                openApi.Tags.Add(new OpenApiTag { Name = "Credentials", Description = "Credential (API token) management" });
 
                 // API key security scheme
-                openApi.SecuritySchemes["ApiKey"] = OpenApiSecurityScheme.ApiKey(
-                    "X-Api-Key",
-                    "header",
-                    "API key for authenticating requests. Configure via ArmadaSettings.ApiKey.");
+                openApi.SecuritySchemes["ApiKey"] = new OpenApiSecurityScheme
+                {
+                    Type = "apiKey",
+                    Name = "X-Api-Key",
+                    In = "header",
+                    Description = "API key for authenticating requests. Configure via ArmadaSettings.ApiKey."
+                };
             });
 
             // Set timestamp on request start
-            _App.Rest.PreRoutingRoute = async (WatsonWebserver.Core.HttpContextBase ctx) =>
+            _App.Routes.PreRouting = async (HttpContextBase ctx) =>
             {
                 ctx.Timestamp.Start = DateTime.UtcNow;
                 ctx.Response.ContentType = "application/json";
+                await Task.CompletedTask.ConfigureAwait(false);
             };
 
-            // Log every API call and enable CORS
-            _App.Rest.PostRoutingRoute = async (WatsonWebserver.Core.HttpContextBase ctx) =>
+            // Log every API call and apply CORS on every response
+            _App.Routes.PostRouting = async (HttpContextBase ctx) =>
             {
                 ctx.Timestamp.End = DateTime.UtcNow;
                 _Logging.Debug(
@@ -246,26 +251,24 @@ namespace Armada.Server
                     ctx.Response.StatusCode + " " +
                     "(" + (ctx.Timestamp.TotalMs.HasValue ? ctx.Timestamp.TotalMs.Value.ToString("F2") : "?") + "ms)");
 
-                ctx.Response.Headers.Add("Access-Control-Allow-Origin", "*");
-                ctx.Response.Headers.Add("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-                ctx.Response.Headers.Add("Access-Control-Allow-Headers", "Content-Type, X-Api-Key, X-Token, Authorization");
+                ApplyCorsHeaders(ctx);
+                await Task.CompletedTask.ConfigureAwait(false);
             };
 
-            // Authentication is handled per-route via AuthenticateRequestAsync
-            _App.Rest.AuthenticationRoute = (WatsonWebserver.Core.HttpContextBase ctx) =>
+            // CORS preflight handler. Browsers send an OPTIONS before cross-origin requests;
+            // we must answer 204 with the allow headers before the real call can proceed.
+            _App.Routes.Preflight = async (HttpContextBase ctx) =>
             {
-                return Task.FromResult(new AuthResult
-                {
-                    AuthenticationResult = AuthenticationResultEnum.Success
-                });
+                ApplyCorsHeaders(ctx);
+                ctx.Response.StatusCode = 200;
+                await ctx.Response.Send().ConfigureAwait(false);
             };
 
             RegisterRoutes();
             InitializeDashboard();
-            RegisterDashboardRoutes();
 
             // Start REST API (background)
-            Task restTask = Task.Run(() => _App.Rest.Run(_TokenSource.Token));
+            Task restTask = Task.Run(() => _App.StartAsync(_TokenSource.Token));
             _Logging.Info(_Header + "REST API started on port " + _Settings.AdmiralPort);
 
             // Initialize MCP server
@@ -278,7 +281,7 @@ namespace Armada.Server
             _Logging.Info(_Header + "MCP server started on port " + _Settings.McpPort);
 
             // Initialize WebSocket hub
-            _WebSocketHub = new ArmadaWebSocketHub(_Logging, _App, _Settings.WebSocketPort, _Settings.Rest.Ssl, _Admiral, _Database, _MergeQueue, _Settings, _Git, () => { OnStopping?.Invoke(); _TokenSource.Cancel(); });
+            _WebSocketHub = new ArmadaWebSocketHub(_Logging, _Settings.WebSocketPort, _Settings.Rest.Ssl, _Admiral, _Database, _MergeQueue, _Settings, _Git, () => { OnStopping?.Invoke(); _TokenSource.Cancel(); });
             Task wsTask = Task.Run(() => _WebSocketHub.StartAsync(_TokenSource.Token));
             _Logging.Info(_Header + "WebSocket hub started on port " + _Settings.WebSocketPort);
 
@@ -467,63 +470,70 @@ namespace Armada.Server
             _Logging.Info(_Header + "using embedded legacy dashboard (no external dashboard found)");
         }
 
-        private void RegisterDashboardRoutes()
+        private static void ApplyCorsHeaders(HttpContextBase ctx)
         {
-            // Serve embedded static files for the web dashboard
-            _App.Rest.DefaultRoute = async (WatsonWebserver.Core.HttpContextBase ctx) =>
-            {
-                string path = ctx.Request.Url.RawWithoutQuery;
+            if (!ctx.Response.Headers.AllKeys.Contains("Access-Control-Allow-Origin"))
+                ctx.Response.Headers.Add("Access-Control-Allow-Origin", "*");
+            if (!ctx.Response.Headers.AllKeys.Contains("Access-Control-Allow-Methods"))
+                ctx.Response.Headers.Add("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS");
+            if (!ctx.Response.Headers.AllKeys.Contains("Access-Control-Allow-Headers"))
+                ctx.Response.Headers.Add("Access-Control-Allow-Headers", "Content-Type, X-Api-Key, X-Token, Authorization");
+        }
 
-                // Redirect root to dashboard
-                if (path == "/" || path == "")
+        /// <summary>
+        /// Default route used when no other route matches. Serves the static dashboard
+        /// assets, the SPA index fallback, and a JSON 404 for anything else.
+        /// </summary>
+        private async Task DashboardDefaultRouteAsync(HttpContextBase ctx)
+        {
+            string path = ctx.Request.Url.RawWithoutQuery;
+
+            // Redirect root to dashboard
+            if (path == "/" || path == "")
+            {
+                ctx.Response.StatusCode = 302;
+                ctx.Response.Headers.Add("Location", "/dashboard");
+                await ctx.Response.Send().ConfigureAwait(false);
+                return;
+            }
+
+            // Serve dashboard static files
+            if (path.StartsWith("/dashboard"))
+            {
+                if (Dashboard.StaticFileHandler.TryGetFile(path, out byte[] content, out string contentType))
                 {
-                    ctx.Response.StatusCode = 302;
-                    ctx.Response.Headers.Add("Location", "/dashboard");
-                    await ctx.Response.Send().ConfigureAwait(false);
+                    ctx.Response.ContentType = contentType;
+                    await ctx.Response.Send(content).ConfigureAwait(false);
                     return;
                 }
 
-                // Serve dashboard static files
-                if (path.StartsWith("/dashboard"))
+                // SPA fallback: serve index.html for unmatched dashboard routes
+                // (React router handles client-side routing)
+                if (Dashboard.StaticFileHandler.TryGetIndex(out byte[] indexContent, out string indexType))
                 {
-                    if (Dashboard.StaticFileHandler.TryGetFile(path, out byte[] content, out string contentType))
-                    {
-                        ctx.Response.ContentType = contentType;
-                        await ctx.Response.Send(content).ConfigureAwait(false);
-                        return;
-                    }
-
-                    // SPA fallback: serve index.html for unmatched dashboard routes
-                    // (React router handles client-side routing)
-                    if (Dashboard.StaticFileHandler.TryGetIndex(out byte[] indexContent, out string indexType))
-                    {
-                        ctx.Response.ContentType = indexType;
-                        await ctx.Response.Send(indexContent).ConfigureAwait(false);
-                        return;
-                    }
+                    ctx.Response.ContentType = indexType;
+                    await ctx.Response.Send(indexContent).ConfigureAwait(false);
+                    return;
                 }
+            }
 
-                // Also serve /img/* and /assets/* at root level for the React dashboard
-                // (Vite builds reference assets from root, not /dashboard/)
-                if (path.StartsWith("/assets/") || path.StartsWith("/img/"))
+            // Also serve /img/* and /assets/* at root level for the React dashboard
+            // (Vite builds reference assets from root, not /dashboard/)
+            if (path.StartsWith("/assets/") || path.StartsWith("/img/"))
+            {
+                string dashPath = "/dashboard" + path;
+                if (Dashboard.StaticFileHandler.TryGetFile(dashPath, out byte[] assetContent, out string assetType))
                 {
-                    // Try serving from the dashboard directory directly
-                    string dashPath = "/dashboard" + path;
-                    if (Dashboard.StaticFileHandler.TryGetFile(dashPath, out byte[] assetContent, out string assetType))
-                    {
-                        ctx.Response.ContentType = assetType;
-                        await ctx.Response.Send(assetContent).ConfigureAwait(false);
-                        return;
-                    }
+                    ctx.Response.ContentType = assetType;
+                    await ctx.Response.Send(assetContent).ConfigureAwait(false);
+                    return;
                 }
+            }
 
-                // 404 for everything else
-                ctx.Response.StatusCode = 404;
-                ctx.Response.ContentType = "application/json";
-                await ctx.Response.Send("{\"error\":\"Not found\"}").ConfigureAwait(false);
-            };
-
-            _Logging.Info(_Header + "dashboard registered at /dashboard");
+            // 404 for everything else
+            ctx.Response.StatusCode = 404;
+            ctx.Response.ContentType = "application/json";
+            await ctx.Response.Send("{\"error\":\"Not found\"}").ConfigureAwait(false);
         }
 
         private void RegisterMcpTools()

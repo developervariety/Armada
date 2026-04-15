@@ -2,9 +2,10 @@ namespace Armada.Server.Routes
 {
     using System.Diagnostics;
     using System.Text.Json;
-    using SwiftStack;
-    using SwiftStack.Rest;
-    using SwiftStack.Rest.OpenApi;
+    using WatsonWebserver;
+    using WatsonWebserver.Core;
+    using WatsonWebserver.Core.OpenApi;
+    using Armada.Server;
     using Armada.Core;
     using Armada.Core.Database;
     using Armada.Core.Models;
@@ -42,16 +43,16 @@ namespace Armada.Server.Routes
         /// <summary>
         /// Register routes with the application.
         /// </summary>
-        /// <param name="app">SwiftStack application.</param>
+        /// <param name="app">Webserver.</param>
         /// <param name="authenticate">Authentication middleware.</param>
         /// <param name="authz">Authorization service.</param>
         public void Register(
-            SwiftStackApp app,
+            Webserver app,
             Func<WatsonWebserver.Core.HttpContextBase, Task<AuthContext>> authenticate,
             IAuthorizationService authz)
         {
             // Docks
-            app.Rest.Get("/api/v1/docks", async (AppRequest req) =>
+            app.Get("/api/v1/docks", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -75,10 +76,10 @@ namespace Armada.Server.Routes
                 .WithSummary("List docks")
                 .WithDescription("Returns all docks (git worktrees) with optional filtering by vesselId.")
                 .WithParameter(OpenApiParameterMetadata.Query("vesselId", "Filter by vessel ID", false))
-                .WithResponse(200, OpenApiResponseMetadata.Json<EnumerationResult<Dock>>("Paginated dock list"))
+                .WithResponse(200, OpenApiJson.For<EnumerationResult<Dock>>("Paginated dock list"))
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Post<EnumerationQuery>("/api/v1/docks/enumerate", async (AppRequest req) =>
+            app.Post<EnumerationQuery>("/api/v1/docks/enumerate", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -104,10 +105,10 @@ namespace Armada.Server.Routes
                 .WithTag("Docks")
                 .WithSummary("Enumerate docks")
                 .WithDescription("Paginated enumeration of docks with optional filtering and sorting.")
-                .WithRequestBody(OpenApiRequestBodyMetadata.Json<EnumerationQuery>("Enumeration query", false))
+                .WithRequestBody(OpenApiJson.BodyFor<EnumerationQuery>("Enumeration query", false))
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Get("/api/v1/docks/{id}", async (AppRequest req) =>
+            app.Get("/api/v1/docks/{id}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -129,11 +130,11 @@ namespace Armada.Server.Routes
                 .WithSummary("Get a dock")
                 .WithDescription("Returns a single dock by ID.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Dock ID (dck_ prefix)"))
-                .WithResponse(200, OpenApiResponseMetadata.Json<Dock>("Dock details"))
+                .WithResponse(200, OpenApiJson.For<Dock>("Dock details"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Delete("/api/v1/docks/{id}", async (AppRequest req) =>
+            app.Delete("/api/v1/docks/{id}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -169,10 +170,10 @@ namespace Armada.Server.Routes
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Dock ID (dck_ prefix)"))
                 .WithResponse(204, OpenApiResponseMetadata.NoContent())
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
-                .WithResponse(409, OpenApiResponseMetadata.Json<object>("Dock is actively in use"))
+                .WithResponse(409, OpenApiJson.For<object>("Dock is actively in use"))
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Delete("/api/v1/docks/{id}/purge", async (AppRequest req) =>
+            app.Delete("/api/v1/docks/{id}/purge", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -200,11 +201,11 @@ namespace Armada.Server.Routes
                 .WithSummary("Force purge a dock")
                 .WithDescription("Force purges a dock and its git worktree, even if a mission references it. This cannot be undone.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Dock ID (dck_ prefix)"))
-                .WithResponse(200, OpenApiResponseMetadata.Json<object>("Purged dock"))
+                .WithResponse(200, OpenApiJson.For<object>("Purged dock"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Post<DeleteMultipleRequest>("/api/v1/docks/delete/multiple", async (AppRequest req) =>
+            app.Post<DeleteMultipleRequest>("/api/v1/docks/delete/multiple", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -248,8 +249,8 @@ namespace Armada.Server.Routes
                 .WithTag("Docks")
                 .WithSummary("Batch delete multiple docks")
                 .WithDescription("Permanently deletes multiple docks and their git worktrees from the database by ID. Returns a summary of deleted and skipped entries. This cannot be undone.")
-                .WithRequestBody(OpenApiRequestBodyMetadata.Json<DeleteMultipleRequest>("List of dock IDs to delete"))
-                .WithResponse(200, OpenApiResponseMetadata.Json<DeleteMultipleResult>("Delete result summary"))
+                .WithRequestBody(OpenApiJson.BodyFor<DeleteMultipleRequest>("List of dock IDs to delete"))
+                .WithResponse(200, OpenApiJson.For<DeleteMultipleResult>("Delete result summary"))
                 .WithSecurity("ApiKey"));
         }
     }

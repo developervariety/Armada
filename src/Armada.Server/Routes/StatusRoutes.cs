@@ -4,9 +4,10 @@ namespace Armada.Server.Routes
     using System.IO;
     using System.Runtime.InteropServices;
     using System.Text.Json;
-    using SwiftStack;
-    using SwiftStack.Rest;
-    using SwiftStack.Rest.OpenApi;
+    using WatsonWebserver;
+    using WatsonWebserver.Core;
+    using WatsonWebserver.Core.OpenApi;
+    using Armada.Server;
     using Armada.Core;
     using ArmadaConstants = Armada.Core.Constants;
     using Armada.Core.Database;
@@ -68,18 +69,18 @@ namespace Armada.Server.Routes
         /// <summary>
         /// Register routes with the application.
         /// </summary>
-        /// <param name="app">SwiftStack application.</param>
+        /// <param name="app">Webserver.</param>
         /// <param name="authenticate">Authentication middleware.</param>
         /// <param name="authz">Authorization service.</param>
         public void Register(
-            SwiftStackApp app,
+            Webserver app,
             Func<WatsonWebserver.Core.HttpContextBase, Task<AuthContext>> authenticate,
             IAuthorizationService authz)
         {
             string _Header = "[ArmadaServer] ";
 
             // Status
-            app.Rest.Get("/api/v1/status", async (AppRequest req) =>
+            app.Get("/api/v1/status", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -94,10 +95,10 @@ namespace Armada.Server.Routes
                 .WithTag("Status")
                 .WithSummary("Get Armada status")
                 .WithDescription("Returns aggregate status including captain counts, mission breakdown, active voyages, and recent signals.")
-                .WithResponse(200, OpenApiResponseMetadata.Json<ArmadaStatus>("Armada status dashboard"))
+                .WithResponse(200, OpenApiJson.For<ArmadaStatus>("Armada status dashboard"))
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Get("/api/v1/status/health", async (AppRequest req) =>
+            app.Get("/api/v1/status/health", async (ApiRequest req) =>
             {
                 TimeSpan uptime = DateTime.UtcNow - _startUtc;
                 return new
@@ -121,7 +122,7 @@ namespace Armada.Server.Routes
                 .WithSummary("Health check")
                 .WithDescription("Returns health status. Does not require authentication."));
 
-            app.Rest.Get("/api/v1/doctor", async (AppRequest req) =>
+            app.Get("/api/v1/doctor", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -291,7 +292,7 @@ namespace Armada.Server.Routes
                 .WithDescription("Runs 7 system health checks and returns results as a JSON array.")
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Post("/api/v1/server/stop", async (AppRequest req) =>
+            app.Post("/api/v1/server/stop", async (ApiRequest req) =>
             {
                 if (_settings.RequireAuthForShutdown)
                 {
@@ -317,7 +318,7 @@ namespace Armada.Server.Routes
                 .WithSecurity("ApiKey"));
 
             // Settings
-            app.Rest.Get("/api/v1/settings", async (AppRequest req) =>
+            app.Get("/api/v1/settings", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -333,7 +334,7 @@ namespace Armada.Server.Routes
                 .WithDescription("Returns current server settings including ports, agent configuration, and system paths.")
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Put<SettingsUpdateRequest>("/api/v1/settings", async (AppRequest req) =>
+            app.Put<SettingsUpdateRequest>("/api/v1/settings", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -384,7 +385,7 @@ namespace Armada.Server.Routes
                 .WithDescription("Accepts partial update of editable settings. Validates values and persists to settings file.")
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Post("/api/v1/server/reset", async (AppRequest req) =>
+            app.Post("/api/v1/server/reset", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))

@@ -3,9 +3,10 @@ namespace Armada.Server.Routes
     using System;
     using System.Diagnostics;
     using System.Text.Json;
-    using SwiftStack;
-    using SwiftStack.Rest;
-    using SwiftStack.Rest.OpenApi;
+    using WatsonWebserver;
+    using WatsonWebserver.Core;
+    using WatsonWebserver.Core.OpenApi;
+    using Armada.Server;
     using Armada.Core;
     using Armada.Core.Database;
     using Armada.Core.Models;
@@ -35,16 +36,16 @@ namespace Armada.Server.Routes
         /// <summary>
         /// Register routes with the application.
         /// </summary>
-        /// <param name="app">SwiftStack application.</param>
+        /// <param name="app">Webserver.</param>
         /// <param name="authenticate">Authentication middleware.</param>
         /// <param name="authz">Authorization service.</param>
         public void Register(
-            SwiftStackApp app,
+            Webserver app,
             Func<WatsonWebserver.Core.HttpContextBase, Task<AuthContext>> authenticate,
             IAuthorizationService authz)
         {
             // List all personas
-            app.Rest.Get("/api/v1/personas", async (AppRequest req) =>
+            app.Get("/api/v1/personas", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -63,11 +64,11 @@ namespace Armada.Server.Routes
                 .WithTag("Personas")
                 .WithSummary("List all personas")
                 .WithDescription("Returns all personas with optional querystring filtering.")
-                .WithResponse(200, OpenApiResponseMetadata.Json<EnumerationResult<Persona>>("Paginated persona list"))
+                .WithResponse(200, OpenApiJson.For<EnumerationResult<Persona>>("Paginated persona list"))
                 .WithSecurity("ApiKey"));
 
             // Enumerate personas
-            app.Rest.Post<EnumerationQuery>("/api/v1/personas/enumerate", async (AppRequest req) =>
+            app.Post<EnumerationQuery>("/api/v1/personas/enumerate", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -86,11 +87,11 @@ namespace Armada.Server.Routes
                 .WithTag("Personas")
                 .WithSummary("Enumerate personas")
                 .WithDescription("Paginated enumeration of personas with optional filtering and sorting.")
-                .WithRequestBody(OpenApiRequestBodyMetadata.Json<EnumerationQuery>("Enumeration query", false))
+                .WithRequestBody(OpenApiJson.BodyFor<EnumerationQuery>("Enumeration query", false))
                 .WithSecurity("ApiKey"));
 
             // Get persona by name
-            app.Rest.Get("/api/v1/personas/{name}", async (AppRequest req) =>
+            app.Get("/api/v1/personas/{name}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -108,12 +109,12 @@ namespace Armada.Server.Routes
                 .WithSummary("Get a persona by name")
                 .WithDescription("Returns a single persona by its unique name.")
                 .WithParameter(OpenApiParameterMetadata.Path("name", "Persona name (e.g. Worker, Architect)"))
-                .WithResponse(200, OpenApiResponseMetadata.Json<Persona>("Persona details"))
+                .WithResponse(200, OpenApiJson.For<Persona>("Persona details"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
             // Create persona
-            app.Rest.Post<Persona>("/api/v1/personas", async (AppRequest req) =>
+            app.Post<Persona>("/api/v1/personas", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -131,12 +132,12 @@ namespace Armada.Server.Routes
                 .WithTag("Personas")
                 .WithSummary("Create a persona")
                 .WithDescription("Creates a new persona with a name, description, and prompt template reference.")
-                .WithRequestBody(OpenApiRequestBodyMetadata.Json<Persona>("Persona data (Name, Description, PromptTemplateName)", true))
-                .WithResponse(201, OpenApiResponseMetadata.Json<Persona>("Created persona"))
+                .WithRequestBody(OpenApiJson.BodyFor<Persona>("Persona data (Name, Description, PromptTemplateName)", true))
+                .WithResponse(201, OpenApiJson.For<Persona>("Created persona"))
                 .WithSecurity("ApiKey"));
 
             // Update persona by name
-            app.Rest.Put<Persona>("/api/v1/personas/{name}", async (AppRequest req) =>
+            app.Put<Persona>("/api/v1/personas/{name}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -160,13 +161,13 @@ namespace Armada.Server.Routes
                 .WithSummary("Update a persona")
                 .WithDescription("Updates an existing persona by name. Only non-null fields are updated.")
                 .WithParameter(OpenApiParameterMetadata.Path("name", "Persona name (e.g. Worker, Architect)"))
-                .WithRequestBody(OpenApiRequestBodyMetadata.Json<Persona>("Updated persona data", true))
-                .WithResponse(200, OpenApiResponseMetadata.Json<Persona>("Updated persona"))
+                .WithRequestBody(OpenApiJson.BodyFor<Persona>("Updated persona data", true))
+                .WithResponse(200, OpenApiJson.For<Persona>("Updated persona"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
             // Delete persona by name
-            app.Rest.Delete("/api/v1/personas/{name}", async (AppRequest req) =>
+            app.Delete("/api/v1/personas/{name}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))

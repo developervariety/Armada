@@ -1,8 +1,10 @@
 namespace Armada.Server.Routes
 {
     using System.Text.Json;
-    using SwiftStack;
-    using SwiftStack.Rest;
+    using WatsonWebserver;
+    using WatsonWebserver.Core;
+    using WatsonWebserver.Core.OpenApi;
+    using Armada.Server;
     using Armada.Core;
     using ArmadaConstants = Armada.Core.Constants;
     using Armada.Core.Database;
@@ -46,16 +48,16 @@ namespace Armada.Server.Routes
         /// <summary>
         /// Register routes with the application.
         /// </summary>
-        /// <param name="app">SwiftStack application.</param>
+        /// <param name="app">Webserver.</param>
         /// <param name="authenticate">Authentication middleware.</param>
         /// <param name="authz">Authorization service.</param>
         public void Register(
-            SwiftStackApp app,
+            Webserver app,
             Func<WatsonWebserver.Core.HttpContextBase, Task<AuthContext>> authenticate,
             IAuthorizationService authz)
         {
             // Authentication
-            app.Rest.Post("/api/v1/authenticate", async (AppRequest req) =>
+            app.Post("/api/v1/authenticate", async (ApiRequest req) =>
             {
                 string body = req.Http.Request.DataAsString;
                 AuthenticateRequest? authReq = null;
@@ -87,7 +89,7 @@ namespace Armada.Server.Routes
             api => api.WithTag("Authentication").WithSummary("Authenticate and get session token"));
 
             // WhoAmI
-            app.Rest.Get("/api/v1/whoami", async (AppRequest req) =>
+            app.Get("/api/v1/whoami", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -108,7 +110,7 @@ namespace Armada.Server.Routes
             api => api.WithTag("Authentication").WithSummary("Get current identity"));
 
             // Tenant Lookup
-            app.Rest.Post("/api/v1/tenants/lookup", async (AppRequest req) =>
+            app.Post("/api/v1/tenants/lookup", async (ApiRequest req) =>
             {
                 string body = req.Http.Request.DataAsString;
                 TenantLookupRequest? lookupReq = JsonSerializer.Deserialize<TenantLookupRequest>(body, _jsonOptions);
@@ -132,7 +134,7 @@ namespace Armada.Server.Routes
             api => api.WithTag("Authentication").WithSummary("Look up tenants by email"));
 
             // Onboarding
-            app.Rest.Post("/api/v1/onboarding", async (AppRequest req) =>
+            app.Post("/api/v1/onboarding", async (ApiRequest req) =>
             {
                 if (!_settings.AllowSelfRegistration)
                 {

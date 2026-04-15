@@ -8,8 +8,6 @@ namespace Armada.Server.WebSocket
     using System.Threading;
     using System.Threading.Tasks;
     using SyslogLogging;
-    using SwiftStack;
-    using SwiftStack.Websockets;
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;

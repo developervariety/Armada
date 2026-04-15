@@ -2,9 +2,10 @@ namespace Armada.Server.Routes
 {
     using System.Diagnostics;
     using System.Text.Json;
-    using SwiftStack;
-    using SwiftStack.Rest;
-    using SwiftStack.Rest.OpenApi;
+    using WatsonWebserver;
+    using WatsonWebserver.Core;
+    using WatsonWebserver.Core.OpenApi;
+    using Armada.Server;
     using Armada.Core;
     using Armada.Core.Database;
     using Armada.Core.Models;
@@ -42,16 +43,16 @@ namespace Armada.Server.Routes
         /// <summary>
         /// Register routes with the application.
         /// </summary>
-        /// <param name="app">SwiftStack application.</param>
+        /// <param name="app">Webserver.</param>
         /// <param name="authenticate">Authentication middleware.</param>
         /// <param name="authz">Authorization service.</param>
         public void Register(
-            SwiftStackApp app,
+            Webserver app,
             Func<WatsonWebserver.Core.HttpContextBase, Task<AuthContext>> authenticate,
             IAuthorizationService authz)
         {
             // Merge Queue
-            app.Rest.Get("/api/v1/merge-queue", async (AppRequest req) =>
+            app.Get("/api/v1/merge-queue", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -74,10 +75,10 @@ namespace Armada.Server.Routes
                 .WithTag("MergeQueue")
                 .WithSummary("List merge queue entries")
                 .WithDescription("Returns all entries in the merge queue, with optional status filter via query parameter.")
-                .WithResponse(200, OpenApiResponseMetadata.Json<EnumerationResult<MergeEntry>>("Paginated merge queue list"))
+                .WithResponse(200, OpenApiJson.For<EnumerationResult<MergeEntry>>("Paginated merge queue list"))
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Post<EnumerationQuery>("/api/v1/merge-queue/enumerate", async (AppRequest req) =>
+            app.Post<EnumerationQuery>("/api/v1/merge-queue/enumerate", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -100,10 +101,10 @@ namespace Armada.Server.Routes
                 .WithTag("MergeQueue")
                 .WithSummary("Enumerate merge queue entries")
                 .WithDescription("Paginated enumeration of merge queue entries with optional filtering and sorting.")
-                .WithRequestBody(OpenApiRequestBodyMetadata.Json<EnumerationQuery>("Enumeration query", false))
+                .WithRequestBody(OpenApiJson.BodyFor<EnumerationQuery>("Enumeration query", false))
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Post<MergeEntry>("/api/v1/merge-queue", async (AppRequest req) =>
+            app.Post<MergeEntry>("/api/v1/merge-queue", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -123,11 +124,11 @@ namespace Armada.Server.Routes
                 .WithTag("MergeQueue")
                 .WithSummary("Enqueue a branch for merge")
                 .WithDescription("Adds a branch to the merge queue for testing and merging into the target branch.")
-                .WithRequestBody(OpenApiRequestBodyMetadata.Json<MergeEntry>("Merge entry", true))
-                .WithResponse(201, OpenApiResponseMetadata.Json<MergeEntry>("Enqueued entry"))
+                .WithRequestBody(OpenApiJson.BodyFor<MergeEntry>("Merge entry", true))
+                .WithResponse(201, OpenApiJson.For<MergeEntry>("Enqueued entry"))
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Get("/api/v1/merge-queue/{id}", async (AppRequest req) =>
+            app.Get("/api/v1/merge-queue/{id}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -153,11 +154,11 @@ namespace Armada.Server.Routes
                 .WithSummary("Get a merge queue entry")
                 .WithDescription("Returns a single merge queue entry by ID.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Merge entry ID (mrg_ prefix)"))
-                .WithResponse(200, OpenApiResponseMetadata.Json<MergeEntry>("Merge entry details"))
+                .WithResponse(200, OpenApiJson.For<MergeEntry>("Merge entry details"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Delete("/api/v1/merge-queue/{id}", async (AppRequest req) =>
+            app.Delete("/api/v1/merge-queue/{id}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -194,7 +195,7 @@ namespace Armada.Server.Routes
                 .WithResponse(204, OpenApiResponseMetadata.NoContent())
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Post("/api/v1/merge-queue/{id}/process", async (AppRequest req) =>
+            app.Post("/api/v1/merge-queue/{id}/process", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -218,11 +219,11 @@ namespace Armada.Server.Routes
                 .WithSummary("Process a single merge queue entry")
                 .WithDescription("Processes a single merge queue entry by ID: creates integration branch, runs tests, and lands if passing.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Merge entry ID (mrg_ prefix)"))
-                .WithResponse(200, OpenApiResponseMetadata.Json<MergeEntry>("Processed merge entry"))
+                .WithResponse(200, OpenApiJson.For<MergeEntry>("Processed merge entry"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Post("/api/v1/merge-queue/process", async (AppRequest req) =>
+            app.Post("/api/v1/merge-queue/process", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -239,7 +240,7 @@ namespace Armada.Server.Routes
                 .WithDescription("Triggers processing of all queued entries: creates integration branches, runs tests, and lands passing batches.")
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Delete("/api/v1/merge-queue/{id}/purge", async (AppRequest req) =>
+            app.Delete("/api/v1/merge-queue/{id}/purge", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -276,12 +277,12 @@ namespace Armada.Server.Routes
                 .WithSummary("Purge a single merge queue entry")
                 .WithDescription("Permanently deletes a terminal merge queue entry from the database. Only entries in Landed, Failed, or Cancelled status can be purged. This cannot be undone.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Merge entry ID (mrg_ prefix)"))
-                .WithResponse(200, OpenApiResponseMetadata.Json<object>("Purged merge entry"))
+                .WithResponse(200, OpenApiJson.For<object>("Purged merge entry"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
-                .WithResponse(409, OpenApiResponseMetadata.Json<object>("Entry is not in a terminal state"))
+                .WithResponse(409, OpenApiJson.For<object>("Entry is not in a terminal state"))
                 .WithSecurity("ApiKey"));
 
-            app.Rest.Post<PurgeMergeEntriesRequest>("/api/v1/merge-queue/purge", async (AppRequest req) =>
+            app.Post<PurgeMergeEntriesRequest>("/api/v1/merge-queue/purge", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -304,8 +305,8 @@ namespace Armada.Server.Routes
                 .WithTag("MergeQueue")
                 .WithSummary("Batch purge merge queue entries")
                 .WithDescription("Permanently deletes multiple terminal merge queue entries from the database by ID. Returns a summary of purged and skipped entries. This cannot be undone.")
-                .WithRequestBody(OpenApiRequestBodyMetadata.Json<PurgeMergeEntriesRequest>("List of merge entry IDs to purge"))
-                .WithResponse(200, OpenApiResponseMetadata.Json<MergeQueuePurgeResult>("Purge result summary"))
+                .WithRequestBody(OpenApiJson.BodyFor<PurgeMergeEntriesRequest>("List of merge entry IDs to purge"))
+                .WithResponse(200, OpenApiJson.For<MergeQueuePurgeResult>("Purge result summary"))
                 .WithSecurity("ApiKey"));
         }
     }
