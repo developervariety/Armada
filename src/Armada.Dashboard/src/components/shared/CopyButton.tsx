@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { useLocale } from '../../context/LocaleContext';
 
 /**
  * Copy text to clipboard with fallback for non-HTTPS contexts.
@@ -49,6 +50,7 @@ export default function CopyButton({
   title = 'Copy to clipboard',
   onClick,
 }: CopyButtonProps) {
+  const { t } = useLocale();
   const [copied, setCopied] = useState(false);
 
   const handleCopy = useCallback((e: React.MouseEvent) => {
@@ -66,7 +68,7 @@ export default function CopyButton({
     <button
       className={`${className}${copied ? ' copied' : ''}`}
       onClick={handleCopy}
-      title={copied ? 'Copied!' : title}
+      title={copied ? t('Copied!') : t(title)}
       type="button"
     />
   );

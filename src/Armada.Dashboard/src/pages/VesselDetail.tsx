@@ -8,22 +8,7 @@ import JsonViewer from '../components/shared/JsonViewer';
 import StatusBadge from '../components/shared/StatusBadge';
 import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
-
-function formatTimeAbsolute(utc: string | null): string {
-  if (!utc) return '-';
-  return new Date(utc).toLocaleString();
-}
-
-function formatTime(utc: string | null): string {
-  if (!utc) return '-';
-  const d = new Date(utc);
-  const now = new Date();
-  const diff = now.getTime() - d.getTime();
-  if (diff < 60000) return 'just now';
-  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
-  return d.toLocaleDateString();
-}
+import { useLocale } from '../context/LocaleContext';
 
 interface VesselForm {
   name: string;
@@ -40,6 +25,7 @@ interface VesselForm {
 }
 
 export default function VesselDetail() {
+  const { t, formatDateTime, formatRelativeTime } = useLocale();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [vessel, setVessel] = useState<Vessel | null>(null);
@@ -72,18 +58,18 @@ export default function VesselDetail() {
       const isInitialLoad = !vessel;
       const [vResult, fResult, mResult, pResult] = await Promise.all([listVessels({ pageSize: 9999 }), listFleets({ pageSize: 9999 }), listMissions({ pageSize: 9999 }), listPipelines({ pageSize: 9999 })]);
       const found = vResult.objects.find(v => v.id === id);
-      if (!found) { setError('Vessel not found.'); setLoading(false); return; }
+      if (!found) { setError(t('Vessel not found.')); setLoading(false); return; }
       setVessel(found);
       setFleets(fResult.objects);
       setMissions(mResult.objects.filter(m => m.vesselId === id));
       setPipelines(pResult.objects);
       if (isInitialLoad) setError('');
     } catch {
-      setError('Failed to load vessel.');
+      setError(t('Failed to load vessel.'));
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, t]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -119,34 +105,34 @@ export default function VesselDetail() {
       await updateVessel(vessel.id, payload);
       setShowForm(false);
       load();
-    } catch { setError('Save failed.'); }
+    } catch { setError(t('Save failed.')); }
   }
 
   function handleDelete() {
     if (!vessel) return;
     setConfirm({
       open: true,
-      title: 'Delete Vessel',
-      message: `Delete vessel "${vessel.name}"? This cannot be undone.`,
+      title: t('Delete Vessel'),
+      message: t('Delete vessel "{{name}}"? This cannot be undone.', { name: vessel.name }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
         try {
           await deleteVessel(vessel.id);
           navigate('/vessels');
-        } catch { setError('Delete failed.'); }
+        } catch { setError(t('Delete failed.')); }
       },
     });
   }
 
-  if (loading) return <p className="text-dim">Loading...</p>;
+  if (loading) return <p className="text-dim">{t('Loading...')}</p>;
   if (error && !vessel) return <ErrorModal error={error} onClose={() => setError('')} />;
-  if (!vessel) return <p className="text-dim">Vessel not found.</p>;
+  if (!vessel) return <p className="text-dim">{t('Vessel not found.')}</p>;
 
   return (
     <div>
       {/* Breadcrumb */}
       <div className="breadcrumb">
-        <Link to="/vessels">Vessels</Link> <span className="breadcrumb-sep">&gt;</span> <span>{vessel.name}</span>
+        <Link to="/vessels">{t('Vessels')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{vessel.name}</span>
       </div>
 
       <div className="detail-header">
@@ -154,7 +140,7 @@ export default function VesselDetail() {
         <div className="inline-actions">
           <ActionMenu id={`vessel-${vessel.id}`} items={[
             { label: 'Edit', onClick: openEdit },
-            { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `Vessel: ${vessel.name}`, data: vessel }) },
+            { label: 'View JSON', onClick: () => setJsonData({ open: true, title: t('Vessel: {{name}}', { name: vessel.name }), data: vessel }) },
             { label: 'Delete', danger: true, onClick: handleDelete },
           ]} />
         </div>
@@ -166,31 +152,31 @@ export default function VesselDetail() {
       {showForm && (
         <div className="modal-overlay" onClick={() => setShowForm(false)}>
           <form className="modal modal-lg" onClick={e => e.stopPropagation()} onSubmit={handleSubmit}>
-            <h3>Edit Vessel</h3>
-            <label>Name<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required /></label>
-            <label>Fleet
+            <h3>{t('Edit Vessel')}</h3>
+            <label>{t('Name')}<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required /></label>
+            <label>{t('Fleet')}
               <select value={form.fleetId} onChange={e => setForm({ ...form, fleetId: e.target.value })} required>
-                <option value="">Select a fleet...</option>
+                <option value="">{t('Select a fleet...')}</option>
                 {fleets.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
               </select>
             </label>
-            <label>Repository URL<input value={form.repoUrl} onChange={e => setForm({ ...form, repoUrl: e.target.value })} required placeholder="https://github.com/org/repo.git" /></label>
-            <label>Default Branch<input value={form.defaultBranch} onChange={e => setForm({ ...form, defaultBranch: e.target.value })} /></label>
-            <label>Local Path<input value={form.localPath} onChange={e => setForm({ ...form, localPath: e.target.value })} /></label>
-            <label>Working Directory<input value={form.workingDirectory} onChange={e => setForm({ ...form, workingDirectory: e.target.value })} /></label>
+            <label>{t('Repository URL')}<input value={form.repoUrl} onChange={e => setForm({ ...form, repoUrl: e.target.value })} required placeholder={t('https://github.com/org/repo.git')} /></label>
+            <label>{t('Default Branch')}<input value={form.defaultBranch} onChange={e => setForm({ ...form, defaultBranch: e.target.value })} /></label>
+            <label>{t('Local Path')}<input value={form.localPath} onChange={e => setForm({ ...form, localPath: e.target.value })} /></label>
+            <label>{t('Working Directory')}<input value={form.workingDirectory} onChange={e => setForm({ ...form, workingDirectory: e.target.value })} /></label>
             <label>
-              Project Context
+              {t('Project Context')}
               <textarea value={form.projectContext} onChange={e => setForm({ ...form, projectContext: e.target.value })} rows={4} />
-              <span className="text-dim" style={{ fontSize: '0.8em' }}>{form.projectContext.length} characters</span>
+              <span className="text-dim" style={{ fontSize: '0.8em' }}>{form.projectContext.length} {t('characters')}</span>
             </label>
             <label>
-              Style Guide
+              {t('Style Guide')}
               <textarea value={form.styleGuide} onChange={e => setForm({ ...form, styleGuide: e.target.value })} rows={4} />
-              <span className="text-dim" style={{ fontSize: '0.8em' }}>{form.styleGuide.length} characters</span>
+              <span className="text-dim" style={{ fontSize: '0.8em' }}>{form.styleGuide.length} {t('characters')}</span>
             </label>
-            <label>Default Pipeline
+            <label>{t('Default Pipeline')}
               <select value={form.defaultPipelineId} onChange={e => setForm({ ...form, defaultPipelineId: e.target.value })}>
-                <option value="">None (WorkerOnly)</option>
+                <option value="">{t('None (WorkerOnly)')}</option>
                 {pipelines.map(p => (
                   <option key={p.id} value={p.id}>{p.name}</option>
                 ))}
@@ -198,18 +184,18 @@ export default function VesselDetail() {
             </label>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <input type="checkbox" checked={form.enableModelContext} onChange={e => setForm({ ...form, enableModelContext: e.target.checked })} style={{ width: 'auto' }} />
-              Enable Model Context
+              {t('Enable Model Context')}
             </label>
             {form.enableModelContext && (
               <label>
-                Model Context
-                <textarea value={form.modelContext} onChange={e => setForm({ ...form, modelContext: e.target.value })} rows={4} placeholder="Agent-accumulated context will appear here after missions run with model context enabled..." />
-                <span className="text-dim" style={{ fontSize: '0.8em' }}>{form.modelContext.length} characters</span>
+                {t('Model Context')}
+                <textarea value={form.modelContext} onChange={e => setForm({ ...form, modelContext: e.target.value })} rows={4} placeholder={t('Agent-accumulated context will appear here after missions run with model context enabled...')} />
+                <span className="text-dim" style={{ fontSize: '0.8em' }}>{form.modelContext.length} {t('characters')}</span>
               </label>
             )}
             <div className="modal-actions">
-              <button type="submit" className="btn btn-primary">Save</button>
-              <button type="button" className="btn" onClick={() => setShowForm(false)}>Cancel</button>
+              <button type="submit" className="btn btn-primary">{t('Save')}</button>
+              <button type="button" className="btn" onClick={() => setShowForm(false)}>{t('Cancel')}</button>
             </div>
           </form>
         </div>
@@ -222,48 +208,48 @@ export default function VesselDetail() {
       {/* Vessel Info */}
       <div className="detail-grid">
         <div className="detail-field">
-          <span className="detail-label">ID</span>
+          <span className="detail-label">{t('ID')}</span>
           <span className="id-display">
             <span className="mono">{vessel.id}</span>
             <CopyButton text={vessel.id} />
           </span>
         </div>
-        <div className="detail-field"><span className="detail-label">Name</span><span>{vessel.name}</span></div>
+        <div className="detail-field"><span className="detail-label">{t('Name')}</span><span>{vessel.name}</span></div>
         <div className="detail-field">
-          <span className="detail-label">Fleet</span>
+          <span className="detail-label">{t('Fleet')}</span>
           {vessel.fleetId ? (
             <Link to={`/fleets/${vessel.fleetId}`}>{fleetMap.get(vessel.fleetId) ?? vessel.fleetId}</Link>
           ) : <span>-</span>}
         </div>
         <div className="detail-field">
-          <span className="detail-label">Repo URL</span>
+          <span className="detail-label">{t('Repo URL')}</span>
           {vessel.repoUrl
             ? <a href={vessel.repoUrl} target="_blank" rel="noopener noreferrer" className="mono">{vessel.repoUrl}</a>
             : <span>-</span>}
         </div>
-        <div className="detail-field"><span className="detail-label">Default Branch</span><span>{vessel.defaultBranch || 'main'}</span></div>
-        <div className="detail-field"><span className="detail-label">Local Path</span><span className="mono" title="Path to the bare git repository clone used by Armada">{vessel.localPath || '-'}</span></div>
-        <div className="detail-field"><span className="detail-label">Working Directory</span><span className="mono" title="Your local checkout where completed missions are merged">{vessel.workingDirectory || '-'}</span></div>
-        <div className="detail-field"><span className="detail-label">Landing Mode</span><span>{vessel.landingMode || '-'}</span></div>
-        <div className="detail-field"><span className="detail-label">Branch Cleanup Policy</span><span>{vessel.branchCleanupPolicy || '-'}</span></div>
-        <div className="detail-field"><span className="detail-label">Allow Concurrent Missions</span><span>{vessel.allowConcurrentMissions ? 'Yes' : 'No'}</span></div>
+        <div className="detail-field"><span className="detail-label">{t('Default Branch')}</span><span>{vessel.defaultBranch || 'main'}</span></div>
+        <div className="detail-field"><span className="detail-label">{t('Local Path')}</span><span className="mono" title={t('Path to the bare git repository clone used by Armada')}>{vessel.localPath || '-'}</span></div>
+        <div className="detail-field"><span className="detail-label">{t('Working Directory')}</span><span className="mono" title={t('Your local checkout where completed missions are merged')}>{vessel.workingDirectory || '-'}</span></div>
+        <div className="detail-field"><span className="detail-label">{t('Landing Mode')}</span><span>{vessel.landingMode || '-'}</span></div>
+        <div className="detail-field"><span className="detail-label">{t('Branch Cleanup Policy')}</span><span>{vessel.branchCleanupPolicy || '-'}</span></div>
+        <div className="detail-field"><span className="detail-label">{t('Allow Concurrent Missions')}</span><span>{vessel.allowConcurrentMissions ? t('Yes') : t('No')}</span></div>
         <div className="detail-field">
-          <span className="detail-label">Default Pipeline</span>
-          <span>{pipelines.find(p => p.id === vessel.defaultPipelineId)?.name || vessel.defaultPipelineId || <span className="text-dim">None (WorkerOnly)</span>}</span>
+          <span className="detail-label">{t('Default Pipeline')}</span>
+          <span>{pipelines.find(p => p.id === vessel.defaultPipelineId)?.name || vessel.defaultPipelineId || <span className="text-dim">{t('None (WorkerOnly)')}</span>}</span>
         </div>
-        <div className="detail-field"><span className="detail-label">Active</span><span>{vessel.active !== false ? 'Yes' : 'No'}</span></div>
+        <div className="detail-field"><span className="detail-label">{t('Active')}</span><span>{vessel.active !== false ? t('Yes') : t('No')}</span></div>
         <div className="detail-field">
-          <span className="detail-label">Created</span>
+          <span className="detail-label">{t('Created')}</span>
           <span title={vessel.createdUtc}>
-            {formatTime(vessel.createdUtc)}
-            <span className="text-dim"> ({formatTimeAbsolute(vessel.createdUtc)})</span>
+            {formatRelativeTime(vessel.createdUtc)}
+            <span className="text-dim"> ({formatDateTime(vessel.createdUtc)})</span>
           </span>
         </div>
         <div className="detail-field">
-          <span className="detail-label">Last Updated</span>
+          <span className="detail-label">{t('Last Updated')}</span>
           <span title={vessel.lastUpdateUtc}>
-            {formatTime(vessel.lastUpdateUtc)}
-            <span className="text-dim"> ({formatTimeAbsolute(vessel.lastUpdateUtc)})</span>
+            {formatRelativeTime(vessel.lastUpdateUtc)}
+            <span className="text-dim"> ({formatDateTime(vessel.lastUpdateUtc)})</span>
           </span>
         </div>
       </div>
@@ -271,7 +257,7 @@ export default function VesselDetail() {
       {/* Project Context */}
       {vessel.projectContext && (
         <div className="detail-context-section">
-          <h4>Project Context</h4>
+          <h4>{t('Project Context')}</h4>
           <pre className="detail-context-block">{vessel.projectContext}</pre>
         </div>
       )}
@@ -279,7 +265,7 @@ export default function VesselDetail() {
       {/* Style Guide */}
       {vessel.styleGuide && (
         <div className="detail-context-section">
-          <h4>Style Guide</h4>
+          <h4>{t('Style Guide')}</h4>
           <pre className="detail-context-block">{vessel.styleGuide}</pre>
         </div>
       )}
@@ -287,23 +273,23 @@ export default function VesselDetail() {
       {/* Model Context */}
       {vessel.enableModelContext && vessel.modelContext && (
         <div className="detail-context-section">
-          <h4>Model Context</h4>
+          <h4>{t('Model Context')}</h4>
           <pre className="detail-context-block">{vessel.modelContext}</pre>
         </div>
       )}
 
       {/* Recent Missions */}
       <div style={{ marginTop: '1rem' }}>
-        <h3>Missions</h3>
+        <h3>{t('Missions')}</h3>
         {missions.length > 0 ? (
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th title="Mission name and unique identifier">Mission</th>
-                  <th title="Current mission lifecycle state">Status</th>
-                  <th title="AI captain assigned to this mission">Captain</th>
-                  <th title="Git branch for this mission's work">Branch</th>
+                  <th title={t('Mission name and unique identifier')}>{t('Mission')}</th>
+                  <th title={t('Current mission lifecycle state')}>{t('Status')}</th>
+                  <th title={t('AI captain assigned to this mission')}>{t('Captain')}</th>
+                  <th title={t('Git branch for this mission\'s work')}>{t('Branch')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -325,7 +311,7 @@ export default function VesselDetail() {
             </table>
           </div>
         ) : (
-          <p className="text-dim" style={{ marginTop: '0.5rem' }}>No missions yet</p>
+          <p className="text-dim" style={{ marginTop: '0.5rem' }}>{t('No missions yet')}</p>
         )}
       </div>
     </div>

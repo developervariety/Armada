@@ -111,8 +111,7 @@ namespace Armada.Server.Routes
                     Ports = new
                     {
                         Admiral = _settings.AdmiralPort,
-                        Mcp = _settings.McpPort,
-                        WebSocket = _settings.WebSocketPort
+                        Mcp = _settings.McpPort
                     },
                     RemoteTunnel = BuildRemoteTunnelStatus()
                 };

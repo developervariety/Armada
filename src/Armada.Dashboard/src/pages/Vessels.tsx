@@ -10,20 +10,10 @@ import JsonViewer from '../components/shared/JsonViewer';
 import CopyButton from '../components/shared/CopyButton';
 import RefreshButton from '../components/shared/RefreshButton';
 import ErrorModal from '../components/shared/ErrorModal';
+import { useLocale } from '../context/LocaleContext';
 
 type SortDir = 'asc' | 'desc';
 type SortField = 'name' | 'fleetId' | 'defaultBranch' | 'createdUtc';
-
-function formatTime(utc: string | null): string {
-  if (!utc) return '-';
-  const d = new Date(utc);
-  const now = new Date();
-  const diff = now.getTime() - d.getTime();
-  if (diff < 60000) return 'just now';
-  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
-  return d.toLocaleDateString();
-}
 
 interface VesselForm {
   name: string;
@@ -49,6 +39,7 @@ const emptyForm: VesselForm = {
 
 export default function Vessels() {
   const navigate = useNavigate();
+  const { t } = useLocale();
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [fleets, setFleets] = useState<Fleet[]>([]);
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
@@ -113,11 +104,11 @@ export default function Vessels() {
       }));
       setGitStatus(statusMap);
     } catch {
-      setError('Failed to load vessels.');
+      setError(t('Failed to load vessels.'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -214,17 +205,17 @@ export default function Vessels() {
       else await createVessel(payload);
       setShowForm(false);
       load();
-    } catch { setError('Save failed.'); }
+    } catch { setError(t('Save failed.')); }
   }
 
   function handleDelete(id: string, name: string) {
     setConfirm({
       open: true,
-      title: 'Delete Vessel',
-      message: `Delete vessel "${name}"? This cannot be undone.`,
+      title: t('Delete Vessel'),
+      message: t('Delete vessel "{{name}}"? This cannot be undone.', { name }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
-        try { await deleteVessel(id); load(); } catch { setError('Delete failed.'); }
+        try { await deleteVessel(id); load(); } catch { setError(t('Delete failed.')); }
       },
     });
   }
@@ -232,8 +223,8 @@ export default function Vessels() {
   function handleBulkDelete() {
     setConfirm({
       open: true,
-      title: 'Delete Selected Vessels',
-      message: `Delete ${selected.length} selected vessel(s)? This cannot be undone.`,
+      title: t('Delete Selected Vessels'),
+      message: t('Delete {{count}} selected vessel(s)? This cannot be undone.', { count: selected.length }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
         const ids = [...selected];
@@ -242,7 +233,7 @@ export default function Vessels() {
         for (const id of ids) {
           try { await deleteVessel(id); } catch { failed++; }
         }
-        if (failed > 0) setError(`Deleted ${ids.length - failed} vessels, ${failed} failed.`);
+        if (failed > 0) setError(t('Deleted {{success}} vessels, {{failed}} failed.', { success: ids.length - failed, failed }));
         load();
       },
     });
@@ -252,16 +243,16 @@ export default function Vessels() {
     <div>
       <div className="view-header">
         <div>
-          <h2>Vessels</h2>
-          <p className="text-dim view-subtitle">Git repositories organized by fleet. Manage vessels, configure branches, and view project details.</p>
+          <h2>{t('Vessels')}</h2>
+          <p className="text-dim view-subtitle">{t('Git repositories registered with Armada')}</p>
         </div>
         <div className="view-actions">
           {selected.length > 0 && (
             <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>
-              Delete Selected ({selected.length})
+              {t('Delete Selected')} ({selected.length})
             </button>
           )}
-          <button className="btn btn-primary btn-sm" onClick={openCreate}>+ Vessel</button>
+          <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Vessel')}</button>
           <RefreshButton onRefresh={load} title="Refresh vessel data" />
         </div>
       </div>
@@ -272,49 +263,49 @@ export default function Vessels() {
       {showForm && (
         <div className="modal-overlay" onClick={() => setShowForm(false)}>
           <form className="modal" style={{ width: '95vw', maxWidth: '95vw', height: '95vh', maxHeight: '95vh', overflowY: 'auto', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()} onSubmit={handleSubmit}>
-            <h3>{editing ? 'Edit Vessel' : 'Create Vessel'}</h3>
+            <h3>{editing ? t('Edit Vessel') : t('Create Vessel')}</h3>
 
             {/* Row 1: Name + Fleet + Repo URL (3 cols) */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 2fr', gap: '0 1.5rem' }}>
-              <label>Name<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required /></label>
-              <label>Fleet
+              <label>{t('Name')}<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required /></label>
+              <label>{t('Fleet')}
                 <select value={form.fleetId} onChange={e => setForm({ ...form, fleetId: e.target.value })}>
-                  <option value="">Select a fleet...</option>
+                  <option value="">{t('Select a fleet...')}</option>
                   {fleets.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
                 </select>
               </label>
-              <label>Repository URL<input value={form.repoUrl} onChange={e => setForm({ ...form, repoUrl: e.target.value })} required placeholder="https://github.com/org/repo.git" /></label>
+              <label>{t('Repository URL')}<input value={form.repoUrl} onChange={e => setForm({ ...form, repoUrl: e.target.value })} required placeholder="https://github.com/org/repo.git" /></label>
             </div>
 
             {/* Row 2: Default Branch + Local Path + Working Directory (3 cols) */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0 1.5rem' }}>
-              <label>Default Branch<input value={form.defaultBranch} onChange={e => setForm({ ...form, defaultBranch: e.target.value })} /></label>
-              <label>Local Path<input value={form.localPath} onChange={e => setForm({ ...form, localPath: e.target.value })} /></label>
-              <label>Working Directory<input value={form.workingDirectory} onChange={e => setForm({ ...form, workingDirectory: e.target.value })} /></label>
+              <label>{t('Default Branch')}<input value={form.defaultBranch} onChange={e => setForm({ ...form, defaultBranch: e.target.value })} /></label>
+              <label>{t('Local Path')}<input value={form.localPath} onChange={e => setForm({ ...form, localPath: e.target.value })} /></label>
+              <label>{t('Working Directory')}<input value={form.workingDirectory} onChange={e => setForm({ ...form, workingDirectory: e.target.value })} /></label>
             </div>
 
             {/* Row 3: Landing Mode + Branch Cleanup + Pipeline (3 cols) */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0 1.5rem' }}>
-              <label title="How completed mission work is integrated.">Landing Mode
+              <label title={t('How completed mission work is integrated.')}>{t('Landing Mode')}
                 <select value={form.landingMode} onChange={e => setForm({ ...form, landingMode: e.target.value })}>
-                  <option value="">Default</option>
-                  <option value="LocalMerge">Local Merge</option>
-                  <option value="PullRequest">Pull Request</option>
+                  <option value="">{t('Default')}</option>
+                  <option value="LocalMerge">{t('Local Merge')}</option>
+                  <option value="PullRequest">{t('Pull Request')}</option>
                   <option value="MergeQueue">Merge Queue</option>
-                  <option value="None">None</option>
+                  <option value="None">{t('None')}</option>
                 </select>
               </label>
-              <label title="When and how mission branches are deleted after successful landing.">Branch Cleanup
+              <label title={t('When and how mission branches are deleted after successful landing.')}>{t('Branch Cleanup')}
                 <select value={form.branchCleanupPolicy} onChange={e => setForm({ ...form, branchCleanupPolicy: e.target.value })}>
-                  <option value="">Default</option>
-                  <option value="LocalOnly">Local Only</option>
-                  <option value="LocalAndRemote">Local and Remote</option>
-                  <option value="None">None</option>
+                  <option value="">{t('Default')}</option>
+                  <option value="LocalOnly">{t('Local Only')}</option>
+                  <option value="LocalAndRemote">{t('Local and Remote')}</option>
+                  <option value="None">{t('None')}</option>
                 </select>
               </label>
-              <label>Default Pipeline
+              <label>{t('Default Pipeline')}
                 <select value={form.defaultPipelineId} onChange={e => setForm({ ...form, defaultPipelineId: e.target.value })}>
-                  <option value="">None (WorkerOnly)</option>
+                  <option value="">{t('None (WorkerOnly)')}</option>
                   {pipelines.map(p => (
                     <option key={p.id} value={p.id}>{p.name} ({p.stages.map(s => s.personaName).join(' -> ')})</option>
                   ))}
@@ -324,35 +315,35 @@ export default function Vessels() {
 
             {/* Checkboxes */}
             <div style={{ display: 'flex', gap: '2rem', marginBottom: '0.5rem' }}>
-              <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', marginBottom: 0, lineHeight: 1, cursor: 'pointer' }} title="When enabled, multiple missions can run on this vessel at the same time.">
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', marginBottom: 0, lineHeight: 1, cursor: 'pointer' }} title={t('When enabled, multiple missions can run on this vessel at the same time.')}>
                 <input type="checkbox" checked={form.allowConcurrentMissions} onChange={e => setForm({ ...form, allowConcurrentMissions: e.target.checked })} style={{ width: 'auto', margin: 0, verticalAlign: 'middle' }} />
-                <span style={{ verticalAlign: 'middle' }}>Allow Concurrent Missions</span>
+                <span style={{ verticalAlign: 'middle' }}>{t('Allow Concurrent Missions')}</span>
               </label>
-              <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', marginBottom: 0, lineHeight: 1, cursor: 'pointer' }} title="When enabled, AI agents accumulate key knowledge about this repository during missions.">
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', marginBottom: 0, lineHeight: 1, cursor: 'pointer' }} title={t('When enabled, AI agents accumulate key knowledge about this repository during missions.')}>
                 <input type="checkbox" checked={form.enableModelContext} onChange={e => setForm({ ...form, enableModelContext: e.target.checked })} style={{ width: 'auto', margin: 0, verticalAlign: 'middle' }} />
-                <span style={{ verticalAlign: 'middle' }}>Enable Model Context</span>
+                <span style={{ verticalAlign: 'middle' }}>{t('Enable Model Context')}</span>
               </label>
             </div>
 
             {/* Context textareas always 3 cols -- fills remaining vertical space */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0 1.5rem', flex: 1, minHeight: 0 }}>
               <label style={{ display: 'flex', flexDirection: 'column' }}>
-                Project Context
+                {t('Project Context')}
                 <textarea value={form.projectContext} onChange={e => setForm({ ...form, projectContext: e.target.value })} style={{ flex: 1, minHeight: '150px', resize: 'none' }} />
               </label>
               <label style={{ display: 'flex', flexDirection: 'column' }}>
-                Style Guide
+                {t('Style Guide')}
                 <textarea value={form.styleGuide} onChange={e => setForm({ ...form, styleGuide: e.target.value })} style={{ flex: 1, minHeight: '150px', resize: 'none' }} />
               </label>
               <label style={{ display: 'flex', flexDirection: 'column' }}>
-                Model Context
-                <textarea value={form.modelContext} onChange={e => setForm({ ...form, modelContext: e.target.value })} placeholder={form.enableModelContext ? "Agent-accumulated context..." : "Enable Model Context to use"} disabled={!form.enableModelContext} style={{ flex: 1, minHeight: '150px', resize: 'none', ...(form.enableModelContext ? {} : { opacity: 0.4 }) }} />
+                {t('Model Context')}
+                <textarea value={form.modelContext} onChange={e => setForm({ ...form, modelContext: e.target.value })} placeholder={form.enableModelContext ? t('Agent-accumulated context...') : t('Enable Model Context to use')} disabled={!form.enableModelContext} style={{ flex: 1, minHeight: '150px', resize: 'none', ...(form.enableModelContext ? {} : { opacity: 0.4 }) }} />
               </label>
             </div>
 
             <div className="modal-actions">
-              <button type="submit" className="btn btn-primary">Save</button>
-              <button type="button" className="btn" onClick={() => setShowForm(false)}>Cancel</button>
+              <button type="submit" className="btn btn-primary">{t('Save')}</button>
+              <button type="button" className="btn" onClick={() => setShowForm(false)}>{t('Cancel')}</button>
             </div>
           </form>
         </div>
@@ -362,8 +353,8 @@ export default function Vessels() {
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
 
-      {loading && vessels.length === 0 && <p className="text-dim">Loading...</p>}
-      {!loading && vessels.length === 0 && <p className="text-dim">No vessels configured.</p>}
+      {loading && vessels.length === 0 && <p className="text-dim">{t('Loading...')}</p>}
+      {!loading && vessels.length === 0 && <p className="text-dim">{t('No vessels configured.')}</p>}
 
       {vessels.length > 0 && (
         <>
@@ -376,38 +367,38 @@ export default function Vessels() {
               <thead>
                 <tr>
                   <th className="col-checkbox">
-                    <input type="checkbox" checked={allSelected} onChange={e => e.target.checked ? selectAll() : clearSelection()} title="Select all vessels" />
+                    <input type="checkbox" checked={allSelected} onChange={e => e.target.checked ? selectAll() : clearSelection()} title={t('Select all vessels')} />
                   </th>
-                  <th className="sortable" onClick={() => handleSort('name')} title="Vessel name -- click to sort">
-                    Name{sortIcon('name')}
+                  <th className="sortable" onClick={() => handleSort('name')} title={t('Vessel name -- click to sort')}>
+                    {t('Name')}{sortIcon('name')}
                   </th>
-                  <th>ID</th>
-                  <th className="sortable" onClick={() => handleSort('fleetId')} title="Fleet -- click to sort">
-                    Fleet{sortIcon('fleetId')}
+                  <th>{t('ID')}</th>
+                  <th className="sortable" onClick={() => handleSort('fleetId')} title={t('Fleet -- click to sort')}>
+                    {t('Fleet')}{sortIcon('fleetId')}
                   </th>
-                  <th title="Remote git repository URL">Repo URL</th>
-                  <th className="sortable" onClick={() => handleSort('defaultBranch')} title="Default branch -- click to sort">
-                    Branch{sortIcon('defaultBranch')}
+                  <th title={t('Remote git repository URL')}>{t('Repo URL')}</th>
+                  <th className="sortable" onClick={() => handleSort('defaultBranch')} title={t('Default branch -- click to sort')}>
+                    {t('Branch')}{sortIcon('defaultBranch')}
                   </th>
-                  <th title="How completed mission work is integrated (LocalMerge, PullRequest, MergeQueue, None)">Landing Mode</th>
-                  <th title="Commits ahead and behind the remote default branch">Sync</th>
-                  <th className="text-right">Actions</th>
+                  <th title={t('How completed mission work is integrated (LocalMerge, PullRequest, MergeQueue, None)')}>{t('Landing Mode')}</th>
+                  <th title={t('Commits ahead and behind the remote default branch')}>{t('Sync')}</th>
+                  <th className="text-right">{t('Actions')}</th>
                 </tr>
                 <tr className="column-filter-row">
                   <td></td>
-                  <td><input type="text" className="col-filter" value={colFilters.name} onChange={e => { setColFilters(f => ({ ...f, name: e.target.value })); setPageNumber(1); }} placeholder="Filter..." /></td>
+                  <td><input type="text" className="col-filter" value={colFilters.name} onChange={e => { setColFilters(f => ({ ...f, name: e.target.value })); setPageNumber(1); }} placeholder={t('Search...')} /></td>
                   <td></td>
                   <td>
-                    <select className="col-filter" title="Filter vessels by fleet" value={colFilters.fleetId} onChange={e => { setColFilters(f => ({ ...f, fleetId: e.target.value })); setPageNumber(1); }}>
-                      <option value="">All Fleets</option>
+                    <select className="col-filter" title={t('Filter vessels by fleet')} value={colFilters.fleetId} onChange={e => { setColFilters(f => ({ ...f, fleetId: e.target.value })); setPageNumber(1); }}>
+                      <option value="">{t('All Fleets')}</option>
                       {fleets.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
                     </select>
                   </td>
-                  <td><input type="text" className="col-filter" value={colFilters.repoUrl} onChange={e => { setColFilters(f => ({ ...f, repoUrl: e.target.value })); setPageNumber(1); }} placeholder="Filter..." /></td>
+                  <td><input type="text" className="col-filter" value={colFilters.repoUrl} onChange={e => { setColFilters(f => ({ ...f, repoUrl: e.target.value })); setPageNumber(1); }} placeholder={t('Search...')} /></td>
                   <td></td>
                   <td>
-                    <select className="col-filter" title="Filter vessels by landing mode" value={colFilters.landingMode} onChange={e => { setColFilters(f => ({ ...f, landingMode: e.target.value })); setPageNumber(1); }}>
-                      <option value="">All Modes</option>
+                    <select className="col-filter" title={t('Filter vessels by landing mode')} value={colFilters.landingMode} onChange={e => { setColFilters(f => ({ ...f, landingMode: e.target.value })); setPageNumber(1); }}>
+                      <option value="">{t('All Modes')}</option>
                       <option value="LocalMerge">LocalMerge</option>
                       <option value="PullRequest">PullRequest</option>
                       <option value="MergeQueue">MergeQueue</option>
@@ -422,7 +413,7 @@ export default function Vessels() {
                 {paginated.map(v => (
                   <tr key={v.id} className="clickable" onClick={() => openEdit(v)}>
                     <td className="col-checkbox" onClick={e => e.stopPropagation()}>
-                      <input type="checkbox" checked={selected.includes(v.id)} onChange={() => toggleSelect(v.id)} title="Select this vessel" />
+                      <input type="checkbox" checked={selected.includes(v.id)} onChange={() => toggleSelect(v.id)} title={t('Select this vessel')} />
                     </td>
                     <td><strong>{v.name}</strong></td>
                     <td className="mono text-dim table-id-cell">
@@ -452,18 +443,18 @@ export default function Vessels() {
                         <CopyButton text={v.defaultBranch || 'main'} onClick={e => e.stopPropagation()} title="Copy branch" />
                       </span>
                     </td>
-                    <td className="text-dim" title={v.landingMode === 'LocalMerge' ? 'Merge into local working directory' : v.landingMode === 'PullRequest' ? 'Push and create pull request' : v.landingMode === 'MergeQueue' ? 'Enqueue for validated merge' : v.landingMode === 'None' ? 'No automatic landing' : 'Uses global setting'}>{v.landingMode || '-'}</td>
+                    <td className="text-dim" title={v.landingMode === 'LocalMerge' ? t('Merge into local working directory') : v.landingMode === 'PullRequest' ? t('Push and create pull request') : v.landingMode === 'MergeQueue' ? t('Enqueue for validated merge') : v.landingMode === 'None' ? t('No automatic landing') : t('Uses global setting')}>{v.landingMode || '-'}</td>
                     <td>
                       {(() => {
                         const gs = gitStatus[v.id];
                         if (!gs || (gs.ahead === null && gs.behind === null)) return <span className="text-dim">-</span>;
                         const ahead = gs.ahead ?? 0;
                         const behind = gs.behind ?? 0;
-                        if (ahead === 0 && behind === 0) return <span className="git-sync-badge git-sync-even" title="Up to date with remote">in sync</span>;
+                        if (ahead === 0 && behind === 0) return <span className="git-sync-badge git-sync-even" title={t('Up to date with remote')}>{t('in sync')}</span>;
                         return (
                           <span className="git-sync-badges">
-                            {ahead > 0 && <span className="git-sync-badge git-sync-ahead" title={ahead + ' commit(s) ahead of remote -- needs push'}>{ahead} ahead</span>}
-                            {behind > 0 && <span className="git-sync-badge git-sync-behind" title={behind + ' commit(s) behind remote -- needs pull'}>{behind} behind</span>}
+                            {ahead > 0 && <span className="git-sync-badge git-sync-ahead" title={t('{{count}} commit(s) ahead of remote -- needs push', { count: ahead })}>{ahead} {t('ahead')}</span>}
+                            {behind > 0 && <span className="git-sync-badge git-sync-behind" title={t('{{count}} commit(s) behind remote -- needs pull', { count: behind })}>{behind} {t('behind')}</span>}
                           </span>
                         );
                       })()}
@@ -479,7 +470,7 @@ export default function Vessels() {
                   </tr>
                 ))}
                 {paginated.length === 0 && (
-                  <tr><td colSpan={9} className="text-dim">No vessels match the current filters.</td></tr>
+                  <tr><td colSpan={9} className="text-dim">{t('No vessels match the current filters.')}</td></tr>
                 )}
               </tbody>
             </table>

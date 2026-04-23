@@ -177,7 +177,7 @@ window.ArmadaModules.viewers = {
 
     async loadMissionLog(missionId) {
         let title = this.detail ? this.detail.title : missionId;
-        this.openViewer('Log: ' + title, 'Loading…');
+        this.openViewer('Log: ' + title, 'Loading...');
         try {
             let result = await this.api('GET', '/api/v1/missions/' + missionId + '/log?lines=500');
             let logText = result.log || 'No log output';

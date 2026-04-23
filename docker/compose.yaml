@@ -4,7 +4,6 @@ services:
     ports:
       - "7890:7890"
       - "7891:7891"
-      - "7892:7892"
     volumes:
       - ./server/armada.json:/app/data/armada.json
       - ./armada/db:/app/data/db

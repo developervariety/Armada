@@ -17,25 +17,16 @@ import LogViewer from '../components/shared/LogViewer';
 import ErrorModal from '../components/shared/ErrorModal';
 import RefreshButton from '../components/shared/RefreshButton';
 import CopyButton from '../components/shared/CopyButton';
+import { useLocale } from '../context/LocaleContext';
 
 type SortDir = 'asc' | 'desc';
 type SortField = 'title' | 'status' | 'priority' | 'createdUtc';
 
 const MISSION_STATUSES = ['Pending', 'Assigned', 'InProgress', 'WorkProduced', 'Testing', 'Review', 'Complete', 'Failed', 'Cancelled'];
 
-function formatTime(utc: string | null): string {
-  if (!utc) return '-';
-  const d = new Date(utc);
-  const now = new Date();
-  const diff = now.getTime() - d.getTime();
-  if (diff < 60000) return 'just now';
-  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
-  return d.toLocaleDateString();
-}
-
 export default function Missions() {
   const navigate = useNavigate();
+  const { t } = useLocale();
   const [missions, setMissions] = useState<Mission[]>([]);
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [captains, setCaptains] = useState<Captain[]>([]);
@@ -108,11 +99,11 @@ export default function Missions() {
       setTotalRecords(result.totalRecords || 0);
       setError('');
     } catch {
-      setError('Failed to load missions.');
+      setError(t('Failed to load missions.'));
     } finally {
       setLoading(false);
     }
-  }, [pageNumber, pageSize, statusFilter]);
+  }, [pageNumber, pageSize, statusFilter, t]);
 
   useEffect(() => {
     listVessels({ pageSize: 1000 }).then(r => setVessels(r.objects || [])).catch(() => {});
@@ -179,18 +170,18 @@ export default function Missions() {
       await createMission(formData);
       setShowForm(false);
       load();
-    } catch { setError('Create failed.'); }
+    } catch { setError(t('Create failed.')); }
   }
 
   // Actions
   function handleDelete(id: string, title: string) {
     setConfirm({
       open: true,
-      title: 'Cancel Mission',
-      message: `Cancel mission "${title}"? The mission will be set to Cancelled status but remains in the database. Use Purge to permanently remove it.`,
+      title: t('Cancel Mission'),
+      message: t('Cancel mission "{{title}}"? The mission will be set to Cancelled status but remains in the database. Use Purge to permanently remove it.', { title }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
-        try { await deleteMission(id); load(); } catch { setError('Cancel failed.'); }
+        try { await deleteMission(id); load(); } catch { setError(t('Cancel failed.')); }
       },
     });
   }
@@ -198,11 +189,11 @@ export default function Missions() {
   function handlePurge(id: string, title: string) {
     setConfirm({
       open: true,
-      title: 'Purge Mission',
-      message: `Purge mission "${title}"? This will permanently remove it and clean up all associated resources. This cannot be undone.`,
+      title: t('Purge Mission'),
+      message: t('Purge mission "{{title}}"? This will permanently remove it and clean up all associated resources. This cannot be undone.', { title }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
-        try { await purgeMission(id); load(); } catch { setError('Purge failed.'); }
+        try { await purgeMission(id); load(); } catch { setError(t('Purge failed.')); }
       },
     });
   }
@@ -210,8 +201,8 @@ export default function Missions() {
   function handleBulkDelete() {
     setConfirm({
       open: true,
-      title: 'Delete Selected Missions',
-      message: `Delete ${selected.length} selected mission(s)? This cannot be undone.`,
+      title: t('Delete Selected Missions'),
+      message: t('Delete {{count}} selected mission(s)? This cannot be undone.', { count: selected.length }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
         const ids = [...selected];
@@ -220,30 +211,30 @@ export default function Missions() {
         for (const id of ids) {
           try { await purgeMission(id); } catch { failed++; }
         }
-        if (failed > 0) setError(`Deleted ${ids.length - failed} missions, ${failed} failed.`);
+        if (failed > 0) setError(t('Deleted {{success}} missions, {{failed}} failed.', { success: ids.length - failed, failed }));
         load();
       },
     });
   }
 
   async function handleRestart(m: Mission) {
-    try { await restartMission(m.id); load(); } catch { setError('Restart failed.'); }
+    try { await restartMission(m.id); load(); } catch { setError(t('Restart failed.')); }
   }
 
   async function handleRetryLanding(m: Mission) {
     try {
       await retryMissionLanding(m.id);
-      pushToast('success', 'Landing succeeded for "' + m.title + '"');
+      pushToast('success', t('Landing succeeded for "{{title}}"', { title: m.title }));
       load();
-    } catch (e) { setError(e instanceof Error ? e.message : 'Retry landing failed.'); }
+    } catch (e) { setError(e instanceof Error ? e.message : t('Retry landing failed.')); }
   }
 
   async function handleViewDiff(id: string) {
     try {
       const result = await getMissionDiff(id);
-      setDiffModal({ title: 'Mission Diff', rawDiff: result?.diff || '' });
+      setDiffModal({ title: t('Mission Diff'), rawDiff: result?.diff || '' });
     } catch {
-      setDiffModal({ title: 'Mission Diff', rawDiff: '' });
+      setDiffModal({ title: t('Mission Diff'), rawDiff: '' });
     }
   }
 
@@ -251,9 +242,9 @@ export default function Missions() {
     setLogModal({ title, missionId, content: '', loading: true });
     try {
       const result = await getMissionLog(missionId, lineCount);
-      setLogModal(prev => prev ? { ...prev, content: result.log || 'No log output', totalLines: result.totalLines, loading: false } : null);
+      setLogModal(prev => prev ? { ...prev, content: result.log || t('No log output'), totalLines: result.totalLines, loading: false } : null);
     } catch (e: unknown) {
-      setLogModal(prev => prev ? { ...prev, content: 'Log unavailable: ' + (e instanceof Error ? e.message : String(e)), loading: false } : null);
+      setLogModal(prev => prev ? { ...prev, content: t('Log unavailable: {{message}}', { message: e instanceof Error ? e.message : String(e) }), loading: false } : null);
     }
   }
 
@@ -264,27 +255,27 @@ export default function Missions() {
       setTransitionModal(null);
       setTransitionTarget('');
       load();
-    } catch { setError('Transition failed.'); }
+    } catch { setError(t('Transition failed.')); }
   }
 
   return (
     <div>
       <div className="view-header">
         <div>
-          <h2>Missions</h2>
-          <p className="text-dim view-subtitle">Individual work units assigned to AI captains. Create, monitor, and manage mission execution.</p>
+          <h2>{t('Missions')}</h2>
+          <p className="text-dim view-subtitle">{t('Individual work units assigned to captains')}</p>
         </div>
         <div className="view-actions">
-          <select className="filter-select" value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPageNumber(1); }} title="Filter by status">
-            <option value="">All Statuses</option>
-            {MISSION_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+          <select className="filter-select" value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPageNumber(1); }} title={t('Filter by status')}>
+            <option value="">{t('All Statuses')}</option>
+            {MISSION_STATUSES.map(s => <option key={s} value={s}>{t(s)}</option>)}
           </select>
           {selected.length > 0 && (
             <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>
-              Delete Selected ({selected.length})
+              {t('Delete Selected')} ({selected.length})
             </button>
           )}
-          <button className="btn btn-primary btn-sm" onClick={openCreate}>+ Mission</button>
+          <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Mission')}</button>
           <RefreshButton onRefresh={load} title="Refresh mission data" />
         </div>
       </div>
@@ -295,19 +286,19 @@ export default function Missions() {
       {showForm && (
         <div className="modal-overlay" onClick={() => setShowForm(false)}>
           <form className="modal" onClick={e => e.stopPropagation()} onSubmit={handleSubmit}>
-            <h3>Create Mission</h3>
-            <label>Title<input value={formData.title} onChange={e => setFormData({ ...formData, title: e.target.value })} required /></label>
-            <label>Description<textarea value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} rows={3} /></label>
-            <label>Vessel
+            <h3>{t('Create Mission')}</h3>
+            <label>{t('Title')}<input value={formData.title} onChange={e => setFormData({ ...formData, title: e.target.value })} required /></label>
+            <label>{t('Description')}<textarea value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} rows={3} /></label>
+            <label>{t('Vessel')}
               <select value={formData.vesselId} onChange={e => setFormData({ ...formData, vesselId: e.target.value })} required>
-                <option value="">Select a vessel...</option>
+                <option value="">{t('Select a vessel...')}</option>
                 {vessels.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
               </select>
             </label>
-            <label>Priority<input type="number" value={formData.priority} onChange={e => setFormData({ ...formData, priority: Number(e.target.value) })} /></label>
+            <label>{t('Priority')}<input type="number" value={formData.priority} onChange={e => setFormData({ ...formData, priority: Number(e.target.value) })} /></label>
             <div className="modal-actions">
-              <button type="submit" className="btn btn-primary">Create</button>
-              <button type="button" className="btn" onClick={() => setShowForm(false)}>Cancel</button>
+              <button type="submit" className="btn btn-primary">{t('Create')}</button>
+              <button type="button" className="btn" onClick={() => setShowForm(false)}>{t('Cancel')}</button>
             </div>
           </form>
         </div>
@@ -317,17 +308,17 @@ export default function Missions() {
       {transitionModal && (
         <div className="modal-overlay" onClick={() => setTransitionModal(null)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
-            <h3>Transition Mission Status</h3>
-            <p>Current status: <strong>{transitionModal.currentStatus}</strong></p>
-            <label>New Status
+            <h3>{t('Transition Mission Status')}</h3>
+            <p>{t('Current status:')} <strong>{t(transitionModal.currentStatus)}</strong></p>
+            <label>{t('New Status')}
               <select value={transitionTarget} onChange={e => setTransitionTarget(e.target.value)}>
-                <option value="">Select status...</option>
-                {MISSION_STATUSES.filter(s => s !== transitionModal.currentStatus).map(s => <option key={s} value={s}>{s}</option>)}
+                <option value="">{t('Select status...')}</option>
+                {MISSION_STATUSES.filter(s => s !== transitionModal.currentStatus).map(s => <option key={s} value={s}>{t(s)}</option>)}
               </select>
             </label>
             <div className="modal-actions">
-              <button className="btn btn-primary" onClick={handleTransition} disabled={!transitionTarget}>Transition</button>
-              <button className="btn" onClick={() => setTransitionModal(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleTransition} disabled={!transitionTarget}>{t('Transition')}</button>
+              <button className="btn" onClick={() => setTransitionModal(null)}>{t('Cancel')}</button>
             </div>
           </div>
         </div>
@@ -348,8 +339,8 @@ export default function Missions() {
         onLineCountChange={logModal ? (lines) => handleViewLog(logModal.missionId, logModal.title, lines) : undefined}
       />
 
-      {loading && missions.length === 0 && <p className="text-dim">Loading...</p>}
-      {!loading && missions.length === 0 && <p className="text-dim">No missions found.</p>}
+      {loading && missions.length === 0 && <p className="text-dim">{t('Loading...')}</p>}
+      {!loading && missions.length === 0 && <p className="text-dim">{t('No missions found.')}</p>}
 
       {missions.length > 0 && (
         <>
@@ -362,34 +353,34 @@ export default function Missions() {
               <thead>
                 <tr>
                   <th className="col-checkbox">
-                    <input type="checkbox" checked={allSelected} onChange={e => e.target.checked ? selectAll() : clearSelection()} title="Select all missions" />
+                    <input type="checkbox" checked={allSelected} onChange={e => e.target.checked ? selectAll() : clearSelection()} title={t('Select all missions')} />
                   </th>
-                  <th className="sortable" onClick={() => handleSort('title')} title="Mission title -- click to sort">
-                    Title{sortIcon('title')}
+                  <th className="sortable" onClick={() => handleSort('title')} title={t('Mission title -- click to sort')}>
+                    {t('Title')}{sortIcon('title')}
                   </th>
-                  <th>ID</th>
-                  <th className="sortable" onClick={() => handleSort('status')} title="Status -- click to sort">
-                    Status{sortIcon('status')}
+                  <th>{t('ID')}</th>
+                  <th className="sortable" onClick={() => handleSort('status')} title={t('Status -- click to sort')}>
+                    {t('Status')}{sortIcon('status')}
                   </th>
-                  <th className="sortable" onClick={() => handleSort('priority')} title="Priority -- click to sort">
-                    Priority{sortIcon('priority')}
+                  <th className="sortable" onClick={() => handleSort('priority')} title={t('Priority -- click to sort')}>
+                    {t('Priority')}{sortIcon('priority')}
                   </th>
-                  <th>Vessel</th>
-                  <th>Captain</th>
-                  <th>Voyage</th>
-                  <th>Branch</th>
-                  <th className="text-right">Actions</th>
+                  <th>{t('Vessel')}</th>
+                  <th>{t('Captain')}</th>
+                  <th>{t('Voyage')}</th>
+                  <th>{t('Branch')}</th>
+                  <th className="text-right">{t('Actions')}</th>
                 </tr>
                 <tr className="column-filter-row">
                   <td></td>
-                  <td><input type="text" className="col-filter" value={colFilters.title} onChange={e => setColFilters(f => ({ ...f, title: e.target.value }))} placeholder="Filter..." /></td>
+                  <td><input type="text" className="col-filter" value={colFilters.title} onChange={e => setColFilters(f => ({ ...f, title: e.target.value }))} placeholder={t('Search...')} /></td>
                   <td></td>
-                  <td><input type="text" className="col-filter" value={colFilters.status} onChange={e => setColFilters(f => ({ ...f, status: e.target.value }))} placeholder="Filter..." /></td>
-                  <td></td>
-                  <td></td>
+                  <td><input type="text" className="col-filter" value={colFilters.status} onChange={e => setColFilters(f => ({ ...f, status: e.target.value }))} placeholder={t('Search...')} /></td>
                   <td></td>
                   <td></td>
-                  <td><input type="text" className="col-filter" value={colFilters.branch} onChange={e => setColFilters(f => ({ ...f, branch: e.target.value }))} placeholder="Filter..." /></td>
+                  <td></td>
+                  <td></td>
+                  <td><input type="text" className="col-filter" value={colFilters.branch} onChange={e => setColFilters(f => ({ ...f, branch: e.target.value }))} placeholder={t('Search...')} /></td>
                   <td></td>
                 </tr>
               </thead>
@@ -397,7 +388,7 @@ export default function Missions() {
                 {sorted.map(m => (
                   <tr key={m.id} className="clickable" onClick={() => navigate(`/missions/${m.id}`)}>
                     <td className="col-checkbox" onClick={e => e.stopPropagation()}>
-                      <input type="checkbox" checked={selected.includes(m.id)} onChange={() => toggleSelect(m.id)} title="Select this mission" />
+                      <input type="checkbox" checked={selected.includes(m.id)} onChange={() => toggleSelect(m.id)} title={t('Select this mission')} />
                     </td>
                     <td className="truncate-cell" style={{ maxWidth: 240 }} title={m.title}>
                       <strong className="truncate-text">
@@ -454,7 +445,7 @@ export default function Missions() {
                   </tr>
                 ))}
                 {sorted.length === 0 && (
-                  <tr><td colSpan={13} className="text-dim">No missions match the current filters.</td></tr>
+                  <tr><td colSpan={13} className="text-dim">{t('No missions match the current filters.')}</td></tr>
                 )}
               </tbody>
             </table>

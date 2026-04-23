@@ -14,6 +14,7 @@ import { useNotifications, type Severity } from '../context/NotificationContext'
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import CopyButton, { copyToClipboard } from '../components/shared/CopyButton';
 import { useAuth } from '../context/AuthContext';
+import { useLocale } from '../context/LocaleContext';
 import ErrorModal from '../components/shared/ErrorModal';
 
 interface HealthInfo {
@@ -99,11 +100,6 @@ const MCP_CLIENTS: McpClientReference[] = [
   { key: 'cursor', title: 'Cursor', location: '.cursor/mcp.json -> mcpServers.armada' },
 ];
 
-function formatTimeAbsolute(utc: string | null | undefined): string {
-  if (!utc) return '';
-  return new Date(utc).toLocaleString();
-}
-
 function getDefaultRemoteControlSettings(): RemoteControlSettings {
   return {
     enabled: false,
@@ -133,23 +129,24 @@ function mergeServerSettings(data: ServerSettings | null): ServerSettings | null
 function getRemoteTunnelIndicator(
   enabled: boolean,
   state: string | null | undefined,
-): { label: string; dotClass: 'connected' | 'warning' | 'disconnected' } {
+): { labelKey: string; dotClass: 'connected' | 'warning' | 'disconnected' } {
   if (!enabled) {
-    return { label: 'Disabled', dotClass: 'disconnected' };
+    return { labelKey: 'Disabled', dotClass: 'disconnected' };
   }
 
   switch ((state || '').toLowerCase()) {
     case 'connected':
-      return { label: 'Connected', dotClass: 'connected' };
+      return { labelKey: 'Connected', dotClass: 'connected' };
     case 'connecting':
+      return { labelKey: 'Connecting', dotClass: 'warning' };
     case 'stopping':
-      return { label: state || 'Connecting', dotClass: 'warning' };
+      return { labelKey: 'Stopping', dotClass: 'warning' };
     case 'error':
-      return { label: 'Error', dotClass: 'disconnected' };
+      return { labelKey: 'Error', dotClass: 'disconnected' };
     case 'disconnected':
-      return { label: 'Disconnected', dotClass: 'disconnected' };
+      return { labelKey: 'Disconnected', dotClass: 'disconnected' };
     default:
-      return { label: 'Checking status', dotClass: 'warning' };
+      return { labelKey: 'Checking status', dotClass: 'warning' };
   }
 }
 
@@ -157,6 +154,7 @@ export default function Server() {
   const { isAdmin } = useAuth();
   const { connected } = useWebSocket();
   const { pushToast } = useNotifications();
+  const { t, formatDateTime } = useLocale();
 
   const [health, setHealth] = useState<HealthInfo | null>(null);
   const [settings, setSettings] = useState<ServerSettings | null>(null);
@@ -166,6 +164,7 @@ export default function Server() {
   const [revealedRemoteField, setRevealedRemoteField] = useState<RemoteSecretField | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<{
     open: boolean;
+    title?: string;
     message: string;
     onConfirm: () => void;
   }>({ open: false, message: '', onConfirm: () => {} });
@@ -175,6 +174,36 @@ export default function Server() {
   const showToast = useCallback((severity: Severity, msg: string) => {
     pushToast(severity, msg);
   }, [pushToast]);
+
+  const closeConfirmDialog = useCallback(() => {
+    setConfirmDialog({ open: false, message: '', onConfirm: () => {} });
+  }, []);
+
+  const formatAbsoluteTime = useCallback((utc: string | null | undefined) => {
+    const formatted = formatDateTime(utc);
+    return formatted || '-';
+  }, [formatDateTime]);
+
+  const translateHealthStatus = useCallback((status: string | null | undefined) => {
+    switch ((status || '').toLowerCase()) {
+      case 'healthy':
+        return t('Healthy');
+      case 'degraded':
+        return t('Degraded');
+      case 'unhealthy':
+        return t('Unhealthy');
+      case 'error':
+        return t('Error');
+      case 'unknown':
+        return t('Unknown');
+      default:
+        return status || '-';
+    }
+  }, [t]);
+
+  const translateRemoteTunnelState = useCallback((enabled: boolean, state: string | null | undefined) => {
+    return t(getRemoteTunnelIndicator(enabled, state).labelKey);
+  }, [t]);
 
   function beginRevealRemoteField(field: RemoteSecretField) {
     setRevealedRemoteField(field);
@@ -193,14 +222,14 @@ export default function Server() {
       ]);
       if (h) setHealth(h as unknown as HealthInfo);
       if (s) setSettings(mergeServerSettings(s as unknown as ServerSettings));
-      if (!h && !s) setError('Failed to load server data.');
-      else if (!s) setError('Failed to load server settings. Health data is available, but configuration and backup sections could not be loaded.');
+      if (!h && !s) setError(t('Failed to load server data.'));
+      else if (!s) setError(t('Failed to load server settings. Health data is available, but configuration and backup sections could not be loaded.'));
     } catch {
-      setError('Failed to load server data.');
+      setError(t('Failed to load server data.'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     loadData();
@@ -215,10 +244,10 @@ export default function Server() {
         maxCaptains: settings.maxCaptains,
       });
       setSettings(mergeServerSettings(updated as unknown as ServerSettings));
-      showToast('success', 'Server configuration saved');
+      showToast('success', t('Server configuration saved'));
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Unknown error';
-      showToast('error', `Failed: ${msg}`);
+      const msg = e instanceof Error ? e.message : t('Unknown error');
+      showToast('error', t('Failed: {{message}}', { message: msg }));
     }
   };
 
@@ -232,10 +261,10 @@ export default function Server() {
         autoCreatePr: settings.autoCreatePr,
       });
       setSettings(mergeServerSettings(updated as unknown as ServerSettings));
-      showToast('success', 'Agent settings saved');
+      showToast('success', t('Agent settings saved'));
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Unknown error';
-      showToast('error', `Failed: ${msg}`);
+      const msg = e instanceof Error ? e.message : t('Unknown error');
+      showToast('error', t('Failed: {{message}}', { message: msg }));
     }
   };
 
@@ -246,12 +275,12 @@ export default function Server() {
         remoteControl: settings.remoteControl,
       });
       setSettings(mergeServerSettings(updated as unknown as ServerSettings));
-      showToast('success', 'Remote control settings saved');
+      showToast('success', t('Remote control settings saved'));
       const refreshedHealth = (await getHealth()) as unknown as HealthInfo;
       setHealth(refreshedHealth);
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Unknown error';
-      showToast('error', `Failed: ${msg}`);
+      const msg = e instanceof Error ? e.message : t('Unknown error');
+      showToast('error', t('Failed: {{message}}', { message: msg }));
     }
   };
 
@@ -268,8 +297,8 @@ export default function Server() {
 
     setConfirmDialog({
       open: true,
-      message:
-        'Enabling remote tunnel will enable remote connectivity to this Armada instance.  Are you sure?',
+      title: t('Enable Remote Tunnel'),
+      message: t('Enabling remote tunnel will enable remote connectivity to this Armada instance. Are you sure?'),
       onConfirm: () => {
         setSettings(current =>
           current
@@ -279,7 +308,7 @@ export default function Server() {
               }
             : current,
         );
-        setConfirmDialog({ open: false, message: '', onConfirm: () => {} });
+        closeConfirmDialog();
       },
     });
   };
@@ -288,10 +317,13 @@ export default function Server() {
     try {
       const result = (await getHealth()) as unknown as HealthInfo;
       setHealth(result);
-      showToast('info', `Health: ${result.status} | Uptime: ${result.uptime}`);
+      showToast('info', t('Health: {{status}} | Uptime: {{uptime}}', {
+        status: translateHealthStatus(result.status),
+        uptime: result.uptime,
+      }));
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Unknown error';
-      showToast('error', `Health check failed: ${msg}`);
+      const msg = e instanceof Error ? e.message : t('Unknown error');
+      showToast('error', t('Health check failed: {{message}}', { message: msg }));
     }
   };
 
@@ -299,10 +331,10 @@ export default function Server() {
     setBackupLoading(true);
     try {
       await downloadBackup();
-      showToast('success', 'Backup downloaded');
+      showToast('success', t('Backup downloaded'));
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Unknown error';
-      showToast('error', `Backup failed: ${msg}`);
+      const msg = e instanceof Error ? e.message : t('Unknown error');
+      showToast('error', t('Backup failed: {{message}}', { message: msg }));
     } finally {
       setBackupLoading(false);
     }
@@ -317,11 +349,11 @@ export default function Server() {
     if (!file) return;
     try {
       await restoreBackup(file);
-      showToast('success', 'Restore completed successfully. Server restart recommended.');
+      showToast('success', t('Restore completed successfully. Server restart recommended.'));
       loadData();
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Unknown error';
-      showToast('error', `Restore failed: ${msg}`);
+      const msg = err instanceof Error ? err.message : t('Unknown error');
+      showToast('error', t('Restore failed: {{message}}', { message: msg }));
     }
     if (restoreFileRef.current) restoreFileRef.current.value = '';
   };
@@ -329,16 +361,17 @@ export default function Server() {
   const handleStopServer = () => {
     setConfirmDialog({
       open: true,
-      message: 'Stop the Admiral server? This will shut down everything.',
+      title: t('Stop Server'),
+      message: t('Stop the Admiral server? This will shut down everything.'),
       onConfirm: async () => {
         try {
           await stopServer();
-          showToast('warning', 'Server shutting down...');
+          showToast('warning', t('Server shutting down...'));
         } catch (e: unknown) {
-          const msg = e instanceof Error ? e.message : 'Unknown error';
-          showToast('error', `Failed: ${msg}`);
+          const msg = e instanceof Error ? e.message : t('Unknown error');
+          showToast('error', t('Failed: {{message}}', { message: msg }));
         }
-        setConfirmDialog({ open: false, message: '', onConfirm: () => {} });
+        closeConfirmDialog();
       },
     });
   };
@@ -346,17 +379,17 @@ export default function Server() {
   const handleFactoryReset = () => {
     setConfirmDialog({
       open: true,
-      message:
-        'WARNING: Factory reset will delete ALL data including the database, logs, docks, and repos. Settings will be preserved. This cannot be undone. Continue?',
+      title: t('Factory Reset'),
+      message: t('WARNING: Factory reset will delete ALL data including the database, logs, docks, and repos. Settings will be preserved. This cannot be undone. Continue?'),
       onConfirm: async () => {
         try {
           await resetServer();
-          showToast('success', 'Factory reset complete');
+          showToast('success', t('Factory reset complete'));
         } catch (e: unknown) {
-          const msg = e instanceof Error ? e.message : 'Unknown error';
-          showToast('error', `Factory reset failed: ${msg}`);
+          const msg = e instanceof Error ? e.message : t('Unknown error');
+          showToast('error', t('Factory reset failed: {{message}}', { message: msg }));
         }
-        setConfirmDialog({ open: false, message: '', onConfirm: () => {} });
+        closeConfirmDialog();
       },
     });
   };
@@ -447,19 +480,76 @@ export default function Server() {
   };
 
   const copyAndToast = (text: string) => {
-    copyToClipboard(text).then(() => showToast('success', 'Copied to clipboard')).catch(() => {});
+    copyToClipboard(text).then(() => showToast('success', t('Copied to clipboard'))).catch(() => {});
   };
 
+  const remoteTunnelEnabled = settings?.remoteControl.enabled ?? health?.remoteTunnel?.enabled ?? false;
   const remoteTunnelIndicator = getRemoteTunnelIndicator(
-    settings?.remoteControl.enabled ?? false,
+    remoteTunnelEnabled,
     health?.remoteTunnel?.state,
   );
+  const serverDetailFields = [
+    {
+      key: 'version',
+      label: 'Version',
+      help: 'Currently running Armada server build version.',
+      value: health?.version || '-',
+    },
+    {
+      key: 'api-url',
+      label: 'API URL',
+      help: 'Base URL of the Armada REST API serving this dashboard.',
+      value: window.location.origin,
+    },
+    {
+      key: 'admiral-port',
+      label: 'Admiral Port',
+      help: 'REST API port currently serving the Armada dashboard and API.',
+      value: String(health?.ports?.admiral || window.location.port || '-'),
+    },
+    {
+      key: 'mcp-port',
+      label: 'MCP Port',
+      help: 'Port currently serving the Armada MCP HTTP endpoint.',
+      value: String(health?.ports?.mcp || '-'),
+    },
+    {
+      key: 'websocket-port',
+      label: 'WebSocket Port',
+      help: 'Port currently serving the Armada WebSocket endpoint.',
+      value: String(health?.ports?.webSocket || '-'),
+    },
+    {
+      key: 'tunnel-state',
+      label: 'Tunnel State',
+      help: 'Current outbound tunnel connection state reported by the server.',
+      value: translateRemoteTunnelState(remoteTunnelEnabled, health?.remoteTunnel?.state),
+    },
+    {
+      key: 'tunnel-instance',
+      label: 'Tunnel Instance',
+      help: 'Remote tunnel instance identifier currently advertised to Armada.Proxy.',
+      value: health?.remoteTunnel?.instanceId || '-',
+    },
+    {
+      key: 'tunnel-latency',
+      label: 'Tunnel Latency',
+      help: 'Most recent measured round-trip latency for the remote tunnel.',
+      value: health?.remoteTunnel?.latencyMs != null ? `${health.remoteTunnel.latencyMs.toLocaleString()} ms` : '-',
+    },
+    {
+      key: 'tunnel-last-heartbeat',
+      label: 'Tunnel Last Heartbeat',
+      help: 'Timestamp of the most recent remote tunnel heartbeat.',
+      value: health?.remoteTunnel?.lastHeartbeatUtc ? formatAbsoluteTime(health.remoteTunnel.lastHeartbeatUtc) : '-',
+    },
+  ];
 
   if (loading) {
     return (
       <div>
-        <h2>Server Settings</h2>
-        <p className="text-muted">Loading...</p>
+        <h2>{t('Server Settings')}</h2>
+        <p className="text-muted">{t('Loading...')}</p>
       </div>
     );
   }
@@ -468,13 +558,13 @@ export default function Server() {
     <div>
       <div className="page-header">
         <div>
-          <h2>Server Settings</h2>
+          <h2>{t('Server Settings')}</h2>
           <p className="text-muted">
-            Admiral server health, configuration, and operational controls.
+            {t('Admiral server health, configuration, and operational controls.')}
           </p>
         </div>
         <div className="page-actions">
-          <RefreshButton onRefresh={loadData} title="Refresh server data" />
+          <RefreshButton onRefresh={loadData} title={t('Refresh server data')} />
         </div>
       </div>
 
@@ -482,101 +572,69 @@ export default function Server() {
 
       {/* Health Status Cards */}
       <div className="card-grid">
-        <div className="card" title="Current health status of the admiral server">
-          <div className="card-label">Health</div>
+        <div className="card" title={t('Current health status of the admiral server')}>
+          <div className="card-label">{t('Health')}</div>
           <div className="card-value" style={{ fontSize: '1.2rem' }}>
-            {health ? health.status : 'Loading...'}
+            {health ? translateHealthStatus(health.status) : t('Loading...')}
           </div>
           {health && (
             <div className="card-detail text-muted">
-              Checked: {formatTimeAbsolute(health.timestamp)}
+              {t('Checked: {{timestamp}}', { timestamp: formatAbsoluteTime(health.timestamp) })}
             </div>
           )}
         </div>
 
-        <div className="card" title="How long the server has been running">
-          <div className="card-label">Uptime</div>
+        <div className="card" title={t('How long the server has been running')}>
+          <div className="card-label">{t('Uptime')}</div>
           <div className="card-value" style={{ fontSize: '1.2rem' }}>
             {health?.uptime || '-'}
           </div>
           {health?.startUtc && (
             <div className="card-detail text-muted">
-              Started: {formatTimeAbsolute(health.startUtc)}
+              {t('Started: {{timestamp}}', { timestamp: formatAbsoluteTime(health.startUtc) })}
             </div>
           )}
         </div>
 
-        <div className="card" title="Current connection method to the server">
-          <div className="card-label">Connection</div>
+        <div className="card" title={t('Current connection method to the server')}>
+          <div className="card-label">{t('Connection')}</div>
           <div className="card-value" style={{ fontSize: '1.2rem' }}>
             <span
               className={`status-dot ${connected ? 'connected' : 'disconnected'}`}
               style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: '0.5rem' }}
             />
-            <span>{connected ? 'Live (WebSocket)' : 'Online (HTTP)'}</span>
+            <span>{t(connected ? 'Live (WebSocket)' : 'Online (HTTP)')}</span>
           </div>
         </div>
 
-        <div className="card" title="Current outbound remote-control tunnel status">
-          <div className="card-label">Remote Tunnel</div>
+        <div className="card" title={t('Current outbound remote-control tunnel status')}>
+          <div className="card-label">{t('Remote Tunnel')}</div>
           <div className="card-value" style={{ fontSize: '1.2rem' }}>
-            {health?.remoteTunnel?.state || 'Disabled'}
+            {translateRemoteTunnelState(remoteTunnelEnabled, health?.remoteTunnel?.state)}
           </div>
-          {health?.remoteTunnel && (
-            <div className="card-detail text-muted">
-              {health.remoteTunnel.tunnelUrl || 'No tunnel URL configured'}
-            </div>
-          )}
+          <div className="card-detail text-muted">
+            {health?.remoteTunnel?.tunnelUrl || t('No tunnel URL configured')}
+          </div>
         </div>
       </div>
 
       {/* Detail Fields */}
       <div className="detail-grid server-detail-grid" style={{ marginTop: '1rem' }}>
-        <div className="detail-field">
-          <span className="detail-label">Version</span>
-          <span className="mono">{health?.version || '-'}</span>
-        </div>
-        <div className="detail-field">
-          <span className="detail-label">API URL</span>
-          <span className="mono">{window.location.origin}</span>
-        </div>
-        <div className="detail-field">
-          <span className="detail-label">Admiral Port</span>
-          <span className="mono">{health?.ports?.admiral || window.location.port}</span>
-        </div>
-        <div className="detail-field">
-          <span className="detail-label">MCP Port</span>
-          <span className="mono">{health?.ports?.mcp || '-'}</span>
-        </div>
-        <div className="detail-field">
-          <span className="detail-label">WebSocket Port</span>
-          <span className="mono">{health?.ports?.webSocket || '-'}</span>
-        </div>
-        <div className="detail-field">
-          <span className="detail-label">Tunnel State</span>
-          <span className="mono">{health?.remoteTunnel?.state || '-'}</span>
-        </div>
-        <div className="detail-field">
-          <span className="detail-label">Tunnel Instance</span>
-          <span className="mono">{health?.remoteTunnel?.instanceId || '-'}</span>
-        </div>
-        <div className="detail-field">
-          <span className="detail-label">Tunnel Latency</span>
-          <span className="mono">{health?.remoteTunnel?.latencyMs != null ? `${health.remoteTunnel.latencyMs} ms` : '-'}</span>
-        </div>
-        <div className="detail-field">
-          <span className="detail-label">Tunnel Last Heartbeat</span>
-          <span className="mono">{formatTimeAbsolute(health?.remoteTunnel?.lastHeartbeatUtc)}</span>
-        </div>
+        {serverDetailFields.map((field) => (
+          <div key={field.key} className="detail-field" title={t(field.help)}>
+            <span className="detail-label" title={t(field.help)}>{t(field.label)}</span>
+            <span className="mono" title={t(field.help)}>{field.value}</span>
+          </div>
+        ))}
       </div>
 
       {/* Server Configuration */}
       {settings && (
         <div className="settings-section" style={{ marginTop: '1.5rem' }}>
-          <h3>Server Configuration</h3>
+          <h3>{t('Server Configuration')}</h3>
           <div className="settings-grid">
             <div className="form-group">
-              <label title="REST API port used by the Armada server and dashboard.">Admiral Port</label>
+              <label title={t('REST API port used by the Armada server and dashboard.')}>{t('Admiral Port')}</label>
               <input
                 type="number"
                 value={settings.admiralPort}
@@ -585,11 +643,11 @@ export default function Server() {
                 }
                 min={1}
                 max={65535}
-                title="REST API port (1-65535)"
+                title={t('REST API port (1-65535)')}
               />
             </div>
             <div className="form-group">
-              <label title="Port used by the Armada MCP HTTP endpoint.">MCP Port</label>
+              <label title={t('Port used by the Armada MCP HTTP endpoint.')}>{t('MCP Port')}</label>
               <input
                 type="number"
                 value={settings.mcpPort}
@@ -598,11 +656,11 @@ export default function Server() {
                 }
                 min={1}
                 max={65535}
-                title="MCP server port (1-65535)"
+                title={t('MCP server port (1-65535)')}
               />
             </div>
             <div className="form-group">
-              <label title="Maximum number of captains Armada may keep registered at once. Set to 0 for no fixed limit.">Max Captains</label>
+              <label title={t('Maximum number of captains Armada may keep registered at once. Set to 0 for no fixed limit.')}>{t('Max Captains')}</label>
               <input
                 type="number"
                 value={settings.maxCaptains}
@@ -610,16 +668,16 @@ export default function Server() {
                   setSettings({ ...settings, maxCaptains: parseInt(e.target.value) || 0 })
                 }
                 min={0}
-                title="Maximum captains (0 = unlimited)"
+                title={t('Maximum captains (0 = unlimited)')}
               />
             </div>
           </div>
           <button
             className="btn-primary btn-sm"
             onClick={handleSaveServerConfig}
-            title="Save server configuration changes"
+            title={t('Save server configuration changes')}
           >
-            Save Server Config
+            {t('Save Server Config')}
           </button>
         </div>
       )}
@@ -627,10 +685,10 @@ export default function Server() {
       {/* Agent Settings */}
       {settings && (
         <div className="settings-section" style={{ marginTop: '1.5rem' }}>
-          <h3>Agent Settings</h3>
+          <h3 title={t('Settings that control captain monitoring, stalling, cleanup, and pull-request automation.')}>{t('Agent Settings')}</h3>
           <div className="settings-grid">
             <div className="form-group">
-              <label title="How often Armada runs its health and dispatch checks.">Heartbeat Interval (seconds)</label>
+              <label title={t('How often Armada runs its health and dispatch checks.')}>{t('Heartbeat Interval (seconds)')}</label>
               <input
                 type="number"
                 value={settings.heartbeatIntervalSeconds}
@@ -641,11 +699,11 @@ export default function Server() {
                   })
                 }
                 min={5}
-                title="Health check interval, minimum 5 seconds"
+                title={t('Health check interval, minimum 5 seconds')}
               />
             </div>
             <div className="form-group">
-              <label title="How long a captain may go without meaningful progress before Armada considers it stalled.">Stall Threshold (minutes)</label>
+              <label title={t('How long a captain may go without meaningful progress before Armada considers it stalled.')}>{t('Stall Threshold (minutes)')}</label>
               <input
                 type="number"
                 value={settings.stallThresholdMinutes}
@@ -656,11 +714,11 @@ export default function Server() {
                   })
                 }
                 min={1}
-                title="Minutes before a captain is considered stalled"
+                title={t('Minutes before a captain is considered stalled')}
               />
             </div>
             <div className="form-group">
-              <label title="How long an idle captain may sit unused before Armada automatically removes it. Set to 0 to disable auto-removal.">Idle Captain Timeout (seconds)</label>
+              <label title={t('How long an idle captain may sit unused before Armada automatically removes it. Set to 0 to disable auto-removal.')}>{t('Idle Captain Timeout (seconds)')}</label>
               <input
                 type="number"
                 value={settings.idleCaptainTimeoutSeconds}
@@ -671,49 +729,49 @@ export default function Server() {
                   })
                 }
                 min={0}
-                title="Auto-remove idle captains after this many seconds (0 = disabled)"
+                title={t('Auto-remove idle captains after this many seconds (0 = disabled)')}
               />
             </div>
             <div className="form-group">
-              <label className="settings-checkbox-label" title="Automatically open pull requests when supported by the mission and vessel configuration.">
+              <label className="settings-checkbox-label" title={t('Automatically open pull requests when supported by the mission and vessel configuration.')}>
                 <input
                   type="checkbox"
                   checked={settings.autoCreatePr}
                   onChange={(e) => setSettings({ ...settings, autoCreatePr: e.target.checked })}
                 />
-                <span>Auto-Create Pull Requests</span>
+                <span>{t('Auto-Create Pull Requests')}</span>
               </label>
             </div>
           </div>
           <button
             className="btn-primary btn-sm"
             onClick={handleSaveAgentSettings}
-            title="Save agent settings changes"
+            title={t('Save agent settings changes')}
           >
-            Save Agent Settings
+            {t('Save Agent Settings')}
           </button>
         </div>
       )}
 
       {settings && (
         <div className="settings-section" style={{ marginTop: '1.5rem' }}>
-          <h3>Remote Control</h3>
+          <h3>{t('Remote Control')}</h3>
           <p className="text-muted" style={{ marginBottom: '0.75rem' }}>
-            Outbound tunnel settings for connecting this Armada server to Armada.Proxy.
+            {t('Outbound tunnel settings for connecting this Armada server to Armada.Proxy.')}
           </p>
           <div className="settings-grid">
             <div className="form-group">
-              <label className="settings-checkbox-label" title="Open an outbound remote-management tunnel from this Armada instance to Armada.Proxy.">
+              <label className="settings-checkbox-label" title={t('Open an outbound remote-management tunnel from this Armada instance to Armada.Proxy.')}>
                 <input
                   type="checkbox"
                   checked={settings.remoteControl.enabled}
                   onChange={(e) => handleRemoteTunnelEnabledChange(e.target.checked)}
                 />
-                <span>Enable Remote Tunnel</span>
+                <span>{t('Enable Remote Tunnel')}</span>
               </label>
             </div>
             <div className="form-group">
-              <label title="Armada.Proxy base URL or explicit /tunnel endpoint used for remote management.">Tunnel URL</label>
+              <label title={t('Armada.Proxy base URL or explicit /tunnel endpoint used for remote management.')}>{t('Tunnel URL')}</label>
               <input
                 type="text"
                 value={settings.remoteControl.tunnelUrl ?? ''}
@@ -727,11 +785,11 @@ export default function Server() {
                   })
                 }
                 placeholder={DEFAULT_REMOTE_TUNNEL_URL}
-                title="Proxy base URL or tunnel endpoint. http/https will be normalized to ws/wss and /tunnel will be added automatically when needed."
+                title={t('Proxy base URL or tunnel endpoint. http/https will be normalized to ws/wss and /tunnel will be added automatically when needed.')}
               />
             </div>
             <div className="form-group">
-              <label title="Optional stable deployment identifier advertised to Armada.Proxy. Leave blank to let Armada derive one automatically.">Instance ID Override</label>
+              <label title={t('Optional stable deployment identifier advertised to Armada.Proxy. Leave blank to let Armada derive one automatically.')}>{t('Instance ID Override')}</label>
               <input
                 type="text"
                 value={settings.remoteControl.instanceId ?? ''}
@@ -744,12 +802,12 @@ export default function Server() {
                     },
                   })
                 }
-                placeholder="Leave blank for auto-generated"
-                title="Optional stable deployment identifier advertised to Armada.Proxy. Leave blank to let Armada derive one automatically."
+                placeholder={t('Leave blank for auto-generated')}
+                title={t('Optional stable deployment identifier advertised to Armada.Proxy. Leave blank to let Armada derive one automatically.')}
               />
             </div>
             <div className="form-group">
-              <label title="Optional extra admission token used only when Armada.Proxy requires instance enrollment tokens.">Instance Enrollment Token</label>
+              <label title={t('Optional extra admission token used only when Armada.Proxy requires instance enrollment tokens.')}>{t('Instance Enrollment Token')}</label>
               <div className="settings-secret-field">
                 <input
                   type={revealedRemoteField === 'enrollmentToken' ? 'text' : 'password'}
@@ -763,14 +821,14 @@ export default function Server() {
                       },
                     })
                   }
-                  placeholder="Optional bootstrap token"
-                  title="Optional extra admission token used only when Armada.Proxy requires instance enrollment tokens."
+                  placeholder={t('Optional bootstrap token')}
+                  title={t('Optional extra admission token used only when Armada.Proxy requires instance enrollment tokens.')}
                 />
                 <button
                   type="button"
                   className="settings-secret-toggle"
-                  aria-label={revealedRemoteField === 'enrollmentToken' ? 'Hide enrollment token' : 'Show enrollment token'}
-                  title={revealedRemoteField === 'enrollmentToken' ? 'Hide enrollment token' : 'Show enrollment token'}
+                  aria-label={t(revealedRemoteField === 'enrollmentToken' ? 'Hide enrollment token' : 'Show enrollment token')}
+                  title={t(revealedRemoteField === 'enrollmentToken' ? 'Hide enrollment token' : 'Show enrollment token')}
                   onPointerDown={(e) => {
                     e.preventDefault();
                     beginRevealRemoteField('enrollmentToken');
@@ -788,7 +846,7 @@ export default function Server() {
               </div>
             </div>
             <div className="form-group">
-              <label title="Shared secret used to authenticate this Armada instance to Armada.Proxy and to unlock Armada.Proxy browser access.">Proxy Shared Password</label>
+              <label title={t('Shared secret used to authenticate this Armada instance to Armada.Proxy and to unlock Armada.Proxy browser access.')}>{t('Proxy Shared Password')}</label>
               <div className="settings-secret-field">
                 <input
                   type={revealedRemoteField === 'password' ? 'text' : 'password'}
@@ -802,14 +860,14 @@ export default function Server() {
                       },
                     })
                   }
-                  placeholder="Defaults to armadaadmin"
-                  title="Shared secret used to authenticate this Armada instance to Armada.Proxy and to unlock Armada.Proxy browser access."
+                  placeholder={t('Defaults to armadaadmin')}
+                  title={t('Shared secret used to authenticate this Armada instance to Armada.Proxy and to unlock Armada.Proxy browser access.')}
                 />
                 <button
                   type="button"
                   className="settings-secret-toggle"
-                  aria-label={revealedRemoteField === 'password' ? 'Hide shared password' : 'Show shared password'}
-                  title={revealedRemoteField === 'password' ? 'Hide shared password' : 'Show shared password'}
+                  aria-label={t(revealedRemoteField === 'password' ? 'Hide shared password' : 'Show shared password')}
+                  title={t(revealedRemoteField === 'password' ? 'Hide shared password' : 'Show shared password')}
                   onPointerDown={(e) => {
                     e.preventDefault();
                     beginRevealRemoteField('password');
@@ -827,7 +885,7 @@ export default function Server() {
               </div>
             </div>
             <div className="form-group">
-              <label title="How long Armada waits for the proxy tunnel connection to open before treating the attempt as failed.">Connect Timeout (seconds)</label>
+              <label title={t('How long Armada waits for the proxy tunnel connection to open before treating the attempt as failed.')}>{t('Connect Timeout (seconds)')}</label>
               <input
                 type="number"
                 value={settings.remoteControl.connectTimeoutSeconds}
@@ -842,11 +900,11 @@ export default function Server() {
                 }
                 min={5}
                 max={300}
-                title="How long Armada waits for the proxy tunnel connection to open before treating the attempt as failed."
+                title={t('How long Armada waits for the proxy tunnel connection to open before treating the attempt as failed.')}
               />
             </div>
             <div className="form-group">
-              <label title="How often Armada sends tunnel heartbeats to keep the connection alive and measure latency.">Heartbeat Interval (seconds)</label>
+              <label title={t('How often Armada sends tunnel heartbeats to keep the connection alive and measure latency.')}>{t('Heartbeat Interval (seconds)')}</label>
               <input
                 type="number"
                 value={settings.remoteControl.heartbeatIntervalSeconds}
@@ -861,11 +919,11 @@ export default function Server() {
                 }
                 min={5}
                 max={300}
-                title="How often Armada sends tunnel heartbeats to keep the connection alive and measure latency."
+                title={t('How often Armada sends tunnel heartbeats to keep the connection alive and measure latency.')}
               />
             </div>
             <div className="form-group">
-              <label title="Initial reconnect backoff after a tunnel failure. Later retries grow from this base delay.">Reconnect Base Delay (seconds)</label>
+              <label title={t('Initial reconnect backoff after a tunnel failure. Later retries grow from this base delay.')}>{t('Reconnect Base Delay (seconds)')}</label>
               <input
                 type="number"
                 value={settings.remoteControl.reconnectBaseDelaySeconds}
@@ -880,11 +938,11 @@ export default function Server() {
                 }
                 min={1}
                 max={300}
-                title="Initial reconnect backoff after a tunnel failure. Later retries grow from this base delay."
+                title={t('Initial reconnect backoff after a tunnel failure. Later retries grow from this base delay.')}
               />
             </div>
             <div className="form-group">
-              <label title="Maximum reconnect backoff between tunnel retry attempts.">Reconnect Max Delay (seconds)</label>
+              <label title={t('Maximum reconnect backoff between tunnel retry attempts.')}>{t('Reconnect Max Delay (seconds)')}</label>
               <input
                 type="number"
                 value={settings.remoteControl.reconnectMaxDelaySeconds}
@@ -899,11 +957,11 @@ export default function Server() {
                 }
                 min={1}
                 max={3600}
-                title="Maximum reconnect backoff between tunnel retry attempts."
+                title={t('Maximum reconnect backoff between tunnel retry attempts.')}
               />
             </div>
             <div className="form-group">
-              <label className="settings-checkbox-label" title="Allow self-signed or otherwise invalid TLS certificates for https/wss tunnel endpoints. Use only in trusted environments.">
+              <label className="settings-checkbox-label" title={t('Allow self-signed or otherwise invalid TLS certificates for https/wss tunnel endpoints. Use only in trusted environments.')}>
                 <input
                   type="checkbox"
                   checked={settings.remoteControl.allowInvalidCertificates}
@@ -917,20 +975,20 @@ export default function Server() {
                     })
                   }
                 />
-                <span>Allow Invalid Certificates</span>
+                <span>{t('Allow Invalid Certificates')}</span>
               </label>
             </div>
           </div>
           {settings.remoteControl.enabled && (
             <div className="settings-config-block tunnel-status-card">
               <div className="settings-config-header tunnel-status-card-header">
-                <span className="text-muted">Tunnel Status</span>
+                <span className="text-muted">{t('Tunnel Status')}</span>
                 <span
                   className="mono"
                   style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}
                 >
                   <span className={`status-dot ${remoteTunnelIndicator.dotClass}`} />
-                  <span>{remoteTunnelIndicator.label}</span>
+                  <span>{t(remoteTunnelIndicator.labelKey)}</span>
                 </span>
               </div>
             </div>
@@ -943,9 +1001,9 @@ export default function Server() {
           <button
             className="btn-primary btn-sm"
             onClick={handleSaveRemoteControlSettings}
-            title="Save remote-control tunnel configuration"
+            title={t('Save remote-control tunnel configuration')}
           >
-            Save Remote Control Settings
+            {t('Save Remote Control Settings')}
           </button>
         </div>
       )}
@@ -953,9 +1011,9 @@ export default function Server() {
       {/* MCP Configuration */}
       {settings && (
         <div className="settings-section" style={{ marginTop: '1.5rem' }}>
-          <h3>MCP Configuration</h3>
+          <h3>{t('MCP Configuration')}</h3>
           <p className="text-muted" style={{ marginBottom: '0.75rem' }}>
-            Client-specific MCP references for Claude, Codex, Gemini, and Cursor.
+            {t('Client-specific MCP references for Claude, Codex, Gemini, and Cursor.')}
           </p>
           {MCP_CLIENTS.map((client) => (
             <div key={client.key} className="settings-config-block" style={{ marginTop: '0.75rem' }}>
@@ -973,9 +1031,9 @@ export default function Server() {
                   <button
                     className="btn-sm"
                     onClick={() => copyAndToast(getMcpConfigHttp(client.key))}
-                    title={`Copy ${client.title} HTTP config to clipboard`}
+                    title={t('Copy {{title}} HTTP config to clipboard', { title: client.title })}
                   >
-                    Copy
+                    {t('Copy')}
                   </button>
                 </div>
                 <pre className="settings-config-code">{getMcpConfigHttp(client.key)}</pre>
@@ -986,9 +1044,9 @@ export default function Server() {
                   <button
                     className="btn-sm"
                     onClick={() => copyAndToast(getMcpConfigStdio(client.key))}
-                    title={`Copy ${client.title} STDIO config to clipboard`}
+                    title={t('Copy {{title}} STDIO config to clipboard', { title: client.title })}
                   >
-                    Copy
+                    {t('Copy')}
                   </button>
                 </div>
                 <pre className="settings-config-code">{getMcpConfigStdio(client.key)}</pre>
@@ -1001,41 +1059,41 @@ export default function Server() {
       {/* System Paths */}
       {settings && (
         <div className="settings-section" style={{ marginTop: '1.5rem' }}>
-          <h3>System Paths</h3>
+          <h3>{t('System Paths')}</h3>
           <div className="detail-grid">
             <div className="detail-field">
-              <span className="detail-label">Data Directory</span>
+              <span className="detail-label" title={t('Path to the Armada data directory.')}>{t('Data Directory')}</span>
               <span className="id-display">
                 <span className="mono">{settings.dataDirectory || '-'}</span>
-                {settings.dataDirectory && <CopyButton text={settings.dataDirectory} title="Copy path" />}
+                {settings.dataDirectory && <CopyButton text={settings.dataDirectory} title={t('Copy path')} />}
               </span>
             </div>
             <div className="detail-field">
-              <span className="detail-label">Database Path</span>
+              <span className="detail-label" title={t('Path to the Armada SQLite database file.')}>{t('Database Path')}</span>
               <span className="id-display">
                 <span className="mono">{settings.databasePath || '-'}</span>
-                {settings.databasePath && <CopyButton text={settings.databasePath} title="Copy path" />}
+                {settings.databasePath && <CopyButton text={settings.databasePath} title={t('Copy path')} />}
               </span>
             </div>
             <div className="detail-field">
-              <span className="detail-label">Log Directory</span>
+              <span className="detail-label" title={t('Path where Armada writes server and captain logs.')}>{t('Log Directory')}</span>
               <span className="id-display">
                 <span className="mono">{settings.logDirectory || '-'}</span>
-                {settings.logDirectory && <CopyButton text={settings.logDirectory} title="Copy path" />}
+                {settings.logDirectory && <CopyButton text={settings.logDirectory} title={t('Copy path')} />}
               </span>
             </div>
             <div className="detail-field">
-              <span className="detail-label">Docks Directory</span>
+              <span className="detail-label" title={t('Path where Armada stores captain worktrees and docks.')}>{t('Docks Directory')}</span>
               <span className="id-display">
                 <span className="mono">{settings.docksDirectory || '-'}</span>
-                {settings.docksDirectory && <CopyButton text={settings.docksDirectory} title="Copy path" />}
+                {settings.docksDirectory && <CopyButton text={settings.docksDirectory} title={t('Copy path')} />}
               </span>
             </div>
             <div className="detail-field">
-              <span className="detail-label">Repos Directory</span>
+              <span className="detail-label" title={t('Path where Armada stores cloned repositories.')}>{t('Repos Directory')}</span>
               <span className="id-display">
                 <span className="mono">{settings.reposDirectory || '-'}</span>
-                {settings.reposDirectory && <CopyButton text={settings.reposDirectory} title="Copy path" />}
+                {settings.reposDirectory && <CopyButton text={settings.reposDirectory} title={t('Copy path')} />}
               </span>
             </div>
           </div>
@@ -1044,22 +1102,22 @@ export default function Server() {
 
       {isAdmin && settings && (
         <div className="settings-section" style={{ marginTop: '1.5rem' }}>
-          <h3>Database Backup</h3>
+          <h3>{t('Database Backup')}</h3>
           <div className="settings-actions">
             <button
               className="btn btn-sm"
               onClick={handleBackup}
               disabled={backupLoading}
-              title="Create a backup ZIP of the database and download it"
+              title={t('Create a backup ZIP of the database and download it')}
             >
-              {backupLoading ? 'Backing up...' : 'Backup Now'}
+              {backupLoading ? t('Backing up...') : t('Backup Now')}
             </button>
             <button
               className="btn btn-danger btn-sm"
               onClick={handleRestoreClick}
-              title="Restore the database from a backup ZIP file"
+              title={t('Restore the database from a backup ZIP file')}
             >
-              Restore from Backup
+              {t('Restore from Backup')}
             </button>
             <input
               type="file"
@@ -1074,7 +1132,7 @@ export default function Server() {
 
       {isAdmin && (
         <div className="settings-section" style={{ marginTop: '1.5rem' }}>
-          <h3>Server Actions</h3>
+          <h3>{t('Server Actions')}</h3>
           <div className="settings-actions">
             <button
               className="btn btn-sm"
@@ -1082,30 +1140,30 @@ export default function Server() {
                 try { localStorage.removeItem('armada_setup_completed'); } catch {}
                 window.location.reload();
               }}
-              title="Re-open the first-run setup guide"
+              title={t('Re-open the first-run setup guide')}
             >
-              Setup Wizard
+              {t('Setup Wizard')}
             </button>
             <button
               className="btn btn-sm"
               onClick={handleHealthCheck}
-              title="Run a health check and display the result"
+              title={t('Run a health check and display the result')}
             >
-              Health Check
+              {t('Health Check')}
             </button>
             <button
               className="btn btn-danger btn-sm"
               onClick={handleStopServer}
-              title="Shut down the admiral server process"
+              title={t('Shut down the admiral server process')}
             >
-              Stop Server
+              {t('Stop Server')}
             </button>
             <button
               className="btn btn-danger btn-sm"
               onClick={handleFactoryReset}
-              title="Delete all data and reset to factory defaults"
+              title={t('Delete all data and reset to factory defaults')}
             >
-              Factory Reset
+              {t('Factory Reset')}
             </button>
           </div>
         </div>
@@ -1114,9 +1172,10 @@ export default function Server() {
       {/* Confirm Dialog */}
       <ConfirmDialog
         open={confirmDialog.open}
+        title={confirmDialog.title}
         message={confirmDialog.message}
         onConfirm={confirmDialog.onConfirm}
-        onCancel={() => setConfirmDialog({ open: false, message: '', onConfirm: () => {} })}
+        onCancel={closeConfirmDialog}
       />
     </div>
   );

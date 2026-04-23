@@ -9,22 +9,14 @@ import CopyButton from '../../components/shared/CopyButton';
 import RefreshButton from '../../components/shared/RefreshButton';
 import { useAuth } from '../../context/AuthContext';
 import ErrorModal from '../../components/shared/ErrorModal';
-
-function formatTime(utc: string | null): string {
-  if (!utc) return '-';
-  const d = new Date(utc);
-  const diff = Date.now() - d.getTime();
-  if (diff < 60000) return 'just now';
-  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
-  return d.toLocaleDateString();
-}
+import { useLocale } from '../../context/LocaleContext';
 
 type SortField = 'email' | 'firstName' | 'isAdmin' | 'active' | 'createdUtc';
 type SortDir = 'asc' | 'desc';
 
 export default function Users() {
   const { user, isAdmin, isTenantAdmin } = useAuth();
+  const { t, formatRelativeTime, formatDateTime } = useLocale();
   const [items, setItems] = useState<UserMaster[]>([]);
   const [tenants, setTenants] = useState<TenantMetadata[]>([]);
   const [loading, setLoading] = useState(true);
@@ -66,9 +58,9 @@ export default function Users() {
       setItems(uResult.objects);
       setTenants(tResult.objects);
       setError('');
-    } catch { setError('Failed to load users.'); }
+    } catch { setError(t('Failed to load users.')); }
     finally { setLoading(false); }
-  }, [isAdmin, user?.tenant]);
+  }, [isAdmin, t, user?.tenant]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -148,11 +140,11 @@ export default function Users() {
     e.preventDefault();
     try {
       if (!editing && !form.password.trim()) {
-        setError('Password is required when creating a user.');
+        setError(t('Password is required when creating a user.'));
         return;
       }
       if (form.password !== form.confirmPassword) {
-        setError('Passwords do not match.');
+        setError(t('Passwords do not match.'));
         return;
       }
 
@@ -173,33 +165,33 @@ export default function Users() {
       setError('');
       load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Save failed.');
+      setError(err instanceof Error ? err.message : t('Save failed.'));
     }
   }
 
   function handleDelete(id: string, email: string) {
     setConfirm({
-      open: true, title: 'Delete User',
-      message: `Delete user "${email}"? This cannot be undone.`,
+      open: true, title: t('Delete User'),
+      message: t('Delete user "{{email}}"? This cannot be undone.', { email }),
       resourceName: email,
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
-        try { await deleteUser(id); load(); } catch { setError('Delete failed.'); }
+        try { await deleteUser(id); load(); } catch { setError(t('Delete failed.')); }
       },
     });
   }
 
   function handleBulkDelete() {
     setConfirm({
-      open: true, title: 'Delete Selected Users',
-      message: `Delete ${selected.length} user(s)?`,
+      open: true, title: t('Delete Selected Users'),
+      message: t('Delete {{count}} user(s)?', { count: selected.length }),
       resourceName: `${selected.length} user(s)`,
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
         const ids = [...selected]; setSelected([]);
         let failed = 0;
         for (const id of ids) { try { await deleteUser(id); } catch { failed++; } }
-        if (failed > 0) setError(`Deleted ${ids.length - failed}, ${failed} failed.`);
+        if (failed > 0) setError(t('Deleted {{success}}, {{failed}} failed.', { success: ids.length - failed, failed }));
         load();
       },
     });
@@ -209,18 +201,18 @@ export default function Users() {
     <div>
       <div className="view-header">
         <div>
-          <h2>Users</h2>
+          <h2>{t('Users')}</h2>
           <p className="text-dim view-subtitle">
             {isAdmin
-              ? 'Manage user accounts across all tenants.'
+              ? t('Manage user accounts across all tenants.')
               : isTenantAdmin
-                ? 'Manage user accounts within your tenant.'
-                : 'View and update your own user account.'}
+                ? t('Manage user accounts within your tenant.')
+                : t('View and update your own user account.')}
           </p>
         </div>
         <div className="view-actions">
-          {(isAdmin || isTenantAdmin) && selected.length > 0 && <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>Delete Selected ({selected.length})</button>}
-          {(isAdmin || isTenantAdmin) && <button className="btn btn-primary btn-sm" onClick={openCreate}>+ User</button>}
+          {(isAdmin || isTenantAdmin) && selected.length > 0 && <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>{t('Delete Selected')} ({selected.length})</button>}
+          {(isAdmin || isTenantAdmin) && <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('User')}</button>}
           <RefreshButton onRefresh={load} title="Refresh users" />
         </div>
       </div>
@@ -230,49 +222,49 @@ export default function Users() {
       {showForm && (
         <div className="modal-overlay" onClick={() => setShowForm(false)}>
           <form className="modal" onClick={e => e.stopPropagation()} onSubmit={handleSubmit}>
-            <h3>{editing ? 'Edit User' : 'Create User'}</h3>
-            <label>Email<input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} required /></label>
-            <label>First Name<input value={form.firstName} onChange={e => setForm({ ...form, firstName: e.target.value })} /></label>
-            <label>Last Name<input value={form.lastName} onChange={e => setForm({ ...form, lastName: e.target.value })} /></label>
+            <h3>{editing ? t('Edit User') : t('Create User')}</h3>
+            <label>{t('Email')}<input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} required /></label>
+            <label>{t('First Name')}<input value={form.firstName} onChange={e => setForm({ ...form, firstName: e.target.value })} /></label>
+            <label>{t('Last Name')}<input value={form.lastName} onChange={e => setForm({ ...form, lastName: e.target.value })} /></label>
             <label>
-              {editing ? 'New Password' : 'Password'}
+              {editing ? t('New Password') : t('Password')}
               <input
                 type="password"
                 value={form.password}
                 onChange={e => setForm({ ...form, password: e.target.value })}
                 required={!editing}
-                placeholder={editing ? 'Leave blank to keep current password' : 'Enter password'}
+                placeholder={editing ? t('Leave blank to keep current password') : t('Enter password')}
               />
             </label>
             <label>
-              {editing ? 'Confirm New Password' : 'Confirm Password'}
+              {editing ? t('Confirm New Password') : t('Confirm Password')}
               <input
                 type="password"
                 value={form.confirmPassword}
                 onChange={e => setForm({ ...form, confirmPassword: e.target.value })}
                 required={!editing || !!form.password}
-                placeholder={editing ? 'Repeat new password' : 'Repeat password'}
+                placeholder={editing ? t('Repeat new password') : t('Repeat password')}
               />
             </label>
-            <label>Tenant
+            <label>{t('Tenant')}
               <select
                 value={form.tenantId}
                 onChange={e => setForm({ ...form, tenantId: e.target.value })}
                 required
                 disabled={!isAdmin}
               >
-                {isAdmin && <option value="">Select tenant...</option>}
+                {isAdmin && <option value="">{t('Select tenant...')}</option>}
                 {(isAdmin ? tenants : tenants.filter(t => t.id === form.tenantId || t.id === user?.tenant?.id)).map(t => (
                   <option key={t.id} value={t.id}>{t.name}</option>
                 ))}
               </select>
             </label>
-            {isAdmin && <label className="checkbox-label"><input type="checkbox" checked={form.isAdmin} onChange={e => setForm({ ...form, isAdmin: e.target.checked })} /> Global Admin</label>}
-            {isTenantAdmin && <label className="checkbox-label"><input type="checkbox" checked={form.isTenantAdmin} onChange={e => setForm({ ...form, isTenantAdmin: e.target.checked })} /> Tenant Admin</label>}
-            {editing && <label className="checkbox-label"><input type="checkbox" checked={form.active} onChange={e => setForm({ ...form, active: e.target.checked })} /> Active</label>}
+            {isAdmin && <label className="checkbox-label"><input type="checkbox" checked={form.isAdmin} onChange={e => setForm({ ...form, isAdmin: e.target.checked })} /> {t('Global Admin')}</label>}
+            {isTenantAdmin && <label className="checkbox-label"><input type="checkbox" checked={form.isTenantAdmin} onChange={e => setForm({ ...form, isTenantAdmin: e.target.checked })} /> {t('Tenant Admin')}</label>}
+            {editing && <label className="checkbox-label"><input type="checkbox" checked={form.active} onChange={e => setForm({ ...form, active: e.target.checked })} /> {t('Active')}</label>}
             <div className="modal-actions">
-              <button type="submit" className="btn btn-primary">Save</button>
-              <button type="button" className="btn" onClick={() => setShowForm(false)}>Cancel</button>
+              <button type="submit" className="btn btn-primary">{t('Save')}</button>
+              <button type="button" className="btn" onClick={() => setShowForm(false)}>{t('Cancel')}</button>
             </div>
           </form>
         </div>
@@ -281,8 +273,8 @@ export default function Users() {
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message} resourceName={confirm.resourceName} danger requireDeleteConfirm onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
 
-      {loading && items.length === 0 && <p className="text-dim">Loading...</p>}
-      {!loading && items.length === 0 && <p className="text-dim">No users found.</p>}
+      {loading && items.length === 0 && <p className="text-dim">{t('Loading...')}</p>}
+      {!loading && items.length === 0 && <p className="text-dim">{t('No users found.')}</p>}
 
       {items.length > 0 && (
         <>
@@ -292,29 +284,29 @@ export default function Users() {
             <table>
               <thead>
                 <tr>
-                  <th className="col-checkbox"><input type="checkbox" checked={allSelected} onChange={e => e.target.checked ? setSelected(filtered.map(u => u.id)) : setSelected([])} /></th>
-                  <th className="sortable" onClick={() => handleSort('email')}>Email{sortIcon('email')}</th>
-                  <th>ID</th>
-                  <th className="sortable" onClick={() => handleSort('firstName')}>Name{sortIcon('firstName')}</th>
-                  <th>Tenant</th>
-                  <th className="sortable" onClick={() => handleSort('isAdmin')}>Global Admin{sortIcon('isAdmin')}</th>
-                  <th>Tenant Admin</th>
-                  <th className="sortable" onClick={() => handleSort('active')}>Active{sortIcon('active')}</th>
-                  <th className="sortable" onClick={() => handleSort('createdUtc')}>Created{sortIcon('createdUtc')}</th>
-                  <th className="text-right">Actions</th>
+                  <th className="col-checkbox"><input type="checkbox" checked={allSelected} onChange={e => e.target.checked ? setSelected(filtered.map(u => u.id)) : setSelected([])} title={t('Select all users')} /></th>
+                  <th className="sortable" onClick={() => handleSort('email')}>{t('Email')}{sortIcon('email')}</th>
+                  <th>{t('ID')}</th>
+                  <th className="sortable" onClick={() => handleSort('firstName')}>{t('Name')}{sortIcon('firstName')}</th>
+                  <th>{t('Tenant')}</th>
+                  <th className="sortable" onClick={() => handleSort('isAdmin')}>{t('Global Admin')}{sortIcon('isAdmin')}</th>
+                  <th>{t('Tenant Admin')}</th>
+                  <th className="sortable" onClick={() => handleSort('active')}>{t('Active')}{sortIcon('active')}</th>
+                  <th className="sortable" onClick={() => handleSort('createdUtc')}>{t('Created')}{sortIcon('createdUtc')}</th>
+                  <th className="text-right">{t('Actions')}</th>
                 </tr>
                 <tr className="column-filter-row">
                   <td></td>
-                  <td><input type="text" className="col-filter" value={colFilters.email} onChange={e => { setColFilters(f => ({ ...f, email: e.target.value })); setPageNumber(1); }} placeholder="Filter..." /></td>
+                  <td><input type="text" className="col-filter" value={colFilters.email} onChange={e => { setColFilters(f => ({ ...f, email: e.target.value })); setPageNumber(1); }} placeholder={t('Search...')} /></td>
                   <td></td>
-                  <td><input type="text" className="col-filter" value={colFilters.firstName} onChange={e => { setColFilters(f => ({ ...f, firstName: e.target.value })); setPageNumber(1); }} placeholder="Filter..." /></td>
+                  <td><input type="text" className="col-filter" value={colFilters.firstName} onChange={e => { setColFilters(f => ({ ...f, firstName: e.target.value })); setPageNumber(1); }} placeholder={t('Search...')} /></td>
                   <td>
                     <select
                       className="col-filter"
                       value={colFilters.tenantId}
                       onChange={e => { setColFilters(f => ({ ...f, tenantId: e.target.value })); setPageNumber(1); }}
                     >
-                      <option value="">All tenants</option>
+                      <option value="">{t('All tenants')}</option>
                       {tenants.map(t => (
                         <option key={t.id} value={t.id}>{t.name}</option>
                       ))}
@@ -326,7 +318,7 @@ export default function Users() {
               <tbody>
                 {paginated.map(u => (
                   <tr key={u.id} className="clickable" onClick={() => openEdit(u)}>
-                    <td className="col-checkbox" onClick={e => e.stopPropagation()}><input type="checkbox" checked={selected.includes(u.id)} onChange={() => toggleSelect(u.id)} /></td>
+                    <td className="col-checkbox" onClick={e => e.stopPropagation()}><input type="checkbox" checked={selected.includes(u.id)} onChange={() => toggleSelect(u.id)} title={t('Select this user')} /></td>
                     <td><strong>{u.email}</strong></td>
                     <td className="mono text-dim table-id-cell">
                       <span className="id-display">
@@ -336,10 +328,10 @@ export default function Users() {
                     </td>
                     <td>{[u.firstName, u.lastName].filter(Boolean).join(' ') || '-'}</td>
                     <td className="text-dim">{tenantName(u.tenantId)}</td>
-                    <td>{u.isAdmin ? 'Yes' : 'No'}</td>
-                    <td>{u.isTenantAdmin ? 'Yes' : 'No'}</td>
-                    <td>{u.active ? 'Yes' : 'No'}</td>
-                    <td className="text-dim" title={new Date(u.createdUtc).toLocaleString()}>{formatTime(u.createdUtc)}</td>
+                    <td>{u.isAdmin ? t('Yes') : t('No')}</td>
+                    <td>{u.isTenantAdmin ? t('Yes') : t('No')}</td>
+                    <td>{u.active ? t('Yes') : t('No')}</td>
+                    <td className="text-dim" title={formatDateTime(u.createdUtc)}>{formatRelativeTime(u.createdUtc)}</td>
                     <td className="text-right" onClick={e => e.stopPropagation()}>
                       <ActionMenu id={u.id} items={[
                         { label: 'Edit', onClick: () => openEdit(u) },
@@ -349,7 +341,7 @@ export default function Users() {
                     </td>
                   </tr>
                 ))}
-                {paginated.length === 0 && <tr><td colSpan={10} className="text-dim">No users match filters.</td></tr>}
+                {paginated.length === 0 && <tr><td colSpan={10} className="text-dim">{t('No users match filters.')}</td></tr>}
               </tbody>
             </table>
           </div>

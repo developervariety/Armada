@@ -50,7 +50,7 @@ namespace Armada.Helm.Commands
             // Build and deploy the React dashboard if source is available
             BuildAndDeployDashboard(serverExe);
 
-            // Launch the server executable detached
+            // Launch the server executable
             ProcessStartInfo startInfo;
 
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
@@ -65,7 +65,7 @@ namespace Armada.Helm.Commands
             else
             {
                 // On Unix, UseShellExecute=true doesn't launch executables the same way.
-                // Use UseShellExecute=false and redirect streams to detach cleanly.
+                // Use UseShellExecute=false and redirect streams to avoid holding the CLI streams.
                 startInfo = new ProcessStartInfo
                 {
                     FileName = serverExe,
@@ -88,9 +88,9 @@ namespace Armada.Helm.Commands
             string baseUrl = GetBaseUrl();
             AnsiConsole.MarkupLine($"[green]Admiral server starting...[/] (PID: {process.Id})");
             AnsiConsole.MarkupLine($"[dim]  REST API:   {baseUrl}[/]");
+            AnsiConsole.MarkupLine($"[dim]  WebSocket:  ws://localhost:{Constants.DefaultAdmiralPort}/ws[/]");
             AnsiConsole.MarkupLine($"[dim]  Dashboard:  {baseUrl}/dashboard[/]");
             AnsiConsole.MarkupLine($"[dim]  MCP:        http://localhost:{Constants.DefaultMcpPort}[/]");
-            AnsiConsole.MarkupLine($"[dim]  WebSocket:  ws://localhost:{Constants.DefaultWebSocketPort}[/]");
 
             // Poll until the server is ready
             bool ready = false;

@@ -2362,12 +2362,73 @@ thead tr.column-filter-row td input.col-filter::placeholder {
 .wizard-overlay {
     position: fixed;
     inset: 0;
-    background: var(--modal-overlay);
+    background:
+        radial-gradient(circle at 18% 12%, color-mix(in srgb, var(--accent) 28%, transparent), transparent 30%),
+        radial-gradient(circle at 86% 18%, color-mix(in srgb, var(--green) 18%, transparent), transparent 28%),
+        linear-gradient(135deg, rgba(2, 6, 23, 0.62), rgba(15, 23, 42, 0.74));
     display: flex;
     align-items: center;
     justify-content: center;
     z-index: 2000;
-    padding: 1.5rem;
+    padding: 0.75rem;
+    backdrop-filter: blur(10px);
+}
+
+.locale-select-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+}
+
+.locale-select-wrap.with-label {
+    align-items: flex-start;
+}
+
+.locale-select-wrap.compact {
+    gap: 0;
+}
+
+.locale-select-label {
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    white-space: nowrap;
+}
+
+.locale-select {
+    min-width: 148px;
+    width: auto;
+    padding: 0.45rem 2rem 0.45rem 0.75rem;
+    font-size: 0.82rem;
+    background: var(--input-bg);
+    color: var(--text);
+}
+
+.topbar-language-select .locale-select {
+    min-width: 132px;
+    height: 34px;
+    padding-top: 0.35rem;
+    padding-bottom: 0.35rem;
+}
+
+.login-language-select {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.4rem;
+    width: 100%;
+    margin: 0 0 1.1rem;
+}
+
+.login-language-select .locale-select {
+    min-width: 0;
+    width: 100%;
+}
+
+.login-language-select .locale-select-label {
+    display: block;
+    margin: 0;
+    font-size: 0.78rem;
+    letter-spacing: 0.02em;
 }
 
 .wizard-container {
@@ -2384,10 +2445,41 @@ thead tr.column-filter-row td input.col-filter::placeholder {
     overflow: hidden;
 }
 
+.wizard-container-objective {
+    display: block;
+    width: min(1280px, calc(100vw - 1.5rem));
+    max-width: 1280px;
+    height: min(94vh, 920px);
+    min-height: 0;
+    max-height: calc(100vh - 1.5rem);
+    border-radius: 18px;
+    border: 1px solid color-mix(in srgb, var(--accent) 26%, var(--border));
+    background:
+        linear-gradient(160deg, color-mix(in srgb, var(--bg-card) 92%, var(--accent)), var(--bg-card) 44%),
+        var(--bg-card);
+    box-shadow:
+        0 30px 80px rgba(0, 0, 0, 0.38),
+        inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.wizard-container-objective::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+        linear-gradient(90deg, color-mix(in srgb, var(--accent) 12%, transparent) 1px, transparent 1px),
+        linear-gradient(0deg, color-mix(in srgb, var(--accent) 8%, transparent) 1px, transparent 1px);
+    background-size: 42px 42px;
+    mask-image: radial-gradient(circle at 18% 12%, black, transparent 50%);
+    opacity: 0.4;
+}
+
 .wizard-close {
     position: absolute;
     top: 12px;
     right: 14px;
+    z-index: 5;
     background: none;
     border: none;
     color: var(--text-dim);
@@ -2396,6 +2488,7 @@ thead tr.column-filter-row td input.col-filter::placeholder {
     padding: 4px 8px;
     border-radius: var(--radius);
     cursor: pointer;
+    pointer-events: auto;
 }
 .wizard-close:hover {
     background: var(--bg-hover);
@@ -2504,8 +2597,169 @@ thead tr.column-filter-row td input.col-filter::placeholder {
     overflow-y: auto;
 }
 
+.wizard-container-objective .wizard-body {
+    position: relative;
+    height: 100%;
+    min-height: 0;
+    max-height: none;
+    padding: 1.25rem;
+    overflow: hidden;
+}
+
 .wizard-content {
     flex: 1;
+}
+
+.wizard-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.35rem 2.5rem 1rem 0.35rem;
+}
+
+.wizard-header h1 {
+    margin: 0;
+    font-size: clamp(1.6rem, 3vw, 2.35rem);
+    letter-spacing: -0.04em;
+    line-height: 1;
+    color: var(--text);
+}
+
+.wizard-kicker {
+    margin-bottom: 0.35rem;
+    color: var(--accent);
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+
+.wizard-step-count {
+    flex-shrink: 0;
+    padding: 0.45rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--bg-hover) 72%, transparent);
+    color: var(--text-dim);
+    font-size: 0.78rem;
+    font-weight: 700;
+}
+
+.wizard-progress {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 0.6rem;
+    margin-bottom: 1rem;
+}
+
+.wizard-progress-step {
+    position: relative;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.55rem;
+    min-height: 68px;
+    padding: 0.65rem;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--bg-card) 72%, var(--bg-hover));
+    color: var(--text-dim);
+    overflow: hidden;
+}
+
+.wizard-progress-step::after {
+    content: '';
+    position: absolute;
+    inset: auto 0 0;
+    height: 3px;
+    background: transparent;
+}
+
+.wizard-progress-step span {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 999px;
+    background: var(--bg-hover);
+    color: var(--text-dim);
+    font-size: 0.75rem;
+    font-weight: 800;
+}
+
+.wizard-progress-step strong {
+    display: block;
+    color: var(--text);
+    font-size: 0.8rem;
+    line-height: 1.15;
+}
+
+.wizard-progress-step small {
+    display: block;
+    margin-top: 0.25rem;
+    font-size: 0.7rem;
+    line-height: 1.35;
+}
+
+.wizard-progress-step.active {
+    border-color: color-mix(in srgb, var(--accent) 72%, var(--border));
+    background: linear-gradient(160deg, color-mix(in srgb, var(--accent) 15%, var(--bg-card)), var(--bg-card));
+    box-shadow: 0 12px 28px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.wizard-progress-step.active::after {
+    background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--green) 70%, var(--accent)));
+}
+
+.wizard-progress-step.active span {
+    background: var(--accent);
+    color: #fff;
+}
+
+.wizard-progress-step.done {
+    border-color: color-mix(in srgb, var(--green) 42%, var(--border));
+}
+
+.wizard-progress-step.done span {
+    background: var(--green);
+    color: #fff;
+}
+
+.wizard-container-objective .wizard-content {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 1.15rem 1.25rem;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background:
+        linear-gradient(180deg, color-mix(in srgb, var(--bg-card) 96%, var(--accent)), var(--bg-card)),
+        var(--bg-card);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.wizard-container-objective .wizard-content::-webkit-scrollbar {
+    width: 10px;
+}
+
+.wizard-container-objective .wizard-content::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.wizard-container-objective .wizard-content::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--accent) 28%, var(--border));
+    border: 3px solid transparent;
+    border-radius: 999px;
+    background-clip: padding-box;
+}
+
+.wizard-container-objective .wizard-content::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--accent) 46%, var(--border));
+    border: 3px solid transparent;
+    background-clip: padding-box;
 }
 
 .wizard-step-heading {
@@ -2535,6 +2789,187 @@ thead tr.column-filter-row td input.col-filter::placeholder {
     border: 1px solid var(--border);
 }
 
+.wizard-step-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+}
+
+.wizard-step-form label[title] {
+    cursor: help;
+}
+
+.wizard-explanation {
+    margin-bottom: 1.25rem;
+    padding: 1rem;
+    border: 1px solid color-mix(in srgb, var(--accent) 26%, var(--border));
+    border-radius: 14px;
+    background:
+        linear-gradient(135deg, color-mix(in srgb, var(--accent) 10%, transparent), transparent),
+        var(--bg-hover);
+}
+
+.wizard-explanation h3 {
+    margin: 0 0 0.75rem;
+    font-size: 1rem;
+    color: var(--text);
+}
+
+.wizard-explanation-body {
+    color: var(--text-dim);
+}
+
+.wizard-start-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+}
+
+.wizard-start-list div {
+    padding: 0.8rem;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--bg-card) 72%, transparent);
+}
+
+.wizard-start-list strong {
+    display: block;
+    margin-bottom: 0.25rem;
+    color: var(--text);
+}
+
+.wizard-start-list span {
+    color: var(--text-dim);
+    font-size: 0.84rem;
+    line-height: 1.5;
+}
+
+.wizard-mode-toggle {
+    display: inline-flex;
+    align-self: flex-start;
+    gap: 0.35rem;
+    padding: 0.25rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--bg-hover);
+}
+
+.wizard-mode-toggle .btn {
+    border-radius: 999px;
+}
+
+.wizard-form-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0 1rem;
+}
+
+.wizard-context-strip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.75rem 0.9rem;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--bg-hover) 72%, transparent);
+}
+
+.wizard-context-strip span,
+.wizard-summary-item span {
+    color: var(--text-dim);
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.wizard-context-strip strong {
+    color: var(--text);
+}
+
+.wizard-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    min-height: 42px;
+    padding: 0.65rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--bg-hover);
+    color: var(--text);
+    font-size: 0.86rem;
+    cursor: pointer;
+}
+
+.wizard-checkbox input {
+    width: auto;
+    margin: 0;
+}
+
+.wizard-inline-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    flex-wrap: wrap;
+    margin-top: 0.25rem;
+}
+
+.wizard-result {
+    margin-top: 1rem;
+    padding: 0.8rem 0.95rem;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    font-size: 0.86rem;
+    line-height: 1.5;
+}
+
+.wizard-result-success {
+    border-color: color-mix(in srgb, var(--green) 65%, var(--border));
+    background: color-mix(in srgb, var(--green) 13%, var(--bg-card));
+    color: var(--tag-complete-fg);
+}
+
+.wizard-result-error {
+    border-color: color-mix(in srgb, var(--red) 65%, var(--border));
+    background: color-mix(in srgb, var(--red) 12%, var(--bg-card));
+    color: var(--tag-failed-fg);
+}
+
+.wizard-result-info {
+    border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+    background: color-mix(in srgb, var(--accent) 12%, var(--bg-card));
+    color: var(--text);
+}
+
+.wizard-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.75rem;
+    margin: 0.25rem 0 1rem;
+}
+
+.wizard-summary-grid-wide {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.wizard-summary-item {
+    min-width: 0;
+    padding: 0.85rem;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--bg-hover) 70%, transparent);
+}
+
+.wizard-summary-item strong {
+    display: block;
+    margin-top: 0.3rem;
+    overflow: hidden;
+    color: var(--text);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 /* Actions bar */
 .wizard-actions {
     display: flex;
@@ -2556,6 +2991,44 @@ thead tr.column-filter-row td input.col-filter::placeholder {
         flex-direction: column;
         max-height: 95vh;
     }
+    .wizard-container-objective {
+        height: 95vh;
+        min-height: 0;
+        max-height: 95vh;
+        border-radius: 14px;
+    }
+    .wizard-container-objective .wizard-body {
+        height: 100%;
+        min-height: 0;
+        max-height: none;
+        padding: 1rem;
+    }
+    .wizard-header {
+        flex-direction: column;
+        padding-right: 2rem;
+    }
+    .wizard-progress {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .wizard-progress-step {
+        min-height: 58px;
+    }
+    .wizard-progress-step small {
+        display: none;
+    }
+    .wizard-container-objective .wizard-content {
+        padding: 1rem;
+    }
+    .wizard-start-list,
+    .wizard-form-grid,
+    .wizard-summary-grid,
+    .wizard-summary-grid-wide {
+        grid-template-columns: 1fr;
+    }
+    .wizard-context-strip {
+        align-items: flex-start;
+        flex-direction: column;
+    }
     .wizard-toc {
         width: 100%;
         min-width: auto;
@@ -2575,20 +3048,20 @@ thead tr.column-filter-row td input.col-filter::placeholder {
 
 /* Lift the sidebar above the wizard overlay so highlighted items are
    rendered at full brightness (not dimmed through the backdrop). */
-.app-layout.wizard-active .sidebar {
+.app-layout.wizard-spotlight-active .sidebar {
     position: relative;
     z-index: 2100;
 }
 
 /* Block sidebar navigation while the wizard is open so users can't
    strand themselves mid-flow. */
-.app-layout.wizard-active .sidebar-nav-item {
+.app-layout.wizard-spotlight-active .sidebar-nav-item {
     pointer-events: none;
 }
 
 /* Dim every sidebar nav item except the ones the current wizard step
    is pointing at. */
-.app-layout.wizard-active .sidebar-nav-item:not(.wizard-highlight) {
+.app-layout.wizard-spotlight-active .sidebar-nav-item:not(.wizard-highlight) {
     opacity: 0.25;
     filter: grayscale(0.4);
     transition: opacity 0.2s, filter 0.2s;

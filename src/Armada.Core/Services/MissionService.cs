@@ -284,7 +284,7 @@ namespace Armada.Core.Services
             bool preserveInheritedBranch = !String.IsNullOrEmpty(mission.DependsOnMissionId) && !String.IsNullOrEmpty(mission.BranchName);
             string branchName = preserveInheritedBranch
                 ? mission.BranchName!
-                : Constants.BranchPrefix + captain.Name.ToLowerInvariant() + "/" + mission.Id;
+                : BuildMissionBranchName(captain, mission);
             mission.BranchName = branchName;
             mission.CaptainId = captain.Id;
             mission.Status = MissionStatusEnum.Assigned;
@@ -1113,6 +1113,49 @@ namespace Armada.Core.Services
         #endregion
 
         #region Private-Methods
+
+        private static string BuildMissionBranchName(Captain captain, Mission mission)
+        {
+            return Constants.BranchPrefix + SanitizeBranchPathSegment(captain.Name) + "/" + mission.Id;
+        }
+
+        private static string SanitizeBranchPathSegment(string? value)
+        {
+            if (String.IsNullOrWhiteSpace(value)) return "captain";
+
+            System.Text.StringBuilder builder = new System.Text.StringBuilder(value.Length);
+            bool previousDash = false;
+
+            foreach (char current in value.Trim().ToLowerInvariant())
+            {
+                bool isAsciiLetter = current >= 'a' && current <= 'z';
+                bool isAsciiDigit = current >= '0' && current <= '9';
+                bool isSafeSeparator = current == '-' || current == '_';
+
+                if (isAsciiLetter || isAsciiDigit || isSafeSeparator)
+                {
+                    builder.Append(current);
+                    previousDash = false;
+                }
+                else if (!previousDash)
+                {
+                    builder.Append('-');
+                    previousDash = true;
+                }
+            }
+
+            string sanitized = builder.ToString().Trim('-', '_');
+            if (String.IsNullOrEmpty(sanitized)) return "captain";
+
+            const int maxSegmentLength = 64;
+            if (sanitized.Length > maxSegmentLength)
+            {
+                sanitized = sanitized.Substring(0, maxSegmentLength).Trim('-', '_');
+                if (String.IsNullOrEmpty(sanitized)) return "captain";
+            }
+
+            return sanitized;
+        }
 
         private async Task CleanupArchitectBranchAsync(Mission mission, Dock? dock, CancellationToken token)
         {

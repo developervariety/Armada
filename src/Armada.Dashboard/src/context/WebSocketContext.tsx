@@ -1,6 +1,5 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
 import type { WebSocketMessage } from '../types/models';
-import { getStatus } from '../api/client';
 import { useAuth } from './AuthContext';
 
 type MessageHandler = (msg: WebSocketMessage) => void;
@@ -21,7 +20,6 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   const wsRef = useRef<WebSocket | null>(null);
   const handlersRef = useRef<Set<MessageHandler>>(new Set());
   const reconnectTimerRef = useRef<number | null>(null);
-  const wsPortRef = useRef<number | null>(null);
   const mountedRef = useRef(true);
 
   const subscribe = useCallback((handler: MessageHandler) => {
@@ -37,11 +35,11 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const connectWs = useCallback((port: number) => {
+  const connectWs = useCallback(() => {
     if (!mountedRef.current) return;
     try {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const url = `${protocol}//${window.location.hostname}:${port}`;
+      const url = `${protocol}//${window.location.host}/ws`;
       const ws = new WebSocket(url);
 
       ws.onopen = () => {
@@ -53,7 +51,6 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
       ws.onmessage = (evt) => {
         try {
           const data = JSON.parse(evt.data) as WebSocketMessage;
-          // Camelize the type field but pass data through
           handlersRef.current.forEach(handler => handler(data));
         } catch {
           // ignore parse errors
@@ -65,7 +62,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         setConnected(false);
         wsRef.current = null;
         reconnectTimerRef.current = window.setTimeout(() => {
-          if (mountedRef.current) connectWs(port);
+          if (mountedRef.current) connectWs();
         }, RECONNECT_DELAY);
       };
 
@@ -77,7 +74,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     } catch {
       setConnected(false);
       reconnectTimerRef.current = window.setTimeout(() => {
-        if (mountedRef.current) connectWs(port);
+        if (mountedRef.current) connectWs();
       }, RECONNECT_DELAY);
     }
   }, []);
@@ -89,18 +86,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    // Get WS port from status endpoint
-    getStatus()
-      .then((status) => {
-        const port = (status.wsPort as number) || 7892;
-        wsPortRef.current = port;
-        connectWs(port);
-      })
-      .catch(() => {
-        // Default port fallback
-        wsPortRef.current = 7892;
-        connectWs(7892);
-      });
+    connectWs();
 
     return () => {
       mountedRef.current = false;

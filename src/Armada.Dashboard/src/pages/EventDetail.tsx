@@ -11,20 +11,7 @@ import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
 import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
-
-function formatTimeAbsolute(utc: string): string {
-  return new Date(utc).toLocaleString();
-}
-
-function formatTimeRelative(utc: string | null): string {
-  if (!utc) return '';
-  const d = new Date(utc);
-  const diff = Date.now() - d.getTime();
-  if (diff < 60000) return 'just now';
-  if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago';
-  if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago';
-  return Math.floor(diff / 86400000) + 'd ago';
-}
+import { useLocale } from '../context/LocaleContext';
 
 /** Map entity ID prefix to a route. */
 function entityRoute(entityId: string | null): string | null {
@@ -41,6 +28,7 @@ function entityRoute(entityId: string | null): string | null {
 }
 
 export default function EventDetail() {
+  const { t, formatDateTime, formatRelativeTime } = useLocale();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
 
@@ -65,21 +53,21 @@ export default function EventDetail() {
 
   useEffect(() => {
     if (!id) return;
-    getEvent(id).then(setEvent).catch(() => setError('Failed to load event.'));
+    getEvent(id).then(setEvent).catch(() => setError(t('Failed to load event.')));
     listCaptains({ pageSize: 1000 }).then(r => setCaptains(r.objects || [])).catch(() => {});
     listVessels({ pageSize: 1000 }).then(r => setVessels(r.objects || [])).catch(() => {});
-  }, [id]);
+  }, [id, t]);
 
   function handleDelete() {
     setConfirmAction({
-      message: `Delete event ${id}?`,
+      message: t('Delete {{entity}} {{name}}?', { entity: t('Event').toLowerCase(), name: id ?? '' }),
       action: async () => {
         try {
           await deleteEventsBatch([id!]);
           setConfirmAction(null);
           navigate('/events');
         } catch {
-          setError('Delete failed.');
+          setError(t('Delete failed.'));
           setConfirmAction(null);
         }
       }
@@ -90,12 +78,12 @@ export default function EventDetail() {
     return (
       <div>
         <ErrorModal error={error} onClose={() => setError('')} />
-        <button className="btn-sm" onClick={() => navigate('/events')}>&larr; Back to Events</button>
+        <button className="btn-sm" onClick={() => navigate('/events')}>&larr; {t('Back to Events')}</button>
       </div>
     );
   }
 
-  if (!event) return <p className="text-muted">Loading...</p>;
+  if (!event) return <p className="text-muted">{t('Loading...')}</p>;
 
   const entRoute = entityRoute(event.entityId);
 
@@ -114,7 +102,7 @@ export default function EventDetail() {
     <div>
       {/* Breadcrumb */}
       <div style={{ marginBottom: 16, fontSize: 13 }}>
-        <Link to="/events">Events</Link>
+        <Link to="/events">{t('Events')}</Link>
         <span className="text-muted"> / </span>
         <span className="mono">{event.id}</span>
       </div>
@@ -122,10 +110,10 @@ export default function EventDetail() {
       <ErrorModal error={error} onClose={() => setError('')} />
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-        <h2>Event Details</h2>
+        <h2>{t('Event Details')}</h2>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button className="btn-sm" onClick={() => setJsonView({ title: `Event: ${event.id}`, data: event })}>View JSON</button>
-          <button className="btn-sm btn-danger" onClick={handleDelete}>Delete</button>
+          <button className="btn-sm" onClick={() => setJsonView({ title: t('Event: {{id}}', { id: event.id }), data: event })}>{t('View JSON')}</button>
+          <button className="btn-sm btn-danger" onClick={handleDelete}>{t('Delete')}</button>
         </div>
       </div>
 
@@ -133,29 +121,29 @@ export default function EventDetail() {
       <div className="card" style={{ marginBottom: 20 }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 16 }}>
           <div>
-            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>ID</div>
+            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>{t('ID')}</div>
             <div className="mono" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
               {event.id}
               <CopyButton text={event.id} />
             </div>
           </div>
           <div>
-            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>Event Type</div>
+            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>{t('Event Type')}</div>
             <span className="status">{event.eventType}</span>
           </div>
           <div>
-            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>Message</div>
+            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>{t('Message')}</div>
             <div style={{ whiteSpace: 'pre-wrap' }}>{event.message || '-'}</div>
           </div>
           {event.entityType && (
             <div>
-              <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>Entity Type</div>
+              <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>{t('Entity Type')}</div>
               <div>{event.entityType}</div>
             </div>
           )}
           {event.entityId && (
             <div>
-              <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>Entity ID</div>
+              <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>{t('Entity ID')}</div>
               {entRoute
                 ? <Link to={entRoute} className="mono">{event.entityId}</Link>
                 : <span className="mono">{event.entityId}</span>}
@@ -163,35 +151,35 @@ export default function EventDetail() {
           )}
           {event.captainId && (
             <div>
-              <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>Captain</div>
+              <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>{t('Captain')}</div>
               <Link to={`/captains/${event.captainId}`}>{captainName(event.captainId)}</Link>
             </div>
           )}
           {event.missionId && (
             <div>
-              <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>Mission</div>
+              <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>{t('Mission')}</div>
               <Link to={`/missions/${event.missionId}`} className="mono">{event.missionId}</Link>
             </div>
           )}
           {event.vesselId && (
             <div>
-              <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>Vessel</div>
+              <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>{t('Vessel')}</div>
               <Link to={`/vessels/${event.vesselId}`}>{vesselName(event.vesselId)}</Link>
             </div>
           )}
           {event.voyageId && (
             <div>
-              <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>Voyage</div>
+              <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>{t('Voyage')}</div>
               <Link to={`/voyages/${event.voyageId}`} className="mono">{event.voyageId}</Link>
             </div>
           )}
           <div>
-            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>Tenant ID</div>
+            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>{t('Tenant ID')}</div>
             <div className="mono">{event.tenantId || '-'}</div>
           </div>
           <div>
-            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>Created</div>
-            <div>{formatTimeRelative(event.createdUtc)} <span className="text-muted">({formatTimeAbsolute(event.createdUtc)})</span></div>
+            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>{t('Created')}</div>
+            <div>{formatRelativeTime(event.createdUtc)} <span className="text-muted">({formatDateTime(event.createdUtc)})</span></div>
           </div>
         </div>
       </div>
@@ -199,7 +187,7 @@ export default function EventDetail() {
       {/* Payload */}
       {payloadDisplay && (
         <div className="card">
-          <h3>Payload</h3>
+          <h3>{t('Payload')}</h3>
           <pre style={{
             background: '#f5f5fa',
             padding: 16,

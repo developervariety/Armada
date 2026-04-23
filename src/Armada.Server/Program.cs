@@ -76,7 +76,7 @@ namespace Armada.Server
 
             Console.WriteLine("Admiral running on port " + _Settings.AdmiralPort);
             Console.WriteLine("MCP server on port " + _Settings.McpPort);
-            Console.WriteLine("WebSocket hub on port " + _Settings.WebSocketPort);
+            Console.WriteLine("WebSocket endpoint at /ws");
             Console.WriteLine("Dashboard: http://localhost:" + _Settings.AdmiralPort + "/dashboard");
 
             // Wait for shutdown signal (Ctrl+C, SIGTERM, API stop, or assembly unload)

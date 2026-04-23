@@ -10,23 +10,14 @@ import JsonViewer from '../components/shared/JsonViewer';
 import CopyButton from '../components/shared/CopyButton';
 import RefreshButton from '../components/shared/RefreshButton';
 import ErrorModal from '../components/shared/ErrorModal';
+import { useLocale } from '../context/LocaleContext';
 
 type SortDir = 'asc' | 'desc';
 type SortField = 'name' | 'runtime' | 'state' | 'createdUtc';
 
-function formatTime(utc: string | null): string {
-  if (!utc) return '-';
-  const d = new Date(utc);
-  const now = new Date();
-  const diff = now.getTime() - d.getTime();
-  if (diff < 60000) return 'just now';
-  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
-  return d.toLocaleDateString();
-}
-
 export default function Captains() {
   const navigate = useNavigate();
+  const { t, formatRelativeTime, formatDateTime } = useLocale();
   const [captains, setCaptains] = useState<Captain[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -63,11 +54,11 @@ export default function Captains() {
       setCaptains(result.objects);
       setError('');
     } catch {
-      setError('Failed to load captains.');
+      setError(t('Failed to load captains.'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -140,18 +131,18 @@ export default function Captains() {
       setShowForm(false);
       load();
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Save failed.');
+      setError(e instanceof Error ? e.message : t('Save failed.'));
     }
   }
 
   function handleDelete(id: string, name: string) {
     setConfirm({
       open: true,
-      title: 'Delete Captain',
-      message: `Delete captain "${name}"? This cannot be undone.`,
+      title: t('Delete Captain'),
+      message: t('Delete captain "{{name}}"? This cannot be undone.', { name }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
-        try { await deleteCaptain(id); load(); } catch { setError('Delete failed.'); }
+        try { await deleteCaptain(id); load(); } catch { setError(t('Delete failed.')); }
       },
     });
   }
@@ -159,8 +150,8 @@ export default function Captains() {
   function handleBulkDelete() {
     setConfirm({
       open: true,
-      title: 'Delete Selected Captains',
-      message: `Delete ${selected.length} selected captain(s)? This cannot be undone.`,
+      title: t('Delete Selected Captains'),
+      message: t('Delete {{count}} selected captain(s)? This cannot be undone.', { count: selected.length }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
         const ids = [...selected];
@@ -169,7 +160,7 @@ export default function Captains() {
         for (const id of ids) {
           try { await deleteCaptain(id); } catch { failed++; }
         }
-        if (failed > 0) setError(`Deleted ${ids.length - failed} captains, ${failed} failed.`);
+        if (failed > 0) setError(t('Deleted {{deleted}} captains, {{failed}} failed.', { deleted: ids.length - failed, failed }));
         load();
       },
     });
@@ -178,11 +169,11 @@ export default function Captains() {
   function handleStop(id: string, name: string) {
     setConfirm({
       open: true,
-      title: 'Stop Captain',
-      message: `Stop captain "${name}"? The captain process will be terminated.`,
+      title: t('Stop Captain'),
+      message: t('Stop captain "{{name}}"? The captain process will be terminated.', { name }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
-        try { await stopCaptain(id); load(); } catch { setError('Stop failed.'); }
+        try { await stopCaptain(id); load(); } catch { setError(t('Stop failed.')); }
       },
     });
   }
@@ -190,11 +181,11 @@ export default function Captains() {
   function handleRecall(id: string, name: string) {
     setConfirm({
       open: true,
-      title: 'Recall Captain',
-      message: `Recall captain "${name}"? The captain will be recalled from its current mission.`,
+      title: t('Recall Captain'),
+      message: t('Recall captain "{{name}}"? The captain will be recalled from its current mission.', { name }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
-        try { await recallCaptain(id); load(); } catch { setError('Recall failed.'); }
+        try { await recallCaptain(id); load(); } catch { setError(t('Recall failed.')); }
       },
     });
   }
@@ -202,11 +193,11 @@ export default function Captains() {
   function handleRestart(id: string, name: string) {
     setConfirm({
       open: true,
-      title: 'Restart Captain',
-      message: `Restart captain "${name}"? The captain will be deleted and recreated with the same saved configuration.`,
+      title: t('Restart Captain'),
+      message: t('Restart captain "{{name}}"? The captain will be deleted and recreated with the same saved configuration.', { name }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
-        try { await restartCaptain(id); load(); } catch { setError('Restart failed.'); }
+        try { await restartCaptain(id); load(); } catch { setError(t('Restart failed.')); }
       },
     });
   }
@@ -214,11 +205,11 @@ export default function Captains() {
   function handleStopAll() {
     setConfirm({
       open: true,
-      title: 'Stop All Captains',
-      message: 'Stop ALL captains? All captain processes will be terminated. This cannot be undone.',
+      title: t('Stop All Captains'),
+      message: t('Stop ALL captains? All captain processes will be terminated. This cannot be undone.'),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
-        try { await stopAllCaptains(); load(); } catch { setError('Stop all failed.'); }
+        try { await stopAllCaptains(); load(); } catch { setError(t('Stop all failed.')); }
       },
     });
   }
@@ -227,18 +218,18 @@ export default function Captains() {
     <div>
       <div className="view-header">
         <div>
-          <h2>Captains</h2>
-          <p className="text-dim view-subtitle">AI agent processes that execute missions. Monitor heartbeat, state, and manage captain lifecycle.</p>
+          <h2>{t('Captains')}</h2>
+          <p className="text-dim view-subtitle">{t('AI agent processes that execute missions. Monitor heartbeat, state, and manage captain lifecycle.')}</p>
         </div>
         <div className="view-actions">
           {selected.length > 0 && (
             <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>
-              Delete Selected ({selected.length})
+              {t('Delete Selected')} ({selected.length})
             </button>
           )}
-          <button className="btn btn-sm btn-danger" onClick={handleStopAll} title="Stop all captain processes">Stop All</button>
-          <button className="btn btn-primary btn-sm" onClick={openCreate}>+ Captain</button>
-          <RefreshButton onRefresh={load} title="Refresh captain data" />
+          <button className="btn btn-sm btn-danger" onClick={handleStopAll} title={t('Stop all captain processes')}>{t('Stop All')}</button>
+          <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Captain')}</button>
+          <RefreshButton onRefresh={load} title={t('Refresh captain data')} />
         </div>
       </div>
 
@@ -248,28 +239,28 @@ export default function Captains() {
       {showForm && (
         <div className="modal-overlay" onClick={() => setShowForm(false)}>
           <form className="modal" onClick={e => e.stopPropagation()} onSubmit={handleSubmit}>
-            <h3>{editing ? 'Edit Captain' : 'Create Captain'}</h3>
-            <label>Name<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required /></label>
-            <label title="The AI agent runtime this captain will use">Runtime
+            <h3>{editing ? t('Edit Captain') : t('Create Captain')}</h3>
+            <label>{t('Name')}<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required /></label>
+            <label title={t('The AI agent runtime this captain will use')}>{t('Runtime')}
               <select value={form.runtime} onChange={e => setForm({ ...form, runtime: e.target.value })} required>
-                <option value="">Select runtime...</option>
+                <option value="">{t('Select runtime...')}</option>
                 <option value="ClaudeCode">Claude Code</option>
                 <option value="Codex">Codex</option>
                 <option value="Gemini">Gemini</option>
                 <option value="Cursor">Cursor</option>
               </select>
             </label>
-            <label title="Optional AI model identifier. Leave blank to let the runtime choose its default model.">
-              Model
-              <input value={form.model} onChange={e => setForm({ ...form, model: e.target.value })} placeholder="e.g., gpt-5.4-mini" />
+            <label title={t('Optional AI model identifier. Leave blank to let the runtime choose its default model.')}>
+              {t('Model')}
+              <input value={form.model} onChange={e => setForm({ ...form, model: e.target.value })} placeholder={t('e.g., gpt-5.4-mini')} />
             </label>
-            <label title="Optional instructions injected into every mission prompt for this captain. Use this to specialize behavior, add guardrails, or provide persistent context.">
-              System Instructions
-              <textarea value={form.systemInstructions} onChange={e => setForm({ ...form, systemInstructions: e.target.value })} rows={4} placeholder="e.g., You are a testing specialist. Always run tests before committing..." />
+            <label title={t('Optional instructions injected into every mission prompt for this captain. Use this to specialize behavior, add guardrails, or provide persistent context.')}>
+              {t('System Instructions')}
+              <textarea value={form.systemInstructions} onChange={e => setForm({ ...form, systemInstructions: e.target.value })} rows={4} placeholder={t('e.g., You are a testing specialist. Always run tests before committing...')} />
             </label>
             <div className="modal-actions">
-              <button type="submit" className="btn btn-primary">Save</button>
-              <button type="button" className="btn" onClick={() => setShowForm(false)}>Cancel</button>
+              <button type="submit" className="btn btn-primary">{t('Save')}</button>
+              <button type="button" className="btn" onClick={() => setShowForm(false)}>{t('Cancel')}</button>
             </div>
           </form>
         </div>
@@ -282,8 +273,8 @@ export default function Captains() {
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
 
-      {loading && captains.length === 0 && <p className="text-dim">Loading...</p>}
-      {!loading && captains.length === 0 && <p className="text-dim">No captains configured.</p>}
+      {loading && captains.length === 0 && <p className="text-dim">{t('Loading...')}</p>}
+      {!loading && captains.length === 0 && <p className="text-dim">{t('No captains configured.')}</p>}
 
       {captains.length > 0 && (
         <>
@@ -296,31 +287,31 @@ export default function Captains() {
               <thead>
                 <tr>
                   <th className="col-checkbox">
-                    <input type="checkbox" checked={allSelected} onChange={e => e.target.checked ? selectAll() : clearSelection()} title="Select all captains" />
+                    <input type="checkbox" checked={allSelected} onChange={e => e.target.checked ? selectAll() : clearSelection()} title={t('Select all captains')} />
                   </th>
-                  <th className="sortable" onClick={() => handleSort('name')} title="Captain name -- click to sort">
-                    Name{sortIcon('name')}
+                  <th className="sortable" onClick={() => handleSort('name')} title={t('Captain name -- click to sort')}>
+                    {t('Name')}{sortIcon('name')}
                   </th>
-                  <th>ID</th>
-                  <th className="sortable" onClick={() => handleSort('runtime')} title="Runtime -- click to sort">
-                    Runtime{sortIcon('runtime')}
+                  <th>{t('ID')}</th>
+                  <th className="sortable" onClick={() => handleSort('runtime')} title={t('Runtime -- click to sort')}>
+                    {t('Runtime')}{sortIcon('runtime')}
                   </th>
-                  <th className="sortable" onClick={() => handleSort('state')} title="State -- click to sort">
-                    State{sortIcon('state')}
+                  <th className="sortable" onClick={() => handleSort('state')} title={t('State -- click to sort')}>
+                    {t('State')}{sortIcon('state')}
                   </th>
-                  <th>Current Mission</th>
-                  <th>Heartbeat</th>
-                  <th className="sortable" onClick={() => handleSort('createdUtc')} title="Created date -- click to sort">
-                    Created{sortIcon('createdUtc')}
+                  <th>{t('Current Mission')}</th>
+                  <th>{t('Heartbeat')}</th>
+                  <th className="sortable" onClick={() => handleSort('createdUtc')} title={t('Created date -- click to sort')}>
+                    {t('Created')}{sortIcon('createdUtc')}
                   </th>
-                  <th className="text-right">Actions</th>
+                  <th className="text-right">{t('Actions')}</th>
                 </tr>
                 <tr className="column-filter-row">
                   <td></td>
-                  <td><input type="text" className="col-filter" value={colFilters.name} onChange={e => { setColFilters(f => ({ ...f, name: e.target.value })); setPageNumber(1); }} placeholder="Filter..." /></td>
+                  <td><input type="text" className="col-filter" value={colFilters.name} onChange={e => { setColFilters(f => ({ ...f, name: e.target.value })); setPageNumber(1); }} placeholder={t('Filter...')} /></td>
                   <td></td>
-                  <td><input type="text" className="col-filter" value={colFilters.runtime} onChange={e => { setColFilters(f => ({ ...f, runtime: e.target.value })); setPageNumber(1); }} placeholder="Filter..." /></td>
-                  <td><input type="text" className="col-filter" value={colFilters.state} onChange={e => { setColFilters(f => ({ ...f, state: e.target.value })); setPageNumber(1); }} placeholder="Filter..." /></td>
+                  <td><input type="text" className="col-filter" value={colFilters.runtime} onChange={e => { setColFilters(f => ({ ...f, runtime: e.target.value })); setPageNumber(1); }} placeholder={t('Filter...')} /></td>
+                  <td><input type="text" className="col-filter" value={colFilters.state} onChange={e => { setColFilters(f => ({ ...f, state: e.target.value })); setPageNumber(1); }} placeholder={t('Filter...')} /></td>
                   <td></td>
                   <td></td>
                   <td></td>
@@ -331,7 +322,7 @@ export default function Captains() {
                 {paginated.map(c => (
                   <tr key={c.id} className="clickable" onClick={() => openEdit(c)}>
                     <td className="col-checkbox" onClick={e => e.stopPropagation()}>
-                      <input type="checkbox" checked={selected.includes(c.id)} onChange={() => toggleSelect(c.id)} title="Select this captain" />
+                      <input type="checkbox" checked={selected.includes(c.id)} onChange={() => toggleSelect(c.id)} title={t('Select this captain')} />
                     </td>
                     <td><strong>{c.name}</strong></td>
                     <td className="mono text-dim table-id-cell">
@@ -349,13 +340,13 @@ export default function Captains() {
                         </a>
                       ) : '-'}
                     </td>
-                    <td className="text-dim">{formatTime(c.lastHeartbeatUtc)}</td>
-                    <td className="text-dim">{formatTime(c.createdUtc)}</td>
+                    <td className="text-dim" title={formatDateTime(c.lastHeartbeatUtc)}>{formatRelativeTime(c.lastHeartbeatUtc)}</td>
+                    <td className="text-dim" title={formatDateTime(c.createdUtc)}>{formatRelativeTime(c.createdUtc)}</td>
                     <td className="text-right" onClick={e => e.stopPropagation()}>
                       <ActionMenu id={`captain-${c.id}`} items={[
                         { label: 'View Detail', onClick: () => navigate(`/captains/${c.id}`) },
                         { label: 'Edit', onClick: () => openEdit(c) },
-                        { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `Captain: ${c.name}`, data: c }) },
+                        { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `${t('Captain')}: ${c.name}`, data: c }) },
                         { label: 'Stop', onClick: () => handleStop(c.id, c.name) },
                         { label: 'Recall', onClick: () => handleRecall(c.id, c.name) },
                         { label: 'Restart', onClick: () => handleRestart(c.id, c.name) },
@@ -365,7 +356,7 @@ export default function Captains() {
                   </tr>
                 ))}
                 {paginated.length === 0 && (
-                  <tr><td colSpan={9} className="text-dim">No captains match the current filters.</td></tr>
+                  <tr><td colSpan={9} className="text-dim">{t('No captains match the current filters.')}</td></tr>
                 )}
               </tbody>
             </table>

@@ -21,6 +21,7 @@ import CopyButton, { copyToClipboard } from '../components/shared/CopyButton';
 import JsonViewer from '../components/shared/JsonViewer';
 import FilterBar from '../components/shared/FilterBar';
 import MissionHistoryChart from '../components/MissionHistoryChart';
+import { useLocale } from '../context/LocaleContext';
 
 interface VoyageProgress {
   voyage: {
@@ -50,25 +51,6 @@ interface StatusData {
   }>;
 }
 
-function formatTime(utc: string | null | undefined): string {
-  if (!utc) return '-';
-  const d = new Date(utc);
-  const now = new Date();
-  const diffMs = now.getTime() - d.getTime();
-  const diffMin = Math.floor(diffMs / 60000);
-  if (diffMin < 1) return 'just now';
-  if (diffMin < 60) return `${diffMin}m ago`;
-  const diffHr = Math.floor(diffMin / 60);
-  if (diffHr < 24) return `${diffHr}h ago`;
-  const diffDay = Math.floor(diffHr / 24);
-  return `${diffDay}d ago`;
-}
-
-function formatTimeAbsolute(utc: string | null | undefined): string {
-  if (!utc) return '';
-  return new Date(utc).toLocaleString();
-}
-
 function voyagePercent(vp: VoyageProgress): number {
   if (!vp.totalMissions) return 0;
   return Math.round((vp.completedMissions / vp.totalMissions) * 100);
@@ -77,6 +59,7 @@ function voyagePercent(vp: VoyageProgress): number {
 export default function Dashboard() {
   const { subscribe } = useWebSocket();
   const navigate = useNavigate();
+  const { t, formatRelativeTime, formatDateTime } = useLocale();
 
   const [status, setStatus] = useState<StatusData | null>(null);
   const [recentMissions, setRecentMissions] = useState<Mission[]>([]);
@@ -145,13 +128,13 @@ export default function Dashboard() {
       if (vesselRes) setVessels(vesselRes.objects);
       if (fleetRes) setFleets(fleetRes.objects);
       if (captainRes) setCaptains(captainRes.objects);
-      if (!statusRes && !missionRes) setError('Failed to load dashboard data.');
+      if (!statusRes && !missionRes) setError(t('Failed to load dashboard data.'));
     } catch {
-      setError('Failed to load dashboard data.');
+      setError(t('Failed to load dashboard data.'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     loadAll();
@@ -246,12 +229,12 @@ export default function Dashboard() {
   }, [recentMissions, statusFilter, vesselFilter, captainFilter]);
 
   const handleDeleteMission = async (id: string) => {
-    if (!window.confirm('Delete this mission?')) return;
+    if (!window.confirm(t('Delete this mission?'))) return;
     try {
       await deleteMission(id);
       loadAll();
     } catch {
-      setError('Failed to delete mission.');
+      setError(t('Failed to delete mission.'));
     }
   };
 
@@ -273,8 +256,8 @@ export default function Dashboard() {
   if (loading) {
     return (
       <div>
-        <h2>System Status</h2>
-        <p className="text-dim">Loading dashboard...</p>
+        <h2>{t('System Status')}</h2>
+        <p className="text-dim">{t('Loading dashboard...')}</p>
       </div>
     );
   }
@@ -283,17 +266,17 @@ export default function Dashboard() {
     <div>
       <div className="view-header">
         <div>
-          <h2>System Status</h2>
+          <h2>{t('System Status')}</h2>
           <p className="text-dim view-subtitle">
-            Overview of fleet health, active missions, and recent activity.
+            {t('Overview of fleet health, active missions, and recent activity.')}
           </p>
         </div>
         <div className="view-actions">
-          <button className="btn btn-primary btn-sm" onClick={() => navigate('/dispatch')} title="Smart dispatch with NLP task parsing">
-            + Dispatch
+          <button className="btn btn-primary btn-sm" onClick={() => navigate('/dispatch')} title={t('Smart dispatch with NLP task parsing')}>
+            + {t('Dispatch')}
           </button>
-          <button className="btn btn-primary btn-sm" onClick={() => navigate('/voyages/create')} title="Create a new voyage with multiple missions">
-            + Voyage
+          <button className="btn btn-primary btn-sm" onClick={() => navigate('/voyages/create')} title={t('Create a new voyage with multiple missions')}>
+            + {t('Voyage')}
           </button>
           <RefreshButton onRefresh={loadAll} title="Refresh all dashboard data" />
         </div>
@@ -311,7 +294,7 @@ export default function Dashboard() {
                 {alert.action && <span className="dashboard-alert-action"> {alert.action}</span>}
               </div>
               {alert.link && (
-                <button className="btn btn-sm" onClick={() => navigate(alert.link!)}>View</button>
+                <button className="btn btn-sm" onClick={() => navigate(alert.link!)}>{t('View')}</button>
               )}
             </div>
           ))}
@@ -323,9 +306,9 @@ export default function Dashboard() {
         <div
           className="card clickable"
           onClick={() => navigate('/captains')}
-          title="Click to view all captains"
+          title={t('Click to view all captains')}
         >
-          <div className="card-label">Captains</div>
+          <div className="card-label">{t('Captains')}</div>
           <div className="card-value">{status?.totalCaptains ?? 0}</div>
           <div className="card-detail">
             <span className="tag idle">{status?.idleCaptains ?? 0} idle</span>
@@ -339,18 +322,18 @@ export default function Dashboard() {
         <div
           className="card clickable"
           onClick={() => navigate('/voyages')}
-          title="Click to view all voyages"
+          title={t('Click to view all voyages')}
         >
-          <div className="card-label">Active Voyages</div>
+          <div className="card-label">{t('Active Voyages')}</div>
           <div className="card-value">{status?.activeVoyages ?? 0}</div>
         </div>
 
         <div
           className="card clickable"
           onClick={() => navigate('/missions')}
-          title="Click to view all missions"
+          title={t('Click to view all missions')}
         >
-          <div className="card-label">Missions</div>
+          <div className="card-label">{t('Missions')}</div>
           <div className="card-value">{totalMissions}</div>
           <div className="card-detail">
             {status?.missionsByStatus &&
@@ -369,16 +352,16 @@ export default function Dashboard() {
       {/* Voyage Progress */}
       {status?.voyages && status.voyages.length > 0 && (
         <div style={{ marginTop: '1.5rem' }}>
-          <h3>Voyage Progress</h3>
+          <h3>{t('Voyage Progress')}</h3>
           <div className="table-wrap">
             <table className="table">
               <thead>
                 <tr>
-                  <th title="Voyage name and unique identifier">Voyage</th>
-                  <th title="Current voyage lifecycle state">Status</th>
-                  <th title="Vessel(s) targeted by this voyage's missions">Vessel</th>
-                  <th title="Percentage of missions completed">Progress</th>
-                  <th title="Completed vs total missions in this voyage">Missions</th>
+                  <th title={t('Voyage name and unique identifier')}>{t('Voyage')}</th>
+                  <th title={t('Current voyage lifecycle state')}>{t('Status')}</th>
+                  <th title={t('Vessel(s) targeted by this voyage\'s missions')}>{t('Vessel')}</th>
+                  <th title={t('Percentage of missions completed')}>{t('Progress')}</th>
+                  <th title={t('Completed vs total missions in this voyage')}>{t('Missions')}</th>
                   <th></th>
                 </tr>
               </thead>
@@ -411,10 +394,10 @@ export default function Dashboard() {
                     </td>
                     <td>
                       <span>
-                        {vp.completedMissions}/{vp.totalMissions} done
+                        {vp.completedMissions}/{vp.totalMissions} {t('done')}
                       </span>
                       {vp.failedMissions > 0 && (
-                        <span className="text-dim">, {vp.failedMissions} failed</span>
+                        <span className="text-dim">, {vp.failedMissions} {t('failed')}</span>
                       )}
                     </td>
                     <td onClick={(e) => e.stopPropagation()}>
@@ -444,25 +427,25 @@ export default function Dashboard() {
       {/* Recent Missions */}
       <div style={{ marginTop: '1.5rem' }}>
         <div className="view-header">
-          <h3>Recent Missions</h3>
+          <h3>{t('Recent Missions')}</h3>
           <div className="view-actions filter-bar">
             <FilterBar
               filters={[
                 {
                   key: 'status',
-                  label: 'All Statuses',
+                  label: t('All Statuses'),
                   type: 'select',
-                  options: missionStatuses.map((s) => ({ value: s, label: s })),
+                  options: missionStatuses.map((s) => ({ value: s, label: t(s) })),
                 },
                 {
                   key: 'vessel',
-                  label: 'All Vessels',
+                  label: t('All Vessels'),
                   type: 'select',
                   options: vessels.map((v) => ({ value: v.id, label: v.name })),
                 },
                 {
                   key: 'captain',
-                  label: 'All Captains',
+                  label: t('All Captains'),
                   type: 'select',
                   options: captains.map((c) => ({ value: c.id, label: c.name })),
                 },
@@ -477,9 +460,9 @@ export default function Dashboard() {
             <button
               className="btn btn-sm"
               onClick={() => navigate('/missions')}
-              title="Go to full missions list"
+              title={t('Go to full missions list')}
             >
-              View All &rarr;
+              {t('View All')} &rarr;
             </button>
           </div>
         </div>
@@ -489,12 +472,12 @@ export default function Dashboard() {
             <table className="table mission-table">
               <thead>
                 <tr>
-                  <th title="Mission title">Mission</th>
-                  <th title="Mission ID">ID</th>
-                  <th title="Current mission lifecycle state">Status</th>
-                  <th title="Target repository for this mission">Vessel</th>
-                  <th title="AI captain assigned to execute this mission">Captain</th>
-                  <th title="When this mission was created">Created</th>
+                  <th title={t('Mission title')}>{t('Mission')}</th>
+                  <th title={t('Mission ID')}>{t('ID')}</th>
+                  <th title={t('Current mission lifecycle state')}>{t('Status')}</th>
+                  <th title={t('Target repository for this mission')}>{t('Vessel')}</th>
+                  <th title={t('AI captain assigned to execute this mission')}>{t('Captain')}</th>
+                  <th title={t('When this mission was created')}>{t('Created')}</th>
                   <th></th>
                 </tr>
               </thead>
@@ -519,8 +502,8 @@ export default function Dashboard() {
                     </td>
                     <td>{vesselName(m.vesselId)}</td>
                     <td>{captainName(m.captainId)}</td>
-                    <td className="text-dim" title={formatTimeAbsolute(m.createdUtc)}>
-                      {formatTime(m.createdUtc)}
+                    <td className="text-dim" title={formatDateTime(m.createdUtc)}>
+                      {formatRelativeTime(m.createdUtc)}
                     </td>
                     <td onClick={(e) => e.stopPropagation()}>
                       <ActionMenu
@@ -553,21 +536,21 @@ export default function Dashboard() {
             </table>
           </div>
         ) : (
-          <p className="text-dim">No missions found.</p>
+          <p className="text-dim">{t('No missions found.')}</p>
         )}
       </div>
 
       {/* Recent Signals */}
       {status?.recentSignals && status.recentSignals.length > 0 && (
         <div style={{ marginTop: '1.5rem' }}>
-          <h3>Recent Signals</h3>
+          <h3>{t('Recent Signals')}</h3>
           <div className="signal-list">
             {status.recentSignals.slice(0, 5).map((sig) => (
               <div key={sig.id} className="signal-item">
                 <StatusBadge status={sig.type || ''} />
                 <span>{sig.payload || sig.message}</span>
-                <span className="text-dim" title={formatTimeAbsolute(sig.createdUtc)}>
-                  {formatTime(sig.createdUtc)}
+                <span className="text-dim" title={formatDateTime(sig.createdUtc)}>
+                  {formatRelativeTime(sig.createdUtc)}
                 </span>
               </div>
             ))}

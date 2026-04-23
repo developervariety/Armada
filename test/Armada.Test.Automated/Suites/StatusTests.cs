@@ -346,7 +346,6 @@ namespace Armada.Test.Automated.Suites
                 Assert(health.Ports != null, "Health check should include Ports");
                 Assert(health.Ports!.Admiral >= 0, "Ports should include Admiral");
                 Assert(health.Ports!.Mcp >= 0, "Ports should include Mcp");
-                Assert(health.Ports!.WebSocket >= 0, "Ports should include WebSocket");
             }).ConfigureAwait(false);
 
             await RunTest("GetHealth_ReturnsJson", async () =>

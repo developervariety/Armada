@@ -1,8 +1,8 @@
 # Armada WebSocket API Reference
 
 **Version:** 0.6.0
-**Default URL:** `ws://localhost:7892`
-**Protocol:** WebSocket (RFC 6455) via WatsonWebsocket
+**Default URL:** `ws://localhost:7890/ws`
+**Protocol:** WebSocket (RFC 6455) via Watson7
 **Transport:** JSON text frames
 
 ## Remote Control Note
@@ -58,30 +58,30 @@ The new remote-control tunnel forwards Armada server events to the proxy for ins
 
 ### URL Construction
 
-The WebSocket server runs on a dedicated port, separate from the REST API. The default configuration is:
+The WebSocket server runs on the same port as the Admiral REST API, at the `/ws` path. The default configuration is:
 
 ```
-ws://localhost:7892
+ws://localhost:7890/ws
 ```
 
-The port is configurable via `ArmadaSettings.WebSocketPort` (default: `7892`). The hostname matches the REST API's `RestSettings.Hostname` (default: `localhost`).
+The port is configurable via `ArmadaSettings.AdmiralPort` (default: `7890`). The hostname matches the REST API's `RestSettings.Hostname` (default: `localhost`).
 
 ### Port Discovery
 
-Clients can discover the WebSocket port dynamically by querying the REST API health endpoint:
+The WebSocket endpoint is always available at `/ws` on the Admiral port. Clients can confirm the Admiral port by querying the REST API health endpoint:
 
 ```
 GET http://localhost:7890/api/v1/status/health
 ```
 
-The response includes the WebSocket port. If the health endpoint is unavailable, clients should fall back to `AdmiralPort + 2` (e.g., `7890 + 2 = 7892`).
+The response includes the Admiral port. The WebSocket endpoint is at `/ws` on the same port.
 
 ### SSL/TLS
 
 When `RestSettings.Ssl` is enabled, use `wss://` instead of `ws://`:
 
 ```
-wss://localhost:7892
+wss://localhost:7890/ws
 ```
 
 SSL applies to both the REST API and the WebSocket server.
@@ -2229,7 +2229,7 @@ If a message is sent without a route:
 ### JavaScript
 
 ```javascript
-const ws = new WebSocket("ws://localhost:7892");
+const ws = new WebSocket("ws://localhost:7890/ws");
 
 ws.onopen = () => {
   // Subscribe to receive real-time broadcasts
@@ -2325,7 +2325,7 @@ using System.Text;
 using System.Text.Json;
 
 ClientWebSocket ws = new ClientWebSocket();
-await ws.ConnectAsync(new Uri("ws://localhost:7892"), CancellationToken.None);
+await ws.ConnectAsync(new Uri("ws://localhost:7890/ws"), CancellationToken.None);
 
 // Subscribe to broadcasts
 string subscribe = JsonSerializer.Serialize(new { Route = "subscribe" });
@@ -2413,7 +2413,7 @@ import json
 import websockets
 
 async def main():
-    async with websockets.connect("ws://localhost:7892") as ws:
+    async with websockets.connect("ws://localhost:7890/ws") as ws:
         # Subscribe to broadcasts
         await ws.send(json.dumps({"Route": "subscribe"}))
 

@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import type { Mission, Vessel, Fleet } from '../types/models';
+import { useLocale } from '../context/LocaleContext';
 
 const TIME_RANGES = [
   { label: 'Last Hour', value: 'hour', hours: 1, stepMs: 60000 },
@@ -59,6 +60,7 @@ function formatTooltipTime(ts: number): string {
 }
 
 export default function MissionHistoryChart({ missions, vessels, fleets, onRefresh }: MissionHistoryChartProps) {
+  const { t } = useLocale();
   const [timeRange, setTimeRange] = useState<TimeRangeValue>('week');
   const [fleetId, setFleetId] = useState('');
   const [vesselId, setVesselId] = useState('');
@@ -109,14 +111,14 @@ export default function MissionHistoryChart({ missions, vessels, fleets, onRefre
   return (
     <div className="mission-history-section">
       <div className="mission-history-header">
-        <span className="mission-history-title">Mission History</span>
+        <span className="mission-history-title">{t('Mission History')}</span>
         <div className="mission-history-controls">
-          <select value={fleetId} onChange={e => { setFleetId(e.target.value); setVesselId(''); }} title="Filter by fleet">
-            <option value="">All Fleets</option>
+          <select value={fleetId} onChange={e => { setFleetId(e.target.value); setVesselId(''); }} title={t('Filter by fleet')}>
+            <option value="">{t('All Fleets')}</option>
             {fleets.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
           </select>
-          <select value={vesselId} onChange={e => setVesselId(e.target.value)} title="Filter by vessel">
-            <option value="">All Vessels</option>
+          <select value={vesselId} onChange={e => setVesselId(e.target.value)} title={t('Filter by vessel')}>
+            <option value="">{t('All Vessels')}</option>
             {filteredVessels.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
           </select>
           <div className="mission-history-time-tabs">
@@ -126,12 +128,12 @@ export default function MissionHistoryChart({ missions, vessels, fleets, onRefre
                 className={'mission-history-time-tab' + (timeRange === r.value ? ' active' : '')}
                 onClick={() => setTimeRange(r.value)}
               >
-                {r.label}
+                {t(r.label)}
               </button>
             ))}
           </div>
           {onRefresh && (
-            <button className="mission-history-refresh-btn" onClick={onRefresh} title="Refresh">
+            <button className="mission-history-refresh-btn" onClick={onRefresh} title={t('Refresh')}>
               &#x21bb;
             </button>
           )}
@@ -139,14 +141,14 @@ export default function MissionHistoryChart({ missions, vessels, fleets, onRefre
       </div>
 
       <div className="mission-history-stats">
-        <span><span className="mission-history-stat-value">{totalComplete + totalFailed + totalOther}</span> Total</span>
-        <span><span className="mission-history-stat-value" style={{ color: 'var(--green)' }}>{totalComplete}</span> Complete</span>
-        <span><span className="mission-history-stat-value" style={{ color: 'var(--red)' }}>{totalFailed}</span> Failed</span>
-        {totalOther > 0 && <span><span className="mission-history-stat-value" style={{ color: 'var(--text-dim)' }}>{totalOther}</span> Other</span>}
+        <span><span className="mission-history-stat-value">{totalComplete + totalFailed + totalOther}</span> {t('Total')}</span>
+        <span><span className="mission-history-stat-value" style={{ color: 'var(--green)' }}>{totalComplete}</span> {t('Complete')}</span>
+        <span><span className="mission-history-stat-value" style={{ color: 'var(--red)' }}>{totalFailed}</span> {t('Failed')}</span>
+        {totalOther > 0 && <span><span className="mission-history-stat-value" style={{ color: 'var(--text-dim)' }}>{totalOther}</span> {t('Other')}</span>}
       </div>
 
       {buckets.length === 0 ? (
-        <div className="mission-history-empty">No mission data for this time range</div>
+        <div className="mission-history-empty">{t('No mission data for this time range')}</div>
       ) : (
         <div className="mission-history-chart-container">
           <svg width="100%" viewBox={`0 0 800 ${chartHeight}`} preserveAspectRatio="xMidYMid meet" style={{ display: 'block' }}>
@@ -198,19 +200,19 @@ export default function MissionHistoryChart({ missions, vessels, fleets, onRefre
           {hoveredBar !== null && buckets[hoveredBar] && (
             <div className="mission-history-tooltip" style={{ left: `${((hoveredBar + 0.5) / buckets.length) * 100}%` }}>
               <div style={{ fontWeight: 600, marginBottom: 4 }}>{formatTooltipTime(buckets[hoveredBar].timestampMs)}</div>
-              <div><span style={{ color: 'var(--green)' }}>Complete:</span> {buckets[hoveredBar].complete}</div>
-              <div><span style={{ color: 'var(--red)' }}>Failed:</span> {buckets[hoveredBar].failed}</div>
-              {buckets[hoveredBar].other > 0 && <div><span style={{ color: 'var(--text-dim)' }}>Other:</span> {buckets[hoveredBar].other}</div>}
-              <div>Total: {buckets[hoveredBar].complete + buckets[hoveredBar].failed + buckets[hoveredBar].other}</div>
+              <div><span style={{ color: 'var(--green)' }}>{t('Complete')}:</span> {buckets[hoveredBar].complete}</div>
+              <div><span style={{ color: 'var(--red)' }}>{t('Failed')}:</span> {buckets[hoveredBar].failed}</div>
+              {buckets[hoveredBar].other > 0 && <div><span style={{ color: 'var(--text-dim)' }}>{t('Other')}:</span> {buckets[hoveredBar].other}</div>}
+              <div>{t('Total')}: {buckets[hoveredBar].complete + buckets[hoveredBar].failed + buckets[hoveredBar].other}</div>
             </div>
           )}
         </div>
       )}
 
       <div className="mission-history-legend">
-        <span><span className="mission-history-legend-color" style={{ backgroundColor: 'var(--green)' }} /> Complete</span>
-        <span><span className="mission-history-legend-color" style={{ backgroundColor: 'var(--red)' }} /> Failed</span>
-        <span><span className="mission-history-legend-color" style={{ backgroundColor: 'var(--text-dim)' }} /> Other</span>
+        <span><span className="mission-history-legend-color" style={{ backgroundColor: 'var(--green)' }} /> {t('Complete')}</span>
+        <span><span className="mission-history-legend-color" style={{ backgroundColor: 'var(--red)' }} /> {t('Failed')}</span>
+        <span><span className="mission-history-legend-color" style={{ backgroundColor: 'var(--text-dim)' }} /> {t('Other')}</span>
       </div>
     </div>
   );

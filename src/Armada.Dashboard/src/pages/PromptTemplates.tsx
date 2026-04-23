@@ -9,25 +9,16 @@ import JsonViewer from '../components/shared/JsonViewer';
 import StatusBadge from '../components/shared/StatusBadge';
 import RefreshButton from '../components/shared/RefreshButton';
 import ErrorModal from '../components/shared/ErrorModal';
+import { useLocale } from '../context/LocaleContext';
 
 type SortDir = 'asc' | 'desc';
 type SortField = 'name' | 'description' | 'category' | 'isBuiltIn' | 'contentLength' | 'active' | 'lastUpdateUtc';
 
 const CATEGORY_OPTIONS = ['all', 'mission', 'persona', 'structure', 'commit', 'landing', 'agent'] as const;
 
-function formatTime(utc: string | null): string {
-  if (!utc) return '-';
-  const d = new Date(utc);
-  const now = new Date();
-  const diff = now.getTime() - d.getTime();
-  if (diff < 60000) return 'just now';
-  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
-  return d.toLocaleDateString();
-}
-
 export default function PromptTemplates() {
   const navigate = useNavigate();
+  const { t: translate, formatRelativeTime, formatDateTime } = useLocale();
   const [templates, setTemplates] = useState<PromptTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -59,11 +50,11 @@ export default function PromptTemplates() {
       setTemplates(result.objects);
       setError('');
     } catch {
-      setError('Failed to load prompt templates.');
+      setError(translate('Failed to load prompt templates.'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [translate]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -118,11 +109,11 @@ export default function PromptTemplates() {
   function handleResetToDefault(name: string) {
     setConfirm({
       open: true,
-      title: 'Reset to Default',
-      message: `Reset template "${name}" to its built-in default content? Any custom edits will be lost.`,
+      title: translate('Reset to Default'),
+      message: translate('Reset template "{{name}}" to its built-in default content? Any custom edits will be lost.', { name }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
-        try { await resetPromptTemplate(name); load(); } catch { setError('Reset failed.'); }
+        try { await resetPromptTemplate(name); load(); } catch { setError(translate('Reset failed.')); }
       },
     });
   }
@@ -131,11 +122,11 @@ export default function PromptTemplates() {
     <div>
       <div className="view-header">
         <div>
-          <h2>Prompt Templates</h2>
-          <p className="text-dim view-subtitle">Prompt templates define the instructions and structure used when generating prompts for captains and missions.</p>
+          <h2>{translate('Prompt Templates')}</h2>
+          <p className="text-dim view-subtitle">{translate('Prompt templates define the instructions and structure used when generating prompts for captains and missions.')}</p>
         </div>
         <div className="view-actions">
-          <RefreshButton onRefresh={load} title="Refresh prompt template data" />
+          <RefreshButton onRefresh={load} title={translate('Refresh prompt template data')} />
         </div>
       </div>
 
@@ -158,14 +149,14 @@ export default function PromptTemplates() {
               onClick={() => { setCategoryFilter(cat); setPageNumber(1); }}
               style={{ textTransform: 'capitalize', padding: '0.25rem 0.75rem', fontSize: '0.85rem' }}
             >
-              {cat === 'all' ? 'All' : cat}
+              {cat === 'all' ? translate('All') : translate(cat)}
             </button>
           ))}
         </div>
       )}
 
-      {loading && templates.length === 0 && <p className="text-dim">Loading...</p>}
-      {!loading && templates.length === 0 && <p className="text-dim">No prompt templates found.</p>}
+      {loading && templates.length === 0 && <p className="text-dim">{translate('Loading...')}</p>}
+      {!loading && templates.length === 0 && <p className="text-dim">{translate('No prompt templates found.')}</p>}
 
       {templates.length > 0 && (
         <>
@@ -177,32 +168,32 @@ export default function PromptTemplates() {
             <table>
               <thead>
                 <tr>
-                  <th className="sortable" onClick={() => handleSort('name')} title="Template name -- click to sort">
-                    Name{sortIcon('name')}
+                  <th className="sortable" onClick={() => handleSort('name')} title={translate('Template name -- click to sort')}>
+                    {translate('Name')}{sortIcon('name')}
                   </th>
-                  <th className="sortable" onClick={() => handleSort('description')} title="Description -- click to sort">
-                    Description{sortIcon('description')}
+                  <th className="sortable" onClick={() => handleSort('description')} title={translate('Description -- click to sort')}>
+                    {translate('Description')}{sortIcon('description')}
                   </th>
-                  <th className="sortable" onClick={() => handleSort('category')} title="Category -- click to sort">
-                    Category{sortIcon('category')}
+                  <th className="sortable" onClick={() => handleSort('category')} title={translate('Category -- click to sort')}>
+                    {translate('Category')}{sortIcon('category')}
                   </th>
-                  <th className="sortable" onClick={() => handleSort('isBuiltIn')} title="Built-in -- click to sort">
-                    Built-in{sortIcon('isBuiltIn')}
+                  <th className="sortable" onClick={() => handleSort('isBuiltIn')} title={translate('Built-in -- click to sort')}>
+                    {translate('Built-in')}{sortIcon('isBuiltIn')}
                   </th>
-                  <th className="sortable" onClick={() => handleSort('contentLength')} title="Content length -- click to sort">
-                    Content Length{sortIcon('contentLength')}
+                  <th className="sortable" onClick={() => handleSort('contentLength')} title={translate('Content length -- click to sort')}>
+                    {translate('Content Length')}{sortIcon('contentLength')}
                   </th>
-                  <th className="sortable" onClick={() => handleSort('active')} title="Active -- click to sort">
-                    Active{sortIcon('active')}
+                  <th className="sortable" onClick={() => handleSort('active')} title={translate('Active -- click to sort')}>
+                    {translate('Active')}{sortIcon('active')}
                   </th>
-                  <th className="sortable" onClick={() => handleSort('lastUpdateUtc')} title="Last updated -- click to sort">
-                    Last Updated{sortIcon('lastUpdateUtc')}
+                  <th className="sortable" onClick={() => handleSort('lastUpdateUtc')} title={translate('Last updated -- click to sort')}>
+                    {translate('Last Updated')}{sortIcon('lastUpdateUtc')}
                   </th>
-                  <th className="text-right">Actions</th>
+                  <th className="text-right">{translate('Actions')}</th>
                 </tr>
                 <tr className="column-filter-row">
-                  <td><input type="text" className="col-filter" value={colFilters.name} onChange={e => { setColFilters(f => ({ ...f, name: e.target.value })); setPageNumber(1); }} placeholder="Filter..." /></td>
-                  <td><input type="text" className="col-filter" value={colFilters.description} onChange={e => { setColFilters(f => ({ ...f, description: e.target.value })); setPageNumber(1); }} placeholder="Filter..." /></td>
+                  <td><input type="text" className="col-filter" value={colFilters.name} onChange={e => { setColFilters(f => ({ ...f, name: e.target.value })); setPageNumber(1); }} placeholder={translate('Filter...')} /></td>
+                  <td><input type="text" className="col-filter" value={colFilters.description} onChange={e => { setColFilters(f => ({ ...f, description: e.target.value })); setPageNumber(1); }} placeholder={translate('Filter...')} /></td>
                   <td></td>
                   <td></td>
                   <td></td>
@@ -212,26 +203,26 @@ export default function PromptTemplates() {
                 </tr>
               </thead>
               <tbody>
-                {paginated.map(t => (
-                  <tr key={t.id} className="clickable" onClick={() => navigate(`/prompt-templates/${encodeURIComponent(t.name)}`)}>
-                    <td><strong>{t.name}</strong></td>
-                    <td className="text-dim">{t.description || '-'}</td>
-                    <td><StatusBadge status={t.category} /></td>
-                    <td>{t.isBuiltIn ? <StatusBadge status="Built-in" /> : '-'}</td>
-                    <td className="mono text-dim">{(t.content ?? '').length.toLocaleString()} chars</td>
-                    <td><StatusBadge status={t.active !== false ? 'Active' : 'Inactive'} /></td>
-                    <td className="text-dim">{formatTime(t.lastUpdateUtc)}</td>
+                {paginated.map(template => (
+                  <tr key={template.id} className="clickable" onClick={() => navigate(`/prompt-templates/${encodeURIComponent(template.name)}`)}>
+                    <td><strong>{template.name}</strong></td>
+                    <td className="text-dim">{template.description || '-'}</td>
+                    <td><StatusBadge status={template.category} /></td>
+                    <td>{template.isBuiltIn ? <StatusBadge status="Built-in" /> : '-'}</td>
+                    <td className="mono text-dim">{(template.content ?? '').length.toLocaleString()} {translate('chars')}</td>
+                    <td><StatusBadge status={template.active !== false ? 'Active' : 'Inactive'} /></td>
+                    <td className="text-dim" title={formatDateTime(template.lastUpdateUtc)}>{formatRelativeTime(template.lastUpdateUtc)}</td>
                     <td className="text-right" onClick={e => e.stopPropagation()}>
-                      <ActionMenu id={`template-${t.id}`} items={[
-                        { label: 'Edit', onClick: () => navigate(`/prompt-templates/${encodeURIComponent(t.name)}`) },
-                        { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `Template: ${t.name}`, data: t }) },
-                        ...(t.isBuiltIn ? [{ label: 'Reset to Default', danger: true as const, onClick: () => handleResetToDefault(t.name) }] : []),
+                      <ActionMenu id={`template-${template.id}`} items={[
+                        { label: 'Edit', onClick: () => navigate(`/prompt-templates/${encodeURIComponent(template.name)}`) },
+                        { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `${translate('Template')}: ${template.name}`, data: template }) },
+                        ...(template.isBuiltIn ? [{ label: 'Reset to Default', danger: true as const, onClick: () => handleResetToDefault(template.name) }] : []),
                       ]} />
                     </td>
                   </tr>
                 ))}
                 {paginated.length === 0 && (
-                  <tr><td colSpan={8} className="text-dim">No prompt templates match the current filters.</td></tr>
+                  <tr><td colSpan={8} className="text-dim">{translate('No prompt templates match the current filters.')}</td></tr>
                 )}
               </tbody>
             </table>

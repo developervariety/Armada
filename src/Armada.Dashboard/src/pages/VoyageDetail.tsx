@@ -19,6 +19,7 @@ import JsonViewer from '../components/shared/JsonViewer';
 import DiffViewer from '../components/shared/DiffViewer';
 import LogViewer from '../components/shared/LogViewer';
 import CopyButton from '../components/shared/CopyButton';
+import { useLocale } from '../context/LocaleContext';
 
 // ── Helper utilities ──
 
@@ -40,6 +41,7 @@ function formatTimeRelative(utc: string | null | undefined): string {
 // ── Main component ──
 
 export default function VoyageDetail() {
+  const { t, formatDateTime, formatRelativeTime } = useLocale();
   const { id } = useParams<{ id: string }>();
   const nav = useNavigate();
 
@@ -94,11 +96,11 @@ export default function VoyageDetail() {
         }
       }
     } catch (e: unknown) {
-      setError('Failed to load voyage: ' + (e instanceof Error ? e.message : String(e)));
+      setError(t('Failed to load voyage: {{message}}', { message: e instanceof Error ? e.message : String(e) }));
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, t]);
 
   useEffect(() => {
     loadVoyage();
@@ -116,8 +118,8 @@ export default function VoyageDetail() {
     if (!voyage) return;
     setConfirm({
       open: true,
-      title: 'Cancel Voyage',
-      message: 'Cancel this voyage? All pending missions will be cancelled.',
+      title: t('Cancel Voyage'),
+      message: t('Cancel this voyage? All pending missions will be cancelled.'),
       danger: true,
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
@@ -125,7 +127,7 @@ export default function VoyageDetail() {
           await cancelVoyage(voyage.id);
           loadVoyage();
         } catch (e: unknown) {
-          setError('Cancel failed: ' + (e instanceof Error ? e.message : String(e)));
+          setError(t('Cancel failed: {{message}}', { message: e instanceof Error ? e.message : String(e) }));
         }
       },
     });
@@ -135,8 +137,8 @@ export default function VoyageDetail() {
     if (!voyage) return;
     setConfirm({
       open: true,
-      title: 'Delete Voyage',
-      message: 'Permanently delete this voyage and all its missions? This cannot be undone.',
+      title: t('Delete Voyage'),
+      message: t('Permanently delete this voyage and all its missions? This cannot be undone.'),
       danger: true,
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
@@ -144,7 +146,7 @@ export default function VoyageDetail() {
           await purgeVoyage(voyage.id);
           nav('/voyages');
         } catch (e: unknown) {
-          setError('Delete failed: ' + (e instanceof Error ? e.message : String(e)));
+          setError(t('Delete failed: {{message}}', { message: e instanceof Error ? e.message : String(e) }));
         }
       },
     });
@@ -156,8 +158,8 @@ export default function VoyageDetail() {
     if (failed.length === 0) return;
     setConfirm({
       open: true,
-      title: 'Retry Failed Missions',
-      message: `Retry ${failed.length} failed mission(s)? New missions will be created with the same parameters.`,
+      title: t('Retry Failed Missions'),
+      message: t('Retry {{count}} failed mission(s)? New missions will be created with the same parameters.', { count: failed.length }),
       danger: false,
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
@@ -173,7 +175,7 @@ export default function VoyageDetail() {
           }
           loadVoyage();
         } catch (e: unknown) {
-          setError('Retry failed: ' + (e instanceof Error ? e.message : String(e)));
+          setError(t('Retry failed: {{message}}', { message: e instanceof Error ? e.message : String(e) }));
         }
       },
     });
@@ -181,11 +183,11 @@ export default function VoyageDetail() {
 
   function handleViewJson() {
     if (!voyage) return;
-    setJsonData({ open: true, title: 'Voyage: ' + (voyage.title || voyage.id), data: voyage });
+    setJsonData({ open: true, title: t('Voyage: {{title}}', { title: voyage.title || voyage.id }), data: voyage });
   }
 
   async function handleMissionDiff(missionId: string, title: string) {
-    setDiffModal({ open: true, title: 'Diff: ' + title, rawDiff: '', loading: true });
+    setDiffModal({ open: true, title: t('Diff: {{title}}', { title }), rawDiff: '', loading: true });
     try {
       const result = await getMissionDiff(missionId);
       setDiffModal(d => ({ ...d, rawDiff: result?.diff || '', loading: false }));
@@ -197,14 +199,14 @@ export default function VoyageDetail() {
   const fetchLog = useCallback(async (missionId: string, lines: number) => {
     try {
       const result = await getMissionLog(missionId, lines);
-      setLogModal(l => ({ ...l, content: result.log || 'No log output', totalLines: result.totalLines || 0 }));
+      setLogModal(l => ({ ...l, content: result.log || t('No log output'), totalLines: result.totalLines || 0 }));
     } catch (e: unknown) {
-      setLogModal(l => ({ ...l, content: 'Log unavailable: ' + (e instanceof Error ? e.message : String(e)) }));
+      setLogModal(l => ({ ...l, content: t('Log unavailable: {{message}}', { message: e instanceof Error ? e.message : String(e) }) }));
     }
-  }, []);
+  }, [t]);
 
   function handleMissionLog(missionId: string, title: string) {
-    setLogModal({ open: true, title: 'Log: ' + title, missionId, content: 'Loading...', totalLines: 0, lineCount: 200 });
+    setLogModal({ open: true, title: t('Log: {{title}}', { title }), missionId, content: t('Loading...'), totalLines: 0, lineCount: 200 });
     fetchLog(missionId, 200);
   }
 
@@ -219,14 +221,14 @@ export default function VoyageDetail() {
     if (logModal.missionId) fetchLog(logModal.missionId, lines);
   }, [logModal.missionId, fetchLog]);
 
-  if (loading) return <p className="text-muted">Loading...</p>;
-  if (!voyage) return <ErrorModal error={error || 'Voyage not found.'} onClose={() => nav('/voyages')} />;
+  if (loading) return <p className="text-muted">{t('Loading...')}</p>;
+  if (!voyage) return <ErrorModal error={error || t('Voyage not found.')} onClose={() => nav('/voyages')} />;
 
   return (
     <div>
       {/* Breadcrumb */}
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 16, fontSize: 13 }}>
-        <Link to="/voyages">Voyages</Link>
+        <Link to="/voyages">{t('Voyages')}</Link>
         <span style={{ color: 'var(--text-muted)' }}>/</span>
         <span>{voyage.title || voyage.id}</span>
       </div>
@@ -241,58 +243,58 @@ export default function VoyageDetail() {
       {/* Action buttons */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 20 }}>
         {(voyage.status === 'Open' || voyage.status === 'InProgress') && (
-          <button className="btn-sm btn-danger" onClick={handleCancel}>Cancel Voyage</button>
+          <button className="btn-sm btn-danger" onClick={handleCancel}>{t('Cancel Voyage')}</button>
         )}
         {failedCount > 0 && (
-          <button className="btn-sm" onClick={handleRetryFailed}>Retry Failed ({failedCount})</button>
+          <button className="btn-sm" onClick={handleRetryFailed}>{t('Retry Failed')} ({failedCount})</button>
         )}
-        <button className="btn-sm" onClick={handleViewJson}>View JSON</button>
+        <button className="btn-sm" onClick={handleViewJson}>{t('View JSON')}</button>
         {voyage.status !== 'Open' && voyage.status !== 'InProgress' && (
-          <button className="btn-sm btn-danger" onClick={handleDelete}>Delete</button>
+          <button className="btn-sm btn-danger" onClick={handleDelete}>{t('Delete')}</button>
         )}
       </div>
 
       {/* Detail grid */}
       <div className="card-grid" style={{ marginBottom: 20 }}>
         <div className="card">
-          <h3>Status</h3>
+          <h3>{t('Status')}</h3>
           <StatusBadge status={voyage.status} />
         </div>
 
         <div className="card">
-          <h3>Details</h3>
+          <h3>{t('Details')}</h3>
           <div style={{ display: 'grid', gap: 8 }}>
-            <div><span className="text-muted" style={{ fontSize: 12 }}>ID</span>
+            <div><span className="text-muted" style={{ fontSize: 12 }}>{t('ID')}</span>
               <div className="mono" style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
                 {voyage.id}
                 <CopyButton text={voyage.id} />
               </div>
             </div>
-            <div><span className="text-muted" style={{ fontSize: 12 }}>Description</span><div>{voyage.description || '-'}</div></div>
+            <div><span className="text-muted" style={{ fontSize: 12 }}>{t('Description')}</span><div>{voyage.description || '-'}</div></div>
           </div>
         </div>
 
         <div className="card">
-          <h3>Configuration</h3>
+          <h3>{t('Configuration')}</h3>
           <div style={{ display: 'grid', gap: 8 }}>
-            <div><span className="text-muted" style={{ fontSize: 12 }}>Auto-Push</span><div>{voyage.autoPush != null ? (voyage.autoPush ? 'Yes' : 'No') : '-'}</div></div>
-            <div><span className="text-muted" style={{ fontSize: 12 }}>Auto-Create PRs</span><div>{voyage.autoCreatePullRequests != null ? (voyage.autoCreatePullRequests ? 'Yes' : 'No') : '-'}</div></div>
-            <div><span className="text-muted" style={{ fontSize: 12 }}>Auto-Merge PRs</span><div>{voyage.autoMergePullRequests != null ? (voyage.autoMergePullRequests ? 'Yes' : 'No') : '-'}</div></div>
-            <div><span className="text-muted" style={{ fontSize: 12 }}>Landing Mode</span><div>{voyage.landingMode || '-'}</div></div>
+            <div><span className="text-muted" style={{ fontSize: 12 }}>{t('Auto-Push')}</span><div>{voyage.autoPush != null ? (voyage.autoPush ? t('Yes') : t('No')) : '-'}</div></div>
+            <div><span className="text-muted" style={{ fontSize: 12 }}>{t('Auto-Create PRs')}</span><div>{voyage.autoCreatePullRequests != null ? (voyage.autoCreatePullRequests ? t('Yes') : t('No')) : '-'}</div></div>
+            <div><span className="text-muted" style={{ fontSize: 12 }}>{t('Auto-Merge PRs')}</span><div>{voyage.autoMergePullRequests != null ? (voyage.autoMergePullRequests ? t('Yes') : t('No')) : '-'}</div></div>
+            <div><span className="text-muted" style={{ fontSize: 12 }}>{t('Landing Mode')}</span><div>{voyage.landingMode || '-'}</div></div>
           </div>
         </div>
 
         <div className="card">
-          <h3>Timestamps</h3>
+          <h3>{t('Timestamps')}</h3>
           <div style={{ display: 'grid', gap: 8 }}>
             <div>
-              <span className="text-muted" style={{ fontSize: 12 }}>Created</span>
-              <div>{formatTimeAbsolute(voyage.createdUtc)} <span className="text-muted" style={{ fontSize: 11 }}>({formatTimeRelative(voyage.createdUtc)})</span></div>
+              <span className="text-muted" style={{ fontSize: 12 }}>{t('Created')}</span>
+              <div>{formatDateTime(voyage.createdUtc)} <span className="text-muted" style={{ fontSize: 11 }}>({formatRelativeTime(voyage.createdUtc)})</span></div>
             </div>
             {voyage.completedUtc && (
               <div>
-                <span className="text-muted" style={{ fontSize: 12 }}>Completed</span>
-                <div>{formatTimeAbsolute(voyage.completedUtc)} <span className="text-muted" style={{ fontSize: 11 }}>({formatTimeRelative(voyage.completedUtc)})</span></div>
+                <span className="text-muted" style={{ fontSize: 12 }}>{t('Completed')}</span>
+                <div>{formatDateTime(voyage.completedUtc)} <span className="text-muted" style={{ fontSize: 11 }}>({formatRelativeTime(voyage.completedUtc)})</span></div>
               </div>
             )}
           </div>
@@ -306,23 +308,23 @@ export default function VoyageDetail() {
             <div style={{ height: '100%', width: `${progressPct}%`, background: 'var(--primary)', transition: 'width 0.3s' }} />
           </div>
           <span className="text-muted" style={{ fontSize: 12, marginTop: 4, display: 'inline-block' }}>
-            {completedCount}/{missions.length} complete, {failedCount} failed
+            {t('{{completed}}/{{total}} complete, {{failed}} failed', { completed: completedCount, total: missions.length, failed: failedCount })}
           </span>
         </div>
       )}
 
       {/* Missions table */}
-      <h3 style={{ marginBottom: 12 }}>Missions</h3>
+      <h3 style={{ marginBottom: 12 }}>{t('Missions')}</h3>
       {missions.length > 0 ? (
         <table className="table">
           <thead>
             <tr>
-              <th>Mission</th>
-              <th>Status</th>
-              <th>Vessel</th>
-              <th>Captain</th>
-              <th>Branch</th>
-              <th style={{ width: 120 }}>Actions</th>
+              <th>{t('Mission')}</th>
+              <th>{t('Status')}</th>
+              <th>{t('Vessel')}</th>
+              <th>{t('Captain')}</th>
+              <th>{t('Branch')}</th>
+              <th style={{ width: 120 }}>{t('Actions')}</th>
             </tr>
           </thead>
           <tbody>
@@ -343,9 +345,9 @@ export default function VoyageDetail() {
                 <td className="mono text-muted" style={{ fontSize: 11 }}>{m.branchName || '-'}</td>
                 <td onClick={e => e.stopPropagation()}>
                   <div style={{ display: 'flex', gap: 4 }}>
-                    <button className="btn-sm" onClick={() => handleMissionDiff(m.id, m.title)} title="View Diff">Diff</button>
-                    <button className="btn-sm" onClick={() => handleMissionLog(m.id, m.title)} title="View Log">Log</button>
-                    <button className="btn-sm" onClick={() => nav(`/missions/${m.id}`)} title="View Detail">Detail</button>
+                    <button className="btn-sm" onClick={() => handleMissionDiff(m.id, m.title)} title={t('View Diff')}>{t('Diff')}</button>
+                    <button className="btn-sm" onClick={() => handleMissionLog(m.id, m.title)} title={t('View Log')}>{t('Log')}</button>
+                    <button className="btn-sm" onClick={() => nav(`/missions/${m.id}`)} title={t('View Detail')}>{t('Detail')}</button>
                   </div>
                 </td>
               </tr>
@@ -353,7 +355,7 @@ export default function VoyageDetail() {
           </tbody>
         </table>
       ) : (
-        <p className="text-muted">No missions in this voyage.</p>
+        <p className="text-muted">{t('No missions in this voyage.')}</p>
       )}
 
       {/* Shared modals */}

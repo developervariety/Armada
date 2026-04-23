@@ -1,4 +1,16 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import {
+  createCaptain,
+  createFleet,
+  createVessel,
+  dispatchMission,
+  getMission,
+  listCaptains,
+  listFleets,
+  listVessels,
+} from '../api/client';
+import type { Captain, Fleet, Mission, Vessel } from '../types/models';
+import { useLocale } from '../context/LocaleContext';
 
 const STORAGE_KEY = 'armada_setup_completed';
 
@@ -18,148 +30,254 @@ export function markSetupComplete(): void {
   }
 }
 
-interface StepDef {
-  title: string;
-  tooltip: string;
-  highlightPaths: string[];
-  content: React.ReactNode;
-}
-
 export interface SetupWizardProps {
   onClose: () => void;
   onHighlightChange?: (paths: string[]) => void;
 }
 
-const steps: StepDef[] = [
-  {
-    title: 'Welcome',
-    tooltip: 'Introduction to Armada and what it does',
-    highlightPaths: ['/dashboard'],
-    content: (
-      <>
-        <h2 className="wizard-step-heading">Welcome to Armada</h2>
-        <p className="wizard-text">
-          Armada is a multi-agent orchestration system that scales human developers with AI.
-          It coordinates AI coding agents &mdash; called <strong>captains</strong> &mdash; to
-          work on tasks across your git repositories.
-        </p>
-        <p className="wizard-text">
-          The Admiral server manages everything: dispatching work, monitoring progress, landing
-          changes, and coordinating merge queues. You interact with Armada through this
-          dashboard, the CLI (<code>armada</code>), or MCP tools from your editor.
-        </p>
-        <p className="wizard-text">
-          This wizard walks you through the key concepts. You can skip it at any time and
-          come back later from the Server page.
-        </p>
-      </>
-    ),
-  },
-  {
-    title: 'Create a Vessel',
-    tooltip: 'A vessel is a git repository registered with Armada',
-    highlightPaths: ['/vessels', '/fleets'],
-    content: (
-      <>
-        <h2 className="wizard-step-heading">Step 1: Create a Vessel</h2>
-        <p className="wizard-text">
-          A <strong>vessel</strong> is a git repository that Armada manages. It holds the
-          codebase that captains will work on.
-        </p>
-        <p className="wizard-text">
-          When you register a vessel, Armada clones the repository and sets up worktrees so
-          multiple captains can work on different branches simultaneously without conflicts.
-        </p>
-        <p className="wizard-text">
-          To get started, add at least one vessel by providing its git clone URL and choosing
-          which branch to target.
-        </p>
-      </>
-    ),
+type ResourceMode = 'existing' | 'new';
+type ResultKind = 'success' | 'error' | 'info';
 
-  },
-  {
-    title: 'Create a Captain',
-    tooltip: 'A captain is an AI coding agent that executes work',
-    highlightPaths: ['/captains', '/docks'],
-    content: (
-      <>
-        <h2 className="wizard-step-heading">Step 2: Create a Captain</h2>
-        <p className="wizard-text">
-          A <strong>captain</strong> is an AI coding agent &mdash; such as Claude Code,
-          Codex, or Gemini CLI &mdash; that Armada assigns work to.
-        </p>
-        <p className="wizard-text">
-          Captains are spawned automatically when you dispatch a voyage, or you can create
-          them manually and assign them to specific vessels. Each captain gets its own
-          isolated git worktree (called a <strong>dock</strong>) so it can work without
-          affecting other captains.
-        </p>
-        <p className="wizard-text">
-          Armada monitors each captain's health and will recover or replace stalled agents
-          automatically.
-        </p>
-      </>
-    ),
+interface WizardStep {
+  title: string;
+  summary: string;
+}
 
-  },
-  {
-    title: 'Dispatch Work',
-    tooltip: 'Send missions to captains via voyages',
-    highlightPaths: ['/dispatch', '/voyages'],
-    content: (
-      <>
-        <h2 className="wizard-step-heading">Step 3: Dispatch Work</h2>
-        <p className="wizard-text">
-          Work in Armada is organized into <strong>missions</strong> (individual tasks) and
-          <strong> voyages</strong> (batches of related missions).
-        </p>
-        <p className="wizard-text">
-          Use the <strong>Dispatch</strong> page to send work to a vessel. Describe what you
-          want done, select a target vessel, and Armada will create a voyage, assign
-          captains, and start executing.
-        </p>
-        <p className="wizard-text">
-          You can dispatch a single mission or a multi-step voyage with parallel missions.
-          Armada handles branch creation, agent assignment, and progress tracking.
-        </p>
-      </>
-    ),
+interface StepResult {
+  kind: ResultKind;
+  message: string;
+}
 
-  },
-  {
-    title: 'Monitor Missions',
-    tooltip: 'Track progress, review results, and land changes',
-    highlightPaths: ['/missions', '/signals', '/events'],
-    content: (
-      <>
-        <h2 className="wizard-step-heading">Step 4: Monitor Missions</h2>
-        <p className="wizard-text">
-          Once work is dispatched, you can monitor every mission in real time from the
-          <strong> Missions</strong> page or the main <strong>Dashboard</strong>.
-        </p>
-        <p className="wizard-text">
-          Each mission shows its current status, the captain working on it, a live log feed,
-          and the resulting diff. When a mission completes, Armada can automatically push,
-          create a pull request, or merge &mdash; depending on your landing mode settings.
-        </p>
-        <p className="wizard-text">
-          Failed missions can be restarted, and you can cancel in-flight work at any time.
-        </p>
-      </>
-    ),
+interface FleetForm {
+  name: string;
+  description: string;
+}
 
-  },
+interface VesselForm {
+  name: string;
+  repoUrl: string;
+  defaultBranch: string;
+  workingDirectory: string;
+  projectContext: string;
+  styleGuide: string;
+  landingMode: string;
+  enableModelContext: boolean;
+  allowConcurrentMissions: boolean;
+}
+
+interface CaptainForm {
+  name: string;
+  runtime: string;
+  model: string;
+  systemInstructions: string;
+}
+
+interface DispatchForm {
+  title: string;
+  description: string;
+  priority: number;
+}
+
+const steps: WizardStep[] = [
+  { title: 'Objective', summary: 'Configure Armada to dispatch one safe first mission.' },
+  { title: 'Fleet', summary: 'Create or choose the group that owns your repository.' },
+  { title: 'Vessel', summary: 'Register the git repository that captains will work in.' },
+  { title: 'Captain', summary: 'Create or choose an AI runtime so dispatch has capacity.' },
+  { title: 'Dispatch', summary: 'Send a low-risk onboarding mission directly to Armada.' },
+  { title: 'Monitor', summary: 'Confirm what Armada created and refresh mission status.' },
 ];
 
+const tooltips = {
+  fleetSelect: 'Choose an existing fleet to group this setup vessel under.',
+  fleetName: 'Name for the fleet that will organize one or more related repositories.',
+  fleetDescription: 'Optional notes describing what repositories belong in this fleet.',
+  vesselSelect: 'Choose the existing git repository Armada should dispatch the setup mission to.',
+  vesselName: 'Display name for this repository inside Armada.',
+  defaultBranch: 'Default branch Armada should branch from when creating mission worktrees.',
+  repoUrl: 'Git clone URL for the repository Armada will manage.',
+  workingDirectory: 'Optional path to your local checkout, used for local landing and git status checks.',
+  landingMode: 'Controls how completed mission work is landed. None is safest for the setup mission.',
+  enableModelContext: 'Allow captains to save useful repository knowledge back onto the vessel for future missions.',
+  allowConcurrentMissions: 'Allow more than one mission to run on this vessel at the same time.',
+  projectContext: 'Optional architecture, build, test, and dependency notes injected into captain prompts.',
+  styleGuide: 'Optional coding conventions, naming rules, and library preferences for captains.',
+  captainSelect: 'Choose an idle captain that is currently available for mission assignment.',
+  captainName: 'Display name for the AI agent runtime registered with Armada.',
+  runtime: 'AI agent runtime Armada should launch for missions assigned to this captain.',
+  model: 'Optional runtime-specific model override. Leave blank to use the runtime default.',
+  systemInstructions: 'Optional instructions injected into every mission handled by this captain.',
+  missionTitle: 'Short title for the direct setup mission created by dispatch.',
+  missionDescription: 'Full task instructions sent to the captain for this setup dispatch.',
+  priority: 'Scheduling priority for the mission. Lower values are higher priority in Armada.',
+};
+
+function upsertById<T extends { id: string }>(items: T[], item: T): T[] {
+  const found = items.some((existing) => existing.id === item.id);
+  if (found) return items.map((existing) => (existing.id === item.id ? item : existing));
+  return [item, ...items];
+}
+
+function normalizeError(error: unknown): string {
+  return error instanceof Error ? error.message : 'Request failed.';
+}
+
+function normalizeMissionResponse(value: unknown): { mission: Mission | null; warning?: string } {
+  const maybeWrapped = value as { mission?: Mission; warning?: string } | null;
+  if (maybeWrapped?.mission?.id) {
+    return { mission: maybeWrapped.mission, warning: maybeWrapped.warning };
+  }
+
+  const maybeMission = value as Mission | null;
+  return maybeMission?.id ? { mission: maybeMission } : { mission: null };
+}
+
+function idShort(id?: string | null): string {
+  return id ? id.slice(0, 12) : '-';
+}
+
+function WizardExplanation({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="wizard-explanation">
+      <h3>{title}</h3>
+      <div className="wizard-explanation-body">{children}</div>
+    </div>
+  );
+}
+
+function ResultPanel({ result }: { result: StepResult | null }) {
+  if (!result) return null;
+  return <div className={`wizard-result wizard-result-${result.kind}`}>{result.message}</div>;
+}
+
+function SummaryItem({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="wizard-summary-item">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
 export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardProps) {
+  const { t } = useLocale();
   const [current, setCurrent] = useState(0);
-  const step = steps[current];
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<StepResult | null>(null);
+
+  const [fleets, setFleets] = useState<Fleet[]>([]);
+  const [vessels, setVessels] = useState<Vessel[]>([]);
+  const [captains, setCaptains] = useState<Captain[]>([]);
+
+  const [fleetMode, setFleetMode] = useState<ResourceMode>('new');
+  const [vesselMode, setVesselMode] = useState<ResourceMode>('new');
+  const [captainMode, setCaptainMode] = useState<ResourceMode>('new');
+
+  const [selectedFleetId, setSelectedFleetId] = useState('');
+  const [selectedVesselId, setSelectedVesselId] = useState('');
+  const [selectedCaptainId, setSelectedCaptainId] = useState('');
+
+  const [fleetForm, setFleetForm] = useState<FleetForm>(() => ({
+    name: t('Armada Starter Fleet'),
+    description: t('Created from the setup wizard.'),
+  }));
+  const [vesselForm, setVesselForm] = useState<VesselForm>(() => ({
+    name: '',
+    repoUrl: '',
+    defaultBranch: 'main',
+    workingDirectory: '',
+    projectContext: '',
+    styleGuide: '',
+    landingMode: 'None',
+    enableModelContext: true,
+    allowConcurrentMissions: false,
+  }));
+  const [captainForm, setCaptainForm] = useState<CaptainForm>(() => ({
+    name: t('Setup Captain'),
+    runtime: 'Codex',
+    model: '',
+    systemInstructions: t('For setup missions, prefer read-only repository inspection unless the mission explicitly asks for code changes.'),
+  }));
+  const [dispatchForm, setDispatchForm] = useState<DispatchForm>(() => ({
+    title: t('Repository onboarding survey'),
+    description: t('Inspect this repository and report a concise onboarding summary. Do not modify files. Identify the project type, important directories, build/test commands, and one safe follow-up task.'),
+    priority: 100,
+  }));
+
+  const [activeFleetId, setActiveFleetId] = useState('');
+  const [activeVesselId, setActiveVesselId] = useState('');
+  const [activeCaptainId, setActiveCaptainId] = useState('');
+  const [dispatchedMission, setDispatchedMission] = useState<Mission | null>(null);
+  const [dispatchWarning, setDispatchWarning] = useState('');
+
+  const activeFleet = useMemo(
+    () => fleets.find((fleet) => fleet.id === activeFleetId) ?? null,
+    [fleets, activeFleetId],
+  );
+  const activeVessel = useMemo(
+    () => vessels.find((vessel) => vessel.id === activeVesselId) ?? null,
+    [vessels, activeVesselId],
+  );
+  const activeCaptain = useMemo(
+    () => captains.find((captain) => captain.id === activeCaptainId) ?? null,
+    [captains, activeCaptainId],
+  );
+  const idleCaptains = useMemo(
+    () => captains.filter((captain) => String(captain.state || '').toLowerCase() === 'idle'),
+    [captains],
+  );
+
+  const selectedFleet = useMemo(
+    () => fleets.find((fleet) => fleet.id === selectedFleetId) ?? null,
+    [fleets, selectedFleetId],
+  );
+  const selectedVessel = useMemo(
+    () => vessels.find((vessel) => vessel.id === selectedVesselId) ?? null,
+    [vessels, selectedVesselId],
+  );
+  const selectedCaptain = useMemo(
+    () => idleCaptains.find((captain) => captain.id === selectedCaptainId) ?? null,
+    [idleCaptains, selectedCaptainId],
+  );
+
+  const loadResources = useCallback(async () => {
+    try {
+      setLoading(true);
+      const [fleetResult, vesselResult, captainResult] = await Promise.all([
+        listFleets({ pageSize: 9999 }),
+        listVessels({ pageSize: 9999 }),
+        listCaptains({ pageSize: 9999 }),
+      ]);
+
+      setFleets(fleetResult.objects);
+      setVessels(vesselResult.objects);
+      setCaptains(captainResult.objects);
+
+      if (fleetResult.objects.length > 0) {
+        setFleetMode('existing');
+        setSelectedFleetId((currentId) => currentId || fleetResult.objects[0].id);
+      }
+      if (vesselResult.objects.length > 0) {
+        setVesselMode('existing');
+        setSelectedVesselId((currentId) => currentId || vesselResult.objects[0].id);
+      }
+      const idleCaptainOptions = captainResult.objects.filter((captain) => String(captain.state || '').toLowerCase() === 'idle');
+      if (idleCaptainOptions.length > 0) {
+        setCaptainMode('existing');
+        setSelectedCaptainId((currentId) => currentId || idleCaptainOptions[0].id);
+      }
+    } catch (error) {
+      setResult({ kind: 'error', message: t('Unable to load existing Armada resources: {{message}}', { message: normalizeError(error) }) });
+    } finally {
+      setLoading(false);
+    }
+  }, [t]);
 
   useEffect(() => {
-    onHighlightChange?.(step.highlightPaths);
+    onHighlightChange?.([]);
+    loadResources();
     return () => onHighlightChange?.([]);
-  }, [current, step.highlightPaths, onHighlightChange]);
+  }, [loadResources, onHighlightChange]);
 
   const finish = useCallback(() => {
     markSetupComplete();
@@ -167,56 +285,702 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
     onClose();
   }, [onClose, onHighlightChange]);
 
+  const goTo = useCallback((index: number) => {
+    setCurrent(index);
+    setResult(null);
+  }, []);
+
+  const handleFleetSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    setResult(null);
+
+    if (fleetMode === 'existing') {
+      if (!selectedFleet) {
+        setResult({ kind: 'error', message: t('Choose a fleet before continuing.') });
+        return;
+      }
+      setActiveFleetId(selectedFleet.id);
+      setResult({ kind: 'success', message: t('Using {{entity}} "{{name}}".', { entity: t('Fleet').toLowerCase(), name: selectedFleet.name }) });
+      goTo(2);
+      return;
+    }
+
+    if (!fleetForm.name.trim()) {
+      setResult({ kind: 'error', message: t('Fleet name is required.') });
+      return;
+    }
+
+    try {
+      setBusy(true);
+      const fleet = await createFleet({
+        name: fleetForm.name.trim(),
+        description: fleetForm.description.trim() || null,
+      });
+      setFleets((items) => upsertById(items, fleet));
+      setSelectedFleetId(fleet.id);
+      setActiveFleetId(fleet.id);
+      setFleetMode('existing');
+      setResult({ kind: 'success', message: t('Created {{entity}} "{{name}}".', { entity: t('Fleet').toLowerCase(), name: fleet.name }) });
+      goTo(2);
+    } catch (error) {
+      setResult({ kind: 'error', message: t('{{entity}} creation failed: {{message}}', { entity: t('Fleet'), message: normalizeError(error) }) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleVesselSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    setResult(null);
+
+    if (vesselMode === 'existing') {
+      if (!selectedVessel) {
+        setResult({ kind: 'error', message: t('Choose a vessel before continuing.') });
+        return;
+      }
+      setActiveVesselId(selectedVessel.id);
+      if (selectedVessel.fleetId) setActiveFleetId(selectedVessel.fleetId);
+      setResult({ kind: 'success', message: t('Using {{entity}} "{{name}}".', { entity: t('Vessel').toLowerCase(), name: selectedVessel.name }) });
+      goTo(3);
+      return;
+    }
+
+    if (!vesselForm.name.trim()) {
+      setResult({ kind: 'error', message: t('Vessel name is required.') });
+      return;
+    }
+    if (!vesselForm.repoUrl.trim()) {
+      setResult({ kind: 'error', message: t('Repository URL is required.') });
+      return;
+    }
+
+    try {
+      setBusy(true);
+      const payload: Partial<Vessel> = {
+        name: vesselForm.name.trim(),
+        repoUrl: vesselForm.repoUrl.trim(),
+        defaultBranch: vesselForm.defaultBranch.trim() || 'main',
+        enableModelContext: vesselForm.enableModelContext,
+        allowConcurrentMissions: vesselForm.allowConcurrentMissions,
+      };
+      if (activeFleetId) payload.fleetId = activeFleetId;
+      if (vesselForm.workingDirectory.trim()) payload.workingDirectory = vesselForm.workingDirectory.trim();
+      if (vesselForm.projectContext.trim()) payload.projectContext = vesselForm.projectContext.trim();
+      if (vesselForm.styleGuide.trim()) payload.styleGuide = vesselForm.styleGuide.trim();
+      if (vesselForm.landingMode) payload.landingMode = vesselForm.landingMode;
+
+      const vessel = await createVessel(payload);
+      setVessels((items) => upsertById(items, vessel));
+      setSelectedVesselId(vessel.id);
+      setActiveVesselId(vessel.id);
+      setVesselMode('existing');
+      setResult({ kind: 'success', message: t('Registered vessel "{{name}}".', { name: vessel.name }) });
+      goTo(3);
+    } catch (error) {
+      setResult({ kind: 'error', message: t('Vessel registration failed: {{message}}', { message: normalizeError(error) }) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleCaptainSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    setResult(null);
+
+    if (captainMode === 'existing') {
+      if (!selectedCaptain) {
+        setResult({ kind: 'error', message: t('Choose a captain before continuing.') });
+        return;
+      }
+      setActiveCaptainId(selectedCaptain.id);
+      setResult({ kind: 'success', message: t('Using {{entity}} "{{name}}".', { entity: t('Captain').toLowerCase(), name: selectedCaptain.name }) });
+      goTo(4);
+      return;
+    }
+
+    if (!captainForm.name.trim()) {
+      setResult({ kind: 'error', message: t('Captain name is required.') });
+      return;
+    }
+    if (!captainForm.runtime) {
+      setResult({ kind: 'error', message: t('Choose a captain runtime.') });
+      return;
+    }
+
+    try {
+      setBusy(true);
+      const captain = await createCaptain({
+        name: captainForm.name.trim(),
+        runtime: captainForm.runtime,
+        model: captainForm.model.trim() || null,
+        systemInstructions: captainForm.systemInstructions.trim() || null,
+      });
+      setCaptains((items) => upsertById(items, captain));
+      setSelectedCaptainId(captain.id);
+      setActiveCaptainId(captain.id);
+      setCaptainMode('existing');
+      setResult({ kind: 'success', message: t('Created {{entity}} "{{name}}".', { entity: t('Captain').toLowerCase(), name: captain.name }) });
+      goTo(4);
+    } catch (error) {
+      setResult({ kind: 'error', message: t('{{entity}} creation failed: {{message}}', { entity: t('Captain'), message: normalizeError(error) }) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDispatchSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    setResult(null);
+    setDispatchWarning('');
+
+    if (!activeVessel) {
+      setResult({ kind: 'error', message: t('Choose or create a vessel before dispatching.') });
+      return;
+    }
+    if (!activeCaptain) {
+      setResult({ kind: 'error', message: t('Choose or create a captain before dispatching.') });
+      return;
+    }
+    if (!dispatchForm.title.trim() || !dispatchForm.description.trim()) {
+      setResult({ kind: 'error', message: t('Mission title and description are required.') });
+      return;
+    }
+
+    try {
+      setBusy(true);
+      const response = await dispatchMission({
+        vesselId: activeVessel.id,
+        title: dispatchForm.title.trim(),
+        description: dispatchForm.description.trim(),
+        priority: dispatchForm.priority,
+      });
+      const normalized = normalizeMissionResponse(response);
+      if (!normalized.mission) {
+        setResult({ kind: 'error', message: t('Dispatch succeeded but no mission was returned.') });
+        return;
+      }
+
+      setDispatchedMission(normalized.mission);
+      setDispatchWarning(normalized.warning || '');
+      setResult({ kind: normalized.warning ? 'info' : 'success', message: normalized.warning || t('Dispatched mission "{{title}}".', { title: normalized.mission.title }) });
+      goTo(5);
+    } catch (error) {
+      setResult({ kind: 'error', message: t('Dispatch failed: {{message}}', { message: normalizeError(error) }) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const refreshMission = async () => {
+    if (!dispatchedMission) return;
+    try {
+      setBusy(true);
+      const mission = await getMission(dispatchedMission.id);
+      setDispatchedMission(mission);
+      setResult({ kind: 'success', message: t('Mission status refreshed: {{status}}.', { status: t(mission.status) }) });
+    } catch (error) {
+      setResult({ kind: 'error', message: t('Mission refresh failed: {{message}}', { message: normalizeError(error) }) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const canAdvance = (() => {
+    if (current === 0) return !loading;
+    if (current === 1) return Boolean(activeFleet);
+    if (current === 2) return Boolean(activeVessel);
+    if (current === 3) return Boolean(activeCaptain);
+    if (current === 4) return Boolean(dispatchedMission);
+    return true;
+  })();
+
+  const renderWelcome = () => (
+    <>
+      <h2 className="wizard-step-heading">{t('Set up Armada by dispatching one first mission')}</h2>
+      <WizardExplanation title={t('What this wizard will do')}>
+        <div className="wizard-start-list">
+          <div>
+            <strong>{t('Pick a fleet')}</strong>
+            <span>{t('Create or reuse the repository group Armada should organize work under.')}</span>
+          </div>
+          <div>
+            <strong>{t('Register a vessel')}</strong>
+            <span>{t('Provide the target git repository and optional project context, without leaving the wizard.')}</span>
+          </div>
+          <div>
+            <strong>{t('Prepare captain capacity')}</strong>
+            <span>{t('Create or reuse an AI runtime so Armada has a captain available for assignment.')}</span>
+          </div>
+          <div>
+            <strong>{t('Dispatch directly')}</strong>
+            <span>{t('Send a read-only onboarding mission through the dispatch endpoint and monitor the returned mission.')}</span>
+          </div>
+        </div>
+      </WizardExplanation>
+      <p className="wizard-text">
+        {t('The default mission is intentionally low-risk: it asks the captain to inspect and summarize the repository without modifying files.')}
+      </p>
+    </>
+  );
+
+  const renderFleetStep = () => (
+    <form onSubmit={handleFleetSubmit} className="wizard-step-form">
+      <h2 className="wizard-step-heading">{t('Choose the fleet for this setup')}</h2>
+      <p className="wizard-text">
+        {t('Fleets group related repositories. Use an existing fleet if Armada is already configured, or create a starter fleet now.')}
+      </p>
+
+      <div className="wizard-mode-toggle">
+        <button type="button" className={`btn btn-sm${fleetMode === 'existing' ? ' btn-primary' : ''}`} disabled={fleets.length === 0} onClick={() => setFleetMode('existing')}>
+          {t('Use Existing')}
+        </button>
+        <button type="button" className={`btn btn-sm${fleetMode === 'new' ? ' btn-primary' : ''}`} onClick={() => setFleetMode('new')}>
+          {t('Create New')}
+        </button>
+      </div>
+
+      {fleetMode === 'existing' ? (
+        <div className="form-group">
+          <label title={t(tooltips.fleetSelect)}>{t('Fleet')}</label>
+          <select
+            title={t(tooltips.fleetSelect)}
+            value={selectedFleetId}
+            onChange={(event) => setSelectedFleetId(event.target.value)}
+            disabled={fleets.length === 0}
+          >
+            {fleets.length === 0 && <option value="">{t('No fleets found')}</option>}
+            {fleets.map((fleet) => (
+              <option key={fleet.id} value={fleet.id}>
+                {fleet.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : (
+        <div className="wizard-form-grid">
+          <div className="form-group">
+            <label title={t(tooltips.fleetName)}>{t('Fleet Name')}</label>
+            <input
+              title={t(tooltips.fleetName)}
+              value={fleetForm.name}
+              onChange={(event) => setFleetForm({ ...fleetForm, name: event.target.value })}
+              required
+            />
+          </div>
+          <div className="form-group">
+            <label title={t(tooltips.fleetDescription)}>{t('Description')}</label>
+            <input
+              title={t(tooltips.fleetDescription)}
+              value={fleetForm.description}
+              onChange={(event) => setFleetForm({ ...fleetForm, description: event.target.value })}
+            />
+          </div>
+        </div>
+      )}
+
+      <div className="wizard-inline-actions">
+        <button type="submit" className="btn btn-primary" disabled={busy || loading}>
+          {busy ? t('Saving...') : fleetMode === 'existing' ? t('Use Fleet') : t('Create Fleet')}
+        </button>
+      </div>
+    </form>
+  );
+
+  const renderVesselStep = () => (
+    <form onSubmit={handleVesselSubmit} className="wizard-step-form">
+      <h2 className="wizard-step-heading">{t('Register the vessel Armada will dispatch to')}</h2>
+      <p className="wizard-text">
+        {t('A vessel is a git repository. The setup mission will run against the vessel you choose here.')}
+      </p>
+
+      <div className="wizard-context-strip">
+        <span>{t('Fleet')}</span>
+        <strong>{activeFleet?.name ?? t('No fleet selected')}</strong>
+      </div>
+
+      <div className="wizard-mode-toggle">
+        <button type="button" className={`btn btn-sm${vesselMode === 'existing' ? ' btn-primary' : ''}`} disabled={vessels.length === 0} onClick={() => setVesselMode('existing')}>
+          {t('Use Existing')}
+        </button>
+        <button type="button" className={`btn btn-sm${vesselMode === 'new' ? ' btn-primary' : ''}`} onClick={() => setVesselMode('new')}>
+          {t('Create New')}
+        </button>
+      </div>
+
+      {vesselMode === 'existing' ? (
+        <div className="form-group">
+          <label title={t(tooltips.vesselSelect)}>{t('Vessel')}</label>
+          <select
+            title={t(tooltips.vesselSelect)}
+            value={selectedVesselId}
+            onChange={(event) => setSelectedVesselId(event.target.value)}
+            disabled={vessels.length === 0}
+          >
+            {vessels.length === 0 && <option value="">{t('No vessels found')}</option>}
+            {vessels.map((vessel) => (
+              <option key={vessel.id} value={vessel.id}>
+                {vessel.name} ({vessel.defaultBranch || 'main'})
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : (
+        <>
+          <div className="wizard-form-grid">
+            <div className="form-group">
+              <label title={t(tooltips.vesselName)}>{t('Vessel Name')}</label>
+              <input
+                title={t(tooltips.vesselName)}
+                value={vesselForm.name}
+                onChange={(event) => setVesselForm({ ...vesselForm, name: event.target.value })}
+                required
+                placeholder={t('e.g., Armada')}
+              />
+            </div>
+            <div className="form-group">
+              <label title={t(tooltips.defaultBranch)}>{t('Default Branch')}</label>
+              <input
+                title={t(tooltips.defaultBranch)}
+                value={vesselForm.defaultBranch}
+                onChange={(event) => setVesselForm({ ...vesselForm, defaultBranch: event.target.value })}
+                placeholder={t('main')}
+              />
+            </div>
+          </div>
+          <div className="form-group">
+            <label title={t(tooltips.repoUrl)}>{t('Repository URL')}</label>
+            <input
+              title={t(tooltips.repoUrl)}
+              value={vesselForm.repoUrl}
+              onChange={(event) => setVesselForm({ ...vesselForm, repoUrl: event.target.value })}
+              required
+              placeholder={t('https://github.com/org/repo.git')}
+            />
+          </div>
+          <div className="wizard-form-grid">
+            <div className="form-group">
+              <label title={t(tooltips.workingDirectory)}>{t('Working Directory')}</label>
+              <input
+                title={t(tooltips.workingDirectory)}
+                value={vesselForm.workingDirectory}
+                onChange={(event) => setVesselForm({ ...vesselForm, workingDirectory: event.target.value })}
+                placeholder={t('Optional local checkout path')}
+              />
+            </div>
+            <div className="form-group">
+              <label title={t(tooltips.landingMode)}>{t('Landing Mode')}</label>
+              <select
+                title={t(tooltips.landingMode)}
+                value={vesselForm.landingMode}
+                onChange={(event) => setVesselForm({ ...vesselForm, landingMode: event.target.value })}
+              >
+                <option value="">{t('Default')}</option>
+                <option value="None">{t('None (safest for setup)')}</option>
+                <option value="LocalMerge">{t('Local Merge')}</option>
+                <option value="PullRequest">{t('Pull Request')}</option>
+                <option value="MergeQueue">{t('Merge Queue')}</option>
+              </select>
+            </div>
+          </div>
+          <div className="wizard-form-grid">
+            <label className="wizard-checkbox" title={t(tooltips.enableModelContext)}>
+              <input
+                title={t(tooltips.enableModelContext)}
+                type="checkbox"
+                checked={vesselForm.enableModelContext}
+                onChange={(event) => setVesselForm({ ...vesselForm, enableModelContext: event.target.checked })}
+              />
+              {t('Enable model context accumulation')}
+            </label>
+            <label className="wizard-checkbox" title={t(tooltips.allowConcurrentMissions)}>
+              <input
+                title={t(tooltips.allowConcurrentMissions)}
+                type="checkbox"
+                checked={vesselForm.allowConcurrentMissions}
+                onChange={(event) => setVesselForm({ ...vesselForm, allowConcurrentMissions: event.target.checked })}
+              />
+              {t('Allow concurrent missions on this vessel')}
+            </label>
+          </div>
+          <div className="wizard-form-grid">
+            <div className="form-group">
+              <label title={t(tooltips.projectContext)}>{t('Project Context')}</label>
+              <textarea
+                title={t(tooltips.projectContext)}
+                rows={4}
+                value={vesselForm.projectContext}
+                onChange={(event) => setVesselForm({ ...vesselForm, projectContext: event.target.value })}
+                placeholder={t('Optional architecture, build, or repository notes for captains.')}
+              />
+            </div>
+            <div className="form-group">
+              <label title={t(tooltips.styleGuide)}>{t('Style Guide')}</label>
+              <textarea
+                title={t(tooltips.styleGuide)}
+                rows={4}
+                value={vesselForm.styleGuide}
+                onChange={(event) => setVesselForm({ ...vesselForm, styleGuide: event.target.value })}
+                placeholder={t('Optional conventions captains should follow.')}
+              />
+            </div>
+          </div>
+        </>
+      )}
+
+      <div className="wizard-inline-actions">
+        <button type="submit" className="btn btn-primary" disabled={busy || loading}>
+          {busy ? t('Saving...') : vesselMode === 'existing' ? t('Use Vessel') : t('Register Vessel')}
+        </button>
+      </div>
+    </form>
+  );
+
+  const renderCaptainStep = () => (
+    <form onSubmit={handleCaptainSubmit} className="wizard-step-form">
+      <h2 className="wizard-step-heading">{t('Prepare a captain for dispatch')}</h2>
+      <p className="wizard-text">
+        {t('A captain is an AI runtime registered with Armada. Direct dispatch assigns work to an available captain, so this step ensures the pool has capacity.')}
+      </p>
+
+      <div className="wizard-context-strip">
+        <span>{t('Vessel')}</span>
+        <strong>{activeVessel?.name ?? t('No vessel selected')}</strong>
+      </div>
+
+      <div className="wizard-mode-toggle">
+        <button type="button" className={`btn btn-sm${captainMode === 'existing' ? ' btn-primary' : ''}`} disabled={idleCaptains.length === 0} onClick={() => setCaptainMode('existing')}>
+          {t('Use Existing Idle')}
+        </button>
+        <button type="button" className={`btn btn-sm${captainMode === 'new' ? ' btn-primary' : ''}`} onClick={() => setCaptainMode('new')}>
+          {t('Create New')}
+        </button>
+      </div>
+
+      {captainMode === 'existing' ? (
+        <div className="form-group">
+          <label title={t(tooltips.captainSelect)}>{t('Captain')}</label>
+          <select
+            title={t(tooltips.captainSelect)}
+            value={selectedCaptainId}
+            onChange={(event) => setSelectedCaptainId(event.target.value)}
+            disabled={idleCaptains.length === 0}
+          >
+            {idleCaptains.length === 0 && <option value="">{t('No idle captains found')}</option>}
+            {idleCaptains.map((captain) => (
+              <option key={captain.id} value={captain.id}>
+                {captain.name} ({captain.runtime}, {captain.state})
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : (
+        <>
+          <div className="wizard-form-grid">
+            <div className="form-group">
+              <label title={t(tooltips.captainName)}>{t('Captain Name')}</label>
+              <input
+                title={t(tooltips.captainName)}
+                value={captainForm.name}
+                onChange={(event) => setCaptainForm({ ...captainForm, name: event.target.value })}
+                required
+              />
+            </div>
+            <div className="form-group">
+              <label title={t(tooltips.runtime)}>{t('Runtime')}</label>
+              <select
+                title={t(tooltips.runtime)}
+                value={captainForm.runtime}
+                onChange={(event) => setCaptainForm({ ...captainForm, runtime: event.target.value })}
+                required
+              >
+                <option value="">{t('Select runtime...')}</option>
+                <option value="ClaudeCode">Claude Code</option>
+                <option value="Codex">Codex</option>
+                <option value="Gemini">Gemini</option>
+                <option value="Cursor">Cursor</option>
+              </select>
+            </div>
+          </div>
+          <div className="form-group">
+            <label title={t(tooltips.model)}>{t('Model')}</label>
+            <input
+              title={t(tooltips.model)}
+              value={captainForm.model}
+              onChange={(event) => setCaptainForm({ ...captainForm, model: event.target.value })}
+              placeholder={t('Optional runtime-specific model override')}
+            />
+          </div>
+          <div className="form-group">
+            <label title={t(tooltips.systemInstructions)}>{t('System Instructions')}</label>
+            <textarea
+              title={t(tooltips.systemInstructions)}
+              rows={4}
+              value={captainForm.systemInstructions}
+              onChange={(event) => setCaptainForm({ ...captainForm, systemInstructions: event.target.value })}
+            />
+          </div>
+        </>
+      )}
+
+      <div className="wizard-inline-actions">
+        <button type="submit" className="btn btn-primary" disabled={busy || loading}>
+          {busy ? t('Saving...') : captainMode === 'existing' ? t('Use Captain') : t('Create Captain')}
+        </button>
+      </div>
+    </form>
+  );
+
+  const renderDispatchStep = () => (
+    <form onSubmit={handleDispatchSubmit} className="wizard-step-form">
+      <h2 className="wizard-step-heading">{t('Dispatch the first mission')}</h2>
+      <p className="wizard-text">
+        {t('This uses Armada\'s direct mission dispatch path. It does not create a voyage from the setup wizard.')}
+      </p>
+
+      <div className="wizard-summary-grid">
+        <SummaryItem label={t('Fleet')} value={activeFleet?.name ?? '-'} />
+        <SummaryItem label={t('Vessel')} value={activeVessel?.name ?? '-'} />
+        <SummaryItem label={t('Available Captain')} value={activeCaptain?.name ?? '-'} />
+      </div>
+
+      <div className="form-group">
+        <label title={t(tooltips.missionTitle)}>{t('Mission Title')}</label>
+        <input
+          title={t(tooltips.missionTitle)}
+          value={dispatchForm.title}
+          onChange={(event) => setDispatchForm({ ...dispatchForm, title: event.target.value })}
+          required
+        />
+      </div>
+      <div className="form-group">
+        <label title={t(tooltips.missionDescription)}>{t('Mission Description')}</label>
+        <textarea
+          title={t(tooltips.missionDescription)}
+          rows={7}
+          value={dispatchForm.description}
+          onChange={(event) => setDispatchForm({ ...dispatchForm, description: event.target.value })}
+          required
+        />
+      </div>
+      <div className="form-group">
+        <label title={t(tooltips.priority)}>{t('Priority')}</label>
+        <input
+          title={t(tooltips.priority)}
+          type="number"
+          value={dispatchForm.priority}
+          min={0}
+          max={1000}
+          onChange={(event) => {
+            const next = parseInt(event.target.value, 10);
+            setDispatchForm({ ...dispatchForm, priority: Number.isNaN(next) ? 100 : next });
+          }}
+        />
+      </div>
+
+      <div className="wizard-inline-actions">
+        <button type="submit" className="btn btn-primary" disabled={busy || !activeVessel || !activeCaptain}>
+          {busy ? t('Dispatching...') : t('Dispatch Mission')}
+        </button>
+      </div>
+    </form>
+  );
+
+  const renderMonitorStep = () => (
+    <>
+      <h2 className="wizard-step-heading">{t('Mission dispatched')}</h2>
+      <p className="wizard-text">
+        {t('The setup workflow is complete. The mission details below come from the dispatch response and can be refreshed here.')}
+      </p>
+
+      {dispatchWarning && <div className="wizard-result wizard-result-info">{dispatchWarning}</div>}
+
+      {dispatchedMission ? (
+        <div className="wizard-summary-grid wizard-summary-grid-wide">
+          <SummaryItem label={t('Mission')} value={dispatchedMission.title} />
+          <SummaryItem label={t('Mission ID')} value={<code>{idShort(dispatchedMission.id)}</code>} />
+          <SummaryItem label={t('Status')} value={t(dispatchedMission.status)} />
+          <SummaryItem label={t('Captain ID')} value={<code>{idShort(dispatchedMission.captainId)}</code>} />
+          <SummaryItem label={t('Vessel ID')} value={<code>{idShort(dispatchedMission.vesselId)}</code>} />
+          <SummaryItem label={t('Branch')} value={dispatchedMission.branchName || '-'} />
+        </div>
+      ) : (
+        <p className="text-dim">{t('No mission has been dispatched yet.')}</p>
+      )}
+
+      <div className="wizard-inline-actions">
+        <button type="button" className="btn" onClick={refreshMission} disabled={busy || !dispatchedMission}>
+          {busy ? t('Refreshing...') : t('Refresh Mission Status')}
+        </button>
+        <button type="button" className="btn btn-primary" onClick={finish}>
+          {t('Finish Setup')}
+        </button>
+      </div>
+    </>
+  );
+
+  const content = (() => {
+    if (current === 0) return renderWelcome();
+    if (current === 1) return renderFleetStep();
+    if (current === 2) return renderVesselStep();
+    if (current === 3) return renderCaptainStep();
+    if (current === 4) return renderDispatchStep();
+    return renderMonitorStep();
+  })();
+
   return (
     <div className="wizard-overlay">
-      <div className="wizard-container">
-        {/* Table of contents sidebar */}
-        <div className="wizard-toc">
-          <div className="wizard-toc-title">Setup Guide</div>
-          {steps.map((s, i) => (
-            <button
-              key={i}
-              className={`wizard-toc-item${i === current ? ' active' : ''}${i < current ? ' completed' : ''}`}
-              onClick={() => setCurrent(i)}
-              title={s.tooltip}
-            >
-              <span className="wizard-toc-number">{i === 0 ? '\u2605' : i}</span>
-              <span className="wizard-toc-label">{s.title}</span>
-            </button>
-          ))}
-        </div>
+      <div className="wizard-container wizard-container-objective">
+        <button type="button" className="wizard-close" onClick={finish} title={t('Close setup wizard')} aria-label={t('Close setup wizard')}>
+          &times;
+        </button>
 
-        {/* Main content area */}
         <div className="wizard-body">
-          <div className="wizard-content">{step.content}</div>
+          <div className="wizard-header">
+            <div>
+              <div className="wizard-kicker">{t('Setup Wizard')}</div>
+              <h1>{t('Launch Armada With One Mission')}</h1>
+            </div>
+            <div className="wizard-step-count">
+              {t('Step {{current}} of {{total}}', { current: current + 1, total: steps.length })}
+            </div>
+          </div>
+
+          <div className="wizard-progress" aria-label={t('Setup progress')}>
+            {steps.map((step, index) => (
+              <div key={step.title} className={`wizard-progress-step${index === current ? ' active' : ''}${index < current ? ' done' : ''}`}>
+                <span>{index < current ? '\u2713' : index + 1}</span>
+                <div>
+                  <strong>{t(step.title)}</strong>
+                  <small>{t(step.summary)}</small>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="wizard-content">
+            {loading && current === 0 && <div className="wizard-result wizard-result-info">{t('Loading existing Armada resources...')}</div>}
+            {content}
+            <ResultPanel result={result} />
+          </div>
 
           <div className="wizard-actions">
             <button className="btn" onClick={finish}>
-              Skip Setup
+              {t('Skip Setup')}
             </button>
             <div className="wizard-actions-right">
               {current > 0 && (
-                <button className="btn" onClick={() => setCurrent(current - 1)}>
-                  Back
+                <button className="btn" onClick={() => goTo(current - 1)}>
+                  {t('Back')}
                 </button>
               )}
-              {current < steps.length - 1 ? (
-                <button className="btn btn-primary" onClick={() => setCurrent(current + 1)}>
-                  Next
-                </button>
-              ) : (
-                <button className="btn btn-primary" onClick={finish}>
-                  Get Started
+              {current < steps.length - 1 && (
+                <button className="btn btn-primary" onClick={() => goTo(current + 1)} disabled={!canAdvance}>
+                  {current === 0 ? t('Start Setup') : t('Next')}
                 </button>
               )}
             </div>
           </div>
         </div>
-
-        {/* Close (X) button */}
-        <button className="wizard-close" onClick={finish} title="Close setup wizard">
-          &times;
-        </button>
       </div>
     </div>
   );

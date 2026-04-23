@@ -196,7 +196,6 @@ namespace Armada.Test.Unit.Suites.Services
             settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_remote_logs_" + Guid.NewGuid().ToString("N"));
             settings.AdmiralPort = 7890;
             settings.McpPort = 7891;
-            settings.WebSocketPort = 7892;
             return settings;
         }
 

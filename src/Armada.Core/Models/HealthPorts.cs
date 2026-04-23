@@ -17,10 +17,5 @@ namespace Armada.Core.Models
         /// MCP server port.
         /// </summary>
         public int Mcp { get; set; }
-
-        /// <summary>
-        /// WebSocket port.
-        /// </summary>
-        public int WebSocket { get; set; }
     }
 }

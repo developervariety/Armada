@@ -6,36 +6,35 @@ This guide is the operator-focused setup path for connecting an Armada instance 
 
 If you want protocol details, see:
 
-- [docs/TUNNEL_PROTOCOL.md](docs/TUNNEL_PROTOCOL.md)
-- [docs/TUNNEL_OPERATIONS.md](docs/TUNNEL_OPERATIONS.md)
-- [docs/PROXY_API.md](docs/PROXY_API.md)
+- [TUNNEL_PROTOCOL.md](TUNNEL_PROTOCOL.md)
+- [TUNNEL_OPERATIONS.md](TUNNEL_OPERATIONS.md)
+- [PROXY_API.md](PROXY_API.md)
 
 ## Scope
 
 `v0.6.0` supports:
 
-- outbound Armada-to-proxy tunnel connection
-- proxy instance discovery
-- remote fleet and vessel management
+- outbound Armada-to-proxy tunnel connection with shared-password handshake and optional enrollment-token validation
+- challenge-based proxy browser login and connected-deployment discovery
+- remote fleet and vessel management, including default pipeline selection
 - remote voyage dispatch and cancellation
 - remote mission create, update, cancel, and restart
 - remote captain stop
-- remote mission logs, diffs, and focused detail views
+- remote recent activity, mission logs, diffs, and focused detail views
 
 `v0.6.0` does not yet provide:
 
 - SaaS user accounts
-- delegated identity
+- delegated identity or local-session brokerage
 - notification inbox/read state
-- server-side remote action policy
+- server-side remote action policy beyond current UI confirmation prompts
 
 Treat the current proxy as an operator service, not a hardened internet-facing SaaS product.
 
 ## Default Ports
 
-- Armada API: `7890`
+- Armada API: `7890` (WebSocket available at `/ws` on the same port)
 - Armada MCP: `7891`
-- Armada WebSocket: `7892`
 - Armada.Proxy: `7893`
 
 ## 1. Start The Proxy
@@ -49,7 +48,7 @@ dotnet run --project src/Armada.Proxy/Armada.Proxy.csproj --framework net10.0
 By default, the proxy listens on:
 
 - health: `http://localhost:7893/api/v1/status/health`
-- instance list: `http://localhost:7893/api/v1/instances`
+- instance list: `http://localhost:7893/api/v1/instances` (requires proxy login)
 - remote shell: `http://localhost:7893/`
 - tunnel endpoint: `ws://localhost:7893/tunnel`
 
@@ -85,6 +84,7 @@ The proxy now also enforces a shared password for:
 
 - browser login to the proxy app
 - Armada tunnel handshake proof validation
+- opening the selected deployment in the current proxy UI flow
 
 If `password` is missing or blank on either side, it defaults to `armadaadmin`.
 
@@ -198,7 +198,8 @@ Example health response fragment:
 Check:
 
 - `http://localhost:7893/api/v1/status/health`
-- `http://localhost:7893/api/v1/instances`
+- after proxy login, `http://localhost:7893/api/v1/instances`
+- or the deployment list in the proxy shell
 
 You should see your Armada instance listed as `connected`.
 
@@ -210,7 +211,15 @@ Open:
 http://localhost:7893/
 ```
 
-Before the proxy shows connected deployments or forwards any management API calls, enter the shared password. If your Armada instance uses a custom remote-control password, the proxy `ArmadaProxy.password` value must match it.
+The current proxy shell login flow is:
+
+1. Enter the proxy shared password.
+2. Choose a connected deployment.
+3. Enter the deployment password prompt and open the deployment.
+
+In `v0.6.0`, that deployment password prompt reuses the same shared password used by the proxy and the connected Armada instance. It is not yet a distinct per-deployment user-auth model.
+
+If your Armada instance uses a custom remote-control password, the proxy `ArmadaProxy.password` value must match it or the tunnel handshake will fail and the deployment will not appear as connected.
 
 The shell is organized around:
 
@@ -240,7 +249,7 @@ Use `Vessel Studio` to:
 
 - register a vessel
 - edit the selected vessel
-- set repo URL, working directory, default branch, pipeline, and concurrency
+- set repo URL, working directory, default branch, default pipeline, and concurrency
 
 ### Dispatch Voyages
 
@@ -334,6 +343,7 @@ Check:
 - the instance has a non-empty `instanceId`
 - the proxy enrollment-token requirement
 - the Armada `enrollmentToken` value
+- the Armada `remoteControl.password` value matches `ArmadaProxy.password`
 
 ### Proxy shows the instance as `stale`
 
@@ -358,5 +368,3 @@ For local-only development:
 ## Operator Note
 
 The current remote shell already supports real remote management flows, but it is still intentionally bounded. It is meant for focused operational control, not full remote parity with every local Armada dashboard surface.
-
-

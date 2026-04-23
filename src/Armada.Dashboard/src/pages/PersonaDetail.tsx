@@ -8,13 +8,10 @@ import StatusBadge from '../components/shared/StatusBadge';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
-
-function formatTimeAbsolute(utc: string | null): string {
-  if (!utc) return '-';
-  return new Date(utc).toLocaleString();
-}
+import { useLocale } from '../context/LocaleContext';
 
 export default function PersonaDetail() {
+  const { t, formatDateTime } = useLocale();
   const { name } = useParams<{ name: string }>();
   const navigate = useNavigate();
   const [persona, setPersona] = useState<Persona | null>(null);
@@ -38,17 +35,17 @@ export default function PersonaDetail() {
       setLoading(true);
       const isInitialLoad = !persona;
       const found = await getPersona(name);
-      if (!found) { setError('Persona not found.'); setLoading(false); return; }
+      if (!found) { setError(t('Persona not found.')); setLoading(false); return; }
       setPersona(found);
       const templateResult = await listPromptTemplates({ pageSize: 9999 });
       setTemplateNames(templateResult.objects.map(t => t.name));
       if (isInitialLoad) setError('');
     } catch {
-      setError('Failed to load persona.');
+      setError(t('Failed to load persona.'));
     } finally {
       setLoading(false);
     }
-  }, [name]);
+  }, [name, t]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -65,45 +62,45 @@ export default function PersonaDetail() {
       await updatePersona(persona.name, { description: form.description, promptTemplateName: form.promptTemplateName });
       setShowForm(false);
       load();
-    } catch { setError('Save failed.'); }
+    } catch { setError(t('Save failed.')); }
   }
 
   function handleDelete() {
     if (!persona) return;
     if (persona.isBuiltIn) {
-      setError('Built-in personas cannot be deleted.');
+      setError(t('Built-in personas cannot be deleted.'));
       return;
     }
     setConfirm({
       open: true,
-      title: 'Delete Persona',
-      message: `Delete persona "${persona.name}"? This cannot be undone.`,
+      title: t('Delete Persona'),
+      message: t('Delete persona "{{name}}"? This cannot be undone.', { name: persona.name }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
         try {
           await deletePersona(persona.name);
           navigate('/personas');
-        } catch { setError('Delete failed.'); }
+        } catch { setError(t('Delete failed.')); }
       },
     });
   }
 
-  if (loading) return <p className="text-dim">Loading...</p>;
+  if (loading) return <p className="text-dim">{t('Loading...')}</p>;
   if (error && !persona) return <ErrorModal error={error} onClose={() => setError('')} />;
-  if (!persona) return <p className="text-dim">Persona not found.</p>;
+  if (!persona) return <p className="text-dim">{t('Persona not found.')}</p>;
 
   return (
     <div>
       {/* Breadcrumb */}
       <div className="breadcrumb">
-        <Link to="/personas">Personas</Link> <span className="breadcrumb-sep">&gt;</span> <span>{persona.name}</span>
+        <Link to="/personas">{t('Personas')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{persona.name}</span>
       </div>
 
       <div className="detail-header">
         <h2>{persona.name}</h2>
         <div className="inline-actions">
           <ActionMenu id={`persona-${persona.name}`} items={[
-            { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `Persona: ${persona.name}`, data: persona }) },
+            { label: 'View JSON', onClick: () => setJsonData({ open: true, title: t('Persona: {{name}}', { name: persona.name }), data: persona }) },
             { label: 'Edit', onClick: openEdit },
             { label: 'Delete', danger: true, onClick: handleDelete },
           ]} />
@@ -116,19 +113,19 @@ export default function PersonaDetail() {
       {showForm && (
         <div className="modal-overlay" onClick={() => setShowForm(false)}>
           <form className="modal" onClick={e => e.stopPropagation()} onSubmit={handleSubmit}>
-            <h3>Edit Persona</h3>
-            <label>Description<textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} rows={4} /></label>
-            <label>Prompt Template Name
+            <h3>{t('Edit Persona')}</h3>
+            <label>{t('Description')}<textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} rows={4} /></label>
+            <label>{t('Prompt Template Name')}
               <select value={form.promptTemplateName} onChange={e => setForm({ ...form, promptTemplateName: e.target.value })} required>
-                <option value="">Select a template...</option>
-                {templateNames.map(name => (
-                  <option key={name} value={name}>{name}</option>
+                <option value="">{t('Select a template...')}</option>
+                {templateNames.map(templateName => (
+                  <option key={templateName} value={templateName}>{templateName}</option>
                 ))}
               </select>
             </label>
             <div className="modal-actions">
-              <button type="submit" className="btn btn-primary">Save</button>
-              <button type="button" className="btn" onClick={() => setShowForm(false)}>Cancel</button>
+              <button type="submit" className="btn btn-primary">{t('Save')}</button>
+              <button type="button" className="btn" onClick={() => setShowForm(false)}>{t('Cancel')}</button>
             </div>
           </form>
         </div>
@@ -141,26 +138,26 @@ export default function PersonaDetail() {
       {/* Persona Info */}
       <div className="detail-grid">
         <div className="detail-field">
-          <span className="detail-label">ID</span>
+          <span className="detail-label">{t('ID')}</span>
           <span className="id-display">
             <span className="mono">{persona.id}</span>
             <CopyButton text={persona.id} />
           </span>
         </div>
-        <div className="detail-field"><span className="detail-label">Name</span><span>{persona.name}</span></div>
-        <div className="detail-field"><span className="detail-label">Description</span><span>{persona.description || '-'}</span></div>
+        <div className="detail-field"><span className="detail-label">{t('Name')}</span><span>{persona.name}</span></div>
+        <div className="detail-field"><span className="detail-label">{t('Description')}</span><span>{persona.description || '-'}</span></div>
         <div className="detail-field">
-          <span className="detail-label">Prompt Template Name</span>
+          <span className="detail-label">{t('Prompt Template Name')}</span>
           <span>
             {persona.promptTemplateName ? (
               <Link to={`/prompt-templates/${encodeURIComponent(persona.promptTemplateName)}`}>{persona.promptTemplateName}</Link>
             ) : '-'}
           </span>
         </div>
-        <div className="detail-field"><span className="detail-label">Built-in</span>{persona.isBuiltIn ? <StatusBadge status="Built-in" /> : <span className="text-dim">No</span>}</div>
-        <div className="detail-field"><span className="detail-label">Active</span><StatusBadge status={persona.active ? 'Active' : 'Inactive'} /></div>
-        <div className="detail-field"><span className="detail-label">Created</span><span title={persona.createdUtc}>{formatTimeAbsolute(persona.createdUtc)}</span></div>
-        <div className="detail-field"><span className="detail-label">Last Updated</span><span>{formatTimeAbsolute(persona.lastUpdateUtc)}</span></div>
+        <div className="detail-field"><span className="detail-label">{t('Built-in')}</span>{persona.isBuiltIn ? <StatusBadge status="Built-in" /> : <span className="text-dim">{t('No')}</span>}</div>
+        <div className="detail-field"><span className="detail-label">{t('Active')}</span><StatusBadge status={persona.active ? 'Active' : 'Inactive'} /></div>
+        <div className="detail-field"><span className="detail-label">{t('Created')}</span><span title={persona.createdUtc}>{formatDateTime(persona.createdUtc)}</span></div>
+        <div className="detail-field"><span className="detail-label">{t('Last Updated')}</span><span>{formatDateTime(persona.lastUpdateUtc)}</span></div>
       </div>
     </div>
   );

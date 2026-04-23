@@ -1,11 +1,13 @@
 import { useState, useEffect, useCallback, type ReactNode } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useLocale } from '../context/LocaleContext';
 import { useTheme } from '../context/ThemeContext';
 import { useWebSocket } from '../context/WebSocketContext';
 import { useNotifications } from '../context/NotificationContext';
 import { getHealth } from '../api/client';
 import SetupWizard, { isSetupComplete } from './SetupWizard';
+import LanguageSelector from './shared/LanguageSelector';
 
 interface NavItem {
   to: string;
@@ -304,6 +306,7 @@ type HealthStatus = 'healthy' | 'warning' | 'error' | 'unknown';
 export default function Layout() {
   const location = useLocation();
   const { user, isAdmin, isTenantAdmin, logout } = useAuth();
+  const { t } = useLocale();
   const { darkMode, toggleTheme } = useTheme();
   const { connected } = useWebSocket();
   const { unreadCount, toasts, dismissToast } = useNotifications();
@@ -399,8 +402,14 @@ export default function Layout() {
     [location.pathname],
   );
 
+  const layoutClassName = [
+    'app-layout',
+    showWizard ? 'wizard-active' : '',
+    showWizard && wizardHighlights.length > 0 ? 'wizard-spotlight-active' : '',
+  ].filter(Boolean).join(' ');
+
   return (
-    <div className={`app-layout${showWizard ? ' wizard-active' : ''}`} style={{ gridTemplateColumns: collapsed ? '56px 1fr' : '180px 1fr' }}>
+    <div className={layoutClassName} style={{ gridTemplateColumns: collapsed ? '56px 1fr' : '180px 1fr' }}>
       <aside className={`sidebar${collapsed ? ' sidebar-collapsed' : ''}`}>
         <div className="sidebar-brand">
           <img
@@ -418,10 +427,10 @@ export default function Layout() {
           <NavLink
             to={dashboardItem.to}
             className={({ isActive }) => `sidebar-nav-item${isActive ? ' active' : ''}${wizardHighlights.includes(dashboardItem.to) ? ' wizard-highlight' : ''}`}
-            title={collapsed ? dashboardItem.label : dashboardItem.tooltip}
+            title={collapsed ? t(dashboardItem.label) : t(dashboardItem.tooltip || dashboardItem.label)}
           >
             {dashboardItem.icon}
-            <span className="sidebar-label">{dashboardItem.label}</span>
+            <span className="sidebar-label">{t(dashboardItem.label)}</span>
           </NavLink>
 
           {filteredSections.map((section) => (
@@ -431,7 +440,7 @@ export default function Layout() {
             >
               {!collapsed && (
                 <button className="sidebar-section-header" onClick={() => toggleSection(section.key)}>
-                  {section.label}
+                  {t(section.label)}
                   <span className="sidebar-section-chevron">
                     <svg viewBox="0 0 24 24">
                       <polyline points="6 9 12 15 18 9" />
@@ -445,10 +454,10 @@ export default function Layout() {
                     key={item.to}
                     to={item.to}
                     className={({ isActive }) => `sidebar-nav-item${isActive ? ' active' : ''}${wizardHighlights.includes(item.to) ? ' wizard-highlight' : ''}`}
-                    title={collapsed ? item.label : item.tooltip}
+                    title={collapsed ? t(item.label) : t(item.tooltip || item.label)}
                   >
                     {item.icon}
-                    <span className="sidebar-label">{item.label}</span>
+                    <span className="sidebar-label">{t(item.label)}</span>
                     {item.to === '/notifications' && unreadCount > 0 && (
                       <span className="notif-badge">{unreadCount > 99 ? '99+' : unreadCount}</span>
                     )}
@@ -463,14 +472,14 @@ export default function Layout() {
           <button
             className="sidebar-toggle-btn"
             onClick={() => setCollapsed((prev) => !prev)}
-            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            title={collapsed ? t('Expand sidebar') : t('Collapse sidebar')}
           >
             <span aria-hidden="true">{collapsed ? '\u25B6' : '\u25C0'}</span>
           </button>
           {!collapsed && (
             <>
-              <button className="btn btn-sm" onClick={logout} title="Sign out">
-                Logout
+              <button className="btn btn-sm" onClick={logout} title={t('Sign out')}>
+                {t('Logout')}
               </button>
               <span style={{ fontSize: '0.7em', color: 'var(--text-dim)', opacity: 0.5 }}>v{__APP_VERSION__}</span>
             </>
@@ -480,7 +489,7 @@ export default function Layout() {
 
       <div className="main-content-area">
         <div className="top-bar">
-          <NavLink to="/doctor" className="top-bar-health" title={`Health: ${healthStatus}`}>
+          <NavLink to="/doctor" className="top-bar-health" title={t('Health: {{status}}', { status: t(healthStatus === 'healthy' ? 'Healthy' : healthStatus === 'warning' ? 'Degraded' : healthStatus === 'unknown' ? 'Checking...' : 'Unhealthy') })}>
             <span
               className={`status-dot ${
                 healthStatus === 'healthy' ? 'healthy' : healthStatus === 'warning' ? 'warning' : 'error'
@@ -488,42 +497,44 @@ export default function Layout() {
             />
             <span className="top-bar-status-label">
               {healthStatus === 'healthy'
-                ? 'Healthy'
+                ? t('Healthy')
                 : healthStatus === 'warning'
-                  ? 'Degraded'
+                  ? t('Degraded')
                   : healthStatus === 'unknown'
-                    ? 'Checking...'
-                    : 'Unhealthy'}
+                    ? t('Checking...')
+                    : t('Unhealthy')}
             </span>
           </NavLink>
 
-          <span className="top-bar-status" title={connected ? 'Live: WebSocket connected' : 'Disconnected'}>
+          <span className="top-bar-status" title={connected ? t('Live: WebSocket connected') : t('Disconnected')}>
             <span className={`status-dot ${connected ? 'connected' : 'disconnected'}`} />
-            <span className="top-bar-status-label">{connected ? 'Live' : 'Offline'}</span>
+            <span className="top-bar-status-label">{connected ? t('Live') : t('Offline')}</span>
           </span>
 
           {user && (
             <>
-              {isAdmin && <span className="auth-badge auth-badge-admin">Global Admin</span>}
-              {!isAdmin && isTenantAdmin && <span className="auth-badge auth-badge-tenant-admin">Tenant Admin</span>}
+              {isAdmin && <span className="auth-badge auth-badge-admin">{t('Global Admin')}</span>}
+              {!isAdmin && isTenantAdmin && <span className="auth-badge auth-badge-tenant-admin">{t('Tenant Admin')}</span>}
               <span className="auth-badge auth-badge-tenant">{user.tenant?.name}</span>
               <span className="auth-badge auth-badge-user">{user.user?.email}</span>
             </>
           )}
 
-          <button className="theme-toggle" onClick={toggleTheme} title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}>
+          <LanguageSelector className="topbar-language-select" compact />
+
+          <button className="theme-toggle" onClick={toggleTheme} title={darkMode ? t('Switch to light mode') : t('Switch to dark mode')}>
             {darkMode ? '\u2600' : '\u263E'}
           </button>
 
-          <a href="https://github.com/jchristn/Armada" target="_blank" rel="noopener noreferrer" className="github-link" title="View on GitHub">
+          <a href="https://github.com/jchristn/Armada" target="_blank" rel="noopener noreferrer" className="github-link" title={t('View on GitHub')}>
             <svg height="18" width="18" viewBox="0 0 16 16" fill="currentColor">
               <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z" />
             </svg>
           </a>
 
           {collapsed && (
-            <button className="btn btn-sm" onClick={logout} title="Sign out">
-              Logout
+            <button className="btn btn-sm" onClick={logout} title={t('Sign out')}>
+              {t('Logout')}
             </button>
           )}
         </div>

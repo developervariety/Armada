@@ -104,17 +104,10 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
-        /// WebSocket server port for real-time event streaming.
+        /// Whether the WebSocket endpoint (/ws) is enabled on the Admiral port.
+        /// When true, clients can connect to ws://host:port/ws for real-time events.
         /// </summary>
-        public int WebSocketPort
-        {
-            get => _WebSocketPort;
-            set
-            {
-                if (value < 1 || value > 65535) throw new ArgumentOutOfRangeException(nameof(WebSocketPort));
-                _WebSocketPort = value;
-            }
-        }
+        public bool WebSocketEnabled { get; set; } = true;
 
         /// <summary>
         /// Heartbeat check interval in seconds. Must be >= 5.
@@ -409,7 +402,6 @@ namespace Armada.Core.Settings
 
         private int _AdmiralPort = Constants.DefaultAdmiralPort;
         private int _McpPort = Constants.DefaultMcpPort;
-        private int _WebSocketPort = Constants.DefaultWebSocketPort;
         private int _HeartbeatIntervalSeconds = Constants.DefaultHeartbeatIntervalSeconds;
         private int _StallThresholdMinutes = Constants.DefaultStallThresholdMinutes;
         private int _MaxRecoveryAttempts = Constants.DefaultMaxRecoveryAttempts;

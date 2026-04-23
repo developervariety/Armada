@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
+import { LocaleProvider } from './context/LocaleContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { WebSocketProvider } from './context/WebSocketContext';
 import { NotificationProvider } from './context/NotificationContext';
@@ -46,74 +47,76 @@ import PromptTemplateDetail from './pages/PromptTemplateDetail';
 
 export default function App() {
   return (
-    <ThemeProvider>
-      <AuthProvider>
-        <WebSocketProvider>
-          <NotificationProvider>
-          <BrowserRouter basename="/dashboard">
-            <Routes>
-              <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-                {/* Default route redirects to dashboard */}
-                <Route index element={<Navigate to="/dashboard" replace />} />
+    <LocaleProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <WebSocketProvider>
+            <NotificationProvider>
+            <BrowserRouter basename="/dashboard">
+              <Routes>
+                <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+                  {/* Default route redirects to dashboard */}
+                  <Route index element={<Navigate to="/dashboard" replace />} />
 
-                {/* Operations */}
-                <Route path="dashboard" element={<Dashboard />} />
-                <Route path="dispatch" element={<Dispatch />} />
+                  {/* Operations */}
+                  <Route path="dashboard" element={<Dashboard />} />
+                  <Route path="dispatch" element={<Dispatch />} />
 
-                {/* Entities - List and Detail */}
-                <Route path="fleets" element={<Fleets />} />
-                <Route path="fleets/:id" element={<FleetDetail />} />
+                  {/* Entities - List and Detail */}
+                  <Route path="fleets" element={<Fleets />} />
+                  <Route path="fleets/:id" element={<FleetDetail />} />
 
-                <Route path="vessels" element={<Vessels />} />
-                <Route path="vessels/:id" element={<VesselDetail />} />
+                  <Route path="vessels" element={<Vessels />} />
+                  <Route path="vessels/:id" element={<VesselDetail />} />
 
-                <Route path="captains" element={<Captains />} />
-                <Route path="captains/:id" element={<CaptainDetail />} />
+                  <Route path="captains" element={<Captains />} />
+                  <Route path="captains/:id" element={<CaptainDetail />} />
 
-                <Route path="missions" element={<Missions />} />
-                <Route path="missions/:id" element={<MissionDetail />} />
+                  <Route path="missions" element={<Missions />} />
+                  <Route path="missions/:id" element={<MissionDetail />} />
 
-                <Route path="voyages" element={<Voyages />} />
-                <Route path="voyages/create" element={<VoyageCreate />} />
-                <Route path="voyages/:id" element={<VoyageDetail />} />
+                  <Route path="voyages" element={<Voyages />} />
+                  <Route path="voyages/create" element={<VoyageCreate />} />
+                  <Route path="voyages/:id" element={<VoyageDetail />} />
 
-                {/* System */}
-                <Route path="signals" element={<Signals />} />
-                <Route path="signals/:id" element={<SignalDetail />} />
+                  {/* System */}
+                  <Route path="signals" element={<Signals />} />
+                  <Route path="signals/:id" element={<SignalDetail />} />
 
-                <Route path="events" element={<Events />} />
-                <Route path="events/:id" element={<EventDetail />} />
+                  <Route path="events" element={<Events />} />
+                  <Route path="events/:id" element={<EventDetail />} />
 
-                <Route path="docks" element={<Docks />} />
-                <Route path="docks/:id" element={<DockDetail />} />
+                  <Route path="docks" element={<Docks />} />
+                  <Route path="docks/:id" element={<DockDetail />} />
 
-                <Route path="merge-queue" element={<MergeQueue />} />
-                <Route path="merge-queue/:id" element={<MergeQueueDetail />} />
+                  <Route path="merge-queue" element={<MergeQueue />} />
+                  <Route path="merge-queue/:id" element={<MergeQueueDetail />} />
 
-                <Route path="personas" element={<Personas />} />
-                <Route path="personas/:name" element={<PersonaDetail />} />
-                <Route path="pipelines" element={<Pipelines />} />
-                <Route path="pipelines/:name" element={<PipelineDetail />} />
-                <Route path="prompt-templates" element={<PromptTemplates />} />
-                <Route path="prompt-templates/:name" element={<PromptTemplateDetail />} />
+                  <Route path="personas" element={<Personas />} />
+                  <Route path="personas/:name" element={<PersonaDetail />} />
+                  <Route path="pipelines" element={<Pipelines />} />
+                  <Route path="pipelines/:name" element={<PipelineDetail />} />
+                  <Route path="prompt-templates" element={<PromptTemplates />} />
+                  <Route path="prompt-templates/:name" element={<PromptTemplateDetail />} />
 
-                <Route path="notifications" element={<Notifications />} />
+                  <Route path="notifications" element={<Notifications />} />
 
-                {/* Administration */}
-                <Route path="admin/tenants" element={<ProtectedRoute><Tenants /></ProtectedRoute>} />
-                <Route path="admin/users" element={<ProtectedRoute><Users /></ProtectedRoute>} />
-                <Route path="admin/credentials" element={<ProtectedRoute><Credentials /></ProtectedRoute>} />
+                  {/* Administration */}
+                  <Route path="admin/tenants" element={<ProtectedRoute><Tenants /></ProtectedRoute>} />
+                  <Route path="admin/users" element={<ProtectedRoute><Users /></ProtectedRoute>} />
+                  <Route path="admin/credentials" element={<ProtectedRoute><Credentials /></ProtectedRoute>} />
 
-                {/* Tools */}
-                <Route path="server" element={<Server />} />
-                <Route path="doctor" element={<Doctor />} />
-                <Route path="settings" element={<Navigate to="/server" replace />} />
-              </Route>
-            </Routes>
-          </BrowserRouter>
-          </NotificationProvider>
-        </WebSocketProvider>
-      </AuthProvider>
-    </ThemeProvider>
+                  {/* Tools */}
+                  <Route path="server" element={<Server />} />
+                  <Route path="doctor" element={<Doctor />} />
+                  <Route path="settings" element={<Navigate to="/server" replace />} />
+                </Route>
+              </Routes>
+            </BrowserRouter>
+            </NotificationProvider>
+          </WebSocketProvider>
+        </AuthProvider>
+      </ThemeProvider>
+    </LocaleProvider>
   );
 }

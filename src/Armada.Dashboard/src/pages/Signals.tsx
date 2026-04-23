@@ -15,31 +15,15 @@ import JsonViewer from '../components/shared/JsonViewer';
 import CopyButton from '../components/shared/CopyButton';
 import RefreshButton from '../components/shared/RefreshButton';
 import ErrorModal from '../components/shared/ErrorModal';
+import { useLocale } from '../context/LocaleContext';
 
 const SIGNAL_TYPES = ['Nudge', 'Mail', 'Assignment', 'Progress', 'Completion', 'Error'] as const;
-
-function formatTimeRelative(utc: string): string {
-  const d = new Date(utc);
-  const now = new Date();
-  const diffMs = now.getTime() - d.getTime();
-  const secs = Math.floor(diffMs / 1000);
-  if (secs < 60) return `${secs}s ago`;
-  const mins = Math.floor(secs / 60);
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  return `${days}d ago`;
-}
-
-function formatTimeAbsolute(utc: string): string {
-  return new Date(utc).toLocaleString();
-}
 
 type SortDir = 'asc' | 'desc';
 
 export default function Signals() {
   const navigate = useNavigate();
+  const { t, formatRelativeTime, formatDateTime } = useLocale();
 
   // Data
   const [signals, setSignals] = useState<Signal[]>([]);
@@ -77,10 +61,10 @@ export default function Signals() {
   const [confirmAction, setConfirmAction] = useState<{ message: string; action: () => void } | null>(null);
 
   const captainName = useCallback((id: string | null) => {
-    if (!id) return 'Admiral';
+    if (!id) return t('Admiral');
     const c = captains.find(c => c.id === id);
     return c?.name || id;
-  }, [captains]);
+  }, [captains, t]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -96,11 +80,11 @@ export default function Signals() {
       setTotalMs(result.totalMs || 0);
       setSelected([]);
     } catch {
-      setError('Failed to load signals.');
+      setError(t('Failed to load signals.'));
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, filterType, filterToCaptain, filterUnreadOnly]);
+  }, [page, pageSize, filterType, filterToCaptain, filterUnreadOnly, t]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -112,11 +96,11 @@ export default function Signals() {
   const filtered = useMemo(() => {
     let rows = signals;
     if (colFilters.type) rows = rows.filter(s => (s.type || '').toLowerCase().includes(colFilters.type.toLowerCase()));
-    if (colFilters.from) rows = rows.filter(s => (s.fromCaptainId ? captainName(s.fromCaptainId) : 'Admiral').toLowerCase().includes(colFilters.from.toLowerCase()));
-    if (colFilters.to) rows = rows.filter(s => (s.toCaptainId ? captainName(s.toCaptainId) : 'Admiral').toLowerCase().includes(colFilters.to.toLowerCase()));
+    if (colFilters.from) rows = rows.filter(s => (s.fromCaptainId ? captainName(s.fromCaptainId) : t('Admiral')).toLowerCase().includes(colFilters.from.toLowerCase()));
+    if (colFilters.to) rows = rows.filter(s => (s.toCaptainId ? captainName(s.toCaptainId) : t('Admiral')).toLowerCase().includes(colFilters.to.toLowerCase()));
     if (colFilters.payload) rows = rows.filter(s => (s.payload || '').toLowerCase().includes(colFilters.payload.toLowerCase()));
     return rows;
-  }, [signals, colFilters, captainName]);
+  }, [signals, colFilters, captainName, t]);
 
   // Sorting
   const sorted = useMemo(() => {
@@ -165,7 +149,7 @@ export default function Signals() {
       setShowSendModal(false);
       load();
     } catch {
-      setError('Failed to send signal.');
+      setError(t('Failed to send signal.'));
     } finally {
       setSendLoading(false);
     }
@@ -176,20 +160,20 @@ export default function Signals() {
       await markSignalRead(id);
       load();
     } catch {
-      setError('Failed to mark signal as read.');
+      setError(t('Failed to mark signal as read.'));
     }
   }
 
   async function handleBulkDelete() {
     setConfirmAction({
-      message: `Delete ${selected.length} selected signal(s)?`,
+      message: t('Delete {{count}} selected signal(s)?', { count: selected.length }),
       action: async () => {
         try {
           await deleteSignalsBatch(selected);
           setConfirmAction(null);
           load();
         } catch {
-          setError('Bulk delete failed.');
+          setError(t('Bulk delete failed.'));
           setConfirmAction(null);
         }
       }
@@ -213,17 +197,17 @@ export default function Signals() {
       {/* Header */}
       <div className="page-header">
         <div>
-          <h2>Signals</h2>
-          <p className="text-muted" style={{ fontSize: 13, marginTop: 4 }}>Messages exchanged between the admiral and captains. View signal payloads and delivery status.</p>
+          <h2>{t('Signals')}</h2>
+          <p className="text-muted" style={{ fontSize: 13, marginTop: 4 }}>{t('Messages exchanged between the admiral and captains. View signal payloads and delivery status.')}</p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           {selected.length > 0 && (
             <button className="btn-sm btn-danger" onClick={handleBulkDelete}>
-              Delete Selected ({selected.length})
+              {t('Delete Selected')} ({selected.length})
             </button>
           )}
           <button className="btn-primary" onClick={() => { setSendForm({ type: 'Nudge', payload: '', toCaptainId: '' }); setShowSendModal(true); }}>
-            + Signal
+            + {t('Signal')}
           </button>
         </div>
       </div>
@@ -233,19 +217,19 @@ export default function Signals() {
       {/* Filters */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
         <select value={filterType} onChange={e => { setFilterType(e.target.value); setPage(1); }} style={{ width: 'auto', padding: '6px 10px', fontSize: 13 }}>
-          <option value="">All Types</option>
-          {SIGNAL_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+          <option value="">{t('All Types')}</option>
+          {SIGNAL_TYPES.map(signalType => <option key={signalType} value={signalType}>{t(signalType)}</option>)}
         </select>
         <select value={filterToCaptain} onChange={e => { setFilterToCaptain(e.target.value); setPage(1); }} style={{ width: 'auto', padding: '6px 10px', fontSize: 13 }}>
-          <option value="">All Captains</option>
+          <option value="">{t('All Captains')}</option>
           {captains.map(c => <option key={c.id} value={c.id}>{c.name || c.id}</option>)}
         </select>
         <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13, cursor: 'pointer' }}>
           <input type="checkbox" checked={filterUnreadOnly} onChange={e => { setFilterUnreadOnly(e.target.checked); setPage(1); }} style={{ width: 'auto' }} />
-          Unread Only
+          {t('Unread Only')}
         </label>
         {(filterType || filterToCaptain || filterUnreadOnly) && (
-          <button className="btn-sm" onClick={resetFilters}>Clear Filters</button>
+          <button className="btn-sm" onClick={resetFilters}>{t('Clear Filters')}</button>
         )}
       </div>
 
@@ -254,7 +238,7 @@ export default function Signals() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <Pagination pageNumber={page} totalPages={totalPages} totalRecords={totalRecords} totalMs={totalMs}
             pageSize={pageSize} onPageChange={setPage} onPageSizeChange={handlePageSizeChange} />
-          <RefreshButton onRefresh={load} title="Refresh signals" />
+          <RefreshButton onRefresh={load} title={t('Refresh signals')} />
         </div>
       )}
 
@@ -265,25 +249,25 @@ export default function Signals() {
             <thead>
               <tr>
                 <th style={{ width: 32 }}>
-                  <input type="checkbox" checked={selected.length > 0 && selected.length === sorted.length} onChange={e => e.target.checked ? selectAll() : clearSelection()} title="Select all signals" style={{ width: 'auto' }} />
+                  <input type="checkbox" checked={selected.length > 0 && selected.length === sorted.length} onChange={e => e.target.checked ? selectAll() : clearSelection()} title={t('Select all signals')} style={{ width: 'auto' }} />
                 </th>
-                <th style={{ cursor: 'pointer' }} onClick={() => handleSort('id')}>ID{sortIcon('id')}</th>
-                <th style={{ cursor: 'pointer' }} onClick={() => handleSort('type')}>Type{sortIcon('type')}</th>
-                <th style={{ cursor: 'pointer' }} onClick={() => handleSort('fromCaptainId')}>From{sortIcon('fromCaptainId')}</th>
-                <th style={{ cursor: 'pointer' }} onClick={() => handleSort('toCaptainId')}>To{sortIcon('toCaptainId')}</th>
-                <th>Read</th>
-                <th>Payload</th>
-                <th style={{ cursor: 'pointer' }} onClick={() => handleSort('createdUtc')}>Time{sortIcon('createdUtc')}</th>
-                <th>Actions</th>
+                <th style={{ cursor: 'pointer' }} onClick={() => handleSort('id')}>{t('ID')}{sortIcon('id')}</th>
+                <th style={{ cursor: 'pointer' }} onClick={() => handleSort('type')}>{t('Type')}{sortIcon('type')}</th>
+                <th style={{ cursor: 'pointer' }} onClick={() => handleSort('fromCaptainId')}>{t('From')}{sortIcon('fromCaptainId')}</th>
+                <th style={{ cursor: 'pointer' }} onClick={() => handleSort('toCaptainId')}>{t('To')}{sortIcon('toCaptainId')}</th>
+                <th>{t('Read')}</th>
+                <th>{t('Payload')}</th>
+                <th style={{ cursor: 'pointer' }} onClick={() => handleSort('createdUtc')}>{t('Time')}{sortIcon('createdUtc')}</th>
+                <th>{t('Actions')}</th>
               </tr>
               <tr>
                 <td />
                 <td />
-                <td><input type="text" placeholder="Filter..." value={colFilters.type} onChange={e => setColFilters({ ...colFilters, type: e.target.value })} style={{ padding: '2px 6px', fontSize: 11, width: '100%' }} /></td>
-                <td><input type="text" placeholder="Filter..." value={colFilters.from} onChange={e => setColFilters({ ...colFilters, from: e.target.value })} style={{ padding: '2px 6px', fontSize: 11, width: '100%' }} /></td>
-                <td><input type="text" placeholder="Filter..." value={colFilters.to} onChange={e => setColFilters({ ...colFilters, to: e.target.value })} style={{ padding: '2px 6px', fontSize: 11, width: '100%' }} /></td>
+                <td><input type="text" placeholder={t('Filter...')} value={colFilters.type} onChange={e => setColFilters({ ...colFilters, type: e.target.value })} style={{ padding: '2px 6px', fontSize: 11, width: '100%' }} /></td>
+                <td><input type="text" placeholder={t('Filter...')} value={colFilters.from} onChange={e => setColFilters({ ...colFilters, from: e.target.value })} style={{ padding: '2px 6px', fontSize: 11, width: '100%' }} /></td>
+                <td><input type="text" placeholder={t('Filter...')} value={colFilters.to} onChange={e => setColFilters({ ...colFilters, to: e.target.value })} style={{ padding: '2px 6px', fontSize: 11, width: '100%' }} /></td>
                 <td />
-                <td><input type="text" placeholder="Filter..." value={colFilters.payload} onChange={e => setColFilters({ ...colFilters, payload: e.target.value })} style={{ padding: '2px 6px', fontSize: 11, width: '100%' }} /></td>
+                <td><input type="text" placeholder={t('Filter...')} value={colFilters.payload} onChange={e => setColFilters({ ...colFilters, payload: e.target.value })} style={{ padding: '2px 6px', fontSize: 11, width: '100%' }} /></td>
                 <td />
                 <td />
               </tr>
@@ -302,22 +286,22 @@ export default function Signals() {
                   <td onClick={e => e.stopPropagation()}>
                     {sig.fromCaptainId
                       ? <a href={`/captains/${sig.fromCaptainId}`} onClick={e => { e.preventDefault(); e.stopPropagation(); navigate(`/captains/${sig.fromCaptainId}`); }}>{captainName(sig.fromCaptainId)}</a>
-                      : 'Admiral'}
+                      : t('Admiral')}
                   </td>
                   <td onClick={e => e.stopPropagation()}>
                     {sig.toCaptainId
                       ? <a href={`/captains/${sig.toCaptainId}`} onClick={e => { e.preventDefault(); e.stopPropagation(); navigate(`/captains/${sig.toCaptainId}`); }}>{captainName(sig.toCaptainId)}</a>
-                      : 'Admiral'}
+                      : t('Admiral')}
                   </td>
-                  <td>{sig.read ? 'Yes' : 'No'}</td>
+                  <td>{sig.read ? t('Yes') : t('No')}</td>
                   <td style={{ maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sig.payload || '-'}</td>
-                  <td className="text-muted" title={formatTimeAbsolute(sig.createdUtc)} style={{ whiteSpace: 'nowrap' }}>{formatTimeRelative(sig.createdUtc)}</td>
+                  <td className="text-muted" title={formatDateTime(sig.createdUtc)} style={{ whiteSpace: 'nowrap' }}>{formatRelativeTime(sig.createdUtc)}</td>
                   <td onClick={e => e.stopPropagation()}>
                     <ActionMenu id={`signal-${sig.id}`} items={[
                       { label: 'View Detail', onClick: () => navigate(`/signals/${sig.id}`) },
                       ...(!sig.read ? [{ label: 'Mark Read', onClick: () => handleMarkRead(sig.id) }] : []),
-                      { label: 'View JSON', onClick: () => setJsonView({ title: `Signal: ${sig.id}`, data: sig }) },
-                      { label: 'Delete', danger: true, onClick: () => setConfirmAction({ message: `Delete signal ${sig.id}?`, action: async () => { try { await deleteSignalsBatch([sig.id]); setConfirmAction(null); load(); } catch { setError('Delete failed.'); setConfirmAction(null); } } }) },
+                      { label: 'View JSON', onClick: () => setJsonView({ title: `${t('Signal')}: ${sig.id}`, data: sig }) },
+                      { label: 'Delete', danger: true, onClick: () => setConfirmAction({ message: t('Delete signal {{id}}?', { id: sig.id }), action: async () => { try { await deleteSignalsBatch([sig.id]); setConfirmAction(null); load(); } catch { setError(t('Delete failed.')); setConfirmAction(null); } } }) },
                     ]} />
                   </td>
                 </tr>
@@ -326,34 +310,34 @@ export default function Signals() {
           </table>
         </div>
       ) : (
-        <p className="text-muted" style={{ padding: 20 }}>{loading ? 'Loading...' : 'No signals found.'}</p>
+        <p className="text-muted" style={{ padding: 20 }}>{loading ? t('Loading...') : t('No signals found.')}</p>
       )}
 
       {/* Send Signal Modal */}
       {showSendModal && (
         <div className="modal-overlay" onClick={() => setShowSendModal(false)}>
           <form className="modal" onClick={e => e.stopPropagation()} onSubmit={handleSend}>
-            <h3>Send Signal</h3>
+            <h3>{t('Send Signal')}</h3>
             <label>
-              Type
+              {t('Type')}
               <select value={sendForm.type} onChange={e => setSendForm({ ...sendForm, type: e.target.value })} style={{ marginTop: 4 }}>
-                {SIGNAL_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                {SIGNAL_TYPES.map(signalType => <option key={signalType} value={signalType}>{t(signalType)}</option>)}
               </select>
             </label>
             <label>
-              Payload
+              {t('Payload')}
               <textarea value={sendForm.payload || ''} onChange={e => setSendForm({ ...sendForm, payload: e.target.value })} rows={4} style={{ marginTop: 4, resize: 'vertical' }} />
             </label>
             <label>
-              To Captain (optional)
+              {t('To Captain (optional)')}
               <select value={sendForm.toCaptainId || ''} onChange={e => setSendForm({ ...sendForm, toCaptainId: e.target.value || undefined })} style={{ marginTop: 4 }}>
-                <option value="">Admiral (broadcast)</option>
+                <option value="">{t('Admiral (broadcast)')}</option>
                 {captains.map(c => <option key={c.id} value={c.id}>{c.name || c.id}</option>)}
               </select>
             </label>
             <div className="modal-actions">
-              <button type="button" className="btn-sm" onClick={() => setShowSendModal(false)}>Cancel</button>
-              <button type="submit" className="btn-primary" disabled={sendLoading}>{sendLoading ? 'Sending...' : 'Send'}</button>
+              <button type="button" className="btn-sm" onClick={() => setShowSendModal(false)}>{t('Cancel')}</button>
+              <button type="submit" className="btn-primary" disabled={sendLoading}>{sendLoading ? t('Sending...') : t('Send')}</button>
             </div>
           </form>
         </div>

@@ -317,7 +317,6 @@ export interface StatusSnapshot {
   health?: string;
   captains?: number;
   activeMissions?: number;
-  wsPort?: number;
   [key: string]: unknown;
 }
 

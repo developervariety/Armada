@@ -2,8 +2,10 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { listVessels, listPipelines, createVoyage } from '../api/client';
 import type { Vessel, Pipeline } from '../types/models';
+import { useLocale } from '../context/LocaleContext';
 
 export default function Dispatch() {
+  const { t } = useLocale();
   const navigate = useNavigate();
 
   const [vessels, setVessels] = useState<Vessel[]>([]);
@@ -29,7 +31,7 @@ export default function Dispatch() {
   const handleDispatch = async () => {
     if (!prompt.trim()) return;
     if (!vesselId) {
-      setResult({ ok: false, message: 'Please select a vessel.' });
+      setResult({ ok: false, message: t('Please select a vessel.') });
       return;
     }
 
@@ -42,7 +44,7 @@ export default function Dispatch() {
     setDispatching(true);
     setResult(null);
     try {
-      const voyageTitle = tasks.length > 1 ? 'Multi-task voyage' : tasks[0].substring(0, 80);
+      const voyageTitle = tasks.length > 1 ? t('Multi-task voyage') : tasks[0].substring(0, 80);
       const missions = tasks.map((t) => ({
         vesselId,
         title: t.substring(0, 80),
@@ -56,16 +58,16 @@ export default function Dispatch() {
         ...(selectedPipeline ? { pipeline: selectedPipeline } : {}),
       });
       const missionCount = isMultiStage
-        ? `${selectedPipelineObj!.stages.length} pipeline stages`
-        : `${missions.length} mission${missions.length !== 1 ? 's' : ''}`;
-      setResult({ ok: true, message: `Dispatched voyage with ${missionCount}` });
+        ? t('{{count}} pipeline stages', { count: selectedPipelineObj!.stages.length })
+        : t('{{count}} mission(s)', { count: missions.length });
+      setResult({ ok: true, message: t('Dispatched voyage with {{missionCount}}', { missionCount }) });
       setPrompt('');
       setTimeout(() => {
         navigate(`/voyages/${voyage.id}`);
       }, 1500);
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Unknown error';
-      setResult({ ok: false, message: `Failed: ${msg}` });
+      const msg = e instanceof Error ? e.message : t('Unknown error');
+      setResult({ ok: false, message: t('Failed: {{message}}', { message: msg }) });
     } finally {
       setDispatching(false);
     }
@@ -75,9 +77,9 @@ export default function Dispatch() {
     <div>
       <div className="page-header">
         <div>
-          <h2>Dispatch</h2>
+          <h2>{t('Dispatch')}</h2>
           <p className="text-muted">
-            Describe the work you want Armada to dispatch through the selected vessel and pipeline.
+            {t('Describe the work you want Armada to dispatch through the selected vessel and pipeline.')}
           </p>
         </div>
       </div>
@@ -87,13 +89,13 @@ export default function Dispatch() {
           {/* Row 1: Vessel + Pipeline + Priority */}
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 2fr 1fr', gap: '0 1.5rem' }}>
             <div className="form-group">
-              <label>Vessel</label>
+              <label>{t('Vessel')}</label>
               <select
                 value={vesselId}
                 onChange={(e) => setVesselId(e.target.value)}
                 required
               >
-                <option value="">Select a vessel...</option>
+                <option value="">{t('Select a vessel...')}</option>
                 {vessels.map((v) => (
                   <option key={v.id} value={v.id}>
                     {v.name}
@@ -102,12 +104,12 @@ export default function Dispatch() {
               </select>
             </div>
             <div className="form-group">
-              <label>Pipeline</label>
+              <label>{t('Pipeline')}</label>
               <select
                 value={selectedPipeline}
                 onChange={(e) => setSelectedPipeline(e.target.value)}
               >
-                <option value="">Inherit (vessel, then fleet, then WorkerOnly)</option>
+                <option value="">{t('Inherit (vessel, then fleet, then WorkerOnly)')}</option>
                 {pipelines.map((p) => (
                   <option key={p.id} value={p.name}>
                     {p.name} ({p.stages.map((s) => s.personaName).join(' -> ')})
@@ -116,26 +118,28 @@ export default function Dispatch() {
               </select>
             </div>
             <div className="form-group">
-              <label>Priority</label>
+              <label>{t('Priority')}</label>
               <input
                 type="number"
                 value={priority}
                 onChange={(e) => setPriority(parseInt(e.target.value) || 100)}
                 min={0}
                 max={1000}
-                title="Higher priority missions are assigned first (default 100)"
+                title={t('Higher priority missions are assigned first (default 100)')}
               />
             </div>
           </div>
 
           {/* Prompt */}
           <div className="form-group">
-            <label>Description</label>
+            <label>{t('Description')}</label>
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               rows={12}
-              placeholder={'Describe what you need done.\n\nArmada will dispatch this request as a voyage on the selected vessel.'}
+              placeholder={t(`Describe what you need done.
+
+Armada will dispatch this request as a voyage on the selected vessel.`)}
             />
           </div>
 
@@ -146,7 +150,7 @@ export default function Dispatch() {
               disabled={dispatching || !vesselId || !prompt.trim()}
               onClick={handleDispatch}
             >
-              {dispatching ? 'Dispatching...' : 'Dispatch'}
+              {dispatching ? t('Dispatching...') : t('Dispatch')}
             </button>
           </div>
 

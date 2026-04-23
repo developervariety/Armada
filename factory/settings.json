@@ -1,7 +1,7 @@
 {
   "admiralPort": 7890,
   "mcpPort": 7891,
-  "webSocketPort": 7892,
+  "webSocketEnabled": true,
   "heartbeatIntervalSeconds": 30,
   "stallThresholdMinutes": 10,
   "maxLandingRetries": 3,

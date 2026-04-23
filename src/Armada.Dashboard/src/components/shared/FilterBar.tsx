@@ -1,3 +1,5 @@
+import { useLocale } from '../../context/LocaleContext';
+
 interface FilterDef {
   key: string;
   label: string;
@@ -17,6 +19,7 @@ interface FilterBarProps {
 }
 
 export default function FilterBar({ filters, values, onChange, onClear, searchValue, onSearchChange }: FilterBarProps) {
+  const { t } = useLocale();
   const hasValues = Object.values(values).some(v => v !== '');
 
   return (
@@ -25,7 +28,7 @@ export default function FilterBar({ filters, values, onChange, onClear, searchVa
         <input
           type="text"
           className="filter-input"
-          placeholder="Search..."
+          placeholder={t('Search...')}
           value={searchValue || ''}
           onChange={e => onSearchChange(e.target.value)}
           style={{ width: 180 }}
@@ -59,7 +62,7 @@ export default function FilterBar({ filters, values, onChange, onClear, searchVa
         );
       })}
       {hasValues && onClear && (
-        <button className="btn btn-sm" onClick={onClear}>Clear</button>
+        <button className="btn btn-sm" onClick={onClear}>{t('Clear')}</button>
       )}
     </div>
   );

@@ -10,6 +10,7 @@ import StatusBadge from '../components/shared/StatusBadge';
 import CopyButton from '../components/shared/CopyButton';
 import RefreshButton from '../components/shared/RefreshButton';
 import ErrorModal from '../components/shared/ErrorModal';
+import { useLocale } from '../context/LocaleContext';
 
 type SortDir = 'asc' | 'desc';
 type SortField = 'name' | 'description' | 'stages' | 'isBuiltIn' | 'active' | 'createdUtc';
@@ -17,17 +18,6 @@ type SortField = 'name' | 'description' | 'stages' | 'isBuiltIn' | 'active' | 'c
 interface StageFormEntry {
   personaName: string;
   isOptional: boolean;
-}
-
-function formatTime(utc: string | null): string {
-  if (!utc) return '-';
-  const d = new Date(utc);
-  const now = new Date();
-  const diff = now.getTime() - d.getTime();
-  if (diff < 60000) return 'just now';
-  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
-  return d.toLocaleDateString();
 }
 
 function formatStages(stages: PipelineStage[]): string {
@@ -38,6 +28,7 @@ function formatStages(stages: PipelineStage[]): string {
 
 export default function Pipelines() {
   const navigate = useNavigate();
+  const { t, formatRelativeTime } = useLocale();
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -74,11 +65,11 @@ export default function Pipelines() {
       setPersonaNames(personaResult.objects.map(p => p.name));
       setError('');
     } catch {
-      setError('Failed to load pipelines.');
+      setError(t('Failed to load pipelines.'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -187,17 +178,17 @@ export default function Pipelines() {
       else await createPipeline(payload);
       setShowForm(false);
       load();
-    } catch { setError('Save failed.'); }
+    } catch { setError(t('Save failed.')); }
   }
 
   function handleDelete(name: string) {
     setConfirm({
       open: true,
-      title: 'Delete Pipeline',
-      message: `Delete pipeline "${name}"? This cannot be undone.`,
+      title: t('Delete Pipeline'),
+      message: t('Delete pipeline "{{name}}"? This cannot be undone.', { name }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
-        try { await deletePipeline(name); load(); } catch { setError('Delete failed.'); }
+        try { await deletePipeline(name); load(); } catch { setError(t('Delete failed.')); }
       },
     });
   }
@@ -206,11 +197,11 @@ export default function Pipelines() {
     <div>
       <div className="view-header">
         <div>
-          <h2>Pipelines</h2>
-          <p className="text-dim view-subtitle">Pipelines define ordered sequences of persona stages for processing missions.</p>
+          <h2>{t('Pipelines')}</h2>
+          <p className="text-dim view-subtitle">{t('Multi-stage workflows combining different personas')}</p>
         </div>
         <div className="view-actions">
-          <button className="btn btn-primary btn-sm" onClick={openCreate}>+ Pipeline</button>
+          <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Pipeline')}</button>
           <RefreshButton onRefresh={load} title="Refresh pipeline data" />
         </div>
       </div>
@@ -221,11 +212,11 @@ export default function Pipelines() {
       {showForm && (
         <div className="modal-overlay" onClick={() => setShowForm(false)}>
           <form className="modal" onClick={e => e.stopPropagation()} onSubmit={handleSubmit} style={{ maxWidth: '720px', width: '90%' }}>
-            <h3>{editing ? 'Edit Pipeline' : 'Create Pipeline'}</h3>
-            <label>Name<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required /></label>
-            <label>Description<input value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></label>
+            <h3>{editing ? t('Edit Pipeline') : t('Create Pipeline')}</h3>
+            <label>{t('Name')}<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required /></label>
+            <label>{t('Description')}<input value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></label>
             <div style={{ marginTop: '1rem' }}>
-              <strong>Stages</strong>
+              <strong>{t('Stages')}</strong>
               {form.stages.map((stage, i) => (
                 <div key={i} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.5rem', marginTop: '0.5rem' }}>
                   <span className="text-dim" style={{ minWidth: '1.5rem' }}>{i + 1}.</span>
@@ -235,7 +226,7 @@ export default function Pipelines() {
                     required
                     style={{ flex: '0 1 200px', minWidth: '120px' }}
                   >
-                    <option value="">Select persona...</option>
+                    <option value="">{t('Select persona...')}</option>
                     {personaNames.map(name => (
                       <option key={name} value={name}>{name}</option>
                     ))}
@@ -247,20 +238,20 @@ export default function Pipelines() {
                       onChange={e => updateStage(i, 'isOptional', e.target.checked)}
                       style={{ width: 'auto', margin: 0, verticalAlign: 'middle' }}
                     />
-                    <span style={{ verticalAlign: 'middle' }}>Optional</span>
+                    <span style={{ verticalAlign: 'middle' }}>{t('Optional')}</span>
                   </label>
                   <span style={{ width: '0.75rem', flexShrink: 0 }} />
-                  <button type="button" className="btn btn-sm" onClick={() => moveStage(i, -1)} disabled={i === 0} title="Move up" style={{ padding: '0.15rem 0.4rem', fontSize: '0.75rem' }}>{'\u25B2'}</button>
-                  <button type="button" className="btn btn-sm" onClick={() => moveStage(i, 1)} disabled={i === form.stages.length - 1} title="Move down" style={{ padding: '0.15rem 0.4rem', fontSize: '0.75rem' }}>{'\u25BC'}</button>
+                  <button type="button" className="btn btn-sm" onClick={() => moveStage(i, -1)} disabled={i === 0} title={t('Move up')} style={{ padding: '0.15rem 0.4rem', fontSize: '0.75rem' }}>{'\u25B2'}</button>
+                  <button type="button" className="btn btn-sm" onClick={() => moveStage(i, 1)} disabled={i === form.stages.length - 1} title={t('Move down')} style={{ padding: '0.15rem 0.4rem', fontSize: '0.75rem' }}>{'\u25BC'}</button>
                   <span style={{ width: '0.5rem', flexShrink: 0 }} />
-                  <button type="button" className="btn btn-sm btn-danger" onClick={() => removeStage(i)} title="Remove stage" style={{ flexShrink: 0 }}>X</button>
+                  <button type="button" className="btn btn-sm btn-danger" onClick={() => removeStage(i)} title={t('Remove stage')} style={{ flexShrink: 0 }}>X</button>
                 </div>
               ))}
-              <button type="button" className="btn btn-sm" onClick={addStage} style={{ marginTop: '0.5rem' }}>+ Stage</button>
+              <button type="button" className="btn btn-sm" onClick={addStage} style={{ marginTop: '0.5rem' }}>+ {t('Stage')}</button>
             </div>
             <div className="modal-actions">
-              <button type="submit" className="btn btn-primary">Save</button>
-              <button type="button" className="btn" onClick={() => setShowForm(false)}>Cancel</button>
+              <button type="submit" className="btn btn-primary">{t('Save')}</button>
+              <button type="button" className="btn" onClick={() => setShowForm(false)}>{t('Cancel')}</button>
             </div>
           </form>
         </div>
@@ -273,8 +264,8 @@ export default function Pipelines() {
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
 
-      {loading && pipelines.length === 0 && <p className="text-dim">Loading...</p>}
-      {!loading && pipelines.length === 0 && <p className="text-dim">No pipelines configured.</p>}
+      {loading && pipelines.length === 0 && <p className="text-dim">{t('Loading...')}</p>}
+      {!loading && pipelines.length === 0 && <p className="text-dim">{t('No pipelines configured.')}</p>}
 
       {pipelines.length > 0 && (
         <>
@@ -286,31 +277,31 @@ export default function Pipelines() {
             <table>
               <thead>
                 <tr>
-                  <th className="sortable" onClick={() => handleSort('name')} title="Pipeline name -- click to sort">
-                    Name{sortIcon('name')}
+                  <th className="sortable" onClick={() => handleSort('name')} title={t('Pipeline name -- click to sort')}>
+                    {t('Name')}{sortIcon('name')}
                   </th>
-                  <th>ID</th>
-                  <th className="sortable" onClick={() => handleSort('description')} title="Description -- click to sort">
-                    Description{sortIcon('description')}
+                  <th>{t('ID')}</th>
+                  <th className="sortable" onClick={() => handleSort('description')} title={t('Description -- click to sort')}>
+                    {t('Description')}{sortIcon('description')}
                   </th>
-                  <th className="sortable" onClick={() => handleSort('stages')} title="Stage count -- click to sort">
-                    Stages{sortIcon('stages')}
+                  <th className="sortable" onClick={() => handleSort('stages')} title={t('Stage count -- click to sort')}>
+                    {t('Stages')}{sortIcon('stages')}
                   </th>
-                  <th className="sortable" onClick={() => handleSort('isBuiltIn')} title="Built-in -- click to sort">
-                    Built-in{sortIcon('isBuiltIn')}
+                  <th className="sortable" onClick={() => handleSort('isBuiltIn')} title={t('Built-in -- click to sort')}>
+                    {t('Built-in')}{sortIcon('isBuiltIn')}
                   </th>
-                  <th className="sortable" onClick={() => handleSort('active')} title="Active -- click to sort">
-                    Active{sortIcon('active')}
+                  <th className="sortable" onClick={() => handleSort('active')} title={t('Active -- click to sort')}>
+                    {t('Active')}{sortIcon('active')}
                   </th>
-                  <th className="sortable" onClick={() => handleSort('createdUtc')} title="Created date -- click to sort">
-                    Created{sortIcon('createdUtc')}
+                  <th className="sortable" onClick={() => handleSort('createdUtc')} title={t('Created date -- click to sort')}>
+                    {t('Created')}{sortIcon('createdUtc')}
                   </th>
-                  <th className="text-right">Actions</th>
+                  <th className="text-right">{t('Actions')}</th>
                 </tr>
                 <tr className="column-filter-row">
-                  <td><input type="text" className="col-filter" value={colFilters.name} onChange={e => { setColFilters(f => ({ ...f, name: e.target.value })); setPageNumber(1); }} placeholder="Filter..." /></td>
+                  <td><input type="text" className="col-filter" value={colFilters.name} onChange={e => { setColFilters(f => ({ ...f, name: e.target.value })); setPageNumber(1); }} placeholder={t('Search...')} /></td>
                   <td></td>
-                  <td><input type="text" className="col-filter" value={colFilters.description} onChange={e => { setColFilters(f => ({ ...f, description: e.target.value })); setPageNumber(1); }} placeholder="Filter..." /></td>
+                  <td><input type="text" className="col-filter" value={colFilters.description} onChange={e => { setColFilters(f => ({ ...f, description: e.target.value })); setPageNumber(1); }} placeholder={t('Search...')} /></td>
                   <td></td>
                   <td></td>
                   <td></td>
@@ -332,7 +323,7 @@ export default function Pipelines() {
                     <td>{formatStages(p.stages)}</td>
                     <td>{p.isBuiltIn ? <StatusBadge status="Built-in" /> : <span className="text-dim">-</span>}</td>
                     <td><StatusBadge status={p.active !== false ? 'Active' : 'Inactive'} /></td>
-                    <td className="text-dim">{formatTime(p.createdUtc)}</td>
+                    <td className="text-dim">{formatRelativeTime(p.createdUtc)}</td>
                     <td className="text-right" onClick={e => e.stopPropagation()}>
                       <ActionMenu id={`pipeline-${p.id}`} items={[
                         { label: 'View Detail', onClick: () => navigate(`/pipelines/${encodeURIComponent(p.name)}`) },
@@ -344,7 +335,7 @@ export default function Pipelines() {
                   </tr>
                 ))}
                 {paginated.length === 0 && (
-                  <tr><td colSpan={8} className="text-dim">No pipelines match the current filters.</td></tr>
+                  <tr><td colSpan={8} className="text-dim">{t('No pipelines match the current filters.')}</td></tr>
                 )}
               </tbody>
             </table>

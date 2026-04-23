@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { useLocale } from '../../context/LocaleContext';
 
 interface ErrorModalProps {
   error: string;
@@ -6,6 +7,8 @@ interface ErrorModalProps {
 }
 
 export default function ErrorModal({ error, onClose }: ErrorModalProps) {
+  const { t } = useLocale();
+
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', handleEsc);
@@ -19,11 +22,11 @@ export default function ErrorModal({ error, onClose }: ErrorModalProps) {
       <div className="modal error-modal" onClick={e => e.stopPropagation()}>
         <div className="error-modal-header">
           <span className="error-modal-icon">!</span>
-          <h3>Error</h3>
+          <h3>{t('Error')}</h3>
         </div>
-        <p className="error-modal-message">{error}</p>
+        <p className="error-modal-message">{t(error)}</p>
         <div className="modal-actions">
-          <button className="btn btn-primary" onClick={onClose}>Dismiss</button>
+          <button className="btn btn-primary" onClick={onClose}>{t('Dismiss')}</button>
         </div>
       </div>
     </div>

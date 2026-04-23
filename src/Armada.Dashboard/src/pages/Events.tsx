@@ -9,20 +9,10 @@ import JsonViewer from '../components/shared/JsonViewer';
 import CopyButton from '../components/shared/CopyButton';
 import RefreshButton from '../components/shared/RefreshButton';
 import ErrorModal from '../components/shared/ErrorModal';
+import { useLocale } from '../context/LocaleContext';
 
 type SortDir = 'asc' | 'desc';
 type SortField = 'eventType' | 'entityType' | 'createdUtc';
-
-function formatTime(utc: string | null): string {
-  if (!utc) return '-';
-  const d = new Date(utc);
-  const now = new Date();
-  const diff = now.getTime() - d.getTime();
-  if (diff < 60000) return 'just now';
-  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
-  return d.toLocaleDateString();
-}
 
 function entityRoute(entityId: string | null): string | null {
   if (!entityId) return null;
@@ -40,6 +30,7 @@ function entityRoute(entityId: string | null): string | null {
 
 export default function Events() {
   const navigate = useNavigate();
+  const { t, formatRelativeTime, formatDateTime } = useLocale();
   const [events, setEvents] = useState<ArmadaEvent[]>([]);
   const [captains, setCaptains] = useState<Captain[]>([]);
   const [vessels, setVessels] = useState<Vessel[]>([]);
@@ -90,11 +81,11 @@ export default function Events() {
       setSelected([]);
       setError('');
     } catch {
-      setError('Failed to load events.');
+      setError(t('Failed to load events.'));
     } finally {
       setLoading(false);
     }
-  }, [pageNumber, pageSize]);
+  }, [pageNumber, pageSize, t]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -151,11 +142,11 @@ export default function Events() {
   function handleDeleteSingle(id: string) {
     setConfirm({
       open: true,
-      title: 'Delete Event',
-      message: `Delete event ${id}?`,
+      title: t('Delete Event'),
+      message: t('Delete event {{id}}?', { id }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
-        try { await deleteEventsBatch([id]); load(); } catch { setError('Delete failed.'); }
+        try { await deleteEventsBatch([id]); load(); } catch { setError(t('Delete failed.')); }
       },
     });
   }
@@ -163,15 +154,15 @@ export default function Events() {
   function handleBulkDelete() {
     setConfirm({
       open: true,
-      title: 'Delete Selected Events',
-      message: `Delete ${selected.length} selected event(s)?`,
+      title: t('Delete Selected Events'),
+      message: t('Delete {{count}} selected event(s)?', { count: selected.length }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
         try {
           await deleteEventsBatch(selected);
           setSelected([]);
           load();
-        } catch { setError('Bulk delete failed.'); }
+        } catch { setError(t('Bulk delete failed.')); }
       },
     });
   }
@@ -180,16 +171,16 @@ export default function Events() {
     <div>
       <div className="view-header">
         <div>
-          <h2>Events</h2>
-          <p className="text-dim view-subtitle">System event log capturing state changes, completions, failures, and other notable occurrences.</p>
+          <h2>{t('Events')}</h2>
+          <p className="text-dim view-subtitle">{t('System event log capturing state changes, completions, failures, and other notable occurrences.')}</p>
         </div>
         <div className="view-actions">
           {selected.length > 0 && (
             <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>
-              Delete Selected ({selected.length})
+              {t('Delete Selected')} ({selected.length})
             </button>
           )}
-          <RefreshButton onRefresh={load} title="Refresh event data" />
+          <RefreshButton onRefresh={load} title={t('Refresh event data')} />
         </div>
       </div>
 
@@ -199,8 +190,8 @@ export default function Events() {
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
 
-      {loading && events.length === 0 && <p className="text-dim">Loading...</p>}
-      {!loading && events.length === 0 && <p className="text-dim">No events found.</p>}
+      {loading && events.length === 0 && <p className="text-dim">{t('Loading...')}</p>}
+      {!loading && events.length === 0 && <p className="text-dim">{t('No events found.')}</p>}
 
       {events.length > 0 && (
         <>
@@ -213,37 +204,37 @@ export default function Events() {
               <thead>
                 <tr>
                   <th className="col-checkbox">
-                    <input type="checkbox" checked={allSelected} onChange={e => e.target.checked ? selectAll() : clearSelection()} title="Select all events" />
+                    <input type="checkbox" checked={allSelected} onChange={e => e.target.checked ? selectAll() : clearSelection()} title={t('Select all events')} />
                   </th>
-                  <th>ID</th>
-                  <th className="sortable" onClick={() => handleSort('eventType')} title="Event type -- click to sort">
-                    Event Type{sortIcon('eventType')}
+                  <th>{t('ID')}</th>
+                  <th className="sortable" onClick={() => handleSort('eventType')} title={t('Event type -- click to sort')}>
+                    {t('Event Type')}{sortIcon('eventType')}
                   </th>
-                  <th className="sortable" onClick={() => handleSort('entityType')} title="Entity type -- click to sort">
-                    Entity Type{sortIcon('entityType')}
+                  <th className="sortable" onClick={() => handleSort('entityType')} title={t('Entity type -- click to sort')}>
+                    {t('Entity Type')}{sortIcon('entityType')}
                   </th>
-                  <th>Entity ID</th>
-                  <th>Captain</th>
-                  <th>Mission</th>
-                  <th>Vessel</th>
-                  <th>Voyage</th>
-                  <th>Message</th>
-                  <th className="sortable" onClick={() => handleSort('createdUtc')} title="Created -- click to sort">
-                    Created{sortIcon('createdUtc')}
+                  <th>{t('Entity ID')}</th>
+                  <th>{t('Captain')}</th>
+                  <th>{t('Mission')}</th>
+                  <th>{t('Vessel')}</th>
+                  <th>{t('Voyage')}</th>
+                  <th>{t('Message')}</th>
+                  <th className="sortable" onClick={() => handleSort('createdUtc')} title={t('Created -- click to sort')}>
+                    {t('Created')}{sortIcon('createdUtc')}
                   </th>
-                  <th className="text-right">Actions</th>
+                  <th className="text-right">{t('Actions')}</th>
                 </tr>
                 <tr className="column-filter-row">
                   <td></td>
                   <td></td>
-                  <td><input type="text" className="col-filter" value={colFilters.eventType} onChange={e => setColFilters(f => ({ ...f, eventType: e.target.value }))} placeholder="Filter..." /></td>
-                  <td><input type="text" className="col-filter" value={colFilters.entityType} onChange={e => setColFilters(f => ({ ...f, entityType: e.target.value }))} placeholder="Filter..." /></td>
+                  <td><input type="text" className="col-filter" value={colFilters.eventType} onChange={e => setColFilters(f => ({ ...f, eventType: e.target.value }))} placeholder={t('Filter...')} /></td>
+                  <td><input type="text" className="col-filter" value={colFilters.entityType} onChange={e => setColFilters(f => ({ ...f, entityType: e.target.value }))} placeholder={t('Filter...')} /></td>
                   <td></td>
                   <td></td>
                   <td></td>
                   <td></td>
                   <td></td>
-                  <td><input type="text" className="col-filter" value={colFilters.message} onChange={e => setColFilters(f => ({ ...f, message: e.target.value }))} placeholder="Filter..." /></td>
+                  <td><input type="text" className="col-filter" value={colFilters.message} onChange={e => setColFilters(f => ({ ...f, message: e.target.value }))} placeholder={t('Filter...')} /></td>
                   <td></td>
                   <td></td>
                 </tr>
@@ -254,7 +245,7 @@ export default function Events() {
                   return (
                     <tr key={evt.id} className="clickable" onClick={() => navigate(`/events/${evt.id}`)}>
                       <td className="col-checkbox" onClick={e => e.stopPropagation()}>
-                        <input type="checkbox" checked={selected.includes(evt.id)} onChange={() => toggleSelect(evt.id)} title="Select this event" />
+                        <input type="checkbox" checked={selected.includes(evt.id)} onChange={() => toggleSelect(evt.id)} title={t('Select this event')} />
                       </td>
                       <td className="mono text-dim table-id-cell">
                         <span className="id-display">
@@ -299,11 +290,11 @@ export default function Events() {
                       <td style={{ maxWidth: 250, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={evt.message}>
                         {evt.message}
                       </td>
-                      <td className="text-dim" style={{ whiteSpace: 'nowrap' }}>{formatTime(evt.createdUtc)}</td>
+                      <td className="text-dim" style={{ whiteSpace: 'nowrap' }} title={formatDateTime(evt.createdUtc)}>{formatRelativeTime(evt.createdUtc)}</td>
                       <td className="text-right" onClick={e => e.stopPropagation()}>
                         <ActionMenu id={`event-${evt.id}`} items={[
                           { label: 'View Detail', onClick: () => navigate(`/events/${evt.id}`) },
-                          { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `Event: ${evt.id}`, data: evt }) },
+                          { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `${t('Event')}: ${evt.id}`, data: evt }) },
                           { label: 'Delete', danger: true, onClick: () => handleDeleteSingle(evt.id) },
                         ]} />
                       </td>
@@ -311,7 +302,7 @@ export default function Events() {
                   );
                 })}
                 {sorted.length === 0 && (
-                  <tr><td colSpan={12} className="text-dim">No events match the current filters.</td></tr>
+                  <tr><td colSpan={12} className="text-dim">{t('No events match the current filters.')}</td></tr>
                 )}
               </tbody>
             </table>

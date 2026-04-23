@@ -24,42 +24,14 @@ import JsonViewer from '../components/shared/JsonViewer';
 import DiffViewer from '../components/shared/DiffViewer';
 import LogViewer from '../components/shared/LogViewer';
 import CopyButton from '../components/shared/CopyButton';
+import { useLocale } from '../context/LocaleContext';
 
 const MISSION_STATUSES = [
   'Pending', 'Assigned', 'InProgress', 'WorkProduced', 'Testing', 'Review', 'Complete', 'Failed', 'LandingFailed', 'Cancelled',
 ];
 
-function formatTimeAbsolute(utc: string | null | undefined): string {
-  if (!utc) return '-';
-  return new Date(utc).toLocaleString();
-}
-
-function formatTimeRelative(utc: string | null | undefined): string {
-  if (!utc) return '';
-  const d = new Date(utc);
-  const diff = Date.now() - d.getTime();
-  if (diff < 60000) return 'just now';
-  if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago';
-  if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago';
-  return Math.floor(diff / 86400000) + 'd ago';
-}
-
-function formatDuration(totalRuntimeMs: number | null | undefined): string {
-  if (totalRuntimeMs == null || totalRuntimeMs < 0) return 'N/A';
-
-  const totalSeconds = totalRuntimeMs / 1000;
-  if (totalSeconds < 60) return `${totalSeconds.toFixed(1)}s`;
-
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = Math.floor(totalSeconds % 60);
-
-  if (hours > 0) return `${hours}h ${minutes}m`;
-  if (minutes > 0 && seconds > 0) return `${minutes}m ${seconds}s`;
-  return `${minutes}m`;
-}
-
 export default function MissionDetail() {
+  const { t, formatDateTime, formatRelativeTime } = useLocale();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
 
@@ -95,6 +67,20 @@ export default function MissionDetail() {
   // Confirm
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
 
+  const formatDuration = useCallback((totalRuntimeMs: number | null | undefined): string => {
+    if (totalRuntimeMs == null || totalRuntimeMs < 0) return t('N/A');
+    const totalSeconds = totalRuntimeMs / 1000;
+    if (totalSeconds < 60) return t('{{seconds}}s', { seconds: totalSeconds.toFixed(1) });
+
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = Math.floor(totalSeconds % 60);
+
+    if (hours > 0) return t('{{hours}}h {{minutes}}m', { hours, minutes });
+    if (minutes > 0 && seconds > 0) return t('{{minutes}}m {{seconds}}s', { minutes, seconds });
+    return t('{{minutes}}m', { minutes });
+  }, [t]);
+
   // Lookup maps
   const vesselName = useMemo(() => {
     const m = new Map<string, string>();
@@ -120,11 +106,11 @@ export default function MissionDetail() {
       // Only clear error on initial load -- don't dismiss user-facing errors from actions
       if (isInitialLoad) setError('');
     } catch (e: unknown) {
-      if (isInitialLoad) setError('Failed to load mission: ' + (e instanceof Error ? e.message : String(e)));
+      if (isInitialLoad) setError(t('Failed to load mission: {{message}}', { message: e instanceof Error ? e.message : String(e) }));
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, t]);
 
   useEffect(() => {
     loadMission();
@@ -137,7 +123,7 @@ export default function MissionDetail() {
 
   async function handleViewDiff() {
     if (!id) return;
-    setDiffModal({ open: true, title: `Diff: ${mission?.title || id}`, rawDiff: '', loading: true });
+    setDiffModal({ open: true, title: t('Diff: {{title}}', { title: mission?.title || id }), rawDiff: '', loading: true });
     try {
       const result = await getMissionDiff(id);
       setDiffModal(d => ({ ...d, rawDiff: result?.diff || '', loading: false }));
@@ -149,39 +135,39 @@ export default function MissionDetail() {
   const fetchLog = useCallback(async (missionId: string, lines: number) => {
     try {
       const result = await getMissionLog(missionId, lines);
-      setLogModal(l => ({ ...l, content: result.log || 'No log output', totalLines: result.totalLines || 0 }));
+      setLogModal(l => ({ ...l, content: result.log || t('No log output'), totalLines: result.totalLines || 0 }));
     } catch (e: unknown) {
       // Don't replace existing log content on transient fetch failure
       setLogModal(l => ({
         ...l,
-        content: l.content && l.content !== 'Loading...'
+        content: l.content && l.content !== t('Loading...')
           ? l.content
-          : 'Log unavailable: ' + (e instanceof Error ? e.message : String(e))
+          : t('Log unavailable: {{message}}', { message: e instanceof Error ? e.message : String(e) })
       }));
     }
-  }, []);
+  }, [t]);
 
   function handleViewLog() {
     if (!id) return;
-    setLogModal({ open: true, title: `Log: ${mission?.title || id}`, missionId: id, content: 'Loading...', totalLines: 0, lineCount: 200 });
+    setLogModal({ open: true, title: t('Log: {{title}}', { title: mission?.title || id }), missionId: id, content: t('Loading...'), totalLines: 0, lineCount: 200 });
     fetchLog(id, 200);
   }
 
   async function handleViewInstructions() {
     if (!id) return;
-    setInstructionsModal({ open: true, title: 'Mission Instructions', content: 'Loading...' });
+    setInstructionsModal({ open: true, title: t('Mission Instructions'), content: t('Loading...') });
     try {
       const result = await getMissionInstructions(id);
       setInstructionsModal({
         open: true,
-        title: `Instructions: ${result.fileName || 'Mission Instructions'}`,
-        content: result.content || 'No mission instructions found.',
+        title: t('Instructions: {{fileName}}', { fileName: result.fileName || t('Mission Instructions') }),
+        content: result.content || t('No mission instructions found.'),
       });
     } catch (e: unknown) {
       setInstructionsModal({
         open: true,
-        title: 'Mission Instructions',
-        content: 'Instructions unavailable: ' + (e instanceof Error ? e.message : String(e)),
+        title: t('Mission Instructions'),
+        content: t('Instructions unavailable: {{message}}', { message: e instanceof Error ? e.message : String(e) }),
       });
     }
   }
@@ -219,7 +205,7 @@ export default function MissionDetail() {
       setEditModal(false);
       loadMission();
     } catch (e: unknown) {
-      setError('Save failed: ' + (e instanceof Error ? e.message : String(e)));
+      setError(t('Save failed: {{message}}', { message: e instanceof Error ? e.message : String(e) }));
     } finally {
       setEditSaving(false);
     }
@@ -233,7 +219,7 @@ export default function MissionDetail() {
       setTransitionStatus('');
       loadMission();
     } catch (e: unknown) {
-      setError('Transition failed: ' + (e instanceof Error ? e.message : String(e)));
+      setError(t('Transition failed: {{message}}', { message: e instanceof Error ? e.message : String(e) }));
     }
   }
 
@@ -241,15 +227,15 @@ export default function MissionDetail() {
     if (!mission) return;
     setConfirm({
       open: true,
-      title: 'Restart Mission',
-      message: `Restart mission "${mission.title}"? This will reset the mission to Pending status.`,
+      title: t('Restart Mission'),
+      message: t('Restart mission "{{title}}"? This will reset the mission to Pending status.', { title: mission.title }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
         try {
           await restartMission(mission.id);
           loadMission();
         } catch (e: unknown) {
-          setError('Restart failed: ' + (e instanceof Error ? e.message : String(e)));
+          setError(t('Restart failed: {{message}}', { message: e instanceof Error ? e.message : String(e) }));
         }
       },
     });
@@ -259,15 +245,15 @@ export default function MissionDetail() {
     if (!mission) return;
     setConfirm({
       open: true,
-      title: 'Purge Mission',
-      message: `Purge mission "${mission.title}"? This will clean up all associated resources (branches, worktrees, etc.) and cannot be undone.`,
+      title: t('Purge Mission'),
+      message: t('Purge mission "{{title}}"? This will clean up all associated resources (branches, worktrees, etc.) and cannot be undone.', { title: mission.title }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
         try {
           await purgeMission(mission.id);
           loadMission();
         } catch (e: unknown) {
-          setError('Purge failed: ' + (e instanceof Error ? e.message : String(e)));
+          setError(t('Purge failed: {{message}}', { message: e instanceof Error ? e.message : String(e) }));
         }
       },
     });
@@ -277,38 +263,38 @@ export default function MissionDetail() {
     if (!mission) return;
     setConfirm({
       open: true,
-      title: 'Delete Mission',
-      message: `Permanently delete mission "${mission.title}"? This cannot be undone.`,
+      title: t('Delete Mission'),
+      message: t('Permanently delete mission "{{title}}"? This cannot be undone.', { title: mission.title }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
         try {
           await deleteMission(mission.id);
           navigate('/missions');
         } catch (e: unknown) {
-          setError('Delete failed: ' + (e instanceof Error ? e.message : String(e)));
+          setError(t('Delete failed: {{message}}', { message: e instanceof Error ? e.message : String(e) }));
         }
       },
     });
   }
 
-  if (loading) return <p className="text-dim">Loading...</p>;
-  if (!mission) return <ErrorModal error={error || 'Mission not found.'} onClose={() => navigate('/missions')} />;
+  if (loading) return <p className="text-dim">{t('Loading...')}</p>;
+  if (!mission) return <ErrorModal error={error || t('Mission not found.')} onClose={() => navigate('/missions')} />;
 
   return (
     <div>
       {/* Breadcrumb */}
       <div className="breadcrumb">
-        <Link to="/missions">Missions</Link> <span className="breadcrumb-sep">&gt;</span> <span>{mission.title}</span>
+        <Link to="/missions">{t('Missions')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{mission.title}</span>
       </div>
 
       <div className="detail-header">
         <h2>{mission.title}</h2>
         <div className="inline-actions">
-          <button className="btn btn-sm" onClick={handleViewDiff} title="View mission diff">Diff</button>
-          <button className="btn btn-sm" onClick={handleViewLog} title="View mission log">Log</button>
-          <button className="btn btn-sm" onClick={handleViewInstructions} title="View mission instructions">Instructions</button>
+          <button className="btn btn-sm" onClick={handleViewDiff} title={t('View mission diff')}>{t('Diff')}</button>
+          <button className="btn btn-sm" onClick={handleViewLog} title={t('View mission log')}>{t('Log')}</button>
+          <button className="btn btn-sm" onClick={handleViewInstructions} title={t('View mission instructions')}>{t('Instructions')}</button>
           {(mission.status === 'WorkProduced' || mission.status === 'LandingFailed') && (
-            <button className="btn btn-sm btn-primary" onClick={async () => { try { await retryMissionLanding(mission.id); pushToast('success', 'Landing succeeded! Mission status updated.'); loadMission(); } catch (e) { setError(e instanceof Error ? e.message : 'Retry landing failed.'); } }} title="Rebase the mission branch and re-attempt merge into the target branch">Retry Landing</button>
+            <button className="btn btn-sm btn-primary" onClick={async () => { try { await retryMissionLanding(mission.id); pushToast('success', t('Landing succeeded! Mission status updated.')); loadMission(); } catch (e) { setError(e instanceof Error ? e.message : t('Retry landing failed.')); } }} title={t('Rebase the mission branch and re-attempt merge into the target branch')}>{t('Retry Landing')}</button>
           )}
           <ActionMenu id={`mission-action-${mission.id}`} items={[
             { label: 'Edit', onClick: openEdit },
@@ -316,9 +302,9 @@ export default function MissionDetail() {
             { label: 'View Log', onClick: handleViewLog },
             { label: 'View Instructions', onClick: handleViewInstructions },
             { label: 'Transition Status', onClick: () => setShowTransition(true) },
-            { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `Mission: ${mission.title}`, data: mission }) },
+            { label: 'View JSON', onClick: () => setJsonData({ open: true, title: t('Mission: {{title}}', { title: mission.title }), data: mission }) },
             { label: 'Restart', onClick: handleRestart },
-            ...((mission.status === 'WorkProduced' || mission.status === 'LandingFailed') ? [{ label: 'Retry Landing', onClick: async () => { try { await retryMissionLanding(mission.id); pushToast('success', 'Landing succeeded! Mission status updated.'); loadMission(); } catch (e) { setError(e instanceof Error ? e.message : 'Retry landing failed.'); } } }] : []),
+            ...((mission.status === 'WorkProduced' || mission.status === 'LandingFailed') ? [{ label: 'Retry Landing', onClick: async () => { try { await retryMissionLanding(mission.id); pushToast('success', t('Landing succeeded! Mission status updated.')); loadMission(); } catch (e) { setError(e instanceof Error ? e.message : t('Retry landing failed.')); } } }] : []),
             { label: 'Purge', danger: true, onClick: handlePurge },
             { label: 'Delete', danger: true, onClick: handleDelete },
           ]} />
@@ -359,13 +345,13 @@ export default function MissionDetail() {
       {editModal && (
         <div className="modal-overlay" onClick={() => setEditModal(false)}>
           <form className="modal" onClick={e => e.stopPropagation()} onSubmit={handleSaveEdit}>
-            <h3>Edit Mission</h3>
-            <label>Title<input value={editTitle} onChange={e => setEditTitle(e.target.value)} required /></label>
-            <label>Description<textarea value={editDescription} onChange={e => setEditDescription(e.target.value)} rows={3} /></label>
-            <label>Priority<input type="number" value={editPriority} onChange={e => setEditPriority(Number(e.target.value))} min={0} max={1000} /></label>
+            <h3>{t('Edit Mission')}</h3>
+            <label>{t('Title')}<input value={editTitle} onChange={e => setEditTitle(e.target.value)} required /></label>
+            <label>{t('Description')}<textarea value={editDescription} onChange={e => setEditDescription(e.target.value)} rows={3} /></label>
+            <label>{t('Priority')}<input type="number" value={editPriority} onChange={e => setEditPriority(Number(e.target.value))} min={0} max={1000} /></label>
             <div className="modal-actions">
-              <button type="submit" className="btn btn-primary" disabled={editSaving}>{editSaving ? 'Saving...' : 'Save'}</button>
-              <button type="button" className="btn" onClick={() => setEditModal(false)}>Cancel</button>
+              <button type="submit" className="btn btn-primary" disabled={editSaving}>{editSaving ? t('Saving...') : t('Save')}</button>
+              <button type="button" className="btn" onClick={() => setEditModal(false)}>{t('Cancel')}</button>
             </div>
           </form>
         </div>
@@ -375,20 +361,20 @@ export default function MissionDetail() {
       {showTransition && (
         <div className="modal-overlay" onClick={() => setShowTransition(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
-            <h3>Transition Mission Status</h3>
-            <p className="text-dim">Current status: <StatusBadge status={mission.status} /></p>
+            <h3>{t('Transition Mission Status')}</h3>
+            <p className="text-dim">{t('Current status')}: <StatusBadge status={mission.status} /></p>
             <label style={{ marginTop: 12 }}>
-              New Status
+              {t('New Status')}
               <select value={transitionStatus} onChange={e => setTransitionStatus(e.target.value)}>
-                <option value="">Select status...</option>
+                <option value="">{t('Select status...')}</option>
                 {MISSION_STATUSES.map(s => (
-                  <option key={s} value={s}>{s}</option>
+                  <option key={s} value={s}>{t(s)}</option>
                 ))}
               </select>
             </label>
             <div className="modal-actions">
-              <button className="btn btn-primary" onClick={handleTransition} disabled={!transitionStatus}>Transition</button>
-              <button className="btn" onClick={() => setShowTransition(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleTransition} disabled={!transitionStatus}>{t('Transition')}</button>
+              <button className="btn" onClick={() => setShowTransition(false)}>{t('Cancel')}</button>
             </div>
           </div>
         </div>
@@ -397,20 +383,20 @@ export default function MissionDetail() {
       {/* Mission Info */}
       <div className="detail-grid" style={{ gridTemplateColumns: '1fr 1fr 1fr 1fr' }}>
         <div className="detail-field">
-          <span className="detail-label">ID</span>
+          <span className="detail-label">{t('ID')}</span>
           <span className="id-display">
             <span className="mono">{mission.id}</span>
             <CopyButton text={mission.id} />
           </span>
         </div>
-        <div className="detail-field"><span className="detail-label">Tenant ID</span><span className="mono">{mission.tenantId || '-'}</span></div>
+        <div className="detail-field"><span className="detail-label">{t('Tenant ID')}</span><span className="mono">{mission.tenantId || '-'}</span></div>
         <div className="detail-field">
-          <span className="detail-label">Status</span>
+          <span className="detail-label">{t('Status')}</span>
           <StatusBadge status={mission.status} />
         </div>
         {mission.failureReason && (
           <div className="detail-field" style={{ gridColumn: '1 / -1' }}>
-            <span className="detail-label">Failure Reason</span>
+            <span className="detail-label">{t('Failure Reason')}</span>
             <pre style={{
               margin: 0,
               padding: '0.75rem',
@@ -425,92 +411,92 @@ export default function MissionDetail() {
             }}>{mission.failureReason}</pre>
           </div>
         )}
-        <div className="detail-field"><span className="detail-label">Priority</span><span>{mission.priority}</span></div>
+        <div className="detail-field"><span className="detail-label">{t('Priority')}</span><span>{mission.priority}</span></div>
         <div className="detail-field">
-          <span className="detail-label">Voyage</span>
+          <span className="detail-label">{t('Voyage')}</span>
           {mission.voyageId
             ? <Link to={`/voyages/${mission.voyageId}`} className="mono">{mission.voyageId}</Link>
             : <span>-</span>}
         </div>
         <div className="detail-field">
-          <span className="detail-label">Vessel</span>
+          <span className="detail-label">{t('Vessel')}</span>
           {mission.vesselId
             ? <Link to={`/vessels/${mission.vesselId}`}>{vesselName(mission.vesselId)}</Link>
             : <span>-</span>}
         </div>
         <div className="detail-field">
-          <span className="detail-label">Captain</span>
+          <span className="detail-label">{t('Captain')}</span>
           {mission.captainId
             ? <Link to={`/captains/${mission.captainId}`}>{captainName(mission.captainId)}</Link>
             : <span>-</span>}
         </div>
         <div className="detail-field">
-          <span className="detail-label">Parent Mission</span>
+          <span className="detail-label">{t('Parent Mission')}</span>
           {mission.parentMissionId
             ? <Link to={`/missions/${mission.parentMissionId}`} className="mono">{mission.parentMissionId}</Link>
             : <span>-</span>}
         </div>
         <div className="detail-field">
-          <span className="detail-label">Persona</span>
-          <span>{mission.persona || <span className="text-dim">Worker</span>}</span>
+          <span className="detail-label">{t('Persona')}</span>
+          <span>{mission.persona || <span className="text-dim">{t('Worker')}</span>}</span>
         </div>
         {mission.dependsOnMissionId && (
           <div className="detail-field">
-            <span className="detail-label">Depends On</span>
+            <span className="detail-label">{t('Depends On')}</span>
             <Link to={`/missions/${mission.dependsOnMissionId}`} className="mono">{mission.dependsOnMissionId}</Link>
           </div>
         )}
         {mission.status === 'WorkProduced' && mission.dependsOnMissionId === null && mission.persona && mission.persona !== 'Worker' && (
           <div className="detail-field" style={{ gridColumn: '1 / -1' }}>
-            <span className="detail-label">Pipeline Status</span>
-            <span className="text-dim">Work complete -- handed off to the next pipeline stage</span>
+            <span className="detail-label">{t('Pipeline Status')}</span>
+            <span className="text-dim">{t('Work complete -- handed off to the next pipeline stage')}</span>
           </div>
         )}
-        <div className="detail-field"><span className="detail-label">Branch Name</span><span className="mono">{mission.branchName || '-'}</span></div>
+        <div className="detail-field"><span className="detail-label">{t('Branch Name')}</span><span className="mono">{mission.branchName || '-'}</span></div>
         <div className="detail-field">
-          <span className="detail-label">Dock</span>
+          <span className="detail-label">{t('Dock')}</span>
           {mission.dockId
             ? <Link to={`/docks/${mission.dockId}`} className="mono">{mission.dockId}</Link>
             : <span>-</span>}
         </div>
-        <div className="detail-field"><span className="detail-label">Process ID</span><span>{mission.processId ?? '-'}</span></div>
+        <div className="detail-field"><span className="detail-label">{t('Process ID')}</span><span>{mission.processId ?? '-'}</span></div>
         <div className="detail-field">
-          <span className="detail-label">PR URL</span>
+          <span className="detail-label">{t('PR URL')}</span>
           {mission.prUrl
             ? <a href={mission.prUrl} target="_blank" rel="noopener noreferrer">{mission.prUrl}</a>
             : <span>-</span>}
         </div>
-        <div className="detail-field"><span className="detail-label">Commit Hash</span><span className="mono">{mission.commitHash || '-'}</span></div>
+        <div className="detail-field"><span className="detail-label">{t('Commit Hash')}</span><span className="mono">{mission.commitHash || '-'}</span></div>
         <div className="detail-field">
-          <span className="detail-label">Created</span>
+          <span className="detail-label">{t('Created')}</span>
           <span title={mission.createdUtc}>
-            {formatTimeRelative(mission.createdUtc)}
-            <span className="text-dim"> ({formatTimeAbsolute(mission.createdUtc)})</span>
+            {formatRelativeTime(mission.createdUtc)}
+            <span className="text-dim"> ({formatDateTime(mission.createdUtc)})</span>
           </span>
         </div>
         <div className="detail-field">
-          <span className="detail-label">Started</span>
-          <span title={formatTimeAbsolute(mission.startedUtc)}>
-            {formatTimeRelative(mission.startedUtc) || '-'}
-            {mission.startedUtc && <span className="text-dim"> ({formatTimeAbsolute(mission.startedUtc)})</span>}
+          <span className="detail-label">{t('Started')}</span>
+          <span title={formatDateTime(mission.startedUtc)}>
+            {formatRelativeTime(mission.startedUtc) || '-'}
+            {mission.startedUtc && <span className="text-dim"> ({formatDateTime(mission.startedUtc)})</span>}
           </span>
         </div>
         <div className="detail-field">
-          <span className="detail-label">Completed</span>
-          <span title={formatTimeAbsolute(mission.completedUtc)}>
-            {formatTimeRelative(mission.completedUtc) || '-'}
-            {mission.completedUtc && <span className="text-dim"> ({formatTimeAbsolute(mission.completedUtc)})</span>}
+          <span className="detail-label">{t('Completed')}</span>
+          <span title={formatDateTime(mission.completedUtc)}>
+            {formatRelativeTime(mission.completedUtc) || '-'}
+            {mission.completedUtc && <span className="text-dim"> ({formatDateTime(mission.completedUtc)})</span>}
           </span>
         </div>
         <div className="detail-field">
-          <span className="detail-label">Total Runtime</span>
+          <span className="detail-label">{t('Total Runtime')}</span>
           <span>{formatDuration(mission.totalRuntimeMs)}</span>
         </div>
         <div className="detail-field">
-          <span className="detail-label">Last Updated</span>
+          <span className="detail-label">{t('Last Updated')}</span>
           <span title={mission.lastUpdateUtc}>
-            {formatTimeRelative(mission.lastUpdateUtc)}
-            <span className="text-dim"> ({formatTimeAbsolute(mission.lastUpdateUtc)})</span>
+            {formatRelativeTime(mission.lastUpdateUtc)}
+            <span className="text-dim"> ({formatDateTime(mission.lastUpdateUtc)})</span>
           </span>
         </div>
       </div>
@@ -518,7 +504,7 @@ export default function MissionDetail() {
       {/* Description */}
       {mission.description && (
         <div style={{ marginTop: '1rem' }}>
-          <h3>Description</h3>
+          <h3>{t('Description')}</h3>
           <div className="card" style={{ padding: '1rem', whiteSpace: 'pre-wrap' }}>{mission.description}</div>
         </div>
       )}

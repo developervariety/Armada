@@ -7,7 +7,7 @@ window.ArmadaModules.websocket = {
     connectWebSocket() {
         try {
             let WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            let wsUrl = WS_PROTOCOL + '//' + window.location.hostname + ':' + this.wsPort;
+            let wsUrl = WS_PROTOCOL + '//' + window.location.host + '/ws';
             console.log('Connecting WebSocket to', wsUrl);
             this.ws = new WebSocket(wsUrl);
             this.ws.onopen = () => {

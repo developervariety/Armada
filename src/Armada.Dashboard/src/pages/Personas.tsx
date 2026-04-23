@@ -10,23 +10,14 @@ import JsonViewer from '../components/shared/JsonViewer';
 import CopyButton from '../components/shared/CopyButton';
 import RefreshButton from '../components/shared/RefreshButton';
 import ErrorModal from '../components/shared/ErrorModal';
+import { useLocale } from '../context/LocaleContext';
 
 type SortDir = 'asc' | 'desc';
 type SortField = 'name' | 'description' | 'promptTemplateName' | 'isBuiltIn' | 'active' | 'createdUtc';
 
-function formatTime(utc: string | null): string {
-  if (!utc) return '-';
-  const d = new Date(utc);
-  const now = new Date();
-  const diff = now.getTime() - d.getTime();
-  if (diff < 60000) return 'just now';
-  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
-  return d.toLocaleDateString();
-}
-
 export default function Personas() {
   const navigate = useNavigate();
+  const { t, formatRelativeTime, formatDateTime } = useLocale();
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -63,11 +54,11 @@ export default function Personas() {
       setTemplateNames(templateResult.objects.map(t => t.name));
       setError('');
     } catch {
-      setError('Failed to load personas.');
+      setError(t('Failed to load personas.'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -132,17 +123,17 @@ export default function Personas() {
       else await createPersona(payload as Partial<Persona>);
       setShowForm(false);
       load();
-    } catch { setError('Save failed.'); }
+    } catch { setError(t('Save failed.')); }
   }
 
   function handleDelete(name: string) {
     setConfirm({
       open: true,
-      title: 'Delete Persona',
-      message: `Delete persona "${name}"? This cannot be undone.`,
+      title: t('Delete Persona'),
+      message: t('Delete persona "{{name}}"? This cannot be undone.', { name }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
-        try { await deletePersona(name); load(); } catch { setError('Delete failed.'); }
+        try { await deletePersona(name); load(); } catch { setError(t('Delete failed.')); }
       },
     });
   }
@@ -151,12 +142,12 @@ export default function Personas() {
     <div>
       <div className="view-header">
         <div>
-          <h2>Personas</h2>
-          <p className="text-dim view-subtitle">Named configurations that define how captains behave when executing missions.</p>
+          <h2>{t('Personas')}</h2>
+          <p className="text-dim view-subtitle">{t('Named configurations that define how captains behave when executing missions.')}</p>
         </div>
         <div className="view-actions">
-          <button className="btn btn-primary btn-sm" onClick={openCreate}>+ Persona</button>
-          <RefreshButton onRefresh={load} title="Refresh persona data" />
+          <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Persona')}</button>
+          <RefreshButton onRefresh={load} title={t('Refresh persona data')} />
         </div>
       </div>
 
@@ -166,22 +157,22 @@ export default function Personas() {
       {showForm && (
         <div className="modal-overlay" onClick={() => setShowForm(false)}>
           <form className="modal" onClick={e => e.stopPropagation()} onSubmit={handleSubmit}>
-            <h3>{editing ? 'Edit Persona' : 'Create Persona'}</h3>
-            <label>Name<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required disabled={!!editing} /></label>
-            <label>Description
-              <textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} rows={3} placeholder="Optional description of this persona..." />
+            <h3>{editing ? t('Edit Persona') : t('Create Persona')}</h3>
+            <label>{t('Name')}<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required disabled={!!editing} /></label>
+            <label>{t('Description')}
+              <textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} rows={3} placeholder={t('Optional description of this persona...')} />
             </label>
-            <label>Prompt Template Name
+            <label>{t('Prompt Template Name')}
               <select value={form.promptTemplateName} onChange={e => setForm({ ...form, promptTemplateName: e.target.value })} required>
-                <option value="">Select a template...</option>
+                <option value="">{t('Select a template...')}</option>
                 {templateNames.map(name => (
                   <option key={name} value={name}>{name}</option>
                 ))}
               </select>
             </label>
             <div className="modal-actions">
-              <button type="submit" className="btn btn-primary">Save</button>
-              <button type="button" className="btn" onClick={() => setShowForm(false)}>Cancel</button>
+              <button type="submit" className="btn btn-primary">{t('Save')}</button>
+              <button type="button" className="btn" onClick={() => setShowForm(false)}>{t('Cancel')}</button>
             </div>
           </form>
         </div>
@@ -194,8 +185,8 @@ export default function Personas() {
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
 
-      {loading && personas.length === 0 && <p className="text-dim">Loading...</p>}
-      {!loading && personas.length === 0 && <p className="text-dim">No personas configured.</p>}
+      {loading && personas.length === 0 && <p className="text-dim">{t('Loading...')}</p>}
+      {!loading && personas.length === 0 && <p className="text-dim">{t('No personas configured.')}</p>}
 
       {personas.length > 0 && (
         <>
@@ -207,32 +198,32 @@ export default function Personas() {
             <table>
               <thead>
                 <tr>
-                  <th className="sortable" onClick={() => handleSort('name')} title="Persona name -- click to sort">
-                    Name{sortIcon('name')}
+                  <th className="sortable" onClick={() => handleSort('name')} title={t('Persona name -- click to sort')}>
+                    {t('Name')}{sortIcon('name')}
                   </th>
-                  <th>ID</th>
-                  <th className="sortable" onClick={() => handleSort('description')} title="Description -- click to sort">
-                    Description{sortIcon('description')}
+                  <th>{t('ID')}</th>
+                  <th className="sortable" onClick={() => handleSort('description')} title={t('Description -- click to sort')}>
+                    {t('Description')}{sortIcon('description')}
                   </th>
-                  <th className="sortable" onClick={() => handleSort('promptTemplateName')} title="Prompt template -- click to sort">
-                    Prompt Template{sortIcon('promptTemplateName')}
+                  <th className="sortable" onClick={() => handleSort('promptTemplateName')} title={t('Prompt template -- click to sort')}>
+                    {t('Prompt Template')}{sortIcon('promptTemplateName')}
                   </th>
-                  <th className="sortable" onClick={() => handleSort('isBuiltIn')} title="Built-in -- click to sort">
-                    Built-in{sortIcon('isBuiltIn')}
+                  <th className="sortable" onClick={() => handleSort('isBuiltIn')} title={t('Built-in -- click to sort')}>
+                    {t('Built-in')}{sortIcon('isBuiltIn')}
                   </th>
-                  <th className="sortable" onClick={() => handleSort('active')} title="Active -- click to sort">
-                    Active{sortIcon('active')}
+                  <th className="sortable" onClick={() => handleSort('active')} title={t('Active -- click to sort')}>
+                    {t('Active')}{sortIcon('active')}
                   </th>
-                  <th className="sortable" onClick={() => handleSort('createdUtc')} title="Created date -- click to sort">
-                    Created{sortIcon('createdUtc')}
+                  <th className="sortable" onClick={() => handleSort('createdUtc')} title={t('Created date -- click to sort')}>
+                    {t('Created')}{sortIcon('createdUtc')}
                   </th>
-                  <th className="text-right">Actions</th>
+                  <th className="text-right">{t('Actions')}</th>
                 </tr>
                 <tr className="column-filter-row">
-                  <td><input type="text" className="col-filter" value={colFilters.name} onChange={e => { setColFilters(f => ({ ...f, name: e.target.value })); setPageNumber(1); }} placeholder="Filter..." /></td>
+                  <td><input type="text" className="col-filter" value={colFilters.name} onChange={e => { setColFilters(f => ({ ...f, name: e.target.value })); setPageNumber(1); }} placeholder={t('Filter...')} /></td>
                   <td></td>
-                  <td><input type="text" className="col-filter" value={colFilters.description} onChange={e => { setColFilters(f => ({ ...f, description: e.target.value })); setPageNumber(1); }} placeholder="Filter..." /></td>
-                  <td><input type="text" className="col-filter" value={colFilters.promptTemplateName} onChange={e => { setColFilters(f => ({ ...f, promptTemplateName: e.target.value })); setPageNumber(1); }} placeholder="Filter..." /></td>
+                  <td><input type="text" className="col-filter" value={colFilters.description} onChange={e => { setColFilters(f => ({ ...f, description: e.target.value })); setPageNumber(1); }} placeholder={t('Filter...')} /></td>
+                  <td><input type="text" className="col-filter" value={colFilters.promptTemplateName} onChange={e => { setColFilters(f => ({ ...f, promptTemplateName: e.target.value })); setPageNumber(1); }} placeholder={t('Filter...')} /></td>
                   <td></td>
                   <td></td>
                   <td></td>
@@ -253,19 +244,19 @@ export default function Personas() {
                     <td className="mono text-dim">{p.promptTemplateName}</td>
                     <td>{p.isBuiltIn ? <StatusBadge status="Built-in" /> : <span className="text-dim">-</span>}</td>
                     <td><StatusBadge status={p.active ? 'Active' : 'Inactive'} /></td>
-                    <td className="text-dim">{formatTime(p.createdUtc)}</td>
+                    <td className="text-dim" title={formatDateTime(p.createdUtc)}>{formatRelativeTime(p.createdUtc)}</td>
                     <td className="text-right" onClick={e => e.stopPropagation()}>
                       <ActionMenu id={`persona-${p.name}`} items={[
                         { label: 'View Detail', onClick: () => navigate(`/personas/${encodeURIComponent(p.name)}`) },
                         { label: 'Edit', onClick: () => openEdit(p) },
-                        { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `Persona: ${p.name}`, data: p }) },
+                        { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `${t('Persona')}: ${p.name}`, data: p }) },
                         ...(!p.isBuiltIn ? [{ label: 'Delete', danger: true as const, onClick: () => handleDelete(p.name) }] : []),
                       ]} />
                     </td>
                   </tr>
                 ))}
                 {paginated.length === 0 && (
-                  <tr><td colSpan={8} className="text-dim">No personas match the current filters.</td></tr>
+                  <tr><td colSpan={8} className="text-dim">{t('No personas match the current filters.')}</td></tr>
                 )}
               </tbody>
             </table>

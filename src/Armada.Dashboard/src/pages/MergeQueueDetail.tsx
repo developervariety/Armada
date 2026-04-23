@@ -10,23 +10,10 @@ import LogViewer from '../components/shared/LogViewer';
 import StatusBadge from '../components/shared/StatusBadge';
 import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
-
-function formatTimeAbsolute(utc: string | null): string {
-  if (!utc) return '-';
-  return new Date(utc).toLocaleString();
-}
-
-function formatTimeRelative(utc: string | null): string {
-  if (!utc) return '';
-  const d = new Date(utc);
-  const diff = Date.now() - d.getTime();
-  if (diff < 60000) return 'just now';
-  if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago';
-  if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago';
-  return Math.floor(diff / 86400000) + 'd ago';
-}
+import { useLocale } from '../context/LocaleContext';
 
 export default function MergeQueueDetail() {
+  const { t, formatDateTime, formatRelativeTime } = useLocale();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [entry, setEntry] = useState<MergeEntry | null>(null);
@@ -61,11 +48,11 @@ export default function MergeQueueDetail() {
       setVessels(vResult.objects);
       if (isInitialLoad) setError('');
     } catch {
-      setError('Failed to load merge entry.');
+      setError(t('Failed to load merge entry.'));
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, t]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -73,14 +60,14 @@ export default function MergeQueueDetail() {
     if (!entry) return;
     setConfirm({
       open: true,
-      title: 'Process Entry',
-      message: `Process merge entry for branch "${entry.branchName}"?`,
+      title: t('Process Entry'),
+      message: t('Process merge entry for branch "{{branchName}}"?', { branchName: entry.branchName }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
         try {
           await processMergeEntry(entry.id);
           load();
-        } catch { setError('Process failed.'); }
+        } catch { setError(t('Process failed.')); }
       },
     });
   }
@@ -89,14 +76,14 @@ export default function MergeQueueDetail() {
     if (!entry) return;
     setConfirm({
       open: true,
-      title: 'Cancel Entry',
-      message: `Cancel merge entry for branch "${entry.branchName}"?`,
+      title: t('Cancel Entry'),
+      message: t('Cancel merge entry for branch "{{branchName}}"?', { branchName: entry.branchName }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
         try {
           await cancelMergeEntry(entry.id);
           load();
-        } catch { setError('Cancel failed.'); }
+        } catch { setError(t('Cancel failed.')); }
       },
     });
   }
@@ -105,14 +92,14 @@ export default function MergeQueueDetail() {
     if (!entry) return;
     setConfirm({
       open: true,
-      title: 'Delete Entry',
-      message: `Delete merge entry ${entry.id}? This cannot be undone.`,
+      title: t('Delete Entry'),
+      message: t('Delete merge entry {{id}}? This cannot be undone.', { id: entry.id }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
         try {
           await deleteMergeEntry(entry.id);
           navigate('/merge-queue');
-        } catch { setError('Delete failed.'); }
+        } catch { setError(t('Delete failed.')); }
       },
     });
   }
@@ -120,7 +107,7 @@ export default function MergeQueueDetail() {
   // Mission diff/log shortcuts
   async function handleMissionDiff() {
     if (!entry?.missionId) return;
-    setDiffModal({ open: true, title: `Diff: Mission ${entry.missionId.substring(0, 8)}...`, rawDiff: '', loading: true });
+    setDiffModal({ open: true, title: t('Diff: Mission {{id}}...', { id: entry.missionId.substring(0, 8) }), rawDiff: '', loading: true });
     try {
       const result = await getMissionDiff(entry.missionId);
       setDiffModal(d => ({ ...d, rawDiff: result?.diff || '', loading: false }));
@@ -132,15 +119,15 @@ export default function MergeQueueDetail() {
   const fetchLog = useCallback(async (missionId: string, lines: number) => {
     try {
       const result = await getMissionLog(missionId, lines);
-      setLogModal(l => ({ ...l, content: result.log || 'No log output', totalLines: result.totalLines || 0 }));
+      setLogModal(l => ({ ...l, content: result.log || t('No log output'), totalLines: result.totalLines || 0 }));
     } catch (e: unknown) {
-      setLogModal(l => ({ ...l, content: 'Log unavailable: ' + (e instanceof Error ? e.message : String(e)) }));
+      setLogModal(l => ({ ...l, content: t('Log unavailable: {{message}}', { message: e instanceof Error ? e.message : String(e) }) }));
     }
-  }, []);
+  }, [t]);
 
   function handleMissionLog() {
     if (!entry?.missionId) return;
-    setLogModal({ open: true, title: `Log: Mission ${entry.missionId.substring(0, 8)}...`, missionId: entry.missionId, content: 'Loading...', totalLines: 0, lineCount: 200 });
+    setLogModal({ open: true, title: t('Log: Mission {{id}}...', { id: entry.missionId.substring(0, 8) }), missionId: entry.missionId, content: t('Loading...'), totalLines: 0, lineCount: 200 });
     fetchLog(entry.missionId, 200);
   }
 
@@ -155,12 +142,12 @@ export default function MergeQueueDetail() {
     if (logModal.missionId) fetchLog(logModal.missionId, lines);
   }, [logModal.missionId, fetchLog]);
 
-  if (loading) return <p className="text-dim">Loading...</p>;
+  if (loading) return <p className="text-dim">{t('Loading...')}</p>;
   if (error && !entry) return <ErrorModal error={error} onClose={() => setError('')} />;
-  if (!entry) return <p className="text-dim">Merge entry not found.</p>;
+  if (!entry) return <p className="text-dim">{t('Merge entry not found.')}</p>;
 
   const actionItems = [
-    { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `Merge Entry: ${entry.id}`, data: entry }) },
+    { label: 'View JSON', onClick: () => setJsonData({ open: true, title: t('Merge Entry: {{id}}', { id: entry.id }), data: entry }) },
     { label: 'Process', onClick: handleProcess },
     { label: 'Cancel', onClick: handleCancel },
     ...(entry.missionId ? [
@@ -173,16 +160,16 @@ export default function MergeQueueDetail() {
   return (
     <div>
       <div className="breadcrumb">
-        <Link to="/merge-queue">Merge Queue</Link> <span className="breadcrumb-sep">&gt;</span> <span className="mono">{entry.id}</span>
+        <Link to="/merge-queue">{t('Merge Queue')}</Link> <span className="breadcrumb-sep">&gt;</span> <span className="mono">{entry.id}</span>
       </div>
 
       <div className="detail-header">
-        <h2>Merge Entry</h2>
+        <h2>{t('Merge Entry')}</h2>
         <div className="inline-actions">
           {entry.missionId && (
             <>
-              <button className="btn btn-sm" onClick={handleMissionDiff} title="View mission diff">Diff</button>
-              <button className="btn btn-sm" onClick={handleMissionLog} title="View mission log">Log</button>
+              <button className="btn btn-sm" onClick={handleMissionDiff} title={t('View mission diff')}>{t('Diff')}</button>
+              <button className="btn btn-sm" onClick={handleMissionLog} title={t('View mission log')}>{t('Log')}</button>
             </>
           )}
           <ActionMenu id={`merge-entry-action-${entry.id}`} items={actionItems} />
@@ -214,54 +201,54 @@ export default function MergeQueueDetail() {
       {/* Entry Info */}
       <div className="detail-grid">
         <div className="detail-field">
-          <span className="detail-label">ID</span>
+          <span className="detail-label">{t('ID')}</span>
           <span className="id-display">
             <span className="mono">{entry.id}</span>
             <CopyButton text={entry.id} />
           </span>
         </div>
-        <div className="detail-field"><span className="detail-label">Status</span><StatusBadge status={entry.status} /></div>
-        <div className="detail-field"><span className="detail-label">Branch</span><span className="mono">{entry.branchName}</span></div>
-        <div className="detail-field"><span className="detail-label">Target Branch</span><span className="mono">{entry.targetBranch}</span></div>
-        <div className="detail-field"><span className="detail-label">Priority</span><span>{entry.priority}</span></div>
+        <div className="detail-field"><span className="detail-label">{t('Status')}</span><StatusBadge status={entry.status} /></div>
+        <div className="detail-field"><span className="detail-label">{t('Branch')}</span><span className="mono">{entry.branchName}</span></div>
+        <div className="detail-field"><span className="detail-label">{t('Target Branch')}</span><span className="mono">{entry.targetBranch}</span></div>
+        <div className="detail-field"><span className="detail-label">{t('Priority')}</span><span>{entry.priority}</span></div>
         <div className="detail-field">
-          <span className="detail-label">Vessel</span>
+          <span className="detail-label">{t('Vessel')}</span>
           {entry.vesselId
             ? <Link to={`/vessels/${entry.vesselId}`}>{vesselName(entry.vesselId)}</Link>
             : <span>-</span>}
         </div>
         <div className="detail-field">
-          <span className="detail-label">Mission</span>
+          <span className="detail-label">{t('Mission')}</span>
           {entry.missionId
             ? <Link to={`/missions/${entry.missionId}`} className="mono">{entry.missionId}</Link>
             : <span>-</span>}
         </div>
-        <div className="detail-field"><span className="detail-label">Batch ID</span><span className="mono">{entry.batchId || '-'}</span></div>
-        <div className="detail-field"><span className="detail-label">Test Exit Code</span><span>{entry.testExitCode ?? '-'}</span></div>
-        <div className="detail-field"><span className="detail-label">Tenant ID</span><span className="mono">{entry.tenantId || '-'}</span></div>
-        <div className="detail-field"><span className="detail-label">Test Command</span><span className="mono">{entry.testCommand || '-'}</span></div>
+        <div className="detail-field"><span className="detail-label">{t('Batch ID')}</span><span className="mono">{entry.batchId || '-'}</span></div>
+        <div className="detail-field"><span className="detail-label">{t('Test Exit Code')}</span><span>{entry.testExitCode ?? '-'}</span></div>
+        <div className="detail-field"><span className="detail-label">{t('Tenant ID')}</span><span className="mono">{entry.tenantId || '-'}</span></div>
+        <div className="detail-field"><span className="detail-label">{t('Test Command')}</span><span className="mono">{entry.testCommand || '-'}</span></div>
         <div className="detail-field">
-          <span className="detail-label">Created</span>
-          <span>{formatTimeRelative(entry.createdUtc)} <span className="text-dim">({formatTimeAbsolute(entry.createdUtc)})</span></span>
+          <span className="detail-label">{t('Created')}</span>
+          <span>{formatRelativeTime(entry.createdUtc)} <span className="text-dim">({formatDateTime(entry.createdUtc)})</span></span>
         </div>
         <div className="detail-field">
-          <span className="detail-label">Test Started</span>
-          <span>{entry.testStartedUtc ? <>{formatTimeRelative(entry.testStartedUtc)} <span className="text-dim">({formatTimeAbsolute(entry.testStartedUtc)})</span></> : '-'}</span>
+          <span className="detail-label">{t('Test Started')}</span>
+          <span>{entry.testStartedUtc ? <>{formatRelativeTime(entry.testStartedUtc)} <span className="text-dim">({formatDateTime(entry.testStartedUtc)})</span></> : '-'}</span>
         </div>
         <div className="detail-field">
-          <span className="detail-label">Completed</span>
-          <span>{entry.completedUtc ? <>{formatTimeRelative(entry.completedUtc)} <span className="text-dim">({formatTimeAbsolute(entry.completedUtc)})</span></> : '-'}</span>
+          <span className="detail-label">{t('Completed')}</span>
+          <span>{entry.completedUtc ? <>{formatRelativeTime(entry.completedUtc)} <span className="text-dim">({formatDateTime(entry.completedUtc)})</span></> : '-'}</span>
         </div>
         <div className="detail-field">
-          <span className="detail-label">Last Updated</span>
-          <span>{formatTimeRelative(entry.lastUpdateUtc)} <span className="text-dim">({formatTimeAbsolute(entry.lastUpdateUtc)})</span></span>
+          <span className="detail-label">{t('Last Updated')}</span>
+          <span>{formatRelativeTime(entry.lastUpdateUtc)} <span className="text-dim">({formatDateTime(entry.lastUpdateUtc)})</span></span>
         </div>
       </div>
 
       {/* Test Command */}
       {entry.testCommand && (
         <div className="detail-context-section">
-          <h4>Test Command</h4>
+          <h4>{t('Test Command')}</h4>
           <pre className="detail-context-block">{entry.testCommand}</pre>
         </div>
       )}
@@ -269,7 +256,7 @@ export default function MergeQueueDetail() {
       {/* Test Output */}
       {entry.testOutput && (
         <div className="detail-context-section">
-          <h4>Test Output</h4>
+          <h4>{t('Test Output')}</h4>
           <pre className="detail-context-block">{entry.testOutput}</pre>
         </div>
       )}

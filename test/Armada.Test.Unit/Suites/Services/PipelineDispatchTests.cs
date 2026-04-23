@@ -47,6 +47,41 @@ namespace Armada.Test.Unit.Suites.Services
         /// </summary>
         protected override async Task RunTestsAsync()
         {
+            await RunTest("Direct dispatch sanitizes captain names in mission branches", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+
+                    Vessel vessel = new Vessel("setup-vessel", "https://github.com/test/repo.git");
+                    vessel.DefaultBranch = "main";
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain captain = new Captain("Setup Captain");
+                    captain.State = CaptainStateEnum.Idle;
+                    await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    Mission mission = new Mission("Repository onboarding survey", "Inspect the repository without changing files.");
+                    mission.VesselId = vessel.Id;
+                    mission = await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    bool assigned = await missionService.TryAssignAsync(mission, vessel).ConfigureAwait(false);
+                    Mission? assignedMission = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+
+                    AssertTrue(assigned, "Mission should be assigned");
+                    AssertNotNull(assignedMission, "Assigned mission should be persisted");
+                    AssertEqual("armada/setup-captain/" + mission.Id, assignedMission!.BranchName, "Captain name should be sanitized in branch");
+                    AssertFalse(assignedMission.BranchName!.Contains(" "), "Branch should not contain spaces");
+                    AssertTrue(git.ExistingBranches.Contains(assignedMission.BranchName), "Worktree should be provisioned with sanitized branch");
+                }
+            });
+
             await RunTest("Dispatch with single-stage pipeline creates normal missions", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

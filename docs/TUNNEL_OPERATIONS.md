@@ -4,7 +4,7 @@
 
 This guide covers the shipped remote-control tunnel and proxy MVP surfaces in Armada `v0.6.0`.
 
-For a step-by-step operator setup path, see [REMOTE_MGMT.md](../REMOTE_MGMT.md).
+For a step-by-step operator setup path, see [REMOTE_MGMT.md](REMOTE_MGMT.md).
 
 ---
 
@@ -44,6 +44,7 @@ Armada stores remote tunnel configuration in `settings.json`:
     "tunnelUrl": null,
     "instanceId": null,
     "enrollmentToken": null,
+    "password": "armadaadmin",
     "connectTimeoutSeconds": 15,
     "heartbeatIntervalSeconds": 30,
     "reconnectBaseDelaySeconds": 5,
@@ -58,6 +59,7 @@ Armada stores remote tunnel configuration in `settings.json`:
 - Leave `enabled` off unless you are actively testing the tunnel.
 - Prefer `wss://` endpoints outside local development.
 - Leave `instanceId` empty unless you want an operator-friendly override.
+- Keep `remoteControl.password` aligned with `ArmadaProxy.password`.
 - Use `allowInvalidCertificates = true` only for local development with self-signed certificates.
 
 ---
@@ -81,6 +83,7 @@ Armada stores remote tunnel configuration in `settings.json`:
     ],
     "requireEnrollmentToken": false,
     "enrollmentTokens": [],
+    "password": "armadaadmin",
     "handshakeTimeoutSeconds": 15,
     "staleAfterSeconds": 90,
     "requestTimeoutSeconds": 20,
@@ -98,6 +101,7 @@ Armada stores remote tunnel configuration in `settings.json`:
 - `syslogServers`
 - `requireEnrollmentToken`
 - `enrollmentTokens`
+- `password`
 - `handshakeTimeoutSeconds`
 - `staleAfterSeconds`
 - `requestTimeoutSeconds`

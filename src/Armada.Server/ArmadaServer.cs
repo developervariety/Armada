@@ -197,6 +197,7 @@ namespace Armada.Server
             wsSettings.Hostname = _Settings.Rest.Hostname;
             wsSettings.Port = _Settings.AdmiralPort;
             wsSettings.Ssl.Enable = _Settings.Rest.Ssl;
+            wsSettings.WebSockets.Enable = _Settings.WebSocketEnabled;
 
             _App = new Webserver(wsSettings, DashboardDefaultRouteAsync);
             _App.Events.Logger = (string message) => _Logging.Debug(_Header + message);
@@ -264,11 +265,21 @@ namespace Armada.Server
                 await ctx.Response.Send().ConfigureAwait(false);
             };
 
+            // Initialize WebSocket hub (before routes so it's available for injection)
+            _WebSocketHub = new ArmadaWebSocketHub(_Logging, _Admiral, _Database, _MergeQueue, _Settings, _Git, () => { OnStopping?.Invoke(); _TokenSource.Cancel(); });
+            _AgentLifecycle.SetWebSocketHub(_WebSocketHub);
+            _MissionLanding.SetWebSocketHub(_WebSocketHub);
+
             RegisterRoutes();
             InitializeDashboard();
 
-            // Start REST API (background)
-            Task restTask = Task.Run(() => _App.StartAsync(_TokenSource.Token));
+            // Register WebSocket route on the main REST server
+            _App.WebSocket("/ws", _WebSocketHub.HandleWebSocketAsync);
+            _Logging.Info(_Header + "WebSocket route registered at /ws");
+
+            // Watson 7 StartAsync is long-running; Start() binds and returns after
+            // scheduling the accept loop.
+            _App.Start(_TokenSource.Token);
             _Logging.Info(_Header + "REST API started on port " + _Settings.AdmiralPort);
 
             // Initialize MCP server
@@ -280,17 +291,8 @@ namespace Armada.Server
             Task mcpTask = Task.Run(() => _McpServer.StartAsync(_TokenSource.Token));
             _Logging.Info(_Header + "MCP server started on port " + _Settings.McpPort);
 
-            // Initialize WebSocket hub
-            _WebSocketHub = new ArmadaWebSocketHub(_Logging, _Settings.WebSocketPort, _Settings.Rest.Ssl, _Admiral, _Database, _MergeQueue, _Settings, _Git, () => { OnStopping?.Invoke(); _TokenSource.Cancel(); });
-            Task wsTask = Task.Run(() => _WebSocketHub.StartAsync(_TokenSource.Token));
-            _Logging.Info(_Header + "WebSocket hub started on port " + _Settings.WebSocketPort);
-
             _RemoteTunnel.Start(_TokenSource.Token);
             _Logging.Info(_Header + "remote tunnel manager started");
-
-            // Inject WebSocket hub into handlers now that it's created
-            _AgentLifecycle.SetWebSocketHub(_WebSocketHub);
-            _MissionLanding.SetWebSocketHub(_WebSocketHub);
 
             // Start health check loop
             _HealthCheckTask = HealthCheckLoopAsync(_TokenSource.Token);
@@ -302,6 +304,15 @@ namespace Armada.Server
         public void Stop()
         {
             _Logging.Info(_Header + "stopping");
+            try
+            {
+                if (_App?.IsListening == true)
+                    _App.Stop();
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "REST API stop error: " + ex.Message);
+            }
             _TokenSource.Cancel();
             _RemoteTunnel?.StopAsync().GetAwaiter().GetResult();
             _McpServer?.Stop();

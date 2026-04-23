@@ -1,3 +1,5 @@
+import { useLocale } from '../../context/LocaleContext';
+
 interface BulkSelectProps {
   /** All item IDs on the current page */
   allIds: string[];
@@ -69,12 +71,13 @@ export default function BulkSelectBar({
   onClearSelection,
   actions = [],
 }: Pick<BulkSelectProps, 'selectedIds' | 'onClearSelection' | 'actions'>) {
+  const { t } = useLocale();
   if (selectedIds.length === 0) return null;
 
   return (
     <div className="view-actions" style={{ marginBottom: '0.5rem' }}>
       <span className="text-dim" style={{ fontSize: '0.85rem' }}>
-        {selectedIds.length} selected
+        {selectedIds.length} {t('selected')}
       </span>
       {actions.map((action, i) => (
         <button
@@ -82,11 +85,11 @@ export default function BulkSelectBar({
           className={`btn btn-sm${action.danger ? ' btn-danger' : ''}`}
           onClick={action.onClick}
         >
-          {action.label}
+          {t(action.label)}
         </button>
       ))}
       <button className="btn btn-sm" onClick={onClearSelection}>
-        Clear
+        {t('Clear')}
       </button>
     </div>
   );

@@ -34,7 +34,7 @@
                 <div class="detail-field"><span class="detail-label">API URL</span><span class="mono" x-text="window.location.origin"></span></div>
                 <div class="detail-field"><span class="detail-label">Admiral Port</span><span class="mono" x-text="healthInfo?.ports?.admiral || window.location.port"></span></div>
                 <div class="detail-field"><span class="detail-label">MCP Port</span><span class="mono" x-text="healthInfo?.ports?.mcp || '-'"></span></div>
-                <div class="detail-field"><span class="detail-label">WebSocket Port</span><span class="mono" x-text="healthInfo?.ports?.webSocket || wsPort"></span></div>
+                <div class="detail-field"><span class="detail-label">WebSocket</span><span class="mono">/ws (on Admiral port)</span></div>
                 <div class="detail-field"><span class="detail-label">Tunnel State</span><span class="mono" x-text="healthInfo?.remoteTunnel?.state || '-'"></span></div>
                 <div class="detail-field"><span class="detail-label">Tunnel Instance</span><span class="mono" x-text="healthInfo?.remoteTunnel?.instanceId || '-'"></span></div>
                 <div class="detail-field"><span class="detail-label">Tunnel Latency</span><span class="mono" x-text="healthInfo?.remoteTunnel?.latencyMs != null ? healthInfo.remoteTunnel.latencyMs + ' ms' : '-'"></span></div>

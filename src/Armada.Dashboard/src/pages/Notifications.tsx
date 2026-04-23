@@ -1,24 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import { useNotifications, type Notification } from '../context/NotificationContext';
-
-function formatTime(utc: string | null | undefined): string {
-  if (!utc) return '-';
-  const d = new Date(utc);
-  const now = new Date();
-  const diffMs = now.getTime() - d.getTime();
-  const diffMin = Math.floor(diffMs / 60000);
-  if (diffMin < 1) return 'just now';
-  if (diffMin < 60) return `${diffMin}m ago`;
-  const diffHr = Math.floor(diffMin / 60);
-  if (diffHr < 24) return `${diffHr}h ago`;
-  const diffDay = Math.floor(diffHr / 24);
-  return `${diffDay}d ago`;
-}
-
-function formatTimeAbsolute(utc: string | null | undefined): string {
-  if (!utc) return '';
-  return new Date(utc).toLocaleString();
-}
+import { useLocale } from '../context/LocaleContext';
 
 function severityDotClass(severity: Notification['severity']): string {
   switch (severity) {
@@ -31,6 +13,7 @@ function severityDotClass(severity: Notification['severity']): string {
 
 export default function Notifications() {
   const navigate = useNavigate();
+  const { t, formatRelativeTime, formatDateTime } = useLocale();
   const { notifications, unreadCount, markRead, markAllRead, clearHistory } = useNotifications();
 
   const handleClick = (n: Notification) => {
@@ -44,12 +27,12 @@ export default function Notifications() {
     <div>
       <div className="page-header">
         <div>
-          <h2>Notifications</h2>
+          <h2>{t('Notifications')}</h2>
           <p className="text-muted">
-            State change history for missions, voyages, and captains.
+            {t('State change history for missions, voyages, and captains.')}
             {unreadCount > 0 && (
               <span style={{ marginLeft: '0.5rem', fontWeight: 600 }}>
-                ({unreadCount} unread)
+                ({unreadCount.toLocaleString()} {t('unread')})
               </span>
             )}
           </p>
@@ -59,17 +42,17 @@ export default function Notifications() {
             className="btn-sm"
             onClick={markAllRead}
             disabled={unreadCount === 0}
-            title="Mark all notifications as read"
+            title={t('Mark all notifications as read')}
           >
-            Mark All Read
+            {t('Mark All Read')}
           </button>
           <button
             className="btn-sm btn-danger"
             onClick={clearHistory}
             disabled={notifications.length === 0}
-            title="Clear all notification history"
+            title={t('Clear all notification history')}
           >
-            Clear History
+            {t('Clear History')}
           </button>
         </div>
       </div>
@@ -80,9 +63,9 @@ export default function Notifications() {
             <thead>
               <tr>
                 <th style={{ width: '1.5rem', padding: '0.25rem' }}></th>
-                <th>Title</th>
-                <th>Message</th>
-                <th>Time</th>
+                <th>{t('Title')}</th>
+                <th>{t('Message')}</th>
+                <th>{t('Time')}</th>
               </tr>
             </thead>
             <tbody>
@@ -99,10 +82,10 @@ export default function Notifications() {
                   <td>{ntf.message}</td>
                   <td
                     className="text-muted"
-                    title={formatTimeAbsolute(ntf.timestampUtc)}
+                    title={formatDateTime(ntf.timestampUtc)}
                     style={{ whiteSpace: 'nowrap' }}
                   >
-                    {formatTime(ntf.timestampUtc)}
+                    {formatRelativeTime(ntf.timestampUtc)}
                   </td>
                 </tr>
               ))}
@@ -111,7 +94,7 @@ export default function Notifications() {
         </div>
       ) : (
         <p className="text-muted" style={{ padding: '2rem', textAlign: 'center' }}>
-          No notifications yet. State changes for missions, voyages, and captains will appear here.
+          {t('No notifications yet. State changes for missions, voyages, and captains will appear here.')}
         </p>
       )}
     </div>

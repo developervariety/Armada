@@ -30,6 +30,16 @@
     --mono: "SF Mono", "Cascadia Code", "Fira Code", "Consolas", monospace;
 }
 
+html:lang(zh-Hans),
+html:lang(zh-Hant),
+html:lang(yue-Hant) {
+    --font: "Segoe UI", "Microsoft YaHei UI", "PingFang SC", "PingFang TC", "Noto Sans SC", "Noto Sans TC", sans-serif;
+}
+
+html:lang(ja) {
+    --font: "Segoe UI", "Yu Gothic UI", "Hiragino Sans", "Meiryo", "Noto Sans JP", sans-serif;
+}
+
 [data-theme="dark"] {
     --bg: #080d1a;
     --bg-card: #111827;
@@ -671,6 +681,49 @@ tr.clickable { cursor: pointer; }
     grid-template-columns: 1fr 1fr;
     gap: 0.5rem 2rem;
     margin-bottom: 1rem;
+}
+
+.locale-select-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+}
+
+.locale-select-wrap.compact {
+    gap: 0;
+}
+
+.locale-select-label {
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    white-space: nowrap;
+}
+
+.locale-select {
+    min-width: 148px;
+    width: auto;
+    padding: 0.45rem 2rem 0.45rem 0.75rem;
+    font-size: 0.82rem;
+    background: var(--input-bg);
+    color: var(--text);
+    border: 1px solid var(--input-border);
+    border-radius: var(--radius);
+}
+
+.login-language-select {
+    justify-content: center;
+    margin: 0 0 1rem;
+}
+
+.login-language-select .locale-select {
+    min-width: 180px;
+}
+
+.topbar-language-select .locale-select {
+    min-width: 132px;
+    height: 34px;
+    padding-top: 0.35rem;
+    padding-bottom: 0.35rem;
 }
 
 .server-detail-grid {

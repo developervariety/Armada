@@ -1,3 +1,6 @@
+import { useLocale } from '../context/LocaleContext';
+
 export default function AdminBadge() {
-  return <span className="badge badge-admin">Admin</span>;
+  const { t } = useLocale();
+  return <span className="badge badge-admin">{t('Admin')}</span>;
 }

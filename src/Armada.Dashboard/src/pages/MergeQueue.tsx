@@ -16,23 +16,14 @@ import LogViewer from '../components/shared/LogViewer';
 import ErrorModal from '../components/shared/ErrorModal';
 import RefreshButton from '../components/shared/RefreshButton';
 import CopyButton from '../components/shared/CopyButton';
+import { useLocale } from '../context/LocaleContext';
 
 type SortDir = 'asc' | 'desc';
 type SortField = 'branchName' | 'targetBranch' | 'status' | 'priority' | 'createdUtc';
 
-function formatTime(utc: string | null): string {
-  if (!utc) return '-';
-  const d = new Date(utc);
-  const now = new Date();
-  const diff = now.getTime() - d.getTime();
-  if (diff < 60000) return 'just now';
-  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
-  return d.toLocaleDateString();
-}
-
 export default function MergeQueue() {
   const navigate = useNavigate();
+  const { t } = useLocale();
   const [entries, setEntries] = useState<MergeEntry[]>([]);
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [loading, setLoading] = useState(true);
@@ -88,11 +79,11 @@ export default function MergeQueue() {
       setSelected([]);
       setError('');
     } catch {
-      setError('Failed to load merge queue.');
+      setError(t('Failed to load merge queue.'));
     } finally {
       setLoading(false);
     }
-  }, [pageNumber, pageSize]);
+  }, [pageNumber, pageSize, t]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -161,18 +152,18 @@ export default function MergeQueue() {
       });
       setShowEnqueue(false);
       load();
-    } catch { setError('Enqueue failed.'); }
+    } catch { setError(t('Enqueue failed.')); }
   }
 
   // Process all
   function handleProcessAll() {
     setConfirm({
       open: true,
-      title: 'Process Merge Queue',
-      message: 'Process all queued entries in the merge queue now?',
+      title: t('Process Merge Queue'),
+      message: t('Process all queued entries in the merge queue now?'),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
-        try { await processAllMergeQueue(); load(); } catch { setError('Process all failed.'); }
+        try { await processAllMergeQueue(); load(); } catch { setError(t('Process all failed.')); }
       },
     });
   }
@@ -181,11 +172,11 @@ export default function MergeQueue() {
   function handleProcess(id: string) {
     setConfirm({
       open: true,
-      title: 'Process Entry',
-      message: `Process merge entry ${id} now?`,
+      title: t('Process Entry'),
+      message: t('Process merge entry {{id}} now?', { id }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
-        try { await processMergeEntry(id); load(); } catch { setError('Process failed.'); }
+        try { await processMergeEntry(id); load(); } catch { setError(t('Process failed.')); }
       },
     });
   }
@@ -194,11 +185,11 @@ export default function MergeQueue() {
   function handleCancel(id: string) {
     setConfirm({
       open: true,
-      title: 'Cancel Entry',
-      message: `Cancel merge entry ${id}?`,
+      title: t('Cancel Entry'),
+      message: t('Cancel merge entry {{id}}?', { id }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
-        try { await cancelMergeEntry(id); load(); } catch { setError('Cancel failed.'); }
+        try { await cancelMergeEntry(id); load(); } catch { setError(t('Cancel failed.')); }
       },
     });
   }
@@ -207,11 +198,11 @@ export default function MergeQueue() {
   function handleDelete(id: string) {
     setConfirm({
       open: true,
-      title: 'Delete Entry',
-      message: `Delete merge entry ${id}? This cannot be undone.`,
+      title: t('Delete Entry'),
+      message: t('Delete merge entry {{id}}? This cannot be undone.', { id }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
-        try { await deleteMergeEntry(id); load(); } catch { setError('Delete failed.'); }
+        try { await deleteMergeEntry(id); load(); } catch { setError(t('Delete failed.')); }
       },
     });
   }
@@ -219,8 +210,8 @@ export default function MergeQueue() {
   function handleBulkDelete() {
     setConfirm({
       open: true,
-      title: 'Delete Selected Entries',
-      message: `Delete ${selected.length} selected merge queue entries? This cannot be undone.`,
+      title: t('Delete Selected Entries'),
+      message: t('Delete {{count}} selected merge queue entries? This cannot be undone.', { count: selected.length }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
         const ids = [...selected];
@@ -229,7 +220,7 @@ export default function MergeQueue() {
         for (const id of ids) {
           try { await deleteMergeEntry(id); } catch { failed++; }
         }
-        if (failed > 0) setError(`Deleted ${ids.length - failed} entries, ${failed} failed.`);
+        if (failed > 0) setError(t('Deleted {{deleted}} entries, {{failed}} failed.', { deleted: ids.length - failed, failed }));
         load();
       },
     });
@@ -237,7 +228,7 @@ export default function MergeQueue() {
 
   // Mission diff/log handlers
   async function handleMissionDiff(missionId: string) {
-    setDiffModal({ open: true, title: `Diff: Mission ${missionId.substring(0, 8)}...`, rawDiff: '', loading: true });
+    setDiffModal({ open: true, title: `${t('Diff')}: ${t('Mission')} ${missionId.substring(0, 8)}...`, rawDiff: '', loading: true });
     try {
       const result = await getMissionDiff(missionId);
       setDiffModal(d => ({ ...d, rawDiff: result?.diff || '', loading: false }));
@@ -249,14 +240,14 @@ export default function MergeQueue() {
   const fetchLog = useCallback(async (missionId: string, lines: number) => {
     try {
       const result = await getMissionLog(missionId, lines);
-      setLogModal(l => ({ ...l, content: result.log || 'No log output', totalLines: result.totalLines || 0 }));
+      setLogModal(l => ({ ...l, content: result.log || t('No log output'), totalLines: result.totalLines || 0 }));
     } catch (e: unknown) {
-      setLogModal(l => ({ ...l, content: 'Log unavailable: ' + (e instanceof Error ? e.message : String(e)) }));
+      setLogModal(l => ({ ...l, content: t('Log unavailable: {{message}}', { message: e instanceof Error ? e.message : String(e) }) }));
     }
-  }, []);
+  }, [t]);
 
   function handleMissionLog(missionId: string) {
-    setLogModal({ open: true, title: `Log: Mission ${missionId.substring(0, 8)}...`, missionId, content: 'Loading...', totalLines: 0, lineCount: 200 });
+    setLogModal({ open: true, title: `${t('Log')}: ${t('Mission')} ${missionId.substring(0, 8)}...`, missionId, content: t('Loading...'), totalLines: 0, lineCount: 200 });
     fetchLog(missionId, 200);
   }
 
@@ -273,21 +264,21 @@ export default function MergeQueue() {
     <div>
       <div className="view-header">
         <div>
-          <h2>Merge Queue</h2>
-          <p className="text-dim view-subtitle">Completed missions awaiting merge. Review, test, approve, and manage the merge pipeline.</p>
+          <h2>{t('Merge Queue')}</h2>
+          <p className="text-dim view-subtitle">{t('Completed missions awaiting merge. Review, test, approve, and manage the merge pipeline.')}</p>
         </div>
         <div className="view-actions">
           {selected.length > 0 && (
             <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>
-              Delete Selected ({selected.length})
+              {t('Delete Selected')} ({selected.length})
             </button>
           )}
-          <button className="btn btn-sm" onClick={handleProcessAll} title="Process all queued entries">Process All</button>
+          <button className="btn btn-sm" onClick={handleProcessAll} title={t('Process all queued entries')}>{t('Process All')}</button>
           <button className="btn btn-primary btn-sm" onClick={() => {
             setEnqueueForm({ branchName: '', targetBranch: 'main', missionId: '', vesselId: '', testCommand: '', priority: 0 });
             setShowEnqueue(true);
-          }}>+ Enqueue</button>
-          <RefreshButton onRefresh={load} title="Refresh merge queue" />
+          }}>+ {t('Enqueue')}</button>
+          <RefreshButton onRefresh={load} title={t('Refresh merge queue')} />
         </div>
       </div>
 
@@ -297,21 +288,21 @@ export default function MergeQueue() {
       {showEnqueue && (
         <div className="modal-overlay" onClick={() => setShowEnqueue(false)}>
           <form className="modal" onClick={e => e.stopPropagation()} onSubmit={handleEnqueue}>
-            <h3>Enqueue Merge</h3>
-            <label>Branch Name<input value={enqueueForm.branchName} onChange={e => setEnqueueForm({ ...enqueueForm, branchName: e.target.value })} required /></label>
-            <label>Target Branch<input value={enqueueForm.targetBranch} onChange={e => setEnqueueForm({ ...enqueueForm, targetBranch: e.target.value })} required /></label>
-            <label>Mission ID (optional)<input value={enqueueForm.missionId} onChange={e => setEnqueueForm({ ...enqueueForm, missionId: e.target.value })} placeholder="msn_..." /></label>
-            <label>Vessel
+            <h3>{t('Enqueue Merge')}</h3>
+            <label>{t('Branch Name')}<input value={enqueueForm.branchName} onChange={e => setEnqueueForm({ ...enqueueForm, branchName: e.target.value })} required /></label>
+            <label>{t('Target Branch')}<input value={enqueueForm.targetBranch} onChange={e => setEnqueueForm({ ...enqueueForm, targetBranch: e.target.value })} required /></label>
+            <label>{t('Mission ID (optional)')}<input value={enqueueForm.missionId} onChange={e => setEnqueueForm({ ...enqueueForm, missionId: e.target.value })} placeholder="msn_..." /></label>
+            <label>{t('Vessel')}
               <select value={enqueueForm.vesselId} onChange={e => setEnqueueForm({ ...enqueueForm, vesselId: e.target.value })}>
-                <option value="">(none)</option>
+                <option value="">{t('(none)')}</option>
                 {vessels.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
               </select>
             </label>
-            <label>Test Command (optional)<input value={enqueueForm.testCommand} onChange={e => setEnqueueForm({ ...enqueueForm, testCommand: e.target.value })} placeholder="npm test" /></label>
-            <label>Priority<input type="number" value={enqueueForm.priority} onChange={e => setEnqueueForm({ ...enqueueForm, priority: Number(e.target.value) })} /></label>
+            <label>{t('Test Command (optional)')}<input value={enqueueForm.testCommand} onChange={e => setEnqueueForm({ ...enqueueForm, testCommand: e.target.value })} placeholder="npm test" /></label>
+            <label>{t('Priority')}<input type="number" value={enqueueForm.priority} onChange={e => setEnqueueForm({ ...enqueueForm, priority: Number(e.target.value) })} /></label>
             <div className="modal-actions">
-              <button type="submit" className="btn btn-primary">Enqueue</button>
-              <button type="button" className="btn" onClick={() => setShowEnqueue(false)}>Cancel</button>
+              <button type="submit" className="btn btn-primary">{t('Enqueue')}</button>
+              <button type="button" className="btn" onClick={() => setShowEnqueue(false)}>{t('Cancel')}</button>
             </div>
           </form>
         </div>
@@ -337,8 +328,8 @@ export default function MergeQueue() {
         onLineCountChange={handleLogLineCountChange}
       />
 
-      {loading && entries.length === 0 && <p className="text-dim">Loading...</p>}
-      {!loading && entries.length === 0 && <p className="text-dim">Merge queue is empty.</p>}
+      {loading && entries.length === 0 && <p className="text-dim">{t('Loading...')}</p>}
+      {!loading && entries.length === 0 && <p className="text-dim">{t('Merge queue is empty.')}</p>}
 
       {entries.length > 0 && (
         <>
@@ -351,36 +342,36 @@ export default function MergeQueue() {
               <thead>
                 <tr>
                   <th className="col-checkbox">
-                    <input type="checkbox" checked={allSelected} onChange={e => e.target.checked ? selectAll() : clearSelection()} title="Select all entries" />
+                    <input type="checkbox" checked={allSelected} onChange={e => e.target.checked ? selectAll() : clearSelection()} title={t('Select all entries')} />
                   </th>
-                  <th>ID</th>
-                  <th className="sortable" onClick={() => handleSort('branchName')} title="Branch -- click to sort">
-                    Branch{sortIcon('branchName')}
+                  <th>{t('ID')}</th>
+                  <th className="sortable" onClick={() => handleSort('branchName')} title={t('Branch -- click to sort')}>
+                    {t('Branch')}{sortIcon('branchName')}
                   </th>
-                  <th className="sortable" onClick={() => handleSort('targetBranch')} title="Target branch -- click to sort">
-                    Target{sortIcon('targetBranch')}
+                  <th className="sortable" onClick={() => handleSort('targetBranch')} title={t('Target branch -- click to sort')}>
+                    {t('Target')}{sortIcon('targetBranch')}
                   </th>
-                  <th className="sortable" onClick={() => handleSort('status')} title="Status -- click to sort">
-                    Status{sortIcon('status')}
+                  <th className="sortable" onClick={() => handleSort('status')} title={t('Status -- click to sort')}>
+                    {t('Status')}{sortIcon('status')}
                   </th>
-                  <th className="sortable" onClick={() => handleSort('priority')} title="Priority -- click to sort">
-                    Priority{sortIcon('priority')}
+                  <th className="sortable" onClick={() => handleSort('priority')} title={t('Priority -- click to sort')}>
+                    {t('Priority')}{sortIcon('priority')}
                   </th>
-                  <th>Mission</th>
-                  <th>Vessel</th>
-                  <th className="text-right">Actions</th>
+                  <th>{t('Mission')}</th>
+                  <th>{t('Vessel')}</th>
+                  <th className="text-right">{t('Actions')}</th>
                 </tr>
                 <tr className="column-filter-row">
                   <td></td>
                   <td></td>
-                  <td><input type="text" className="col-filter" value={colFilters.branchName} onChange={e => setColFilters(f => ({ ...f, branchName: e.target.value }))} placeholder="Filter..." /></td>
-                  <td><input type="text" className="col-filter" value={colFilters.targetBranch} onChange={e => setColFilters(f => ({ ...f, targetBranch: e.target.value }))} placeholder="Filter..." /></td>
-                  <td><input type="text" className="col-filter" value={colFilters.status} onChange={e => setColFilters(f => ({ ...f, status: e.target.value }))} placeholder="Filter..." /></td>
+                  <td><input type="text" className="col-filter" value={colFilters.branchName} onChange={e => setColFilters(f => ({ ...f, branchName: e.target.value }))} placeholder={t('Filter...')} /></td>
+                  <td><input type="text" className="col-filter" value={colFilters.targetBranch} onChange={e => setColFilters(f => ({ ...f, targetBranch: e.target.value }))} placeholder={t('Filter...')} /></td>
+                  <td><input type="text" className="col-filter" value={colFilters.status} onChange={e => setColFilters(f => ({ ...f, status: e.target.value }))} placeholder={t('Filter...')} /></td>
                   <td></td>
                   <td></td>
                   <td>
-                    <select className="col-filter" title="Filter by vessel" value={colFilters.vesselId} onChange={e => { setColFilters(f => ({ ...f, vesselId: e.target.value })); }}>
-                      <option value="">All Vessels</option>
+                    <select className="col-filter" title={t('Filter by vessel')} value={colFilters.vesselId} onChange={e => { setColFilters(f => ({ ...f, vesselId: e.target.value })); }}>
+                      <option value="">{t('All Vessels')}</option>
                       {vessels.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
                     </select>
                   </td>
@@ -391,7 +382,7 @@ export default function MergeQueue() {
                 {sorted.map(entry => (
                   <tr key={entry.id} className="clickable" onClick={() => navigate(`/merge-queue/${entry.id}`)}>
                     <td className="col-checkbox" onClick={e => e.stopPropagation()}>
-                      <input type="checkbox" checked={selected.includes(entry.id)} onChange={() => toggleSelect(entry.id)} title="Select this entry" />
+                      <input type="checkbox" checked={selected.includes(entry.id)} onChange={() => toggleSelect(entry.id)} title={t('Select this entry')} />
                     </td>
                     <td className="mono text-dim table-id-cell">
                       <span className="id-display">
@@ -403,7 +394,7 @@ export default function MergeQueue() {
                       {entry.branchName ? (
                         <span className="id-display">
                           <span className="url-value" title={entry.branchName}>{entry.branchName}</span>
-                          <CopyButton text={entry.branchName} onClick={e => e.stopPropagation()} title="Copy branch" />
+                          <CopyButton text={entry.branchName} onClick={e => e.stopPropagation()} title={t('Copy branch')} />
                         </span>
                       ) : '-'}
                     </td>
@@ -411,7 +402,7 @@ export default function MergeQueue() {
                       {entry.targetBranch ? (
                         <span className="id-display">
                           <span className="url-value" title={entry.targetBranch}>{entry.targetBranch}</span>
-                          <CopyButton text={entry.targetBranch} onClick={e => e.stopPropagation()} title="Copy branch" />
+                          <CopyButton text={entry.targetBranch} onClick={e => e.stopPropagation()} title={t('Copy branch')} />
                         </span>
                       ) : '-'}
                     </td>
@@ -440,14 +431,14 @@ export default function MergeQueue() {
                           { label: 'Mission Diff', onClick: () => handleMissionDiff(entry.missionId!) },
                           { label: 'Mission Log', onClick: () => handleMissionLog(entry.missionId!) },
                         ] : []),
-                        { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `Merge Entry: ${entry.id}`, data: entry }) },
+                        { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `${t('Merge Entry')}: ${entry.id}`, data: entry }) },
                         { label: 'Delete', danger: true as const, onClick: () => handleDelete(entry.id) },
                       ]} />
                     </td>
                   </tr>
                 ))}
                 {sorted.length === 0 && (
-                  <tr><td colSpan={12} className="text-dim">No entries match the current filters.</td></tr>
+                  <tr><td colSpan={9} className="text-dim">{t('No entries match the current filters.')}</td></tr>
                 )}
               </tbody>
             </table>

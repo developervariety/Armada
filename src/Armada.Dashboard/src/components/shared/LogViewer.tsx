@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { copyToClipboard } from './CopyButton';
+import { useLocale } from '../../context/LocaleContext';
 
 interface LogViewerProps {
   open: boolean;
@@ -32,6 +33,7 @@ export default function LogViewer({
   onRefresh,
   defaultLineCount = 200,
 }: LogViewerProps) {
+  const { t } = useLocale();
   const [following, setFollowing] = useState(false);
   const [lineCount, setLineCount] = useState(defaultLineCount);
   const [copied, setCopied] = useState(false);
@@ -132,8 +134,8 @@ export default function LogViewer({
         <div className="viewer-header">
           <h3 className="viewer-title">
             {title}
-            {completed && <span className="log-live-badge" style={{ background: 'var(--tag-complete-bg, #2d4a2d)', color: 'var(--tag-complete-fg, #6fcf6f)' }}>DONE</span>}
-            {following && !completed && <span className="log-live-badge">LIVE</span>}
+            {completed && <span className="log-live-badge" style={{ background: 'var(--tag-complete-bg, #2d4a2d)', color: 'var(--tag-complete-fg, #6fcf6f)' }}>{t('Done')}</span>}
+            {following && !completed && <span className="log-live-badge">{t('Live')}</span>}
           </h3>
           <div className="viewer-actions">
             <select
@@ -142,29 +144,29 @@ export default function LogViewer({
               onChange={e => handleLineCountChange(parseInt(e.target.value, 10))}
             >
               {LINE_COUNT_OPTIONS.map(n => (
-                <option key={n} value={n}>{n} lines</option>
+                <option key={n} value={n}>{n} {t('lines')}</option>
               ))}
             </select>
             {onRefresh && !completed && (
               <button
                 className={`btn btn-sm ${following ? 'btn-follow-active' : 'btn-follow-inactive'}`}
                 onClick={toggleFollow}
-                title={following ? 'Stop following' : 'Follow (auto-refresh)'}
+                title={following ? t('Stop following') : t('Follow (auto-refresh)')}
               >
                 <span className={`follow-dot${following ? ' follow-dot-active' : ''}`}></span>
-                {following ? 'Following' : 'Follow'}
+                {following ? t('Following') : t('Follow')}
               </button>
             )}
             {completed && (
-              <span style={{ fontSize: '0.8em', color: 'var(--text-dim)', padding: '0.25rem 0.5rem' }}>Completed</span>
+              <span style={{ fontSize: '0.8em', color: 'var(--text-dim)', padding: '0.25rem 0.5rem' }}>{t('Completed')}</span>
             )}
             <button
               className={`btn btn-sm${copied ? ' copied' : ''}`}
               onClick={handleCopy}
             >
-              {copied ? 'Copied!' : 'Copy'}
+              {copied ? t('Copied!') : t('Copy')}
             </button>
-            <button className="btn btn-sm" onClick={onClose}>Close</button>
+            <button className="btn btn-sm" onClick={onClose}>{t('Close')}</button>
           </div>
         </div>
         <div className="viewer-body-wrap">
@@ -172,8 +174,9 @@ export default function LogViewer({
             ref={bodyRef}
             className={`viewer-body${!following ? ' log-paused' : ''}`}
             id="log-viewer-content"
+            data-i18n-skip="true"
           >
-            {loading ? 'Loading...' : (content || 'No log output')}
+            {loading ? t('Loading...') : (content || t('No log output'))}
           </div>
         </div>
         {totalLines !== undefined && (
@@ -183,7 +186,7 @@ export default function LogViewer({
             fontSize: '0.75rem',
             color: 'var(--text-dim)',
           }}>
-            Total lines: {totalLines}
+            {t('Total lines')}: {totalLines}
           </div>
         )}
       </div>

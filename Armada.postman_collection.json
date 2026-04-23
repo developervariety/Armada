@@ -778,7 +778,7 @@
               "name": "Healthy",
               "status": "OK",
               "code": 200,
-              "body": "{\n  \"Status\": \"healthy\",\n  \"Timestamp\": \"2026-03-07T12:00:00Z\",\n  \"StartUtc\": \"2026-03-07T08:00:00Z\",\n  \"Uptime\": \"0.04:00:00\",\n  \"Version\": \"0.6.0\",\n  \"Ports\": {\n    \"Admiral\": 7890,\n    \"Mcp\": 7891,\n    \"WebSocket\": 7892\n  },\n  \"RemoteTunnel\": {\n    \"Enabled\": false,\n    \"State\": \"Disabled\",\n    \"TunnelUrl\": null,\n    \"InstanceId\": \"armada-1f2e3d4c5b6a\",\n    \"LastError\": null,\n    \"ReconnectAttempts\": 0,\n    \"LatencyMs\": null\n  }\n}"
+              "body": "{\n  \"Status\": \"healthy\",\n  \"Timestamp\": \"2026-03-07T12:00:00Z\",\n  \"StartUtc\": \"2026-03-07T08:00:00Z\",\n  \"Uptime\": \"0.04:00:00\",\n  \"Version\": \"0.6.0\",\n  \"Ports\": {\n    \"Admiral\": 7890,\n    \"Mcp\": 7891\n  },\n  \"RemoteTunnel\": {\n    \"Enabled\": false,\n    \"State\": \"Disabled\",\n    \"TunnelUrl\": null,\n    \"InstanceId\": \"armada-1f2e3d4c5b6a\",\n    \"LastError\": null,\n    \"ReconnectAttempts\": 0,\n    \"LatencyMs\": null\n  }\n}"
             }
           ]
         },
@@ -3650,7 +3650,7 @@
                   "name": "Live Health",
                   "status": "OK",
                   "code": 200,
-                  "body": "{\n  \"correlationId\": \"a81ec0a5ee024679b719046d1bf8de85\",\n  \"success\": true,\n  \"statusCode\": 200,\n  \"errorCode\": null,\n  \"message\": \"Armada health snapshot captured.\",\n  \"payload\": {\n    \"status\": \"healthy\",\n    \"timestamp\": \"2026-04-03T21:02:00Z\",\n    \"startUtc\": \"2026-04-03T20:00:00Z\",\n    \"uptime\": \"0.01:02:00\",\n    \"version\": \"0.6.0\",\n    \"ports\": {\n      \"admiral\": 7890,\n      \"mcp\": 7891,\n      \"webSocket\": 7892\n    },\n    \"remoteTunnel\": {\n      \"enabled\": true,\n      \"state\": \"Connected\",\n      \"tunnelUrl\": \"wss://proxy.example.com/tunnel\",\n      \"instanceId\": \"armada-1f2e3d4c5b6a\",\n      \"lastError\": null,\n      \"reconnectAttempts\": 0,\n      \"latencyMs\": 42\n    }\n  }\n}"
+                  "body": "{\n  \"correlationId\": \"a81ec0a5ee024679b719046d1bf8de85\",\n  \"success\": true,\n  \"statusCode\": 200,\n  \"errorCode\": null,\n  \"message\": \"Armada health snapshot captured.\",\n  \"payload\": {\n    \"status\": \"healthy\",\n    \"timestamp\": \"2026-04-03T21:02:00Z\",\n    \"startUtc\": \"2026-04-03T20:00:00Z\",\n    \"uptime\": \"0.01:02:00\",\n    \"version\": \"0.6.0\",\n    \"ports\": {\n      \"admiral\": 7890,\n      \"mcp\": 7891\n    },\n    \"remoteTunnel\": {\n      \"enabled\": true,\n      \"state\": \"Connected\",\n      \"tunnelUrl\": \"wss://proxy.example.com/tunnel\",\n      \"instanceId\": \"armada-1f2e3d4c5b6a\",\n      \"lastError\": null,\n      \"reconnectAttempts\": 0,\n      \"latencyMs\": 42\n    }\n  }\n}"
                 }
               ]
             },

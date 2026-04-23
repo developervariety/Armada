@@ -7,13 +7,10 @@ import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
 import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
-
-function formatTimeAbsolute(utc: string | null): string {
-  if (!utc) return '-';
-  return new Date(utc).toLocaleString();
-}
+import { useLocale } from '../context/LocaleContext';
 
 export default function FleetDetail() {
+  const { t, formatDateTime } = useLocale();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [fleet, setFleet] = useState<Fleet | null>(null);
@@ -38,18 +35,18 @@ export default function FleetDetail() {
       setLoading(true);
       const isInitialLoad = !fleet;
       const [fResult, vResult, pResult] = await Promise.all([listFleets({ pageSize: 9999 }), listVessels({ pageSize: 9999 }), listPipelines({ pageSize: 9999 })]);
-      const found = fResult.objects.find(f => f.id === id);
-      if (!found) { setError('Fleet not found.'); setLoading(false); return; }
+      const found = fResult.objects.find((fleetItem) => fleetItem.id === id);
+      if (!found) { setError(t('Fleet not found.')); setLoading(false); return; }
       setFleet(found);
       setVessels(vResult.objects.filter(v => v.fleetId === id));
       setPipelines(pResult.objects);
       if (isInitialLoad) setError('');
     } catch {
-      setError('Failed to load fleet.');
+      setError(t('Failed to load fleet.'));
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, t]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -66,34 +63,34 @@ export default function FleetDetail() {
       await updateFleet(fleet.id, form);
       setShowForm(false);
       load();
-    } catch { setError('Save failed.'); }
+    } catch { setError(t('Save failed.')); }
   }
 
   function handleDelete() {
     if (!fleet) return;
     setConfirm({
       open: true,
-      title: 'Delete Fleet',
-      message: `Delete fleet "${fleet.name}"? This cannot be undone.`,
+      title: t('Delete Fleet'),
+      message: t('Delete fleet "{{name}}"? This cannot be undone.', { name: fleet.name }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
         try {
           await deleteFleet(fleet.id);
           navigate('/fleets');
-        } catch { setError('Delete failed.'); }
+        } catch { setError(t('Delete failed.')); }
       },
     });
   }
 
-  if (loading) return <p className="text-dim">Loading...</p>;
+  if (loading) return <p className="text-dim">{t('Loading...')}</p>;
   if (error && !fleet) return <ErrorModal error={error} onClose={() => setError('')} />;
-  if (!fleet) return <p className="text-dim">Fleet not found.</p>;
+  if (!fleet) return <p className="text-dim">{t('Fleet not found.')}</p>;
 
   return (
     <div>
       {/* Breadcrumb */}
       <div className="breadcrumb">
-        <Link to="/fleets">Fleets</Link> <span className="breadcrumb-sep">&gt;</span> <span>{fleet.name}</span>
+        <Link to="/fleets">{t('Fleets')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{fleet.name}</span>
       </div>
 
       <div className="detail-header">
@@ -101,7 +98,7 @@ export default function FleetDetail() {
         <div className="inline-actions">
           <ActionMenu id={`fleet-${fleet.id}`} items={[
             { label: 'Edit', onClick: openEdit },
-            { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `Fleet: ${fleet.name}`, data: fleet }) },
+            { label: 'View JSON', onClick: () => setJsonData({ open: true, title: t('Fleet: {{name}}', { name: fleet.name }), data: fleet }) },
             { label: 'Delete', danger: true, onClick: handleDelete },
           ]} />
         </div>
@@ -113,20 +110,20 @@ export default function FleetDetail() {
       {showForm && (
         <div className="modal-overlay" onClick={() => setShowForm(false)}>
           <form className="modal" onClick={e => e.stopPropagation()} onSubmit={handleSubmit}>
-            <h3>Edit Fleet</h3>
-            <label>Name<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required /></label>
-            <label>Description<input value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></label>
-            <label>Default Pipeline
+            <h3>{t('Edit Fleet')}</h3>
+            <label>{t('Name')}<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required /></label>
+            <label>{t('Description')}<input value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></label>
+            <label>{t('Default Pipeline')}
               <select value={form.defaultPipelineId} onChange={e => setForm({ ...form, defaultPipelineId: e.target.value })}>
-                <option value="">None (WorkerOnly)</option>
+                <option value="">{t('None (WorkerOnly)')}</option>
                 {pipelines.map(p => (
                   <option key={p.id} value={p.id}>{p.name} ({p.stages.map(s => s.personaName).join(' -> ')})</option>
                 ))}
               </select>
             </label>
             <div className="modal-actions">
-              <button type="submit" className="btn btn-primary">Save</button>
-              <button type="button" className="btn" onClick={() => setShowForm(false)}>Cancel</button>
+              <button type="submit" className="btn btn-primary">{t('Save')}</button>
+              <button type="button" className="btn" onClick={() => setShowForm(false)}>{t('Cancel')}</button>
             </div>
           </form>
         </div>
@@ -139,31 +136,31 @@ export default function FleetDetail() {
       {/* Fleet Info */}
       <div className="detail-grid">
         <div className="detail-field">
-          <span className="detail-label">ID</span>
+          <span className="detail-label">{t('ID')}</span>
           <span className="id-display">
             <span className="mono">{fleet.id}</span>
             <CopyButton text={fleet.id} />
           </span>
         </div>
-        <div className="detail-field"><span className="detail-label">Name</span><span>{fleet.name}</span></div>
-        <div className="detail-field"><span className="detail-label">Description</span><span>{fleet.description || '-'}</span></div>
-        <div className="detail-field"><span className="detail-label">Default Pipeline</span><span>{pipelines.find(p => p.id === fleet.defaultPipelineId)?.name || fleet.defaultPipelineId || <span className="text-dim">None (WorkerOnly)</span>}</span></div>
-        <div className="detail-field"><span className="detail-label">Active</span><span>{fleet.active !== false ? 'Yes' : 'No'}</span></div>
-        <div className="detail-field"><span className="detail-label">Created</span><span title={fleet.createdUtc}>{formatTimeAbsolute(fleet.createdUtc)}</span></div>
-        <div className="detail-field"><span className="detail-label">Last Updated</span><span>{formatTimeAbsolute(fleet.lastUpdateUtc)}</span></div>
+        <div className="detail-field"><span className="detail-label">{t('Name')}</span><span>{fleet.name}</span></div>
+        <div className="detail-field"><span className="detail-label">{t('Description')}</span><span>{fleet.description || '-'}</span></div>
+        <div className="detail-field"><span className="detail-label">{t('Default Pipeline')}</span><span>{pipelines.find(p => p.id === fleet.defaultPipelineId)?.name || fleet.defaultPipelineId || <span className="text-dim">{t('None (WorkerOnly)')}</span>}</span></div>
+        <div className="detail-field"><span className="detail-label">{t('Active')}</span><span>{fleet.active !== false ? t('Yes') : t('No')}</span></div>
+        <div className="detail-field"><span className="detail-label">{t('Created')}</span><span title={fleet.createdUtc}>{formatDateTime(fleet.createdUtc)}</span></div>
+        <div className="detail-field"><span className="detail-label">{t('Last Updated')}</span><span>{formatDateTime(fleet.lastUpdateUtc)}</span></div>
       </div>
 
       {/* Linked Vessels */}
       {vessels.length > 0 && (
         <div>
-          <h3>Vessels</h3>
+          <h3>{t('Vessels')}</h3>
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th title="Vessel name and unique identifier">Name</th>
-                  <th title="Git repository URL">Repo URL</th>
-                  <th title="Default branch for merging">Branch</th>
+                  <th title={t('Vessel name and unique identifier')}>{t('Name')}</th>
+                  <th title={t('Git repository URL')}>{t('Repo URL')}</th>
+                  <th title={t('Default branch for merging')}>{t('Branch')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -180,7 +177,7 @@ export default function FleetDetail() {
                       {v.repoUrl ? (
                         <span className="id-display">
                           <span className="url-value" title={v.repoUrl}>{v.repoUrl}</span>
-                          <CopyButton text={v.repoUrl} onClick={e => e.stopPropagation()} title="Copy URL" />
+                          <CopyButton text={v.repoUrl} onClick={e => e.stopPropagation()} title={t('Copy URL')} />
                         </span>
                       ) : '-'}
                     </td>
@@ -192,7 +189,7 @@ export default function FleetDetail() {
           </div>
         </div>
       )}
-      {vessels.length === 0 && <p className="text-dim" style={{ marginTop: '1rem' }}>No vessels in this fleet.</p>}
+      {vessels.length === 0 && <p className="text-dim" style={{ marginTop: '1rem' }}>{t('No vessels in this fleet.')}</p>}
     </div>
   );
 }

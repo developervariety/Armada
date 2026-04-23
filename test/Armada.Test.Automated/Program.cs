@@ -59,7 +59,6 @@ namespace Armada.Test.Automated
             // Allocate random ports
             int restPort = GetAvailablePort();
             int mcpPort = GetAvailablePort();
-            int wsPort = GetAvailablePort();
             string apiKey = "test-key-" + Guid.NewGuid().ToString("N");
 
             LoggingModule logging = new LoggingModule();
@@ -74,7 +73,6 @@ namespace Armada.Test.Automated
             settings.ReposDirectory = Path.Combine(tempDir, "repos");
             settings.AdmiralPort = restPort;
             settings.McpPort = mcpPort;
-            settings.WebSocketPort = wsPort;
             settings.ApiKey = apiKey;
             settings.HeartbeatIntervalSeconds = 300;
             settings.InitializeDirectories();
@@ -117,7 +115,7 @@ namespace Armada.Test.Automated
                 runner.AddSuite(new AuthApiTests(authClient, unauthClient, baseUrl, apiKey));
                 runner.AddSuite(new CrossTenantApiTests(authClient, unauthClient, baseUrl, apiKey));
                 runner.AddSuite(new McpToolTests(mcpClient));
-                runner.AddSuite(new WebSocketTests(authClient, unauthClient, wsPort, apiKey));
+                runner.AddSuite(new WebSocketTests(authClient, unauthClient, restPort, apiKey));
                 runner.AddSuite(new WorkflowTests(authClient, unauthClient));
                 runner.AddSuite(new LandingPipelineTests(authClient, unauthClient));
 

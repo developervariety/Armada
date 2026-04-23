@@ -20,8 +20,27 @@ Focus: remote access.
 - Added a proxy-hosted remote operations shell at `/` for mobile-first remote triage, fleet and vessel management, voyage dispatch, mission editing, and captain control
 - Added `docs/TUNNEL_PROTOCOL.md`, `docs/PROXY_API.md`, and `docs/TUNNEL_OPERATIONS.md` for the shipped tunnel and proxy contract
 
+### Runtime and Hosting
+- Updated the embedded server stack to Watson Webserver 7 for both HTTP and WebSocket handling
+- Removed the standalone `WatsonWebsocket` dependency in favor of Watson 7's built-in WebSocket capability
+- Fixed interactive server startup so `update.bat` and normal foreground launches no longer hang on startup handoff
+
+### Dashboard and UX
+- Reworked the setup wizard into a contained first-run workflow that uses dispatch directly instead of sending users into separate dashboard pages
+- Expanded server settings with remote tunnel controls, MCP client references, system path inspection, database backup actions, and clearer hover guidance
+- Added press-and-hold reveal controls for remote-control secrets and other protected login/setup inputs
+
+### Internationalization
+- Added a dashboard locale runtime, translation catalog, and persistent language selection available from login and the authenticated shell
+- Added initial translations for English, Spanish, Simplified Chinese, Traditional Chinese, Cantonese, Japanese, German, French, and Italian
+- Localized shared shell surfaces including login, pagination, notifications, setup wizard flows, and server/settings management views
+- Expanded route-level coverage across list, detail, admin, and setup flows so Spanish no longer falls back to English on common table headers, filters, actions, and confirmations
+- Routed legacy dashboard confirms, alerts, toasts, pagination affordances, and key static view copy through the shared i18n runtime so non-React surfaces honor the selected locale
+- Added locale-aware date, time, and number formatting for dashboard runtime data
+
 ### Release and Docs
 - Updated shared release metadata, docker tags, Postman examples, REST docs, MCP docs, and WebSocket docs to `v0.6.0`
+- Promoted the shipped remote-management guide into `docs/REMOTE_MGMT.md` and archived the earlier planning doc
 - Added no-op `v0.5.0 -> v0.6.0` migration scripts to reflect the release even though no database schema change is required
 
 ---

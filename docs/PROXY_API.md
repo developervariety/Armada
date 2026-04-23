@@ -102,7 +102,7 @@ Validates the browser proof and returns a short-lived session token.
 
 ```json
 {
-  "sessionToken": "0f34455311b54e719f50927df5ecdfd798f8f27ed4ae45e2a73c0c3b2d194f73",
+  "token": "0f34455311b54e719f50927df5ecdfd798f8f27ed4ae45e2a73c0c3b2d194f73",
   "expiresUtc": "2026-04-04T17:05:00Z"
 }
 ```
@@ -434,8 +434,7 @@ Sends a live tunnel request to the connected Armada instance using method `armad
     "version": "0.6.0",
     "ports": {
       "admiral": 7890,
-      "mcp": 7891,
-      "webSocket": 7892
+      "mcp": 7891
     },
     "remoteTunnel": {
       "enabled": true,
@@ -513,5 +512,4 @@ See [docs/TUNNEL_PROTOCOL.md](TUNNEL_PROTOCOL.md) for envelope details.
   - `armada.status.health`
 - recent event history is bounded by `maxRecentEvents`
 - destructive actions are client-confirmed in the remote shell, but there is still no per-user authz or policy engine; this remains an implementation-stage operator service
-
 

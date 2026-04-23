@@ -29,7 +29,7 @@ namespace Armada.Test.Automated.Suites
 
         private HttpClient _AuthClient;
         private HttpClient _UnauthClient;
-        private int _WebSocketPort;
+        private int _RestPort;
         private string _ApiKey;
 
         #endregion
@@ -39,11 +39,11 @@ namespace Armada.Test.Automated.Suites
         /// <summary>
         /// Create a new WebSocket test suite.
         /// </summary>
-        public WebSocketTests(HttpClient authClient, HttpClient unauthClient, int webSocketPort, string apiKey)
+        public WebSocketTests(HttpClient authClient, HttpClient unauthClient, int restPort, string apiKey)
         {
             _AuthClient = authClient ?? throw new ArgumentNullException(nameof(authClient));
             _UnauthClient = unauthClient ?? throw new ArgumentNullException(nameof(unauthClient));
-            _WebSocketPort = webSocketPort;
+            _RestPort = restPort;
             _ApiKey = apiKey ?? throw new ArgumentNullException(nameof(apiKey));
         }
 
@@ -932,7 +932,7 @@ namespace Armada.Test.Automated.Suites
         private async Task<ClientWebSocket> ConnectAsync()
         {
             ClientWebSocket ws = new ClientWebSocket();
-            Uri uri = new Uri("ws://localhost:" + _WebSocketPort);
+            Uri uri = new Uri("ws://localhost:" + _RestPort + "/ws");
             await ws.ConnectAsync(uri, CancellationToken.None).ConfigureAwait(false);
             return ws;
         }

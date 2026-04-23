@@ -138,8 +138,7 @@ namespace Armada.Server
                 Ports = new
                 {
                     Admiral = _Settings.AdmiralPort,
-                    Mcp = _Settings.McpPort,
-                    WebSocket = _Settings.WebSocketPort
+                    Mcp = _Settings.McpPort
                 },
                 RemoteTunnel = _GetRemoteTunnelStatus()
             };

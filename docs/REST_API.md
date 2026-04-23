@@ -712,8 +712,7 @@ Health check endpoint. **Does not require authentication.**
   "Version": "0.6.0",
   "Ports": {
     "Admiral": 7890,
-    "Mcp": 7891,
-    "WebSocket": 7892
+    "Mcp": 7891
   },
   "RemoteTunnel": {
     "Enabled": false,
@@ -3674,9 +3673,8 @@ Response from `GET /api/v1/captains/{id}/log`.
 
 | Service | Default Port | Description |
 |---|---|---|
-| Admiral REST API | 7890 | This API |
+| Admiral REST API | 7890 | This API (WebSocket available at /ws on the same port) |
 | MCP Server | 7891 | Model Context Protocol (Voltaic) for AI tool use |
-| WebSocket Hub | 7892 | Real-time event streaming and command interface |
 
 ## CORS
 

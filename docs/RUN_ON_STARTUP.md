@@ -159,8 +159,7 @@ Or check the log file at `~/.armada/logs/admiral.log`.
 
 | Service       | Port |
 |---------------|------|
-| REST API      | 7890 |
-| MCP Server    | 7891 |
-| WebSocket Hub | 7892 |
+| REST API (+ WebSocket at /ws) | 7890 |
+| MCP Server                    | 7891 |
 
 Ports are configurable in `~/.armada/settings.json`.

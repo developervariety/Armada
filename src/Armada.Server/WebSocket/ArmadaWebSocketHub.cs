@@ -1,13 +1,15 @@
 namespace Armada.Server.WebSocket
 {
     using System;
+    using System.Collections.Concurrent;
     using System.Collections.Generic;
-    using System.Linq;
+    using System.Net.WebSockets;
     using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
     using SyslogLogging;
-    using WatsonWebsocket;
+    using WatsonWebserver.Core;
+    using WatsonWebserver.Core.WebSockets;
     using Armada.Core.Database;
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
@@ -15,7 +17,8 @@ namespace Armada.Server.WebSocket
 
     /// <summary>
     /// WebSocket hub for real-time event broadcasting.
-    /// Supports subscribe/command routes and broadcasts mission/captain state changes.
+    /// Runs on the main Watson7 REST server at the /ws path.
+    /// Supports subscribe/command message routing and broadcasts mission/captain state changes.
     /// Provides full command parity with the REST API and MCP tools.
     /// </summary>
     public class ArmadaWebSocketHub
@@ -24,10 +27,9 @@ namespace Armada.Server.WebSocket
 
         private string _Header = "[WebSocketHub] ";
         private LoggingModule _Logging;
-        private WatsonWsServer _WsServer;
         private IAdmiralService _Admiral;
         private WebSocketCommandHandler _CommandHandler;
-        private TaskCompletionSource<bool> _StopSignal = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        private ConcurrentDictionary<Guid, WebSocketSession> _Sessions = new ConcurrentDictionary<Guid, WebSocketSession>();
 
         private static readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions
         {
@@ -44,15 +46,13 @@ namespace Armada.Server.WebSocket
         /// Instantiate the WebSocket hub.
         /// </summary>
         /// <param name="logging">Logging module.</param>
-        /// <param name="port">WebSocket port.</param>
-        /// <param name="ssl">Whether to enable SSL/TLS.</param>
         /// <param name="admiral">Admiral service for command handling.</param>
         /// <param name="database">Database driver for data access.</param>
         /// <param name="mergeQueue">Merge queue service.</param>
         /// <param name="settings">Optional Armada settings for log/diff paths.</param>
         /// <param name="git">Optional git service for diff generation.</param>
         /// <param name="onStop">Optional callback invoked when stop_server is requested.</param>
-        public ArmadaWebSocketHub(LoggingModule logging, int port, bool ssl, IAdmiralService admiral, DatabaseDriver database, IMergeQueueService mergeQueue, ArmadaSettings? settings = null, IGitService? git = null, Action? onStop = null)
+        public ArmadaWebSocketHub(LoggingModule logging, IAdmiralService admiral, DatabaseDriver database, IMergeQueueService mergeQueue, ArmadaSettings? settings = null, IGitService? git = null, Action? onStop = null)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Admiral = admiral ?? throw new ArgumentNullException(nameof(admiral));
@@ -67,29 +67,6 @@ namespace Armada.Server.WebSocket
                 _JsonOptions,
                 BroadcastMissionChange,
                 BroadcastVoyageChange);
-
-            WebsocketSettings wsSettings = new WebsocketSettings
-            {
-                Hostnames = new List<string> { "localhost" },
-                Port = port,
-                Ssl = ssl
-            };
-            _WsServer = new WatsonWsServer(wsSettings);
-
-            _WsServer.ClientConnected += (sender, args) =>
-            {
-                _Logging.Info(_Header + "client connected: " + args.Client.IpPort);
-            };
-
-            _WsServer.ClientDisconnected += (sender, args) =>
-            {
-                _Logging.Info(_Header + "client disconnected: " + args.Client.IpPort);
-            };
-
-            _WsServer.MessageReceived += (sender, args) =>
-            {
-                _ = HandleMessageAsync(args);
-            };
         }
 
         #endregion
@@ -97,17 +74,37 @@ namespace Armada.Server.WebSocket
         #region Public-Methods
 
         /// <summary>
-        /// Start the WebSocket server.
+        /// Watson7 WebSocket route handler. Registered on the main server at /ws.
+        /// Manages the full session lifecycle: connect, read loop, disconnect.
         /// </summary>
-        /// <param name="token">Cancellation token.</param>
-        public async Task StartAsync(CancellationToken token = default)
+        /// <param name="ctx">HTTP context for the upgrade request.</param>
+        /// <param name="session">Watson7 WebSocket session.</param>
+        public async Task HandleWebSocketAsync(HttpContextBase ctx, WebSocketSession session)
         {
-            _WsServer.Start();
-            using (token.Register(() => _StopSignal.TrySetResult(true)))
+            _Sessions.TryAdd(session.Id, session);
+            _Logging.Info(_Header + "client connected: " + session.RemoteIp + ":" + session.RemotePort);
+
+            try
             {
-                await _StopSignal.Task.ConfigureAwait(false);
+                await foreach (WebSocketMessage message in session.ReadMessagesAsync(ctx.Token))
+                {
+                    if (message.MessageType != WebSocketMessageType.Text) continue;
+                    await HandleMessageAsync(session, message.Text).ConfigureAwait(false);
+                }
             }
-            _WsServer.Stop();
+            catch (OperationCanceledException)
+            {
+                // Server shutting down or client disconnected normally.
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "session error: " + ex.Message);
+            }
+            finally
+            {
+                _Sessions.TryRemove(session.Id, out _);
+                _Logging.Info(_Header + "client disconnected: " + session.RemoteIp + ":" + session.RemotePort);
+            }
         }
 
         /// <summary>
@@ -202,22 +199,8 @@ namespace Armada.Server.WebSocket
 
         #region Private-Methods
 
-        private async Task HandleMessageAsync(MessageReceivedEventArgs args)
+        private async Task HandleMessageAsync(WebSocketSession session, string body)
         {
-            // Messages arrive as JSON envelopes. The "route" field selects the handler
-            // (subscribe, command); anything else falls through to the default branch
-            // so clients get a discoverable error.
-            string body;
-            try
-            {
-                body = System.Text.Encoding.UTF8.GetString(args.Data.ToArray());
-            }
-            catch (Exception ex)
-            {
-                _Logging.Warn(_Header + "error decoding message: " + ex.Message);
-                return;
-            }
-
             string? route = null;
             try
             {
@@ -225,6 +208,8 @@ namespace Armada.Server.WebSocket
                 {
                     if (doc.RootElement.ValueKind == JsonValueKind.Object && doc.RootElement.TryGetProperty("route", out JsonElement routeEl))
                         route = routeEl.GetString();
+                    if (route == null && doc.RootElement.TryGetProperty("Route", out JsonElement routeElPascal))
+                        route = routeElPascal.GetString();
                 }
             }
             catch
@@ -232,11 +217,9 @@ namespace Armada.Server.WebSocket
                 // Non-JSON or missing route falls through to default branch below.
             }
 
-            Guid clientGuid = args.Client.Guid;
-
             try
             {
-                if (route == "subscribe")
+                if (string.Equals(route, "subscribe", StringComparison.OrdinalIgnoreCase))
                 {
                     ArmadaStatus status = await _Admiral.GetStatusAsync().ConfigureAwait(false);
                     object initial = new
@@ -245,22 +228,22 @@ namespace Armada.Server.WebSocket
                         data = status,
                         timestamp = DateTime.UtcNow
                     };
-                    await SendAsync(clientGuid, JsonSerializer.Serialize(initial, _JsonOptions)).ConfigureAwait(false);
+                    await session.SendTextAsync(JsonSerializer.Serialize(initial, _JsonOptions)).ConfigureAwait(false);
                     return;
                 }
 
-                if (route == "command")
+                if (string.Equals(route, "command", StringComparison.OrdinalIgnoreCase))
                 {
                     WebSocketCommand command = JsonSerializer.Deserialize<WebSocketCommand>(body, _JsonOptions) ?? new WebSocketCommand();
                     object result = await _CommandHandler.HandleCommandAsync(command.Action, command, body).ConfigureAwait(false);
-                    await SendAsync(clientGuid, JsonSerializer.Serialize(result, _JsonOptions)).ConfigureAwait(false);
+                    await session.SendTextAsync(JsonSerializer.Serialize(result, _JsonOptions)).ConfigureAwait(false);
                     return;
                 }
 
                 string errorJson = JsonSerializer.Serialize(
                     new { type = "error", message = "Unknown route: " + (route ?? "null") + ". Send a message with route 'subscribe' or 'command'" },
                     _JsonOptions);
-                await SendAsync(clientGuid, errorJson).ConfigureAwait(false);
+                await session.SendTextAsync(errorJson).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -268,7 +251,7 @@ namespace Armada.Server.WebSocket
                 try
                 {
                     string errorJson = JsonSerializer.Serialize(new { type = "command.error", error = ex.Message }, _JsonOptions);
-                    await SendAsync(clientGuid, errorJson).ConfigureAwait(false);
+                    await session.SendTextAsync(errorJson).ConfigureAwait(false);
                 }
                 catch
                 {
@@ -277,35 +260,27 @@ namespace Armada.Server.WebSocket
             }
         }
 
-        private async Task SendAsync(Guid clientGuid, string text)
-        {
-            try
-            {
-                await _WsServer.SendAsync(clientGuid, text).ConfigureAwait(false);
-            }
-            catch
-            {
-                // Client may have disconnected.
-            }
-        }
-
         private void BroadcastEvent(object payload)
         {
             try
             {
                 string json = JsonSerializer.Serialize(payload, _JsonOptions);
-                byte[] bytes = System.Text.Encoding.UTF8.GetBytes(json);
 
-                List<ClientMetadata> clients = _WsServer.ListClients().ToList();
-                foreach (ClientMetadata client in clients)
+                foreach (KeyValuePair<Guid, WebSocketSession> kvp in _Sessions)
                 {
+                    WebSocketSession session = kvp.Value;
+                    if (!session.IsConnected)
+                    {
+                        _Sessions.TryRemove(kvp.Key, out _);
+                        continue;
+                    }
                     try
                     {
-                        _WsServer.SendAsync(client.Guid, bytes).Wait();
+                        session.SendTextAsync(json).Wait();
                     }
                     catch
                     {
-                        // Client may have disconnected
+                        _Sessions.TryRemove(kvp.Key, out _);
                     }
                 }
             }

@@ -21,7 +21,7 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 COPY --from=build /app .
 
-# Armada default ports: 7890 (Admiral), 7891 (WebSocket)
+# Armada default ports: 7890 (Admiral + WebSocket at /ws), 7891 (MCP)
 EXPOSE 7890 7891
 
 ENTRYPOINT ["dotnet", "Armada.Server.dll"]

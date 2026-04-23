@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useLocale } from '../../context/LocaleContext';
 
 interface PaginationProps {
   pageNumber: number;
@@ -21,6 +22,7 @@ export default function Pagination({
   onPageChange,
   onPageSizeChange,
 }: PaginationProps) {
+  const { t } = useLocale();
   const [pageInput, setPageInput] = useState(String(pageNumber));
 
   const handlePageInputChange = (val: string) => {
@@ -48,7 +50,11 @@ export default function Pagination({
   return (
     <div className="pagination-bar">
       <div className="pagination-info">
-        <span className="pagination-records">{totalRecords} record{totalRecords !== 1 ? 's' : ''}</span>
+        <span className="pagination-records">
+          {t(totalRecords === 1 ? '{{count}} record' : '{{count}} records', {
+            count: totalRecords.toLocaleString(),
+          })}
+        </span>
         {totalMs !== undefined && (
           <span className="pagination-timing">{totalMs}ms</span>
         )}
@@ -59,7 +65,7 @@ export default function Pagination({
           disabled={pageNumber <= 1}
           onClick={() => { onPageChange(pageNumber - 1); setPageInput(String(pageNumber - 1)); }}
         >
-          Prev
+          {t('Prev')}
         </button>
         <div className="pagination-page">
           <input
@@ -72,14 +78,14 @@ export default function Pagination({
             min={1}
             max={totalPages}
           />
-          <span>of {totalPages}</span>
+          <span>{t('of {{totalPages}}', { totalPages: totalPages.toLocaleString() })}</span>
         </div>
         <button
           className="btn btn-sm"
           disabled={pageNumber >= totalPages}
           onClick={() => { onPageChange(pageNumber + 1); setPageInput(String(pageNumber + 1)); }}
         >
-          Next
+          {t('Next')}
         </button>
         <select
           className="page-size-select"
@@ -87,7 +93,9 @@ export default function Pagination({
           onChange={e => onPageSizeChange(parseInt(e.target.value, 10))}
         >
           {PAGE_SIZES.map(size => (
-            <option key={size} value={size}>{size} / page</option>
+            <option key={size} value={size}>
+              {t('{{size}} / page', { size: size.toLocaleString() })}
+            </option>
           ))}
         </select>
       </div>

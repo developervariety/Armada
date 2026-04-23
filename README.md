@@ -51,6 +51,8 @@ Everything else in Armada exists to support that: isolated worktrees, parallel d
 - **Git isolation by default.** Every agent works in its own worktree on its own branch. Agents can't step on each other. Your main branch stays clean until you merge.
 - **Configurable and extensible workflows.** Prompt templates, personas, and pipelines are user-controlled, so you can adapt the system to your project instead of fitting your project to the built-ins.
 - **Works with the agents you already have.** Claude Code, Codex, Gemini, Cursor -- pluggable runtime system.
+- **Guided setup in the dashboard.** First-run configuration can stay inside the setup wizard instead of bouncing between unrelated pages.
+- **Internationalized dashboard UX.** Login, shared shell UI, list/detail/admin routes, setup flows, notifications, pagination, server management, and legacy embedded dashboard surfaces support live language selection and locale-aware formatting.
 
 ### Who It's For
 
@@ -180,6 +182,8 @@ On first boot, Armada seeds a default tenant, user, and credential:
 | Bearer Token | `default` |
 
 Dashboard at `http://localhost:7890/dashboard`. API access with `Authorization: Bearer default`.
+
+The dashboard supports language selection from the login screen and keeps the chosen locale for the authenticated session.
 
 > **Security:** Armada runs agents with auto-approve flags by default (Claude Code: `--dangerously-skip-permissions`, Codex: `--full-auto`, Gemini: `--approval-mode yolo`). Agents can read, write, and execute in their worktrees without confirmation. Review the [configuration](#configuration) section before running in sensitive environments.
 
@@ -622,9 +626,8 @@ The server starts on the following ports:
 
 | Port | Protocol | Description |
 |------|----------|-------------|
-| 7890 | HTTP | REST API + embedded dashboard |
+| 7890 | HTTP | REST API + embedded dashboard (WebSocket at /ws) |
 | 7891 | JSON-RPC | MCP server |
-| 7892 | WebSocket | Real-time event hub |
 
 Open `http://localhost:7890/dashboard` in your browser. Configuration is stored in `armada.json` in the working directory. On first run, Armada creates the SQLite database, applies migrations, and seeds default data.
 
@@ -908,7 +911,10 @@ Key changes:
 - New `RemoteTunnel` health/status telemetry, exposed through `/api/v1/status`, `/api/v1/status/health`, the React dashboard, the legacy dashboard, and `armada status`
 - Experimental outbound websocket tunnel client with URL normalization, handshake, heartbeat, reconnect, request/response handling, and event forwarding
 - New `Armada.Proxy` service with websocket tunnel termination, a mobile-first remote operations shell, focused instance inspection APIs, live forwarded status/health/detail requests, and bounded remote management for fleets, vessels, voyages, missions, and captain stop
-- New operator docs: `REMOTE_MGMT.md`, `docs/TUNNEL_PROTOCOL.md`, `docs/PROXY_API.md`, and `docs/TUNNEL_OPERATIONS.md`
+- The embedded server host now runs on Watson Webserver 7 for both HTTP and WebSocket traffic, replacing the standalone `WatsonWebsocket` dependency and fixing foreground startup handoff
+- The dashboard setup wizard was rebuilt into a contained first-run workflow with direct dispatch, richer guidance, and improved server/settings ergonomics
+- Dashboard internationalization now includes login language selection, persistent locale preference, route-level React coverage, legacy embedded dashboard coverage, and locale-aware date/time/number formatting
+- New operator docs: `docs/REMOTE_MGMT.md`, `docs/TUNNEL_PROTOCOL.md`, `docs/PROXY_API.md`, and `docs/TUNNEL_OPERATIONS.md`
 - Release metadata, Docker image tags, Postman examples, and API documentation are updated for `v0.6.0`
 - Standalone no-op release scripts are available in `migrations/` for `v0.5.0 -> v0.6.0`
 

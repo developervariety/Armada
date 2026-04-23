@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { useLocale } from '../../context/LocaleContext';
 
 interface RefreshButtonProps {
   onRefresh: () => Promise<void>;
@@ -10,6 +11,7 @@ interface RefreshButtonProps {
  * Uses the existing .refresh-btn, .refreshing, and .refresh-success CSS classes.
  */
 export default function RefreshButton({ onRefresh, title = 'Refresh' }: RefreshButtonProps) {
+  const { t } = useLocale();
   const [state, setState] = useState<'idle' | 'refreshing' | 'success'>('idle');
 
   const handleClick = useCallback(async () => {
@@ -31,7 +33,7 @@ export default function RefreshButton({ onRefresh, title = 'Refresh' }: RefreshB
   ].filter(Boolean).join(' ');
 
   return (
-    <button className={className} onClick={handleClick} title={title}>
+    <button className={className} onClick={handleClick} title={t(title)}>
       {state === 'success' ? '\u2713' : '\u21BB'}
     </button>
   );

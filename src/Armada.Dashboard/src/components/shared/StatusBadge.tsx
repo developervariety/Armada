@@ -1,3 +1,5 @@
+import { useLocale } from '../../context/LocaleContext';
+
 interface StatusBadgeProps {
   status: string;
   className?: string;
@@ -38,15 +40,16 @@ const tooltips: Record<string, string> = {
 };
 
 export default function StatusBadge({ status, className = '' }: StatusBadgeProps) {
+  const { t } = useLocale();
   const normalized = (status || '').toLowerCase();
-  const tooltip = tooltips[normalized] || '';
+  const tooltip = tooltips[normalized] ? t(tooltips[normalized]) : '';
 
   return (
     <span
       className={`tag ${normalized} ${className}`.trim()}
       title={tooltip}
     >
-      {status}
+      {t(status)}
     </span>
   );
 }

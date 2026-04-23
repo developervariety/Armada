@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { useLocale } from '../../context/LocaleContext';
 
 export interface ActionMenuItem {
   label: string;
@@ -14,6 +15,7 @@ interface ActionMenuProps {
 }
 
 export default function ActionMenu({ items, id }: ActionMenuProps) {
+  const { t } = useLocale();
   const [open, setOpen] = useState(false);
   const [dropUp, setDropUp] = useState(false);
   const [menuStyle, setMenuStyle] = useState<{ top: number; left: number; minWidth: number }>({
@@ -98,7 +100,7 @@ export default function ActionMenu({ items, id }: ActionMenuProps) {
 
   return (
     <div className="action-menu-wrap" ref={wrapRef} data-menu-id={id}>
-      <button className="action-menu-btn" onClick={handleToggle} title="Actions">
+      <button className="action-menu-btn" onClick={handleToggle} title={t('Actions')}>
         &#8942;
       </button>
       {open && createPortal(
@@ -121,7 +123,7 @@ export default function ActionMenu({ items, id }: ActionMenuProps) {
                 item.onClick();
               }}
             >
-              {item.label}
+              {t(item.label)}
             </button>
           ))}
         </div>,

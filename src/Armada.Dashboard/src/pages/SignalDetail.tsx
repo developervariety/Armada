@@ -11,28 +11,15 @@ import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
 import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
+import { useLocale } from '../context/LocaleContext';
 
 // The API may return missionId on signals even though the base type doesn't include it
 interface SignalWithMission extends Signal {
   missionId?: string | null;
 }
 
-function formatTimeAbsolute(utc: string): string {
-  return new Date(utc).toLocaleString();
-}
-
-function formatTimeRelative(utc: string | null): string {
-  if (!utc) return '';
-  const d = new Date(utc);
-  const diff = Date.now() - d.getTime();
-  if (diff < 60000) return 'just now';
-  if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago';
-  if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago';
-  return Math.floor(diff / 86400000) + 'd ago';
-}
-
-function formatPayload(payload: string | null): { isJson: boolean; formatted: string } {
-  if (!payload) return { isJson: false, formatted: '(empty)' };
+function formatPayload(payload: string | null, emptyText: string): { isJson: boolean; formatted: string } {
+  if (!payload) return { isJson: false, formatted: emptyText };
   try {
     const parsed = JSON.parse(payload);
     return { isJson: true, formatted: JSON.stringify(parsed, null, 2) };
@@ -42,6 +29,7 @@ function formatPayload(payload: string | null): { isJson: boolean; formatted: st
 }
 
 export default function SignalDetail() {
+  const { t, formatDateTime, formatRelativeTime } = useLocale();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
 
@@ -52,16 +40,16 @@ export default function SignalDetail() {
   const [confirmAction, setConfirmAction] = useState<{ message: string; action: () => void } | null>(null);
 
   const captainName = useCallback((captainId: string | null) => {
-    if (!captainId) return 'Admiral';
+    if (!captainId) return t('Admiral');
     const c = captains.find(c => c.id === captainId);
     return c?.name || captainId;
-  }, [captains]);
+  }, [captains, t]);
 
   useEffect(() => {
     if (!id) return;
-    getSignal(id).then(setSignal).catch(() => setError('Failed to load signal.'));
+    getSignal(id).then(setSignal).catch(() => setError(t('Failed to load signal.')));
     listCaptains({ pageSize: 1000 }).then(r => setCaptains(r.objects || [])).catch(() => {});
-  }, [id]);
+  }, [id, t]);
 
   async function handleMarkRead() {
     if (!id) return;
@@ -70,20 +58,20 @@ export default function SignalDetail() {
       const updated = await getSignal(id);
       setSignal(updated);
     } catch {
-      setError('Failed to mark signal as read.');
+      setError(t('Failed to mark signal as read.'));
     }
   }
 
   function handleDelete() {
     setConfirmAction({
-      message: `Delete signal ${id}?`,
+      message: t('Delete {{entity}} {{name}}?', { entity: t('Signal').toLowerCase(), name: id ?? '' }),
       action: async () => {
         try {
           await deleteSignalsBatch([id!]);
           setConfirmAction(null);
           navigate('/signals');
         } catch {
-          setError('Delete failed.');
+          setError(t('Delete failed.'));
           setConfirmAction(null);
         }
       }
@@ -94,20 +82,20 @@ export default function SignalDetail() {
     return (
       <div>
         <ErrorModal error={error} onClose={() => setError('')} />
-        <button className="btn-sm" onClick={() => navigate('/signals')}>&larr; Back to Signals</button>
+        <button className="btn-sm" onClick={() => navigate('/signals')}>&larr; {t('Back to Signals')}</button>
       </div>
     );
   }
 
-  if (!signal) return <p className="text-muted">Loading...</p>;
+  if (!signal) return <p className="text-muted">{t('Loading...')}</p>;
 
-  const { isJson, formatted } = formatPayload(signal.payload);
+  const { isJson, formatted } = formatPayload(signal.payload, t('(empty)'));
 
   return (
     <div>
       {/* Breadcrumb */}
       <div style={{ marginBottom: 16, fontSize: 13 }}>
-        <Link to="/signals">Signals</Link>
+        <Link to="/signals">{t('Signals')}</Link>
         <span className="text-muted"> / </span>
         <span className="mono">{signal.id}</span>
       </div>
@@ -115,11 +103,11 @@ export default function SignalDetail() {
       <ErrorModal error={error} onClose={() => setError('')} />
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-        <h2>Signal Details</h2>
+        <h2>{t('Signal Details')}</h2>
         <div style={{ display: 'flex', gap: 8 }}>
-          {!signal.read && <button className="btn-sm" onClick={handleMarkRead}>Mark Read</button>}
-          <button className="btn-sm" onClick={() => setJsonView({ title: `Signal: ${signal.id}`, data: signal })}>View JSON</button>
-          <button className="btn-sm btn-danger" onClick={handleDelete}>Delete</button>
+          {!signal.read && <button className="btn-sm" onClick={handleMarkRead}>{t('Mark Read')}</button>}
+          <button className="btn-sm" onClick={() => setJsonView({ title: t('Signal: {{id}}', { id: signal.id }), data: signal })}>{t('View JSON')}</button>
+          <button className="btn-sm btn-danger" onClick={handleDelete}>{t('Delete')}</button>
         </div>
       </div>
 
@@ -127,52 +115,52 @@ export default function SignalDetail() {
       <div className="card" style={{ marginBottom: 20 }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 16 }}>
           <div>
-            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>ID</div>
+            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>{t('ID')}</div>
             <div className="mono" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
               {signal.id}
               <CopyButton text={signal.id} />
             </div>
           </div>
           <div>
-            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>Type</div>
+            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>{t('Type')}</div>
             <span className={`status status-${(signal.type || '').toLowerCase()}`}>{signal.type}</span>
           </div>
           <div>
-            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>Read</div>
-            <div>{signal.read ? 'Yes' : 'No'}</div>
+            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>{t('Read')}</div>
+            <div>{signal.read ? t('Yes') : t('No')}</div>
           </div>
           <div>
-            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>From</div>
+            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>{t('From')}</div>
             {signal.fromCaptainId
               ? <Link to={`/captains/${signal.fromCaptainId}`}>{captainName(signal.fromCaptainId)}</Link>
-              : <span>Admiral</span>}
+              : <span>{t('Admiral')}</span>}
           </div>
           <div>
-            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>To</div>
+            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>{t('To')}</div>
             {signal.toCaptainId
               ? <Link to={`/captains/${signal.toCaptainId}`}>{captainName(signal.toCaptainId)}</Link>
-              : <span>Admiral</span>}
+              : <span>{t('Admiral')}</span>}
           </div>
           {signal.missionId && (
             <div>
-              <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>Mission</div>
+              <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>{t('Mission')}</div>
               <Link to={`/missions/${signal.missionId}`} className="mono">{signal.missionId}</Link>
             </div>
           )}
           <div>
-            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>Tenant ID</div>
+            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>{t('Tenant ID')}</div>
             <div className="mono">{signal.tenantId || '-'}</div>
           </div>
           <div>
-            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>Created</div>
-            <div>{formatTimeRelative(signal.createdUtc)} <span className="text-muted">({formatTimeAbsolute(signal.createdUtc)})</span></div>
+            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>{t('Created')}</div>
+            <div>{formatRelativeTime(signal.createdUtc)} <span className="text-muted">({formatDateTime(signal.createdUtc)})</span></div>
           </div>
         </div>
       </div>
 
       {/* Payload */}
       <div className="card">
-        <h3>Payload</h3>
+        <h3>{t('Payload')}</h3>
         <pre style={{
           background: '#f5f5fa',
           padding: 16,

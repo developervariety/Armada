@@ -22,9 +22,8 @@ This starts two containers:
 
 | Service | Port | Description |
 |---------|------|-------------|
-| `armada-server` | 7890 | REST API and built-in dashboard |
-| `armada-server` | 7891 | WebSocket (live updates) |
-| `armada-server` | 7892 | MCP (agent communication) |
+| `armada-server` | 7890 | REST API, built-in dashboard, and WebSocket at /ws |
+| `armada-server` | 7891 | MCP (agent communication) |
 | `armada-dashboard` | 3000 | Standalone React dashboard |
 
 Open the dashboard at **http://localhost:3000** (React SPA) or **http://localhost:7890/dashboard** (built-in).
@@ -50,7 +49,7 @@ curl -H "Authorization: Bearer default" http://localhost:7890/api/v1/status
 ┌──────────────┐       ┌──────────────────┐
 │  Dashboard   │──────▶│  Armada Server   │
 │  (nginx:80)  │ :7890 │  (REST + WS)     │
-│  port 3000   │       │  ports 7890-7892  │
+│  port 3000   │       │  ports 7890-7891  │
 └──────────────┘       └──────────────────┘
                               │
                        ┌──────┴──────┐
@@ -74,7 +73,6 @@ services:
     ports:
       - "7890:7890"
       - "7891:7891"
-      - "7892:7892"
     volumes:
       - ./server/armada.json:/app/data/armada.json
       - ./armada/db:/app/data/db
@@ -111,7 +109,6 @@ Edit `docker/server/armada.json` to customize:
   "reposDirectory": "/app/data/repos",
   "admiralPort": 7890,
   "mcpPort": 7891,
-  "webSocketPort": 7892,
   "syslogServers": [
     {
       "hostname": "127.0.0.1",
@@ -235,9 +232,8 @@ Then update `docker/compose.yaml` to reference your local tags instead of `jchri
 
 | Port | Protocol | Service | Description |
 |------|----------|---------|-------------|
-| 7890 | HTTP | Admiral REST API | REST endpoints, OpenAPI, built-in dashboard |
+| 7890 | HTTP | Admiral REST API | REST endpoints, OpenAPI, built-in dashboard, WebSocket at /ws |
 | 7891 | TCP | MCP | Model Context Protocol for agent communication |
-| 7892 | WebSocket | Live Updates | Real-time event streaming to dashboards |
 | 3000 | HTTP | React Dashboard | Standalone SPA (nginx) |
 
 ---

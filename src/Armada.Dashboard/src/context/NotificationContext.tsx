@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
 import { useWebSocket } from './WebSocketContext';
+import { useLocale } from './LocaleContext';
 import type { WebSocketMessage } from '../types/models';
 
 // ── Types ──
@@ -78,6 +79,7 @@ const TOAST_TIMEOUT = 5000;
 
 export function NotificationProvider({ children }: { children: ReactNode }) {
   const { subscribe } = useWebSocket();
+  const { t } = useLocale();
 
   const [notifications, setNotifications] = useState<Notification[]>(loadStoredNotifications);
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -105,8 +107,8 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     lastSeenRef.current.set(key, status);
 
     const truncatedName = name.length > 80 ? name.substring(0, 80) + '...' : name;
-    const title = `${assetType} ${status}`;
-    const message = `${assetType} "${truncatedName}" \u2014 ${status}`;
+    const title = `${t(assetType)} ${t(status)}`;
+    const message = `${t(assetType)} "${truncatedName}" - ${t(status)}`;
     const severity = statusToSeverity(status);
 
     const notification: Notification = {
@@ -134,7 +136,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     setTimeout(() => {
       setToasts(prev => prev.filter(t => t.id !== toastId));
     }, TOAST_TIMEOUT);
-  }, []);
+  }, [t]);
 
   // ── Subscribe to WebSocket state-change messages ──
 

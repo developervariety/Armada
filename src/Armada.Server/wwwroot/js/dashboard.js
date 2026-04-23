@@ -22,6 +22,8 @@ function dashboard() {
 
         // Theme
         darkMode: false,
+        locale: window.ArmadaI18n ? window.ArmadaI18n.getInitialLocale() : 'en',
+        supportedLocales: window.ArmadaI18n ? window.ArmadaI18n.getSupportedLocales() : [],
 
         // Sidebar
         sidebarCollapsed: false,
@@ -36,7 +38,6 @@ function dashboard() {
         wsConnected: false,
         apiConnected: false,
         ws: null,
-        wsPort: null,
         pollTimer: null,
 
         // Auth
@@ -204,6 +205,12 @@ function dashboard() {
         // Initialization
         // ============================================================
         async init() {
+            if (window.ArmadaI18n) {
+                await window.ArmadaI18n.ready();
+                this.locale = window.ArmadaI18n.getLocale();
+                this.supportedLocales = window.ArmadaI18n.getSupportedLocales();
+            }
+
             // Apply theme from localStorage or system preference
             let savedTheme = localStorage.getItem('armada_theme');
             if (savedTheme) {
@@ -249,18 +256,10 @@ function dashboard() {
                 let healthResp = await fetch(API + '/api/v1/status/health');
                 if (healthResp.ok) {
                     let health = this.toCamel(await healthResp.json());
-                    if (health.ports && health.ports.webSocket) {
-                        this.wsPort = health.ports.webSocket;
-                    }
                     this.healthInfo = health;
                 }
             } catch (e) {
                 console.warn('Failed to fetch health:', e);
-            }
-
-            // Fallback WebSocket port: admiral port + 2
-            if (!this.wsPort) {
-                this.wsPort = parseInt(window.location.port || '7890') + 2;
             }
 
             // Probe whether auth is required
@@ -293,6 +292,18 @@ function dashboard() {
                 console.warn('Failed to probe auth:', e);
             }
             await this.startDashboard();
+        },
+
+        applyLocale() {
+            if (!window.ArmadaI18n) return;
+            this.locale = window.ArmadaI18n.setLocale(this.locale);
+            this.supportedLocales = window.ArmadaI18n.getSupportedLocales();
+            if (this.authenticated) {
+                this.refresh();
+                if (this.detailView && this.detailId) {
+                    this.loadDetail(this.detailView, this.detailId);
+                }
+            }
         },
 
         async lookupTenants() {
@@ -696,10 +707,23 @@ function dashboard() {
         // updateBreadcrumbs, goBack: moved to modules/navigation.js
 
         // ============================================================
+        // Translation helper
+        // ============================================================
+        _t(text, params) {
+            if (window.ArmadaI18n?.t) return window.ArmadaI18n.t(text, params);
+            if (!params) return text;
+            let output = text;
+            Object.entries(params).forEach(([key, value]) => {
+                output = output.split(`{{${key}}}`).join(value == null ? '' : String(value));
+            });
+            return output;
+        },
+
+        // ============================================================
         // Confirm dialog (replaces native browser confirm())
         // ============================================================
         showConfirm(message, options) {
-            this.confirmMessage = message;
+            this.confirmMessage = this._t(message);
             this.confirmWidth = (options && options.width) || null;
             this.modal = 'confirm-dialog';
             return new Promise((resolve) => {
@@ -724,8 +748,8 @@ function dashboard() {
         },
 
         showAlert(message, title) {
-            this.alertTitle = title || 'Error';
-            this.alertMessage = message;
+            this.alertTitle = this._t(title || 'Error');
+            this.alertMessage = this._t(message);
             this.modal = 'alert-dialog';
         },
 
@@ -741,7 +765,7 @@ function dashboard() {
         toast(message, type, onClick) {
             type = type || 'success';
             let id = ++this.toastCounter;
-            this.toasts.push({ id, message, type, onClick: onClick || null });
+            this.toasts.push({ id, message: this._t(message), type, onClick: onClick || null });
             setTimeout(() => {
                 this.dismissToast(id);
             }, 5000);
@@ -766,7 +790,7 @@ function dashboard() {
             this._lastSeenStates[key] = newStatus;
             let label = name || id;
             let truncatedLabel = label.length > 80 ? label.substring(0, 80) + '...' : label;
-            let title = assetType + ' ' + newStatus;
+            let title = assetType + ': ' + newStatus;
             let message = assetType + ' "' + truncatedLabel + '" — ' + newStatus;
             let severity = this._stateToastSeverity(newStatus);
             let detailView = assetType === 'Mission' ? 'mission-detail' : (assetType === 'Voyage' ? 'voyage-detail' : 'captain-detail');
@@ -788,8 +812,8 @@ function dashboard() {
             let notification = {
                 id: 'ntf_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6),
                 severity: opts.severity || 'info',
-                title: opts.title || '',
-                message: opts.message || '',
+                title: this._t(opts.title || ''),
+                message: this._t(opts.message || ''),
                 timestampUtc: new Date().toISOString(),
                 missionId: opts.missionId || null,
                 voyageId: opts.voyageId || null,

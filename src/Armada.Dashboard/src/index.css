@@ -31,6 +31,16 @@
   --mono: "SF Mono", "Cascadia Code", "Fira Code", "Consolas", monospace;
 }
 
+html:lang(zh-Hans),
+html:lang(zh-Hant),
+html:lang(yue-Hant) {
+  --font: "Segoe UI", "Microsoft YaHei UI", "PingFang SC", "PingFang TC", "Noto Sans SC", "Noto Sans TC", sans-serif;
+}
+
+html:lang(ja) {
+  --font: "Segoe UI", "Yu Gothic UI", "Hiragino Sans", "Meiryo", "Noto Sans JP", sans-serif;
+}
+
 /* ==================== Dark Theme ==================== */
 [data-theme="dark"] {
   --bg: #080d1a;

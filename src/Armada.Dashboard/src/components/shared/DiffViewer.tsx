@@ -1,5 +1,6 @@
 import { useState, useCallback, useMemo } from 'react';
 import { copyToClipboard } from './CopyButton';
+import { useLocale } from '../../context/LocaleContext';
 
 interface DiffFile {
   name: string;
@@ -95,6 +96,7 @@ function renderFileDiff(rawDiff: string, fileName: string): string {
 }
 
 export default function DiffViewer({ open, title, rawDiff, loading, onClose }: DiffViewerProps) {
+  const { t } = useLocale();
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -106,7 +108,7 @@ export default function DiffViewer({ open, title, rawDiff, loading, onClose }: D
 
   const contentHtml = useMemo(() => {
     if (isEmpty) {
-      return '<div class="diff-empty-state"><span class="text-dim">No modified files</span></div>';
+      return `<div class="diff-empty-state"><span class="text-dim">${t('No modified files')}</span></div>`;
     }
     if (selectedFile) {
       return renderFileDiff(rawDiff, selectedFile);
@@ -134,7 +136,9 @@ export default function DiffViewer({ open, title, rawDiff, loading, onClose }: D
           <h3 className="viewer-title">{title}</h3>
           {!isEmpty && (
             <div className="diff-modal-stats">
-              <span className="diff-stat-files">{files.length} file{files.length !== 1 ? 's' : ''}</span>
+              <span className="diff-stat-files">
+                {files.length} {t(files.length === 1 ? 'file changed' : 'files changed')}
+              </span>
               <span className="diff-stat-add">+{totalAdditions}</span>
               <span className="diff-stat-del">-{totalDeletions}</span>
             </div>
@@ -145,17 +149,17 @@ export default function DiffViewer({ open, title, rawDiff, loading, onClose }: D
                 className={`btn btn-sm${copied ? ' copied' : ''}`}
                 onClick={handleCopy}
               >
-                {copied ? 'Copied!' : 'Copy Raw'}
+                {copied ? t('Copied!') : t('Copy Raw')}
               </button>
             )}
-            <button className="btn btn-sm" onClick={onClose}>Close</button>
+            <button className="btn btn-sm" onClick={onClose}>{t('Close')}</button>
           </div>
         </div>
         <div className="diff-modal-body">
           {files.length > 0 && (
             <div className="diff-file-nav">
               <div className="diff-file-nav-header">
-                Files ({files.length})
+                {t('Files')} ({files.length})
               </div>
               {files.map(f => {
                 const pathParts = f.name.split('/');
@@ -180,9 +184,9 @@ export default function DiffViewer({ open, title, rawDiff, loading, onClose }: D
           )}
           <div className="diff-content-wrap">
             {loading ? (
-              <div className="diff-content-area">
-                <div className="diff-empty-state">
-                  <span className="text-dim">Loading diff...</span>
+                <div className="diff-content-area">
+                  <div className="diff-empty-state">
+                  <span className="text-dim">{t('Loading diff...')}</span>
                 </div>
               </div>
             ) : (

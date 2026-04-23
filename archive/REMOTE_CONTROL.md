@@ -1,5 +1,7 @@
 # Armada Remote Control
 
+> Archived on `2026-04-23` after the `v0.6.0` tunnel/proxy MVP shipped. Checked items reflect landed work; unchecked items remain deferred follow-on scope.
+
 ## Purpose
 
 Enable a remote user on any network to securely monitor and control their privately deployed Armada instance from a phone or browser, without VPNs, port forwarding, or exposing the instance directly to the internet.
@@ -374,7 +376,7 @@ Goal: establish the secure outbound transport between private Armada instances a
 - [x] create `docs/TUNNEL_PROTOCOL.md` with envelopes, handshake, capability negotiation, error semantics, and streaming rules
 - [x] create or update `docs/TUNNEL_OPERATIONS.md` with deployment, observability, reconnect, and failure-mode guidance
 - [x] update `README.md` with high-level tunnel architecture once public-facing
-- [ ] update `docs/REST_API.md` if tunnel health/status or enrollment endpoints are exposed via REST
+- [x] update `docs/REST_API.md` if tunnel health/status or enrollment endpoints are exposed via REST
 - [x] update `docs/WEBSOCKET_API.md` if local or proxied event semantics change
 - [x] update `Armada.postman_collection.json` for any new REST-accessible tunnel endpoints
 
@@ -438,8 +440,8 @@ Goal: deliver the first high-value remote experience for phone and browser users
 - [x] implement log and diff viewers tuned for mobile inspection
 - [ ] implement notification inbox with synced read state
 - [-] implement guarded remote actions with confirmations
-- [ ] implement auth/session UX for mobile web
-- [ ] implement clear degraded/offline UI states
+- [-] implement auth/session UX for mobile web
+- [-] implement clear degraded/offline UI states
 
 ### Tests
 
@@ -581,7 +583,7 @@ This workstream is mandatory and should be reviewed at the end of every PR in th
 ### Core Docs
 
 - [x] `README.md` reflects the current user-visible remote-control story
-- [ ] `docs/REST_API.md` reflects all Armada-side REST changes
+- [x] `docs/REST_API.md` reflects all Armada-side REST changes
 - [x] `docs/MCP_API.md` reflects all MCP-side changes or explicit non-support
 - [x] `docs/WEBSOCKET_API.md` reflects all WebSocket/event changes
 - [x] `Armada.postman_collection.json` matches the current REST surface and examples
@@ -611,7 +613,7 @@ This work must be covered across multiple layers.
 - [ ] identity mapping and policy logic
 - [ ] token/session lifecycle
 - [x] handshake parsing and capability negotiation
-- [ ] routing, correlation, retry, and backpressure logic
+- [-] routing, correlation, retry, and backpressure logic
 
 ### Automated / Integration
 
@@ -635,7 +637,7 @@ This work must be covered across multiple layers.
 
 ### Existing Armada Test Surfaces To Extend
 
-- [ ] `test/Armada.Test.Unit`
+- [x] `test/Armada.Test.Unit`
 - [ ] `test/Armada.Test.Automated`
 - [ ] `test/Armada.Test.Runtimes` if runtime or MCP orchestration behavior changes
 - [ ] add dedicated remote/tunnel suites if the existing projects become too overloaded
@@ -652,17 +654,17 @@ These are MVP-level concerns, not backlog polish:
 - [ ] per-device trust and explicit session revocation
 - [ ] short-lived credentials and token rotation
 - [ ] strict account and instance isolation
-- [ ] guarded handling for destructive commands
+- [-] guarded handling for destructive commands
 - [ ] TLS everywhere
-- [ ] explicit path and capability restrictions on proxied requests
+- [x] explicit path and capability restrictions on proxied requests
 
 ---
 
 ## Reliability Checklist
 
-- [ ] exponential backoff reconnect with jitter
-- [ ] heartbeat and stall detection
-- [ ] tunnel health and latency measurement
+- [x] exponential backoff reconnect with jitter
+- [x] heartbeat and stall detection
+- [x] tunnel health and latency measurement
 - [ ] graceful disconnect/reconnect during deploys
 - [ ] browser/event backpressure handling
 - [ ] chunked streaming for large logs, diffs, backups, or restores
@@ -675,7 +677,7 @@ These are MVP-level concerns, not backlog polish:
 
 ## Missing Dimensions That Must Stay In Scope
 
-- [ ] version and capability negotiation across Armada releases
+- [-] version and capability negotiation across Armada releases
 - [ ] notification-first workflow, not dashboard-first workflow
 - [ ] server-backed notification history and read state
 - [ ] offline last-known state for mobile

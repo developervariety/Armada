@@ -9,23 +9,14 @@ import JsonViewer from '../components/shared/JsonViewer';
 import CopyButton from '../components/shared/CopyButton';
 import RefreshButton from '../components/shared/RefreshButton';
 import ErrorModal from '../components/shared/ErrorModal';
+import { useLocale } from '../context/LocaleContext';
 
 type SortDir = 'asc' | 'desc';
 type SortField = 'branchName' | 'active' | 'createdUtc';
 
-function formatTime(utc: string | null): string {
-  if (!utc) return '-';
-  const d = new Date(utc);
-  const now = new Date();
-  const diff = now.getTime() - d.getTime();
-  if (diff < 60000) return 'just now';
-  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
-  return d.toLocaleDateString();
-}
-
 export default function Docks() {
   const navigate = useNavigate();
+  const { t, formatRelativeTime, formatDateTime } = useLocale();
   const [docks, setDocks] = useState<Dock[]>([]);
   const [captains, setCaptains] = useState<Captain[]>([]);
   const [vessels, setVessels] = useState<Vessel[]>([]);
@@ -76,11 +67,11 @@ export default function Docks() {
       setSelected([]);
       setError('');
     } catch {
-      setError('Failed to load docks.');
+      setError(t('Failed to load docks.'));
     } finally {
       setLoading(false);
     }
-  }, [pageNumber, pageSize]);
+  }, [pageNumber, pageSize, t]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -136,11 +127,11 @@ export default function Docks() {
   function handleDelete(id: string) {
     setConfirm({
       open: true,
-      title: 'Delete Dock',
-      message: `Delete dock ${id}? This will clean up the git worktree and cannot be undone.`,
+      title: t('Delete Dock'),
+      message: t('Delete dock {{id}}? This will clean up the git worktree and cannot be undone.', { id }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
-        try { await deleteDock(id); load(); } catch { setError('Delete failed.'); }
+        try { await deleteDock(id); load(); } catch { setError(t('Delete failed.')); }
       },
     });
   }
@@ -148,8 +139,8 @@ export default function Docks() {
   function handleBulkDelete() {
     setConfirm({
       open: true,
-      title: 'Delete Selected Docks',
-      message: `Delete ${selected.length} selected dock(s)? This will clean up the git worktrees and cannot be undone.`,
+      title: t('Delete Selected Docks'),
+      message: t('Delete {{count}} selected dock(s)? This will clean up the git worktrees and cannot be undone.', { count: selected.length }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
         const ids = [...selected];
@@ -158,7 +149,7 @@ export default function Docks() {
         for (const id of ids) {
           try { await deleteDock(id); } catch { failed++; }
         }
-        if (failed > 0) setError(`Deleted ${ids.length - failed} docks, ${failed} failed.`);
+        if (failed > 0) setError(t('Deleted {{deleted}} docks, {{failed}} failed.', { deleted: ids.length - failed, failed }));
         load();
       },
     });
@@ -168,16 +159,16 @@ export default function Docks() {
     <div>
       <div className="view-header">
         <div>
-          <h2>Docks</h2>
-          <p className="text-dim view-subtitle">Git worktrees provisioned for captains. Docks are system-managed and track branch activity.</p>
+          <h2>{t('Docks')}</h2>
+          <p className="text-dim view-subtitle">{t('Git worktrees provisioned for captains. Docks are system-managed and track branch activity.')}</p>
         </div>
         <div className="view-actions">
           {selected.length > 0 && (
             <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>
-              Delete Selected ({selected.length})
+              {t('Delete Selected')} ({selected.length})
             </button>
           )}
-          <RefreshButton onRefresh={load} title="Refresh dock data" />
+          <RefreshButton onRefresh={load} title={t('Refresh dock data')} />
         </div>
       </div>
 
@@ -187,8 +178,8 @@ export default function Docks() {
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
 
-      {loading && docks.length === 0 && <p className="text-dim">Loading...</p>}
-      {!loading && docks.length === 0 && <p className="text-dim">No docks found.</p>}
+      {loading && docks.length === 0 && <p className="text-dim">{t('Loading...')}</p>}
+      {!loading && docks.length === 0 && <p className="text-dim">{t('No docks found.')}</p>}
 
       {docks.length > 0 && (
         <>
@@ -201,30 +192,30 @@ export default function Docks() {
               <thead>
                 <tr>
                   <th className="col-checkbox">
-                    <input type="checkbox" checked={allSelected} onChange={e => e.target.checked ? selectAll() : clearSelection()} title="Select all docks" />
+                    <input type="checkbox" checked={allSelected} onChange={e => e.target.checked ? selectAll() : clearSelection()} title={t('Select all docks')} />
                   </th>
-                  <th>ID</th>
-                  <th>Vessel</th>
-                  <th>Captain</th>
-                  <th className="sortable" onClick={() => handleSort('branchName')} title="Branch name -- click to sort">
-                    Branch{sortIcon('branchName')}
+                  <th>{t('ID')}</th>
+                  <th>{t('Vessel')}</th>
+                  <th>{t('Captain')}</th>
+                  <th className="sortable" onClick={() => handleSort('branchName')} title={t('Branch name -- click to sort')}>
+                    {t('Branch')}{sortIcon('branchName')}
                   </th>
-                  <th>Worktree Path</th>
-                  <th className="sortable" onClick={() => handleSort('active')} title="Active status -- click to sort">
-                    Active{sortIcon('active')}
+                  <th>{t('Worktree Path')}</th>
+                  <th className="sortable" onClick={() => handleSort('active')} title={t('Active status -- click to sort')}>
+                    {t('Active')}{sortIcon('active')}
                   </th>
-                  <th className="sortable" onClick={() => handleSort('createdUtc')} title="Created -- click to sort">
-                    Created{sortIcon('createdUtc')}
+                  <th className="sortable" onClick={() => handleSort('createdUtc')} title={t('Created -- click to sort')}>
+                    {t('Created')}{sortIcon('createdUtc')}
                   </th>
-                  <th className="text-right">Actions</th>
+                  <th className="text-right">{t('Actions')}</th>
                 </tr>
                 <tr className="column-filter-row">
                   <td></td>
                   <td></td>
                   <td></td>
                   <td></td>
-                  <td><input type="text" className="col-filter" value={colFilters.branchName} onChange={e => setColFilters(f => ({ ...f, branchName: e.target.value }))} placeholder="Filter..." /></td>
-                  <td><input type="text" className="col-filter" value={colFilters.worktreePath} onChange={e => setColFilters(f => ({ ...f, worktreePath: e.target.value }))} placeholder="Filter..." /></td>
+                  <td><input type="text" className="col-filter" value={colFilters.branchName} onChange={e => setColFilters(f => ({ ...f, branchName: e.target.value }))} placeholder={t('Filter...')} /></td>
+                  <td><input type="text" className="col-filter" value={colFilters.worktreePath} onChange={e => setColFilters(f => ({ ...f, worktreePath: e.target.value }))} placeholder={t('Filter...')} /></td>
                   <td></td>
                   <td></td>
                   <td></td>
@@ -234,7 +225,7 @@ export default function Docks() {
                 {sorted.map(d => (
                   <tr key={d.id} className="clickable" onClick={() => navigate(`/docks/${d.id}`)}>
                     <td className="col-checkbox" onClick={e => e.stopPropagation()}>
-                      <input type="checkbox" checked={selected.includes(d.id)} onChange={() => toggleSelect(d.id)} title="Select this dock" />
+                      <input type="checkbox" checked={selected.includes(d.id)} onChange={() => toggleSelect(d.id)} title={t('Select this dock')} />
                     </td>
                     <td className="mono text-dim table-id-cell">
                       <span className="id-display">
@@ -256,26 +247,26 @@ export default function Docks() {
                       {d.branchName ? (
                         <span className="id-display">
                           <span className="url-value" title={d.branchName}>{d.branchName}</span>
-                          <CopyButton text={d.branchName} onClick={e => e.stopPropagation()} title="Copy branch" />
+                          <CopyButton text={d.branchName} onClick={e => e.stopPropagation()} title={t('Copy branch')} />
                         </span>
                       ) : '-'}
                     </td>
                     <td className="mono text-dim" style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={d.worktreePath || ''}>
                       {d.worktreePath || '-'}
                     </td>
-                    <td>{d.active ? 'Yes' : 'No'}</td>
-                    <td className="text-dim">{formatTime(d.createdUtc)}</td>
+                    <td>{d.active ? t('Yes') : t('No')}</td>
+                    <td className="text-dim" title={formatDateTime(d.createdUtc)}>{formatRelativeTime(d.createdUtc)}</td>
                     <td className="text-right" onClick={e => e.stopPropagation()}>
                       <ActionMenu id={`dock-${d.id}`} items={[
                         { label: 'View Detail', onClick: () => navigate(`/docks/${d.id}`) },
-                        { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `Dock: ${d.id}`, data: d }) },
+                        { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `${t('Dock')}: ${d.id}`, data: d }) },
                         { label: 'Delete', danger: true, onClick: () => handleDelete(d.id) },
                       ]} />
                     </td>
                   </tr>
                 ))}
                 {sorted.length === 0 && (
-                  <tr><td colSpan={9} className="text-dim">No docks match the current filters.</td></tr>
+                  <tr><td colSpan={9} className="text-dim">{t('No docks match the current filters.')}</td></tr>
                 )}
               </tbody>
             </table>

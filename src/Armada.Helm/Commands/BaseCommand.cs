@@ -85,7 +85,9 @@ namespace Armada.Helm.Commands
         protected string GetBaseUrl()
         {
             ArmadaSettings settings = GetSettings();
-            return "http://localhost:" + settings.AdmiralPort;
+            // Watson binds the default "localhost" host to IPv4 loopback. Using
+            // 127.0.0.1 avoids slow IPv6 localhost fallback during readiness probes.
+            return "http://127.0.0.1:" + settings.AdmiralPort;
         }
 
         /// <summary>

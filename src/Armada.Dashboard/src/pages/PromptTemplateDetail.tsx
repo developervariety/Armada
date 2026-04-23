@@ -9,6 +9,7 @@ import StatusBadge from '../components/shared/StatusBadge';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
+import { useLocale } from '../context/LocaleContext';
 
 interface ParameterInfo {
   name: string;
@@ -69,6 +70,7 @@ const PARAMETER_GROUPS: ParameterGroup[] = [
 ];
 
 export default function PromptTemplateDetail() {
+  const { t, formatDateTime } = useLocale();
   const { name } = useParams<{ name: string }>();
   const navigate = useNavigate();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -104,11 +106,11 @@ export default function PromptTemplateDetail() {
       setDirty(false);
       if (isInitialLoad) setError('');
     } catch {
-      setError('Failed to load prompt template.');
+      setError(t('Failed to load prompt template.'));
     } finally {
       setLoading(false);
     }
-  }, [name]);
+  }, [name, t]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -131,9 +133,9 @@ export default function PromptTemplateDetail() {
       setContent(result.content);
       setDescription(result.description ?? '');
       setDirty(false);
-      pushToast('success', 'Template saved.');
+      pushToast('success', t('Template saved.'));
     } catch {
-      setError('Save failed.');
+      setError(t('Save failed.'));
     } finally {
       setSaving(false);
     }
@@ -143,8 +145,8 @@ export default function PromptTemplateDetail() {
     if (!template || !template.isBuiltIn) return;
     setConfirm({
       open: true,
-      title: 'Reset to Default',
-      message: `Reset "${template.name}" to its built-in default content? Your customizations will be lost.`,
+      title: t('Reset to Default'),
+      message: t('Reset "{{name}}" to its built-in default content? Your customizations will be lost.', { name: template.name }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
         try {
@@ -153,9 +155,9 @@ export default function PromptTemplateDetail() {
           setContent(result.content);
           setDescription(result.description ?? '');
           setDirty(false);
-          pushToast('success', 'Template reset to default.');
+          pushToast('success', t('Template reset to default.'));
         } catch {
-          setError('Reset failed.');
+          setError(t('Reset failed.'));
         }
       },
     });
@@ -179,15 +181,15 @@ export default function PromptTemplateDetail() {
     });
   }
 
-  if (loading) return <p className="text-dim">Loading...</p>;
+  if (loading) return <p className="text-dim">{t('Loading...')}</p>;
   if (error && !template) return <ErrorModal error={error} onClose={() => setError('')} />;
-  if (!template) return <p className="text-dim">Template not found.</p>;
+  if (!template) return <p className="text-dim">{t('Template not found.')}</p>;
 
   return (
     <div>
       {/* Breadcrumb */}
       <div className="breadcrumb">
-        <Link to="/prompt-templates">Prompt Templates</Link> <span className="breadcrumb-sep">&gt;</span> <span>{template.name}</span>
+        <Link to="/prompt-templates">{t('Prompt Templates')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{template.name}</span>
       </div>
 
       <div className="detail-header">
@@ -196,7 +198,7 @@ export default function PromptTemplateDetail() {
           <StatusBadge status={template.category} />
           {template.isBuiltIn && <StatusBadge status="Built-in" />}
           <ActionMenu id={`template-${template.name}`} items={[
-            { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `Template: ${template.name}`, data: template }) },
+            { label: 'View JSON', onClick: () => setJsonData({ open: true, title: t('Template: {{name}}', { name: template.name }), data: template }) },
             ...(template.isBuiltIn ? [{ label: 'Reset to Default', danger: true as const, onClick: handleReset }] : []),
           ]} />
         </div>
@@ -340,37 +342,37 @@ export default function PromptTemplateDetail() {
       {/* Template Info */}
       <div className="detail-grid">
         <div className="detail-field">
-          <span className="detail-label">ID</span>
+          <span className="detail-label">{t('ID')}</span>
           <span className="id-display">
             <span className="mono">{template.id}</span>
             <CopyButton text={template.id} />
           </span>
         </div>
-        <div className="detail-field"><span className="detail-label">Active</span><StatusBadge status={template.active !== false ? 'Active' : 'Inactive'} /></div>
-        <div className="detail-field"><span className="detail-label">Created</span><span>{new Date(template.createdUtc).toLocaleString()}</span></div>
-        <div className="detail-field"><span className="detail-label">Last Updated</span><span>{template.lastUpdateUtc ? new Date(template.lastUpdateUtc).toLocaleString() : '-'}</span></div>
+        <div className="detail-field"><span className="detail-label">{t('Active')}</span><StatusBadge status={template.active !== false ? 'Active' : 'Inactive'} /></div>
+        <div className="detail-field"><span className="detail-label">{t('Created')}</span><span>{formatDateTime(template.createdUtc)}</span></div>
+        <div className="detail-field"><span className="detail-label">{t('Last Updated')}</span><span>{template.lastUpdateUtc ? formatDateTime(template.lastUpdateUtc) : '-'}</span></div>
       </div>
 
       <div className="template-editor-layout">
         {/* Left: Editor Panel */}
         <div className="template-editor-panel">
           <label style={{ fontSize: '0.85em', color: 'var(--text-dim)' }}>
-            Description
+            {t('Description')}
             <input
               type="text"
               className="template-description-input"
               value={description}
               onChange={e => handleDescriptionChange(e.target.value)}
-              placeholder="Template description..."
+              placeholder={t('Template description...')}
             />
           </label>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <label style={{ fontSize: '0.85em', color: 'var(--text-dim)', margin: 0 }}>
-              Template Content
-              {dirty && <span className="template-dirty-indicator" title="Unsaved changes" />}
+              {t('Template Content')}
+              {dirty && <span className="template-dirty-indicator" title={t('Unsaved changes')} />}
             </label>
-            <span className="template-char-count">{content.length} characters</span>
+            <span className="template-char-count">{content.length} {t('characters')}</span>
           </div>
 
           <textarea
@@ -388,7 +390,7 @@ export default function PromptTemplateDetail() {
               onClick={handleSave}
               disabled={saving || !dirty}
             >
-              {saving ? 'Saving...' : 'Save'}
+              {saving ? t('Saving...') : t('Save')}
             </button>
             {template.isBuiltIn && (
               <button
@@ -396,36 +398,36 @@ export default function PromptTemplateDetail() {
                 onClick={handleReset}
                 disabled={saving}
               >
-                Reset to Default
+                {t('Reset to Default')}
               </button>
             )}
             <button
               className="btn"
               onClick={() => navigate('/prompt-templates')}
             >
-              Back
+              {t('Back')}
             </button>
           </div>
         </div>
 
         {/* Right: Parameter Reference Panel */}
         <div className="template-param-panel">
-          <h4>Parameters</h4>
+          <h4>{t('Parameters')}</h4>
           <p style={{ fontSize: '0.78em', color: 'var(--text-dim)', margin: '0 0 0.75rem 0' }}>
-            Click a parameter to insert it at the cursor position.
+            {t('Click a parameter to insert it at the cursor position.')}
           </p>
           {PARAMETER_GROUPS.map(group => (
             <div key={group.label} className="template-param-group">
-              <div className="template-param-group-label">{group.label}</div>
+              <div className="template-param-group-label">{t(group.label)}</div>
               {group.params.map(param => (
                 <div
                   key={param.name}
                   className="template-param-item"
                   onClick={() => insertParameter(param.name)}
-                  title={`Insert ${param.name} -- ${param.description}`}
+                  title={t('Insert {{name}} -- {{description}}', { name: param.name, description: t(param.description) })}
                 >
                   <span className="template-param-name">{param.name}</span>
-                  <span className="template-param-desc">{param.description}</span>
+                  <span className="template-param-desc">{t(param.description)}</span>
                 </div>
               ))}
             </div>

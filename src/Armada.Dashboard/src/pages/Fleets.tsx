@@ -10,20 +10,10 @@ import StatusBadge from '../components/shared/StatusBadge';
 import CopyButton from '../components/shared/CopyButton';
 import RefreshButton from '../components/shared/RefreshButton';
 import ErrorModal from '../components/shared/ErrorModal';
+import { useLocale } from '../context/LocaleContext';
 
 type SortDir = 'asc' | 'desc';
 type SortField = 'name' | 'createdUtc' | '_vesselCount' | 'description';
-
-function formatTime(utc: string | null): string {
-  if (!utc) return '-';
-  const d = new Date(utc);
-  const now = new Date();
-  const diff = now.getTime() - d.getTime();
-  if (diff < 60000) return 'just now';
-  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
-  return d.toLocaleDateString();
-}
 
 interface FleetWithCount extends Fleet {
   _vesselCount: number;
@@ -32,6 +22,7 @@ interface FleetWithCount extends Fleet {
 
 export default function Fleets() {
   const navigate = useNavigate();
+  const { t, formatRelativeTime, formatDateTime } = useLocale();
   const [fleets, setFleets] = useState<FleetWithCount[]>([]);
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [loading, setLoading] = useState(true);
@@ -84,11 +75,11 @@ export default function Fleets() {
       setVessels(vResult.objects);
       setError('');
     } catch {
-      setError('Failed to load fleets.');
+      setError(t('Failed to load fleets.'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -156,17 +147,17 @@ export default function Fleets() {
       else await createFleet(payload);
       setShowForm(false);
       load();
-    } catch { setError('Save failed.'); }
+    } catch { setError(t('Save failed.')); }
   }
 
   function handleDelete(id: string, name: string) {
     setConfirm({
       open: true,
-      title: 'Delete Fleet',
-      message: `Delete fleet "${name}"? This cannot be undone.`,
+      title: t('Delete Fleet'),
+      message: t('Delete fleet "{{name}}"? This cannot be undone.', { name }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
-        try { await deleteFleet(id); load(); } catch { setError('Delete failed.'); }
+        try { await deleteFleet(id); load(); } catch { setError(t('Delete failed.')); }
       },
     });
   }
@@ -174,8 +165,8 @@ export default function Fleets() {
   function handleBulkDelete() {
     setConfirm({
       open: true,
-      title: 'Delete Selected Fleets',
-      message: `Delete ${selected.length} selected fleet(s)? This cannot be undone.`,
+      title: t('Delete Selected Fleets'),
+      message: t('Delete {{count}} selected fleet(s)? This cannot be undone.', { count: selected.length }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
         const ids = [...selected];
@@ -184,7 +175,7 @@ export default function Fleets() {
         for (const id of ids) {
           try { await deleteFleet(id); } catch { failed++; }
         }
-        if (failed > 0) setError(`Deleted ${ids.length - failed} fleets, ${failed} failed.`);
+        if (failed > 0) setError(t('Deleted {{deleted}} fleets, {{failed}} failed.', { deleted: ids.length - failed, failed }));
         load();
       },
     });
@@ -194,17 +185,17 @@ export default function Fleets() {
     <div>
       <div className="view-header">
         <div>
-          <h2>Fleets</h2>
-          <p className="text-dim view-subtitle">Fleets are groups of vessels (repositories) useful for organizing and understanding relationships amongst code assets.</p>
+          <h2>{t('Fleets')}</h2>
+          <p className="text-dim view-subtitle">{t('Fleets are groups of vessels (repositories) useful for organizing and understanding relationships amongst code assets.')}</p>
         </div>
         <div className="view-actions">
           {selected.length > 0 && (
             <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>
-              Delete Selected ({selected.length})
+              {t('Delete Selected')} ({selected.length})
             </button>
           )}
-          <button className="btn btn-primary btn-sm" onClick={openCreate}>+ Fleet</button>
-          <RefreshButton onRefresh={load} title="Refresh fleet data" />
+          <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Fleet')}</button>
+          <RefreshButton onRefresh={load} title={t('Refresh fleet data')} />
         </div>
       </div>
 
@@ -214,20 +205,20 @@ export default function Fleets() {
       {showForm && (
         <div className="modal-overlay" onClick={() => setShowForm(false)}>
           <form className="modal" onClick={e => e.stopPropagation()} onSubmit={handleSubmit}>
-            <h3>{editing ? 'Edit Fleet' : 'Create Fleet'}</h3>
-            <label>Name<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required /></label>
-            <label>Description<input value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></label>
-            <label>Default Pipeline
+            <h3>{editing ? t('Edit Fleet') : t('Create Fleet')}</h3>
+            <label>{t('Name')}<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required /></label>
+            <label>{t('Description')}<input value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></label>
+            <label>{t('Default Pipeline')}
               <select value={form.defaultPipelineId} onChange={e => setForm({ ...form, defaultPipelineId: e.target.value })}>
-                <option value="">None (WorkerOnly)</option>
+                <option value="">{t('None (WorkerOnly)')}</option>
                 {pipelines.map(p => (
                   <option key={p.id} value={p.id}>{p.name} ({p.stages.map(s => s.personaName).join(' -> ')})</option>
                 ))}
               </select>
             </label>
             <div className="modal-actions">
-              <button type="submit" className="btn btn-primary">Save</button>
-              <button type="button" className="btn" onClick={() => setShowForm(false)}>Cancel</button>
+              <button type="submit" className="btn btn-primary">{t('Save')}</button>
+              <button type="button" className="btn" onClick={() => setShowForm(false)}>{t('Cancel')}</button>
             </div>
           </form>
         </div>
@@ -240,8 +231,8 @@ export default function Fleets() {
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
 
-      {loading && fleets.length === 0 && <p className="text-dim">Loading...</p>}
-      {!loading && fleets.length === 0 && <p className="text-dim">No fleets configured.</p>}
+      {loading && fleets.length === 0 && <p className="text-dim">{t('Loading...')}</p>}
+      {!loading && fleets.length === 0 && <p className="text-dim">{t('No fleets configured.')}</p>}
 
       {fleets.length > 0 && (
         <>
@@ -254,29 +245,29 @@ export default function Fleets() {
               <thead>
                 <tr>
                   <th className="col-checkbox">
-                    <input type="checkbox" checked={allSelected} onChange={e => e.target.checked ? selectAll() : clearSelection()} title="Select all fleets" />
+                    <input type="checkbox" checked={allSelected} onChange={e => e.target.checked ? selectAll() : clearSelection()} title={t('Select all fleets')} />
                   </th>
-                  <th className="sortable" onClick={() => handleSort('name')} title="Fleet name -- click to sort">
-                    Name{sortIcon('name')}
+                  <th className="sortable" onClick={() => handleSort('name')} title={t('Fleet name -- click to sort')}>
+                    {t('Name')}{sortIcon('name')}
                   </th>
-                  <th>ID</th>
-                  <th className="sortable" onClick={() => handleSort('description')} title="Description -- click to sort">
-                    Description{sortIcon('description')}
+                  <th>{t('ID')}</th>
+                  <th className="sortable" onClick={() => handleSort('description')} title={t('Description -- click to sort')}>
+                    {t('Description')}{sortIcon('description')}
                   </th>
-                  <th className="sortable" onClick={() => handleSort('_vesselCount')} title="Vessel count -- click to sort">
-                    Vessels{sortIcon('_vesselCount')}
+                  <th className="sortable" onClick={() => handleSort('_vesselCount')} title={t('Vessel count -- click to sort')}>
+                    {t('Vessels')}{sortIcon('_vesselCount')}
                   </th>
-                  <th>Active</th>
-                  <th className="sortable" onClick={() => handleSort('createdUtc')} title="Created date -- click to sort">
-                    Created{sortIcon('createdUtc')}
+                  <th>{t('Active')}</th>
+                  <th className="sortable" onClick={() => handleSort('createdUtc')} title={t('Created date -- click to sort')}>
+                    {t('Created')}{sortIcon('createdUtc')}
                   </th>
-                  <th className="text-right">Actions</th>
+                  <th className="text-right">{t('Actions')}</th>
                 </tr>
                 <tr className="column-filter-row">
                   <td></td>
-                  <td><input type="text" className="col-filter" value={colFilters.name} onChange={e => { setColFilters(f => ({ ...f, name: e.target.value })); setPageNumber(1); }} placeholder="Filter..." /></td>
+                  <td><input type="text" className="col-filter" value={colFilters.name} onChange={e => { setColFilters(f => ({ ...f, name: e.target.value })); setPageNumber(1); }} placeholder={t('Filter...')} /></td>
                   <td></td>
-                  <td><input type="text" className="col-filter" value={colFilters.description} onChange={e => { setColFilters(f => ({ ...f, description: e.target.value })); setPageNumber(1); }} placeholder="Filter..." /></td>
+                  <td><input type="text" className="col-filter" value={colFilters.description} onChange={e => { setColFilters(f => ({ ...f, description: e.target.value })); setPageNumber(1); }} placeholder={t('Filter...')} /></td>
                   <td></td>
                   <td></td>
                   <td></td>
@@ -287,7 +278,7 @@ export default function Fleets() {
                 {paginated.map(f => (
                   <tr key={f.id} className="clickable" onClick={() => openEdit(f)}>
                     <td className="col-checkbox" onClick={e => e.stopPropagation()}>
-                      <input type="checkbox" checked={selected.includes(f.id)} onChange={() => toggleSelect(f.id)} title="Select this fleet" />
+                      <input type="checkbox" checked={selected.includes(f.id)} onChange={() => toggleSelect(f.id)} title={t('Select this fleet')} />
                     </td>
                     <td><strong>{f.name}</strong></td>
                     <td className="mono text-dim table-id-cell">
@@ -298,20 +289,20 @@ export default function Fleets() {
                     </td>
                     <td className="text-dim">{f.description || '-'}</td>
                     <td>{f._vesselCount}</td>
-                    <td>{f.active !== false ? 'Yes' : 'No'}</td>
-                    <td className="text-dim">{formatTime(f.createdUtc)}</td>
+                    <td>{f.active !== false ? t('Yes') : t('No')}</td>
+                    <td className="text-dim" title={formatDateTime(f.createdUtc)}>{formatRelativeTime(f.createdUtc)}</td>
                     <td className="text-right" onClick={e => e.stopPropagation()}>
                       <ActionMenu id={`fleet-${f.id}`} items={[
                         { label: 'View Detail', onClick: () => navigate(`/fleets/${f.id}`) },
                         { label: 'Edit', onClick: () => openEdit(f) },
-                        { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `Fleet: ${f.name}`, data: f }) },
+                        { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `${t('Fleet')}: ${f.name}`, data: f }) },
                         { label: 'Delete', danger: true, onClick: () => handleDelete(f.id, f.name) },
                       ]} />
                     </td>
                   </tr>
                 ))}
                 {paginated.length === 0 && (
-                  <tr><td colSpan={8} className="text-dim">No fleets match the current filters.</td></tr>
+                  <tr><td colSpan={8} className="text-dim">{t('No fleets match the current filters.')}</td></tr>
                 )}
               </tbody>
             </table>

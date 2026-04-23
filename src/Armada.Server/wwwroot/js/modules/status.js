@@ -5,6 +5,9 @@ window.ArmadaModules = window.ArmadaModules || {};
 
 window.ArmadaModules.status = {
     formatTime(utcStr) {
+        if (window.ArmadaI18n?.formatRelativeFromUtc) {
+            return window.ArmadaI18n.formatRelativeFromUtc(utcStr);
+        }
         if (!utcStr) return '';
         let d = new Date(utcStr);
         let now = new Date();
@@ -18,6 +21,9 @@ window.ArmadaModules.status = {
     },
 
     formatTimeAbsolute(utcStr) {
+        if (window.ArmadaI18n?.formatDateTime) {
+            return window.ArmadaI18n.formatDateTime(utcStr);
+        }
         if (!utcStr) return '';
         return new Date(utcStr).toLocaleString();
     },
@@ -78,6 +84,7 @@ window.ArmadaModules.status = {
             'fail': 'Health check failed -- action required',
         };
         let key = String(status).toLowerCase();
-        return tooltips[key] || '';
+        let message = tooltips[key] || '';
+        return window.ArmadaI18n?.t ? window.ArmadaI18n.t(message) : message;
     },
 };

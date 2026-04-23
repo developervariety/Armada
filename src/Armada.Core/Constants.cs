@@ -45,11 +45,6 @@ namespace Armada.Core
         public static readonly int DefaultMcpPort = 7891;
 
         /// <summary>
-        /// Default WebSocket port.
-        /// </summary>
-        public static readonly int DefaultWebSocketPort = 7892;
-
-        /// <summary>
         /// Default proxy port.
         /// </summary>
         public static readonly int DefaultProxyPort = 7893;

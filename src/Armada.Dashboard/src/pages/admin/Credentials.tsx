@@ -9,22 +9,14 @@ import CopyButton, { copyToClipboard } from '../../components/shared/CopyButton'
 import RefreshButton from '../../components/shared/RefreshButton';
 import { useAuth } from '../../context/AuthContext';
 import ErrorModal from '../../components/shared/ErrorModal';
-
-function formatTime(utc: string | null): string {
-  if (!utc) return '-';
-  const d = new Date(utc);
-  const diff = Date.now() - d.getTime();
-  if (diff < 60000) return 'just now';
-  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
-  return d.toLocaleDateString();
-}
+import { useLocale } from '../../context/LocaleContext';
 
 type SortField = 'name' | 'userId' | 'active' | 'createdUtc';
 type SortDir = 'asc' | 'desc';
 
 export default function Credentials() {
   const { user, isAdmin, isTenantAdmin } = useAuth();
+  const { t, formatRelativeTime, formatDateTime } = useLocale();
   const [items, setItems] = useState<Credential[]>([]);
   const [users, setUsers] = useState<UserMaster[]>([]);
   const [tenants, setTenants] = useState<TenantMetadata[]>([]);
@@ -62,9 +54,9 @@ export default function Credentials() {
       setUsers(uResult.objects);
       setTenants(tResult.objects);
       setError('');
-    } catch { setError('Failed to load credentials.'); }
+    } catch { setError(t('Failed to load credentials.')); }
     finally { setLoading(false); }
-  }, [isAdmin, user?.tenant]);
+  }, [isAdmin, t, user?.tenant]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -153,33 +145,33 @@ export default function Credentials() {
       setEditing(null);
       load();
     } catch {
-      setError(editing ? 'Update failed.' : 'Create failed.');
+      setError(editing ? t('Update failed.') : t('Create failed.'));
     }
   }
 
   function handleDelete(id: string, name: string) {
     setConfirm({
-      open: true, title: 'Delete Credential',
-      message: `Delete credential "${name || id}"? This cannot be undone.`,
+      open: true, title: t('Delete Credential'),
+      message: t('Delete credential "{{name}}"? This cannot be undone.', { name: name || id }),
       resourceName: name || id,
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
-        try { await deleteCredential(id); load(); } catch { setError('Delete failed.'); }
+        try { await deleteCredential(id); load(); } catch { setError(t('Delete failed.')); }
       },
     });
   }
 
   function handleBulkDelete() {
     setConfirm({
-      open: true, title: 'Delete Selected Credentials',
-      message: `Delete ${selected.length} credential(s)?`,
+      open: true, title: t('Delete Selected Credentials'),
+      message: t('Delete {{count}} credential(s)?', { count: selected.length }),
       resourceName: `${selected.length} credential(s)`,
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
         const ids = [...selected]; setSelected([]);
         let failed = 0;
         for (const id of ids) { try { await deleteCredential(id); } catch { failed++; } }
-        if (failed > 0) setError(`Deleted ${ids.length - failed}, ${failed} failed.`);
+        if (failed > 0) setError(t('Deleted {{success}}, {{failed}} failed.', { success: ids.length - failed, failed }));
         load();
       },
     });
@@ -189,12 +181,12 @@ export default function Credentials() {
     <div>
       <div className="view-header">
         <div>
-          <h2>Credentials</h2>
-          <p className="text-dim view-subtitle">{isAdmin ? 'Manage API bearer tokens across all tenants.' : isTenantAdmin ? 'Manage API bearer tokens within your tenant.' : 'Manage your API bearer tokens.'}</p>
+          <h2>{t('Credentials')}</h2>
+          <p className="text-dim view-subtitle">{isAdmin ? t('Manage API bearer tokens across all tenants.') : isTenantAdmin ? t('Manage API bearer tokens within your tenant.') : t('Manage your API bearer tokens.')}</p>
         </div>
         <div className="view-actions">
-          {selected.length > 0 && <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>Delete Selected ({selected.length})</button>}
-          <button className="btn btn-primary btn-sm" onClick={openCreate}>+ Credential</button>
+          {selected.length > 0 && <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>{t('Delete Selected')} ({selected.length})</button>}
+          <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Credential')}</button>
           <RefreshButton onRefresh={load} title="Refresh credentials" />
         </div>
       </div>
@@ -204,33 +196,33 @@ export default function Credentials() {
       {showForm && (
         <div className="modal-overlay" onClick={() => setShowForm(false)}>
           <form className="modal" onClick={e => e.stopPropagation()} onSubmit={handleSubmit}>
-            <h3>{editing ? 'Edit Credential' : 'Create Credential'}</h3>
-            <label>User
+            <h3>{editing ? t('Edit Credential') : t('Create Credential')}</h3>
+            <label>{t('User')}
               <select value={form.userId} onChange={e => setForm({ ...form, userId: e.target.value })} required disabled={!!editing || (!isAdmin && !isTenantAdmin)}>
-                <option value="">Select user...</option>
+                <option value="">{t('Select user...')}</option>
                 {users.map(u => <option key={u.id} value={u.id}>{u.email}</option>)}
               </select>
             </label>
             {isAdmin ? (
-              <label>Tenant
+              <label>{t('Tenant')}
                 <select value={form.tenantId} onChange={e => setForm({ ...form, tenantId: e.target.value })} required disabled={!!editing}>
-                  <option value="">Select tenant...</option>
+                  <option value="">{t('Select tenant...')}</option>
                   {tenants.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select>
               </label>
             ) : (
-              <label>Tenant<input value={tenantName(form.tenantId)} disabled /></label>
+              <label>{t('Tenant')}<input value={tenantName(form.tenantId)} disabled /></label>
             )}
-            <label>Name (optional)<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="e.g., CI/CD Token" /></label>
+            <label>{t('Name (optional)')}<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder={t('e.g., CI/CD Token')} /></label>
             {editing && (
               <label className="checkbox-label">
                 <input type="checkbox" checked={form.active} onChange={e => setForm({ ...form, active: e.target.checked })} />
-                Active
+                {t('Active')}
               </label>
             )}
             <div className="modal-actions">
-              <button type="submit" className="btn btn-primary">{editing ? 'Save' : 'Create'}</button>
-              <button type="button" className="btn" onClick={() => setShowForm(false)}>Cancel</button>
+              <button type="submit" className="btn btn-primary">{editing ? t('Save') : t('Create')}</button>
+              <button type="button" className="btn" onClick={() => setShowForm(false)}>{t('Cancel')}</button>
             </div>
           </form>
         </div>
@@ -239,8 +231,8 @@ export default function Credentials() {
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message} resourceName={confirm.resourceName} danger requireDeleteConfirm onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
 
-      {loading && items.length === 0 && <p className="text-dim">Loading...</p>}
-      {!loading && items.length === 0 && <p className="text-dim">No credentials found.</p>}
+      {loading && items.length === 0 && <p className="text-dim">{t('Loading...')}</p>}
+      {!loading && items.length === 0 && <p className="text-dim">{t('No credentials found.')}</p>}
 
       {items.length > 0 && (
         <>
@@ -250,19 +242,19 @@ export default function Credentials() {
             <table>
               <thead>
                 <tr>
-                  <th className="col-checkbox"><input type="checkbox" checked={allSelected} onChange={e => e.target.checked ? setSelected(filtered.map(c => c.id)) : setSelected([])} /></th>
-                  <th className="sortable" onClick={() => handleSort('name')}>Name{sortIcon('name')}</th>
-                  <th>ID</th>
-                  <th className="sortable" onClick={() => handleSort('userId')}>User{sortIcon('userId')}</th>
-                  <th>Tenant</th>
-                  <th>Bearer Token</th>
-                  <th className="sortable" onClick={() => handleSort('active')}>Active{sortIcon('active')}</th>
-                  <th className="sortable" onClick={() => handleSort('createdUtc')}>Created{sortIcon('createdUtc')}</th>
-                  <th className="text-right">Actions</th>
+                  <th className="col-checkbox"><input type="checkbox" checked={allSelected} onChange={e => e.target.checked ? setSelected(filtered.map(c => c.id)) : setSelected([])} title={t('Select all credentials')} /></th>
+                  <th className="sortable" onClick={() => handleSort('name')}>{t('Name')}{sortIcon('name')}</th>
+                  <th>{t('ID')}</th>
+                  <th className="sortable" onClick={() => handleSort('userId')}>{t('User')}{sortIcon('userId')}</th>
+                  <th>{t('Tenant')}</th>
+                  <th>{t('Bearer Token')}</th>
+                  <th className="sortable" onClick={() => handleSort('active')}>{t('Active')}{sortIcon('active')}</th>
+                  <th className="sortable" onClick={() => handleSort('createdUtc')}>{t('Created')}{sortIcon('createdUtc')}</th>
+                  <th className="text-right">{t('Actions')}</th>
                 </tr>
                 <tr className="column-filter-row">
                   <td></td>
-                  <td><input type="text" className="col-filter" value={colFilters.name} onChange={e => { setColFilters(f => ({ ...f, name: e.target.value })); setPageNumber(1); }} placeholder="Filter..." /></td>
+                  <td><input type="text" className="col-filter" value={colFilters.name} onChange={e => { setColFilters(f => ({ ...f, name: e.target.value })); setPageNumber(1); }} placeholder={t('Search...')} /></td>
                   <td></td>
                   <td>
                     <select
@@ -270,7 +262,7 @@ export default function Credentials() {
                       value={colFilters.userId}
                       onChange={e => { setColFilters(f => ({ ...f, userId: e.target.value })); setPageNumber(1); }}
                     >
-                      <option value="">All users</option>
+                      <option value="">{t('All users')}</option>
                       {users.map(u => (
                         <option key={u.id} value={u.id}>{u.email}</option>
                       ))}
@@ -282,7 +274,7 @@ export default function Credentials() {
                       value={colFilters.tenantId}
                       onChange={e => { setColFilters(f => ({ ...f, tenantId: e.target.value })); setPageNumber(1); }}
                     >
-                      <option value="">All tenants</option>
+                      <option value="">{t('All tenants')}</option>
                       {tenants.map(t => (
                         <option key={t.id} value={t.id}>{t.name}</option>
                       ))}
@@ -298,7 +290,7 @@ export default function Credentials() {
                     className="clickable"
                     onClick={() => openEdit(c)}
                   >
-                    <td className="col-checkbox" onClick={e => e.stopPropagation()}><input type="checkbox" checked={selected.includes(c.id)} onChange={() => toggleSelect(c.id)} /></td>
+                    <td className="col-checkbox" onClick={e => e.stopPropagation()}><input type="checkbox" checked={selected.includes(c.id)} onChange={() => toggleSelect(c.id)} title={t('Select this credential')} /></td>
                     <td><strong>{c.name || '-'}</strong></td>
                      <td className="mono text-dim table-id-cell">
                        <span className="id-display">
@@ -314,8 +306,8 @@ export default function Credentials() {
                          <CopyButton text={c.bearerToken} title="Copy token" onClick={e => e.stopPropagation()} />
                        </span>
                      </td>
-                    <td>{c.active ? 'Yes' : 'No'}</td>
-                    <td className="text-dim" title={new Date(c.createdUtc).toLocaleString()}>{formatTime(c.createdUtc)}</td>
+                    <td>{c.active ? t('Yes') : t('No')}</td>
+                    <td className="text-dim" title={formatDateTime(c.createdUtc)}>{formatRelativeTime(c.createdUtc)}</td>
                     <td className="text-right" onClick={e => e.stopPropagation()}>
                       <ActionMenu id={c.id} items={[
                         { label: 'Edit', onClick: () => openEdit(c) },
@@ -326,7 +318,7 @@ export default function Credentials() {
                     </td>
                   </tr>
                 ))}
-                {paginated.length === 0 && <tr><td colSpan={9} className="text-dim">No credentials match filters.</td></tr>}
+                {paginated.length === 0 && <tr><td colSpan={9} className="text-dim">{t('No credentials match filters.')}</td></tr>}
               </tbody>
             </table>
           </div>

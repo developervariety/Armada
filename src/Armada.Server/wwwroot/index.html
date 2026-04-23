@@ -27,6 +27,14 @@
         <div class="login-box">
             <img :src="darkMode ? '/dashboard/img/logo-light-grey.png' : '/dashboard/img/logo-dark-grey.png'" alt="Armada" class="login-logo">
             <h2>Armada</h2>
+            <label class="locale-select-wrap login-language-select" title="Language">
+                <span class="locale-select-label">Language</span>
+                <select class="locale-select" x-model="locale" @change="applyLocale()" aria-label="Language" title="Language">
+                    <template x-for="option in supportedLocales" :key="option.code">
+                        <option :value="option.code" x-text="option.nativeLabel"></option>
+                    </template>
+                </select>
+            </label>
 
             <!-- Step 1: Email entry -->
             <template x-if="loginStep === 'email'">
@@ -220,6 +228,13 @@
                 <template x-if="whoami && whoami.email">
                     <span class="auth-badge auth-badge-user" x-text="whoami.email" title="Signed-in user"></span>
                 </template>
+                <label class="locale-select-wrap compact topbar-language-select" title="Language">
+                    <select class="locale-select" x-model="locale" @change="applyLocale()" aria-label="Language" title="Language">
+                        <template x-for="option in supportedLocales" :key="option.code">
+                            <option :value="option.code" x-text="option.nativeLabel"></option>
+                        </template>
+                    </select>
+                </label>
                 <button class="btn btn-sm" x-show="authenticated" @click="logout()" title="Sign out">Logout</button>
                 <button class="theme-toggle" @click="toggleTheme()" x-text="darkMode ? '&#9728;' : '&#9790;'" title="Toggle theme"></button>
                 <a href="https://github.com/jchristn/Armada" target="_blank" rel="noopener noreferrer" class="github-link" title="View on GitHub">
@@ -589,6 +604,7 @@
         </div>
     </div>
 
+    <script src="/dashboard/js/i18n.js"></script>
     <script src="/dashboard/js/modules/status.js"></script>
     <script src="/dashboard/js/modules/pagination.js"></script>
     <script src="/dashboard/js/modules/sorting.js"></script>

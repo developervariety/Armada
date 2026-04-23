@@ -10,23 +10,14 @@ import JsonViewer from '../components/shared/JsonViewer';
 import CopyButton from '../components/shared/CopyButton';
 import RefreshButton from '../components/shared/RefreshButton';
 import ErrorModal from '../components/shared/ErrorModal';
+import { useLocale } from '../context/LocaleContext';
 
 type SortDir = 'asc' | 'desc';
 type SortField = 'title' | 'status' | 'createdUtc';
 
-function formatTime(utc: string | null): string {
-  if (!utc) return '-';
-  const d = new Date(utc);
-  const now = new Date();
-  const diff = now.getTime() - d.getTime();
-  if (diff < 60000) return 'just now';
-  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
-  return d.toLocaleDateString();
-}
-
 export default function Voyages() {
   const navigate = useNavigate();
+  const { t } = useLocale();
   const [voyages, setVoyages] = useState<Voyage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -62,11 +53,11 @@ export default function Voyages() {
       setTotalRecords(result.totalRecords || 0);
       setError('');
     } catch {
-      setError('Failed to load voyages.');
+      setError(t('Failed to load voyages.'));
     } finally {
       setLoading(false);
     }
-  }, [pageNumber, pageSize]);
+  }, [pageNumber, pageSize, t]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -117,11 +108,11 @@ export default function Voyages() {
   function handleCancel(id: string, title: string) {
     setConfirm({
       open: true,
-      title: 'Cancel Voyage',
-      message: `Cancel voyage "${title}"? All pending missions will be cancelled.`,
+      title: t('Cancel Voyage'),
+      message: t('Cancel voyage "{{title}}"? All pending missions will be cancelled.', { title }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
-        try { await cancelVoyage(id); load(); } catch { setError('Cancel failed.'); }
+        try { await cancelVoyage(id); load(); } catch { setError(t('Cancel failed.')); }
       },
     });
   }
@@ -129,11 +120,11 @@ export default function Voyages() {
   function handlePurge(id: string, title: string) {
     setConfirm({
       open: true,
-      title: 'Purge Voyage',
-      message: `Purge voyage "${title}"? This will permanently remove the voyage and all associated missions. This cannot be undone.`,
+      title: t('Purge Voyage'),
+      message: t('Purge voyage "{{title}}"? This will permanently remove the voyage and all associated missions. This cannot be undone.', { title }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
-        try { await purgeVoyage(id); load(); } catch { setError('Purge failed.'); }
+        try { await purgeVoyage(id); load(); } catch { setError(t('Purge failed.')); }
       },
     });
   }
@@ -141,8 +132,8 @@ export default function Voyages() {
   function handleBulkCancel() {
     setConfirm({
       open: true,
-      title: 'Cancel Selected Voyages',
-      message: `Cancel ${selected.length} selected voyage(s)?`,
+      title: t('Cancel Selected Voyages'),
+      message: t('Cancel {{count}} selected voyage(s)?', { count: selected.length }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
         const ids = [...selected];
@@ -151,7 +142,7 @@ export default function Voyages() {
         for (const id of ids) {
           try { await cancelVoyage(id); } catch { failed++; }
         }
-        if (failed > 0) setError(`Cancelled ${ids.length - failed} voyages, ${failed} failed.`);
+        if (failed > 0) setError(t('Cancelled {{success}} voyages, {{failed}} failed.', { success: ids.length - failed, failed }));
         load();
       },
     });
@@ -160,24 +151,24 @@ export default function Voyages() {
   async function handleViewStatus(id: string) {
     try {
       const status = await getVoyageStatus(id);
-      setJsonData({ open: true, title: 'Voyage Status', data: status });
-    } catch { setError('Failed to load voyage status.'); }
+      setJsonData({ open: true, title: t('Voyage Status'), data: status });
+    } catch { setError(t('Failed to load voyage status.')); }
   }
 
   return (
     <div>
       <div className="view-header">
         <div>
-          <h2>Voyages</h2>
-          <p className="text-dim view-subtitle">Coordinated groups of missions executed together. Track voyage progress, status, and configuration.</p>
+          <h2>{t('Voyages')}</h2>
+          <p className="text-dim view-subtitle">{t('Batches of related missions dispatched together')}</p>
         </div>
         <div className="view-actions">
           {selected.length > 0 && (
             <button className="btn btn-sm btn-danger" onClick={handleBulkCancel}>
-              Cancel Selected ({selected.length})
+              {t('Cancel Selected')} ({selected.length})
             </button>
           )}
-          <button className="btn btn-primary btn-sm" onClick={() => navigate('/voyages/create')}>+ Voyage</button>
+          <button className="btn btn-primary btn-sm" onClick={() => navigate('/voyages/create')}>+ {t('Voyage')}</button>
           <RefreshButton onRefresh={load} title="Refresh voyage data" />
         </div>
       </div>
@@ -188,8 +179,8 @@ export default function Voyages() {
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
 
-      {loading && voyages.length === 0 && <p className="text-dim">Loading...</p>}
-      {!loading && voyages.length === 0 && <p className="text-dim">No voyages found.</p>}
+      {loading && voyages.length === 0 && <p className="text-dim">{t('Loading...')}</p>}
+      {!loading && voyages.length === 0 && <p className="text-dim">{t('No voyages found.')}</p>}
 
       {voyages.length > 0 && (
         <>
@@ -202,25 +193,25 @@ export default function Voyages() {
               <thead>
                 <tr>
                   <th className="col-checkbox">
-                    <input type="checkbox" checked={allSelected} onChange={e => e.target.checked ? selectAll() : clearSelection()} title="Select all voyages" />
+                    <input type="checkbox" checked={allSelected} onChange={e => e.target.checked ? selectAll() : clearSelection()} title={t('Select all voyages')} />
                   </th>
-                  <th className="sortable" onClick={() => handleSort('title')} title="Voyage title -- click to sort">
-                    Title{sortIcon('title')}
+                  <th className="sortable" onClick={() => handleSort('title')} title={t('Voyage title -- click to sort')}>
+                    {t('Title')}{sortIcon('title')}
                   </th>
-                  <th>ID</th>
-                  <th className="sortable" onClick={() => handleSort('status')} title="Status -- click to sort">
-                    Status{sortIcon('status')}
+                  <th>{t('ID')}</th>
+                  <th className="sortable" onClick={() => handleSort('status')} title={t('Status -- click to sort')}>
+                    {t('Status')}{sortIcon('status')}
                   </th>
-                  <th>Auto Push</th>
-                  <th>Auto Create PRs</th>
-                  <th>Landing Mode</th>
-                  <th className="text-right">Actions</th>
+                  <th>{t('Auto Push')}</th>
+                  <th>{t('Auto Create PRs')}</th>
+                  <th>{t('Landing Mode')}</th>
+                  <th className="text-right">{t('Actions')}</th>
                 </tr>
                 <tr className="column-filter-row">
                   <td></td>
-                  <td><input type="text" className="col-filter" value={colFilters.title} onChange={e => setColFilters(f => ({ ...f, title: e.target.value }))} placeholder="Filter..." /></td>
+                  <td><input type="text" className="col-filter" value={colFilters.title} onChange={e => setColFilters(f => ({ ...f, title: e.target.value }))} placeholder={t('Search...')} /></td>
                   <td></td>
-                  <td><input type="text" className="col-filter" value={colFilters.status} onChange={e => setColFilters(f => ({ ...f, status: e.target.value }))} placeholder="Filter..." /></td>
+                  <td><input type="text" className="col-filter" value={colFilters.status} onChange={e => setColFilters(f => ({ ...f, status: e.target.value }))} placeholder={t('Search...')} /></td>
                   <td></td>
                   <td></td>
                   <td></td>
@@ -231,7 +222,7 @@ export default function Voyages() {
                 {sorted.map(v => (
                   <tr key={v.id} className="clickable" onClick={() => navigate(`/voyages/${v.id}`)}>
                     <td className="col-checkbox" onClick={e => e.stopPropagation()}>
-                      <input type="checkbox" checked={selected.includes(v.id)} onChange={() => toggleSelect(v.id)} title="Select this voyage" />
+                      <input type="checkbox" checked={selected.includes(v.id)} onChange={() => toggleSelect(v.id)} title={t('Select this voyage')} />
                     </td>
                     <td className="truncate-cell" title={v.title}>
                       <strong className="truncate-text">{v.title}</strong>
@@ -243,8 +234,8 @@ export default function Voyages() {
                       </span>
                     </td>
                     <td><StatusBadge status={v.status} /></td>
-                    <td>{v.autoPush != null ? (v.autoPush ? 'Yes' : 'No') : '-'}</td>
-                    <td>{v.autoCreatePullRequests != null ? (v.autoCreatePullRequests ? 'Yes' : 'No') : '-'}</td>
+                    <td>{v.autoPush != null ? (v.autoPush ? t('Yes') : t('No')) : '-'}</td>
+                    <td>{v.autoCreatePullRequests != null ? (v.autoCreatePullRequests ? t('Yes') : t('No')) : '-'}</td>
                     <td className="text-dim">{v.landingMode || '-'}</td>
                     <td className="text-right" onClick={e => e.stopPropagation()}>
                       <ActionMenu id={`voyage-${v.id}`} items={[
@@ -258,7 +249,7 @@ export default function Voyages() {
                   </tr>
                 ))}
                 {sorted.length === 0 && (
-                  <tr><td colSpan={8} className="text-dim">No voyages match the current filters.</td></tr>
+                  <tr><td colSpan={8} className="text-dim">{t('No voyages match the current filters.')}</td></tr>
                 )}
               </tbody>
             </table>
