@@ -35,6 +35,7 @@ namespace Armada.Core.Settings
             {
                 if (String.IsNullOrEmpty(value)) throw new ArgumentNullException(nameof(DatabasePath));
                 _DatabasePath = value;
+                _DatabasePathConfigured = true;
             }
         }
 
@@ -357,7 +358,11 @@ namespace Armada.Core.Settings
         /// Database connection settings.
         /// When set, takes precedence over DatabasePath for database initialization.
         /// </summary>
-        public DatabaseSettings Database { get; set; } = new DatabaseSettings();
+        public DatabaseSettings Database
+        {
+            get => _Database;
+            set => _Database = value ?? new DatabaseSettings();
+        }
 
         /// <summary>
         /// REST API listener settings.
@@ -413,6 +418,8 @@ namespace Armada.Core.Settings
         private int _MaxCaptains = 0;
         private int _IdleCaptainTimeoutSeconds = Constants.DefaultIdleCaptainTimeoutSeconds;
         private RemoteControlSettings _RemoteControl = new RemoteControlSettings();
+        private DatabaseSettings _Database = new DatabaseSettings();
+        private bool _DatabasePathConfigured = false;
 
         #endregion
 
@@ -463,7 +470,11 @@ namespace Armada.Core.Settings
         /// </summary>
         public void InitializeDirectories()
         {
+            NormalizePaths();
             Directory.CreateDirectory(DataDirectory);
+            string? dbDirectory = Path.GetDirectoryName(DatabasePath);
+            if (!String.IsNullOrEmpty(dbDirectory))
+                Directory.CreateDirectory(dbDirectory);
             Directory.CreateDirectory(LogDirectory);
             Directory.CreateDirectory(DocksDirectory);
             Directory.CreateDirectory(ReposDirectory);
@@ -475,6 +486,7 @@ namespace Armada.Core.Settings
         /// <param name="path">File path. Defaults to ~/.armada/settings.json.</param>
         public async Task SaveAsync(string? path = null)
         {
+            NormalizePaths();
             path ??= DefaultSettingsPath;
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             string json = JsonSerializer.Serialize(this, _SerializerOptions);
@@ -489,10 +501,57 @@ namespace Armada.Core.Settings
         public static async Task<ArmadaSettings> LoadAsync(string? path = null)
         {
             path ??= DefaultSettingsPath;
-            if (!File.Exists(path)) return new ArmadaSettings();
+            if (!File.Exists(path))
+            {
+                ArmadaSettings defaults = new ArmadaSettings();
+                defaults.NormalizePaths();
+                return defaults;
+            }
             string json = await File.ReadAllTextAsync(path).ConfigureAwait(false);
             ArmadaSettings? settings = JsonSerializer.Deserialize<ArmadaSettings>(json, _SerializerOptions);
-            return settings ?? new ArmadaSettings();
+            settings ??= new ArmadaSettings();
+            settings.NormalizePaths();
+            return settings;
+        }
+
+        #endregion
+
+        #region Private-Methods
+
+        private void NormalizePaths()
+        {
+            _Database ??= new DatabaseSettings();
+
+            if (_Database.Type == DatabaseTypeEnum.Sqlite)
+            {
+                string sqlitePath = ResolveEffectiveSqlitePath();
+                _Database.Filename = sqlitePath;
+                _DatabasePath = sqlitePath;
+                _DatabasePathConfigured = true;
+            }
+        }
+
+        private string ResolveEffectiveSqlitePath()
+        {
+            if (_Database.FilenameConfigured)
+            {
+                return ResolvePathRelativeToDataDirectory(_Database.Filename);
+            }
+
+            if (_DatabasePathConfigured)
+            {
+                return ResolvePathRelativeToDataDirectory(_DatabasePath);
+            }
+
+            return ResolvePathRelativeToDataDirectory(_Database.Filename);
+        }
+
+        private string ResolvePathRelativeToDataDirectory(string path)
+        {
+            if (Path.IsPathRooted(path))
+                return Path.GetFullPath(path);
+
+            return Path.GetFullPath(Path.Combine(DataDirectory, path));
         }
 
         #endregion

@@ -21,7 +21,14 @@ namespace Armada.Core.Settings
         public string Filename
         {
             get => _Filename;
-            set { if (!String.IsNullOrEmpty(value)) _Filename = value; }
+            set
+            {
+                if (!String.IsNullOrEmpty(value))
+                {
+                    _Filename = value;
+                    _FilenameConfigured = true;
+                }
+            }
         }
 
         /// <summary>
@@ -164,6 +171,7 @@ namespace Armada.Core.Settings
         private int _MaxPoolSize = 25;
         private int _ConnectionLifetimeSeconds = 300;
         private int _ConnectionIdleTimeoutSeconds = 60;
+        private bool _FilenameConfigured = false;
 
         #endregion
 
@@ -236,6 +244,8 @@ namespace Armada.Core.Settings
                     throw new ArgumentException("Unknown database type: " + Type.ToString());
             }
         }
+
+        internal bool FilenameConfigured => _FilenameConfigured;
 
         #endregion
     }

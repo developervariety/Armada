@@ -87,6 +87,56 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(Constants.DefaultAdmiralPort, settings.AdmiralPort);
             });
 
+            await RunTest("ArmadaSettings InitializeDirectories NormalizesRelativeSqliteFilename", () =>
+            {
+                string tempDir = Path.Combine(Path.GetTempPath(), "armada_settings_db_" + Guid.NewGuid().ToString("N"));
+
+                try
+                {
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DataDirectory = tempDir;
+                    settings.Database = new DatabaseSettings();
+                    settings.Database.Filename = "armada.db";
+
+                    settings.InitializeDirectories();
+
+                    string expectedPath = Path.GetFullPath(Path.Combine(tempDir, "armada.db"));
+                    AssertEqual(expectedPath, settings.Database.Filename, "Database.Filename");
+                    AssertEqual(expectedPath, settings.DatabasePath, "DatabasePath");
+                    AssertTrue(Directory.Exists(tempDir), "Data directory should exist");
+                }
+                finally
+                {
+                    if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true);
+                }
+            });
+
+            await RunTest("ArmadaSettings LoadAsync LegacyDatabasePath SyncsSqliteFilename", async () =>
+            {
+                string tempDir = Path.Combine(Path.GetTempPath(), "armada_settings_legacy_" + Guid.NewGuid().ToString("N"));
+                string tempFile = Path.Combine(Path.GetTempPath(), "armada_test_settings_legacy_" + Guid.NewGuid().ToString("N") + ".json");
+                string legacyDbPath = Path.Combine(tempDir, "legacy.db");
+
+                try
+                {
+                    string json = "{" +
+                        "\"dataDirectory\":\"" + tempDir.Replace("\\", "\\\\") + "\"," +
+                        "\"databasePath\":\"" + legacyDbPath.Replace("\\", "\\\\") + "\"," +
+                        "\"database\":{\"type\":\"Sqlite\"}" +
+                        "}";
+                    await File.WriteAllTextAsync(tempFile, json).ConfigureAwait(false);
+
+                    ArmadaSettings loaded = await ArmadaSettings.LoadAsync(tempFile);
+                    AssertEqual(legacyDbPath, loaded.DatabasePath, "DatabasePath");
+                    AssertEqual(legacyDbPath, loaded.Database.Filename, "Database.Filename");
+                }
+                finally
+                {
+                    if (File.Exists(tempFile)) File.Delete(tempFile);
+                    if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true);
+                }
+            });
+
             await RunTest("ArmadaSettings NewSettings HaveCorrectDefaults", () =>
             {
                 ArmadaSettings settings = new ArmadaSettings();
