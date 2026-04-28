@@ -27,6 +27,8 @@ namespace Armada.Server
         private IGitService _Git;
         private IMergeQueueService _MergeQueue;
         private IAutoLandEvaluator _AutoLandEvaluator;
+        private IConventionChecker _ConventionChecker;
+        private ICriticalTriggerEvaluator _CriticalTriggerEvaluator;
         private IMessageTemplateService _TemplateService;
         private IPromptTemplateService? _PromptTemplateService;
         private IDockService _Docks;
@@ -50,6 +52,8 @@ namespace Armada.Server
         /// <param name="git">Git service.</param>
         /// <param name="mergeQueue">Merge queue service.</param>
         /// <param name="autoLandEvaluator">Auto-land predicate evaluator.</param>
+        /// <param name="conventionChecker">Convention checker for safety-net evaluation.</param>
+        /// <param name="criticalTriggerEvaluator">Critical trigger evaluator for safety-net evaluation.</param>
         /// <param name="templateService">Message template service.</param>
         /// <param name="promptTemplateService">Prompt template service (optional).</param>
         /// <param name="docks">Dock service.</param>
@@ -61,6 +65,8 @@ namespace Armada.Server
             IGitService git,
             IMergeQueueService mergeQueue,
             IAutoLandEvaluator autoLandEvaluator,
+            IConventionChecker conventionChecker,
+            ICriticalTriggerEvaluator criticalTriggerEvaluator,
             IMessageTemplateService templateService,
             IPromptTemplateService? promptTemplateService,
             IDockService docks,
@@ -72,6 +78,8 @@ namespace Armada.Server
             _Git = git ?? throw new ArgumentNullException(nameof(git));
             _MergeQueue = mergeQueue ?? throw new ArgumentNullException(nameof(mergeQueue));
             _AutoLandEvaluator = autoLandEvaluator ?? throw new ArgumentNullException(nameof(autoLandEvaluator));
+            _ConventionChecker = conventionChecker ?? throw new ArgumentNullException(nameof(conventionChecker));
+            _CriticalTriggerEvaluator = criticalTriggerEvaluator ?? throw new ArgumentNullException(nameof(criticalTriggerEvaluator));
             _TemplateService = templateService ?? throw new ArgumentNullException(nameof(templateService));
             _PromptTemplateService = promptTemplateService;
             _Docks = docks ?? throw new ArgumentNullException(nameof(docks));
@@ -516,6 +524,25 @@ namespace Armada.Server
                                 {
                                     _Logging.Warn(_Header + "error emitting merge_queue.auto_land_triggered event for " + mission.Id + ": " + evtEx.Message);
                                 }
+
+                                // Auto-land safety net (Layer 1 sync evaluation)
+                                ConventionCheckResult conventionResult = _ConventionChecker.Check(autoLandDiff);
+                                CriticalTriggerResult triggerResult = _CriticalTriggerEvaluator.Evaluate(autoLandDiff, conventionResult);
+
+                                bool calibrationActive = (vessel?.AutoLandCalibrationLandedCount ?? 0) < 50;
+                                bool needsDeepReview = calibrationActive || triggerResult.Fired;
+
+                                entry.AuditLane = needsDeepReview ? "Deferred" : "Fast";
+                                entry.AuditConventionPassed = conventionResult.Passed;
+                                entry.AuditConventionNotes = conventionResult.Passed
+                                    ? null
+                                    : JsonSerializer.Serialize(conventionResult.Violations);
+                                entry.AuditCriticalTrigger = string.Join(",", triggerResult.TriggeredCriteria);
+                                entry.AuditDeepPicked = needsDeepReview;
+                                entry.AuditDeepVerdict = needsDeepReview ? "Pending" : null;
+
+                                await _Database.MergeEntries.UpdateAsync(entry).ConfigureAwait(false);
+
                                 _ = Task.Run(async () =>
                                 {
                                     try
