@@ -103,6 +103,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new AuditDrainerTests());
             runner.AddSuite(new ArchitectOutputParserTests());
             runner.AddSuite(new McpArchitectToolsTests());
+            runner.AddSuite(new ArchitectPersonaSyncTests());
 
             int exitCode = await runner.RunAllAsync().ConfigureAwait(false);
             return exitCode;
