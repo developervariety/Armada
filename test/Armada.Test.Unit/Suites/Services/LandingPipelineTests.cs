@@ -300,6 +300,7 @@ namespace Armada.Test.Unit.Suites.Services
                         settings,
                         git,
                         new StubMergeQueueService(),
+                        new AutoLandEvaluator(),
                         templateService,
                         null,
                         dockService,
