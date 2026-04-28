@@ -47,6 +47,15 @@ namespace Armada.Core.Services.Interfaces
         Task<MergeEntry?> ProcessSingleAsync(string entryId, string? tenantId = null, CancellationToken token = default);
 
         /// <summary>
+        /// Process a single merge entry by ID. Loads the entry, resolves the repo path,
+        /// and runs the same fetch + worktree + merge + test + land flow as the queued
+        /// processor. Used by auto-land and by the MCP armada_process_merge_entry tool.
+        /// </summary>
+        /// <param name="entryId">Merge entry identifier.</param>
+        /// <param name="token">Cancellation token.</param>
+        Task ProcessEntryByIdAsync(string entryId, CancellationToken token = default);
+
+        /// <summary>
         /// Get a specific merge entry.
         /// </summary>
         /// <param name="entryId">Merge entry identifier.</param>
