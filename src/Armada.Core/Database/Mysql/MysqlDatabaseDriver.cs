@@ -444,6 +444,11 @@ namespace Armada.Core.Database.Mysql
                     31,
                     "Add preferred_captain_id and preferred_model columns to missions",
                     TableQueries.MigrationV31Statements
+                ),
+                new SchemaMigration(
+                    32,
+                    "Add auto_land_predicate JSON column to vessels",
+                    TableQueries.MigrationV32Statements
                 )
             };
         }

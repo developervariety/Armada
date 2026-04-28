@@ -365,6 +365,7 @@ namespace Armada.Core.Database.SqlServer
             catch { vessel.AllowConcurrentMissions = false; }
             try { vessel.DefaultPipelineId = NullableString(reader["default_pipeline_id"]); } catch { }
             try { vessel.ProtectedPaths = Implementations.VesselMethods.DeserializeProtectedPaths(reader["protected_paths"]); } catch { }
+            try { vessel.AutoLandPredicate = reader["auto_land_predicate"] as string; } catch { }
             vessel.DefaultBranch = reader["default_branch"].ToString()!;
             vessel.Active = Convert.ToBoolean(reader["active"]);
             vessel.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
