@@ -916,6 +916,17 @@ namespace Armada.Core.Services
                 CreateNoWindow = true
             };
 
+            // Force fail-fast on credential prompts. Without these env vars, a private
+            // repo HTTPS clone with no cached credentials triggers the Git Credential
+            // Manager UI (which the RunProcessAsync timeout cannot reliably kill) or
+            // hangs git waiting on stdin terminal input. Belt-and-suspenders: GIT_TERMINAL_PROMPT=0
+            // covers git's own prompt; GCM_INTERACTIVE=Never covers Git Credential Manager.
+            if (string.Equals(command, "git", StringComparison.OrdinalIgnoreCase))
+            {
+                startInfo.EnvironmentVariables["GIT_TERMINAL_PROMPT"] = "0";
+                startInfo.EnvironmentVariables["GCM_INTERACTIVE"] = "Never";
+            }
+
             if (!String.IsNullOrEmpty(workingDirectory))
                 startInfo.WorkingDirectory = workingDirectory;
 
