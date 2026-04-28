@@ -91,6 +91,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new PipelineDispatchTests());
             runner.AddSuite(new DependsOnMissionIdDispatchTests());
             runner.AddSuite(new AutoLandEvaluatorTests());
+            runner.AddSuite(new AutoLandLandingHandlerTests());
             runner.AddSuite(new PrestagedFilesTests());
             runner.AddSuite(new ProtectedPathsTests());
 

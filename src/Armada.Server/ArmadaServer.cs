@@ -55,6 +55,7 @@ namespace Armada.Server
         private ArmadaWebSocketHub _WebSocketHub = null!;
 
         private IMergeQueueService _MergeQueue = null!;
+        private IAutoLandEvaluator _AutoLandEvaluator = null!;
         private LandingService _LandingService = null!;
         private IMessageTemplateService _TemplateService = null!;
         private IPromptTemplateService _PromptTemplateService = null!;
@@ -128,6 +129,7 @@ namespace Armada.Server
             AdmiralService admiralService = new AdmiralService(_Logging, _Database, _Settings, captainService, missionService, voyageService, dockService, escalationService);
             _Admiral = admiralService;
             _MergeQueue = new MergeQueueService(_Logging, _Database, _Settings, _Git);
+            _AutoLandEvaluator = new AutoLandEvaluator();
             _LandingService = new LandingService(_Logging, _Database, _Settings, _Git);
             _TemplateService = new MessageTemplateService(_Logging, _PromptTemplateService);
             _RuntimeFactory = new AgentRuntimeFactory(_Logging);
@@ -176,7 +178,7 @@ namespace Armada.Server
 
             // Initialize handler classes (WebSocketHub is created later, so pass null initially)
             _MissionLanding = new MissionLandingHandler(
-                _Logging, _Database, _Settings, _Git, _MergeQueue, _TemplateService, _PromptTemplateService, _Docks, null);
+                _Logging, _Database, _Settings, _Git, _MergeQueue, _AutoLandEvaluator, _TemplateService, _PromptTemplateService, _Docks, null);
 
             _AgentLifecycle = new AgentLifecycleHandler(
                 _Logging, _Database, _Settings, _RuntimeFactory, _Admiral, _TemplateService, _PromptTemplateService, null, EmitEventAsync);

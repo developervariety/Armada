@@ -2,6 +2,7 @@ namespace Armada.Server
 {
     using System.Collections.Concurrent;
     using System.IO;
+    using System.Text.Json;
     using SyslogLogging;
     using Armada.Core;
     using Armada.Core.Database;
@@ -25,6 +26,7 @@ namespace Armada.Server
         private ArmadaSettings _Settings;
         private IGitService _Git;
         private IMergeQueueService _MergeQueue;
+        private IAutoLandEvaluator _AutoLandEvaluator;
         private IMessageTemplateService _TemplateService;
         private IPromptTemplateService? _PromptTemplateService;
         private IDockService _Docks;
@@ -47,6 +49,7 @@ namespace Armada.Server
         /// <param name="settings">Application settings.</param>
         /// <param name="git">Git service.</param>
         /// <param name="mergeQueue">Merge queue service.</param>
+        /// <param name="autoLandEvaluator">Auto-land predicate evaluator.</param>
         /// <param name="templateService">Message template service.</param>
         /// <param name="promptTemplateService">Prompt template service (optional).</param>
         /// <param name="docks">Dock service.</param>
@@ -57,6 +60,7 @@ namespace Armada.Server
             ArmadaSettings settings,
             IGitService git,
             IMergeQueueService mergeQueue,
+            IAutoLandEvaluator autoLandEvaluator,
             IMessageTemplateService templateService,
             IPromptTemplateService? promptTemplateService,
             IDockService docks,
@@ -67,6 +71,7 @@ namespace Armada.Server
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _Git = git ?? throw new ArgumentNullException(nameof(git));
             _MergeQueue = mergeQueue ?? throw new ArgumentNullException(nameof(mergeQueue));
+            _AutoLandEvaluator = autoLandEvaluator ?? throw new ArgumentNullException(nameof(autoLandEvaluator));
             _TemplateService = templateService ?? throw new ArgumentNullException(nameof(templateService));
             _PromptTemplateService = promptTemplateService;
             _Docks = docks ?? throw new ArgumentNullException(nameof(docks));
@@ -474,6 +479,76 @@ namespace Armada.Server
                         entry.VesselId = mission.VesselId;
                         entry = await _MergeQueue.EnqueueAsync(entry).ConfigureAwait(false);
                         _Logging.Info(_Header + "mission " + mission.Id + " auto-enqueued as merge entry " + entry.Id + " (branch " + dock.BranchName + " -> " + targetBranch + ")");
+
+                        // Evaluate vessel auto-land predicate
+                        Armada.Core.Models.AutoLandPredicate? autoLandPredicate = vessel?.GetAutoLandPredicate();
+                        if (autoLandPredicate is { Enabled: true })
+                        {
+                            string autoLandDiff;
+                            try
+                            {
+                                autoLandDiff = await _Git.DiffAsync(dock.WorktreePath, targetBranch).ConfigureAwait(false);
+                            }
+                            catch (Exception diffEx)
+                            {
+                                _Logging.Warn(_Header + "auto-land diff retrieval failed for mission " + mission.Id + ": " + diffEx.Message);
+                                autoLandDiff = string.Empty;
+                            }
+
+                            EvaluationResult autoLandResult = _AutoLandEvaluator.Evaluate(autoLandDiff, autoLandPredicate);
+                            string capturedEntryId = entry.Id;
+                            if (autoLandResult is EvaluationResult.Pass)
+                            {
+                                _Logging.Info(_Header + "auto-land predicate passed for mission " + mission.Id + " entry " + entry.Id + " -- triggering ProcessEntryByIdAsync");
+                                try
+                                {
+                                    ArmadaEvent autoLandEvent = new ArmadaEvent("merge_queue.auto_land_triggered", "Auto-land triggered for mission " + mission.Id + " entry " + entry.Id);
+                                    autoLandEvent.EntityType = "merge_entry";
+                                    autoLandEvent.EntityId = entry.Id;
+                                    autoLandEvent.MissionId = mission.Id;
+                                    autoLandEvent.VesselId = mission.VesselId;
+                                    autoLandEvent.VoyageId = mission.VoyageId;
+                                    autoLandEvent.CaptainId = mission.CaptainId;
+                                    autoLandEvent.Payload = JsonSerializer.Serialize(new { entryId = entry.Id, missionId = mission.Id, vesselId = mission.VesselId, predicate = autoLandPredicate });
+                                    await _Database.Events.CreateAsync(autoLandEvent).ConfigureAwait(false);
+                                }
+                                catch (Exception evtEx)
+                                {
+                                    _Logging.Warn(_Header + "error emitting merge_queue.auto_land_triggered event for " + mission.Id + ": " + evtEx.Message);
+                                }
+                                _ = Task.Run(async () =>
+                                {
+                                    try
+                                    {
+                                        await _MergeQueue.ProcessEntryByIdAsync(capturedEntryId).ConfigureAwait(false);
+                                    }
+                                    catch (Exception bgEx)
+                                    {
+                                        _Logging.Warn(_Header + "auto-land background processing failed for entry " + capturedEntryId + ": " + bgEx.Message);
+                                    }
+                                });
+                            }
+                            else if (autoLandResult is EvaluationResult.Fail autoLandFail)
+                            {
+                                _Logging.Info(_Header + "auto-land predicate failed for mission " + mission.Id + " entry " + entry.Id + ": " + autoLandFail.Reason);
+                                try
+                                {
+                                    ArmadaEvent skipEvent = new ArmadaEvent("merge_queue.auto_land_skipped", "Auto-land skipped for mission " + mission.Id + " entry " + entry.Id + ": " + autoLandFail.Reason);
+                                    skipEvent.EntityType = "merge_entry";
+                                    skipEvent.EntityId = entry.Id;
+                                    skipEvent.MissionId = mission.Id;
+                                    skipEvent.VesselId = mission.VesselId;
+                                    skipEvent.VoyageId = mission.VoyageId;
+                                    skipEvent.CaptainId = mission.CaptainId;
+                                    skipEvent.Payload = JsonSerializer.Serialize(new { entryId = entry.Id, missionId = mission.Id, vesselId = mission.VesselId, reason = autoLandFail.Reason, predicate = autoLandPredicate });
+                                    await _Database.Events.CreateAsync(skipEvent).ConfigureAwait(false);
+                                }
+                                catch (Exception evtEx)
+                                {
+                                    _Logging.Warn(_Header + "error emitting merge_queue.auto_land_skipped event for " + mission.Id + ": " + evtEx.Message);
+                                }
+                            }
+                        }
 
                         // Emit merge_queue.enqueued event
                         try
