@@ -1207,22 +1207,44 @@ namespace Armada.Core.Services
             bool hasCapacity = await HasAvailableCapacityAsync(token).ConfigureAwait(false);
             if (!hasCapacity) return;
 
-            bool anyFailed = false;
-
+            // Resolve vessels for each candidate mission up front so we can fan out the
+            // assignment attempts. TryAssignAsync internally serializes on the captain
+            // claim (atomic UPDATE ... WHERE state='Idle') and on its per-mission
+            // _InFlightAssignments guard, so parallel calls are safe.
+            //
+            // This matters because TryAssignAsync's dock-provisioning step (git worktree
+            // creation, etc.) is slow -- previously we could only assign 1-3 missions per
+            // 30s heartbeat tick because each iteration awaited the prior one's provisioning.
+            // With Task.WhenAll, dock provisioning runs concurrently across captains.
+            List<(Mission mission, Vessel vessel)> assignable = new List<(Mission, Vessel)>();
             foreach (Mission mission in pendingMissions)
             {
-                hasCapacity = await HasAvailableCapacityAsync(token).ConfigureAwait(false);
-                if (!hasCapacity) break;
-
                 if (string.IsNullOrEmpty(mission.VesselId)) continue;
 
                 Vessel? vessel = await _Database.Vessels.ReadAsync(mission.VesselId, token).ConfigureAwait(false);
                 if (vessel == null) continue;
 
-                bool assigned = await _Missions.TryAssignAsync(mission, vessel, token).ConfigureAwait(false);
-                if (!assigned)
+                assignable.Add((mission, vessel));
+            }
+
+            if (assignable.Count == 0)
+            {
+                _RetryDispatchNeeded = false;
+                return;
+            }
+
+            Task<bool>[] assignmentTasks = assignable
+                .Select(p => _Missions.TryAssignAsync(p.mission, p.vessel, token))
+                .ToArray();
+
+            bool[] results = await Task.WhenAll(assignmentTasks).ConfigureAwait(false);
+
+            bool anyFailed = false;
+            for (int i = 0; i < results.Length; i++)
+            {
+                if (!results[i])
                 {
-                    _Logging.Warn(_Header + "could not assign pending mission " + mission.Id + " - will retry on next health check cycle");
+                    _Logging.Warn(_Header + "could not assign pending mission " + assignable[i].mission.Id + " - will retry on next health check cycle");
                     anyFailed = true;
                 }
             }
