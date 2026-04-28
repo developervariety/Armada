@@ -80,6 +80,7 @@ namespace Armada.Server.Mcp
             McpPersonaTools.Register(register, database);
             McpPipelineTools.Register(register, database);
             if (settings != null) McpBackupTools.Register(register, database, settings);
+            McpAuditTools.Register(register, database);
         }
     }
 }
