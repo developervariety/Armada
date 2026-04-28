@@ -773,7 +773,13 @@ namespace Armada.Core.Services
         {
             if (mission == null) return false;
 
-            string text = ((mission.Title ?? "") + " " + (mission.Description ?? "")).ToLowerInvariant();
+            // Inspect only the title. The description routinely embeds project rules
+            // and negated guardrails ("Do NOT restructure", "never refactor", etc.)
+            // which produced false positives that blocked otherwise-independent
+            // concurrent missions on the same vessel. The title is short and
+            // intentionally describes the mission's nature -- the right place to
+            // look for broad-scope intent.
+            string text = (mission.Title ?? "").ToLowerInvariant();
 
             string[] broadIndicators = new[]
             {
