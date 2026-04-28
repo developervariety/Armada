@@ -88,6 +88,11 @@ namespace Armada.Core.Database.Interfaces
         Task<bool> ExistsAsync(string tenantId, string id, CancellationToken token = default);
 
         /// <summary>
+        /// Atomically increment the auto-land calibration landed count for the specified vessel.
+        /// </summary>
+        Task IncrementCalibrationCounterAsync(string vesselId, CancellationToken token = default);
+
+        /// <summary>
         /// Read a vessel by tenant, user, and identifier (user-scoped).
         /// </summary>
         Task<Vessel?> ReadAsync(string tenantId, string userId, string id, CancellationToken token = default);

@@ -57,8 +57,8 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = @"INSERT INTO merge_entries (id, tenant_id, user_id, mission_id, vessel_id, branch_name, target_branch, status, priority, batch_id, test_command, test_output, test_exit_code, created_utc, last_update_utc, test_started_utc, completed_utc)
-                            VALUES (@id, @tenant_id, @user_id, @mission_id, @vessel_id, @branch_name, @target_branch, @status, @priority, @batch_id, @test_command, @test_output, @test_exit_code, @created_utc, @last_update_utc, @test_started_utc, @completed_utc);";
+                    cmd.CommandText = @"INSERT INTO merge_entries (id, tenant_id, user_id, mission_id, vessel_id, branch_name, target_branch, status, priority, batch_id, test_command, test_output, test_exit_code, created_utc, last_update_utc, test_started_utc, completed_utc, audit_lane, audit_convention_passed, audit_convention_notes, audit_critical_trigger, audit_deep_picked, audit_deep_completed_utc, audit_deep_verdict, audit_deep_notes, audit_deep_recommended_action)
+                            VALUES (@id, @tenant_id, @user_id, @mission_id, @vessel_id, @branch_name, @target_branch, @status, @priority, @batch_id, @test_command, @test_output, @test_exit_code, @created_utc, @last_update_utc, @test_started_utc, @completed_utc, @audit_lane, @audit_convention_passed, @audit_convention_notes, @audit_critical_trigger, @audit_deep_picked, @audit_deep_completed_utc, @audit_deep_verdict, @audit_deep_notes, @audit_deep_recommended_action);";
                     cmd.Parameters.AddWithValue("@id", entry.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)entry.TenantId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@user_id", (object?)entry.UserId ?? DBNull.Value);
@@ -76,6 +76,15 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(entry.LastUpdateUtc));
                     cmd.Parameters.AddWithValue("@test_started_utc", entry.TestStartedUtc.HasValue ? (object)SqliteDatabaseDriver.ToIso8601(entry.TestStartedUtc.Value) : DBNull.Value);
                     cmd.Parameters.AddWithValue("@completed_utc", entry.CompletedUtc.HasValue ? (object)SqliteDatabaseDriver.ToIso8601(entry.CompletedUtc.Value) : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@audit_lane", (object?)entry.AuditLane ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@audit_convention_passed", entry.AuditConventionPassed.HasValue ? (object)(entry.AuditConventionPassed.Value ? 1 : 0) : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@audit_convention_notes", (object?)entry.AuditConventionNotes ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@audit_critical_trigger", (object?)entry.AuditCriticalTrigger ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@audit_deep_picked", entry.AuditDeepPicked.HasValue ? (object)(entry.AuditDeepPicked.Value ? 1 : 0) : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@audit_deep_completed_utc", entry.AuditDeepCompletedUtc.HasValue ? (object)SqliteDatabaseDriver.ToIso8601(entry.AuditDeepCompletedUtc.Value) : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@audit_deep_verdict", (object?)entry.AuditDeepVerdict ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@audit_deep_notes", (object?)entry.AuditDeepNotes ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@audit_deep_recommended_action", (object?)entry.AuditDeepRecommendedAction ?? DBNull.Value);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -132,7 +141,16 @@ namespace Armada.Core.Database.Sqlite.Implementations
                             test_exit_code = @test_exit_code,
                             last_update_utc = @last_update_utc,
                             test_started_utc = @test_started_utc,
-                            completed_utc = @completed_utc
+                            completed_utc = @completed_utc,
+                            audit_lane = @audit_lane,
+                            audit_convention_passed = @audit_convention_passed,
+                            audit_convention_notes = @audit_convention_notes,
+                            audit_critical_trigger = @audit_critical_trigger,
+                            audit_deep_picked = @audit_deep_picked,
+                            audit_deep_completed_utc = @audit_deep_completed_utc,
+                            audit_deep_verdict = @audit_deep_verdict,
+                            audit_deep_notes = @audit_deep_notes,
+                            audit_deep_recommended_action = @audit_deep_recommended_action
                             WHERE id = @id;";
                     cmd.Parameters.AddWithValue("@id", entry.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)entry.TenantId ?? DBNull.Value);
@@ -150,6 +168,15 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(entry.LastUpdateUtc));
                     cmd.Parameters.AddWithValue("@test_started_utc", entry.TestStartedUtc.HasValue ? (object)SqliteDatabaseDriver.ToIso8601(entry.TestStartedUtc.Value) : DBNull.Value);
                     cmd.Parameters.AddWithValue("@completed_utc", entry.CompletedUtc.HasValue ? (object)SqliteDatabaseDriver.ToIso8601(entry.CompletedUtc.Value) : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@audit_lane", (object?)entry.AuditLane ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@audit_convention_passed", entry.AuditConventionPassed.HasValue ? (object)(entry.AuditConventionPassed.Value ? 1 : 0) : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@audit_convention_notes", (object?)entry.AuditConventionNotes ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@audit_critical_trigger", (object?)entry.AuditCriticalTrigger ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@audit_deep_picked", entry.AuditDeepPicked.HasValue ? (object)(entry.AuditDeepPicked.Value ? 1 : 0) : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@audit_deep_completed_utc", entry.AuditDeepCompletedUtc.HasValue ? (object)SqliteDatabaseDriver.ToIso8601(entry.AuditDeepCompletedUtc.Value) : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@audit_deep_verdict", (object?)entry.AuditDeepVerdict ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@audit_deep_notes", (object?)entry.AuditDeepNotes ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@audit_deep_recommended_action", (object?)entry.AuditDeepRecommendedAction ?? DBNull.Value);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }

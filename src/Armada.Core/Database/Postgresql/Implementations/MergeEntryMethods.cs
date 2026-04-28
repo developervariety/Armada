@@ -53,8 +53,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 using (NpgsqlCommand cmd = new NpgsqlCommand())
                 {
                     cmd.Connection = conn;
-                    cmd.CommandText = @"INSERT INTO merge_entries (id, tenant_id, user_id, mission_id, vessel_id, branch_name, target_branch, status, priority, batch_id, test_command, test_output, test_exit_code, created_utc, last_update_utc, test_started_utc, completed_utc)
-                        VALUES (@id, @tenant_id, @user_id, @mission_id, @vessel_id, @branch_name, @target_branch, @status, @priority, @batch_id, @test_command, @test_output, @test_exit_code, @created_utc, @last_update_utc, @test_started_utc, @completed_utc);";
+                    cmd.CommandText = @"INSERT INTO merge_entries (id, tenant_id, user_id, mission_id, vessel_id, branch_name, target_branch, status, priority, batch_id, test_command, test_output, test_exit_code, created_utc, last_update_utc, test_started_utc, completed_utc, audit_lane, audit_convention_passed, audit_convention_notes, audit_critical_trigger, audit_deep_picked, audit_deep_completed_utc, audit_deep_verdict, audit_deep_notes, audit_deep_recommended_action)
+                        VALUES (@id, @tenant_id, @user_id, @mission_id, @vessel_id, @branch_name, @target_branch, @status, @priority, @batch_id, @test_command, @test_output, @test_exit_code, @created_utc, @last_update_utc, @test_started_utc, @completed_utc, @audit_lane, @audit_convention_passed, @audit_convention_notes, @audit_critical_trigger, @audit_deep_picked, @audit_deep_completed_utc, @audit_deep_verdict, @audit_deep_notes, @audit_deep_recommended_action);";
                     cmd.Parameters.AddWithValue("@id", entry.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)entry.TenantId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@user_id", (object?)entry.UserId ?? DBNull.Value);
@@ -72,6 +72,15 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     cmd.Parameters.AddWithValue("@last_update_utc", ToIso8601(entry.LastUpdateUtc));
                     cmd.Parameters.AddWithValue("@test_started_utc", entry.TestStartedUtc.HasValue ? (object)ToIso8601(entry.TestStartedUtc.Value) : DBNull.Value);
                     cmd.Parameters.AddWithValue("@completed_utc", entry.CompletedUtc.HasValue ? (object)ToIso8601(entry.CompletedUtc.Value) : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@audit_lane", (object?)entry.AuditLane ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@audit_convention_passed", entry.AuditConventionPassed.HasValue ? (object)entry.AuditConventionPassed.Value : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@audit_convention_notes", (object?)entry.AuditConventionNotes ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@audit_critical_trigger", (object?)entry.AuditCriticalTrigger ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@audit_deep_picked", entry.AuditDeepPicked.HasValue ? (object)entry.AuditDeepPicked.Value : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@audit_deep_completed_utc", entry.AuditDeepCompletedUtc.HasValue ? (object)ToIso8601(entry.AuditDeepCompletedUtc.Value) : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@audit_deep_verdict", (object?)entry.AuditDeepVerdict ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@audit_deep_notes", (object?)entry.AuditDeepNotes ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@audit_deep_recommended_action", (object?)entry.AuditDeepRecommendedAction ?? DBNull.Value);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -138,7 +147,16 @@ namespace Armada.Core.Database.Postgresql.Implementations
                         test_exit_code = @test_exit_code,
                         last_update_utc = @last_update_utc,
                         test_started_utc = @test_started_utc,
-                        completed_utc = @completed_utc
+                        completed_utc = @completed_utc,
+                        audit_lane = @audit_lane,
+                        audit_convention_passed = @audit_convention_passed,
+                        audit_convention_notes = @audit_convention_notes,
+                        audit_critical_trigger = @audit_critical_trigger,
+                        audit_deep_picked = @audit_deep_picked,
+                        audit_deep_completed_utc = @audit_deep_completed_utc,
+                        audit_deep_verdict = @audit_deep_verdict,
+                        audit_deep_notes = @audit_deep_notes,
+                        audit_deep_recommended_action = @audit_deep_recommended_action
                         WHERE id = @id;";
                     cmd.Parameters.AddWithValue("@id", entry.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)entry.TenantId ?? DBNull.Value);
@@ -156,6 +174,15 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     cmd.Parameters.AddWithValue("@last_update_utc", ToIso8601(entry.LastUpdateUtc));
                     cmd.Parameters.AddWithValue("@test_started_utc", entry.TestStartedUtc.HasValue ? (object)ToIso8601(entry.TestStartedUtc.Value) : DBNull.Value);
                     cmd.Parameters.AddWithValue("@completed_utc", entry.CompletedUtc.HasValue ? (object)ToIso8601(entry.CompletedUtc.Value) : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@audit_lane", (object?)entry.AuditLane ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@audit_convention_passed", entry.AuditConventionPassed.HasValue ? (object)entry.AuditConventionPassed.Value : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@audit_convention_notes", (object?)entry.AuditConventionNotes ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@audit_critical_trigger", (object?)entry.AuditCriticalTrigger ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@audit_deep_picked", entry.AuditDeepPicked.HasValue ? (object)entry.AuditDeepPicked.Value : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@audit_deep_completed_utc", entry.AuditDeepCompletedUtc.HasValue ? (object)ToIso8601(entry.AuditDeepCompletedUtc.Value) : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@audit_deep_verdict", (object?)entry.AuditDeepVerdict ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@audit_deep_notes", (object?)entry.AuditDeepNotes ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@audit_deep_recommended_action", (object?)entry.AuditDeepRecommendedAction ?? DBNull.Value);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -726,6 +753,15 @@ namespace Armada.Core.Database.Postgresql.Implementations
             entry.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
             entry.TestStartedUtc = FromIso8601Nullable(reader["test_started_utc"]);
             entry.CompletedUtc = FromIso8601Nullable(reader["completed_utc"]);
+            try { entry.AuditLane = reader["audit_lane"] as string; } catch { }
+            try { object av = reader["audit_convention_passed"]; entry.AuditConventionPassed = (av == null || av == DBNull.Value) ? (bool?)null : (bool)av; } catch { }
+            try { entry.AuditConventionNotes = reader["audit_convention_notes"] as string; } catch { }
+            try { entry.AuditCriticalTrigger = reader["audit_critical_trigger"] as string; } catch { }
+            try { object dv = reader["audit_deep_picked"]; entry.AuditDeepPicked = (dv == null || dv == DBNull.Value) ? (bool?)null : (bool)dv; } catch { }
+            try { entry.AuditDeepCompletedUtc = FromIso8601Nullable(reader["audit_deep_completed_utc"]); } catch { }
+            try { entry.AuditDeepVerdict = reader["audit_deep_verdict"] as string; } catch { }
+            try { entry.AuditDeepNotes = reader["audit_deep_notes"] as string; } catch { }
+            try { entry.AuditDeepRecommendedAction = reader["audit_deep_recommended_action"] as string; } catch { }
             return entry;
         }
 

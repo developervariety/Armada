@@ -59,8 +59,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 using (NpgsqlCommand cmd = new NpgsqlCommand())
                 {
                     cmd.Connection = conn;
-                    cmd.CommandText = @"INSERT INTO vessels (id, tenant_id, user_id, fleet_id, name, repo_url, local_path, working_directory, project_context, style_guide, enable_model_context, model_context, landing_mode, branch_cleanup_policy, allow_concurrent_missions, default_pipeline_id, protected_paths, auto_land_predicate, default_branch, active, created_utc, last_update_utc)
-                        VALUES (@id, @tenant_id, @user_id, @fleet_id, @name, @repo_url, @local_path, @working_directory, @project_context, @style_guide, @enable_model_context, @model_context, @landing_mode, @branch_cleanup_policy, @allow_concurrent_missions, @default_pipeline_id, @protected_paths, @auto_land_predicate, @default_branch, @active, @created_utc, @last_update_utc);";
+                    cmd.CommandText = @"INSERT INTO vessels (id, tenant_id, user_id, fleet_id, name, repo_url, local_path, working_directory, project_context, style_guide, enable_model_context, model_context, landing_mode, branch_cleanup_policy, allow_concurrent_missions, default_pipeline_id, protected_paths, auto_land_predicate, auto_land_calibration_landed_count, default_branch, active, created_utc, last_update_utc)
+                        VALUES (@id, @tenant_id, @user_id, @fleet_id, @name, @repo_url, @local_path, @working_directory, @project_context, @style_guide, @enable_model_context, @model_context, @landing_mode, @branch_cleanup_policy, @allow_concurrent_missions, @default_pipeline_id, @protected_paths, @auto_land_predicate, @auto_land_calibration_landed_count, @default_branch, @active, @created_utc, @last_update_utc);";
                     cmd.Parameters.AddWithValue("@id", vessel.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)vessel.TenantId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@user_id", (object?)vessel.UserId ?? DBNull.Value);
@@ -79,6 +79,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     cmd.Parameters.AddWithValue("@default_pipeline_id", (object?)vessel.DefaultPipelineId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@protected_paths", (object?)SerializeProtectedPaths(vessel.ProtectedPaths) ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@auto_land_predicate", (object?)vessel.AutoLandPredicate ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@auto_land_calibration_landed_count", vessel.AutoLandCalibrationLandedCount);
                     cmd.Parameters.AddWithValue("@default_branch", vessel.DefaultBranch);
                     cmd.Parameters.AddWithValue("@active", vessel.Active);
                     cmd.Parameters.AddWithValue("@created_utc", vessel.CreatedUtc);
@@ -168,6 +169,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                         default_pipeline_id = @default_pipeline_id,
                         protected_paths = @protected_paths,
                         auto_land_predicate = @auto_land_predicate,
+                        auto_land_calibration_landed_count = @auto_land_calibration_landed_count,
                         default_branch = @default_branch,
                         active = @active,
                         last_update_utc = @last_update_utc
@@ -190,6 +192,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     cmd.Parameters.AddWithValue("@default_pipeline_id", (object?)vessel.DefaultPipelineId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@protected_paths", (object?)SerializeProtectedPaths(vessel.ProtectedPaths) ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@auto_land_predicate", (object?)vessel.AutoLandPredicate ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@auto_land_calibration_landed_count", vessel.AutoLandCalibrationLandedCount);
                     cmd.Parameters.AddWithValue("@default_branch", vessel.DefaultBranch);
                     cmd.Parameters.AddWithValue("@active", vessel.Active);
                     cmd.Parameters.AddWithValue("@last_update_utc", vessel.LastUpdateUtc);
@@ -644,6 +647,23 @@ namespace Armada.Core.Database.Postgresql.Implementations
             }
         }
 
+        /// <inheritdoc />
+        public async Task IncrementCalibrationCounterAsync(string vesselId, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(vesselId)) throw new ArgumentNullException(nameof(vesselId));
+            using (NpgsqlConnection conn = new NpgsqlConnection(_Settings.GetConnectionString()))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (NpgsqlCommand cmd = new NpgsqlCommand())
+                {
+                    cmd.Connection = conn;
+                    cmd.CommandText = @"UPDATE vessels SET auto_land_calibration_landed_count = auto_land_calibration_landed_count + 1 WHERE id = @id;";
+                    cmd.Parameters.AddWithValue("@id", vesselId);
+                    await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                }
+            }
+        }
+
         #endregion
 
         #region Private-Methods
@@ -674,6 +694,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
             try { vessel.DefaultPipelineId = NullableString(reader["default_pipeline_id"]); } catch { }
             try { vessel.ProtectedPaths = DeserializeProtectedPaths(reader["protected_paths"]); } catch { }
             try { vessel.AutoLandPredicate = reader["auto_land_predicate"] as string; } catch { }
+            try { vessel.AutoLandCalibrationLandedCount = Convert.ToInt32(reader["auto_land_calibration_landed_count"]); } catch { vessel.AutoLandCalibrationLandedCount = 0; }
             vessel.DefaultBranch = reader["default_branch"].ToString()!;
             vessel.Active = (bool)reader["active"];
             vessel.CreatedUtc = ((DateTime)reader["created_utc"]).ToUniversalTime();

@@ -110,6 +110,37 @@ namespace Armada.Core.Models
         /// </summary>
         public DateTime? CompletedUtc { get; set; } = null;
 
+        #region Audit
+
+        /// <summary>"Fast" or "Deferred". Null until auto-land safety net evaluates.</summary>
+        public string? AuditLane { get; set; }
+
+        /// <summary>Whether convention check passed (no rule violations on '+' lines).</summary>
+        public bool? AuditConventionPassed { get; set; }
+
+        /// <summary>JSON list of {rule, line} for any convention violations; null when AuditConventionPassed is true.</summary>
+        public string? AuditConventionNotes { get; set; }
+
+        /// <summary>CSV of {"path","content","convention","size"} subset that fired the critical trigger; empty/null when none fired.</summary>
+        public string? AuditCriticalTrigger { get; set; }
+
+        /// <summary>1 = entry queued for deep review (calibration or critical trigger); 0/null = no deep review needed.</summary>
+        public bool? AuditDeepPicked { get; set; }
+
+        /// <summary>UTC timestamp when audit drainer recorded the deep-review verdict; null while pending.</summary>
+        public DateTime? AuditDeepCompletedUtc { get; set; }
+
+        /// <summary>"Pending" | "Pass" | "Concern" | "Critical"; null when AuditDeepPicked is false/null.</summary>
+        public string? AuditDeepVerdict { get; set; }
+
+        /// <summary>Subagent's audit notes / rationale; populated alongside AuditDeepVerdict.</summary>
+        public string? AuditDeepNotes { get; set; }
+
+        /// <summary>Subagent's recommended action when verdict = Critical; null otherwise.</summary>
+        public string? AuditDeepRecommendedAction { get; set; }
+
+        #endregion
+
         #endregion
 
         #region Private-Members

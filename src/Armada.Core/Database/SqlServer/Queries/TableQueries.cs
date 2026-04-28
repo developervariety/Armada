@@ -359,6 +359,40 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"
                     IF COL_LENGTH('vessels', 'auto_land_predicate') IS NULL
                         ALTER TABLE vessels ADD auto_land_predicate NVARCHAR(MAX);"
+                ),
+                new SchemaMigration(
+                    33,
+                    "Add audit columns to merge_entries and calibration counter to vessels",
+                    @"
+                    IF COL_LENGTH('merge_entries', 'audit_lane') IS NULL
+                        ALTER TABLE merge_entries ADD audit_lane NVARCHAR(50);",
+                    @"
+                    IF COL_LENGTH('merge_entries', 'audit_convention_passed') IS NULL
+                        ALTER TABLE merge_entries ADD audit_convention_passed BIT;",
+                    @"
+                    IF COL_LENGTH('merge_entries', 'audit_convention_notes') IS NULL
+                        ALTER TABLE merge_entries ADD audit_convention_notes NVARCHAR(MAX);",
+                    @"
+                    IF COL_LENGTH('merge_entries', 'audit_critical_trigger') IS NULL
+                        ALTER TABLE merge_entries ADD audit_critical_trigger NVARCHAR(MAX);",
+                    @"
+                    IF COL_LENGTH('merge_entries', 'audit_deep_picked') IS NULL
+                        ALTER TABLE merge_entries ADD audit_deep_picked BIT;",
+                    @"
+                    IF COL_LENGTH('merge_entries', 'audit_deep_completed_utc') IS NULL
+                        ALTER TABLE merge_entries ADD audit_deep_completed_utc NVARCHAR(50);",
+                    @"
+                    IF COL_LENGTH('merge_entries', 'audit_deep_verdict') IS NULL
+                        ALTER TABLE merge_entries ADD audit_deep_verdict NVARCHAR(50);",
+                    @"
+                    IF COL_LENGTH('merge_entries', 'audit_deep_notes') IS NULL
+                        ALTER TABLE merge_entries ADD audit_deep_notes NVARCHAR(MAX);",
+                    @"
+                    IF COL_LENGTH('merge_entries', 'audit_deep_recommended_action') IS NULL
+                        ALTER TABLE merge_entries ADD audit_deep_recommended_action NVARCHAR(MAX);",
+                    @"
+                    IF COL_LENGTH('vessels', 'auto_land_calibration_landed_count') IS NULL
+                        ALTER TABLE vessels ADD auto_land_calibration_landed_count INT NOT NULL DEFAULT 0;"
                 )
             };
         }
