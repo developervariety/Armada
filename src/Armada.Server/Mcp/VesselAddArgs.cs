@@ -1,5 +1,7 @@
 namespace Armada.Server.Mcp
 {
+    using System.Collections.Generic;
+
     /// <summary>
     /// MCP tool arguments for adding a vessel.
     /// </summary>
@@ -54,5 +56,11 @@ namespace Armada.Server.Mcp
         /// Default pipeline ID for dispatches to this vessel (ppl_ prefix).
         /// </summary>
         public string? DefaultPipelineId { get; set; }
+
+        /// <summary>
+        /// Optional glob patterns that the captain must not modify.
+        /// Default null means no protection. Example: ["**/CLAUDE.md"].
+        /// </summary>
+        public List<string>? ProtectedPaths { get; set; }
     }
 }

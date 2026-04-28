@@ -335,6 +335,13 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"
                     IF COL_LENGTH('missions', 'prestaged_files') IS NULL
                         ALTER TABLE missions ADD prestaged_files NVARCHAR(MAX);"
+                ),
+                new SchemaMigration(
+                    30,
+                    "Add protected_paths JSON column to vessels",
+                    @"
+                    IF COL_LENGTH('vessels', 'protected_paths') IS NULL
+                        ALTER TABLE vessels ADD protected_paths NVARCHAR(MAX);"
                 )
             };
         }

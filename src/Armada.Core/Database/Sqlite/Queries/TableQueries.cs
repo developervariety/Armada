@@ -794,6 +794,9 @@ namespace Armada.Core.Database.Sqlite.Queries
                 ),
                 new SchemaMigration(29, "Add prestaged_files JSON column to missions",
                     @"ALTER TABLE missions ADD COLUMN prestaged_files TEXT;"
+                ),
+                new SchemaMigration(30, "Add protected_paths JSON column to vessels",
+                    @"ALTER TABLE vessels ADD COLUMN protected_paths TEXT;"
                 )
             };
         }

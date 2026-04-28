@@ -542,6 +542,9 @@ namespace Armada.Core.Database.Postgresql.Queries
                 ),
                 new SchemaMigration(29, "Add prestaged_files JSON column to missions",
                     @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS prestaged_files TEXT;"
+                ),
+                new SchemaMigration(30, "Add protected_paths JSON column to vessels",
+                    @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS protected_paths TEXT;"
                 )
             };
         }

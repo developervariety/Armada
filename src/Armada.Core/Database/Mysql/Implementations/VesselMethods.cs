@@ -3,6 +3,7 @@ namespace Armada.Core.Database.Mysql.Implementations
     using System;
     using System.Collections.Generic;
     using System.Globalization;
+    using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
     using MySqlConnector;
@@ -53,8 +54,8 @@ namespace Armada.Core.Database.Mysql.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = @"INSERT INTO vessels (id, tenant_id, user_id, fleet_id, name, repo_url, local_path, working_directory, project_context, style_guide, enable_model_context, model_context, landing_mode, branch_cleanup_policy, allow_concurrent_missions, default_pipeline_id, default_branch, active, created_utc, last_update_utc)
-                        VALUES (@id, @tenant_id, @user_id, @fleet_id, @name, @repo_url, @local_path, @working_directory, @project_context, @style_guide, @enable_model_context, @model_context, @landing_mode, @branch_cleanup_policy, @allow_concurrent_missions, @default_pipeline_id, @default_branch, @active, @created_utc, @last_update_utc);";
+                    cmd.CommandText = @"INSERT INTO vessels (id, tenant_id, user_id, fleet_id, name, repo_url, local_path, working_directory, project_context, style_guide, enable_model_context, model_context, landing_mode, branch_cleanup_policy, allow_concurrent_missions, default_pipeline_id, protected_paths, default_branch, active, created_utc, last_update_utc)
+                        VALUES (@id, @tenant_id, @user_id, @fleet_id, @name, @repo_url, @local_path, @working_directory, @project_context, @style_guide, @enable_model_context, @model_context, @landing_mode, @branch_cleanup_policy, @allow_concurrent_missions, @default_pipeline_id, @protected_paths, @default_branch, @active, @created_utc, @last_update_utc);";
                     cmd.Parameters.AddWithValue("@id", vessel.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)vessel.TenantId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@user_id", (object?)vessel.UserId ?? DBNull.Value);
@@ -71,6 +72,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     cmd.Parameters.AddWithValue("@branch_cleanup_policy", vessel.BranchCleanupPolicy.HasValue ? vessel.BranchCleanupPolicy.Value.ToString() : DBNull.Value);
                     cmd.Parameters.AddWithValue("@allow_concurrent_missions", vessel.AllowConcurrentMissions ? 1 : 0);
                     cmd.Parameters.AddWithValue("@default_pipeline_id", (object?)vessel.DefaultPipelineId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@protected_paths", (object?)SerializeProtectedPaths(vessel.ProtectedPaths) ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@default_branch", vessel.DefaultBranch);
                     cmd.Parameters.AddWithValue("@active", vessel.Active ? 1 : 0);
                     cmd.Parameters.AddWithValue("@created_utc", ToIso8601(vessel.CreatedUtc));
@@ -170,6 +172,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                         branch_cleanup_policy = @branch_cleanup_policy,
                         allow_concurrent_missions = @allow_concurrent_missions,
                         default_pipeline_id = @default_pipeline_id,
+                        protected_paths = @protected_paths,
                         default_branch = @default_branch,
                         active = @active,
                         last_update_utc = @last_update_utc
@@ -190,6 +193,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     cmd.Parameters.AddWithValue("@branch_cleanup_policy", vessel.BranchCleanupPolicy.HasValue ? vessel.BranchCleanupPolicy.Value.ToString() : DBNull.Value);
                     cmd.Parameters.AddWithValue("@allow_concurrent_missions", vessel.AllowConcurrentMissions ? 1 : 0);
                     cmd.Parameters.AddWithValue("@default_pipeline_id", (object?)vessel.DefaultPipelineId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@protected_paths", (object?)SerializeProtectedPaths(vessel.ProtectedPaths) ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@default_branch", vessel.DefaultBranch);
                     cmd.Parameters.AddWithValue("@active", vessel.Active ? 1 : 0);
                     cmd.Parameters.AddWithValue("@last_update_utc", ToIso8601(vessel.LastUpdateUtc));
@@ -751,11 +755,42 @@ namespace Armada.Core.Database.Mysql.Implementations
             try { vessel.AllowConcurrentMissions = Convert.ToInt64(reader["allow_concurrent_missions"]) == 1; }
             catch { vessel.AllowConcurrentMissions = false; }
             try { vessel.DefaultPipelineId = NullableString(reader["default_pipeline_id"]); } catch { }
+            try { vessel.ProtectedPaths = DeserializeProtectedPaths(reader["protected_paths"]); } catch { }
             vessel.DefaultBranch = reader["default_branch"].ToString()!;
             vessel.Active = Convert.ToInt64(reader["active"]) == 1;
             vessel.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
             vessel.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
             return vessel;
+        }
+
+        /// <summary>
+        /// Serialize a vessel's protected-paths glob list for storage. Returns null
+        /// when the list is null or empty so the column stores NULL rather than '[]'.
+        /// </summary>
+        internal static string? SerializeProtectedPaths(List<string>? entries)
+        {
+            if (entries == null || entries.Count == 0) return null;
+            return JsonSerializer.Serialize(entries);
+        }
+
+        /// <summary>
+        /// Deserialize protected paths from a stored JSON column value. Returns
+        /// null on null/empty/'[]' input and never throws on bad data.
+        /// </summary>
+        internal static List<string>? DeserializeProtectedPaths(object? raw)
+        {
+            if (raw == null || raw == DBNull.Value) return null;
+            string? json = raw.ToString();
+            if (String.IsNullOrWhiteSpace(json)) return null;
+            try
+            {
+                List<string>? list = JsonSerializer.Deserialize<List<string>>(json);
+                return (list != null && list.Count > 0) ? list : null;
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         #endregion

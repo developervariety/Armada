@@ -633,6 +633,14 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
+        /// Migration v30 statements for adding protected_paths JSON column to vessels.
+        /// </summary>
+        public static readonly string[] MigrationV30Statements = new string[]
+        {
+            @"ALTER TABLE vessels ADD COLUMN protected_paths LONGTEXT;"
+        };
+
+        /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
         public static readonly string[] Indexes = new string[]

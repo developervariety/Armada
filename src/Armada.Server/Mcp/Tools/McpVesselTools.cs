@@ -68,7 +68,13 @@ namespace Armada.Server.Mcp.Tools
                         workingDirectory = new { type = "string", description = "Optional local directory where completed mission changes will be pulled after merge" },
                         allowConcurrentMissions = new { type = "boolean", description = "Allow multiple concurrent missions on this vessel (default false)" },
                         enableModelContext = new { type = "boolean", description = "Enable model context accumulation -- agents will update context with key information discovered during missions (default false)" },
-                        defaultPipelineId = new { type = "string", description = "Default pipeline ID for dispatches to this vessel (ppl_ prefix)" }
+                        defaultPipelineId = new { type = "string", description = "Default pipeline ID for dispatches to this vessel (ppl_ prefix)" },
+                        protectedPaths = new
+                        {
+                            type = "array",
+                            items = new { type = "string" },
+                            description = "Optional glob patterns the captain must not modify (e.g. [\"**/CLAUDE.md\"]). On a violation the orchestrator fails the mission before any merge or push."
+                        }
                     },
                     required = new[] { "name", "repoUrl", "fleetId" }
                 },
@@ -87,6 +93,7 @@ namespace Armada.Server.Mcp.Tools
                     vessel.AllowConcurrentMissions = request.AllowConcurrentMissions ?? false;
                     vessel.EnableModelContext = request.EnableModelContext ?? true;
                     vessel.DefaultPipelineId = request.DefaultPipelineId;
+                    vessel.ProtectedPaths = (request.ProtectedPaths != null && request.ProtectedPaths.Count > 0) ? request.ProtectedPaths : null;
                     vessel = await database.Vessels.CreateAsync(vessel).ConfigureAwait(false);
                     return (object)vessel;
                 });
@@ -109,7 +116,13 @@ namespace Armada.Server.Mcp.Tools
                         allowConcurrentMissions = new { type = "boolean", description = "Allow multiple concurrent missions on this vessel" },
                         enableModelContext = new { type = "boolean", description = "Enable or disable model context accumulation" },
                         modelContext = new { type = "string", description = "Agent-accumulated context about this repository" },
-                        defaultPipelineId = new { type = "string", description = "Default pipeline ID for dispatches to this vessel (ppl_ prefix)" }
+                        defaultPipelineId = new { type = "string", description = "Default pipeline ID for dispatches to this vessel (ppl_ prefix)" },
+                        protectedPaths = new
+                        {
+                            type = "array",
+                            items = new { type = "string" },
+                            description = "Glob patterns the captain must not modify (e.g. [\"**/CLAUDE.md\"]). Pass an empty array to clear protection; omit the field to leave the existing list unchanged."
+                        }
                     },
                     required = new[] { "vesselId" }
                 },
@@ -139,6 +152,8 @@ namespace Armada.Server.Mcp.Tools
                         vessel.ModelContext = request.ModelContext;
                     if (request.DefaultPipelineId != null)
                         vessel.DefaultPipelineId = request.DefaultPipelineId;
+                    if (request.ProtectedPaths != null)
+                        vessel.ProtectedPaths = request.ProtectedPaths.Count > 0 ? request.ProtectedPaths : null;
                     vessel = await database.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
                     return (object)vessel;
                 });

@@ -1,5 +1,6 @@
 namespace Armada.Core.Models
 {
+    using System.Collections.Generic;
     using System.Text.Json.Serialization;
     using Armada.Core.Enums;
 
@@ -125,6 +126,16 @@ namespace Armada.Core.Models
         /// Vessel setting overrides fleet setting. Null uses WorkerOnly pipeline.
         /// </summary>
         public string? DefaultPipelineId { get; set; } = null;
+
+        /// <summary>
+        /// Optional list of glob patterns that the captain must not modify.
+        /// When set, the orchestrator gates mission landing by checking each
+        /// changed file against these globs and fails the mission on a match.
+        /// Default null means no protection (preserves prior behavior).
+        /// Patterns use Microsoft.Extensions.FileSystemGlobbing semantics
+        /// (e.g. "**/CLAUDE.md", "_briefing/**", "_skills/**").
+        /// </summary>
+        public List<string>? ProtectedPaths { get; set; } = null;
 
         /// <summary>
         /// Whether the vessel is active.

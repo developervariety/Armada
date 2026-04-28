@@ -7,6 +7,7 @@ namespace Armada.Server
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
     using Armada.Server.WebSocket;
@@ -156,6 +157,34 @@ namespace Armada.Server
             if (!String.IsNullOrEmpty(mission.VesselId))
             {
                 vessel = await _Database.Vessels.ReadAsync(mission.VesselId).ConfigureAwait(false);
+            }
+
+            // Protected-paths gate: runs before any merge / push / merge-queue enqueue
+            // so a violation never produces a merge entry, never opens a PR, and never
+            // pushes the captain's branch. Captains are expected to surface CLAUDE.md or
+            // other curated-file changes through a [CLAUDE.MD-PROPOSAL] block instead of
+            // editing protected files directly.
+            if (vessel != null && vessel.ProtectedPaths != null && vessel.ProtectedPaths.Count > 0)
+            {
+                IReadOnlyList<string> changedFiles = ProtectedPathsValidator.ExtractChangedFilesFromDiff(mission.DiffSnapshot);
+                string? offending = ProtectedPathsValidator.FindFirstViolation(changedFiles, vessel.ProtectedPaths);
+                if (!String.IsNullOrEmpty(offending))
+                {
+                    string failureReason = ProtectedPathsValidator.FormatFailureReason(offending, vessel.Name);
+                    _Logging.Warn(_Header + "mission " + mission.Id + " blocked by protected paths gate: " + failureReason);
+
+                    mission.Status = MissionStatusEnum.Failed;
+                    mission.FailureReason = failureReason;
+                    mission.CompletedUtc = DateTime.UtcNow;
+                    mission.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+
+                    if (_WebSocketHub != null)
+                    {
+                        _WebSocketHub.BroadcastMissionChange(mission.Id, MissionStatusEnum.Failed.ToString(), mission.Title);
+                    }
+                    return;
+                }
             }
 
             Voyage? voyage = null;

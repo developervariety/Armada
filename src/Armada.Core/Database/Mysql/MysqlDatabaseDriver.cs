@@ -434,6 +434,11 @@ namespace Armada.Core.Database.Mysql
                     29,
                     "Add prestaged_files JSON column to missions",
                     TableQueries.MigrationV29Statements
+                ),
+                new SchemaMigration(
+                    30,
+                    "Add protected_paths JSON column to vessels",
+                    TableQueries.MigrationV30Statements
                 )
             };
         }
