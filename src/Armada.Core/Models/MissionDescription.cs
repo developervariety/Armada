@@ -39,6 +39,14 @@ namespace Armada.Core.Models
         /// </summary>
         public string? PreferredModel { get; set; } = null;
 
+        /// <summary>
+        /// Optional ID of a mission this mission must wait for. The dependent
+        /// mission stays Pending until the referenced mission reaches a
+        /// completion state. Plumbed through to <see cref="Mission.DependsOnMissionId"/>
+        /// on the created mission.
+        /// </summary>
+        public string? DependsOnMissionId { get; set; } = null;
+
         #endregion
 
         #region Constructors-and-Factories

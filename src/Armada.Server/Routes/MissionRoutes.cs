@@ -326,6 +326,7 @@ namespace Armada.Server.Routes
                 existing.BranchName = incoming.BranchName;
                 existing.PrUrl = incoming.PrUrl;
                 existing.ParentMissionId = incoming.ParentMissionId;
+                existing.DependsOnMissionId = incoming.DependsOnMissionId;
                 existing.LastUpdateUtc = DateTime.UtcNow;
 
                 // Preserve operational/timestamp fields: CreatedUtc, StartedUtc, CompletedUtc,

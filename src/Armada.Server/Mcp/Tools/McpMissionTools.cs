@@ -71,6 +71,7 @@ namespace Armada.Server.Mcp.Tools
                         vesselId = new { type = "string", description = "Target vessel ID (vsl_ prefix)" },
                         voyageId = new { type = "string", description = "Optional voyage ID to associate with (vyg_ prefix)" },
                         persona = new { type = "string", description = "Persona for this mission (e.g. Worker, Architect, Judge, TestEngineer)" },
+                        dependsOnMissionId = new { type = "string", description = "Optional mission ID (msn_ prefix) this mission must wait for. The dependent mission stays Pending until the referenced mission reaches a completion state." },
                         selectedPlaybooks = new
                         {
                             type = "array",
@@ -100,6 +101,13 @@ namespace Armada.Server.Mcp.Tools
                     if (request.VoyageId != null)
                         mission.VoyageId = request.VoyageId;
                     mission.Persona = request.Persona;
+                    if (!String.IsNullOrEmpty(request.DependsOnMissionId))
+                    {
+                        Mission? referenced = await database.Missions.ReadAsync(request.DependsOnMissionId).ConfigureAwait(false);
+                        if (referenced == null)
+                            return (object)new { Error = "dependsOnMissionId not found: " + request.DependsOnMissionId };
+                        mission.DependsOnMissionId = request.DependsOnMissionId;
+                    }
                     mission.SelectedPlaybooks = request.SelectedPlaybooks ?? new List<SelectedPlaybook>();
                     mission = await admiral.DispatchMissionAsync(mission).ConfigureAwait(false);
                     if (mission.Status == Armada.Core.Enums.MissionStatusEnum.Pending)
@@ -130,7 +138,8 @@ namespace Armada.Server.Mcp.Tools
                         branchName = new { type = "string", description = "Git branch name for this mission" },
                         prUrl = new { type = "string", description = "Pull request URL" },
                         parentMissionId = new { type = "string", description = "Parent mission ID for sub-tasks (msn_ prefix)" },
-                        persona = new { type = "string", description = "Persona for this mission (e.g. Worker, Architect, Judge, TestEngineer)" }
+                        persona = new { type = "string", description = "Persona for this mission (e.g. Worker, Architect, Judge, TestEngineer)" },
+                        dependsOnMissionId = new { type = "string", description = "Mission ID (msn_ prefix) this mission must wait for. Pass an empty string to clear the dependency." }
                     },
                     required = new[] { "missionId" }
                 },
@@ -158,6 +167,20 @@ namespace Armada.Server.Mcp.Tools
                         mission.ParentMissionId = request.ParentMissionId;
                     if (request.Persona != null)
                         mission.Persona = request.Persona;
+                    if (request.DependsOnMissionId != null)
+                    {
+                        if (request.DependsOnMissionId.Length == 0)
+                        {
+                            mission.DependsOnMissionId = null;
+                        }
+                        else
+                        {
+                            Mission? referenced = await database.Missions.ReadAsync(request.DependsOnMissionId).ConfigureAwait(false);
+                            if (referenced == null)
+                                return (object)new { Error = "dependsOnMissionId not found: " + request.DependsOnMissionId };
+                            mission.DependsOnMissionId = request.DependsOnMissionId;
+                        }
+                    }
                     mission.LastUpdateUtc = DateTime.UtcNow;
                     mission = await database.Missions.UpdateAsync(mission).ConfigureAwait(false);
                     return (object)mission;
