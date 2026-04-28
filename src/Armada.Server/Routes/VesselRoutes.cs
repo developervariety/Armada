@@ -3,6 +3,7 @@ namespace Armada.Server.Routes
     using System.Diagnostics;
     using System.IO;
     using System.Text.Json;
+    using System.Text.Json.Nodes;
     using WatsonWebserver;
     using WatsonWebserver.Core;
     using WatsonWebserver.Core.OpenApi;
@@ -114,7 +115,16 @@ namespace Armada.Server.Routes
                     req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
-                Vessel vessel = JsonSerializer.Deserialize<Vessel>(req.Http.Request.DataAsString, _jsonOptions)
+                string? autoLandPredicateJson = ValidateAndExtractAutoLandPredicate(
+                    req.Http.Request.DataAsString,
+                    out string createBodyText,
+                    out string? createAlpError);
+                if (createAlpError != null)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = createAlpError };
+                }
+                Vessel vessel = JsonSerializer.Deserialize<Vessel>(createBodyText, _jsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as Vessel.");
                 if (String.IsNullOrEmpty(vessel.RepoUrl))
                 {
@@ -123,6 +133,7 @@ namespace Armada.Server.Routes
                 }
                 vessel.TenantId = ctx.TenantId;
                 vessel.UserId = ctx.UserId;
+                vessel.AutoLandPredicate = autoLandPredicateJson;
                 vessel = await _database.Vessels.CreateAsync(vessel).ConfigureAwait(false);
                 req.Http.Response.StatusCode = 201;
                 return vessel;
@@ -176,9 +187,19 @@ namespace Armada.Server.Routes
                         ? await _database.Vessels.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
                         : await _database.Vessels.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (existing == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Vessel not found" }; }
-                Vessel updated = JsonSerializer.Deserialize<Vessel>(req.Http.Request.DataAsString, _jsonOptions)
+                string? updateAlpJson = ValidateAndExtractAutoLandPredicate(
+                    req.Http.Request.DataAsString,
+                    out string updateBodyText,
+                    out string? updateAlpError);
+                if (updateAlpError != null)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = updateAlpError };
+                }
+                Vessel updated = JsonSerializer.Deserialize<Vessel>(updateBodyText, _jsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as Vessel.");
                 updated.Id = id;
+                updated.AutoLandPredicate = updateAlpJson;
                 updated = await _database.Vessels.UpdateAsync(updated).ConfigureAwait(false);
                 return (object)updated;
             },
@@ -436,6 +457,49 @@ namespace Armada.Server.Routes
 
             // Log warnings but don't block deletion -- orphan filesystem cleanup
             // can happen on next server restart. The vessel DB record must be deleted.
+        }
+
+        /// <summary>
+        /// Extracts and validates the <c>autoLandPredicate</c> JSON object from a raw request body.
+        /// Strips the property so the remainder can be deserialized as <see cref="Vessel"/> without type conflict.
+        /// Returns the validated JSON string on success, null when the property is absent or null.
+        /// Sets <paramref name="error"/> and returns null on shape validation failure.
+        /// </summary>
+        private static string? ValidateAndExtractAutoLandPredicate(
+            string rawBody,
+            out string cleanedBody,
+            out string? error)
+        {
+            cleanedBody = rawBody;
+            error = null;
+            try
+            {
+                JsonNode? bodyNode = JsonNode.Parse(rawBody);
+                if (bodyNode is JsonObject bodyObj && bodyObj.ContainsKey("autoLandPredicate"))
+                {
+                    JsonNode? alpNode = bodyObj["autoLandPredicate"];
+                    bodyObj.Remove("autoLandPredicate");
+                    cleanedBody = bodyObj.ToJsonString();
+                    if (alpNode != null)
+                    {
+                        string alpRaw = alpNode.ToJsonString();
+                        try
+                        {
+                            JsonSerializer.Deserialize<Armada.Core.Models.AutoLandPredicate>(
+                                alpRaw,
+                                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                            return alpRaw;
+                        }
+                        catch (JsonException ex)
+                        {
+                            error = "invalid autoLandPredicate JSON: " + ex.Message;
+                            return null;
+                        }
+                    }
+                }
+            }
+            catch { }
+            return null;
         }
 
         /// <summary>
