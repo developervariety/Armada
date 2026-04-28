@@ -74,6 +74,12 @@ namespace Armada.Server.Mcp.Tools
                             type = "array",
                             items = new { type = "string" },
                             description = "Optional glob patterns the captain must not modify (e.g. [\"**/CLAUDE.md\"]). On a violation the orchestrator fails the mission before any merge or push."
+                        },
+                        autoLandPredicate = new
+                        {
+                            type = "object",
+                            description = "Optional auto-land predicate config. Null = orchestrator-triggered lands only. Schema: { enabled: bool, maxAddedLines?: int, maxFiles?: int, allowPaths?: string[], denyPaths?: string[] }.",
+                            additionalProperties = true
                         }
                     },
                     required = new[] { "name", "repoUrl", "fleetId" }
@@ -81,6 +87,23 @@ namespace Armada.Server.Mcp.Tools
                 async (args) =>
                 {
                     VesselAddArgs request = JsonSerializer.Deserialize<VesselAddArgs>(args!.Value, _JsonOptions)!;
+                    string? autoLandPredicateJson = null;
+                    if (args.HasValue && args.Value.TryGetProperty("autoLandPredicate", out JsonElement addAlpElem)
+                        && addAlpElem.ValueKind != JsonValueKind.Null)
+                    {
+                        string addAlpRaw = addAlpElem.GetRawText();
+                        try
+                        {
+                            JsonSerializer.Deserialize<Armada.Core.Models.AutoLandPredicate>(
+                                addAlpRaw,
+                                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                            autoLandPredicateJson = addAlpRaw;
+                        }
+                        catch (JsonException ex)
+                        {
+                            return (object)new { Error = "invalid autoLandPredicate JSON: " + ex.Message };
+                        }
+                    }
                     Vessel vessel = new Vessel();
                     vessel.TenantId = ArmadaConstants.DefaultTenantId;
                     vessel.Name = request.Name;
@@ -94,6 +117,7 @@ namespace Armada.Server.Mcp.Tools
                     vessel.EnableModelContext = request.EnableModelContext ?? true;
                     vessel.DefaultPipelineId = request.DefaultPipelineId;
                     vessel.ProtectedPaths = (request.ProtectedPaths != null && request.ProtectedPaths.Count > 0) ? request.ProtectedPaths : null;
+                    vessel.AutoLandPredicate = autoLandPredicateJson;
                     vessel = await database.Vessels.CreateAsync(vessel).ConfigureAwait(false);
                     return (object)vessel;
                 });
@@ -122,6 +146,12 @@ namespace Armada.Server.Mcp.Tools
                             type = "array",
                             items = new { type = "string" },
                             description = "Glob patterns the captain must not modify (e.g. [\"**/CLAUDE.md\"]). Pass an empty array to clear protection; omit the field to leave the existing list unchanged."
+                        },
+                        autoLandPredicate = new
+                        {
+                            type = "object",
+                            description = "Optional auto-land predicate config. Null = orchestrator-triggered lands only. Schema: { enabled: bool, maxAddedLines?: int, maxFiles?: int, allowPaths?: string[], denyPaths?: string[] }. Omit to leave the existing predicate unchanged; pass null to clear it.",
+                            additionalProperties = true
                         }
                     },
                     required = new[] { "vesselId" }
@@ -154,6 +184,28 @@ namespace Armada.Server.Mcp.Tools
                         vessel.DefaultPipelineId = request.DefaultPipelineId;
                     if (request.ProtectedPaths != null)
                         vessel.ProtectedPaths = request.ProtectedPaths.Count > 0 ? request.ProtectedPaths : null;
+                    if (args.HasValue && args.Value.TryGetProperty("autoLandPredicate", out JsonElement updAlpElem))
+                    {
+                        if (updAlpElem.ValueKind == JsonValueKind.Null)
+                        {
+                            vessel.AutoLandPredicate = null;
+                        }
+                        else
+                        {
+                            string updAlpRaw = updAlpElem.GetRawText();
+                            try
+                            {
+                                JsonSerializer.Deserialize<Armada.Core.Models.AutoLandPredicate>(
+                                    updAlpRaw,
+                                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                                vessel.AutoLandPredicate = updAlpRaw;
+                            }
+                            catch (JsonException ex)
+                            {
+                                return (object)new { Error = "invalid autoLandPredicate JSON: " + ex.Message };
+                            }
+                        }
+                    }
                     vessel = await database.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
                     return (object)vessel;
                 });
