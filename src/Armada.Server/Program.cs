@@ -5,6 +5,7 @@ namespace Armada.Server
     using System.IO;
     using System.Runtime.Loader;
     using System.Text.Json;
+    using System.Text.Json.Serialization;
     using System.Threading;
     using SyslogLogging;
     using Armada.Core;
@@ -55,7 +56,9 @@ namespace Armada.Server
             if (File.Exists(settingsPath))
             {
                 string json = File.ReadAllText(settingsPath);
-                ArmadaSettings? loaded = JsonSerializer.Deserialize<ArmadaSettings>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                JsonSerializerOptions settingsOpts = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                settingsOpts.Converters.Add(new JsonStringEnumConverter());
+                ArmadaSettings? loaded = JsonSerializer.Deserialize<ArmadaSettings>(json, settingsOpts);
                 if (loaded != null) _Settings = loaded;
             }
 
