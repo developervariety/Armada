@@ -366,6 +366,7 @@ namespace Armada.Core.Database.SqlServer
             try { vessel.DefaultPipelineId = NullableString(reader["default_pipeline_id"]); } catch { }
             try { vessel.ProtectedPaths = Implementations.VesselMethods.DeserializeProtectedPaths(reader["protected_paths"]); } catch { }
             try { vessel.AutoLandPredicate = reader["auto_land_predicate"] as string; } catch { }
+            try { vessel.AutoLandCalibrationLandedCount = Convert.ToInt32(reader["auto_land_calibration_landed_count"]); } catch { vessel.AutoLandCalibrationLandedCount = 0; }
             vessel.DefaultBranch = reader["default_branch"].ToString()!;
             vessel.Active = Convert.ToBoolean(reader["active"]);
             vessel.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
@@ -557,6 +558,15 @@ namespace Armada.Core.Database.SqlServer
             entry.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
             entry.TestStartedUtc = FromIso8601Nullable(reader["test_started_utc"]);
             entry.CompletedUtc = FromIso8601Nullable(reader["completed_utc"]);
+            try { entry.AuditLane = reader["audit_lane"] as string; } catch { }
+            try { object av = reader["audit_convention_passed"]; entry.AuditConventionPassed = (av == null || av == DBNull.Value) ? (bool?)null : Convert.ToBoolean(av); } catch { }
+            try { entry.AuditConventionNotes = reader["audit_convention_notes"] as string; } catch { }
+            try { entry.AuditCriticalTrigger = reader["audit_critical_trigger"] as string; } catch { }
+            try { object dv = reader["audit_deep_picked"]; entry.AuditDeepPicked = (dv == null || dv == DBNull.Value) ? (bool?)null : Convert.ToBoolean(dv); } catch { }
+            try { entry.AuditDeepCompletedUtc = FromIso8601Nullable(reader["audit_deep_completed_utc"]); } catch { }
+            try { entry.AuditDeepVerdict = reader["audit_deep_verdict"] as string; } catch { }
+            try { entry.AuditDeepNotes = reader["audit_deep_notes"] as string; } catch { }
+            try { entry.AuditDeepRecommendedAction = reader["audit_deep_recommended_action"] as string; } catch { }
             return entry;
         }
 

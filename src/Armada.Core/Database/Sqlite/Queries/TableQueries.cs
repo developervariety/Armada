@@ -804,6 +804,18 @@ namespace Armada.Core.Database.Sqlite.Queries
                 ),
                 new SchemaMigration(32, "Add auto_land_predicate JSON column to vessels",
                     @"ALTER TABLE vessels ADD COLUMN auto_land_predicate TEXT;"
+                ),
+                new SchemaMigration(33, "Add audit columns to merge_entries and calibration counter to vessels",
+                    @"ALTER TABLE merge_entries ADD COLUMN audit_lane TEXT;",
+                    @"ALTER TABLE merge_entries ADD COLUMN audit_convention_passed INTEGER;",
+                    @"ALTER TABLE merge_entries ADD COLUMN audit_convention_notes TEXT;",
+                    @"ALTER TABLE merge_entries ADD COLUMN audit_critical_trigger TEXT;",
+                    @"ALTER TABLE merge_entries ADD COLUMN audit_deep_picked INTEGER;",
+                    @"ALTER TABLE merge_entries ADD COLUMN audit_deep_completed_utc TEXT;",
+                    @"ALTER TABLE merge_entries ADD COLUMN audit_deep_verdict TEXT;",
+                    @"ALTER TABLE merge_entries ADD COLUMN audit_deep_notes TEXT;",
+                    @"ALTER TABLE merge_entries ADD COLUMN audit_deep_recommended_action TEXT;",
+                    @"ALTER TABLE vessels ADD COLUMN auto_land_calibration_landed_count INTEGER NOT NULL DEFAULT 0;"
                 )
             };
         }

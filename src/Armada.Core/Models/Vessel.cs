@@ -143,6 +143,15 @@ namespace Armada.Core.Models
         /// </summary>
         public string? AutoLandPredicate { get; set; } = null;
 
+        /// <summary>
+        /// Count of successful auto-landings on this vessel. Used by the auto-land
+        /// safety net's calibration period: while this count is below 50, every
+        /// auto-landed entry is queued for deep review regardless of critical-trigger
+        /// criteria. Increments atomically in MergeQueueService at land success.
+        /// Never resets.
+        /// </summary>
+        public int AutoLandCalibrationLandedCount { get; set; } = 0;
+
         /// <summary>Lazy-parses the AutoLandPredicate JSON string. Returns null if unset or malformed.</summary>
         public Armada.Core.Models.AutoLandPredicate? GetAutoLandPredicate()
         {

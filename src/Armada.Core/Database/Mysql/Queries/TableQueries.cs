@@ -660,6 +660,23 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
+        /// Migration v33 statements for adding audit columns to merge_entries and calibration counter to vessels.
+        /// </summary>
+        public static readonly string[] MigrationV33Statements = new string[]
+        {
+            @"ALTER TABLE merge_entries ADD COLUMN audit_lane TEXT;",
+            @"ALTER TABLE merge_entries ADD COLUMN audit_convention_passed TINYINT(1);",
+            @"ALTER TABLE merge_entries ADD COLUMN audit_convention_notes LONGTEXT;",
+            @"ALTER TABLE merge_entries ADD COLUMN audit_critical_trigger TEXT;",
+            @"ALTER TABLE merge_entries ADD COLUMN audit_deep_picked TINYINT(1);",
+            @"ALTER TABLE merge_entries ADD COLUMN audit_deep_completed_utc TEXT;",
+            @"ALTER TABLE merge_entries ADD COLUMN audit_deep_verdict TEXT;",
+            @"ALTER TABLE merge_entries ADD COLUMN audit_deep_notes LONGTEXT;",
+            @"ALTER TABLE merge_entries ADD COLUMN audit_deep_recommended_action LONGTEXT;",
+            @"ALTER TABLE vessels ADD COLUMN auto_land_calibration_landed_count INT NOT NULL DEFAULT 0;"
+        };
+
+        /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
         public static readonly string[] Indexes = new string[]

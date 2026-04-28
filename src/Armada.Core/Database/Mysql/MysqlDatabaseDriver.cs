@@ -449,6 +449,11 @@ namespace Armada.Core.Database.Mysql
                     32,
                     "Add auto_land_predicate JSON column to vessels",
                     TableQueries.MigrationV32Statements
+                ),
+                new SchemaMigration(
+                    33,
+                    "Add audit columns to merge_entries and calibration counter to vessels",
+                    TableQueries.MigrationV33Statements
                 )
             };
         }
@@ -649,6 +654,15 @@ namespace Armada.Core.Database.Mysql
             entry.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
             entry.TestStartedUtc = FromIso8601Nullable(reader["test_started_utc"]);
             entry.CompletedUtc = FromIso8601Nullable(reader["completed_utc"]);
+            try { entry.AuditLane = reader["audit_lane"] as string; } catch { }
+            try { object av = reader["audit_convention_passed"]; entry.AuditConventionPassed = (av == null || av == DBNull.Value) ? (bool?)null : Convert.ToInt64(av) == 1; } catch { }
+            try { entry.AuditConventionNotes = reader["audit_convention_notes"] as string; } catch { }
+            try { entry.AuditCriticalTrigger = reader["audit_critical_trigger"] as string; } catch { }
+            try { object dv = reader["audit_deep_picked"]; entry.AuditDeepPicked = (dv == null || dv == DBNull.Value) ? (bool?)null : Convert.ToInt64(dv) == 1; } catch { }
+            try { entry.AuditDeepCompletedUtc = FromIso8601Nullable(reader["audit_deep_completed_utc"]); } catch { }
+            try { entry.AuditDeepVerdict = reader["audit_deep_verdict"] as string; } catch { }
+            try { entry.AuditDeepNotes = reader["audit_deep_notes"] as string; } catch { }
+            try { entry.AuditDeepRecommendedAction = reader["audit_deep_recommended_action"] as string; } catch { }
             return entry;
         }
 
