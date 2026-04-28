@@ -7,6 +7,7 @@ namespace Armada.Server.Mcp
     using System.Threading.Tasks;
     using Armada.Server;
     using Armada.Core.Database;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
     using Armada.Server.Mcp.Tools;
@@ -81,6 +82,7 @@ namespace Armada.Server.Mcp
             McpPipelineTools.Register(register, database);
             if (settings != null) McpBackupTools.Register(register, database, settings);
             McpAuditTools.Register(register, database);
+            McpArchitectTools.Register(register, database, new ArchitectOutputParser(), admiral);
         }
     }
 }
