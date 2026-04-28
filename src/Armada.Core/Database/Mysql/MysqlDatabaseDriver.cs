@@ -454,6 +454,11 @@ namespace Armada.Core.Database.Mysql
                     33,
                     "Add audit columns to merge_entries and calibration counter to vessels",
                     TableQueries.MigrationV33Statements
+                ),
+                new SchemaMigration(
+                    34,
+                    "Add default_playbooks JSON column to vessels",
+                    TableQueries.MigrationV34Statements
                 )
             };
         }

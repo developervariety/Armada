@@ -144,6 +144,14 @@ namespace Armada.Core.Models
         public string? AutoLandPredicate { get; set; } = null;
 
         /// <summary>
+        /// JSON-serialized list of SelectedPlaybook entries that are automatically merged into every
+        /// dispatch against this vessel. Callers may override or extend these defaults via the
+        /// selectedPlaybooks parameter on armada_dispatch.
+        /// Use GetDefaultPlaybooks() to obtain a parsed list.
+        /// </summary>
+        public string? DefaultPlaybooks { get; set; } = null;
+
+        /// <summary>
         /// Count of successful auto-landings on this vessel. Used by the auto-land
         /// safety net's calibration period: while this count is below 50, every
         /// auto-landed entry is queued for deep review regardless of critical-trigger
@@ -151,6 +159,23 @@ namespace Armada.Core.Models
         /// Never resets.
         /// </summary>
         public int AutoLandCalibrationLandedCount { get; set; } = 0;
+
+        /// <summary>Lazy-parses the DefaultPlaybooks JSON string. Returns an empty list if unset or malformed.</summary>
+        public List<SelectedPlaybook> GetDefaultPlaybooks()
+        {
+            if (string.IsNullOrWhiteSpace(DefaultPlaybooks)) return new List<SelectedPlaybook>();
+            try
+            {
+                List<SelectedPlaybook>? list = System.Text.Json.JsonSerializer.Deserialize<List<SelectedPlaybook>>(
+                    DefaultPlaybooks,
+                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                return list ?? new List<SelectedPlaybook>();
+            }
+            catch
+            {
+                return new List<SelectedPlaybook>();
+            }
+        }
 
         /// <summary>Lazy-parses the AutoLandPredicate JSON string. Returns null if unset or malformed.</summary>
         public Armada.Core.Models.AutoLandPredicate? GetAutoLandPredicate()

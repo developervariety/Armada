@@ -816,6 +816,9 @@ namespace Armada.Core.Database.Sqlite.Queries
                     @"ALTER TABLE merge_entries ADD COLUMN audit_deep_notes TEXT;",
                     @"ALTER TABLE merge_entries ADD COLUMN audit_deep_recommended_action TEXT;",
                     @"ALTER TABLE vessels ADD COLUMN auto_land_calibration_landed_count INTEGER NOT NULL DEFAULT 0;"
+                ),
+                new SchemaMigration(34, "Add default_playbooks JSON column to vessels",
+                    @"ALTER TABLE vessels ADD COLUMN default_playbooks TEXT;"
                 )
             };
         }

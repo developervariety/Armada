@@ -677,6 +677,14 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
+        /// Migration v34 statements for adding default_playbooks JSON column to vessels.
+        /// </summary>
+        public static readonly string[] MigrationV34Statements = new string[]
+        {
+            @"ALTER TABLE vessels ADD COLUMN default_playbooks LONGTEXT;"
+        };
+
+        /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
         public static readonly string[] Indexes = new string[]

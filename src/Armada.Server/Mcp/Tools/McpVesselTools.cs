@@ -80,6 +80,21 @@ namespace Armada.Server.Mcp.Tools
                             type = "object",
                             description = "Optional auto-land predicate config. Null = orchestrator-triggered lands only. Schema: { enabled: bool, maxAddedLines?: int, maxFiles?: int, allowPaths?: string[], denyPaths?: string[] }.",
                             additionalProperties = true
+                        },
+                        defaultPlaybooks = new
+                        {
+                            type = "array",
+                            description = "Optional default playbooks merged into every dispatch against this vessel. Each entry: { playbookId: string, deliveryMode: string }. Omit to set no defaults.",
+                            items = new
+                            {
+                                type = "object",
+                                properties = new
+                                {
+                                    playbookId = new { type = "string", description = "Playbook ID (pbk_ prefix)" },
+                                    deliveryMode = new { type = "string", description = "InlineFullContent, InstructionWithReference, or AttachIntoWorktree" }
+                                },
+                                required = new[] { "playbookId", "deliveryMode" }
+                            }
                         }
                     },
                     required = new[] { "name", "repoUrl", "fleetId" }
@@ -104,6 +119,23 @@ namespace Armada.Server.Mcp.Tools
                             return (object)new { Error = "invalid autoLandPredicate JSON: " + ex.Message };
                         }
                     }
+                    string? defaultPlaybooksJson = null;
+                    if (args.HasValue && args.Value.TryGetProperty("defaultPlaybooks", out JsonElement addDpElem)
+                        && addDpElem.ValueKind != JsonValueKind.Null)
+                    {
+                        string addDpRaw = addDpElem.GetRawText();
+                        try
+                        {
+                            JsonSerializer.Deserialize<List<SelectedPlaybook>>(
+                                addDpRaw,
+                                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                            defaultPlaybooksJson = addDpRaw;
+                        }
+                        catch (JsonException ex)
+                        {
+                            return (object)new { Error = "invalid defaultPlaybooks JSON: " + ex.Message };
+                        }
+                    }
                     Vessel vessel = new Vessel();
                     vessel.TenantId = ArmadaConstants.DefaultTenantId;
                     vessel.Name = request.Name;
@@ -118,6 +150,7 @@ namespace Armada.Server.Mcp.Tools
                     vessel.DefaultPipelineId = request.DefaultPipelineId;
                     vessel.ProtectedPaths = (request.ProtectedPaths != null && request.ProtectedPaths.Count > 0) ? request.ProtectedPaths : null;
                     vessel.AutoLandPredicate = autoLandPredicateJson;
+                    vessel.DefaultPlaybooks = defaultPlaybooksJson;
                     vessel = await database.Vessels.CreateAsync(vessel).ConfigureAwait(false);
                     return (object)vessel;
                 });
@@ -152,6 +185,21 @@ namespace Armada.Server.Mcp.Tools
                             type = "object",
                             description = "Optional auto-land predicate config. Null = orchestrator-triggered lands only. Schema: { enabled: bool, maxAddedLines?: int, maxFiles?: int, allowPaths?: string[], denyPaths?: string[] }. Omit to leave the existing predicate unchanged; pass null to clear it.",
                             additionalProperties = true
+                        },
+                        defaultPlaybooks = new
+                        {
+                            type = "array",
+                            description = "Default playbooks merged into every dispatch against this vessel. Each entry: { playbookId: string, deliveryMode: string }. Omit to leave unchanged; pass an empty array to clear all defaults; pass null to clear all defaults.",
+                            items = new
+                            {
+                                type = "object",
+                                properties = new
+                                {
+                                    playbookId = new { type = "string", description = "Playbook ID (pbk_ prefix)" },
+                                    deliveryMode = new { type = "string", description = "InlineFullContent, InstructionWithReference, or AttachIntoWorktree" }
+                                },
+                                required = new[] { "playbookId", "deliveryMode" }
+                            }
                         }
                     },
                     required = new[] { "vesselId" }
@@ -203,6 +251,28 @@ namespace Armada.Server.Mcp.Tools
                             catch (JsonException ex)
                             {
                                 return (object)new { Error = "invalid autoLandPredicate JSON: " + ex.Message };
+                            }
+                        }
+                    }
+                    if (args.HasValue && args.Value.TryGetProperty("defaultPlaybooks", out JsonElement updDpElem))
+                    {
+                        if (updDpElem.ValueKind == JsonValueKind.Null)
+                        {
+                            vessel.DefaultPlaybooks = null;
+                        }
+                        else if (updDpElem.ValueKind == JsonValueKind.Array)
+                        {
+                            string updDpRaw = updDpElem.GetRawText();
+                            try
+                            {
+                                List<SelectedPlaybook>? parsed = JsonSerializer.Deserialize<List<SelectedPlaybook>>(
+                                    updDpRaw,
+                                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                                vessel.DefaultPlaybooks = (parsed == null || parsed.Count == 0) ? null : updDpRaw;
+                            }
+                            catch (JsonException ex)
+                            {
+                                return (object)new { Error = "invalid defaultPlaybooks JSON: " + ex.Message };
                             }
                         }
                     }
