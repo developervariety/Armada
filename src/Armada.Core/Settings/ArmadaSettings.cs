@@ -383,6 +383,12 @@ namespace Armada.Core.Settings
             set => _RemoteControl = value ?? new RemoteControlSettings();
         }
 
+        /// <summary>
+        /// Optional: configuration for admiral-side event-driven orchestrator wakes via Claude Code
+        /// Routines /fire API. Null or absent means the feature is disabled; admiral runs as today.
+        /// </summary>
+        public RemoteTriggerSettings? RemoteTrigger { get; set; }
+
         #endregion
 
         #region Private-Members
