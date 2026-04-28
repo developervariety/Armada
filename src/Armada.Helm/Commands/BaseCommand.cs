@@ -2,6 +2,7 @@ namespace Armada.Helm.Commands
 {
     using System.ComponentModel;
     using System.Net.Http;
+    using System.Net.Http.Headers;
     using System.Net.Http.Json;
     using System.Text.Json;
     using Spectre.Console;
@@ -32,6 +33,20 @@ namespace Armada.Helm.Commands
         private static bool _ServerReady = false;
         private static ArmadaSettings? _CachedSettings;
         private static bool _AutoInitDone = false;
+
+        #endregion
+
+        #region Private-Methods-Auth
+
+        /// <summary>
+        /// The Admiral API authenticates with <c>Authorization: Bearer ...</c> (tenant credentials).
+        /// <see cref="ArmadaSettings.ApiKey" /> stores that bearer value; if unset, the seeded default is <c>default</c>.
+        /// </summary>
+        private static void ApplyBearerAuth(ArmadaSettings settings)
+        {
+            string token = string.IsNullOrEmpty(settings.ApiKey) ? "default" : settings.ApiKey;
+            _Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        }
 
         #endregion
 
@@ -295,6 +310,7 @@ namespace Armada.Helm.Commands
         /// </summary>
         protected async Task<T?> GetAsync<T>(string path) where T : class
         {
+            ApplyBearerAuth(GetSettings());
             await EnsureServerAsync().ConfigureAwait(false);
             HttpResponseMessage response = await _Client.GetAsync(GetBaseUrl() + path).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
@@ -311,6 +327,7 @@ namespace Armada.Helm.Commands
         /// </summary>
         protected async Task<T?> PostAsync<T>(string path, object body) where T : class
         {
+            ApplyBearerAuth(GetSettings());
             await EnsureServerAsync().ConfigureAwait(false);
             HttpResponseMessage response = await _Client.PostAsJsonAsync(GetBaseUrl() + path, body, _JsonOptions).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
@@ -327,6 +344,7 @@ namespace Armada.Helm.Commands
         /// </summary>
         protected async Task PostAsync(string path)
         {
+            ApplyBearerAuth(GetSettings());
             await EnsureServerAsync().ConfigureAwait(false);
             HttpResponseMessage response = await _Client.PostAsync(GetBaseUrl() + path, null).ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
@@ -337,6 +355,7 @@ namespace Armada.Helm.Commands
         /// </summary>
         protected async Task<T?> PutAsync<T>(string path, object body) where T : class
         {
+            ApplyBearerAuth(GetSettings());
             await EnsureServerAsync().ConfigureAwait(false);
             HttpResponseMessage response = await _Client.PutAsJsonAsync(GetBaseUrl() + path, body, _JsonOptions).ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
@@ -349,6 +368,7 @@ namespace Armada.Helm.Commands
         /// </summary>
         protected async Task DeleteAsync(string path)
         {
+            ApplyBearerAuth(GetSettings());
             await EnsureServerAsync().ConfigureAwait(false);
             HttpResponseMessage response = await _Client.DeleteAsync(GetBaseUrl() + path).ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
