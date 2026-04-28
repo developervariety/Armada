@@ -801,6 +801,9 @@ namespace Armada.Core.Database.Sqlite.Queries
                 new SchemaMigration(31, "Add preferred_captain_id and preferred_model columns to missions",
                     @"ALTER TABLE missions ADD COLUMN preferred_captain_id TEXT;",
                     @"ALTER TABLE missions ADD COLUMN preferred_model TEXT;"
+                ),
+                new SchemaMigration(32, "Add auto_land_predicate JSON column to vessels",
+                    @"ALTER TABLE vessels ADD COLUMN auto_land_predicate TEXT;"
                 )
             };
         }

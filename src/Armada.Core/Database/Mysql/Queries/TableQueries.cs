@@ -652,6 +652,14 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
+        /// Migration v32 statements for adding auto_land_predicate JSON column to vessels.
+        /// </summary>
+        public static readonly string[] MigrationV32Statements = new string[]
+        {
+            @"ALTER TABLE vessels ADD COLUMN auto_land_predicate LONGTEXT;"
+        };
+
+        /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
         public static readonly string[] Indexes = new string[]

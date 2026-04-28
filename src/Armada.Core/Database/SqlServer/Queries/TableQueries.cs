@@ -352,6 +352,13 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"
                     IF COL_LENGTH('missions', 'preferred_model') IS NULL
                         ALTER TABLE missions ADD preferred_model NVARCHAR(450);"
+                ),
+                new SchemaMigration(
+                    32,
+                    "Add auto_land_predicate JSON column to vessels",
+                    @"
+                    IF COL_LENGTH('vessels', 'auto_land_predicate') IS NULL
+                        ALTER TABLE vessels ADD auto_land_predicate NVARCHAR(MAX);"
                 )
             };
         }

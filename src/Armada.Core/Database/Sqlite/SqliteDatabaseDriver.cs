@@ -432,6 +432,7 @@ namespace Armada.Core.Database.Sqlite
             catch { vessel.AllowConcurrentMissions = false; }
             try { vessel.DefaultPipelineId = NullableString(reader["default_pipeline_id"]); } catch { }
             try { vessel.ProtectedPaths = Implementations.VesselMethods.DeserializeProtectedPaths(reader["protected_paths"]); } catch { }
+            try { vessel.AutoLandPredicate = reader["auto_land_predicate"] as string; } catch { }
             vessel.DefaultBranch = reader["default_branch"].ToString()!;
             vessel.Active = Convert.ToInt64(reader["active"]) == 1;
             vessel.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);

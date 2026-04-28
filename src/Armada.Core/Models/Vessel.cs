@@ -138,6 +138,28 @@ namespace Armada.Core.Models
         public List<string>? ProtectedPaths { get; set; } = null;
 
         /// <summary>
+        /// JSON-serialized AutoLandPredicate config; null = current behavior (orchestrator-triggered lands only).
+        /// Use GetAutoLandPredicate() to obtain a parsed instance.
+        /// </summary>
+        public string? AutoLandPredicate { get; set; } = null;
+
+        /// <summary>Lazy-parses the AutoLandPredicate JSON string. Returns null if unset or malformed.</summary>
+        public Armada.Core.Models.AutoLandPredicate? GetAutoLandPredicate()
+        {
+            if (string.IsNullOrWhiteSpace(AutoLandPredicate)) return null;
+            try
+            {
+                return System.Text.Json.JsonSerializer.Deserialize<Armada.Core.Models.AutoLandPredicate>(
+                    AutoLandPredicate,
+                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
         /// Whether the vessel is active.
         /// </summary>
         public bool Active { get; set; } = true;
