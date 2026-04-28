@@ -502,6 +502,8 @@ namespace Armada.Core.Database.Sqlite
             try { mission.DependsOnMissionId = NullableString(reader["depends_on_mission_id"]); } catch { }
             try { mission.FailureReason = NullableString(reader["failure_reason"]); } catch { }
             try { mission.PrestagedFiles = Implementations.MissionMethods.DeserializePrestagedFiles(reader["prestaged_files"]); } catch { }
+            try { mission.PreferredCaptainId = NullableString(reader["preferred_captain_id"]); } catch { }
+            try { mission.PreferredModel = NullableString(reader["preferred_model"]); } catch { }
             return mission;
         }
 

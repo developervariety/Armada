@@ -110,6 +110,8 @@ namespace Armada.Core.Database.Mysql.Queries
             diff_snapshot LONGTEXT,
             agent_output LONGTEXT,
             prestaged_files LONGTEXT,
+            preferred_captain_id VARCHAR(450),
+            preferred_model VARCHAR(450),
             created_utc DATETIME(6) NOT NULL,
             started_utc DATETIME(6),
             completed_utc DATETIME(6),
@@ -638,6 +640,15 @@ namespace Armada.Core.Database.Mysql.Queries
         public static readonly string[] MigrationV30Statements = new string[]
         {
             @"ALTER TABLE vessels ADD COLUMN protected_paths LONGTEXT;"
+        };
+
+        /// <summary>
+        /// Migration v31 statements for adding preferred_captain_id and preferred_model columns to missions.
+        /// </summary>
+        public static readonly string[] MigrationV31Statements = new string[]
+        {
+            @"ALTER TABLE missions ADD COLUMN preferred_captain_id VARCHAR(450);",
+            @"ALTER TABLE missions ADD COLUMN preferred_model VARCHAR(450);"
         };
 
         /// <summary>

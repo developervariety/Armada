@@ -272,12 +272,15 @@ namespace Armada.Core.Services
                 _Logging.Warn(_Header + "vessel " + vessel.Id + " already has " + concurrentCount + " active mission(s) — potential for conflicts (AllowConcurrentMissions=true)");
             }
 
-            // Find an idle captain, preferring those matching the mission's persona
-            Captain? captain = await FindAvailableCaptainAsync(mission.Persona, token).ConfigureAwait(false);
+            // Find an idle captain, preferring those matching the mission's persona,
+            // honouring optional PreferredCaptainId / PreferredModel pins on the mission.
+            Captain? captain = await FindAvailableCaptainAsync(mission, token).ConfigureAwait(false);
             if (captain == null)
             {
                 _Logging.Warn(_Header + "no idle captains available for mission " + mission.Id +
-                    (mission.Persona != null ? " (persona: " + mission.Persona + ")" : ""));
+                    (mission.Persona != null ? " (persona: " + mission.Persona + ")" : "") +
+                    (!String.IsNullOrEmpty(mission.PreferredCaptainId) ? " (preferredCaptainId: " + mission.PreferredCaptainId + ")" : "") +
+                    (!String.IsNullOrEmpty(mission.PreferredModel) ? " (preferredModel: " + mission.PreferredModel + ")" : ""));
                 return false;
             }
 
@@ -2726,12 +2729,50 @@ namespace Armada.Core.Services
             }
         }
 
-        private async Task<Captain?> FindAvailableCaptainAsync(string? persona, CancellationToken token)
+        private async Task<Captain?> FindAvailableCaptainAsync(Mission mission, CancellationToken token)
         {
+            string? persona = mission?.Persona;
+            string? preferredCaptainId = mission?.PreferredCaptainId;
+            string? preferredModel = mission?.PreferredModel;
+
+            // Hard pin: a specific captain was requested. Read that one row directly;
+            // if it isn't idle (or the optional model filter rejects it), return null
+            // so the dispatcher waits for the next tick rather than falling back to
+            // some other captain the caller didn't ask for.
+            if (!String.IsNullOrEmpty(preferredCaptainId))
+            {
+                Captain? pinned = await _Database.Captains.ReadAsync(preferredCaptainId, token).ConfigureAwait(false);
+                if (pinned == null) return null;
+                if (pinned.State != CaptainStateEnum.Idle) return null;
+                if (!String.IsNullOrEmpty(preferredModel) &&
+                    !String.Equals(pinned.Model, preferredModel, StringComparison.OrdinalIgnoreCase))
+                {
+                    return null;
+                }
+                return pinned;
+            }
+
             // Only idle captains are eligible for assignment
             List<Captain> idleCaptains = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Idle, token).ConfigureAwait(false);
             if (idleCaptains.Count == 0)
                 return null;
+
+            // Soft model filter: narrow the idle pool to captains whose Model matches
+            // (case-insensitive) before the persona-preference logic runs.
+            if (!String.IsNullOrEmpty(preferredModel))
+            {
+                List<Captain> filtered = new List<Captain>();
+                foreach (Captain captain in idleCaptains)
+                {
+                    if (!String.IsNullOrEmpty(captain.Model) &&
+                        String.Equals(captain.Model, preferredModel, StringComparison.OrdinalIgnoreCase))
+                    {
+                        filtered.Add(captain);
+                    }
+                }
+                if (filtered.Count == 0) return null;
+                idleCaptains = filtered;
+            }
 
             // If no persona requirement, return any idle captain
             if (String.IsNullOrEmpty(persona))

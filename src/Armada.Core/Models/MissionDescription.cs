@@ -27,6 +27,18 @@ namespace Armada.Core.Models
         /// </summary>
         public List<PrestagedFile>? PrestagedFiles { get; set; } = null;
 
+        /// <summary>
+        /// Optional captain identifier this mission must be assigned to. Plumbed
+        /// through to <see cref="Mission.PreferredCaptainId"/> on the created mission.
+        /// </summary>
+        public string? PreferredCaptainId { get; set; } = null;
+
+        /// <summary>
+        /// Optional captain Model filter for assignment. Plumbed through to
+        /// <see cref="Mission.PreferredModel"/> on the created mission.
+        /// </summary>
+        public string? PreferredModel { get; set; } = null;
+
         #endregion
 
         #region Constructors-and-Factories

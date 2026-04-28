@@ -169,6 +169,8 @@ namespace Armada.Core.Database.Postgresql.Queries
                         diff_snapshot TEXT,
                         agent_output TEXT,
                         prestaged_files TEXT,
+                        preferred_captain_id TEXT,
+                        preferred_model TEXT,
                         created_utc TIMESTAMP NOT NULL,
                         started_utc TIMESTAMP,
                         completed_utc TIMESTAMP,
@@ -545,6 +547,10 @@ namespace Armada.Core.Database.Postgresql.Queries
                 ),
                 new SchemaMigration(30, "Add protected_paths JSON column to vessels",
                     @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS protected_paths TEXT;"
+                ),
+                new SchemaMigration(31, "Add preferred_captain_id and preferred_model columns to missions",
+                    @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS preferred_captain_id TEXT;",
+                    @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS preferred_model TEXT;"
                 )
             };
         }

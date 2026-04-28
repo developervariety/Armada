@@ -179,6 +179,8 @@ namespace Armada.Core.Services
                 mission.VoyageId = voyage.Id;
                 mission.VesselId = vesselId;
                 mission.PrestagedFiles = ClonePrestagedFiles(md.PrestagedFiles);
+                mission.PreferredCaptainId = md.PreferredCaptainId;
+                mission.PreferredModel = md.PreferredModel;
                 mission = await _Database.Missions.CreateAsync(mission, token).ConfigureAwait(false);
                 await PersistMissionPlaybooksAsync(mission, voyage.SelectedPlaybooks, token).ConfigureAwait(false);
                 _Logging.Info(_Header + "created mission " + mission.Id + ": " + md.Title);
@@ -282,6 +284,10 @@ namespace Armada.Core.Services
                     mission.VesselId = vesselId;
                     mission.Persona = stage.PersonaName;
                     mission.DependsOnMissionId = previousMissionId;
+                    // Per-mission captain/model pins apply to every stage in the pipeline
+                    // chain so a pinned captain runs the whole sequence end-to-end.
+                    mission.PreferredCaptainId = md.PreferredCaptainId;
+                    mission.PreferredModel = md.PreferredModel;
                     // Only the first stage of each pipeline mission gets the prestaged files.
                     // Downstream stages re-use the same worktree and would hit the
                     // "destPath already exists" guard if we tried to copy again.

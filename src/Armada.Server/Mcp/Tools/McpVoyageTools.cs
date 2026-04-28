@@ -44,7 +44,7 @@ namespace Armada.Server.Mcp.Tools
         {
             register(
                 "armada_dispatch",
-                "Dispatch a new voyage with missions to a vessel. Each mission may include an optional prestagedFiles array of {sourcePath, destPath} entries; the Admiral copies sourcePath (absolute, on the Admiral host) into destPath (relative, inside the dock worktree) after the dock is created and before the captain spawns.",
+                "Dispatch a new voyage with missions to a vessel. Each mission may include an optional prestagedFiles array of {sourcePath, destPath} entries; the Admiral copies sourcePath (absolute, on the Admiral host) into destPath (relative, inside the dock worktree) after the dock is created and before the captain spawns. Each mission may also pin a specific captain via preferredCaptainId or restrict assignment to captains whose Model matches preferredModel (case-insensitive).",
                 new
                 {
                     type = "object",
@@ -77,7 +77,9 @@ namespace Armada.Server.Mcp.Tools
                                             },
                                             required = new[] { "sourcePath", "destPath" }
                                         }
-                                    }
+                                    },
+                                    preferredCaptainId = new { type = "string", description = "Optional captain ID (cap_ prefix) to pin this mission to. If the pinned captain is busy at dispatch time, the mission stays Pending until the next dispatch tick when that captain is idle." },
+                                    preferredModel = new { type = "string", description = "Optional captain Model filter (case-insensitive). Only idle captains whose Model matches will be considered for this mission; persona-preference logic runs within that filtered set." }
                                 }
                             }
                         },

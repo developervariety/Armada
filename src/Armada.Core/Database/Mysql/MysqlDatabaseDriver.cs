@@ -439,6 +439,11 @@ namespace Armada.Core.Database.Mysql
                     30,
                     "Add protected_paths JSON column to vessels",
                     TableQueries.MigrationV30Statements
+                ),
+                new SchemaMigration(
+                    31,
+                    "Add preferred_captain_id and preferred_model columns to missions",
+                    TableQueries.MigrationV31Statements
                 )
             };
         }
