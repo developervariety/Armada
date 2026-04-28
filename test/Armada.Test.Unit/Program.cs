@@ -101,6 +101,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new ProtectedPathsTests());
             runner.AddSuite(new VesselAutoLandPredicateRoutesTests());
             runner.AddSuite(new AuditDrainerTests());
+            runner.AddSuite(new ArchitectOutputParserTests());
 
             int exitCode = await runner.RunAllAsync().ConfigureAwait(false);
             return exitCode;
