@@ -90,6 +90,16 @@ namespace Armada.Core.Services.Interfaces
         Task DeleteRemoteBranchAsync(string repoPath, string branchName, CancellationToken token = default);
 
         /// <summary>
+        /// Push a specific source ref to a destination ref on origin.
+        /// Executes: git push origin {srcRef}:{destRef}
+        /// </summary>
+        /// <param name="repoPath">Path to the repository (bare or worktree).</param>
+        /// <param name="srcRef">Source ref (branch or commit) to push.</param>
+        /// <param name="destRef">Destination ref on origin to update.</param>
+        /// <param name="token">Cancellation token.</param>
+        Task PushRefSpecAsync(string repoPath, string srcRef, string destRef, CancellationToken token = default);
+
+        /// <summary>
         /// Prune stale worktree registrations (entries for worktrees whose directories no longer exist).
         /// </summary>
         /// <param name="repoPath">Path to the repository.</param>

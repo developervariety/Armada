@@ -233,6 +233,7 @@ namespace Armada.Test.Unit.Suites.Services
             public Task<bool> IsRepositoryAsync(string path, CancellationToken token = default) { throw new NotImplementedException(); }
             public Task DeleteLocalBranchAsync(string repoPath, string branchName, CancellationToken token = default) { throw new NotImplementedException(); }
             public Task DeleteRemoteBranchAsync(string repoPath, string branchName, CancellationToken token = default) { throw new NotImplementedException(); }
+            public Task PushRefSpecAsync(string repoPath, string srcRef, string destRef, CancellationToken token = default) { throw new NotImplementedException(); }
             public Task PruneWorktreesAsync(string repoPath, CancellationToken token = default) { throw new NotImplementedException(); }
             public Task EnableAutoMergeAsync(string worktreePath, string prUrl, CancellationToken token = default) { throw new NotImplementedException(); }
             public Task MergeBranchLocalAsync(string targetWorkDir, string sourceRepoPath, string branchName, string? targetBranch = null, string? commitMessage = null, CancellationToken token = default) { throw new NotImplementedException(); }
