@@ -383,6 +383,34 @@ namespace Armada.Core.Services
             await ProcessEntryAsync(entry, repoPath, token).ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
+        public async Task ProcessEntryByIdAsync(string entryId, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(entryId)) throw new ArgumentNullException(nameof(entryId));
+
+            MergeEntry? entry = await _Database.MergeEntries.ReadAsync(entryId, token).ConfigureAwait(false);
+            if (entry is null)
+            {
+                _Logging.Warn(_Header + "ProcessEntryByIdAsync: entry " + entryId + " not found");
+                return;
+            }
+
+            if (entry.Status != MergeStatusEnum.Queued)
+            {
+                _Logging.Warn(_Header + "ProcessEntryByIdAsync: entry " + entryId + " is in status " + entry.Status + ", not Queued -- skipping");
+                return;
+            }
+
+            string? repoPath = await GetRepoPathAsync(entry, token).ConfigureAwait(false);
+            if (repoPath is null)
+            {
+                _Logging.Warn(_Header + "ProcessEntryByIdAsync: cannot resolve repo path for entry " + entryId);
+                return;
+            }
+
+            await ProcessEntryAsync(entry, repoPath, token).ConfigureAwait(false);
+        }
+
         /// <summary>
         /// Core single-entry processing with a known repo path.
         /// </summary>
