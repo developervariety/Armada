@@ -33,6 +33,7 @@ namespace Armada.Server
         private IPromptTemplateService? _PromptTemplateService;
         private IDockService _Docks;
         private ArmadaWebSocketHub? _WebSocketHub;
+        private IRemoteTriggerService _RemoteTriggerService;
 
         /// <summary>
         /// Per-vessel semaphores to prevent concurrent merge operations on the same repository.
@@ -57,6 +58,7 @@ namespace Armada.Server
         /// <param name="templateService">Message template service.</param>
         /// <param name="promptTemplateService">Prompt template service (optional).</param>
         /// <param name="docks">Dock service.</param>
+        /// <param name="remoteTriggerService">Remote trigger service for drainer wake events.</param>
         /// <param name="webSocketHub">WebSocket hub (nullable).</param>
         public MissionLandingHandler(
             LoggingModule logging,
@@ -70,6 +72,7 @@ namespace Armada.Server
             IMessageTemplateService templateService,
             IPromptTemplateService? promptTemplateService,
             IDockService docks,
+            IRemoteTriggerService remoteTriggerService,
             ArmadaWebSocketHub? webSocketHub)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
@@ -83,6 +86,7 @@ namespace Armada.Server
             _TemplateService = templateService ?? throw new ArgumentNullException(nameof(templateService));
             _PromptTemplateService = promptTemplateService;
             _Docks = docks ?? throw new ArgumentNullException(nameof(docks));
+            _RemoteTriggerService = remoteTriggerService ?? throw new ArgumentNullException(nameof(remoteTriggerService));
             _WebSocketHub = webSocketHub;
         }
 
@@ -191,6 +195,18 @@ namespace Armada.Server
                     mission.CompletedUtc = DateTime.UtcNow;
                     mission.LastUpdateUtc = DateTime.UtcNow;
                     await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+
+                    try
+                    {
+                        await _RemoteTriggerService.FireDrainerAsync(
+                            mission.VesselId ?? string.Empty,
+                            "MissionFailed: mission " + mission.Id + " (" + mission.Title + ") :: " + (mission.FailureReason ?? "no reason"),
+                            default).ConfigureAwait(false);
+                    }
+                    catch (Exception firEx)
+                    {
+                        _Logging.Warn(_Header + "FireDrainerAsync failed for MissionFailed event: " + firEx.Message);
+                    }
 
                     if (_WebSocketHub != null)
                     {
@@ -574,6 +590,18 @@ namespace Armada.Server
                                 {
                                     _Logging.Warn(_Header + "error emitting merge_queue.auto_land_skipped event for " + mission.Id + ": " + evtEx.Message);
                                 }
+
+                                try
+                                {
+                                    await _RemoteTriggerService.FireDrainerAsync(
+                                        mission.VesselId ?? string.Empty,
+                                        "auto_land_skipped: mission " + mission.Id + " entry " + entry.Id + " :: " + autoLandFail.Reason,
+                                        default).ConfigureAwait(false);
+                                }
+                                catch (Exception firEx)
+                                {
+                                    _Logging.Warn(_Header + "FireDrainerAsync failed for auto_land_skipped event: " + firEx.Message);
+                                }
                             }
                         }
 
@@ -592,6 +620,18 @@ namespace Armada.Server
                         catch (Exception evtEx)
                         {
                             _Logging.Warn(_Header + "error emitting merge_queue.enqueued event for " + mission.Id + ": " + evtEx.Message);
+                        }
+
+                        try
+                        {
+                            await _RemoteTriggerService.FireDrainerAsync(
+                                mission.VesselId ?? string.Empty,
+                                "WorkProduced: mission " + mission.Id + " (" + mission.Title + ") on vessel " + (mission.VesselId ?? string.Empty),
+                                default).ConfigureAwait(false);
+                        }
+                        catch (Exception firEx)
+                        {
+                            _Logging.Warn(_Header + "FireDrainerAsync failed for WorkProduced event: " + firEx.Message);
                         }
                     }
                     catch (Exception mqEx)

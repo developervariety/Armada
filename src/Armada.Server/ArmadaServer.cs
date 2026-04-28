@@ -74,6 +74,7 @@ namespace Armada.Server
 
         private AgentLifecycleHandler _AgentLifecycle = null!;
         private MissionLandingHandler _MissionLanding = null!;
+        private IRemoteTriggerService _RemoteTriggerService = null!;
 
         private CancellationTokenSource _TokenSource = new CancellationTokenSource();
         private Task _HealthCheckTask = null!;
@@ -184,9 +185,13 @@ namespace Armada.Server
             _LogRotation = new LogRotationService(_Logging, _Settings.MaxLogFileSizeBytes, _Settings.MaxLogFileCount);
             _DataExpiry = new DataExpiryService(_Logging, _Settings.Database.GetConnectionString(), _Settings.DataRetentionDays);
 
+            // Initialize remote trigger service (no-op when remoteTrigger section is absent or disabled)
+            RemoteTriggerHttpClient rtHttp = new RemoteTriggerHttpClient(_Logging);
+            _RemoteTriggerService = new RemoteTriggerService(_Settings.RemoteTrigger, rtHttp, _Logging);
+
             // Initialize handler classes (WebSocketHub is created later, so pass null initially)
             _MissionLanding = new MissionLandingHandler(
-                _Logging, _Database, _Settings, _Git, _MergeQueue, _AutoLandEvaluator, _ConventionChecker, _CriticalTriggerEvaluator, _TemplateService, _PromptTemplateService, _Docks, null);
+                _Logging, _Database, _Settings, _Git, _MergeQueue, _AutoLandEvaluator, _ConventionChecker, _CriticalTriggerEvaluator, _TemplateService, _PromptTemplateService, _Docks, _RemoteTriggerService, null);
 
             _AgentLifecycle = new AgentLifecycleHandler(
                 _Logging, _Database, _Settings, _RuntimeFactory, _Admiral, _TemplateService, _PromptTemplateService, null, EmitEventAsync);
@@ -582,7 +587,8 @@ namespace Armada.Server
                 },
                 _AgentLifecycle,
                 _PromptTemplateService,
-                _Logging);
+                _Logging,
+                _RemoteTriggerService);
         }
 
         private async Task EmitEventAsync(string eventType, string message,

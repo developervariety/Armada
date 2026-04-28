@@ -7,6 +7,7 @@ namespace Armada.Server.Mcp.Tools
     using System.Threading.Tasks;
     using Armada.Core.Database;
     using Armada.Core.Models;
+    using Armada.Core.Services.Interfaces;
 
     /// <summary>
     /// MCP tools exposing the auto-land safety-net audit queue and verdict recording.
@@ -20,7 +21,8 @@ namespace Armada.Server.Mcp.Tools
         /// </summary>
         /// <param name="register">Delegate to register each tool.</param>
         /// <param name="database">Database driver for data access.</param>
-        public static void Register(RegisterToolDelegate register, DatabaseDriver database)
+        /// <param name="remoteTriggerService">Optional remote trigger service; when provided, fires FireCriticalAsync on Critical verdicts.</param>
+        public static void Register(RegisterToolDelegate register, DatabaseDriver database, IRemoteTriggerService? remoteTriggerService = null)
         {
             register(
                 "armada_drain_audit_queue",
@@ -112,6 +114,20 @@ namespace Armada.Server.Mcp.Tools
                     entry.AuditDeepCompletedUtc = DateTime.UtcNow;
                     entry.LastUpdateUtc = DateTime.UtcNow;
                     entry = await database.MergeEntries.UpdateAsync(entry).ConfigureAwait(false);
+
+                    if (verdict == "Critical" && remoteTriggerService != null)
+                    {
+                        string ctx = "audit Critical on entry " + entry.Id + " :: " + (notes ?? "") + " :: ACTION: " + (recAction ?? "(none)");
+                        try
+                        {
+                            await remoteTriggerService.FireCriticalAsync(ctx).ConfigureAwait(false);
+                        }
+                        catch (Exception)
+                        {
+                            // fire failure does not affect verdict recording
+                        }
+                    }
+
                     return (object)entry;
                 });
         }

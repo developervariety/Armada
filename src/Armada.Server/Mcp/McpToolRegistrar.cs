@@ -50,6 +50,7 @@ namespace Armada.Server.Mcp
         /// <param name="agentLifecycle">Agent lifecycle handler used for captain model validation.</param>
         /// <param name="templateService">Prompt template service for template operations.</param>
         /// <param name="logging">Logging module for tools that need validation services.</param>
+        /// <param name="remoteTriggerService">Remote trigger service for event-driven wake-up integration.</param>
         public static void RegisterAll(
             RegisterToolDelegate register,
             DatabaseDriver database,
@@ -63,7 +64,8 @@ namespace Armada.Server.Mcp
             Func<string, Task>? onStopCaptain = null,
             AgentLifecycleHandler? agentLifecycle = null,
             IPromptTemplateService? templateService = null,
-            LoggingModule? logging = null)
+            LoggingModule? logging = null,
+            IRemoteTriggerService? remoteTriggerService = null)
         {
             McpStatusTools.Register(register, admiral, onStop);
             McpEnumerateTools.Register(register, database, mergeQueue);
@@ -81,7 +83,7 @@ namespace Armada.Server.Mcp
             McpPersonaTools.Register(register, database);
             McpPipelineTools.Register(register, database);
             if (settings != null) McpBackupTools.Register(register, database, settings);
-            McpAuditTools.Register(register, database);
+            McpAuditTools.Register(register, database, remoteTriggerService);
             McpArchitectTools.Register(register, database, new ArchitectOutputParser(), admiral);
         }
     }
