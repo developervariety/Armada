@@ -30,7 +30,7 @@ namespace Armada.Server
         private IPromptTemplateService? _PromptTemplateService;
         private ArmadaWebSocketHub? _WebSocketHub;
         private Func<string, string, string?, string?, string?, string?, string?, string?, Task> _EmitEventAsync;
-        private readonly TimeSpan _ModelValidationTimeout = TimeSpan.FromSeconds(5);
+        private readonly TimeSpan _ModelValidationTimeout = TimeSpan.FromSeconds(30);
         private readonly TimeSpan _MissionHeartbeatPersistInterval = TimeSpan.FromSeconds(15);
 
         /// <summary>
