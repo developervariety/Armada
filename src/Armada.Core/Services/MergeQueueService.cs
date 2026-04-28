@@ -477,8 +477,14 @@ namespace Armada.Core.Services
                 // Land immediately -- push the integration branch to update the target
                 await LandEntryAsync(entry, repoPath, integrationBranch, token).ConfigureAwait(false);
 
-                // Cleanup
+                // Cleanup worktree first; integration branch cannot be deleted while checked out.
                 await CleanupWorktreeAsync(integrationPath, token).ConfigureAwait(false);
+
+                // Branch cleanup runs after worktree removal so the integration branch ref is free to delete.
+                if (entry.Status == MergeStatusEnum.Landed)
+                {
+                    await CleanupLandedBranchesAsync(entry, repoPath, integrationBranch, token).ConfigureAwait(false);
+                }
             }
             catch (Exception ex)
             {
@@ -501,7 +507,7 @@ namespace Armada.Core.Services
         {
             try
             {
-                await RunGitAsync(repoPath, token, "push", "origin", integrationBranch + ":" + entry.TargetBranch).ConfigureAwait(false);
+                await _Git.PushRefSpecAsync(repoPath, integrationBranch, entry.TargetBranch, token).ConfigureAwait(false);
 
                 entry.Status = MergeStatusEnum.Landed;
                 entry.CompletedUtc = DateTime.UtcNow;
@@ -538,6 +544,78 @@ namespace Armada.Core.Services
                 // Reconcile linked mission to LandingFailed
                 await ReconcileMissionStatusAsync(entry.MissionId, MissionStatusEnum.LandingFailed,
                     "Merge queue landing failed: " + ex.Message, token, entry.TenantId).ConfigureAwait(false);
+            }
+        }
+
+        /// <summary>
+        /// Delete the captain branch (per vessel BranchCleanupPolicy) and the integration branch (always)
+        /// after a successful merge-queue land. Branch deletion failures are swallowed -- stale branches
+        /// are better than a failed entry.
+        /// </summary>
+        private async Task CleanupLandedBranchesAsync(MergeEntry entry, string repoPath, string integrationBranch, CancellationToken token)
+        {
+            Vessel? vessel = null;
+            if (!String.IsNullOrEmpty(entry.VesselId))
+            {
+                try
+                {
+                    vessel = !String.IsNullOrEmpty(entry.TenantId)
+                        ? await _Database.Vessels.ReadAsync(entry.TenantId, entry.VesselId, token).ConfigureAwait(false)
+                        : await _Database.Vessels.ReadAsync(entry.VesselId, token).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "could not read vessel " + entry.VesselId + " for branch cleanup: " + ex.Message);
+                }
+            }
+
+            BranchCleanupPolicyEnum cleanupPolicy = vessel?.BranchCleanupPolicy ?? _Settings.BranchCleanupPolicy;
+
+            if (!String.IsNullOrEmpty(entry.BranchName))
+            {
+                if (cleanupPolicy == BranchCleanupPolicyEnum.None)
+                {
+                    _Logging.Info(_Header + "branch cleanup policy is None - retaining captain branch " + entry.BranchName);
+                }
+                else
+                {
+                    try
+                    {
+                        await _Git.DeleteLocalBranchAsync(repoPath, entry.BranchName, token).ConfigureAwait(false);
+                        _Logging.Info(_Header + "deleted captain branch " + entry.BranchName + " from bare repo after land");
+                    }
+                    catch (Exception ex)
+                    {
+                        _Logging.Debug(_Header + "could not delete captain branch " + entry.BranchName + " from bare repo: " + ex.Message);
+                    }
+
+                    if (cleanupPolicy == BranchCleanupPolicyEnum.LocalAndRemote && !String.IsNullOrEmpty(vessel?.WorkingDirectory))
+                    {
+                        try
+                        {
+                            await _Git.DeleteRemoteBranchAsync(vessel.WorkingDirectory, entry.BranchName, token).ConfigureAwait(false);
+                            _Logging.Info(_Header + "deleted remote captain branch " + entry.BranchName + " after land");
+                        }
+                        catch (Exception ex)
+                        {
+                            _Logging.Warn(_Header + "could not delete remote captain branch " + entry.BranchName + ": " + ex.Message);
+                        }
+                    }
+                }
+            }
+
+            // Integration branch is admiral-internal scaffolding; always remove from bare repo (never pushed to remote).
+            if (!String.IsNullOrEmpty(integrationBranch))
+            {
+                try
+                {
+                    await _Git.DeleteLocalBranchAsync(repoPath, integrationBranch, token).ConfigureAwait(false);
+                    _Logging.Info(_Header + "deleted integration branch " + integrationBranch + " from bare repo");
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Debug(_Header + "could not delete integration branch " + integrationBranch + " from bare repo: " + ex.Message);
+                }
             }
         }
 

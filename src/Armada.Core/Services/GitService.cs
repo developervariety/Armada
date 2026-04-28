@@ -240,6 +240,17 @@ namespace Armada.Core.Services
             await RunGitAsync(worktreePath, "push", "-u", remoteName, "HEAD").ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
+        public async Task PushRefSpecAsync(string repoPath, string srcRef, string destRef, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(repoPath)) throw new ArgumentNullException(nameof(repoPath));
+            if (String.IsNullOrEmpty(srcRef)) throw new ArgumentNullException(nameof(srcRef));
+            if (String.IsNullOrEmpty(destRef)) throw new ArgumentNullException(nameof(destRef));
+
+            _Logging.Info(_Header + "pushing " + srcRef + ":" + destRef + " from " + repoPath);
+            await RunGitAsync(repoPath, "push", "origin", srcRef + ":" + destRef).ConfigureAwait(false);
+        }
+
         /// <summary>
         /// Create a pull request using the gh CLI.
         /// </summary>

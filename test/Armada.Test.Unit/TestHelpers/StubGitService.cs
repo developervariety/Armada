@@ -93,6 +93,14 @@ namespace Armada.Test.Unit.TestHelpers
             return Task.CompletedTask;
         }
 
+        public Task PushRefSpecAsync(string repoPath, string srcRef, string destRef, CancellationToken token = default)
+        {
+            if (ShouldThrowOnPush) throw new InvalidOperationException("Simulated push failure");
+            PushCalls.Add(repoPath + ":" + srcRef + ":" + destRef);
+            OperationCalls.Add("push-refspec:" + srcRef + ":" + destRef);
+            return Task.CompletedTask;
+        }
+
         public Task PruneWorktreesAsync(string repoPath, CancellationToken token = default) => Task.CompletedTask;
         public Task EnableAutoMergeAsync(string worktreePath, string prUrl, CancellationToken token = default) => Task.CompletedTask;
 

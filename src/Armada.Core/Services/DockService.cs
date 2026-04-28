@@ -2,6 +2,7 @@ namespace Armada.Core.Services
 {
     using SyslogLogging;
     using Armada.Core.Database;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Settings;
     using Armada.Core.Services.Interfaces;
@@ -351,6 +352,11 @@ namespace Armada.Core.Services
 
             await CleanupWorktreeAsync(dock, token).ConfigureAwait(false);
 
+            // Delete the captain branch per vessel policy before removing the dock record.
+            // Branch may already be gone if the merge-queue land ran first -- git failures are swallowed.
+            // See also: MissionLandingHandler.CleanupMissionBranchAsync which applies the same policy for the landing path.
+            await CleanupDockBranchAsync(dock, token).ConfigureAwait(false);
+
             if (!String.IsNullOrEmpty(tenantId))
                 await _Database.Docks.DeleteAsync(tenantId, dockId, token).ConfigureAwait(false);
             else
@@ -405,6 +411,62 @@ namespace Armada.Core.Services
             }
 
             TryDeleteDockStartCommitFile(dock.Id);
+        }
+
+        /// <summary>
+        /// Delete the dock's captain branch per the parent vessel's BranchCleanupPolicy.
+        /// Git failures are swallowed -- the branch may already be gone if the merge-queue
+        /// landing path ran first.
+        /// </summary>
+        private async Task CleanupDockBranchAsync(Dock dock, CancellationToken token)
+        {
+            if (String.IsNullOrEmpty(dock.BranchName)) return;
+
+            Vessel? vessel = null;
+            try
+            {
+                vessel = !String.IsNullOrEmpty(dock.TenantId)
+                    ? await _Database.Vessels.ReadAsync(dock.TenantId, dock.VesselId, token).ConfigureAwait(false)
+                    : await _Database.Vessels.ReadAsync(dock.VesselId, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not read vessel " + dock.VesselId + " for branch cleanup: " + ex.Message);
+            }
+
+            BranchCleanupPolicyEnum cleanupPolicy = vessel?.BranchCleanupPolicy ?? _Settings.BranchCleanupPolicy;
+
+            if (cleanupPolicy == BranchCleanupPolicyEnum.None)
+            {
+                _Logging.Info(_Header + "branch cleanup policy is None - retaining branch " + dock.BranchName + " for dock " + dock.Id);
+                return;
+            }
+
+            string repoPath = vessel?.LocalPath ?? (vessel != null ? Path.Combine(_Settings.ReposDirectory, vessel.Name + ".git") : "");
+            if (String.IsNullOrEmpty(repoPath)) return;
+
+            try
+            {
+                await _Git.DeleteLocalBranchAsync(repoPath, dock.BranchName, token).ConfigureAwait(false);
+                _Logging.Info(_Header + "deleted branch " + dock.BranchName + " from bare repo for dock " + dock.Id);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Debug(_Header + "could not delete branch " + dock.BranchName + " from bare repo for dock " + dock.Id + ": " + ex.Message);
+            }
+
+            if (cleanupPolicy == BranchCleanupPolicyEnum.LocalAndRemote && !String.IsNullOrEmpty(vessel?.WorkingDirectory))
+            {
+                try
+                {
+                    await _Git.DeleteRemoteBranchAsync(vessel.WorkingDirectory, dock.BranchName, token).ConfigureAwait(false);
+                    _Logging.Info(_Header + "deleted remote branch " + dock.BranchName + " for dock " + dock.Id);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "could not delete remote branch " + dock.BranchName + " for dock " + dock.Id + ": " + ex.Message);
+                }
+            }
         }
 
         private async Task PersistDockStartCommitAsync(string dockId, string headCommit, CancellationToken token)
