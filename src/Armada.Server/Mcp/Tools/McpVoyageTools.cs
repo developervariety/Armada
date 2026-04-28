@@ -111,7 +111,12 @@ namespace Armada.Server.Mcp.Tools
                     string description = request.Description ?? "";
                     string vesselId = request.VesselId;
                     List<MissionDescription> missions = request.Missions;
-                    List<SelectedPlaybook> selectedPlaybooks = request.SelectedPlaybooks ?? new List<SelectedPlaybook>();
+                    List<SelectedPlaybook> callerPlaybooks = request.SelectedPlaybooks ?? new List<SelectedPlaybook>();
+
+                    // Merge vessel DefaultPlaybooks with caller-supplied selectedPlaybooks.
+                    // Start with the vessel defaults; caller entries override deliveryMode on collision and append new entries.
+                    Vessel? dispatchVessel = await database.Vessels.ReadAsync(vesselId).ConfigureAwait(false);
+                    List<SelectedPlaybook> mergedPlaybooks = MergePlaybooks(dispatchVessel?.GetDefaultPlaybooks(), callerPlaybooks);
 
                     // Use pipeline-aware dispatch if pipelineId is provided
                     string? pipelineId = request.PipelineId;
@@ -122,7 +127,7 @@ namespace Armada.Server.Mcp.Tools
                         if (namedPipeline != null) pipelineId = namedPipeline.Id;
                         else return (object)new { Error = "Pipeline not found: " + request.Pipeline };
                     }
-                    Voyage voyage = await admiral.DispatchVoyageAsync(title, description, vesselId, missions, pipelineId, selectedPlaybooks).ConfigureAwait(false);
+                    Voyage voyage = await admiral.DispatchVoyageAsync(title, description, vesselId, missions, pipelineId, mergedPlaybooks).ConfigureAwait(false);
                     return (object)voyage;
                 });
 
@@ -386,6 +391,36 @@ namespace Armada.Server.Mcp.Tools
                 }
                 catch { }
             }
+        }
+
+        /// <summary>
+        /// Merges vessel default playbooks with caller-supplied playbooks.
+        /// The merged list starts with vessel defaults. For each caller entry:
+        /// if the playbookId already appears in the defaults, the default entry's
+        /// deliveryMode is replaced with the caller's value; otherwise the caller
+        /// entry is appended. This ensures vessel defaults are always present while
+        /// callers can override delivery modes or add additional playbooks.
+        /// </summary>
+        /// <param name="defaults">Vessel default playbooks (may be null or empty).</param>
+        /// <param name="callerEntries">Caller-supplied playbooks (may be empty).</param>
+        /// <returns>Merged playbook list.</returns>
+        private static List<SelectedPlaybook> MergePlaybooks(List<SelectedPlaybook>? defaults, List<SelectedPlaybook> callerEntries)
+        {
+            List<SelectedPlaybook> merged = new List<SelectedPlaybook>();
+            if (defaults != null)
+            {
+                foreach (SelectedPlaybook d in defaults)
+                    merged.Add(new SelectedPlaybook { PlaybookId = d.PlaybookId, DeliveryMode = d.DeliveryMode });
+            }
+            foreach (SelectedPlaybook caller in callerEntries)
+            {
+                SelectedPlaybook? existing = merged.FirstOrDefault(m => m.PlaybookId == caller.PlaybookId);
+                if (existing != null)
+                    existing.DeliveryMode = caller.DeliveryMode;
+                else
+                    merged.Add(new SelectedPlaybook { PlaybookId = caller.PlaybookId, DeliveryMode = caller.DeliveryMode });
+            }
+            return merged;
         }
     }
 }

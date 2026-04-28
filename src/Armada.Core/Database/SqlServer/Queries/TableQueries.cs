@@ -393,6 +393,13 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"
                     IF COL_LENGTH('vessels', 'auto_land_calibration_landed_count') IS NULL
                         ALTER TABLE vessels ADD auto_land_calibration_landed_count INT NOT NULL DEFAULT 0;"
+                ),
+                new SchemaMigration(
+                    34,
+                    "Add default_playbooks JSON column to vessels",
+                    @"
+                    IF COL_LENGTH('vessels', 'default_playbooks') IS NULL
+                        ALTER TABLE vessels ADD default_playbooks NVARCHAR(MAX);"
                 )
             };
         }

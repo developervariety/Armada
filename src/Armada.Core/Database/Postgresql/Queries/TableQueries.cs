@@ -566,6 +566,9 @@ namespace Armada.Core.Database.Postgresql.Queries
                     @"ALTER TABLE merge_entries ADD COLUMN IF NOT EXISTS audit_deep_notes TEXT;",
                     @"ALTER TABLE merge_entries ADD COLUMN IF NOT EXISTS audit_deep_recommended_action TEXT;",
                     @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS auto_land_calibration_landed_count INTEGER NOT NULL DEFAULT 0;"
+                ),
+                new SchemaMigration(34, "Add default_playbooks JSON column to vessels",
+                    @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS default_playbooks TEXT;"
                 )
             };
         }
