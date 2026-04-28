@@ -509,6 +509,19 @@ namespace Armada.Core.Services
                 await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
                 _Logging.Info(_Header + "landed " + entry.Id + " branch " + entry.BranchName);
 
+                if (entry.AuditDeepPicked.HasValue && !string.IsNullOrEmpty(entry.VesselId))
+                {
+                    string vesselIdForCalibration = entry.VesselId;
+                    try
+                    {
+                        await _Database.Vessels.IncrementCalibrationCounterAsync(vesselIdForCalibration, token).ConfigureAwait(false);
+                    }
+                    catch (Exception incEx)
+                    {
+                        _Logging.Warn(_Header + "calibration counter increment failed for vessel " + vesselIdForCalibration + ": " + incEx.Message);
+                    }
+                }
+
                 // Reconcile linked mission to Complete
                 await ReconcileMissionStatusAsync(entry.MissionId, MissionStatusEnum.Complete,
                     "Landed via merge queue entry " + entry.Id, token, entry.TenantId).ConfigureAwait(false);
