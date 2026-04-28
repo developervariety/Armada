@@ -107,6 +107,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new RemoteTriggerSettingsTests());
             runner.AddSuite(new RemoteTriggerHttpClientTests());
             runner.AddSuite(new RemoteTriggerServiceTests());
+            runner.AddSuite(new RemoteTriggerEventHookTests());
 
             int exitCode = await runner.RunAllAsync().ConfigureAwait(false);
             return exitCode;

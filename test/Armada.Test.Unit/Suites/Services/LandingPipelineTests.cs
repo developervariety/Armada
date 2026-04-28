@@ -306,6 +306,7 @@ namespace Armada.Test.Unit.Suites.Services
                         templateService,
                         null,
                         dockService,
+                        new NoOpRemoteTriggerService(),
                         null);
 
                     LandingTestEntitiesResult entities = await CreateTestEntitiesAsync(
@@ -371,6 +372,12 @@ namespace Armada.Test.Unit.Suites.Services
 
                 return Task.CompletedTask;
             });
+        }
+
+        private sealed class NoOpRemoteTriggerService : IRemoteTriggerService
+        {
+            public Task FireDrainerAsync(string vesselId, string text, CancellationToken token = default) => Task.CompletedTask;
+            public Task FireCriticalAsync(string text, CancellationToken token = default) => Task.CompletedTask;
         }
 
         private sealed class StubMergeQueueService : IMergeQueueService
