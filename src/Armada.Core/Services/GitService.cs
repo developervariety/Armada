@@ -943,11 +943,16 @@ namespace Armada.Core.Services
             using Process process = new Process { StartInfo = startInfo };
             process.Start();
 
-            string stdout = await process.StandardOutput.ReadToEndAsync(linkedCts.Token).ConfigureAwait(false);
-            string stderr = await process.StandardError.ReadToEndAsync(linkedCts.Token).ConfigureAwait(false);
-
+            string stdout;
+            string stderr;
             try
             {
+                // Both ReadToEndAsync calls and WaitForExitAsync share the same
+                // linked cancellation token; the timeout can fire on any of them.
+                // Wrapping all three lets a single catch handle the kill regardless
+                // of which await observed the cancellation first.
+                stdout = await process.StandardOutput.ReadToEndAsync(linkedCts.Token).ConfigureAwait(false);
+                stderr = await process.StandardError.ReadToEndAsync(linkedCts.Token).ConfigureAwait(false);
                 await process.WaitForExitAsync(linkedCts.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
