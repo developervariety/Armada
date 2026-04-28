@@ -79,7 +79,8 @@ namespace Armada.Server.Mcp.Tools
                                         }
                                     },
                                     preferredCaptainId = new { type = "string", description = "Optional captain ID (cap_ prefix) to pin this mission to. If the pinned captain is busy at dispatch time, the mission stays Pending until the next dispatch tick when that captain is idle." },
-                                    preferredModel = new { type = "string", description = "Optional captain Model filter (case-insensitive). Only idle captains whose Model matches will be considered for this mission; persona-preference logic runs within that filtered set." }
+                                    preferredModel = new { type = "string", description = "Optional captain Model filter (case-insensitive). Only idle captains whose Model matches will be considered for this mission; persona-preference logic runs within that filtered set." },
+                                    dependsOnMissionId = new { type = "string", description = "Optional mission ID (msn_ prefix) this mission must wait for. The dependent mission stays Pending until the referenced mission reaches a completion state." }
                                 }
                             }
                         },

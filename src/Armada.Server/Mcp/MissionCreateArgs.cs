@@ -34,6 +34,13 @@ namespace Armada.Server.Mcp
         public string? Persona { get; set; }
 
         /// <summary>
+        /// Optional mission ID (msn_ prefix) this mission must wait for. The
+        /// dependent mission stays Pending until the referenced mission reaches
+        /// a completion state.
+        /// </summary>
+        public string? DependsOnMissionId { get; set; }
+
+        /// <summary>
         /// Ordered playbooks to apply during mission dispatch.
         /// </summary>
         public List<SelectedPlaybook> SelectedPlaybooks { get; set; } = new List<SelectedPlaybook>();

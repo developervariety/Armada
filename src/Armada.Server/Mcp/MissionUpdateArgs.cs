@@ -54,5 +54,11 @@ namespace Armada.Server.Mcp
         /// Persona for this mission (e.g. Worker, Architect, Judge, TestEngineer).
         /// </summary>
         public string? Persona { get; set; }
+
+        /// <summary>
+        /// Mission ID (msn_ prefix) this mission must wait for. Empty string
+        /// clears the dependency.
+        /// </summary>
+        public string? DependsOnMissionId { get; set; }
     }
 }

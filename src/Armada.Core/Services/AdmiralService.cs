@@ -169,6 +169,7 @@ namespace Armada.Core.Services
             // the entire dispatch on the first failure so the caller sees a single,
             // unambiguous error and no partial state is left behind.
             ValidatePrestagedFilesOrThrow(missionDescriptions);
+            await ValidateDependsOnReferencesOrThrowAsync(missionDescriptions, token).ConfigureAwait(false);
 
             // Create missions
             foreach (MissionDescription md in missionDescriptions)
@@ -181,6 +182,8 @@ namespace Armada.Core.Services
                 mission.PrestagedFiles = ClonePrestagedFiles(md.PrestagedFiles);
                 mission.PreferredCaptainId = md.PreferredCaptainId;
                 mission.PreferredModel = md.PreferredModel;
+                if (!String.IsNullOrEmpty(md.DependsOnMissionId))
+                    mission.DependsOnMissionId = md.DependsOnMissionId;
                 mission = await _Database.Missions.CreateAsync(mission, token).ConfigureAwait(false);
                 await PersistMissionPlaybooksAsync(mission, voyage.SelectedPlaybooks, token).ConfigureAwait(false);
                 _Logging.Info(_Header + "created mission " + mission.Id + ": " + md.Title);
@@ -265,6 +268,7 @@ namespace Armada.Core.Services
 
             // Validate prestaged files for every mission before persisting any pipeline stage.
             ValidatePrestagedFilesOrThrow(missionDescriptions);
+            await ValidateDependsOnReferencesOrThrowAsync(missionDescriptions, token).ConfigureAwait(false);
 
             foreach (MissionDescription md in missionDescriptions)
             {
@@ -283,7 +287,10 @@ namespace Armada.Core.Services
                     mission.VoyageId = voyage.Id;
                     mission.VesselId = vesselId;
                     mission.Persona = stage.PersonaName;
-                    mission.DependsOnMissionId = previousMissionId;
+                    // The first pipeline stage may carry an externally-supplied dependency;
+                    // downstream stages always depend on the previous stage of the chain.
+                    mission.DependsOnMissionId = previousMissionId
+                        ?? (String.IsNullOrEmpty(md.DependsOnMissionId) ? null : md.DependsOnMissionId);
                     // Per-mission captain/model pins apply to every stage in the pipeline
                     // chain so a pinned captain runs the whole sequence end-to-end.
                     mission.PreferredCaptainId = md.PreferredCaptainId;
@@ -350,6 +357,15 @@ namespace Armada.Core.Services
                         "Invalid prestagedFiles for mission '" + mission.Title + "': " +
                         String.Join("; ", prestageErrors),
                         nameof(mission));
+                }
+            }
+
+            if (!String.IsNullOrEmpty(mission.DependsOnMissionId))
+            {
+                Mission? referenced = await _Database.Missions.ReadAsync(mission.DependsOnMissionId, token).ConfigureAwait(false);
+                if (referenced == null)
+                {
+                    throw new InvalidOperationException("dependsOnMissionId not found: " + mission.DependsOnMissionId);
                 }
             }
 
@@ -421,6 +437,21 @@ namespace Armada.Core.Services
                         "Invalid prestagedFiles for mission[" + i + "] '" + md.Title + "': " +
                         String.Join("; ", errors),
                         nameof(missionDescriptions));
+                }
+            }
+        }
+
+        private async Task ValidateDependsOnReferencesOrThrowAsync(List<MissionDescription> missionDescriptions, CancellationToken token)
+        {
+            if (missionDescriptions == null) return;
+            for (int i = 0; i < missionDescriptions.Count; i++)
+            {
+                MissionDescription md = missionDescriptions[i];
+                if (md == null || String.IsNullOrEmpty(md.DependsOnMissionId)) continue;
+                Mission? referenced = await _Database.Missions.ReadAsync(md.DependsOnMissionId, token).ConfigureAwait(false);
+                if (referenced == null)
+                {
+                    throw new InvalidOperationException("dependsOnMissionId not found: " + md.DependsOnMissionId);
                 }
             }
         }
