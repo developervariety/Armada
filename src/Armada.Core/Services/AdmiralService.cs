@@ -165,6 +165,11 @@ namespace Armada.Core.Services
             }
             _Logging.Info(_Header + "created voyage " + voyage.Id + ": " + title);
 
+            // Validate prestaged files for every mission before any persistence. Reject
+            // the entire dispatch on the first failure so the caller sees a single,
+            // unambiguous error and no partial state is left behind.
+            ValidatePrestagedFilesOrThrow(missionDescriptions);
+
             // Create missions
             foreach (MissionDescription md in missionDescriptions)
             {
@@ -173,6 +178,7 @@ namespace Armada.Core.Services
                 mission.UserId = vessel.UserId;
                 mission.VoyageId = voyage.Id;
                 mission.VesselId = vesselId;
+                mission.PrestagedFiles = ClonePrestagedFiles(md.PrestagedFiles);
                 mission = await _Database.Missions.CreateAsync(mission, token).ConfigureAwait(false);
                 await PersistMissionPlaybooksAsync(mission, voyage.SelectedPlaybooks, token).ConfigureAwait(false);
                 _Logging.Info(_Header + "created mission " + mission.Id + ": " + md.Title);
@@ -255,6 +261,9 @@ namespace Armada.Core.Services
             }
             _Logging.Info(_Header + "created pipeline voyage " + voyage.Id + ": " + title + " (pipeline: " + pipeline.Name + ")");
 
+            // Validate prestaged files for every mission before persisting any pipeline stage.
+            ValidatePrestagedFilesOrThrow(missionDescriptions);
+
             foreach (MissionDescription md in missionDescriptions)
             {
                 string? previousMissionId = null;
@@ -273,6 +282,13 @@ namespace Armada.Core.Services
                     mission.VesselId = vesselId;
                     mission.Persona = stage.PersonaName;
                     mission.DependsOnMissionId = previousMissionId;
+                    // Only the first stage of each pipeline mission gets the prestaged files.
+                    // Downstream stages re-use the same worktree and would hit the
+                    // "destPath already exists" guard if we tried to copy again.
+                    if (previousMissionId == null)
+                    {
+                        mission.PrestagedFiles = ClonePrestagedFiles(md.PrestagedFiles);
+                    }
 
                     // Only the first stage starts as Pending; dependent stages also start as Pending
                     // but won't be assigned until their dependency completes
@@ -318,6 +334,19 @@ namespace Armada.Core.Services
                 await _Playbooks.ResolveSelectionsAsync(mission.TenantId, mission.SelectedPlaybooks, token).ConfigureAwait(false);
             }
 
+            // Validate prestaged files at the dispatch boundary before the mission is persisted.
+            if (mission.PrestagedFiles != null && mission.PrestagedFiles.Count > 0)
+            {
+                List<string> prestageErrors = PrestagedFileValidator.Validate(mission.PrestagedFiles);
+                if (prestageErrors.Count > 0)
+                {
+                    throw new ArgumentException(
+                        "Invalid prestagedFiles for mission '" + mission.Title + "': " +
+                        String.Join("; ", prestageErrors),
+                        nameof(mission));
+                }
+            }
+
             mission = await _Database.Missions.CreateAsync(mission, token).ConfigureAwait(false);
             await PersistMissionPlaybooksAsync(mission, mission.SelectedPlaybooks, token).ConfigureAwait(false);
             _Logging.Info(_Header + "created mission " + mission.Id + ": " + mission.Title);
@@ -358,6 +387,36 @@ namespace Armada.Core.Services
                 PlaybookId = s.PlaybookId,
                 DeliveryMode = s.DeliveryMode
             }).ToList();
+        }
+
+        private static List<PrestagedFile>? ClonePrestagedFiles(List<PrestagedFile>? entries)
+        {
+            if (entries == null || entries.Count == 0) return null;
+            List<PrestagedFile> copy = new List<PrestagedFile>(entries.Count);
+            foreach (PrestagedFile entry in entries)
+            {
+                if (entry == null) continue;
+                copy.Add(new PrestagedFile(entry.SourcePath ?? "", entry.DestPath ?? ""));
+            }
+            return copy.Count > 0 ? copy : null;
+        }
+
+        private static void ValidatePrestagedFilesOrThrow(List<MissionDescription> missionDescriptions)
+        {
+            if (missionDescriptions == null) return;
+            for (int i = 0; i < missionDescriptions.Count; i++)
+            {
+                MissionDescription md = missionDescriptions[i];
+                if (md == null || md.PrestagedFiles == null || md.PrestagedFiles.Count == 0) continue;
+                List<string> errors = PrestagedFileValidator.Validate(md.PrestagedFiles);
+                if (errors.Count > 0)
+                {
+                    throw new ArgumentException(
+                        "Invalid prestagedFiles for mission[" + i + "] '" + md.Title + "': " +
+                        String.Join("; ", errors),
+                        nameof(missionDescriptions));
+                }
+            }
         }
 
         private async Task PersistMissionPlaybooksAsync(Mission mission, List<SelectedPlaybook>? selections, CancellationToken token)

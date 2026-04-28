@@ -429,6 +429,11 @@ namespace Armada.Core.Database.Mysql
                     28,
                     "Add playbooks and mission/voyage playbook associations",
                     TableQueries.MigrationV28Statements
+                ),
+                new SchemaMigration(
+                    29,
+                    "Add prestaged_files JSON column to missions",
+                    TableQueries.MigrationV29Statements
                 )
             };
         }

@@ -35,6 +35,7 @@ namespace Armada.Core.Services
         private IDockService _Docks;
         private ICaptainService _Captains;
         private IPromptTemplateService? _PromptTemplates;
+        private PrestagedFileCopier _Prestaging;
         private const string ArchitectHandoffMarker = "<!-- ARMADA:ARCHITECT-HANDOFF -->";
         private static readonly System.Text.RegularExpressions.Regex _ScopedFilesDirectiveRegex =
             new System.Text.RegularExpressions.Regex(@"^\s*(?:Touch|Edit|Modify)\s+only\s+(?<files>.+)$",
@@ -127,6 +128,7 @@ namespace Armada.Core.Services
             _Docks = docks ?? throw new ArgumentNullException(nameof(docks));
             _Captains = captains ?? throw new ArgumentNullException(nameof(captains));
             _PromptTemplates = promptTemplates;
+            _Prestaging = new PrestagedFileCopier(_Logging);
         }
 
         #endregion
@@ -335,6 +337,37 @@ namespace Armada.Core.Services
             // Track dock on the mission for per-mission dock tracking
             mission.DockId = dock.Id;
             await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+
+            // Stage any prestaged files into the worktree before the captain is launched.
+            // The validator already ran at dispatch time; this is the host-side copy step.
+            // Failures here mark the mission Failed and reclaim the dock without ever
+            // claiming a captain or launching an agent process.
+            if (mission.PrestagedFiles != null && mission.PrestagedFiles.Count > 0)
+            {
+                string? prestageFailure = _Prestaging.CopyAll(mission.PrestagedFiles, dock.WorktreePath ?? "");
+                if (prestageFailure != null)
+                {
+                    _Logging.Error(_Header + "prestaging failed for mission " + mission.Id + ": " + prestageFailure);
+
+                    mission.Status = MissionStatusEnum.Failed;
+                    mission.FailureReason = "Prestaged file staging failed: " + prestageFailure;
+                    mission.CompletedUtc = DateTime.UtcNow;
+                    mission.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+
+                    try
+                    {
+                        await _Docks.ReclaimAsync(dock.Id, token: token).ConfigureAwait(false);
+                    }
+                    catch (Exception reclaimEx)
+                    {
+                        _Logging.Warn(_Header + "failed to reclaim dock " + dock.Id +
+                            " after prestaging failure for mission " + mission.Id + ": " + reclaimEx.Message);
+                    }
+
+                    return false;
+                }
+            }
 
             // Atomically claim the captain — only succeeds if captain is still Idle.
             // This prevents a race where two concurrent TryAssignAsync calls both find

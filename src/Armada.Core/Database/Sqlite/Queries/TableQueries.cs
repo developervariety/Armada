@@ -791,6 +791,9 @@ namespace Armada.Core.Database.Sqlite.Queries
                         FOREIGN KEY (playbook_id) REFERENCES playbooks(id) ON DELETE SET NULL
                     );",
                     @"CREATE INDEX IF NOT EXISTS idx_mission_playbook_snapshots_playbook ON mission_playbook_snapshots(playbook_id);"
+                ),
+                new SchemaMigration(29, "Add prestaged_files JSON column to missions",
+                    @"ALTER TABLE missions ADD COLUMN prestaged_files TEXT;"
                 )
             };
         }

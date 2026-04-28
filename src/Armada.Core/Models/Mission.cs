@@ -150,6 +150,15 @@ namespace Armada.Core.Models
         public List<MissionPlaybookSnapshot> PlaybookSnapshots { get; set; } = new List<MissionPlaybookSnapshot>();
 
         /// <summary>
+        /// Optional list of file-copy operations performed by the Admiral after a
+        /// dock worktree is created and before the captain process is spawned. Each
+        /// entry copies a file from an absolute path on the Admiral host into a
+        /// relative path within the dock worktree. Persisted as a JSON-serialized
+        /// list on the missions row.
+        /// </summary>
+        public List<PrestagedFile>? PrestagedFiles { get; set; } = null;
+
+        /// <summary>
         /// Creation timestamp in UTC.
         /// </summary>
         public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;

@@ -32,11 +32,19 @@ namespace Armada.Server.Mcp.Tools
         /// <param name="database">Database driver for voyage data access.</param>
         /// <param name="admiral">Admiral service for voyage orchestration.</param>
         /// <param name="settings">Optional settings for log/diff cleanup during purge.</param>
+        /// <remarks>
+        /// armada_dispatch accepts an optional <c>prestagedFiles</c> array on each
+        /// mission entry. Each entry copies an absolute <c>sourcePath</c> on the
+        /// Admiral host into a relative <c>destPath</c> within the dock worktree
+        /// before the captain process is launched. Useful for handing the captain
+        /// a context snapshot, generated test fixture, or one-shot input file
+        /// that should not be committed to the vessel repository.
+        /// </remarks>
         public static void Register(RegisterToolDelegate register, DatabaseDriver database, IAdmiralService admiral, ArmadaSettings? settings = null)
         {
             register(
                 "armada_dispatch",
-                "Dispatch a new voyage with missions to a vessel",
+                "Dispatch a new voyage with missions to a vessel. Each mission may include an optional prestagedFiles array of {sourcePath, destPath} entries; the Admiral copies sourcePath (absolute, on the Admiral host) into destPath (relative, inside the dock worktree) after the dock is created and before the captain spawns.",
                 new
                 {
                     type = "object",
@@ -54,7 +62,22 @@ namespace Armada.Server.Mcp.Tools
                                 properties = new
                                 {
                                     title = new { type = "string" },
-                                    description = new { type = "string" }
+                                    description = new { type = "string" },
+                                    prestagedFiles = new
+                                    {
+                                        type = "array",
+                                        description = "Optional file-copy operations executed by the Admiral after the dock is created and before the captain is launched. Max 50 entries totalling 50 MB per mission.",
+                                        items = new
+                                        {
+                                            type = "object",
+                                            properties = new
+                                            {
+                                                sourcePath = new { type = "string", description = "Absolute path on the Admiral host" },
+                                                destPath = new { type = "string", description = "Relative path within the dock worktree (no '..' segments)" }
+                                            },
+                                            required = new[] { "sourcePath", "destPath" }
+                                        }
+                                    }
                                 }
                             }
                         },

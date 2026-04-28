@@ -2,6 +2,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
 {
     using System;
     using System.Collections.Generic;
+    using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
     using Npgsql;
@@ -65,10 +66,10 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     cmd.Connection = conn;
                     cmd.CommandText = @"INSERT INTO missions (id, tenant_id, user_id, voyage_id, vessel_id, captain_id, title, description,
                         status, priority, parent_mission_id, branch_name, dock_id, process_id,
-                        pr_url, commit_hash, diff_snapshot, agent_output, persona, depends_on_mission_id, failure_reason, total_runtime_ms, created_utc, started_utc, completed_utc, last_update_utc)
+                        pr_url, commit_hash, diff_snapshot, agent_output, persona, depends_on_mission_id, failure_reason, total_runtime_ms, prestaged_files, created_utc, started_utc, completed_utc, last_update_utc)
                         VALUES (@id, @tenant_id, @user_id, @voyage_id, @vessel_id, @captain_id, @title, @description,
                         @status, @priority, @parent_mission_id, @branch_name, @dock_id, @process_id,
-                        @pr_url, @commit_hash, @diff_snapshot, @agent_output, @persona, @depends_on_mission_id, @failure_reason, @total_runtime_ms, @created_utc, @started_utc, @completed_utc, @last_update_utc);";
+                        @pr_url, @commit_hash, @diff_snapshot, @agent_output, @persona, @depends_on_mission_id, @failure_reason, @total_runtime_ms, @prestaged_files, @created_utc, @started_utc, @completed_utc, @last_update_utc);";
                     AddMissionParameters(cmd, mission);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
@@ -136,6 +137,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                         agent_output = @agent_output,
                         persona = @persona, depends_on_mission_id = @depends_on_mission_id,
                         failure_reason = @failure_reason, total_runtime_ms = @total_runtime_ms,
+                        prestaged_files = @prestaged_files,
                         started_utc = @started_utc, completed_utc = @completed_utc,
                         last_update_utc = @last_update_utc
                         WHERE id = @id;";
@@ -703,6 +705,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
             cmd.Parameters.AddWithValue("@depends_on_mission_id", (object?)mission.DependsOnMissionId ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@failure_reason", (object?)mission.FailureReason ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@total_runtime_ms", mission.TotalRuntimeMs.HasValue ? (object)mission.TotalRuntimeMs.Value : DBNull.Value);
+            cmd.Parameters.AddWithValue("@prestaged_files", (object?)SerializePrestagedFiles(mission.PrestagedFiles) ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@created_utc", mission.CreatedUtc);
             cmd.Parameters.AddWithValue("@started_utc", mission.StartedUtc.HasValue ? (object)mission.StartedUtc.Value : DBNull.Value);
             cmd.Parameters.AddWithValue("@completed_utc", mission.CompletedUtc.HasValue ? (object)mission.CompletedUtc.Value : DBNull.Value);
@@ -798,7 +801,32 @@ namespace Armada.Core.Database.Postgresql.Implementations
             try { mission.Persona = NullableString(reader["persona"]); } catch { }
             try { mission.DependsOnMissionId = NullableString(reader["depends_on_mission_id"]); } catch { }
             try { mission.FailureReason = NullableString(reader["failure_reason"]); } catch { }
+            try { mission.PrestagedFiles = DeserializePrestagedFiles(reader["prestaged_files"]); } catch { }
             return mission;
+        }
+
+        /// <summary>Serialize prestaged files for storage. Null on empty.</summary>
+        internal static string? SerializePrestagedFiles(List<PrestagedFile>? entries)
+        {
+            if (entries == null || entries.Count == 0) return null;
+            return JsonSerializer.Serialize(entries);
+        }
+
+        /// <summary>Deserialize prestaged files from a stored JSON column. Bad JSON -> null.</summary>
+        internal static List<PrestagedFile>? DeserializePrestagedFiles(object? raw)
+        {
+            if (raw == null || raw == DBNull.Value) return null;
+            string? json = raw.ToString();
+            if (String.IsNullOrWhiteSpace(json)) return null;
+            try
+            {
+                List<PrestagedFile>? list = JsonSerializer.Deserialize<List<PrestagedFile>>(json);
+                return (list != null && list.Count > 0) ? list : null;
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         private static string? NullableString(object value)

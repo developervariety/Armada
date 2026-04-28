@@ -433,6 +433,7 @@ namespace Armada.Core.Database.SqlServer
             try { mission.Persona = NullableString(reader["persona"]); } catch { }
             try { mission.DependsOnMissionId = NullableString(reader["depends_on_mission_id"]); } catch { }
             try { mission.FailureReason = NullableString(reader["failure_reason"]); } catch { }
+            try { mission.PrestagedFiles = Implementations.MissionMethods.DeserializePrestagedFiles(reader["prestaged_files"]); } catch { }
             return mission;
         }
 

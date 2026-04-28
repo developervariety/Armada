@@ -109,6 +109,7 @@ namespace Armada.Core.Database.Mysql.Queries
             commit_hash VARCHAR(450),
             diff_snapshot LONGTEXT,
             agent_output LONGTEXT,
+            prestaged_files LONGTEXT,
             created_utc DATETIME(6) NOT NULL,
             started_utc DATETIME(6),
             completed_utc DATETIME(6),
@@ -621,6 +622,14 @@ namespace Armada.Core.Database.Mysql.Queries
                 FOREIGN KEY (playbook_id) REFERENCES playbooks(id) ON DELETE SET NULL
             );",
             @"CREATE INDEX idx_mission_playbook_snapshots_playbook ON mission_playbook_snapshots(playbook_id);"
+        };
+
+        /// <summary>
+        /// Migration v29 statements for adding prestaged_files JSON column to missions.
+        /// </summary>
+        public static readonly string[] MigrationV29Statements = new string[]
+        {
+            @"ALTER TABLE missions ADD COLUMN prestaged_files LONGTEXT;"
         };
 
         /// <summary>

@@ -328,6 +328,13 @@ namespace Armada.Core.Database.SqlServer.Queries
                         CONSTRAINT FK_mission_playbook_snapshots_playbook FOREIGN KEY (playbook_id) REFERENCES playbooks(id) ON DELETE SET NULL
                     );",
                     @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_mission_playbook_snapshots_playbook') CREATE INDEX idx_mission_playbook_snapshots_playbook ON mission_playbook_snapshots(playbook_id);"
+                ),
+                new SchemaMigration(
+                    29,
+                    "Add prestaged_files JSON column to missions",
+                    @"
+                    IF COL_LENGTH('missions', 'prestaged_files') IS NULL
+                        ALTER TABLE missions ADD prestaged_files NVARCHAR(MAX);"
                 )
             };
         }
@@ -496,6 +503,7 @@ namespace Armada.Core.Database.SqlServer.Queries
                 commit_hash NVARCHAR(450),
                 diff_snapshot NVARCHAR(MAX),
                 agent_output NVARCHAR(MAX),
+                prestaged_files NVARCHAR(MAX),
                 created_utc NVARCHAR(450) NOT NULL,
                 started_utc NVARCHAR(450),
                 completed_utc NVARCHAR(450),

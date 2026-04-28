@@ -2,6 +2,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
 {
     using System;
     using System.Collections.Generic;
+    using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
     using Microsoft.Data.Sqlite;
@@ -57,8 +58,8 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = @"INSERT INTO missions (id, tenant_id, user_id, voyage_id, vessel_id, captain_id, title, description, status, priority, parent_mission_id, branch_name, dock_id, process_id, pr_url, commit_hash, diff_snapshot, agent_output, persona, depends_on_mission_id, failure_reason, total_runtime_ms, created_utc, started_utc, completed_utc, last_update_utc)
-                            VALUES (@id, @tenant_id, @user_id, @voyage_id, @vessel_id, @captain_id, @title, @description, @status, @priority, @parent_mission_id, @branch_name, @dock_id, @process_id, @pr_url, @commit_hash, @diff_snapshot, @agent_output, @persona, @depends_on_mission_id, @failure_reason, @total_runtime_ms, @created_utc, @started_utc, @completed_utc, @last_update_utc);";
+                    cmd.CommandText = @"INSERT INTO missions (id, tenant_id, user_id, voyage_id, vessel_id, captain_id, title, description, status, priority, parent_mission_id, branch_name, dock_id, process_id, pr_url, commit_hash, diff_snapshot, agent_output, persona, depends_on_mission_id, failure_reason, total_runtime_ms, prestaged_files, created_utc, started_utc, completed_utc, last_update_utc)
+                            VALUES (@id, @tenant_id, @user_id, @voyage_id, @vessel_id, @captain_id, @title, @description, @status, @priority, @parent_mission_id, @branch_name, @dock_id, @process_id, @pr_url, @commit_hash, @diff_snapshot, @agent_output, @persona, @depends_on_mission_id, @failure_reason, @total_runtime_ms, @prestaged_files, @created_utc, @started_utc, @completed_utc, @last_update_utc);";
                     cmd.Parameters.AddWithValue("@id", mission.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)mission.TenantId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@user_id", (object?)mission.UserId ?? DBNull.Value);
@@ -81,6 +82,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     cmd.Parameters.AddWithValue("@depends_on_mission_id", (object?)mission.DependsOnMissionId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@failure_reason", (object?)mission.FailureReason ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@total_runtime_ms", mission.TotalRuntimeMs.HasValue ? (object)mission.TotalRuntimeMs.Value : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@prestaged_files", (object?)SerializePrestagedFiles(mission.PrestagedFiles) ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@created_utc", SqliteDatabaseDriver.ToIso8601(mission.CreatedUtc));
                     cmd.Parameters.AddWithValue("@started_utc", mission.StartedUtc.HasValue ? (object)SqliteDatabaseDriver.ToIso8601(mission.StartedUtc.Value) : DBNull.Value);
                     cmd.Parameters.AddWithValue("@completed_utc", mission.CompletedUtc.HasValue ? (object)SqliteDatabaseDriver.ToIso8601(mission.CompletedUtc.Value) : DBNull.Value);
@@ -150,6 +152,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                             depends_on_mission_id = @depends_on_mission_id,
                             failure_reason = @failure_reason,
                             total_runtime_ms = @total_runtime_ms,
+                            prestaged_files = @prestaged_files,
                             started_utc = @started_utc,
                             completed_utc = @completed_utc,
                             last_update_utc = @last_update_utc
@@ -176,6 +179,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     cmd.Parameters.AddWithValue("@depends_on_mission_id", (object?)mission.DependsOnMissionId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@failure_reason", (object?)mission.FailureReason ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@total_runtime_ms", mission.TotalRuntimeMs.HasValue ? (object)mission.TotalRuntimeMs.Value : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@prestaged_files", (object?)SerializePrestagedFiles(mission.PrestagedFiles) ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@started_utc", mission.StartedUtc.HasValue ? (object)SqliteDatabaseDriver.ToIso8601(mission.StartedUtc.Value) : DBNull.Value);
                     cmd.Parameters.AddWithValue("@completed_utc", mission.CompletedUtc.HasValue ? (object)SqliteDatabaseDriver.ToIso8601(mission.CompletedUtc.Value) : DBNull.Value);
                     cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(mission.LastUpdateUtc));
@@ -792,6 +796,42 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     }
                 }
                 return EnumerationResult<Mission>.Create(query, results, totalCount);
+            }
+        }
+
+        #endregion
+
+        #region Internal-Helpers
+
+        /// <summary>
+        /// Serialize a list of prestaged files for storage. Returns null when the
+        /// list is null or empty so the column stores NULL rather than '[]'.
+        /// </summary>
+        internal static string? SerializePrestagedFiles(List<PrestagedFile>? entries)
+        {
+            if (entries == null || entries.Count == 0) return null;
+            return JsonSerializer.Serialize(entries);
+        }
+
+        /// <summary>
+        /// Deserialize prestaged files from a stored JSON column value. Returns
+        /// null on null/empty/'[]' input and never throws on bad data — a parse
+        /// failure is treated as "no entries" rather than a hard mission read
+        /// error, since this column is optional metadata.
+        /// </summary>
+        internal static List<PrestagedFile>? DeserializePrestagedFiles(object? raw)
+        {
+            if (raw == null || raw == DBNull.Value) return null;
+            string? json = raw.ToString();
+            if (String.IsNullOrWhiteSpace(json)) return null;
+            try
+            {
+                List<PrestagedFile>? list = JsonSerializer.Deserialize<List<PrestagedFile>>(json);
+                return (list != null && list.Count > 0) ? list : null;
+            }
+            catch
+            {
+                return null;
             }
         }
 

@@ -1,5 +1,7 @@
 namespace Armada.Core.Models
 {
+    using System.Collections.Generic;
+
     /// <summary>
     /// Describes a mission's title and description for voyage dispatch.
     /// Replaces tuple (string Title, string Description) throughout the codebase.
@@ -17,6 +19,13 @@ namespace Armada.Core.Models
         /// Mission description.
         /// </summary>
         public string Description { get; set; } = "";
+
+        /// <summary>
+        /// Optional list of file-copy operations the Admiral performs after dock
+        /// creation but before captain spawn. Plumbed through to <see cref="Mission.PrestagedFiles"/>
+        /// on the created mission.
+        /// </summary>
+        public List<PrestagedFile>? PrestagedFiles { get; set; } = null;
 
         #endregion
 
