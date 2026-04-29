@@ -40,10 +40,10 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("Source MCP Helpers Use Net10 Framework", () =>
             {
                 string mcpConfigHelperContents = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "Armada.Helm", "Commands", "McpConfigHelper.cs"));
-                string installMcpBatContents = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "install-mcp.bat"));
-                string installMcpShContents = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "install-mcp.sh"));
-                string removeMcpBatContents = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "remove-mcp.bat"));
-                string removeMcpShContents = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "remove-mcp.sh"));
+                string installMcpBatContents = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "scripts", "windows", "install-mcp.bat"));
+                string installMcpShContents = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "scripts", "common", "install-mcp.sh"));
+                string removeMcpBatContents = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "scripts", "windows", "remove-mcp.bat"));
+                string removeMcpShContents = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "scripts", "common", "remove-mcp.sh"));
 
                 AssertContains("private const string SourceMcpFramework = \"net10.0\";", mcpConfigHelperContents, "McpConfigHelper should pin source MCP installs to net10.0");
                 AssertFalse(mcpConfigHelperContents.Contains("\"net8.0\""), "McpConfigHelper should not pin source MCP installs to net8.0");

@@ -1,6 +1,13 @@
 @echo off
+setlocal
 
-set TAG=%~1
+set "TAG=%~1"
+set "SCRIPT_DIR=%~dp0"
+if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
+for %%I in ("%SCRIPT_DIR%\..\..") do set "REPO_ROOT=%%~fI"
+
+pushd "%REPO_ROOT%" >nul
+if errorlevel 1 exit /b 1
 
 if "%TAG%"=="" (
     echo Building jchristn77/armada-server:latest
@@ -22,3 +29,7 @@ if "%TAG%"=="" (
         --push ^
         .
 )
+
+set "EXITCODE=%ERRORLEVEL%"
+popd >nul
+exit /b %EXITCODE%

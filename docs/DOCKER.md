@@ -180,34 +180,50 @@ Both scripts prompt for confirmation, stop containers, and delete database and l
 
 ## Building Images from Source
 
-Build scripts are in the repository root. They build multi-platform images (amd64 + arm64) and push to Docker Hub.
+Build scripts are split by platform under `scripts/windows/`, `scripts/linux/`, and `scripts/macos/`. Shared shell implementations live under `scripts/common/`. They build multi-platform images (amd64 + arm64) and push to Docker Hub.
 
 ### Build latest only
 
 ```bash
-# Server
-./build-server.sh
-# or on Windows
-build-server.bat
+Linux:
+./scripts/linux/build-server.sh
 
-# Dashboard
-./build-dashboard.sh
-# or on Windows
-build-dashboard.bat
+macOS:
+./scripts/macos/build-server.sh
+
+Windows:
+scripts\windows\build-server.bat
+
+Linux:
+./scripts/linux/build-dashboard.sh
+
+macOS:
+./scripts/macos/build-dashboard.sh
+
+Windows:
+scripts\windows\build-dashboard.bat
 ```
 
 ### Build latest + versioned tag
 
 ```bash
-# Server
-./build-server.sh v0.7.0
-# or on Windows
-build-server.bat v0.7.0
+Linux:
+./scripts/linux/build-server.sh v0.7.0
 
-# Dashboard
-./build-dashboard.sh v0.7.0
-# or on Windows
-build-dashboard.bat v0.7.0
+macOS:
+./scripts/macos/build-server.sh v0.7.0
+
+Windows:
+scripts\windows\build-server.bat v0.7.0
+
+Linux:
+./scripts/linux/build-dashboard.sh v0.7.0
+
+macOS:
+./scripts/macos/build-dashboard.sh v0.7.0
+
+Windows:
+scripts\windows\build-dashboard.bat v0.7.0
 ```
 
 This produces both `jchristn77/armada-server:latest` and `jchristn77/armada-server:v0.7.0` (and the same for the dashboard).
