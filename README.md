@@ -12,6 +12,7 @@
 
 <p align="center">
   <a href="#why-armada">Why Armada</a> |
+  <a href="#features">Features</a> |
   <a href="#how-it-works">How It Works</a> |
   <a href="#quick-start">Quick Start</a> |
   <a href="#pipelines">Pipelines</a> |
@@ -61,6 +62,137 @@ Everything else in Armada exists to support that: isolated worktrees, parallel d
 - **Tech leads** who want a record of what agents changed.
 - **Teams** that need shared visibility into agent-driven work.
 - **Anyone** who wants more structure than a single-agent terminal loop.
+
+---
+
+## Features
+
+A by-category inventory of what Armada actually ships. Each feature is implemented in `Armada.Core` / `Armada.Server` / `Armada.Runtimes` and exposed via REST, MCP, the dashboard, or the CLI.
+
+### Orchestration & Dispatch
+
+- **Voyages and missions.** A voyage groups one or more missions; each mission is an atomic unit of work assigned to one captain working in one dock (worktree). Voyages target one vessel; missions inherit the vessel and may carry per-mission `prestagedFiles`, `preferredCaptainId`, `preferredModel`.
+- **Single-voyage dispatch with logical aliases.** Architect-emitted plans dispatch as one voyage. Each mission may carry an `alias` (e.g. `"M1"`) and depend on another via `dependsOnMissionAlias`. Server topologically sorts the alias graph at dispatch, resolves aliases to concrete `msn_*` ids in dependency order. Forward references and cycles rejected at validation.
+- **`dependsOnMissionId` plumbing.** A dependent mission stays `Pending` until the referenced mission reaches a completion state (`Complete`, `WorkProduced`, or `PullRequestOpen`). Validation rejects unknown ids at dispatch.
+- **Cross-vessel dependencies.** A mission on vessel A may depend on a mission on vessel B. Cross-vessel deps wait for `Complete` (skipping the `WorkProduced` shortcut, since branch handoff across repos is meaningless), and the downstream always gets a fresh branch on its own vessel — no branch inheritance across repos.
+- **Foundation-first dispatch.** Use `dependsOnMissionId` (or alias) to gate downstream missions on an upstream that introduces shared infra; admiral promotes them only when the dependency is ready.
+- **Pre-staged files.** Optional `prestagedFiles: [{sourcePath, destPath}]` per mission copies absolute Admiral-host paths into the dock worktree before captain spawn. Useful for spec snapshots, generated fixtures, briefing docs the agent shouldn't commit. Cap 50 entries / 50 MB per mission.
+- **Preferred captain / preferred model.** Pin a mission to a specific captain id or restrict assignment to captains whose `Model` matches a given string. Both honored across all dispatch paths (standard, alias, pipeline).
+- **Architect-mode dispatch.** `armada_decompose_plan` runs an Architect captain that produces a markdown plan + N `[ARMADA:MISSION]` blocks; `armada_parse_architect_output` parses to a structured plan. Spec → architect → captain missions in one flow.
+
+### Pipelines & Personas
+
+- **Built-in pipelines.** `WorkerOnly` (single Worker stage), `Reviewed` (Worker → Judge), `Architect-Worker-Judge`, `Architect-Worker-TestEngineer-Judge`. Configurable at fleet/vessel level with per-dispatch override.
+- **Custom pipelines.** Define your own ordered persona chain via `armada_create_pipeline` with `stages: [{personaName, isOptional, description, preferredModel}]`.
+- **Per-stage `PreferredModel`.** Each pipeline stage can carry an optional `PreferredModel` that overrides the per-mission pin for missions created from that stage. Lets the `Reviewed` pipeline route Worker to Mid-tier Sonnet and Judge to Opus independently. Dispatcher precedence: `mission.PreferredModel = stage.PreferredModel ?? md.PreferredModel`.
+- **Built-in personas.** Worker, Architect, Judge, TestEngineer.
+- **Custom personas.** `armada_create_persona` registers a persona with `name`, `description`, `promptTemplateName`. Pipelines reference personas by name, so user-defined personas slot into stages just like built-ins.
+- **Prompt templates.** Every prompt agents see is template-driven. `armada_create_prompt_template` / `armada_update_prompt_template` / `armada_reset_prompt_template`. Templates use `{Placeholder}` parameters. Built-in templates ship as defaults; user edits persist in the database.
+- **Allowed-personas filter on captains.** Each captain has an `AllowedPersonas` list (e.g. Opus captains: `Worker, Judge, Architect`; Codex: `Worker, Architect`). Hard filter inside the dispatcher — a mission with `Persona = "Judge"` only routes to captains whose `AllowedPersonas` includes Judge.
+
+### Agent Runtimes
+
+- **Pluggable runtime adapter.** `IAgentRuntime` abstraction; `BaseAgentRuntime` factors out shared stdout/stderr/log piping + process lifecycle.
+- **Claude Code.** Local `claude` CLI runtime.
+- **Codex.** OpenAI Codex CLI.
+- **Gemini.** Google Gemini CLI.
+- **Cursor.** Cursor agent CLI (`cursor-agent`); supports cursor-specific models (composer-2-fast, kimi-k2.5, claude-4.6-sonnet-medium, gemini-3-flash).
+- **Cross-runtime model equivalence.** Captains expose a `Model` string; `preferredModel` filtering is a strict literal-string match. Equivalence pairs (e.g. `claude-sonnet-4-6` ≡ `claude-4.6-sonnet-medium`) are documented; the orchestrator picks overflow captains across runtime variants when needed.
+
+### Quality Gates & Auto-land
+
+- **AutoLand predicate.** Per-vessel predicate gates auto-landing of merge-queue entries by file count + line count + path allow/deny lists. Configured via `Vessel.AutoLandPredicate`. Predicate-Skip events emit `merge_queue.auto_land_skipped`.
+- **Auto-land calibration counter.** Each predicate-enabled vessel maintains an atomic `auto_land_calibration_landed_count`. The first 50 auto-lands per vessel get sampled into deep audit review regardless of trigger; after calibration, only flagged entries land in the deep queue.
+- **Audit safety net — Layer 1 (sync).** `ConventionChecker` (CORE-rule pattern denylist on `+` lines) + `CriticalTriggerEvaluator` (path/content critical patterns: UDS 0x34, RSA primitives, schema migrations, security-sensitive paths) run after auto-land. Convention failures or critical triggers short-circuit auto-land and surface to the orchestrator.
+- **Audit safety net — Layer 2 (async deep review).** `armada_drain_audit_queue` returns picked entries; orchestrator reviews via `armada_get_mission_diff` + `superpowers:code-reviewer`; `armada_record_audit_verdict` records `Pass | Concern | Critical`. Critical fires a wake event.
+- **Breaking-change PR-fallback.** When a critical trigger fires on an entry that would otherwise auto-land, `MergeQueueService` pushes the captain branch to origin and opens a real platform PR (`gh pr create` / `glab mr create`) instead of merging. Entry transitions to `MergeStatusEnum.PullRequestOpen` with `PrUrl` + `PrBaseBranch`. Linked mission goes to `MissionStatusEnum.PullRequestOpen`. Same-vessel dependent missions unblock immediately and chain off the upstream captain branch — work continues while a human reviews the PR. When the PR merges, the mission reconciler flips to `Complete` and the merge-queue reconciler lands the entry. Chained-PR base resolution: when an upstream dep is itself in PR review, the downstream's PR targets the upstream's captain branch instead of vessel default.
+- **Judge persona enforcement.** `Persona = "Judge"` only routes to captains with `Judge` in `AllowedPersonas` (Opus-only by policy in our deployment). Judge mission produces a structured verdict (`PASS | FAIL | NEEDS_REVISION`) with required `## Completeness`, `## Correctness`, `## Tests`, `## Failure Modes`, `## Suggested Follow-ups`, `## Verdict` sections. PASS verdicts with shallow output are rejected; verdict line `[ARMADA:VERDICT] {value}` parsed structurally.
+
+### Judge Hybrid Autopilot
+
+- **Suggested Follow-ups in Judge prompt.** Judge enumerates cleanup-mission candidates the diff implies but doesn't address (stale TODOs, helper extractions, missing test coverage of pre-existing branches, doc updates). `(none)` sentinel for empty.
+- **Audit-flag wiring.** When Judge verdict is `NEEDS_REVISION` OR `PASS` with non-empty Suggested Follow-ups, the upstream Worker's most recent merge entry is marked `AuditDeepPicked = true` with `AuditDeepNotes` carrying the verdict label + follow-ups body. `armada_drain_audit_queue` surfaces it next call.
+- **Audit-queue depth notification.** Each health-check cycle counts pending picked entries; when count crosses `ArmadaSettings.AuditQueueNotifyThreshold` (default 1) AND the debounce window (`AuditQueueNotifyDebounceMinutes`, default 30) has elapsed since the last notification, fire a desktop notification (cross-platform: macOS osascript, Linux notify-send, Windows toast).
+
+### Merge Queue & Landing
+
+- **Sequential test-before-merge.** Each `(vessel, target-branch)` group processes one entry at a time: fetch → create temp worktree from current target tip → merge captain branch → run tests → land immediately. Eliminates batch-style cascade failures.
+- **Three landing modes.** `MergeQueue` (default — testable, auditable), `LocalMerge` (fast direct merge), `PullRequestMode` (always open PR, never auto-merge). Configurable per-vessel and per-voyage with vessel default.
+- **Branch cleanup policy.** Per-vessel `BranchCleanupPolicy`: `None`, `LocalOnly`, `LocalAndRemote`. Symmetric local + remote cleanup runs after `Landed` transitions. Integration branches always pruned from bare regardless.
+- **PR merge reconciliation.** Health-check loop polls `PullRequestOpen` missions via the platform CLI, transitions to `Complete` when merged + pulls the working tree. A second pass lands `PullRequestOpen` merge entries when their linked mission is `Complete`, then runs cleanup.
+- **Merge-queue retry / cancel / purge.** `armada_process_merge_entry`, `armada_cancel_merge`, `armada_purge_merge_entry` / `armada_purge_merge_queue`, `armada_delete_merge`.
+
+### Captain Lifecycle
+
+- **Idle pool with on-demand spawn.** Captains stay idle until a matching mission arrives; `MinIdleCaptains` setting auto-spawns when below threshold. Health check cleans up stale captains on admiral restart.
+- **Per-captain max parallelism.** Each captain serves one mission at a time (default); reservation logic prevents double-assignment.
+- **Stop / recall.** `armada_stop_captain` (kills process + recalls to idle); `armada_stop_all` for emergency stop.
+- **Cancel kills process.** `armada_cancel_voyage` and `armada_cancel_mission` now also kill the agent process for in-flight missions, reset the captain to Idle, and clear `Mission.ProcessId`. Without this, in-flight cancels left captains stuck Working forever.
+- **Launch log lock recovery.** Mission log opens are best-effort cleanup-then-create; on share-violation, fall back to a unique-suffix log path so launches always succeed even when an orphan agent process from a prior crash holds the canonical log file.
+
+### Playbooks
+
+- **Vessel `DefaultPlaybooks`.** Per-vessel default list auto-merges into every dispatch.
+- **Caller overrides.** `selectedPlaybooks` on `armada_dispatch` / `armada_create_mission` / `armada_decompose_plan` merges with vessel defaults; caller's `deliveryMode` wins on collision, additional entries append.
+- **Voyage→mission propagation.** Voyage-level `selectedPlaybooks` plus per-mission `selectedPlaybooks` merge before persisting the per-mission snapshot. Standard, pipeline-expansion, and alias-dispatch paths all merge consistently.
+- **Three delivery modes.** `InlineFullContent` (template substitution), `InstructionWithReference` (path reference), `AttachIntoWorktree` (file copy into dock).
+- **Materialization snapshot.** Mission persists a frozen `PlaybookSnapshots` copy at dispatch so mid-flight playbook edits don't change what the captain sees.
+
+### Multi-Tenancy & Auth
+
+- **Tenants, users, credentials.** Every operational entity (fleet, vessel, captain, voyage, mission, dock, signal, event, merge entry) carries `TenantId` + `UserId`. `BypassTenantFilter` discipline on cross-tenant queries documented in code.
+- **Bearer-token auth on REST + MCP.** Per-credential token; protected resources flag (`is_protected`) keeps system tenant/user/credential undeletable.
+- **Tenant-scoped enumeration.** All list APIs accept tenant scope; admin context bypasses for system operations.
+- **Self-registration toggle.** `AllowSelfRegistration` setting; `RequireAuthForShutdown` gates the stop endpoint.
+
+### Persistence
+
+- **Four database backends.** SQLite (default, embedded), PostgreSQL, MySQL, SQL Server. Same schema, same migration sequence (currently v36).
+- **Numbered schema migrations.** Versioned `SchemaMigration(N, description, statements)` entries applied at admiral startup. Latest migrations: v34 `default_playbooks`, v35 `pipeline_stages.preferred_model`, v36 `merge_entries.pr_url + pr_base_branch`.
+- **Backup / restore.** `armada_backup` and `armada_restore` MCP tools for full-database snapshots.
+- **Bulk delete / purge.** `armada_delete_*` and `armada_purge_*` per entity for terminal-state cleanup.
+
+### Captain Pool & Model Routing
+
+- **Tier-upgrade fallback.** When all captains for a preferred tier are busy, dispatch upgrades to the next-higher tier (Quick → Mid → High); never downgrades.
+- **Model-tier discipline.** Quick (≤30 LOC, zero judgement), Mid (≤200 LOC, established pattern), High (architectural, security primitives, novel protocol). Model peers within a tier with no vendor bias.
+- **Persona ↔ captain hard filter.** Documented above. Judge restricted to Opus by policy; orchestrator decides per dispatch.
+
+### Observability
+
+- **REST API.** SwiftStack-based; OpenAPI spec available; covers fleets, vessels, captains, voyages, missions, docks, signals, events, merge queue, playbooks, personas, pipelines, prompt templates, audit, backup, status.
+- **MCP server.** Voltaic-based standards-compliant MCP server on port 7891. ~70 tools spanning every entity type and operation.
+- **WebSocket hub.** Real-time captain/mission state changes broadcast at `/ws`.
+- **Embedded dashboard.** Legacy dashboard served from admiral; standalone React dashboard for production.
+- **Mission logs.** Stdout/stderr capture per mission at `~/.armada/logs/missions/<missionId>.log`. Read via `/api/v1/missions/{id}/log` or `armada_get_mission_log`.
+- **Captain logs.** Per-captain `.current` pointer at `~/.armada/logs/captains/<captainId>.current` always points at the active mission log.
+- **Diff snapshots.** Mission diffs persisted on `WorkProduced` so they survive worktree reclamation. `armada_get_mission_diff`.
+- **AgentOutput capture.** Final agent stdout captured into `Mission.AgentOutput` for audit + Judge verdict parsing.
+- **Structured logging.** SyslogLogging-based; placeholder-style throughout (`{DeviceId}`, `{StatusCode}`, `{ElapsedMs}`).
+- **Events table.** Every state transition + lifecycle hook fires an event with entity refs and JSON payload; queryable via `armada_enumerate events`.
+
+### Operational Tools
+
+- **Backup / restore.** Full-database snapshot + restore round-trip.
+- **Stop server.** Graceful shutdown via MCP `armada_stop_server` or REST.
+- **Retry landing.** `armada_retry_landing` re-runs the landing handler for a mission stuck in `LandingFailed`.
+- **Restart mission.** `armada_restart_mission` clones the mission descriptor and re-dispatches.
+- **Audit drain queue.** `armada_drain_audit_queue` returns picked entries with notes; `armada_record_audit_verdict` records the deep-review outcome.
+- **Remote tunnel.** Optional capability manifest + heartbeat for federated multi-admiral deployments (currently disabled by default).
+
+### Vessel Safety
+
+- **`ProtectedPaths` on vessels.** Reject captain commits touching listed paths with a coaching message. Default for managed deployments: `["**/CLAUDE.md"]`. Captain proposals surface in `mission.AgentOutput` for orchestrator review.
+- **Working-directory isolation.** Each captain works in its own dock (git worktree); the main working tree stays clean until merge. Branches scoped under `armada/<captain-name>/<mission-id>`.
+
+### Internationalization
+
+- **Live language selection.** Login, shared shell UI, list/detail/admin routes, setup flows, notifications, pagination, server management, embedded legacy dashboard surfaces all support locale switching with locale-aware formatting.
+- **i18n bundles.** JSON catalogues under `src/Armada.Server/wwwroot/i18n/` and the React dashboard.
+
+### CLI
+
+- **`armada` global tool** ([Spectre.Console](https://spectreconsole.net/)). Rich terminal UI for dispatch, status, watch, retry, captain management, signal management, voyage detail, mission log tail. CLI is a thin client over the REST API.
 
 ---
 
