@@ -73,6 +73,10 @@ function statusToSeverity(status: string): Severity {
   return 'info';
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
 // ── Provider ──
 
 const TOAST_TIMEOUT = 5000;
@@ -143,7 +147,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const unsubscribe = subscribe((msg: WebSocketMessage) => {
       const data = msg.data;
-      if (!data) return;
+      if (!isRecord(data)) return;
 
       // Mission state changes (matches legacy: data.type === 'mission.changed')
       if (msg.type === 'mission.changed' && data.status) {

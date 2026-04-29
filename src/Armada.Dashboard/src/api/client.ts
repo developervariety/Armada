@@ -22,6 +22,11 @@ import type {
   InstructionsResult,
   DispatchRequest,
   VoyageCreateRequest,
+  PlanningSession,
+  PlanningSessionCreateRequest,
+  PlanningSessionDetail,
+  PlanningSessionDispatchRequest,
+  PlanningSessionMessageRequest,
   TransitionRequest,
   SendSignalRequest,
   SettingsData,
@@ -236,6 +241,14 @@ export const getVoyageStatus = (id: string) => get<Record<string, unknown>>(`/ap
 export const createVoyage = (data: VoyageCreateRequest) => post<Voyage>('/api/v1/voyages', data);
 export const cancelVoyage = (id: string) => del<void>(`/api/v1/voyages/${id}`);
 export const purgeVoyage = (id: string) => del<void>(`/api/v1/voyages/${id}/purge`);
+
+// ==================== Planning Sessions ====================
+export const listPlanningSessions = () => get<PlanningSession[]>('/api/v1/planning-sessions');
+export const getPlanningSession = (id: string) => get<PlanningSessionDetail>(`/api/v1/planning-sessions/${id}`);
+export const createPlanningSession = (data: PlanningSessionCreateRequest) => post<PlanningSessionDetail>('/api/v1/planning-sessions', data);
+export const sendPlanningSessionMessage = (id: string, data: PlanningSessionMessageRequest) => post<PlanningSessionDetail>(`/api/v1/planning-sessions/${id}/messages`, data);
+export const dispatchPlanningSession = (id: string, data: PlanningSessionDispatchRequest) => post<Voyage>(`/api/v1/planning-sessions/${id}/dispatch`, data);
+export const stopPlanningSession = (id: string) => post<PlanningSessionDetail>(`/api/v1/planning-sessions/${id}/stop`);
 
 // ==================== Events ====================
 export const listEvents = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>

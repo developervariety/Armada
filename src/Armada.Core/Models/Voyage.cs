@@ -94,6 +94,16 @@ namespace Armada.Core.Models
         public LandingModeEnum? LandingMode { get; set; } = null;
 
         /// <summary>
+        /// Source planning session identifier, if this voyage originated from planning.
+        /// </summary>
+        public string? SourcePlanningSessionId { get; set; } = null;
+
+        /// <summary>
+        /// Source planning message identifier, if dispatch was created from a specific transcript entry.
+        /// </summary>
+        public string? SourcePlanningMessageId { get; set; } = null;
+
+        /// <summary>
         /// Ordered list of playbooks selected for this voyage.
         /// </summary>
         public List<SelectedPlaybook> SelectedPlaybooks { get; set; } = new List<SelectedPlaybook>();

@@ -35,6 +35,16 @@ namespace Armada.Core.Database
         public IVoyageMethods Voyages { get; protected set; } = null!;
 
         /// <summary>
+        /// Planning session operations.
+        /// </summary>
+        public IPlanningSessionMethods PlanningSessions { get; protected set; } = null!;
+
+        /// <summary>
+        /// Planning session message operations.
+        /// </summary>
+        public IPlanningSessionMessageMethods PlanningSessionMessages { get; protected set; } = null!;
+
+        /// <summary>
         /// Dock operations.
         /// </summary>
         public IDockMethods Docks { get; protected set; } = null!;

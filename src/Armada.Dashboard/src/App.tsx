@@ -25,6 +25,7 @@ import Credentials from './pages/admin/Credentials';
 import './App.css';
 
 import Dispatch from './pages/Dispatch';
+import Planning from './pages/Planning';
 import Signals from './pages/Signals';
 import Notifications from './pages/Notifications';
 import Server from './pages/Server';
@@ -63,6 +64,8 @@ export default function App() {
                   {/* Operations */}
                   <Route path="dashboard" element={<Dashboard />} />
                   <Route path="dispatch" element={<Dispatch />} />
+                  <Route path="planning" element={<Planning />} />
+                  <Route path="planning/:id" element={<Planning />} />
 
                   {/* Entities - List and Detail */}
                   <Route path="fleets" element={<Fleets />} />
