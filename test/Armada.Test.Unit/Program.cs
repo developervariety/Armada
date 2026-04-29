@@ -114,6 +114,8 @@ namespace Armada.Test.Unit
             runner.AddSuite(new ProcessHostTests());
             runner.AddSuite(new MergeQueueBranchCleanupTests());
             runner.AddSuite(new PlaybookMergeTests());
+            runner.AddSuite(new MissionAliasResolverTests());
+            runner.AddSuite(new McpVoyageToolsTests());
             runner.AddSuite(new McpMissionToolsTests());
 
             int exitCode = await runner.RunAllAsync().ConfigureAwait(false);

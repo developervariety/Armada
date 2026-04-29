@@ -47,6 +47,26 @@ namespace Armada.Core.Models
         /// </summary>
         public string? DependsOnMissionId { get; set; } = null;
 
+        /// <summary>
+        /// Optional logical alias for this mission within the dispatch batch.
+        /// Other missions in the same batch may reference this name via
+        /// <see cref="DependsOnMissionAlias"/>. Must be unique within the batch.
+        /// Aliases are resolved before persistence; they are not stored on the
+        /// created mission.
+        /// </summary>
+        public string? Alias { get; set; } = null;
+
+        /// <summary>
+        /// Optional alias of another mission in the same dispatch batch that
+        /// this mission must wait for. When set, the dispatch handler resolves
+        /// the alias to the concrete <c>msn_*</c> ID of the already-created
+        /// dependency mission and persists that ID as
+        /// <see cref="Mission.DependsOnMissionId"/>. If both
+        /// <see cref="DependsOnMissionAlias"/> and <see cref="DependsOnMissionId"/>
+        /// are supplied, the alias takes precedence.
+        /// </summary>
+        public string? DependsOnMissionAlias { get; set; } = null;
+
         #endregion
 
         #region Constructors-and-Factories
