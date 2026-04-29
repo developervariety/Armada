@@ -685,6 +685,14 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
+        /// Migration v35 statements for adding preferred_model column to pipeline_stages.
+        /// </summary>
+        public static readonly string[] MigrationV35Statements = new string[]
+        {
+            @"ALTER TABLE pipeline_stages ADD COLUMN preferred_model VARCHAR(450);"
+        };
+
+        /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
         public static readonly string[] Indexes = new string[]

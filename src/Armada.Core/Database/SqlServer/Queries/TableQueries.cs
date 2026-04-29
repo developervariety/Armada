@@ -400,6 +400,13 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"
                     IF COL_LENGTH('vessels', 'default_playbooks') IS NULL
                         ALTER TABLE vessels ADD default_playbooks NVARCHAR(MAX);"
+                ),
+                new SchemaMigration(
+                    35,
+                    "Add preferred_model column to pipeline_stages for per-stage model override",
+                    @"
+                    IF COL_LENGTH('pipeline_stages', 'preferred_model') IS NULL
+                        ALTER TABLE pipeline_stages ADD preferred_model NVARCHAR(450);"
                 )
             };
         }

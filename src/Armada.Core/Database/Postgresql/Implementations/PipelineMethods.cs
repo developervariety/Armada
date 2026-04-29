@@ -394,14 +394,15 @@ namespace Armada.Core.Database.Postgresql.Implementations
             using (NpgsqlCommand cmd = new NpgsqlCommand())
             {
                 cmd.Connection = conn;
-                cmd.CommandText = @"INSERT INTO pipeline_stages (id, pipeline_id, stage_order, persona_name, is_optional, description)
-                    VALUES (@id, @pipeline_id, @stage_order, @persona_name, @is_optional, @description);";
+                cmd.CommandText = @"INSERT INTO pipeline_stages (id, pipeline_id, stage_order, persona_name, is_optional, description, preferred_model)
+                    VALUES (@id, @pipeline_id, @stage_order, @persona_name, @is_optional, @description, @preferred_model);";
                 cmd.Parameters.AddWithValue("@id", stage.Id);
                 cmd.Parameters.AddWithValue("@pipeline_id", (object?)stage.PipelineId ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@stage_order", stage.Order);
                 cmd.Parameters.AddWithValue("@persona_name", stage.PersonaName);
                 cmd.Parameters.AddWithValue("@is_optional", stage.IsOptional);
                 cmd.Parameters.AddWithValue("@description", (object?)stage.Description ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@preferred_model", (object?)stage.PreferredModel ?? DBNull.Value);
                 await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
             }
         }
@@ -465,6 +466,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
             stage.PersonaName = reader["persona_name"].ToString()!;
             stage.IsOptional = Convert.ToBoolean(reader["is_optional"]);
             stage.Description = NullableString(reader["description"]);
+            try { stage.PreferredModel = NullableString(reader["preferred_model"]); } catch { }
             return stage;
         }
 

@@ -459,6 +459,11 @@ namespace Armada.Core.Database.Mysql
                     34,
                     "Add default_playbooks JSON column to vessels",
                     TableQueries.MigrationV34Statements
+                ),
+                new SchemaMigration(
+                    35,
+                    "Add preferred_model column to pipeline_stages for per-stage model override",
+                    TableQueries.MigrationV35Statements
                 )
             };
         }

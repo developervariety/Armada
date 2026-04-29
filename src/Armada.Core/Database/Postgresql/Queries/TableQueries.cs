@@ -569,6 +569,9 @@ namespace Armada.Core.Database.Postgresql.Queries
                 ),
                 new SchemaMigration(34, "Add default_playbooks JSON column to vessels",
                     @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS default_playbooks TEXT;"
+                ),
+                new SchemaMigration(35, "Add preferred_model column to pipeline_stages for per-stage model override",
+                    @"ALTER TABLE pipeline_stages ADD COLUMN IF NOT EXISTS preferred_model TEXT;"
                 )
             };
         }

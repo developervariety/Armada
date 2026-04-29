@@ -819,6 +819,9 @@ namespace Armada.Core.Database.Sqlite.Queries
                 ),
                 new SchemaMigration(34, "Add default_playbooks JSON column to vessels",
                     @"ALTER TABLE vessels ADD COLUMN default_playbooks TEXT;"
+                ),
+                new SchemaMigration(35, "Add preferred_model column to pipeline_stages for per-stage model override",
+                    @"ALTER TABLE pipeline_stages ADD COLUMN preferred_model TEXT;"
                 )
             };
         }

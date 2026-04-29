@@ -42,5 +42,12 @@ namespace Armada.Server.Mcp
         /// Description of what this stage does.
         /// </summary>
         public string? Description { get; set; }
+
+        /// <summary>
+        /// Optional per-stage preferred Captain.Model override. When set, dispatch
+        /// routes the mission record created for this stage to captains matching
+        /// this model regardless of the per-mission preferredModel on the dispatch.
+        /// </summary>
+        public string? PreferredModel { get; set; }
     }
 }

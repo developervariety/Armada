@@ -291,10 +291,12 @@ namespace Armada.Core.Services
                     // downstream stages always depend on the previous stage of the chain.
                     mission.DependsOnMissionId = previousMissionId
                         ?? (String.IsNullOrEmpty(md.DependsOnMissionId) ? null : md.DependsOnMissionId);
-                    // Per-mission captain/model pins apply to every stage in the pipeline
-                    // chain so a pinned captain runs the whole sequence end-to-end.
+                    // Per-mission captain pin applies to every stage so a pinned captain runs the
+                    // whole sequence end-to-end. PreferredModel uses the stage-level value when set
+                    // (lets pipelines route Worker stage to Mid-tier and Judge stage to Opus, etc.)
+                    // and falls back to the dispatch's per-mission PreferredModel otherwise.
                     mission.PreferredCaptainId = md.PreferredCaptainId;
-                    mission.PreferredModel = md.PreferredModel;
+                    mission.PreferredModel = stage.PreferredModel ?? md.PreferredModel;
                     // Only the first stage of each pipeline mission gets the prestaged files.
                     // Downstream stages re-use the same worktree and would hit the
                     // "destPath already exists" guard if we tried to copy again.

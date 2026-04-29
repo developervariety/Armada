@@ -48,7 +48,8 @@ namespace Armada.Server.Mcp.Tools
                                 {
                                     personaName = new { type = "string", description = "Persona name for this stage" },
                                     isOptional = new { type = "boolean", description = "Whether this stage is optional (default false)" },
-                                    description = new { type = "string", description = "Description of what this stage does" }
+                                    description = new { type = "string", description = "Description of what this stage does" },
+                                    preferredModel = new { type = "string", description = "Optional per-stage Captain.Model override (e.g. 'claude-opus-4-7' for a Judge stage). When set, dispatch routes this stage's mission to captains with this model regardless of the per-mission preferredModel on the dispatch. Null means inherit the dispatch's preferredModel." }
                                 },
                                 required = new[] { "personaName" }
                             }
@@ -78,6 +79,8 @@ namespace Armada.Server.Mcp.Tools
                             stage.IsOptional = stageArgs.IsOptional.Value;
                         if (stageArgs.Description != null)
                             stage.Description = stageArgs.Description;
+                        if (stageArgs.PreferredModel != null)
+                            stage.PreferredModel = stageArgs.PreferredModel;
                         stages.Add(stage);
                     }
                     pipeline.Stages = stages;
@@ -129,7 +132,8 @@ namespace Armada.Server.Mcp.Tools
                                 {
                                     personaName = new { type = "string", description = "Persona name for this stage" },
                                     isOptional = new { type = "boolean", description = "Whether this stage is optional (default false)" },
-                                    description = new { type = "string", description = "Description of what this stage does" }
+                                    description = new { type = "string", description = "Description of what this stage does" },
+                                    preferredModel = new { type = "string", description = "Optional per-stage Captain.Model override (e.g. 'claude-opus-4-7' for a Judge stage). When set, dispatch routes this stage's mission to captains with this model regardless of the per-mission preferredModel on the dispatch. Null means inherit the dispatch's preferredModel." }
                                 },
                                 required = new[] { "personaName" }
                             }
@@ -163,6 +167,8 @@ namespace Armada.Server.Mcp.Tools
                                 stage.IsOptional = stageArgs.IsOptional.Value;
                             if (stageArgs.Description != null)
                                 stage.Description = stageArgs.Description;
+                            if (stageArgs.PreferredModel != null)
+                                stage.PreferredModel = stageArgs.PreferredModel;
                             stages.Add(stage);
                         }
                         pipeline.Stages = stages;
