@@ -11,6 +11,7 @@ namespace Armada.Server.Mcp.Tools
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
 
@@ -80,7 +81,9 @@ namespace Armada.Server.Mcp.Tools
                                     },
                                     preferredCaptainId = new { type = "string", description = "Optional captain ID (cap_ prefix) to pin this mission to. If the pinned captain is busy at dispatch time, the mission stays Pending until the next dispatch tick when that captain is idle." },
                                     preferredModel = new { type = "string", description = "Optional captain Model filter (case-insensitive). Only idle captains whose Model matches will be considered for this mission; persona-preference logic runs within that filtered set." },
-                                    dependsOnMissionId = new { type = "string", description = "Optional mission ID (msn_ prefix) this mission must wait for. The dependent mission stays Pending until the referenced mission reaches a completion state." }
+                                    dependsOnMissionId = new { type = "string", description = "Optional mission ID (msn_ prefix) this mission must wait for. The dependent mission stays Pending until the referenced mission reaches a completion state." },
+                                    alias = new { type = "string", description = "Optional logical alias for this mission within this dispatch batch (e.g. 'M1', 'resolver'). Other missions in the same batch may reference it via dependsOnMissionAlias. Must be unique within the batch." },
+                                    dependsOnMissionAlias = new { type = "string", description = "Optional alias of another mission in this same dispatch batch that this mission must wait for. The server resolves the alias to the concrete msn_* ID after creating the dependency mission. Takes precedence over dependsOnMissionId when both are supplied." }
                                 }
                             }
                         },
@@ -117,6 +120,18 @@ namespace Armada.Server.Mcp.Tools
                     // Start with the vessel defaults; caller entries override deliveryMode on collision and append new entries.
                     Vessel? dispatchVessel = await database.Vessels.ReadAsync(vesselId).ConfigureAwait(false);
                     List<SelectedPlaybook> mergedPlaybooks = MergePlaybooks(dispatchVessel?.GetDefaultPlaybooks(), callerPlaybooks);
+
+                    // When any mission carries an alias or dependsOnMissionAlias, use the
+                    // alias-aware dispatch path which topologically sorts missions and
+                    // resolves alias references to concrete msn_* IDs at creation time.
+                    bool hasAliases = missions.Any(m =>
+                        !String.IsNullOrEmpty(m.Alias) || !String.IsNullOrEmpty(m.DependsOnMissionAlias));
+                    if (hasAliases)
+                    {
+                        return await DispatchWithAliasesAsync(
+                            database, admiral, title, description, vesselId,
+                            dispatchVessel, missions, mergedPlaybooks).ConfigureAwait(false);
+                    }
 
                     // Use pipeline-aware dispatch if pipelineId is provided
                     string? pipelineId = request.PipelineId;
@@ -391,6 +406,121 @@ namespace Armada.Server.Mcp.Tools
                 }
                 catch { }
             }
+        }
+
+        /// <summary>
+        /// Dispatch handler for missions that use logical alias-based
+        /// inter-mission dependencies. Validates and topologically sorts the
+        /// alias graph, creates a single voyage, then creates each mission in
+        /// dependency order -- resolving alias references to concrete msn_* IDs
+        /// as each mission is persisted.
+        /// </summary>
+        private static async Task<object> DispatchWithAliasesAsync(
+            DatabaseDriver database,
+            IAdmiralService admiral,
+            string title,
+            string description,
+            string vesselId,
+            Vessel? vessel,
+            List<MissionDescription> missions,
+            List<SelectedPlaybook> selectedPlaybooks)
+        {
+            if (vessel == null)
+                return new { Error = "Vessel not found: " + vesselId };
+
+            // Validate alias uniqueness + dependency references and return missions
+            // in topological creation order (dependencies before dependents).
+            IReadOnlyList<MissionDescription> sortedMissions;
+            try
+            {
+                sortedMissions = MissionAliasResolver.ResolveAndOrder(missions);
+            }
+            catch (InvalidDataException ex)
+            {
+                return new { Error = ex.Message };
+            }
+
+            // Create the voyage record.
+            Voyage voyage = new Voyage(title, description);
+            voyage.TenantId = vessel.TenantId;
+            voyage.UserId = vessel.UserId;
+            voyage.Status = VoyageStatusEnum.Open;
+            voyage = await database.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+            voyage.SelectedPlaybooks = ClonePlaybookSelectionsLocal(selectedPlaybooks);
+            if (voyage.SelectedPlaybooks.Count > 0)
+            {
+                await database.Playbooks.SetVoyageSelectionsAsync(voyage.Id, voyage.SelectedPlaybooks).ConfigureAwait(false);
+            }
+
+            // Create missions in topological order, recording alias -> msn_* ID as each
+            // mission is persisted so that downstream missions can resolve their deps.
+            Dictionary<string, string> aliasToMsnId = new Dictionary<string, string>(StringComparer.Ordinal);
+            bool anyAssigned = false;
+
+            foreach (MissionDescription md in sortedMissions)
+            {
+                Mission mission = new Mission(md.Title, md.Description);
+                mission.TenantId = vessel.TenantId;
+                mission.UserId = vessel.UserId;
+                mission.VoyageId = voyage.Id;
+                mission.VesselId = vesselId;
+                mission.PrestagedFiles = ClonePrestagedFilesLocal(md.PrestagedFiles);
+                mission.PreferredCaptainId = md.PreferredCaptainId;
+                mission.PreferredModel = md.PreferredModel;
+                mission.SelectedPlaybooks = ClonePlaybookSelectionsLocal(voyage.SelectedPlaybooks);
+
+                // Alias-based dependency takes precedence over a literal ID.
+                if (!String.IsNullOrEmpty(md.DependsOnMissionAlias))
+                    mission.DependsOnMissionId = aliasToMsnId[md.DependsOnMissionAlias];
+                else if (!String.IsNullOrEmpty(md.DependsOnMissionId))
+                    mission.DependsOnMissionId = md.DependsOnMissionId;
+
+                mission = await admiral.DispatchMissionAsync(mission).ConfigureAwait(false);
+
+                if (mission.Status == MissionStatusEnum.Assigned || mission.Status == MissionStatusEnum.InProgress)
+                    anyAssigned = true;
+
+                // Record alias so later missions can reference this mission's msn_* ID.
+                if (!String.IsNullOrEmpty(md.Alias))
+                    aliasToMsnId[md.Alias] = mission.Id;
+            }
+
+            // Update voyage status to reflect whether any missions were immediately assigned.
+            voyage.Status = anyAssigned ? VoyageStatusEnum.InProgress : VoyageStatusEnum.Open;
+            voyage.LastUpdateUtc = DateTime.UtcNow;
+            await database.Voyages.UpdateAsync(voyage).ConfigureAwait(false);
+
+            return voyage;
+        }
+
+        /// <summary>
+        /// Produces a shallow copy of a playbook selection list, avoiding
+        /// shared-reference mutation between voyage and mission objects.
+        /// </summary>
+        private static List<SelectedPlaybook> ClonePlaybookSelectionsLocal(List<SelectedPlaybook>? selections)
+        {
+            if (selections == null || selections.Count == 0) return new List<SelectedPlaybook>();
+            List<SelectedPlaybook> copy = new List<SelectedPlaybook>(selections.Count);
+            foreach (SelectedPlaybook s in selections)
+            {
+                copy.Add(new SelectedPlaybook { PlaybookId = s.PlaybookId, DeliveryMode = s.DeliveryMode });
+            }
+            return copy;
+        }
+
+        /// <summary>
+        /// Produces a shallow copy of a prestaged-file list.
+        /// </summary>
+        private static List<PrestagedFile>? ClonePrestagedFilesLocal(List<PrestagedFile>? entries)
+        {
+            if (entries == null || entries.Count == 0) return null;
+            List<PrestagedFile> copy = new List<PrestagedFile>(entries.Count);
+            foreach (PrestagedFile entry in entries)
+            {
+                if (entry == null) continue;
+                copy.Add(new PrestagedFile(entry.SourcePath ?? "", entry.DestPath ?? ""));
+            }
+            return copy.Count > 0 ? copy : null;
         }
 
         /// <summary>
