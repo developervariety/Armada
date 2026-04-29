@@ -341,6 +341,23 @@ namespace Armada.Core.Settings
         public bool TerminalBell { get; set; } = true;
 
         /// <summary>
+        /// Minimum number of <c>AuditDeepPicked = true</c> entries pending review before
+        /// admiral fires a desktop notification on the next health-check cycle. 0 disables
+        /// the notification entirely. Default is 1 -- as soon as Judge flags one entry,
+        /// the human gets pinged. Bump this when the audit drain is healthy and you want
+        /// fewer pings (e.g. only ping when a backlog forms).
+        /// </summary>
+        public int AuditQueueNotifyThreshold { get; set; } = 1;
+
+        /// <summary>
+        /// Debounce window in minutes between consecutive audit-queue notifications. Once a
+        /// notification fires, admiral waits at least this many minutes before firing
+        /// another even if the queue depth is still above the threshold. Prevents a burst
+        /// of landings from spamming the desktop. Default is 30 minutes.
+        /// </summary>
+        public int AuditQueueNotifyDebounceMinutes { get; set; } = 30;
+
+        /// <summary>
         /// Idle captain timeout in seconds before auto-removal.
         /// 0 = disabled (captains persist indefinitely).
         /// </summary>

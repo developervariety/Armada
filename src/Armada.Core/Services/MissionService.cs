@@ -686,6 +686,16 @@ namespace Armada.Core.Services
                     await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
                     _Logging.Warn(_Header + "judge mission " + mission.Id + " blocked landing with verdict " + verdict);
                 }
+
+                // Audit-flag wiring: NEEDS_REVISION OR a PASS with non-empty Suggested Follow-ups
+                // marks the upstream Worker's merge entry as deep-picked so the next
+                // armada_drain_audit_queue surfaces it. Judge SUGGESTS, orchestrator decides.
+                string? followUps = ExtractSuggestedFollowUps(mission.AgentOutput);
+                bool hasFollowUps = !String.IsNullOrEmpty(followUps);
+                if (verdict == JudgeVerdict.NeedsRevision || (verdict == JudgeVerdict.Pass && hasFollowUps))
+                {
+                    await TryFlagUpstreamMergeEntryForAuditAsync(mission, verdict, followUps, token).ConfigureAwait(false);
+                }
             }
 
             // Pipeline handoff: if missions in the same voyage depend on this one, prepare them
@@ -2479,6 +2489,91 @@ namespace Armada.Core.Services
             Directory.CreateDirectory(worktreePath);
             await File.WriteAllTextAsync(instructionsPath, await File.ReadAllTextAsync(snapshotPath, token).ConfigureAwait(false), token).ConfigureAwait(false);
             _Logging.Warn(_Header + "restored missing mission instructions from snapshot to " + instructionsPath);
+        }
+
+        /// <summary>
+        /// Extracts the body of the Judge's "## Suggested Follow-ups" section, trimmed.
+        /// Returns null when the section is missing, empty, or contains only the
+        /// `(none)` sentinel. The body is everything between this heading and the next
+        /// `## ` heading (or end of output). Used by the audit-flag wiring to decide
+        /// whether to surface a PASS verdict to the orchestrator's audit drain.
+        /// </summary>
+        private static string? ExtractSuggestedFollowUps(string? agentOutput)
+        {
+            if (String.IsNullOrEmpty(agentOutput)) return null;
+            string normalized = agentOutput.Replace("\r\n", "\n");
+            string[] lines = normalized.Split('\n');
+            int startIndex = -1;
+            for (int i = 0; i < lines.Length; i++)
+            {
+                string trimmed = lines[i].Trim();
+                if (trimmed.StartsWith("## ", StringComparison.Ordinal) &&
+                    trimmed.Substring(3).Trim().Equals("Suggested Follow-ups", StringComparison.OrdinalIgnoreCase))
+                {
+                    startIndex = i + 1;
+                    break;
+                }
+            }
+            if (startIndex < 0) return null;
+
+            System.Text.StringBuilder body = new System.Text.StringBuilder();
+            for (int i = startIndex; i < lines.Length; i++)
+            {
+                string line = lines[i];
+                if (line.TrimStart().StartsWith("## ", StringComparison.Ordinal)) break;
+                body.Append(line);
+                body.Append('\n');
+            }
+            string text = body.ToString().Trim();
+            if (String.IsNullOrEmpty(text)) return null;
+            // The prompt asks captains to write `(none)` when there are no follow-ups.
+            if (text.Equals("(none)", StringComparison.OrdinalIgnoreCase)) return null;
+            return text;
+        }
+
+        /// <summary>
+        /// When the Judge wants the orchestrator to look at the upstream Worker's merge
+        /// entry (NEEDS_REVISION verdict, or PASS with non-empty Suggested Follow-ups),
+        /// mark the entry deep-picked so <c>armada_drain_audit_queue</c> surfaces it.
+        /// Worker mission id comes from the Judge's <see cref="Mission.DependsOnMissionId"/>;
+        /// best-effort lookup -- enumeration scan is fine for typical merge_queue volume.
+        /// </summary>
+        private async Task TryFlagUpstreamMergeEntryForAuditAsync(Mission judgeMission, JudgeVerdict verdict, string? suggestedFollowUps, CancellationToken token)
+        {
+            try
+            {
+                if (String.IsNullOrEmpty(judgeMission.DependsOnMissionId)) return;
+                List<MergeEntry> entries = await _Database.MergeEntries.EnumerateAsync(token).ConfigureAwait(false);
+                MergeEntry? upstream = null;
+                foreach (MergeEntry e in entries)
+                {
+                    if (!String.Equals(e.MissionId, judgeMission.DependsOnMissionId, StringComparison.Ordinal)) continue;
+                    if (upstream == null || e.CreatedUtc > upstream.CreatedUtc) upstream = e;
+                }
+                if (upstream == null) return;
+
+                string verdictLabel = verdict switch
+                {
+                    JudgeVerdict.NeedsRevision => "NEEDS_REVISION",
+                    JudgeVerdict.Pass => "PASS_with_followups",
+                    _ => verdict.ToString()
+                };
+                string notesPayload = "Judge " + verdictLabel + " (mission " + judgeMission.Id + ")";
+                if (!String.IsNullOrEmpty(suggestedFollowUps))
+                {
+                    notesPayload += "\n\n## Suggested Follow-ups\n" + suggestedFollowUps;
+                }
+
+                upstream.AuditDeepPicked = true;
+                upstream.AuditDeepNotes = notesPayload;
+                upstream.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.MergeEntries.UpdateAsync(upstream, token).ConfigureAwait(false);
+                _Logging.Info(_Header + "judge mission " + judgeMission.Id + " flagged upstream merge entry " + upstream.Id + " for audit (" + verdictLabel + ")");
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "failed to flag upstream merge entry from judge mission " + judgeMission.Id + ": " + ex.Message);
+            }
         }
 
         private JudgeVerdict ParseJudgeVerdict(string? agentOutput)

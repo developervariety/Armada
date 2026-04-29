@@ -472,10 +472,22 @@ namespace Armada.Core.Services
                     "- `## Correctness`\n" +
                     "- `## Tests`\n" +
                     "- `## Failure Modes`\n" +
+                    "- `## Suggested Follow-ups`\n" +
                     "- `## Verdict`\n" +
                     "\n" +
                     "If you choose PASS, each section must contain concrete review reasoning. A shallow approval " +
                     "or a verdict-only response is not acceptable.\n" +
+                    "\n" +
+                    "## Suggested Follow-ups\n" +
+                    "\n" +
+                    "Enumerate any cleanup-mission candidates that this diff implies but did not address: stale " +
+                    "TODOs revealed in adjacent code, helper extractions that would simplify the next change in " +
+                    "this area, missing test coverage of pre-existing branches your review uncovered, doc updates " +
+                    "the change implies but didn't perform, and similar follow-ups. Include file paths and a " +
+                    "one-line mission shape per candidate (e.g. `add Mid-tier test for the X timeout branch in " +
+                    "Foo.cs`). LEAVE EMPTY (single line: `(none)`) when there are no follow-ups -- a non-empty " +
+                    "list signals to admiral that this entry should be picked for deep audit review even when " +
+                    "the verdict is PASS, so don't pad with trivial nice-to-haves.\n" +
                     "\n" +
                     "## Verdict\n" +
                     "\n" +

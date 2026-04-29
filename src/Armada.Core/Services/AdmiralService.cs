@@ -81,6 +81,8 @@ namespace Armada.Core.Services
         private IPlaybookService _Playbooks;
         private IEscalationService? _Escalation;
         private bool _RetryDispatchNeeded = false;
+        private DateTime? _LastAuditNotifyUtc = null;
+        private readonly object _AuditNotifyLock = new object();
 
         #endregion
 
@@ -611,6 +613,12 @@ namespace Armada.Core.Services
                 catch (Exception ex) { _Logging.Warn(_Header + "error in OnReconcileMergeEntries callback: " + ex.Message); }
             }
 
+            // Audit-queue depth notification: when the count of AuditDeepPicked entries
+            // pending review crosses the configured threshold AND the debounce window has
+            // expired, ping the human via the existing NotificationService. Judge's
+            // suggested-follow-ups wiring is the primary feeder of this queue.
+            await MaybeNotifyAuditQueueDepthAsync(token).ConfigureAwait(false);
+
             // Reclaim docks stuck in Provisioned state with no active captain
             await ReclaimOrphanedDocksAsync(token).ConfigureAwait(false);
 
@@ -1111,8 +1119,53 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// Reconcile missions in PullRequestOpen status by checking if their PRs have been merged.
-        /// This replaces the fire-and-forget 5-minute poller with a persistent, restart-safe check.
-        /// Rate-limited to at most 10 missions per health check cycle.
+        /// Audit-queue depth notification: when the count of merge entries with
+        /// <c>AuditDeepPicked = true</c> AND no <c>AuditDeepCompletedUtc</c> crosses
+        /// the configured threshold AND we haven't fired a notification within the
+        /// debounce window, send a desktop notification telling the human to drain
+        /// the audit queue. Judge's suggested-follow-ups path (Judge hybrid #1) is
+        /// the primary feeder. Best-effort: failures don't break the health check.
+        /// </summary>
+        private async Task MaybeNotifyAuditQueueDepthAsync(CancellationToken token)
+        {
+            int threshold = _Settings.AuditQueueNotifyThreshold;
+            if (threshold <= 0) return;
+
+            try
+            {
+                List<MergeEntry> entries = await _Database.MergeEntries.EnumerateAsync(token).ConfigureAwait(false);
+                int pendingCount = 0;
+                foreach (MergeEntry e in entries)
+                {
+                    if (e.AuditDeepPicked == true && !e.AuditDeepCompletedUtc.HasValue) pendingCount++;
+                }
+                if (pendingCount < threshold) return;
+
+                int debounceMinutes = Math.Max(1, _Settings.AuditQueueNotifyDebounceMinutes);
+                DateTime now = DateTime.UtcNow;
+                lock (_AuditNotifyLock)
+                {
+                    if (_LastAuditNotifyUtc.HasValue && (now - _LastAuditNotifyUtc.Value) < TimeSpan.FromMinutes(debounceMinutes))
+                        return;
+                    _LastAuditNotifyUtc = now;
+                }
+
+                NotificationService.Send(
+                    "Armada audit queue: " + pendingCount + " entr" + (pendingCount == 1 ? "y" : "ies") + " pending review",
+                    "Drain via armada_drain_audit_queue. Judge flagged work for orchestrator review.");
+                _Logging.Info(_Header + "audit-queue notification fired (depth=" + pendingCount + ", threshold=" + threshold + ")");
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "audit-queue notification check failed: " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Reconcile PullRequestOpen missions: poll for PR merge completion via the
+        /// OnReconcilePullRequest delegate. Replaces the fire-and-forget 5-minute poller
+        /// with a persistent, restart-safe check. Rate-limited to at most 10 missions
+        /// per health check cycle.
         /// </summary>
         private async Task ReconcilePullRequestMissionsAsync(CancellationToken token)
         {
