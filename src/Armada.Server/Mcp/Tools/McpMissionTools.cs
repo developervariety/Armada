@@ -13,6 +13,7 @@ namespace Armada.Server.Mcp.Tools
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
+    using Armada.Server.Mcp;
 
     /// <summary>
     /// Registers MCP tools for mission operations (status, create, update, cancel, purge, restart, transition, diff, log).
@@ -108,7 +109,10 @@ namespace Armada.Server.Mcp.Tools
                             return (object)new { Error = "dependsOnMissionId not found: " + request.DependsOnMissionId };
                         mission.DependsOnMissionId = request.DependsOnMissionId;
                     }
-                    mission.SelectedPlaybooks = request.SelectedPlaybooks ?? new List<SelectedPlaybook>();
+                    // Merge vessel DefaultPlaybooks with caller-supplied selectedPlaybooks.
+                    Vessel? dispatchVessel = await database.Vessels.ReadAsync(request.VesselId).ConfigureAwait(false);
+                    List<SelectedPlaybook> callerPlaybooks = request.SelectedPlaybooks ?? new List<SelectedPlaybook>();
+                    mission.SelectedPlaybooks = PlaybookMerge.MergeWithVesselDefaults(dispatchVessel?.GetDefaultPlaybooks(), callerPlaybooks);
                     mission = await admiral.DispatchMissionAsync(mission).ConfigureAwait(false);
                     if (mission.Status == Armada.Core.Enums.MissionStatusEnum.Pending)
                     {
