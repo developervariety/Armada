@@ -2,7 +2,8 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-HELM_DLL="$SCRIPT_DIR/src/Armada.Helm/bin/Debug/net10.0/Armada.Helm.dll"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+HELM_DLL="$REPO_ROOT/src/Armada.Helm/bin/Debug/net10.0/Armada.Helm.dll"
 
 run_helm() {
   if command -v armada >/dev/null 2>&1; then
@@ -15,12 +16,12 @@ run_helm() {
     return
   fi
 
-  dotnet run --project "$SCRIPT_DIR/src/Armada.Helm" -f net10.0 -- "$@"
+  dotnet run --project "$REPO_ROOT/src/Armada.Helm" -f net10.0 -- "$@"
 }
 
 echo
 echo "[update] Stopping repo-backed Armada MCP stdio hosts if they are running..."
-mapfile -t MCP_PIDS < <(pgrep -af "Armada\\.Helm\\.dll mcp stdio" | awk -v repo="$SCRIPT_DIR" 'index($0, repo) > 0 { print $1 }' || true)
+mapfile -t MCP_PIDS < <(pgrep -af "Armada\\.Helm\\.dll mcp stdio" | awk -v repo="$REPO_ROOT" 'index($0, repo) > 0 { print $1 }' || true)
 if [ "${#MCP_PIDS[@]}" -eq 0 ]; then
   echo "[update] No repo-backed MCP stdio hosts found."
 else

@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DASHBOARD_DIR="${ROOT_DIR}/src/Armada.Dashboard"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+DASHBOARD_DIR="${REPO_ROOT}/src/Armada.Dashboard"
 DIST_DIR="${DASHBOARD_DIR}/dist"
 TARGET_DIR="${HOME}/.armada/dashboard"
 

@@ -1,8 +1,10 @@
 @echo off
 setlocal
 
-set "ROOT_DIR=%~dp0"
-set "DASHBOARD_DIR=%ROOT_DIR%src\Armada.Dashboard"
+set "SCRIPT_DIR=%~dp0"
+if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
+for %%I in ("%SCRIPT_DIR%\..\..") do set "REPO_ROOT=%%~fI"
+set "DASHBOARD_DIR=%REPO_ROOT%\src\Armada.Dashboard"
 set "DIST_DIR=%DASHBOARD_DIR%\dist"
 set "TARGET_DIR=%USERPROFILE%\.armada\dashboard"
 

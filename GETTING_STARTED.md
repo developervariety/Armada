@@ -19,8 +19,17 @@ Verify:
 armada doctor
 ```
 
-Helper scripts are available in the project root if you are working from source:
-`install.bat/.sh`, `reinstall.bat/.sh`, `remove.bat/.sh`, `update.bat/.sh`, `install-mcp.bat/.sh`, and `remove-mcp.bat/.sh`.
+Helper scripts are available under `scripts/windows/`, `scripts/linux/`, and `scripts/macos/` if you are working from source. Shared shell implementations live under `scripts/common/`.
+
+If you are installing from a source checkout instead of a published tool package, use the platform install script:
+
+Linux: `./scripts/linux/install.sh`
+
+macOS: `./scripts/macos/install.sh`
+
+Windows: `scripts\windows\install.bat`
+
+Those scripts build the solution, deploy dashboard assets, and install `Armada.Helm` as a global tool from the repo.
 
 ## Connect Claude Code
 
@@ -37,6 +46,20 @@ armada server start
 ```
 
 Leave this running. Open a new terminal for everything else.
+
+If you want Armada managed as a local deployment on your machine instead of a foreground terminal process, use the source-deployment scripts:
+
+| Task | Linux | macOS | Windows |
+|------|-------|-------|---------|
+| Publish server and dashboard only | `./scripts/linux/publish-server.sh` | `./scripts/macos/publish-server.sh` | `scripts\windows\publish-server.bat` |
+| Install and register a user-scoped local deployment | `./scripts/linux/install-systemd-user.sh` | `./scripts/macos/install-launchd-agent.sh` | `scripts\windows\install-windows-task.bat` |
+| Update the deployed server from the current checkout | `./scripts/linux/update-systemd-user.sh` | `./scripts/macos/update-launchd-agent.sh` | `scripts\windows\update-windows-task.bat` |
+| Verify the running deployment | `./scripts/linux/healthcheck-server.sh` | `./scripts/macos/healthcheck-server.sh` | `scripts\windows\healthcheck-server.bat` |
+| Remove the startup-managed deployment | `./scripts/linux/remove-systemd-user.sh` | `./scripts/macos/remove-launchd-agent.sh` | `scripts\windows\remove-windows-task.bat` |
+
+These scripts publish `Armada.Server` into `~/.armada/bin` on Linux and macOS, or `%USERPROFILE%\.armada\bin` on Windows, and deploy dashboard assets into `~/.armada/dashboard` or `%USERPROFILE%\.armada\dashboard`.
+
+The remove scripts unregister the user-scoped startup entry or service, but they do not delete the published files under `~/.armada` or `%USERPROFILE%\.armada`.
 
 ---
 

@@ -1,165 +1,158 @@
 # Running Armada Server on System Startup
 
-This guide covers how to configure Armada Server (the Admiral process) to start automatically when your system boots.
+This guide covers the scripted startup workflows for the Admiral process. The scripts publish `Armada.Server` into `~/.armada/bin`, deploy the dashboard into `~/.armada/dashboard`, register the platform-specific service definition, and verify health on startup.
 
 ## Prerequisites
 
 - .NET 10.0 SDK installed
-- Armada built: `dotnet build src/Armada.sln`
-- Settings configured in `~/.armada/settings.json` (optional; defaults are used if absent)
+- Settings configured in `~/.armada/settings.json` if you are not using the default ports and paths
+- Platform service manager available:
+  - Windows: PowerShell and the current-user `Run` registry key
+  - Linux: `systemd --user`
+  - macOS: `launchd`
 
-## Publish a Self-Contained Binary
+## Shared Helpers
 
-For startup services, publish a standalone binary rather than using `dotnet run`:
+The shell implementations now live in `scripts/common/`, with Linux and macOS wrappers in their respective platform folders. Windows entrypoints live in `scripts/windows/`.
 
-```bash
-dotnet publish src/Armada.Server -c Release -f net10.0 -o ~/.armada/bin
-```
+Canonical helpers:
 
-This produces an executable at `~/.armada/bin/Armada.Server` (Linux/macOS) or `~/.armada/bin/Armada.Server.exe` (Windows).
+- Windows: `scripts/windows/publish-server.bat`, `scripts/windows/healthcheck-server.bat`
+- Shared shell implementation: `scripts/common/publish-server.sh`, `scripts/common/healthcheck-server.sh`
+- Linux wrappers: `scripts/linux/publish-server.sh`, `scripts/linux/healthcheck-server.sh`
+- macOS wrappers: `scripts/macos/publish-server.sh`, `scripts/macos/healthcheck-server.sh`
 
----
+`publish-server` publishes `src/Armada.Server` in `Release` mode for `net10.0` to `~/.armada/bin` and then attempts to deploy the React dashboard.
 
-## Linux (systemd)
-
-Create a service unit file:
-
-```bash
-sudo nano /etc/systemd/system/armada.service
-```
-
-Paste the following, replacing `<YOUR_USER>` with your username:
-
-```ini
-[Unit]
-Description=Armada Admiral Server
-After=network.target
-
-[Service]
-Type=simple
-User=<YOUR_USER>
-ExecStart=%h/.armada/bin/Armada.Server
-WorkingDirectory=%h/.armada
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Enable and start:
+`healthcheck-server` probes `http://localhost:7890/api/v1/status/health` by default. If your Admiral port is not `7890`, set `ARMADA_BASE_URL` before invoking the platform wrapper:
 
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl enable armada
-sudo systemctl start armada
+ARMADA_BASE_URL=http://localhost:9000 ./scripts/linux/healthcheck-server.sh
 ```
 
-Check status:
-
-```bash
-sudo systemctl status armada
-journalctl -u armada -f
-```
-
----
-
-## macOS (launchd)
-
-Create a plist file:
-
-```bash
-nano ~/Library/LaunchAgents/com.armada.admiral.plist
-```
-
-Paste the following:
-
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
-  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>com.armada.admiral</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>/Users/YOUR_USER/.armada/bin/Armada.Server</string>
-    </array>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-    <key>StandardOutPath</key>
-    <string>/Users/YOUR_USER/.armada/logs/launchd-stdout.log</string>
-    <key>StandardErrorPath</key>
-    <string>/Users/YOUR_USER/.armada/logs/launchd-stderr.log</string>
-</dict>
-</plist>
-```
-
-Replace `YOUR_USER` with your macOS username, then load:
-
-```bash
-launchctl load ~/Library/LaunchAgents/com.armada.admiral.plist
-```
-
-To unload:
-
-```bash
-launchctl unload ~/Library/LaunchAgents/com.armada.admiral.plist
-```
-
----
-
-## Windows (Task Scheduler)
-
-### Option A: Command Line (schtasks)
-
-Open an elevated Command Prompt or PowerShell and run:
+On Windows:
 
 ```powershell
-schtasks /create /tn "Armada Admiral" /tr "%USERPROFILE%\.armada\bin\Armada.Server.exe" /sc onlogon /rl highest
+set ARMADA_BASE_URL=http://localhost:9000
+scripts\windows\healthcheck-server.bat
 ```
 
-### Option B: Task Scheduler GUI
+## Windows (Current-User Startup)
 
-1. Open **Task Scheduler** (`taskschd.msc`).
-2. Click **Create Task**.
-3. **General** tab: name it `Armada Admiral`, check **Run with highest privileges**.
-4. **Triggers** tab: add a trigger for **At log on**.
-5. **Actions** tab: add an action **Start a program**, set the path to `%USERPROFILE%\.armada\bin\Armada.Server.exe`.
-6. **Settings** tab: check **Allow task to be run on demand** and **Restart on failure** (1 minute interval).
-7. Click **OK**.
+The supported Windows path is a current-user startup registration under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`. The script names still use `*-windows-task.bat` for compatibility, but they no longer depend on Task Scheduler.
 
-### Option C: Windows Service (sc.exe)
+Scripts:
 
-If you want Armada to run as a true Windows service (starts before user logon):
+- `scripts/windows/install-windows-task.bat`
+- `scripts/windows/update-windows-task.bat`
+- `scripts/windows/remove-windows-task.bat`
+
+Install and start:
 
 ```powershell
-sc.exe create ArmadaAdmiral binPath= "%USERPROFILE%\.armada\bin\Armada.Server.exe" start= auto
-sc.exe start ArmadaAdmiral
+scripts\windows\install-windows-task.bat
 ```
 
-> **Note:** Running as a Windows service requires the executable to support the Windows Service lifecycle. You may need to wrap it with a service host or use a tool like [NSSM](https://nssm.cc/).
+Update from source and restart:
 
----
+```powershell
+scripts\windows\update-windows-task.bat
+```
 
-## Verifying the Server is Running
+Remove the startup entry:
 
-After startup, verify the Admiral is listening:
+```powershell
+scripts\windows\remove-windows-task.bat
+```
+
+This installs a current-user startup entry named `ArmadaAdmiral` that launches `%USERPROFILE%\.armada\bin\Armada.Server.exe` at logon in your normal user context. It does not require elevation.
+
+> **Note:** A true Windows Service is not scripted here because `Armada.Server` is currently a long-running console process, not a native Windows Service host. If you need SCM-managed service startup before user logon, use a service wrapper such as NSSM or add Windows Service lifecycle support in code.
+
+## Linux (`systemd --user`)
+
+The supported Linux path is a user-scoped `systemd` service.
+
+Scripts:
+
+- `scripts/linux/install-systemd-user.sh`
+- `scripts/linux/update-systemd-user.sh`
+- `scripts/linux/remove-systemd-user.sh`
+
+Install and start:
 
 ```bash
-curl http://localhost:7890/dashboard
+./scripts/linux/install-systemd-user.sh
 ```
 
-Or check the log file at `~/.armada/logs/admiral.log`.
+Update from source and restart:
 
-## Default Ports
+```bash
+./scripts/linux/update-systemd-user.sh
+```
 
-| Service       | Port |
-|---------------|------|
-| REST API (+ WebSocket at /ws) | 7890 |
-| MCP Server                    | 7891 |
+Remove the user service:
 
-Ports are configurable in `~/.armada/settings.json`.
+```bash
+./scripts/linux/remove-systemd-user.sh
+```
+
+The installer writes `~/.config/systemd/user/armada.service`.
+
+> **Note:** `systemd --user` services normally start when your user session starts. If you want Armada to come up at boot before interactive login, enable linger for your account:
+>
+> `sudo loginctl enable-linger $USER`
+
+## macOS (`launchd`)
+
+The supported macOS path is a user-scoped `LaunchAgent`.
+
+Scripts:
+
+- `scripts/macos/install-launchd-agent.sh`
+- `scripts/macos/update-launchd-agent.sh`
+- `scripts/macos/remove-launchd-agent.sh`
+
+Install and start:
+
+```bash
+./scripts/macos/install-launchd-agent.sh
+```
+
+Update from source and restart:
+
+```bash
+./scripts/macos/update-launchd-agent.sh
+```
+
+Remove the agent:
+
+```bash
+./scripts/macos/remove-launchd-agent.sh
+```
+
+The installer writes `~/Library/LaunchAgents/com.armada.admiral.plist`.
+
+> **Note:** `LaunchAgent` runs in your user session. If you need machine-level startup before user login, you would need a separate `LaunchDaemon` flow and a service-compatible runtime context for Armada’s repos, agent binaries, and credentials.
+
+## Verifying the Server Is Running
+
+All install and update scripts run a health check automatically. You can also verify the Admiral manually:
+
+```bash
+curl http://localhost:7890/api/v1/status/health
+```
+
+Or check the main log file at `~/.armada/logs/admiral.log`.
+
+## Default Paths and Ports
+
+| Item | Default |
+|------|---------|
+| Data directory | `~/.armada` |
+| Published server binary | `~/.armada/bin/Armada.Server` or `Armada.Server.exe` |
+| React dashboard deploy | `~/.armada/dashboard` |
+| REST API (+ WebSocket at `/ws`) | `7890` |
+| MCP server | `7891` |
+
+Ports are configurable in `~/.armada/settings.json`. When you use a non-default Admiral port, set `ARMADA_BASE_URL` before running the health-check or install/update scripts so the post-start verification targets the correct endpoint.

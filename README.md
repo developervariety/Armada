@@ -289,10 +289,33 @@ If a captain crashes, the Admiral can repair the worktree and relaunch the agent
 ```bash
 git clone https://github.com/jchristn/armada.git
 cd armada
-./install.sh    # or install.bat on Windows
 ```
 
-Helper scripts are in the project root: `install.bat/.sh`, `remove.bat/.sh`, `reinstall.bat/.sh`, and `update.bat/.sh`.
+Linux: `./scripts/linux/install.sh`
+
+macOS: `./scripts/macos/install.sh`
+
+Windows: `scripts\windows\install.bat`
+
+These `install.*` scripts build the solution, deploy dashboard assets, and install `Armada.Helm` as a global tool from the current checkout.
+
+Platform entrypoints are split under `scripts/windows/`, `scripts/linux/`, and `scripts/macos/`. Shared shell implementations live under `scripts/common/`.
+
+If you want Armada deployed and managed on your local machine from source, use the deployment scripts below:
+
+| Task | Linux | macOS | Windows |
+|------|-------|-------|---------|
+| Publish server and dashboard only | `./scripts/linux/publish-server.sh` | `./scripts/macos/publish-server.sh` | `scripts\windows\publish-server.bat` |
+| Install and register a user-scoped local deployment | `./scripts/linux/install-systemd-user.sh` | `./scripts/macos/install-launchd-agent.sh` | `scripts\windows\install-windows-task.bat` |
+| Update the deployed server from the current checkout | `./scripts/linux/update-systemd-user.sh` | `./scripts/macos/update-launchd-agent.sh` | `scripts\windows\update-windows-task.bat` |
+| Verify the running deployment | `./scripts/linux/healthcheck-server.sh` | `./scripts/macos/healthcheck-server.sh` | `scripts\windows\healthcheck-server.bat` |
+| Remove the startup-managed deployment | `./scripts/linux/remove-systemd-user.sh` | `./scripts/macos/remove-launchd-agent.sh` | `scripts\windows\remove-windows-task.bat` |
+
+These deployment scripts publish `Armada.Server` into `~/.armada/bin` on Linux and macOS, or `%USERPROFILE%\.armada\bin` on Windows, and deploy dashboard assets into `~/.armada/dashboard` or `%USERPROFILE%\.armada\dashboard`.
+
+The remove scripts unregister the background startup entry or user service, but they do not delete the published files under `~/.armada` or `%USERPROFILE%\.armada`.
+
+For background startup details, see [docs/RUN_ON_STARTUP.md](docs/RUN_ON_STARTUP.md).
 
 ### Your First Dispatch
 
@@ -743,7 +766,7 @@ armada mcp install    # Configure Claude Code, Codex, Gemini, and Cursor for Arm
 armada mcp remove     # Remove those Armada MCP entries again
 ```
 
-If you are working from source, repo-root helpers are also available: `install-mcp.bat/.sh` and `remove-mcp.bat/.sh`.
+If you are working from source, MCP helper entrypoints are available under `scripts/windows/`, `scripts/linux/`, and `scripts/macos/`.
 
 Once installed, your MCP client can call tools like `armada_status`, `armada_dispatch`, `armada_enumerate`, `armada_voyage_status`, and `armada_cancel_voyage`. There are also tool groups for playbook, persona, pipeline, and prompt-template management.
 
@@ -766,7 +789,19 @@ For detailed setup and examples, see:
 - [.NET 8.0+ SDK](https://dot.net/download)
 - At least one AI agent runtime on your PATH (Claude Code, Codex, Gemini, or Cursor)
 
-### Build and Run
+### Scripted Local Deployment
+
+For a local machine deployment managed from this checkout, use the platform scripts shown in the Quick Start table above. The install scripts register a user-scoped startup entry or service, the update scripts republish from source and restart it, and the remove scripts unregister it again.
+
+Use the health-check helper after install or update:
+
+Linux: `./scripts/linux/healthcheck-server.sh`
+
+macOS: `./scripts/macos/healthcheck-server.sh`
+
+Windows: `scripts\windows\healthcheck-server.bat`
+
+### Foreground Development Run
 
 ```bash
 git clone https://github.com/jchristn/armada.git
@@ -775,7 +810,7 @@ cd armada
 # Build the solution
 dotnet build src/Armada.sln
 
-# Run the server directly
+# Run the server directly for a foreground dev session
 dotnet run --project src/Armada.Server
 ```
 
@@ -882,7 +917,7 @@ docker build -f src/Armada.Server/Dockerfile -t armada-server:local .
 docker build -f src/Armada.Dashboard/Dockerfile -t armada-dashboard:local .
 ```
 
-Build scripts for multi-platform images are also provided: `build-server.bat/.sh` and `build-dashboard.bat/.sh`.
+Build scripts for multi-platform images are provided under `scripts/windows/`, `scripts/linux/`, and `scripts/macos/`.
 
 ## Upgrading / Migration
 
