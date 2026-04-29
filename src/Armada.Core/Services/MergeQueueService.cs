@@ -622,10 +622,73 @@ namespace Armada.Core.Services
             await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
             _Logging.Info(_Header + "opened PR for " + entry.Id + " (" + platform + ", base=" + baseBranch + "): " + prUrl);
 
-            await ReconcileMissionStatusAsync(entry.MissionId, MissionStatusEnum.PullRequestOpen,
-                "PR opened: " + prUrl, token, entry.TenantId).ConfigureAwait(false);
+            // Also stamp the URL on the mission record so the existing
+            // HandleReconcilePullRequestAsync health-check loop (which scans for
+            // PullRequestOpen missions with PrUrl != null) picks this up and flips
+            // the mission to Complete once the PR merges.
+            mission.Status = MissionStatusEnum.PullRequestOpen;
+            mission.PrUrl = prUrl;
+            mission.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
 
             return true;
+        }
+
+        /// <summary>
+        /// PR-merge reconciliation pass for entries currently in PullRequestOpen. Walks
+        /// every such entry, checks whether the linked mission has reached Complete (the
+        /// existing PR-mode reconciler in MissionLandingHandler flips the mission as soon
+        /// as <c>gh pr view --json state</c> reports merged), and flips the merge entry
+        /// to Landed when the mission has caught up. The captain branch then becomes
+        /// eligible for cleanup on the next merge-queue tick that touches the entry.
+        /// </summary>
+        /// <remarks>
+        /// Idempotent: entries already Landed or Cancelled are skipped. Safe to call
+        /// from the admiral health-check loop alongside
+        /// <see cref="IAdmiralService.HealthCheckAsync"/>.
+        /// </remarks>
+        public async Task<int> ReconcilePullRequestEntriesAsync(CancellationToken token = default)
+        {
+            int reconciledCount = 0;
+            List<MergeEntry> open;
+            try
+            {
+                open = await _Database.MergeEntries.EnumerateByStatusAsync(MergeStatusEnum.PullRequestOpen, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "PR reconciler: enumeration failed: " + ex.Message);
+                return 0;
+            }
+
+            foreach (MergeEntry entry in open)
+            {
+                if (String.IsNullOrEmpty(entry.MissionId)) continue;
+                Mission? mission = null;
+                try
+                {
+                    mission = await _Database.Missions.ReadAsync(entry.MissionId, token).ConfigureAwait(false);
+                }
+                catch { /* best-effort; skip on read errors */ }
+                if (mission == null) continue;
+                if (mission.Status != MissionStatusEnum.Complete) continue;
+
+                entry.Status = MergeStatusEnum.Landed;
+                entry.CompletedUtc = DateTime.UtcNow;
+                entry.LastUpdateUtc = DateTime.UtcNow;
+                try
+                {
+                    await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
+                    reconciledCount++;
+                    _Logging.Info(_Header + "PR reconciler: entry " + entry.Id + " landed (linked mission " + mission.Id + " merged)");
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "PR reconciler: failed to land entry " + entry.Id + ": " + ex.Message);
+                }
+            }
+
+            return reconciledCount;
         }
 
         /// <summary>

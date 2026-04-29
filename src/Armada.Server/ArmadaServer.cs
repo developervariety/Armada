@@ -220,6 +220,7 @@ namespace Armada.Server
             _Admiral.OnMissionComplete = _MissionLanding.HandleMissionCompleteAsync;
             _Admiral.OnVoyageComplete = _MissionLanding.HandleVoyageCompleteAsync;
             _Admiral.OnReconcilePullRequest = _MissionLanding.HandleReconcilePullRequestAsync;
+            _Admiral.OnReconcileMergeEntries = () => _MergeQueue.ReconcilePullRequestEntriesAsync();
             _LandingService.OnPerformLanding = _MissionLanding.HandleMissionCompleteAsync;
 
             // Initialize REST API (Watson7)

@@ -40,6 +40,7 @@ namespace Armada.Test.Unit.Suites.Services
             public Task<bool> DeleteAsync(string entryId, string? tenantId = null, CancellationToken token = default) => throw new NotImplementedException();
             public Task<MergeQueuePurgeResult> DeleteMultipleAsync(List<string> entryIds, string? tenantId = null, CancellationToken token = default) => throw new NotImplementedException();
             public Task<int> PurgeTerminalAsync(string? vesselId = null, MergeStatusEnum? status = null, string? tenantId = null, CancellationToken token = default) => throw new NotImplementedException();
+            public Task<int> ReconcilePullRequestEntriesAsync(CancellationToken token = default) => Task.FromResult(0);
         }
 
         /// <summary>

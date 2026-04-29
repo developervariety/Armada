@@ -52,6 +52,9 @@ namespace Armada.Core.Services
         public Func<Mission, Task<bool>>? OnReconcilePullRequest { get; set; }
 
         /// <inheritdoc />
+        public Func<Task<int>>? OnReconcileMergeEntries { get; set; }
+
+        /// <inheritdoc />
         public Func<int, bool>? OnIsProcessExitHandled { get; set; }
 
         /// <summary>
@@ -596,6 +599,17 @@ namespace Armada.Core.Services
 
             // Reconcile PullRequestOpen missions — check if their PRs have been merged
             await ReconcilePullRequestMissionsAsync(token).ConfigureAwait(false);
+
+            // PR-fallback merge-entry reconciliation: after the mission reconciler above
+            // flips a mission to Complete, the linked merge entry still sits in
+            // PullRequestOpen. The merge-queue reconciler walks those and lands the entry
+            // so subsequent cleanup (CleanupLandedBranchesAsync) can prune the captain
+            // branch per Vessel.BranchCleanupPolicy.
+            if (OnReconcileMergeEntries != null)
+            {
+                try { await OnReconcileMergeEntries.Invoke().ConfigureAwait(false); }
+                catch (Exception ex) { _Logging.Warn(_Header + "error in OnReconcileMergeEntries callback: " + ex.Message); }
+            }
 
             // Reclaim docks stuck in Provisioned state with no active captain
             await ReclaimOrphanedDocksAsync(token).ConfigureAwait(false);

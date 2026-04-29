@@ -45,6 +45,13 @@ namespace Armada.Core.Services.Interfaces
         Func<Mission, Task<bool>>? OnReconcilePullRequest { get; set; }
 
         /// <summary>
+        /// Delegate invoked during health check to reconcile PullRequestOpen merge
+        /// entries (PR-fallback path). Returns the number of entries reconciled. Wired
+        /// to <c>MergeQueueService.ReconcilePullRequestEntriesAsync</c> at server startup.
+        /// </summary>
+        Func<Task<int>>? OnReconcileMergeEntries { get; set; }
+
+        /// <summary>
         /// Delegate that checks whether a process exit has already been received and is being
         /// handled by the async exit callback. The health check uses this to avoid triggering
         /// recovery for a process whose exit handler is still in progress.

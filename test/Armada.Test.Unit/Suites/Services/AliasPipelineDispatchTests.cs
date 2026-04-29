@@ -195,6 +195,7 @@ namespace Armada.Test.Unit.Suites.Services
             public Func<Mission, Dock, Task>? OnMissionComplete { get; set; }
             public Func<Voyage, Task>? OnVoyageComplete { get; set; }
             public Func<Mission, Task<bool>>? OnReconcilePullRequest { get; set; }
+            public Func<Task<int>>? OnReconcileMergeEntries { get; set; }
             public Func<int, bool>? OnIsProcessExitHandled { get; set; }
 
             public async Task<Mission> DispatchMissionAsync(Mission mission, CancellationToken token = default)

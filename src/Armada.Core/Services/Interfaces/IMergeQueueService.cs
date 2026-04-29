@@ -94,5 +94,18 @@ namespace Armada.Core.Services.Interfaces
         /// <param name="token">Cancellation token.</param>
         /// <returns>Number of entries deleted.</returns>
         Task<int> PurgeTerminalAsync(string? vesselId = null, MergeStatusEnum? status = null, string? tenantId = null, CancellationToken token = default);
+
+        /// <summary>
+        /// PR-merge reconciliation pass. Walks every merge entry currently in
+        /// <see cref="MergeStatusEnum.PullRequestOpen"/>, checks whether the linked
+        /// mission has reached <see cref="MissionStatusEnum.Complete"/> (the existing
+        /// PR-mode reconciler in MissionLandingHandler flips the mission as soon as
+        /// the platform CLI reports merged), and flips the merge entry to Landed
+        /// once the mission has caught up. Idempotent. Safe to call from the admiral
+        /// health-check loop.
+        /// </summary>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Number of entries reconciled in this pass.</returns>
+        Task<int> ReconcilePullRequestEntriesAsync(CancellationToken token = default);
     }
 }
