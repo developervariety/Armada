@@ -635,6 +635,8 @@ namespace Armada.Core.Database.Sqlite
             try { entry.AuditDeepVerdict = reader["audit_deep_verdict"] as string; } catch { }
             try { entry.AuditDeepNotes = reader["audit_deep_notes"] as string; } catch { }
             try { entry.AuditDeepRecommendedAction = reader["audit_deep_recommended_action"] as string; } catch { }
+            try { entry.PrUrl = reader["pr_url"] as string; } catch { }
+            try { entry.PrBaseBranch = reader["pr_base_branch"] as string; } catch { }
             return entry;
         }
 

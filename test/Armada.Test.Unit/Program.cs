@@ -94,6 +94,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new AliasPipelineDispatchTests());
             runner.AddSuite(new CrossVesselDependencyTests());
             runner.AddSuite(new CancelKillsCaptainTests());
+            runner.AddSuite(new PrFallbackPersistenceTests());
             runner.AddSuite(new DependsOnMissionIdDispatchTests());
             runner.AddSuite(new AutoLandEvaluatorTests());
             runner.AddSuite(new ConventionCheckTests());

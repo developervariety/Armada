@@ -141,6 +141,25 @@ namespace Armada.Core.Models
 
         #endregion
 
+        #region Pull-Request-Fallback
+
+        /// <summary>
+        /// URL of the platform pull request opened for this entry when the auto-land
+        /// safety net detected a critical-risk trigger and routed to PR fallback.
+        /// Null when the entry never went through PR fallback.
+        /// </summary>
+        public string? PrUrl { get; set; } = null;
+
+        /// <summary>
+        /// Target branch the PR was opened against. Usually the vessel's default
+        /// branch, but can be a chained captain branch when the upstream
+        /// dependency is itself in PullRequestOpen (chained-PR base resolution).
+        /// Null when the entry never went through PR fallback.
+        /// </summary>
+        public string? PrBaseBranch { get; set; } = null;
+
+        #endregion
+
         #endregion
 
         #region Private-Members

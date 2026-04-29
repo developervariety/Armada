@@ -407,6 +407,16 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"
                     IF COL_LENGTH('pipeline_stages', 'preferred_model') IS NULL
                         ALTER TABLE pipeline_stages ADD preferred_model NVARCHAR(450);"
+                ),
+                new SchemaMigration(
+                    36,
+                    "Add pr_url and pr_base_branch columns to merge_entries for PR-fallback path",
+                    @"
+                    IF COL_LENGTH('merge_entries', 'pr_url') IS NULL
+                        ALTER TABLE merge_entries ADD pr_url NVARCHAR(MAX);",
+                    @"
+                    IF COL_LENGTH('merge_entries', 'pr_base_branch') IS NULL
+                        ALTER TABLE merge_entries ADD pr_base_branch NVARCHAR(450);"
                 )
             };
         }

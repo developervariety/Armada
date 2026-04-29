@@ -693,6 +693,16 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
+        /// Migration v36 statements for adding pr_url and pr_base_branch columns to merge_entries
+        /// (PR-fallback path).
+        /// </summary>
+        public static readonly string[] MigrationV36Statements = new string[]
+        {
+            @"ALTER TABLE merge_entries ADD COLUMN pr_url LONGTEXT;",
+            @"ALTER TABLE merge_entries ADD COLUMN pr_base_branch VARCHAR(450);"
+        };
+
+        /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
         public static readonly string[] Indexes = new string[]

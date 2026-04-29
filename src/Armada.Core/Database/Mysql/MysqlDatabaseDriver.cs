@@ -464,6 +464,11 @@ namespace Armada.Core.Database.Mysql
                     35,
                     "Add preferred_model column to pipeline_stages for per-stage model override",
                     TableQueries.MigrationV35Statements
+                ),
+                new SchemaMigration(
+                    36,
+                    "Add pr_url and pr_base_branch columns to merge_entries for PR-fallback path",
+                    TableQueries.MigrationV36Statements
                 )
             };
         }

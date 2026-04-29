@@ -34,6 +34,15 @@ namespace Armada.Core.Enums
         Landed,
 
         /// <summary>
+        /// PR-fallback path: tests passed but a critical-risk trigger fired (UDS 0x34
+        /// guard, RSA primitive, etc.), so the entry was routed to a real platform
+        /// pull request instead of an automatic land. The entry stays in this state
+        /// until the PR merges (transitions to Landed) or the orchestrator abandons
+        /// it (transitions to Cancelled).
+        /// </summary>
+        PullRequestOpen,
+
+        /// <summary>
         /// Removed from the queue (manually or due to conflict).
         /// </summary>
         Cancelled

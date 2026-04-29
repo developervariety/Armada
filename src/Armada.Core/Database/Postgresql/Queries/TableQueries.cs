@@ -572,6 +572,10 @@ namespace Armada.Core.Database.Postgresql.Queries
                 ),
                 new SchemaMigration(35, "Add preferred_model column to pipeline_stages for per-stage model override",
                     @"ALTER TABLE pipeline_stages ADD COLUMN IF NOT EXISTS preferred_model TEXT;"
+                ),
+                new SchemaMigration(36, "Add pr_url and pr_base_branch columns to merge_entries for PR-fallback path",
+                    @"ALTER TABLE merge_entries ADD COLUMN IF NOT EXISTS pr_url TEXT;",
+                    @"ALTER TABLE merge_entries ADD COLUMN IF NOT EXISTS pr_base_branch TEXT;"
                 )
             };
         }
