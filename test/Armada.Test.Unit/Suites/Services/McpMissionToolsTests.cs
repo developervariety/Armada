@@ -153,6 +153,9 @@ namespace Armada.Test.Unit.Suites.Services
                 CancellationToken token = default)
                 => throw new NotImplementedException();
 
+            public Task<Pipeline?> ResolvePipelineAsync(string? pipelineIdOrName, Vessel vessel, CancellationToken token = default)
+                => Task.FromResult<Pipeline?>(null);
+
             public Task<ArmadaStatus> GetStatusAsync(CancellationToken token = default)
                 => throw new NotImplementedException();
 

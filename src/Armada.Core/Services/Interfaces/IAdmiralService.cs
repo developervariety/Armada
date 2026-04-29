@@ -1,5 +1,7 @@
 namespace Armada.Core.Services.Interfaces
 {
+    using System.Threading;
+    using System.Threading.Tasks;
     using Armada.Core.Models;
 
     /// <summary>
@@ -130,6 +132,19 @@ namespace Armada.Core.Services.Interfaces
         /// <param name="token">Cancellation token.</param>
         /// <returns>The created and potentially assigned mission.</returns>
         Task<Mission> DispatchMissionAsync(Mission mission, CancellationToken token = default);
+
+        /// <summary>
+        /// Resolve the pipeline a dispatch should use. Resolution order:
+        /// explicit (id or name) &gt; vessel default &gt; fleet default &gt; null.
+        /// Returns null when the resolved pipeline is the implicit single-stage
+        /// Worker pipeline. Exposed so the alias-dispatch path in McpVoyageTools
+        /// can mirror the same expansion semantics as the standard dispatch.
+        /// </summary>
+        /// <param name="pipelineIdOrName">Optional pipeline id or name.</param>
+        /// <param name="vessel">Vessel the dispatch targets (required).</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Resolved pipeline or null when no multi-stage pipeline applies.</returns>
+        Task<Pipeline?> ResolvePipelineAsync(string? pipelineIdOrName, Vessel vessel, CancellationToken token = default);
 
         /// <summary>
         /// Get aggregate status across all active work.

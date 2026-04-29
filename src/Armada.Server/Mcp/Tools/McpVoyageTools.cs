@@ -121,6 +121,16 @@ namespace Armada.Server.Mcp.Tools
                     Vessel? dispatchVessel = await database.Vessels.ReadAsync(vesselId).ConfigureAwait(false);
                     List<SelectedPlaybook> mergedPlaybooks = MergePlaybooks(dispatchVessel?.GetDefaultPlaybooks(), callerPlaybooks);
 
+                    // Resolve pipeline name to ID up front so both the alias path and
+                    // the standard path see the same identifier.
+                    string? pipelineId = request.PipelineId;
+                    if (String.IsNullOrEmpty(pipelineId) && !String.IsNullOrEmpty(request.Pipeline))
+                    {
+                        Pipeline? namedPipeline = await database.Pipelines.ReadByNameAsync(request.Pipeline).ConfigureAwait(false);
+                        if (namedPipeline != null) pipelineId = namedPipeline.Id;
+                        else return (object)new { Error = "Pipeline not found: " + request.Pipeline };
+                    }
+
                     // When any mission carries an alias or dependsOnMissionAlias, use the
                     // alias-aware dispatch path which topologically sorts missions and
                     // resolves alias references to concrete msn_* IDs at creation time.
@@ -130,18 +140,9 @@ namespace Armada.Server.Mcp.Tools
                     {
                         return await DispatchWithAliasesAsync(
                             database, admiral, title, description, vesselId,
-                            dispatchVessel, missions, mergedPlaybooks).ConfigureAwait(false);
+                            dispatchVessel, missions, mergedPlaybooks, pipelineId).ConfigureAwait(false);
                     }
 
-                    // Use pipeline-aware dispatch if pipelineId is provided
-                    string? pipelineId = request.PipelineId;
-                    if (String.IsNullOrEmpty(pipelineId) && !String.IsNullOrEmpty(request.Pipeline))
-                    {
-                        // Resolve pipeline name to ID
-                        Pipeline? namedPipeline = await database.Pipelines.ReadByNameAsync(request.Pipeline).ConfigureAwait(false);
-                        if (namedPipeline != null) pipelineId = namedPipeline.Id;
-                        else return (object)new { Error = "Pipeline not found: " + request.Pipeline };
-                    }
                     Voyage voyage = await admiral.DispatchVoyageAsync(title, description, vesselId, missions, pipelineId, mergedPlaybooks).ConfigureAwait(false);
                     return (object)voyage;
                 });
@@ -413,7 +414,10 @@ namespace Armada.Server.Mcp.Tools
         /// inter-mission dependencies. Validates and topologically sorts the
         /// alias graph, creates a single voyage, then creates each mission in
         /// dependency order -- resolving alias references to concrete msn_* IDs
-        /// as each mission is persisted.
+        /// as each mission is persisted. When a multi-stage pipeline applies,
+        /// each MissionDescription expands into a chain of stage missions; the
+        /// alias maps to the LAST stage's mission id so downstream alias deps
+        /// wait for the entire review chain to complete.
         /// </summary>
         private static async Task<object> DispatchWithAliasesAsync(
             DatabaseDriver database,
@@ -423,7 +427,8 @@ namespace Armada.Server.Mcp.Tools
             string vesselId,
             Vessel? vessel,
             List<MissionDescription> missions,
-            List<SelectedPlaybook> selectedPlaybooks)
+            List<SelectedPlaybook> selectedPlaybooks,
+            string? pipelineId)
         {
             if (vessel == null)
                 return new { Error = "Vessel not found: " + vesselId };
@@ -440,6 +445,13 @@ namespace Armada.Server.Mcp.Tools
                 return new { Error = ex.Message };
             }
 
+            // Resolve pipeline up front so the alias path expands stage chains the
+            // same way the non-alias dispatch does. Single-stage Worker pipelines
+            // (and null) keep the legacy single-mission-per-MD shape.
+            Pipeline? pipeline = await admiral.ResolvePipelineAsync(pipelineId, vessel).ConfigureAwait(false);
+            bool isMultiStage = pipeline != null
+                && !(pipeline.Stages.Count == 1 && pipeline.Stages[0].PersonaName == "Worker");
+
             // Create the voyage record.
             Voyage voyage = new Voyage(title, description);
             voyage.TenantId = vessel.TenantId;
@@ -453,36 +465,99 @@ namespace Armada.Server.Mcp.Tools
             }
 
             // Create missions in topological order, recording alias -> msn_* ID as each
-            // mission is persisted so that downstream missions can resolve their deps.
+            // mission (or stage chain) is persisted so that downstream missions can
+            // resolve their deps. For multi-stage pipelines the alias points to the
+            // LAST stage so dependents wait for the full review chain to finish.
             Dictionary<string, string> aliasToMsnId = new Dictionary<string, string>(StringComparer.Ordinal);
             bool anyAssigned = false;
 
             foreach (MissionDescription md in sortedMissions)
             {
-                Mission mission = new Mission(md.Title, md.Description);
-                mission.TenantId = vessel.TenantId;
-                mission.UserId = vessel.UserId;
-                mission.VoyageId = voyage.Id;
-                mission.VesselId = vesselId;
-                mission.PrestagedFiles = ClonePrestagedFilesLocal(md.PrestagedFiles);
-                mission.PreferredCaptainId = md.PreferredCaptainId;
-                mission.PreferredModel = md.PreferredModel;
-                mission.SelectedPlaybooks = ClonePlaybookSelectionsLocal(voyage.SelectedPlaybooks);
-
-                // Alias-based dependency takes precedence over a literal ID.
+                // External dep for the FIRST mission of this MD: alias-resolved (preferred)
+                // or literal ID. For multi-stage chains, only the first stage carries this;
+                // downstream stages depend on the previous stage in the chain.
+                string? externalDep = null;
                 if (!String.IsNullOrEmpty(md.DependsOnMissionAlias))
-                    mission.DependsOnMissionId = aliasToMsnId[md.DependsOnMissionAlias];
+                    externalDep = aliasToMsnId[md.DependsOnMissionAlias];
                 else if (!String.IsNullOrEmpty(md.DependsOnMissionId))
-                    mission.DependsOnMissionId = md.DependsOnMissionId;
+                    externalDep = md.DependsOnMissionId;
 
-                mission = await admiral.DispatchMissionAsync(mission).ConfigureAwait(false);
+                if (!isMultiStage)
+                {
+                    // Legacy single-mission-per-MD path.
+                    Mission mission = new Mission(md.Title, md.Description);
+                    mission.TenantId = vessel.TenantId;
+                    mission.UserId = vessel.UserId;
+                    mission.VoyageId = voyage.Id;
+                    mission.VesselId = vesselId;
+                    mission.PrestagedFiles = ClonePrestagedFilesLocal(md.PrestagedFiles);
+                    mission.PreferredCaptainId = md.PreferredCaptainId;
+                    mission.PreferredModel = md.PreferredModel;
+                    mission.SelectedPlaybooks = ClonePlaybookSelectionsLocal(voyage.SelectedPlaybooks);
+                    mission.DependsOnMissionId = externalDep;
 
-                if (mission.Status == MissionStatusEnum.Assigned || mission.Status == MissionStatusEnum.InProgress)
-                    anyAssigned = true;
+                    mission = await admiral.DispatchMissionAsync(mission).ConfigureAwait(false);
 
-                // Record alias so later missions can reference this mission's msn_* ID.
-                if (!String.IsNullOrEmpty(md.Alias))
-                    aliasToMsnId[md.Alias] = mission.Id;
+                    if (mission.Status == MissionStatusEnum.Assigned || mission.Status == MissionStatusEnum.InProgress)
+                        anyAssigned = true;
+
+                    if (!String.IsNullOrEmpty(md.Alias))
+                        aliasToMsnId[md.Alias] = mission.Id;
+                    continue;
+                }
+
+                // Multi-stage pipeline: expand this MD into a chain of stage missions.
+                string baseTitle = md.Title.Length > 60 ? md.Title.Substring(0, 60).TrimEnd() + "..." : md.Title;
+                string? previousMissionId = null;
+                string? lastStageMissionId = null;
+
+                foreach (PipelineStage stage in pipeline!.Stages.OrderBy(s => s.Order))
+                {
+                    Mission stageMission = new Mission(
+                        "[" + stage.PersonaName + "] " + baseTitle,
+                        md.Description);
+                    stageMission.TenantId = vessel.TenantId;
+                    stageMission.UserId = vessel.UserId;
+                    stageMission.VoyageId = voyage.Id;
+                    stageMission.VesselId = vesselId;
+                    stageMission.Persona = stage.PersonaName;
+                    // First stage carries the external dep (alias-resolved or literal);
+                    // downstream stages depend on the previous stage of this chain.
+                    stageMission.DependsOnMissionId = previousMissionId ?? externalDep;
+                    // Captain pin applies to the whole chain. Stage-level PreferredModel
+                    // wins when set (e.g. Reviewed pipeline pinning Judge to Opus);
+                    // otherwise inherit the per-mission pin.
+                    stageMission.PreferredCaptainId = md.PreferredCaptainId;
+                    stageMission.PreferredModel = stage.PreferredModel ?? md.PreferredModel;
+                    stageMission.SelectedPlaybooks = ClonePlaybookSelectionsLocal(voyage.SelectedPlaybooks);
+                    if (previousMissionId == null)
+                        stageMission.PrestagedFiles = ClonePrestagedFilesLocal(md.PrestagedFiles);
+
+                    if (previousMissionId == null)
+                    {
+                        // First stage of the chain: dispatch through admiral so it gets
+                        // the standard create + try-assign treatment (deps still gate
+                        // assignment via MissionService.TryAssignAsync).
+                        stageMission = await admiral.DispatchMissionAsync(stageMission).ConfigureAwait(false);
+                        if (stageMission.Status == MissionStatusEnum.Assigned || stageMission.Status == MissionStatusEnum.InProgress)
+                            anyAssigned = true;
+                    }
+                    else
+                    {
+                        // Downstream stage: persist as Pending. The captain pool picks
+                        // it up after its dep completes; assigning now would race the
+                        // upstream stage's worktree.
+                        stageMission = await database.Missions.CreateAsync(stageMission).ConfigureAwait(false);
+                    }
+
+                    previousMissionId = stageMission.Id;
+                    lastStageMissionId = stageMission.Id;
+                }
+
+                // Map the user-visible alias to the LAST stage so any downstream alias
+                // dep waits for the full review chain to complete, not just stage 1.
+                if (!String.IsNullOrEmpty(md.Alias) && lastStageMissionId != null)
+                    aliasToMsnId[md.Alias] = lastStageMissionId;
             }
 
             // Update voyage status to reflect whether any missions were immediately assigned.

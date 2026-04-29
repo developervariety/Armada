@@ -770,7 +770,7 @@ namespace Armada.Core.Services
         /// Resolve which pipeline to use for a dispatch.
         /// Resolution order: explicit pipelineId > vessel default > fleet default > null (WorkerOnly).
         /// </summary>
-        private async Task<Pipeline?> ResolvePipelineAsync(string? pipelineId, Vessel vessel, CancellationToken token)
+        public async Task<Pipeline?> ResolvePipelineAsync(string? pipelineId, Vessel vessel, CancellationToken token = default)
         {
             // Explicit pipeline ID takes priority
             if (!String.IsNullOrEmpty(pipelineId))
