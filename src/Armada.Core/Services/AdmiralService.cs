@@ -185,7 +185,10 @@ namespace Armada.Core.Services
                 if (!String.IsNullOrEmpty(md.DependsOnMissionId))
                     mission.DependsOnMissionId = md.DependsOnMissionId;
                 mission = await _Database.Missions.CreateAsync(mission, token).ConfigureAwait(false);
-                await PersistMissionPlaybooksAsync(mission, voyage.SelectedPlaybooks, token).ConfigureAwait(false);
+                List<SelectedPlaybook> perMissionPlaybooks = PlaybookMerge.MergeWithVesselDefaults(
+                    voyage.SelectedPlaybooks,
+                    md.SelectedPlaybooks ?? new List<SelectedPlaybook>());
+                await PersistMissionPlaybooksAsync(mission, perMissionPlaybooks, token).ConfigureAwait(false);
                 _Logging.Info(_Header + "created mission " + mission.Id + ": " + md.Title);
 
                 // Try to auto-assign
@@ -308,7 +311,10 @@ namespace Armada.Core.Services
                     // Only the first stage starts as Pending; dependent stages also start as Pending
                     // but won't be assigned until their dependency completes
                     mission = await _Database.Missions.CreateAsync(mission, token).ConfigureAwait(false);
-                    await PersistMissionPlaybooksAsync(mission, voyage.SelectedPlaybooks, token).ConfigureAwait(false);
+                    List<SelectedPlaybook> perMissionPlaybooks = PlaybookMerge.MergeWithVesselDefaults(
+                        voyage.SelectedPlaybooks,
+                        md.SelectedPlaybooks ?? new List<SelectedPlaybook>());
+                    await PersistMissionPlaybooksAsync(mission, perMissionPlaybooks, token).ConfigureAwait(false);
                     _Logging.Info(_Header + "created pipeline mission " + mission.Id + ": " + mission.Title +
                         " (stage " + stage.Order + "/" + pipeline.Stages.Count + ", persona: " + stage.PersonaName +
                         (previousMissionId != null ? ", depends on: " + previousMissionId : "") + ")");

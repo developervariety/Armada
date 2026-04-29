@@ -11,7 +11,6 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
-    using Armada.Server.Mcp;
     using Armada.Server.Mcp.Tools;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;

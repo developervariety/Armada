@@ -9,7 +9,6 @@ namespace Armada.Server.Mcp.Tools
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
-    using Armada.Server.Mcp;
 
     /// <summary>
     /// MCP tools for Architect-mode dispatch.

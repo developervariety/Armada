@@ -117,6 +117,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new MergeQueueBranchCleanupTests());
             runner.AddSuite(new PlaybookMergeTests());
             runner.AddSuite(new PullRequestServiceTests());
+            runner.AddSuite(new VoyageMissionPlaybookPropagationTests());
             runner.AddSuite(new MissionAliasResolverTests());
             runner.AddSuite(new McpVoyageToolsTests());
             runner.AddSuite(new McpMissionToolsTests());

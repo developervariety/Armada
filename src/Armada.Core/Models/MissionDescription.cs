@@ -67,6 +67,14 @@ namespace Armada.Core.Models
         /// </summary>
         public string? DependsOnMissionAlias { get; set; } = null;
 
+        /// <summary>
+        /// Optional per-mission playbook selections. Merged with the voyage-level
+        /// merged selections using <see cref="PlaybookMerge.MergeWithVesselDefaults"/>
+        /// so callers can override delivery modes per mission without resupplying
+        /// the full list.
+        /// </summary>
+        public List<SelectedPlaybook>? SelectedPlaybooks { get; set; } = null;
+
         #endregion
 
         #region Constructors-and-Factories

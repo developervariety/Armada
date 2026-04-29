@@ -4,7 +4,6 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Threading.Tasks;
     using Armada.Core.Enums;
     using Armada.Core.Models;
-    using Armada.Server.Mcp;
     using Armada.Test.Common;
 
     /// <summary>

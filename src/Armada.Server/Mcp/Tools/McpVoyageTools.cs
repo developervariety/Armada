@@ -83,7 +83,22 @@ namespace Armada.Server.Mcp.Tools
                                     preferredModel = new { type = "string", description = "Optional captain Model filter (case-insensitive). Only idle captains whose Model matches will be considered for this mission; persona-preference logic runs within that filtered set." },
                                     dependsOnMissionId = new { type = "string", description = "Optional mission ID (msn_ prefix) this mission must wait for. The dependent mission stays Pending until the referenced mission reaches a completion state." },
                                     alias = new { type = "string", description = "Optional logical alias for this mission within this dispatch batch (e.g. 'M1', 'resolver'). Other missions in the same batch may reference it via dependsOnMissionAlias. Must be unique within the batch." },
-                                    dependsOnMissionAlias = new { type = "string", description = "Optional alias of another mission in this same dispatch batch that this mission must wait for. The server resolves the alias to the concrete msn_* ID after creating the dependency mission. Takes precedence over dependsOnMissionId when both are supplied." }
+                                    dependsOnMissionAlias = new { type = "string", description = "Optional alias of another mission in this same dispatch batch that this mission must wait for. The server resolves the alias to the concrete msn_* ID after creating the dependency mission. Takes precedence over dependsOnMissionId when both are supplied." },
+                                    selectedPlaybooks = new
+                                    {
+                                        type = "array",
+                                        description = "Optional per-mission playbook selections merged with voyage-level selectedPlaybooks (same semantics as vessel default merge)",
+                                        items = new
+                                        {
+                                            type = "object",
+                                            properties = new
+                                            {
+                                                playbookId = new { type = "string", description = "Playbook ID (pbk_ prefix)" },
+                                                deliveryMode = new { type = "string", description = "InlineFullContent, InstructionWithReference, or AttachIntoWorktree" }
+                                            },
+                                            required = new[] { "playbookId", "deliveryMode" }
+                                        }
+                                    }
                                 }
                             }
                         },
@@ -482,6 +497,15 @@ namespace Armada.Server.Mcp.Tools
                 else if (!String.IsNullOrEmpty(md.DependsOnMissionId))
                     externalDep = md.DependsOnMissionId;
 
+                // Per-mission playbooks: voyage-level defaults merged with the MD's own
+                // selectedPlaybooks (caller deliveryMode wins on collision, new entries
+                // append). Both legacy single-mission and multi-stage chain paths use
+                // this merged list so individual missions in the same voyage can carry
+                // different playbooks.
+                List<SelectedPlaybook> mergedForMission = PlaybookMerge.MergeWithVesselDefaults(
+                    voyage.SelectedPlaybooks,
+                    md.SelectedPlaybooks ?? new List<SelectedPlaybook>());
+
                 if (!isMultiStage)
                 {
                     // Legacy single-mission-per-MD path.
@@ -493,7 +517,7 @@ namespace Armada.Server.Mcp.Tools
                     mission.PrestagedFiles = ClonePrestagedFilesLocal(md.PrestagedFiles);
                     mission.PreferredCaptainId = md.PreferredCaptainId;
                     mission.PreferredModel = md.PreferredModel;
-                    mission.SelectedPlaybooks = ClonePlaybookSelectionsLocal(voyage.SelectedPlaybooks);
+                    mission.SelectedPlaybooks = ClonePlaybookSelectionsLocal(mergedForMission);
                     mission.DependsOnMissionId = externalDep;
 
                     mission = await admiral.DispatchMissionAsync(mission).ConfigureAwait(false);
@@ -529,7 +553,7 @@ namespace Armada.Server.Mcp.Tools
                     // otherwise inherit the per-mission pin.
                     stageMission.PreferredCaptainId = md.PreferredCaptainId;
                     stageMission.PreferredModel = stage.PreferredModel ?? md.PreferredModel;
-                    stageMission.SelectedPlaybooks = ClonePlaybookSelectionsLocal(voyage.SelectedPlaybooks);
+                    stageMission.SelectedPlaybooks = ClonePlaybookSelectionsLocal(mergedForMission);
                     if (previousMissionId == null)
                         stageMission.PrestagedFiles = ClonePrestagedFilesLocal(md.PrestagedFiles);
 

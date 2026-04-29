@@ -13,7 +13,6 @@ namespace Armada.Server.Mcp.Tools
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
-    using Armada.Server.Mcp;
 
     /// <summary>
     /// Registers MCP tools for mission operations (status, create, update, cancel, purge, restart, transition, diff, log).

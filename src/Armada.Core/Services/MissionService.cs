@@ -947,6 +947,9 @@ namespace Armada.Core.Services
             _Logging.Info(_Header + "generated mission instructions at " + instructionsPath);
         }
 
+        /// <summary>
+        /// Loads rows from mission_playbook_snapshots. Those snapshots are persisted at dispatch time from the merged mission selections (see AdmiralService playbook persistence); instruction Markdown is assembled here, not recomputed solely from voyage-level voyage_playbooks lists.
+        /// </summary>
         private async Task<List<MissionPlaybookSnapshot>> LoadMissionPlaybookSnapshotsAsync(Mission mission, CancellationToken token)
         {
             if (mission == null) throw new ArgumentNullException(nameof(mission));

@@ -1,12 +1,11 @@
-namespace Armada.Server.Mcp
+namespace Armada.Core.Models
 {
     using System.Collections.Generic;
     using System.Linq;
-    using Armada.Core.Models;
 
     /// <summary>
-    /// Shared playbook merge logic used across all MCP dispatch paths
-    /// (voyage, architect, and standalone mission creation).
+    /// Shared playbook merge logic used across dispatch paths (voyage, architect,
+    /// standalone missions, admiral voyage expansion).
     /// </summary>
     public static class PlaybookMerge
     {
@@ -17,7 +16,7 @@ namespace Armada.Server.Mcp
         /// that have no matching default are appended at the end.
         /// Comparison is case-sensitive on playbookId.
         /// </summary>
-        /// <param name="vesselDefaults">Vessel default playbooks (may be null or empty).</param>
+        /// <param name="vesselDefaults">Default playbooks (may be null or empty). For voyage propagation this is commonly the voyage-level merged selections.</param>
         /// <param name="callerEntries">Caller-supplied playbooks (may be empty).</param>
         /// <returns>Merged playbook list with defaults first, caller overrides applied.</returns>
         public static List<SelectedPlaybook> MergeWithVesselDefaults(
@@ -28,16 +27,24 @@ namespace Armada.Server.Mcp
             if (vesselDefaults != null)
             {
                 foreach (SelectedPlaybook d in vesselDefaults)
+                {
                     merged.Add(new SelectedPlaybook { PlaybookId = d.PlaybookId, DeliveryMode = d.DeliveryMode });
+                }
             }
+
             foreach (SelectedPlaybook caller in callerEntries)
             {
                 SelectedPlaybook? existing = merged.FirstOrDefault(m => m.PlaybookId == caller.PlaybookId);
                 if (existing != null)
+                {
                     existing.DeliveryMode = caller.DeliveryMode;
+                }
                 else
+                {
                     merged.Add(new SelectedPlaybook { PlaybookId = caller.PlaybookId, DeliveryMode = caller.DeliveryMode });
+                }
             }
+
             return merged;
         }
     }
