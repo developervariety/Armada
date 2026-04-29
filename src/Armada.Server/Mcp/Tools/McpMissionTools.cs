@@ -34,7 +34,17 @@ namespace Armada.Server.Mcp.Tools
         /// <param name="settings">Armada settings, or null if unavailable.</param>
         /// <param name="git">Git service for diff operations, or null if unavailable.</param>
         /// <param name="landingService">Optional landing service for mission landing operations.</param>
-        public static void Register(RegisterToolDelegate register, DatabaseDriver database, IAdmiralService admiral, ArmadaSettings? settings, IGitService? git, ILandingService? landingService = null)
+        /// <param name="onStopCaptain">Optional callback that kills a captain's agent process by captain id.
+        /// Invoked from armada_cancel_mission when the captain is currently running this mission so
+        /// the agent process actually exits instead of staying orphaned in Working state.</param>
+        public static void Register(
+            RegisterToolDelegate register,
+            DatabaseDriver database,
+            IAdmiralService admiral,
+            ArmadaSettings? settings,
+            IGitService? git,
+            ILandingService? landingService = null,
+            Func<string, Task>? onStopCaptain = null)
         {
             register(
                 "armada_mission_status",
@@ -208,7 +218,10 @@ namespace Armada.Server.Mcp.Tools
                     Mission? mission = await database.Missions.ReadAsync(missionId).ConfigureAwait(false);
                     if (mission == null) return (object)new { Error = "Mission not found" };
 
-                    // Release the captain if this mission was assigned to one
+                    // Kill the running agent process if this mission's captain is currently
+                    // executing it. Without this, in-flight cancels leave the captain stuck
+                    // Working forever and the dispatcher refuses to assign new missions to
+                    // that captain or single-captain pool.
                     if (!String.IsNullOrEmpty(mission.CaptainId))
                     {
                         Captain? captain = await database.Captains.ReadAsync(mission.CaptainId).ConfigureAwait(false);
@@ -218,18 +231,28 @@ namespace Armada.Server.Mcp.Tools
                                 .Where(m => m.Id != mission.Id && (m.Status == MissionStatusEnum.InProgress || m.Status == MissionStatusEnum.Assigned)).ToList();
                             if (otherMissions.Count == 0)
                             {
-                                captain.State = CaptainStateEnum.Idle;
-                                captain.CurrentMissionId = null;
-                                captain.CurrentDockId = null;
-                                captain.ProcessId = null;
-                                captain.RecoveryAttempts = 0;
-                                captain.LastUpdateUtc = DateTime.UtcNow;
-                                await database.Captains.UpdateAsync(captain).ConfigureAwait(false);
+                                if (onStopCaptain != null)
+                                {
+                                    try { await onStopCaptain(captain.Id).ConfigureAwait(false); }
+                                    catch { /* best-effort; still reset DB state */ }
+                                }
+                                try { await admiral.RecallCaptainAsync(captain.Id).ConfigureAwait(false); }
+                                catch
+                                {
+                                    captain.State = CaptainStateEnum.Idle;
+                                    captain.CurrentMissionId = null;
+                                    captain.CurrentDockId = null;
+                                    captain.ProcessId = null;
+                                    captain.RecoveryAttempts = 0;
+                                    captain.LastUpdateUtc = DateTime.UtcNow;
+                                    await database.Captains.UpdateAsync(captain).ConfigureAwait(false);
+                                }
                             }
                         }
                     }
 
                     mission.Status = MissionStatusEnum.Cancelled;
+                    mission.ProcessId = null;
                     mission.CompletedUtc = DateTime.UtcNow;
                     mission.LastUpdateUtc = DateTime.UtcNow;
                     mission = await database.Missions.UpdateAsync(mission).ConfigureAwait(false);

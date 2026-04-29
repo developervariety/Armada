@@ -116,12 +116,44 @@ namespace Armada.Runtimes
 
             ApplyEnvironment(startInfo);
 
-            // Set up optional log file writer
+            // Set up optional log file writer. If a prior launch leaked a handle on the
+            // canonical log path (admiral crash mid-launch, orphan agent process holding
+            // the file), `new StreamWriter(...)` throws IOException due to the share
+            // violation and the entire launch fails in a tight retry loop. Recover by
+            // falling back to a unique-suffix path; the dashboard and admiral's log API
+            // continue to read the canonical path until log rotation merges them.
             StreamWriter? logWriter = null;
+            string? actualLogFilePath = null;
             if (!String.IsNullOrEmpty(logFilePath))
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(logFilePath)!);
-                logWriter = new StreamWriter(logFilePath, append: true) { AutoFlush = true };
+
+                // Best-effort cleanup: if the canonical log file is stale and not held by
+                // any live process, deleting it now lets us reopen it cleanly. Failures
+                // are silent; the open below will either succeed (we win the race) or
+                // throw (we fall through to the suffix path).
+                try { if (File.Exists(logFilePath)) File.Delete(logFilePath); }
+                catch { }
+
+                actualLogFilePath = logFilePath;
+                try
+                {
+                    logWriter = new StreamWriter(logFilePath, append: true) { AutoFlush = true };
+                }
+                catch (IOException)
+                {
+                    // Canonical path locked. Suffix with a unix timestamp so successive
+                    // retries within the same second still pick distinct paths.
+                    string baseName = Path.GetFileNameWithoutExtension(logFilePath);
+                    string ext = Path.GetExtension(logFilePath);
+                    string dir = Path.GetDirectoryName(logFilePath)!;
+                    string suffix = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString();
+                    actualLogFilePath = Path.Combine(dir, baseName + "." + suffix + ext);
+                    _Logging.Warn(_Header + "canonical log path locked (" + logFilePath +
+                        "); falling back to " + actualLogFilePath);
+                    logWriter = new StreamWriter(actualLogFilePath, append: true) { AutoFlush = true };
+                }
+
                 string timestamp = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss");
                 string argsJoined = String.Join(" ", args);
                 // Write command on first line, then prompt content preserving newlines
@@ -192,29 +224,46 @@ namespace Armada.Runtimes
             };
             process.EnableRaisingEvents = true;
 
-            bool started = process.Start();
-            if (!started)
-                throw new InvalidOperationException("Failed to start agent process: " + command);
-
-            try { OnProcessStarted?.Invoke(process.Id); }
-            catch (Exception ex) { _Logging.Warn(_Header + "error in OnProcessStarted handler for process " + process.Id + ": " + ex.Message); }
-
-            if (UsePromptStdin)
+            // Anything that throws between here and the moment process.Exited can fire
+            // (i.e. before the process actually starts and dies) leaks the open
+            // logWriter handle. The next launch attempt then can't open the canonical
+            // log path, hits the IOException recovery above (or worse, blocks forever).
+            // Ensure logWriter is disposed if the launch fails before the process is
+            // running.
+            try
             {
-                await process.StandardInput.WriteAsync(prompt).ConfigureAwait(false);
-                await process.StandardInput.FlushAsync().ConfigureAwait(false);
+                bool started = process.Start();
+                if (!started)
+                    throw new InvalidOperationException("Failed to start agent process: " + command);
+
+                try { OnProcessStarted?.Invoke(process.Id); }
+                catch (Exception ex) { _Logging.Warn(_Header + "error in OnProcessStarted handler for process " + process.Id + ": " + ex.Message); }
+
+                if (UsePromptStdin)
+                {
+                    await process.StandardInput.WriteAsync(prompt).ConfigureAwait(false);
+                    await process.StandardInput.FlushAsync().ConfigureAwait(false);
+                }
+
+                // Close stdin after writing any prompt content so the agent doesn't block
+                // waiting for piped input.
+                process.StandardInput.Close();
+
+                process.BeginOutputReadLine();
+                process.BeginErrorReadLine();
+
+                _Logging.Info(_Header + "started process " + process.Id + " (" + command + ") in " + workingDirectory);
+
+                return process.Id;
             }
-
-            // Close stdin after writing any prompt content so the agent doesn't block
-            // waiting for piped input.
-            process.StandardInput.Close();
-
-            process.BeginOutputReadLine();
-            process.BeginErrorReadLine();
-
-            _Logging.Info(_Header + "started process " + process.Id + " (" + command + ") in " + workingDirectory);
-
-            return process.Id;
+            catch
+            {
+                // Launch failed before the process is alive. process.Exited will not fire,
+                // so dispose the writer + process here to release the file/pipe handles.
+                try { logWriter?.Dispose(); } catch { }
+                try { process.Dispose(); } catch { }
+                throw;
+            }
         }
 
         /// <summary>
