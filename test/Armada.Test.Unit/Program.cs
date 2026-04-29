@@ -30,6 +30,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new ForeignKeyTests());
             runner.AddSuite(new ConcurrentAccessTests());
             runner.AddSuite(new DatabaseInitializationTests());
+            runner.AddSuite(new PlanningSessionDatabaseTests());
             runner.AddSuite(new SchemaMigrationTests());
             runner.AddSuite(new EdgeCaseTests());
             runner.AddSuite(new TenantMethodsTests());
@@ -48,6 +49,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new CaptainModelTests());
             runner.AddSuite(new MissionModelTests());
             runner.AddSuite(new VoyageModelTests());
+            runner.AddSuite(new PlanningSessionModelTests());
             runner.AddSuite(new DockModelTests());
             runner.AddSuite(new SignalModelTests());
             runner.AddSuite(new ArmadaEventModelTests());

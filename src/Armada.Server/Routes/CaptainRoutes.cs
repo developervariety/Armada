@@ -27,6 +27,7 @@ namespace Armada.Server.Routes
         private readonly AgentLifecycleHandler _agentLifecycle;
         private readonly Func<string, string, string?, string?, string?, string?, string?, string?, Task> _emitEvent;
         private readonly JsonSerializerOptions _jsonOptions;
+        private readonly PlanningSessionCoordinator? _planningSessions;
 
         /// <summary>
         /// Instantiate.
@@ -38,6 +39,7 @@ namespace Armada.Server.Routes
         /// <param name="agentLifecycle">Agent lifecycle handler used for model validation.</param>
         /// <param name="emitEvent">Event broadcast callback.</param>
         /// <param name="jsonOptions">JSON serializer options.</param>
+        /// <param name="planningSessions">Optional planning session coordinator for captain-planning ownership handoff.</param>
         public CaptainRoutes(
             DatabaseDriver database,
             IAdmiralService admiral,
@@ -45,7 +47,8 @@ namespace Armada.Server.Routes
             AgentRuntimeFactory runtimeFactory,
             AgentLifecycleHandler agentLifecycle,
             Func<string, string, string?, string?, string?, string?, string?, string?, Task> emitEvent,
-            JsonSerializerOptions jsonOptions)
+            JsonSerializerOptions jsonOptions,
+            PlanningSessionCoordinator? planningSessions = null)
         {
             _database = database;
             _admiral = admiral;
@@ -54,6 +57,7 @@ namespace Armada.Server.Routes
             _agentLifecycle = agentLifecycle;
             _emitEvent = emitEvent;
             _jsonOptions = jsonOptions;
+            _planningSessions = planningSessions;
         }
 
         private async Task<string> ReadFileSharedAsync(string path)
@@ -257,6 +261,26 @@ namespace Armada.Server.Routes
                         : await _database.Captains.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (captain == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Captain not found" }; }
 
+                if (captain.State == CaptainStateEnum.Planning)
+                {
+                    PlanningSession? planningSession = (await _database.PlanningSessions.EnumerateByCaptainAsync(captain.Id).ConfigureAwait(false))
+                        .Where(s =>
+                            s.Status == PlanningSessionStatusEnum.Active ||
+                            s.Status == PlanningSessionStatusEnum.Responding ||
+                            s.Status == PlanningSessionStatusEnum.Stopping)
+                        .OrderByDescending(s => s.LastUpdateUtc)
+                        .FirstOrDefault();
+
+                    if (planningSession == null || _planningSessions == null)
+                    {
+                        req.Http.Response.StatusCode = 409;
+                        return (object)new { Error = "Conflict", Message = "Captain is currently reserved by a planning session, but Armada could not resolve that session for coordinated stop." };
+                    }
+
+                    PlanningSession stopped = await _planningSessions.StopAsync(planningSession).ConfigureAwait(false);
+                    return new { Status = "stopped", PlanningSessionId = stopped.Id };
+                }
+
                 // Kill the process if running
                 if (captain.ProcessId.HasValue)
                 {
@@ -284,6 +308,25 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
                 await _admiral.RecallAllAsync().ConfigureAwait(false);
+
+                if (_planningSessions != null)
+                {
+                    List<PlanningSession> planningSessions = await _database.PlanningSessions.EnumerateAsync().ConfigureAwait(false);
+                    foreach (PlanningSession planningSession in planningSessions.Where(s =>
+                        s.Status == PlanningSessionStatusEnum.Active ||
+                        s.Status == PlanningSessionStatusEnum.Responding ||
+                        s.Status == PlanningSessionStatusEnum.Stopping))
+                    {
+                        try
+                        {
+                            await _planningSessions.StopAsync(planningSession).ConfigureAwait(false);
+                        }
+                        catch
+                        {
+                        }
+                    }
+                }
+
                 return (object)new { Status = "all_stopped" };
             },
             api => api
@@ -372,10 +415,10 @@ namespace Armada.Server.Routes
                 if (captain == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Captain not found" }; }
 
                 // Block deletion of working captains
-                if (captain.State == CaptainStateEnum.Working)
+                if (captain.State == CaptainStateEnum.Working || captain.State == CaptainStateEnum.Planning)
                 {
                     req.Http.Response.StatusCode = 409;
-                    return (object)new { Error = "Conflict", Message = "Cannot delete captain while state is Working. Stop the captain first." };
+                    return (object)new { Error = "Conflict", Message = "Cannot delete captain while state is Working or Planning. Stop the captain first." };
                 }
 
                 // Block deletion if captain has active missions
@@ -438,9 +481,9 @@ namespace Armada.Server.Routes
                         result.Skipped.Add(new DeleteMultipleSkipped(id, "Not found"));
                         continue;
                     }
-                    if (captain.State == CaptainStateEnum.Working)
+                    if (captain.State == CaptainStateEnum.Working || captain.State == CaptainStateEnum.Planning)
                     {
-                        result.Skipped.Add(new DeleteMultipleSkipped(id, "Cannot delete captain while state is Working. Stop the captain first."));
+                        result.Skipped.Add(new DeleteMultipleSkipped(id, "Cannot delete captain while state is Working or Planning. Stop the captain first."));
                         continue;
                     }
                     List<Mission> captainMissions = ctx.IsAdmin

@@ -21,6 +21,8 @@ namespace Armada.Test.Unit.Suites.Database
                     AssertNotNull(db.Captains);
                     AssertNotNull(db.Missions);
                     AssertNotNull(db.Voyages);
+                    AssertNotNull(db.PlanningSessions);
+                    AssertNotNull(db.PlanningSessionMessages);
                     AssertNotNull(db.Docks);
                     AssertNotNull(db.Signals);
                     AssertNotNull(db.Events);
@@ -46,6 +48,9 @@ namespace Armada.Test.Unit.Suites.Database
 
                     List<Voyage> voyages = await db.Voyages.EnumerateAsync();
                     AssertEqual(0, voyages.Count);
+
+                    List<PlanningSession> planningSessions = await db.PlanningSessions.EnumerateAsync();
+                    AssertEqual(0, planningSessions.Count);
 
                     List<Dock> docks = await db.Docks.EnumerateAsync();
                     AssertEqual(0, docks.Count);

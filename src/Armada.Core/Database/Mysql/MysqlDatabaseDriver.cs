@@ -55,6 +55,8 @@ namespace Armada.Core.Database.Mysql
             Captains = new CaptainMethods(_ConnectionString);
             Missions = new MissionMethods(_ConnectionString);
             Voyages = new VoyageMethods(_ConnectionString);
+            PlanningSessions = new PlanningSessionMethods(_ConnectionString);
+            PlanningSessionMessages = new PlanningSessionMessageMethods(_ConnectionString);
             Docks = new DockMethods(_ConnectionString);
             Signals = new SignalMethods(_ConnectionString);
             Events = new EventMethods(_ConnectionString);

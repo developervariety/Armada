@@ -22,6 +22,12 @@ namespace Armada.Core.Enums
         Working,
 
         /// <summary>
+        /// Captain is reserved for a planning session.
+        /// </summary>
+        [EnumMember(Value = "Planning")]
+        Planning,
+
+        /// <summary>
         /// Captain process appears stalled.
         /// </summary>
         [EnumMember(Value = "Stalled")]

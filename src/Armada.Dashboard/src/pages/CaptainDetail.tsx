@@ -182,6 +182,9 @@ export default function CaptainDetail() {
       items.push({ label: 'Recall Captain', onClick: handleRecall });
       items.push({ label: 'Stop Captain', danger: true, onClick: handleStop });
     }
+    if (captain.state === 'Planning') {
+      items.push({ label: 'Stop Captain', danger: true, onClick: handleStop });
+    }
     items.push({ label: 'Remove', danger: true, onClick: handleRemove });
     return items;
   }

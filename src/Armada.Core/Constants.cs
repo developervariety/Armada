@@ -105,6 +105,16 @@ namespace Armada.Core
         public static readonly string VoyageIdPrefix = "vyg_";
 
         /// <summary>
+        /// Planning session ID prefix.
+        /// </summary>
+        public static readonly string PlanningSessionIdPrefix = "psn_";
+
+        /// <summary>
+        /// Planning session message ID prefix.
+        /// </summary>
+        public static readonly string PlanningSessionMessageIdPrefix = "psm_";
+
+        /// <summary>
         /// Playbook ID prefix.
         /// </summary>
         public static readonly string PlaybookIdPrefix = "pbk_";

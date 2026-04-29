@@ -42,7 +42,7 @@ const navSections: NavSection[] = [
   {
     key: 'operations',
     label: 'OPERATIONS',
-    matchers: ['/dispatch', '/voyages', '/missions', '/merge-queue'],
+    matchers: ['/dispatch', '/planning', '/voyages', '/missions', '/merge-queue'],
     items: [
       {
         to: '/dispatch',
@@ -52,6 +52,18 @@ const navSections: NavSection[] = [
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M22 2 11 13" />
             <polygon points="22 2 15 22 11 13 2 9 22 2" />
+          </svg>
+        ),
+      },
+      {
+        to: '/planning',
+        label: 'Planning',
+        tooltip: 'Plan with a captain, preserve the transcript, and dispatch directly from the session',
+        icon: (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+            <path d="M8 9h8" />
+            <path d="M8 13h5" />
           </svg>
         ),
       },

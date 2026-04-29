@@ -826,6 +826,56 @@ namespace Armada.Core.Database.Sqlite.Queries
                 new SchemaMigration(36, "Add pr_url and pr_base_branch columns to merge_entries for PR-fallback path",
                     @"ALTER TABLE merge_entries ADD COLUMN pr_url TEXT;",
                     @"ALTER TABLE merge_entries ADD COLUMN pr_base_branch TEXT;"
+                ),
+                // v37 (renumbered from upstream's v29 because our fork already shipped
+                // v29-v36 with different content; planning sessions slots in next).
+                new SchemaMigration(37, "Add planning sessions, transcript messages, and voyage planning lineage",
+                    @"CREATE TABLE IF NOT EXISTS planning_sessions (
+                        id TEXT PRIMARY KEY,
+                        tenant_id TEXT,
+                        user_id TEXT,
+                        captain_id TEXT NOT NULL,
+                        vessel_id TEXT NOT NULL,
+                        fleet_id TEXT,
+                        dock_id TEXT,
+                        branch_name TEXT,
+                        title TEXT NOT NULL,
+                        status TEXT NOT NULL DEFAULT 'Created',
+                        pipeline_id TEXT,
+                        selected_playbooks_json TEXT,
+                        process_id INTEGER,
+                        failure_reason TEXT,
+                        created_utc TEXT NOT NULL,
+                        started_utc TEXT,
+                        completed_utc TEXT,
+                        last_update_utc TEXT NOT NULL,
+                        FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+                        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+                    );",
+                    @"CREATE TABLE IF NOT EXISTS planning_session_messages (
+                        id TEXT PRIMARY KEY,
+                        planning_session_id TEXT NOT NULL,
+                        tenant_id TEXT,
+                        user_id TEXT,
+                        role TEXT NOT NULL,
+                        sequence INTEGER NOT NULL,
+                        content TEXT,
+                        is_selected_for_dispatch INTEGER NOT NULL DEFAULT 0,
+                        created_utc TEXT NOT NULL,
+                        last_update_utc TEXT NOT NULL,
+                        FOREIGN KEY (planning_session_id) REFERENCES planning_sessions(id) ON DELETE CASCADE,
+                        FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+                        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+                    );",
+                    @"CREATE INDEX IF NOT EXISTS idx_planning_sessions_tenant_user ON planning_sessions(tenant_id, user_id);",
+                    @"CREATE INDEX IF NOT EXISTS idx_planning_sessions_captain ON planning_sessions(captain_id);",
+                    @"CREATE INDEX IF NOT EXISTS idx_planning_sessions_status ON planning_sessions(status);",
+                    @"CREATE INDEX IF NOT EXISTS idx_planning_sessions_last_update ON planning_sessions(last_update_utc DESC);",
+                    @"CREATE INDEX IF NOT EXISTS idx_planning_session_messages_session ON planning_session_messages(planning_session_id);",
+                    @"CREATE UNIQUE INDEX IF NOT EXISTS idx_planning_session_messages_session_sequence ON planning_session_messages(planning_session_id, sequence);",
+                    @"ALTER TABLE voyages ADD COLUMN source_planning_session_id TEXT;",
+                    @"ALTER TABLE voyages ADD COLUMN source_planning_message_id TEXT;",
+                    @"CREATE INDEX IF NOT EXISTS idx_voyages_source_planning_session ON voyages(source_planning_session_id);"
                 )
             };
         }

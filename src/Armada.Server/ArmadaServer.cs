@@ -67,6 +67,7 @@ namespace Armada.Server
         private RemoteTunnelManager _RemoteTunnel = null!;
         private RemoteControlQueryService _RemoteControlQueries = null!;
         private RemoteControlManagementService _RemoteControlManagement = null!;
+        private PlanningSessionCoordinator _PlanningSessions = null!;
 
         private ISessionTokenService _SessionTokenService = null!;
         private IAuthenticationService _AuthenticationService = null!;
@@ -245,6 +246,7 @@ namespace Armada.Server
                 openApi.Tags.Add(new OpenApiTag { Name = "Vessels", Description = "Vessel (git repository) management" });
                 openApi.Tags.Add(new OpenApiTag { Name = "Voyages", Description = "Voyage (mission batch) management" });
                 openApi.Tags.Add(new OpenApiTag { Name = "Missions", Description = "Mission (atomic work unit) management" });
+                openApi.Tags.Add(new OpenApiTag { Name = "Planning", Description = "Captain planning sessions and transcript-to-dispatch flow" });
                 openApi.Tags.Add(new OpenApiTag { Name = "Playbooks", Description = "Markdown playbook management" });
                 openApi.Tags.Add(new OpenApiTag { Name = "Captains", Description = "Captain (AI agent) management" });
                 openApi.Tags.Add(new OpenApiTag { Name = "Signals", Description = "Signal (inter-agent messaging) management" });
@@ -301,6 +303,15 @@ namespace Armada.Server
             _WebSocketHub = new ArmadaWebSocketHub(_Logging, _Admiral, _Database, _MergeQueue, _Settings, _Git, () => { OnStopping?.Invoke(); _TokenSource.Cancel(); });
             _AgentLifecycle.SetWebSocketHub(_WebSocketHub);
             _MissionLanding.SetWebSocketHub(_WebSocketHub);
+            _PlanningSessions = new PlanningSessionCoordinator(
+                _Logging,
+                _Database,
+                _Settings,
+                _Docks,
+                _Admiral,
+                _RuntimeFactory,
+                EmitEventAsync,
+                _WebSocketHub);
 
             RegisterRoutes();
             InitializeDashboard();
@@ -325,6 +336,16 @@ namespace Armada.Server
 
             _RemoteTunnel.Start(_TokenSource.Token);
             _Logging.Info(_Header + "remote tunnel manager started");
+
+            try
+            {
+                await _PlanningSessions.RecoverSessionsAsync(_TokenSource.Token).ConfigureAwait(false);
+                _Logging.Info(_Header + "planning session recovery completed");
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "planning session recovery error: " + ex.Message);
+            }
 
             // Start health check loop
             _HealthCheckTask = HealthCheckLoopAsync(_TokenSource.Token);
@@ -430,7 +451,11 @@ namespace Armada.Server
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Captains
-            new CaptainRoutes(_Database, _Admiral, _Settings, _RuntimeFactory, _AgentLifecycle, EmitEventAsync, _JsonOptions)
+            new CaptainRoutes(_Database, _Admiral, _Settings, _RuntimeFactory, _AgentLifecycle, EmitEventAsync, _JsonOptions, _PlanningSessions)
+                .Register(_App, authenticate, _AuthorizationService);
+
+            // Planning sessions
+            new PlanningSessionRoutes(_Database, _PlanningSessions, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Docks

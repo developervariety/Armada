@@ -183,7 +183,50 @@ export interface Voyage {
   autoCreatePullRequests: boolean | null;
   autoMergePullRequests: boolean | null;
   landingMode: string | null;
+  sourcePlanningSessionId?: string | null;
+  sourcePlanningMessageId?: string | null;
   selectedPlaybooks?: SelectedPlaybook[];
+}
+
+export interface PlanningSession {
+  id: string;
+  tenantId: string | null;
+  userId: string | null;
+  captainId: string;
+  vesselId: string;
+  fleetId: string | null;
+  dockId: string | null;
+  branchName: string | null;
+  title: string;
+  status: string;
+  pipelineId: string | null;
+  processId: number | null;
+  failureReason: string | null;
+  createdUtc: string;
+  startedUtc: string | null;
+  completedUtc: string | null;
+  lastUpdateUtc: string;
+  selectedPlaybooks?: SelectedPlaybook[];
+}
+
+export interface PlanningSessionMessage {
+  id: string;
+  planningSessionId: string;
+  tenantId: string | null;
+  userId: string | null;
+  role: string;
+  sequence: number;
+  content: string;
+  isSelectedForDispatch: boolean;
+  createdUtc: string;
+  lastUpdateUtc: string;
+}
+
+export interface PlanningSessionDetail {
+  session: PlanningSession;
+  messages: PlanningSessionMessage[];
+  captain: Captain | null;
+  vessel: Vessel | null;
 }
 
 export type PlaybookDeliveryMode =
@@ -317,6 +360,25 @@ export interface DispatchRequest {
   priority?: number;
 }
 
+export interface PlanningSessionCreateRequest {
+  title?: string;
+  captainId: string;
+  vesselId: string;
+  fleetId?: string;
+  pipelineId?: string;
+  selectedPlaybooks?: SelectedPlaybook[];
+}
+
+export interface PlanningSessionMessageRequest {
+  content: string;
+}
+
+export interface PlanningSessionDispatchRequest {
+  messageId?: string;
+  title?: string;
+  description?: string;
+}
+
 export interface VoyageCreateRequest {
   title: string;
   description?: string;
@@ -359,7 +421,9 @@ export interface StatusSnapshot {
 
 export interface WebSocketMessage {
   type: string;
-  data?: Record<string, unknown>;
+  data?: unknown;
+  message?: string;
+  timestamp?: string;
 }
 
 export interface PromptTemplate {

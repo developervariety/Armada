@@ -315,6 +315,12 @@ These deployment scripts publish `Armada.Server` into `~/.armada/bin` on Linux a
 
 The remove scripts unregister the background startup entry or user service, but they do not delete the published files under `~/.armada` or `%USERPROFILE%\.armada`.
 
+Repo-relative deployment script paths:
+
+- Linux: `scripts/linux/install-systemd-user.sh`, `scripts/linux/update-systemd-user.sh`, `scripts/linux/healthcheck-server.sh`
+- macOS: `scripts/macos/install-launchd-agent.sh`, `scripts/macos/update-launchd-agent.sh`, `scripts/macos/healthcheck-server.sh`
+- Windows: `scripts/windows/install-windows-task.bat`, `scripts/windows/update-windows-task.bat`, `scripts/windows/healthcheck-server.bat`
+
 For background startup details, see [docs/RUN_ON_STARTUP.md](docs/RUN_ON_STARTUP.md).
 
 ### Your First Dispatch
@@ -800,6 +806,8 @@ Linux: `./scripts/linux/healthcheck-server.sh`
 macOS: `./scripts/macos/healthcheck-server.sh`
 
 Windows: `scripts\windows\healthcheck-server.bat`
+
+Repo-relative startup helpers: `scripts/linux/install-systemd-user.sh`, `scripts/linux/update-systemd-user.sh`, `scripts/linux/healthcheck-server.sh`, `scripts/macos/install-launchd-agent.sh`, `scripts/macos/update-launchd-agent.sh`, `scripts/macos/healthcheck-server.sh`, `scripts/windows/install-windows-task.bat`, `scripts/windows/update-windows-task.bat`, `scripts/windows/healthcheck-server.bat`.
 
 ### Foreground Development Run
 

@@ -228,6 +228,8 @@ namespace Armada.Core.Database.Postgresql
             Captains = new CaptainMethods(this, _Settings, _Logging);
             Missions = new MissionMethods(this, _Settings, _Logging);
             Voyages = new VoyageMethods(this, _Settings, _Logging);
+            PlanningSessions = new PlanningSessionMethods(this, _Settings, _Logging);
+            PlanningSessionMessages = new PlanningSessionMessageMethods(this, _Settings, _Logging);
             Docks = new DockMethods(this, _Settings, _Logging);
             Signals = new SignalMethods(_DataSource);
             Events = new EventMethods(_DataSource);

@@ -61,6 +61,12 @@ These scripts publish `Armada.Server` into `~/.armada/bin` on Linux and macOS, o
 
 The remove scripts unregister the user-scoped startup entry or service, but they do not delete the published files under `~/.armada` or `%USERPROFILE%\.armada`.
 
+Repo-relative deployment script paths:
+
+- Linux: `scripts/linux/install-systemd-user.sh`, `scripts/linux/update-systemd-user.sh`, `scripts/linux/healthcheck-server.sh`
+- macOS: `scripts/macos/install-launchd-agent.sh`, `scripts/macos/update-launchd-agent.sh`, `scripts/macos/healthcheck-server.sh`
+- Windows: `scripts/windows/install-windows-task.bat`, `scripts/windows/update-windows-task.bat`, `scripts/windows/healthcheck-server.bat`
+
 ---
 
 ## Create a project

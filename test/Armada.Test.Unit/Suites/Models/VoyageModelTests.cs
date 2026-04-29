@@ -61,6 +61,21 @@ namespace Armada.Test.Unit.Suites.Models
                 string json = JsonSerializer.Serialize(voyage);
                 AssertContains("\"Complete\"", json);
             });
+
+            await RunTest("Voyage PlanningLineage Serializes", () =>
+            {
+                Voyage voyage = new Voyage("Planned Voyage");
+                voyage.SourcePlanningSessionId = "psn_123";
+                voyage.SourcePlanningMessageId = "psm_456";
+
+                string json = JsonSerializer.Serialize(voyage);
+                Voyage deserialized = JsonSerializer.Deserialize<Voyage>(json)!;
+
+                AssertContains("\"SourcePlanningSessionId\":\"psn_123\"", json);
+                AssertContains("\"SourcePlanningMessageId\":\"psm_456\"", json);
+                AssertEqual("psn_123", deserialized.SourcePlanningSessionId);
+                AssertEqual("psm_456", deserialized.SourcePlanningMessageId);
+            });
         }
     }
 }
