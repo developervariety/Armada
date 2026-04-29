@@ -226,6 +226,62 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("DecomposePlan_VesselWithDefaultPlaybooks_MergesPlaybooksIntoVoyage", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("arch-dp", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    string defaultPlaybooksJson = "[{\"playbookId\":\"pbk_default1\",\"deliveryMode\":\"InlineFullContent\"},{\"playbookId\":\"pbk_default2\",\"deliveryMode\":\"AttachIntoWorktree\"}]";
+                    vessel.DefaultPlaybooks = defaultPlaybooksJson;
+                    vessel = await testDb.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
+
+                    string specFile = Path.GetTempFileName();
+                    string claudeFile = Path.GetTempFileName();
+                    try
+                    {
+                        File.WriteAllText(specFile, "# Test Spec");
+                        File.WriteAllText(claudeFile, "# Project CLAUDE.md");
+
+                        string? origEnv = Environment.GetEnvironmentVariable("ARMADA_PROJECT_CLAUDE_MD");
+                        Environment.SetEnvironmentVariable("ARMADA_PROJECT_CLAUDE_MD", claudeFile);
+                        try
+                        {
+                            RecordingAdmiralService admiralDouble = new RecordingAdmiralService(testDb.Driver);
+                            Func<JsonElement?, Task<object>>? decomposeHandler = null;
+                            McpArchitectTools.Register(
+                                (name, _, _, handler) => { if (name == "armada_decompose_plan") decomposeHandler = handler; },
+                                testDb.Driver,
+                                new ArchitectOutputParser(),
+                                admiralDouble);
+                            AssertNotNull(decomposeHandler);
+
+                            // Caller passes empty selectedPlaybooks -- defaults should be applied.
+                            JsonElement args = JsonSerializer.SerializeToElement(new { specPath = specFile, vesselId = vessel.Id });
+                            object result = await decomposeHandler!(args).ConfigureAwait(false);
+                            string resultJson = JsonSerializer.Serialize(result);
+
+                            AssertFalse(resultJson.Contains("\"Error\""), "Should not return error: " + resultJson);
+                            AssertNotNull(admiralDouble.LastDispatchedPlaybooks, "Playbooks should be passed to DispatchVoyageAsync");
+                            AssertEqual(2, admiralDouble.LastDispatchedPlaybooks!.Count, "Both vessel defaults should appear in merged list");
+                            AssertEqual("pbk_default1", admiralDouble.LastDispatchedPlaybooks[0].PlaybookId);
+                            AssertEqual("pbk_default2", admiralDouble.LastDispatchedPlaybooks[1].PlaybookId);
+                        }
+                        finally
+                        {
+                            if (origEnv == null)
+                                Environment.SetEnvironmentVariable("ARMADA_PROJECT_CLAUDE_MD", null);
+                            else
+                                Environment.SetEnvironmentVariable("ARMADA_PROJECT_CLAUDE_MD", origEnv);
+                        }
+                    }
+                    finally
+                    {
+                        if (File.Exists(specFile)) File.Delete(specFile);
+                        if (File.Exists(claudeFile)) File.Delete(claudeFile);
+                    }
+                }
+            });
+
             await RunTest("ParseArchitectOutput_BlockedVerdict_ReturnsQuestions", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -296,6 +352,9 @@ namespace Armada.Test.Unit.Suites.Services
 
             public List<MissionDescription> Dispatched { get; } = new List<MissionDescription>();
 
+            /// <summary>Playbooks passed in the most recent DispatchVoyageAsync call.</summary>
+            public List<SelectedPlaybook>? LastDispatchedPlaybooks { get; private set; }
+
             public Func<Captain, Mission, Dock, Task<int>>? OnLaunchAgent { get; set; }
             public Func<Captain, Task>? OnStopAgent { get; set; }
             public Func<Mission, Dock, Task>? OnCaptureDiff { get; set; }
@@ -333,14 +392,17 @@ namespace Armada.Test.Unit.Suites.Services
                 return voyage;
             }
 
-            public Task<Voyage> DispatchVoyageAsync(
+            public async Task<Voyage> DispatchVoyageAsync(
                 string title,
                 string description,
                 string vesselId,
                 List<MissionDescription> missionDescriptions,
                 List<SelectedPlaybook>? selectedPlaybooks,
                 CancellationToken token = default)
-                => DispatchVoyageAsync(title, description, vesselId, missionDescriptions, token);
+            {
+                LastDispatchedPlaybooks = selectedPlaybooks;
+                return await DispatchVoyageAsync(title, description, vesselId, missionDescriptions, token).ConfigureAwait(false);
+            }
 
             public Task<Voyage> DispatchVoyageAsync(
                 string title,
@@ -359,7 +421,10 @@ namespace Armada.Test.Unit.Suites.Services
                 string? pipelineId,
                 List<SelectedPlaybook>? selectedPlaybooks,
                 CancellationToken token = default)
-                => DispatchVoyageAsync(title, description, vesselId, missionDescriptions, token);
+            {
+                LastDispatchedPlaybooks = selectedPlaybooks;
+                return DispatchVoyageAsync(title, description, vesselId, missionDescriptions, token);
+            }
 
             public Task<Mission> DispatchMissionAsync(Mission mission, CancellationToken token = default)
                 => throw new NotImplementedException();

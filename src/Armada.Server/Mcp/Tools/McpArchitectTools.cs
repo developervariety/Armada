@@ -6,6 +6,7 @@ namespace Armada.Server.Mcp.Tools
     using System.Text.Json;
     using System.Threading.Tasks;
     using Armada.Core.Database;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
     using Armada.Server.Mcp;
@@ -44,7 +45,22 @@ namespace Armada.Server.Mcp.Tools
                     {
                         specPath = new { type = "string", description = "Absolute path on the admiral host to the spec markdown file" },
                         vesselId = new { type = "string", description = "Target vessel for the Architect captain and downstream Worker missions" },
-                        preferredModel = new { type = "string", description = "Architect model. Default 'claude-opus-4-7'." }
+                        preferredModel = new { type = "string", description = "Architect model. Default 'claude-opus-4-7'." },
+                        selectedPlaybooks = new
+                        {
+                            type = "array",
+                            description = "Optional playbooks to include. Merged with vessel DefaultPlaybooks; caller entry wins on playbookId collision.",
+                            items = new
+                            {
+                                type = "object",
+                                properties = new
+                                {
+                                    playbookId = new { type = "string", description = "Playbook ID (pbk_ prefix)" },
+                                    deliveryMode = new { type = "string", description = "InlineFullContent, InstructionWithReference, or AttachIntoWorktree" }
+                                },
+                                required = new[] { "playbookId", "deliveryMode" }
+                            }
+                        }
                     },
                     required = new[] { "specPath", "vesselId" }
                 },
@@ -71,6 +87,18 @@ namespace Armada.Server.Mcp.Tools
                                         "Vessel: " + vesselId + ". Spec: " + specBasename + ". " +
                                         "Full instructions in your persona system prompt.";
 
+                    // Merge vessel DefaultPlaybooks with any caller-supplied selectedPlaybooks.
+                    Vessel? dispatchVessel = await database.Vessels.ReadAsync(vesselId).ConfigureAwait(false);
+                    List<SelectedPlaybook> callerPlaybooks = new List<SelectedPlaybook>();
+                    if (args.Value.TryGetProperty("selectedPlaybooks", out JsonElement spElem) && spElem.ValueKind == JsonValueKind.Array)
+                    {
+                        List<SelectedPlaybook>? parsed = JsonSerializer.Deserialize<List<SelectedPlaybook>>(
+                            spElem.GetRawText(),
+                            new JsonSerializerOptions { PropertyNameCaseInsensitive = true, Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() } });
+                        if (parsed != null) callerPlaybooks = parsed;
+                    }
+                    List<SelectedPlaybook> mergedPlaybooks = PlaybookMerge.MergeWithVesselDefaults(dispatchVessel?.GetDefaultPlaybooks(), callerPlaybooks);
+
                     MissionDescription missionDesc = new MissionDescription(title, description);
                     missionDesc.PreferredModel = preferredModel;
                     missionDesc.PrestagedFiles = new List<PrestagedFile>
@@ -83,7 +111,8 @@ namespace Armada.Server.Mcp.Tools
                         title,
                         "Architect-mode decomposition for " + specBasename,
                         vesselId,
-                        new List<MissionDescription> { missionDesc }).ConfigureAwait(false);
+                        new List<MissionDescription> { missionDesc },
+                        mergedPlaybooks).ConfigureAwait(false);
 
                     List<Mission> missions = await database.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
                     string architectMissionId = "";

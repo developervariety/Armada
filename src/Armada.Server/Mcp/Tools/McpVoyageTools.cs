@@ -406,21 +406,7 @@ namespace Armada.Server.Mcp.Tools
         /// <returns>Merged playbook list.</returns>
         private static List<SelectedPlaybook> MergePlaybooks(List<SelectedPlaybook>? defaults, List<SelectedPlaybook> callerEntries)
         {
-            List<SelectedPlaybook> merged = new List<SelectedPlaybook>();
-            if (defaults != null)
-            {
-                foreach (SelectedPlaybook d in defaults)
-                    merged.Add(new SelectedPlaybook { PlaybookId = d.PlaybookId, DeliveryMode = d.DeliveryMode });
-            }
-            foreach (SelectedPlaybook caller in callerEntries)
-            {
-                SelectedPlaybook? existing = merged.FirstOrDefault(m => m.PlaybookId == caller.PlaybookId);
-                if (existing != null)
-                    existing.DeliveryMode = caller.DeliveryMode;
-                else
-                    merged.Add(new SelectedPlaybook { PlaybookId = caller.PlaybookId, DeliveryMode = caller.DeliveryMode });
-            }
-            return merged;
+            return PlaybookMerge.MergeWithVesselDefaults(defaults, callerEntries);
         }
     }
 }
