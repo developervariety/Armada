@@ -62,6 +62,14 @@ namespace Armada.Server
                 if (loaded != null) _Settings = loaded;
             }
 
+            string? envGhPath = Environment.GetEnvironmentVariable("ARMADA_GH_PATH");
+            if (!String.IsNullOrWhiteSpace(envGhPath))
+                _Settings.GhCliPath = envGhPath.Trim();
+
+            string? envGlabPath = Environment.GetEnvironmentVariable("ARMADA_GLAB_PATH");
+            if (!String.IsNullOrWhiteSpace(envGlabPath))
+                _Settings.GlabCliPath = envGlabPath.Trim();
+
             // Initialize directories
             _Settings.InitializeDirectories();
 

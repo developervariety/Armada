@@ -283,6 +283,16 @@ namespace Armada.Core.Settings
         public string? MergeQueueTestCommand { get; set; } = null;
 
         /// <summary>
+        /// Path to the GitHub CLI executable (gh). Default: gh (resolved via PATH).
+        /// </summary>
+        public string GhCliPath { get; set; } = "gh";
+
+        /// <summary>
+        /// Path to the GitLab CLI executable (glab). Default: glab (resolved via PATH).
+        /// </summary>
+        public string GlabCliPath { get; set; } = "glab";
+
+        /// <summary>
         /// Optional API key for Admiral REST API authentication.
         /// Deprecated: retained for backward compatibility, maps to synthetic admin identity.
         /// </summary>
