@@ -196,6 +196,10 @@ namespace Armada.Core.Services
 
             // Check pipeline dependency -- skip if the mission depends on another that hasn't completed
             // or if the downstream handoff has not yet populated the mission's branch/context.
+            // dependencyIsCrossVessel is captured here and consumed by branch-inheritance logic
+            // below: cross-vessel deps cannot share a branch (different repos), so the downstream
+            // mission must always start on a fresh branch in its own vessel.
+            bool dependencyIsCrossVessel = false;
             if (!String.IsNullOrEmpty(mission.DependsOnMissionId))
             {
                 Mission? dependency = await _Database.Missions.ReadAsync(mission.DependsOnMissionId, token).ConfigureAwait(false);
@@ -205,6 +209,10 @@ namespace Armada.Core.Services
                     return false;
                 }
 
+                dependencyIsCrossVessel = !String.IsNullOrEmpty(dependency.VesselId)
+                    && !String.IsNullOrEmpty(mission.VesselId)
+                    && !String.Equals(dependency.VesselId, mission.VesselId, StringComparison.Ordinal);
+
                 if (dependency.Status != MissionStatusEnum.Complete &&
                     dependency.Status != MissionStatusEnum.WorkProduced)
                 {
@@ -212,12 +220,23 @@ namespace Armada.Core.Services
                     return false;
                 }
 
-                // A dependency in WorkProduced means the upstream agent finished, but the
-                // synchronous completion flow may still be preparing the downstream mission.
-                // Do not launch the next stage until it has been explicitly handed the same
-                // branch as the dependency. This prevents workers from starting with the
-                // original top-level dispatch prompt before architect/test/judge handoff runs.
-                if (dependency.Status == MissionStatusEnum.WorkProduced &&
+                // Cross-vessel deps must wait until the upstream lands (Complete). A cross-vessel
+                // dep in WorkProduced means the captain finished work but the merge queue hasn't
+                // yet pushed to the upstream's master, so the downstream's vessel can't see those
+                // changes via git anyway. The same-vessel handoff path (branch sharing) does not
+                // apply across repos.
+                if (dependencyIsCrossVessel && dependency.Status == MissionStatusEnum.WorkProduced)
+                {
+                    _Logging.Info(_Header + "mission " + mission.Id + " depends on " + dependency.Id +
+                        " on a different vessel (" + dependency.VesselId + ") which is still WorkProduced -- waiting for Complete before assigning");
+                    return false;
+                }
+
+                // Same-vessel WorkProduced deps still require the explicit handoff signal so the
+                // downstream stage doesn't launch with the original dispatch prompt before
+                // architect/test/judge prep runs.
+                if (!dependencyIsCrossVessel &&
+                    dependency.Status == MissionStatusEnum.WorkProduced &&
                     !IsPipelineHandoffPrepared(mission, dependency))
                 {
                     _Logging.Info(_Header + "mission " + mission.Id + " depends on " + dependency.Id +
@@ -285,8 +304,12 @@ namespace Armada.Core.Services
             }
 
             // Downstream pipeline stages continue on the upstream branch prepared during handoff.
-            // Standalone missions still get a fresh captain/mission branch.
-            bool preserveInheritedBranch = !String.IsNullOrEmpty(mission.DependsOnMissionId) && !String.IsNullOrEmpty(mission.BranchName);
+            // Standalone missions still get a fresh captain/mission branch. Cross-vessel deps
+            // (different repos) cannot share a branch, so the downstream mission always starts
+            // on a fresh branch in its own vessel even when DependsOnMissionId is populated.
+            bool preserveInheritedBranch = !String.IsNullOrEmpty(mission.DependsOnMissionId)
+                && !String.IsNullOrEmpty(mission.BranchName)
+                && !dependencyIsCrossVessel;
             string branchName = preserveInheritedBranch
                 ? mission.BranchName!
                 : BuildMissionBranchName(captain, mission);
