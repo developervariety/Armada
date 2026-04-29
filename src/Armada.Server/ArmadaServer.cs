@@ -131,7 +131,21 @@ namespace Armada.Server
             IEscalationService escalationService = new EscalationService(_Logging, _Database, _Settings);
             AdmiralService admiralService = new AdmiralService(_Logging, _Database, _Settings, captainService, missionService, voyageService, dockService, escalationService);
             _Admiral = admiralService;
-            _MergeQueue = new MergeQueueService(_Logging, _Database, _Settings, _Git);
+            // PR-fallback wiring: per-call factory selects the right platform CLI (gh / glab).
+            // Path defaults match the design's Configuration table — env var override
+            // (ARMADA_GH_PATH / ARMADA_GLAB_PATH), else discover via PATH.
+            string ghCliPath = Environment.GetEnvironmentVariable("ARMADA_GH_PATH") ?? "gh";
+            string glabCliPath = Environment.GetEnvironmentVariable("ARMADA_GLAB_PATH") ?? "glab";
+            Func<PullRequestPlatform, string, IPullRequestService> prServiceFactory = (platform, workingDir) =>
+            {
+                return platform switch
+                {
+                    PullRequestPlatform.GitHub => new GhPullRequestService(ghCliPath, workingDir),
+                    PullRequestPlatform.GitLab => new GlabPullRequestService(glabCliPath, workingDir),
+                    _ => throw new NotSupportedException("Unsupported PR platform: " + platform)
+                };
+            };
+            _MergeQueue = new MergeQueueService(_Logging, _Database, _Settings, _Git, prServiceFactory);
             _AutoLandEvaluator = new AutoLandEvaluator();
             _ConventionChecker = new ConventionChecker();
             _CriticalTriggerEvaluator = new CriticalTriggerEvaluator();

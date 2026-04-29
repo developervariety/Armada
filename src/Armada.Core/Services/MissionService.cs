@@ -214,9 +214,13 @@ namespace Armada.Core.Services
                     && !String.Equals(dependency.VesselId, mission.VesselId, StringComparison.Ordinal);
 
                 if (dependency.Status != MissionStatusEnum.Complete &&
-                    dependency.Status != MissionStatusEnum.WorkProduced)
+                    dependency.Status != MissionStatusEnum.WorkProduced &&
+                    dependency.Status != MissionStatusEnum.PullRequestOpen)
                 {
-                    // Dependency not yet satisfied -- don't assign
+                    // Dependency not yet satisfied -- don't assign. PullRequestOpen unblocks
+                    // dependents per the breaking-change PR-fallback design: the captain
+                    // branch is finalized + push at PR-open time, so downstreams can
+                    // continue chaining off it without waiting for the PR to merge.
                     return false;
                 }
 

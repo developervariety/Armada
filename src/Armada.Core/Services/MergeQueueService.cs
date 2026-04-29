@@ -25,6 +25,7 @@ namespace Armada.Core.Services
         private DatabaseDriver _Database;
         private ArmadaSettings _Settings;
         private IGitService _Git;
+        private Func<PullRequestPlatform, string, IPullRequestService>? _PullRequestServiceFactory;
 
         private bool _Processing = false;
         private readonly object _ProcessLock = new object();
@@ -40,12 +41,22 @@ namespace Armada.Core.Services
         /// <param name="database">Database driver.</param>
         /// <param name="settings">Application settings.</param>
         /// <param name="git">Git service.</param>
-        public MergeQueueService(LoggingModule logging, DatabaseDriver database, ArmadaSettings settings, IGitService git)
+        /// <param name="pullRequestServiceFactory">Optional factory that returns the right
+        /// <see cref="IPullRequestService"/> for a (platform, working-directory) pair. When
+        /// non-null, entries flagged with <c>AuditCriticalTrigger</c> are routed to PR fallback
+        /// instead of an automatic land. When null, the legacy land-everything path applies.</param>
+        public MergeQueueService(
+            LoggingModule logging,
+            DatabaseDriver database,
+            ArmadaSettings settings,
+            IGitService git,
+            Func<PullRequestPlatform, string, IPullRequestService>? pullRequestServiceFactory = null)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _Git = git ?? throw new ArgumentNullException(nameof(git));
+            _PullRequestServiceFactory = pullRequestServiceFactory;
         }
 
         #endregion
@@ -474,13 +485,29 @@ namespace Armada.Core.Services
                     _Logging.Info(_Header + "tests PASSED for " + entryTag);
                 }
 
-                // Land immediately -- push the integration branch to update the target
-                await LandEntryAsync(entry, repoPath, integrationBranch, token).ConfigureAwait(false);
+                // PR-fallback gate: if the auto-land safety net flagged a critical trigger
+                // (UDS 0x34 guard, RSA primitive, schema migration, etc.), route to a real
+                // platform PR instead of auto-landing. Same for entries whose upstream chain
+                // is still in PR review (forceChainedBase=true). Falls back to standard land
+                // when no factory is wired (tests/legacy) or no critical signal fired.
+                bool routedToPr = false;
+                if (_PullRequestServiceFactory != null && !String.IsNullOrEmpty(entry.AuditCriticalTrigger))
+                {
+                    routedToPr = await TryOpenPullRequestAsync(entry, repoPath, forceChainedBase: false, token).ConfigureAwait(false);
+                }
+
+                if (!routedToPr)
+                {
+                    // Land immediately -- push the integration branch to update the target.
+                    await LandEntryAsync(entry, repoPath, integrationBranch, token).ConfigureAwait(false);
+                }
 
                 // Cleanup worktree first; integration branch cannot be deleted while checked out.
                 await CleanupWorktreeAsync(integrationPath, token).ConfigureAwait(false);
 
                 // Branch cleanup runs after worktree removal so the integration branch ref is free to delete.
+                // PR-fallback path keeps the captain branch alive for the open PR; cleanup defers to the
+                // PR-merge reconciliation pass.
                 if (entry.Status == MergeStatusEnum.Landed)
                 {
                     await CleanupLandedBranchesAsync(entry, repoPath, integrationBranch, token).ConfigureAwait(false);
@@ -498,6 +525,144 @@ namespace Armada.Core.Services
                 // Best-effort cleanup
                 await CleanupWorktreeAsync(integrationPath, token).ConfigureAwait(false);
             }
+        }
+
+        /// <summary>
+        /// PR-fallback path. Push the captain branch to origin and open a platform PR
+        /// targeting either the vessel default branch or, when forceChainedBase is true OR
+        /// the upstream dep is itself in PullRequestOpen, the upstream captain branch.
+        /// On success the entry transitions to <see cref="MergeStatusEnum.PullRequestOpen"/>
+        /// and the linked mission to <see cref="MissionStatusEnum.PullRequestOpen"/>.
+        /// On failure the entry transitions to Failed and the mission to LandingFailed.
+        /// Returns true when the entry was routed to PR (caller skips LandEntryAsync).
+        /// </summary>
+        private async Task<bool> TryOpenPullRequestAsync(MergeEntry entry, string repoPath, bool forceChainedBase, CancellationToken token)
+        {
+            if (_PullRequestServiceFactory == null) return false;
+
+            Vessel? vessel = !String.IsNullOrEmpty(entry.VesselId)
+                ? await _Database.Vessels.ReadAsync(entry.VesselId, token).ConfigureAwait(false)
+                : null;
+            Mission? mission = !String.IsNullOrEmpty(entry.MissionId)
+                ? await _Database.Missions.ReadAsync(entry.MissionId, token).ConfigureAwait(false)
+                : null;
+
+            if (vessel == null || mission == null)
+            {
+                _Logging.Warn(_Header + "PR-fallback skipped for " + entry.Id + ": vessel or mission missing");
+                return false;
+            }
+
+            // Determine PR base. Force-chained takes priority. Otherwise consult the upstream
+            // dep's most recent merge entry: if it's still in PullRequestOpen, base on the
+            // upstream captain branch (chained PR) so reviewers see only THIS mission's diff.
+            string baseBranch = entry.TargetBranch;
+            if (forceChainedBase || !String.IsNullOrEmpty(mission.DependsOnMissionId))
+            {
+                MergeEntry? upstreamEntry = await ReadMostRecentMergeEntryAsync(mission.DependsOnMissionId, token).ConfigureAwait(false);
+                if (forceChainedBase && upstreamEntry != null)
+                    baseBranch = upstreamEntry.BranchName;
+                else if (upstreamEntry != null && upstreamEntry.Status == MergeStatusEnum.PullRequestOpen)
+                    baseBranch = upstreamEntry.BranchName;
+            }
+
+            // Detect platform from the vessel's repo URL (parsed once at PR-fallback time so
+            // the hosted-git platform CLI choice mirrors `git remote get-url origin`).
+            PullRequestPlatform platform;
+            try
+            {
+                platform = OriginUrlParser.GetPlatform(vessel.RepoUrl ?? "");
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "PR-fallback platform detection failed for " + entry.Id + ": " + ex.Message);
+                await TransitionEntryToFailureAsync(entry, "PR-fallback failed: " + ex.Message, token).ConfigureAwait(false);
+                return false;
+            }
+
+            // Push captain branch to origin so the PR has a remote head to target.
+            try
+            {
+                await _Git.PushRefSpecAsync(repoPath, entry.BranchName, entry.BranchName, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "PR-fallback push failed for " + entry.Id + ": " + ex.Message);
+                await TransitionEntryToFailureAsync(entry, "PR-fallback push failed: " + ex.Message, token).ConfigureAwait(false);
+                return false;
+            }
+
+            // Resolve the platform-specific service. Working directory = vessel's normal
+            // working tree (where `gh` / `glab` find the repo + auth context).
+            string workingDirectory = vessel.WorkingDirectory ?? repoPath;
+            IPullRequestService prService = _PullRequestServiceFactory(platform, workingDirectory);
+
+            string title = mission.Title;
+            string body = "Auto-routed to PR review by Armada merge queue.\n\n"
+                + "Critical trigger: " + entry.AuditCriticalTrigger + "\n"
+                + "Mission: " + mission.Id + "\n"
+                + "Vessel: " + vessel.Name;
+
+            string prUrl;
+            try
+            {
+                prUrl = await prService.CreateAsync(entry.BranchName, baseBranch, title, body, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "PR-fallback create failed for " + entry.Id + ": " + ex.Message);
+                await TransitionEntryToFailureAsync(entry, "PR-fallback create failed: " + ex.Message, token).ConfigureAwait(false);
+                return false;
+            }
+
+            entry.Status = MergeStatusEnum.PullRequestOpen;
+            entry.PrUrl = prUrl;
+            entry.PrBaseBranch = baseBranch;
+            entry.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
+            _Logging.Info(_Header + "opened PR for " + entry.Id + " (" + platform + ", base=" + baseBranch + "): " + prUrl);
+
+            await ReconcileMissionStatusAsync(entry.MissionId, MissionStatusEnum.PullRequestOpen,
+                "PR opened: " + prUrl, token, entry.TenantId).ConfigureAwait(false);
+
+            return true;
+        }
+
+        /// <summary>
+        /// Look up the most recent merge entry for an upstream mission. Used by the
+        /// PR-fallback gate (chained-PR base resolution) and by the on-land rebase check.
+        /// Returns null when the mission has no merge entries yet. The implementation
+        /// scans all entries -- typical volume is one entry per mission so the cost is
+        /// negligible; revisit if merge_queue grows large.
+        /// </summary>
+        private async Task<MergeEntry?> ReadMostRecentMergeEntryAsync(string? missionId, CancellationToken token)
+        {
+            if (String.IsNullOrEmpty(missionId)) return null;
+            try
+            {
+                List<MergeEntry> entries = await _Database.MergeEntries.EnumerateAsync(token).ConfigureAwait(false);
+                MergeEntry? mostRecent = null;
+                foreach (MergeEntry entry in entries)
+                {
+                    if (!String.Equals(entry.MissionId, missionId, StringComparison.Ordinal)) continue;
+                    if (mostRecent == null || entry.CreatedUtc > mostRecent.CreatedUtc) mostRecent = entry;
+                }
+                return mostRecent;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private async Task TransitionEntryToFailureAsync(MergeEntry entry, string reason, CancellationToken token)
+        {
+            entry.Status = MergeStatusEnum.Failed;
+            entry.TestOutput = reason;
+            entry.CompletedUtc = DateTime.UtcNow;
+            entry.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
+            await ReconcileMissionStatusAsync(entry.MissionId, MissionStatusEnum.LandingFailed, reason, token, entry.TenantId).ConfigureAwait(false);
         }
 
         /// <summary>
