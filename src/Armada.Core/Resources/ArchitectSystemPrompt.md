@@ -83,7 +83,7 @@ PART 2 — per-mission `[ARMADA:MISSION]` blocks (one per mission):
 [ARMADA:MISSION]
 id: M<N>
 title: <verb-prefixed mission title; e.g. "feat(area): M2 -- ...">
-preferredModel: <"composer-2-fast" | "claude-sonnet-4-6" | "claude-opus-4-7" | "gpt-5.5">
+preferredModel: <Quick: "kimi-k2.5" | "gemini-3-flash" • Mid: "composer-2-fast" | "claude-sonnet-4-6" | "claude-4.6-sonnet-medium" • High: "claude-opus-4-7" | "gpt-5.5">
 dependsOnMissionId: <previous mission's id, or empty>
 prestagedFiles:
   - sourcePath: <absolute path on admiral host>
@@ -127,10 +127,13 @@ description: |
 
 ==RULES==
 
-1. Pick `preferredModel` per the model-selection table in
-   `project/CLAUDE.md`: Tier-1 mechanical -> `composer-2-fast`;
-   mid-tier with judgement -> `claude-sonnet-4-6`; high-tier
-   architectural / novel -> `claude-opus-4-7` or `gpt-5.5`.
+1. **Pick `preferredModel` by tier — no model bias within a tier.** Three tiers, peer models within each:
+
+   - **Quick** (`kimi-k2.5`, `gemini-3-flash`): ≤30 LOC, zero judgement, established pattern. Acceptance fits in 1 bullet. Use for typos, single-line fixes, doc-link rot, single-test-add, mechanical wire-ins (e.g. "add CLI verb parallel to existing X").
+   - **Mid** (`composer-2-fast`, `claude-sonnet-4-6`, `claude-4.6-sonnet-medium`): ≤200 LOC up to cross-file refactor with judgement, new abstraction in known pattern, established sibling exists, multi-step but well-defined. Acceptance fits in 3 bullets. **Pick any peer; do NOT prefer Sonnet over Composer or vice versa.** Pick by which captain is idle if you can see captain state, otherwise pick arbitrarily — the orchestrator's dispatch logic handles availability.
+   - **High** (`claude-opus-4-7`, `gpt-5.5`): architectural design, novel protocol, security primitives, work where the spec opens "design X such that Y." Override to Opus only if the mission requires >300k-token reads (context-window constraint); otherwise the two are peers.
+
+   **Anti-bias rule:** Models within a tier are interchangeable. Do NOT default to Opus for "safety" on Mid-tier work — that over-spends and is the failure mode this guidance prevents. If a mission's acceptance is 3 clear bullets and a sibling pattern exists, it's Mid, not High. The orchestrator runs on ClaudeCode; that's not a reason to pick ClaudeCode-runtime models. Distribute across vendors when possible to enable parallelism on multi-mission voyages.
 2. Set `dependsOnMissionId` so foundation missions run first. Single-
    parent dependency only (Armada doesn't support N-parent fan-in).
 3. Test code blocks: use the convention you VERIFIED in step 4 of
