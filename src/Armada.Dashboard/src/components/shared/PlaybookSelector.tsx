@@ -62,8 +62,8 @@ export default function PlaybookSelector({ value, onChange, disabled = false }: 
 
   const activePlaybooks = playbooks.filter((playbook) => playbook.active !== false);
   const selectedIds = new Set(value.map((item) => item.playbookId));
-  const filteredAvailable = activePlaybooks.filter((playbook) => {
-    if (selectedIds.has(playbook.id)) return false;
+  const availablePlaybooks = activePlaybooks.filter((playbook) => !selectedIds.has(playbook.id));
+  const filteredAvailable = availablePlaybooks.filter((playbook) => {
     const query = search.trim().toLowerCase();
     if (!query) return true;
     return playbook.fileName.toLowerCase().includes(query)
@@ -151,7 +151,13 @@ export default function PlaybookSelector({ value, onChange, disabled = false }: 
           </p>
         </div>
         <div className="playbook-selector-meta">
-          <span>{t('{{count}} available', { count: activePlaybooks.length })}</span>
+          <span>
+            {loading
+              ? t('Loading playbooks...')
+              : error
+                ? t('Playbooks unavailable')
+                : t('{{count}} available', { count: availablePlaybooks.length })}
+          </span>
           <span>{t('{{count}} selected', { count: value.length })}</span>
           <Link to="/playbooks" className="playbook-selector-link">{t('Manage playbooks')}</Link>
           <button

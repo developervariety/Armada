@@ -32,6 +32,18 @@ vi.mock('../../context/LocaleContext', () => ({
 }));
 
 describe('PlaybookSelector', () => {
+  it('updates the collapsed summary counts after playbooks load', async () => {
+    render(
+      <MemoryRouter>
+        <PlaybookSelector value={[]} onChange={() => undefined} />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText('Loading playbooks...')).toBeInTheDocument();
+    expect(await screen.findByText('1 available')).toBeInTheDocument();
+    expect(screen.getByText('0 selected')).toBeInTheDocument();
+  });
+
   it('starts collapsed and can be expanded', async () => {
     const user = userEvent.setup();
 

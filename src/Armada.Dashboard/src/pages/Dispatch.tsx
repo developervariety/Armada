@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { listVessels, listPipelines, createVoyage } from '../api/client';
 import type { Vessel, Pipeline, SelectedPlaybook } from '../types/models';
 import { useLocale } from '../context/LocaleContext';
@@ -145,7 +146,10 @@ export default function Dispatch() {
               </select>
             </div>
             <div className="form-group">
-              <label>{t('Pipeline')}</label>
+              <div className="form-label-row">
+                <label>{t('Pipeline')}</label>
+                <Link to="/pipelines" className="form-label-link">{t('Manage pipelines')}</Link>
+              </div>
               <select
                 value={selectedPipeline}
                 onChange={(e) => setSelectedPipeline(e.target.value)}

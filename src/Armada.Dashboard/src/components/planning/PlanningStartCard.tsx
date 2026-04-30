@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import type { Captain, Fleet, Pipeline, SelectedPlaybook, Vessel } from '../../types/models';
 import PlaybookSelector from '../shared/PlaybookSelector';
 
@@ -120,7 +121,10 @@ export default function PlanningStartCard(props: PlanningStartCardProps) {
             </div>
 
             <div className="form-group">
-              <label>{t('Pipeline')}</label>
+              <div className="form-label-row">
+                <label>{t('Pipeline')}</label>
+                <Link to="/pipelines" className="form-label-link">{t('Manage pipelines')}</Link>
+              </div>
               <select value={pipelineId} disabled={creating} onChange={(event) => onPipelineChange(event.target.value)}>
                 <option value="">{t('Inherit later during dispatch')}</option>
                 {pipelines.map((pipeline) => (
