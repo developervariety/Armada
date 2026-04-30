@@ -19,7 +19,7 @@ call :run_helm server stop
 
 echo.
 echo [update] Reinstalling Armada tool and redeploying dashboard...
-call "%SCRIPT_DIR%\reinstall.bat" --framework %ARMADA_TARGET_FRAMEWORK%
+call "%SCRIPT_DIR%\reinstall.bat" %ARMADA_FORWARD_FRAMEWORK_ARGS%
 if errorlevel 1 exit /b 1
 
 echo.
@@ -28,16 +28,18 @@ call :run_helm server start
 exit /b %ERRORLEVEL%
 
 :run_helm
+if exist "%HELM_DLL%" (
+  dotnet "%HELM_DLL%" %*
+  exit /b %ERRORLEVEL%
+)
+
+dotnet run --project "%REPO_ROOT%\src\Armada.Helm" %ARMADA_DOTNET_FRAMEWORK_ARGS% -- %*
+if not errorlevel 1 exit /b 0
+
 where armada >nul 2>nul
 if not errorlevel 1 (
   armada %*
   exit /b %ERRORLEVEL%
 )
 
-if exist "%HELM_DLL%" (
-  dotnet "%HELM_DLL%" %*
-  exit /b %ERRORLEVEL%
-)
-
-dotnet run --project "%REPO_ROOT%\src\Armada.Helm" -f %ARMADA_TARGET_FRAMEWORK% -- %*
-exit /b %ERRORLEVEL%
+exit /b 1

@@ -193,6 +193,8 @@ namespace Armada.Helm.Commands
                 buildInfo.ArgumentList.Add(projectDir);
                 buildInfo.ArgumentList.Add("--framework");
                 buildInfo.ArgumentList.Add(targetFramework);
+                buildInfo.ArgumentList.Add("-p:TargetFramework=" + targetFramework);
+                buildInfo.ArgumentList.Add("-p:TargetFrameworks=" + targetFramework);
                 if (buildAttempt == 0)
                     buildInfo.ArgumentList.Add("-q");
 

@@ -9,7 +9,7 @@ for %%I in ("%SCRIPT_DIR%\..\..") do set "REPO_ROOT=%%~fI"
 
 echo.
 echo [install-mcp] Configuring Armada MCP for Claude Code, Codex, Gemini, and Cursor...
-dotnet run --project "%REPO_ROOT%\src\Armada.Helm" -f %ARMADA_TARGET_FRAMEWORK% -- mcp install --yes
+dotnet run --project "%REPO_ROOT%\src\Armada.Helm" %ARMADA_DOTNET_FRAMEWORK_ARGS% -- mcp install --yes
 if errorlevel 1 exit /b 1
 
 echo.
