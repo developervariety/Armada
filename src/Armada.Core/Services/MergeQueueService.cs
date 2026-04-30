@@ -563,6 +563,46 @@ namespace Armada.Core.Services
             }
         }
 
+        /// <inheritdoc />
+        public async Task<bool> TryOpenPullRequestForRecoveryAsync(string mergeEntryId, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(mergeEntryId)) throw new ArgumentNullException(nameof(mergeEntryId));
+
+            MergeEntry? entry = await _Database.MergeEntries.ReadAsync(mergeEntryId, token).ConfigureAwait(false);
+            if (entry == null)
+            {
+                _Logging.Warn(_Header + "PR-fallback recovery: entry not found " + mergeEntryId);
+                return false;
+            }
+
+            string? repoPath = await GetRepoPathAsync(entry, token).ConfigureAwait(false);
+            if (String.IsNullOrEmpty(repoPath))
+            {
+                _Logging.Warn(_Header + "PR-fallback recovery: repo path missing for " + mergeEntryId);
+                return false;
+            }
+
+            // Force the trigger so TryOpenPullRequestAsync's internal callers and the
+            // outbound PR body both reflect the recovery reason. This is idempotent --
+            // the existing trigger is preserved if it is already set to a recovery
+            // marker.
+            if (String.IsNullOrEmpty(entry.AuditCriticalTrigger))
+            {
+                entry.AuditCriticalTrigger = "recovery_exhausted";
+                entry.LastUpdateUtc = DateTime.UtcNow;
+                try
+                {
+                    await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "PR-fallback recovery: stamp-trigger failed for " + mergeEntryId + ": " + ex.Message);
+                }
+            }
+
+            return await TryOpenPullRequestAsync(entry, repoPath, forceChainedBase: false, token).ConfigureAwait(false);
+        }
+
         /// <summary>
         /// PR-fallback path. Push the captain branch to origin and open a platform PR
         /// targeting either the vessel default branch or, when forceChainedBase is true OR
