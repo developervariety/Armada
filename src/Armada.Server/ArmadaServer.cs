@@ -148,7 +148,14 @@ namespace Armada.Server
                 };
             };
             IMergeFailureClassifier mergeFailureClassifier = new MergeFailureClassifier();
-            _MergeQueue = new MergeQueueService(_Logging, _Database, _Settings, _Git, mergeFailureClassifier, prServiceFactory);
+            IRecoveryRouter recoveryRouter = new RecoveryRouter(_Settings);
+            IMergeRecoveryHandler recoveryHandler = new MergeRecoveryHandler(
+                _Logging,
+                _Database,
+                recoveryRouter,
+                _Admiral,
+                _Settings);
+            _MergeQueue = new MergeQueueService(_Logging, _Database, _Settings, _Git, mergeFailureClassifier, recoveryHandler, prServiceFactory);
             _AutoLandEvaluator = new AutoLandEvaluator();
             _ConventionChecker = new ConventionChecker();
             _CriticalTriggerEvaluator = new CriticalTriggerEvaluator();

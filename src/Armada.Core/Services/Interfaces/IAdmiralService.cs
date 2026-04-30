@@ -141,6 +141,17 @@ namespace Armada.Core.Services.Interfaces
         Task<Mission> DispatchMissionAsync(Mission mission, CancellationToken token = default);
 
         /// <summary>
+        /// Reset a Failed or Cancelled mission back to Pending and re-attempt assignment so
+        /// the original mission ID is reused. Used by the auto-recovery handler to redispatch
+        /// a captain whose work failed in the merge queue while preserving cross-mission
+        /// dependencies.
+        /// </summary>
+        /// <param name="missionId">Mission identifier to restart.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The restarted mission.</returns>
+        Task<Mission> RestartMissionAsync(string missionId, CancellationToken token = default);
+
+        /// <summary>
         /// Resolve the pipeline a dispatch should use. Resolution order:
         /// explicit (id or name) &gt; vessel default &gt; fleet default &gt; null.
         /// Returns null when the resolved pipeline is the implicit single-stage

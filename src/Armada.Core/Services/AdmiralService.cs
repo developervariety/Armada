@@ -413,6 +413,57 @@ namespace Armada.Core.Services
             return mission;
         }
 
+        /// <inheritdoc />
+        public async Task<Mission> RestartMissionAsync(string missionId, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(missionId)) throw new ArgumentNullException(nameof(missionId));
+
+            Mission? mission = await _Database.Missions.ReadAsync(missionId, token).ConfigureAwait(false);
+            if (mission == null) throw new InvalidOperationException("Mission not found: " + missionId);
+
+            if (mission.Status != MissionStatusEnum.Failed
+                && mission.Status != MissionStatusEnum.Cancelled
+                && mission.Status != MissionStatusEnum.LandingFailed
+                && mission.Status != MissionStatusEnum.WorkProduced
+                && mission.Status != MissionStatusEnum.Complete)
+            {
+                throw new InvalidOperationException(
+                    "Mission " + missionId + " cannot be restarted from status " + mission.Status);
+            }
+
+            mission.Status = MissionStatusEnum.Pending;
+            mission.CaptainId = null;
+            mission.BranchName = null;
+            mission.PrUrl = null;
+            mission.CommitHash = null;
+            mission.DockId = null;
+            mission.ProcessId = null;
+            mission.DiffSnapshot = null;
+            mission.StartedUtc = null;
+            mission.CompletedUtc = null;
+            mission.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+            _Logging.Info(_Header + "restarted mission " + missionId);
+
+            if (!String.IsNullOrEmpty(mission.VesselId))
+            {
+                Vessel? vessel = await _Database.Vessels.ReadAsync(mission.VesselId, token).ConfigureAwait(false);
+                if (vessel != null)
+                {
+                    bool assigned = await _Missions.TryAssignAsync(mission, vessel, token).ConfigureAwait(false);
+                    Mission? refreshed = await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);
+                    if (refreshed != null) mission = refreshed;
+                    if (!assigned || mission.Status == MissionStatusEnum.Pending)
+                    {
+                        _Logging.Warn(_Header + "restarted mission " + mission.Id + " could not be reassigned");
+                        _RetryDispatchNeeded = true;
+                    }
+                }
+            }
+
+            return mission;
+        }
+
         private List<SelectedPlaybook> ClonePlaybookSelections(List<SelectedPlaybook>? selections)
         {
             if (selections == null || selections.Count == 0) return new List<SelectedPlaybook>();

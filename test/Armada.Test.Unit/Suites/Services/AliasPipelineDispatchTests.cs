@@ -204,6 +204,8 @@ namespace Armada.Test.Unit.Suites.Services
                 return await _Database.Missions.CreateAsync(mission, token).ConfigureAwait(false);
             }
 
+            public Task<Mission> RestartMissionAsync(string missionId, CancellationToken token = default) => throw new NotImplementedException();
+
             public Task<Pipeline?> ResolvePipelineAsync(string? pipelineIdOrName, Vessel vessel, CancellationToken token = default)
             {
                 return Task.FromResult<Pipeline?>(_Pipeline);

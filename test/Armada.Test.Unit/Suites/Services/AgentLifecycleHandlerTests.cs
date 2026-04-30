@@ -475,6 +475,11 @@ namespace Armada.Test.Unit.Suites.Services
                 throw new NotImplementedException();
             }
 
+            public Task<Mission> RestartMissionAsync(string missionId, CancellationToken token = default)
+            {
+                throw new NotImplementedException();
+            }
+
             public Task<Pipeline?> ResolvePipelineAsync(string? pipelineIdOrName, Vessel vessel, CancellationToken token = default)
             {
                 return Task.FromResult<Pipeline?>(null);

@@ -27,6 +27,7 @@ namespace Armada.Core.Services
         private ArmadaSettings _Settings;
         private IGitService _Git;
         private IMergeFailureClassifier _Classifier;
+        private IMergeRecoveryHandler? _RecoveryHandler;
         private Func<PullRequestPlatform, string, IPullRequestService>? _PullRequestServiceFactory;
 
         private bool _Processing = false;
@@ -45,6 +46,8 @@ namespace Armada.Core.Services
         /// <param name="git">Git service.</param>
         /// <param name="classifier">Pure classifier invoked at fail-time to populate
         /// the merge entry's failure-class fields before the Failed status is persisted.</param>
+        /// <param name="recoveryHandler">Optional admin-side handler invoked (fire-and-forget)
+        /// after an entry transitions to Failed. When null, the recovery loop is disabled.</param>
         /// <param name="pullRequestServiceFactory">Optional factory that returns the right
         /// <see cref="IPullRequestService"/> for a (platform, working-directory) pair. When
         /// non-null, entries flagged with <c>AuditCriticalTrigger</c> are routed to PR fallback
@@ -55,6 +58,7 @@ namespace Armada.Core.Services
             ArmadaSettings settings,
             IGitService git,
             IMergeFailureClassifier classifier,
+            IMergeRecoveryHandler? recoveryHandler = null,
             Func<PullRequestPlatform, string, IPullRequestService>? pullRequestServiceFactory = null)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
@@ -62,6 +66,7 @@ namespace Armada.Core.Services
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _Git = git ?? throw new ArgumentNullException(nameof(git));
             _Classifier = classifier ?? throw new ArgumentNullException(nameof(classifier));
+            _RecoveryHandler = recoveryHandler;
             _PullRequestServiceFactory = pullRequestServiceFactory;
         }
 
@@ -483,6 +488,7 @@ namespace Armada.Core.Services
                     entry.LastUpdateUtc = DateTime.UtcNow;
                     await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
                     await CleanupWorktreeAsync(integrationPath, token).ConfigureAwait(false);
+                    FireRecoveryHandler(entry.Id);
                     return;
                 }
 
@@ -515,6 +521,7 @@ namespace Armada.Core.Services
                         entry.LastUpdateUtc = DateTime.UtcNow;
                         await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
                         await CleanupWorktreeAsync(integrationPath, token).ConfigureAwait(false);
+                        FireRecoveryHandler(entry.Id);
                         return;
                     }
 
@@ -560,7 +567,31 @@ namespace Armada.Core.Services
 
                 // Best-effort cleanup
                 await CleanupWorktreeAsync(integrationPath, token).ConfigureAwait(false);
+                FireRecoveryHandler(entry.Id);
             }
+        }
+
+        /// <summary>
+        /// Fire-and-forget invocation of the recovery handler. Safe to call when no
+        /// handler is wired (early test paths). Mirrors the Task.Run pattern used in
+        /// MissionLandingHandler so a slow recovery does not block the queue worker.
+        /// </summary>
+        private void FireRecoveryHandler(string mergeEntryId)
+        {
+            IMergeRecoveryHandler? handler = _RecoveryHandler;
+            if (handler == null) return;
+            string capturedId = mergeEntryId;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await handler.OnMergeFailedAsync(capturedId).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "recovery handler failed for " + capturedId + ": " + ex.Message);
+                }
+            });
         }
 
         /// <summary>

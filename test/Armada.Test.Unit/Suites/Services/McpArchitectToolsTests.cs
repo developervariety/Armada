@@ -429,6 +429,9 @@ namespace Armada.Test.Unit.Suites.Services
             public Task<Mission> DispatchMissionAsync(Mission mission, CancellationToken token = default)
                 => throw new NotImplementedException();
 
+            public Task<Mission> RestartMissionAsync(string missionId, CancellationToken token = default)
+                => throw new NotImplementedException();
+
             public Task<Pipeline?> ResolvePipelineAsync(string? pipelineIdOrName, Vessel vessel, CancellationToken token = default)
                 => Task.FromResult<Pipeline?>(null);
 

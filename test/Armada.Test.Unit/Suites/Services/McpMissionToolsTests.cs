@@ -125,6 +125,9 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.FromResult(mission);
             }
 
+            public Task<Mission> RestartMissionAsync(string missionId, CancellationToken token = default)
+                => throw new NotImplementedException();
+
             public Task<Voyage> DispatchVoyageAsync(
                 string title, string description, string vesselId,
                 List<MissionDescription> missionDescriptions,
