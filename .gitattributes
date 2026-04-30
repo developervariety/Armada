@@ -1,3 +1,31 @@
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.nupkg binary
+*.dll binary
+*.exe binary
+*.pfx binary
+*.p12 binary
+*.snk binary
+*.db binary
+*.sqlite binary
+
+*.cs text diff=csharp eol=lf
+*.slnx text eol=lf
+*.razor text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.props text eol=lf
+*.targets text eol=lf
+
 # Shell scripts must use LF line endings
 *.sh text eol=lf
 
