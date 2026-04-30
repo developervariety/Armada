@@ -53,10 +53,22 @@ Install and start:
 scripts\windows\install-windows-task.bat
 ```
 
+Or publish and install against a specific SDK target:
+
+```powershell
+scripts\windows\install-windows-task.bat net8.0
+```
+
 Update from source and restart:
 
 ```powershell
 scripts\windows\update-windows-task.bat
+```
+
+With an explicit framework override:
+
+```powershell
+scripts\windows\update-windows-task.bat --framework net8.0
 ```
 
 Remove the startup entry:

@@ -180,6 +180,12 @@ Windows: `scripts\windows\install.bat`
 
 Windows can also override the target framework when only one SDK is available, for example `scripts\windows\install.bat net8.0` or `scripts\windows\install.bat --framework net10.0`. The same override works for `reinstall.bat`, `remove.bat`, `update.bat`, `install-mcp.bat`, `remove-mcp.bat`, `publish-server.bat`, `install-windows-task.bat`, and `update-windows-task.bat`. The default remains `net10.0`.
 
+Examples:
+
+- `scripts\windows\publish-server.bat net8.0`
+- `scripts\windows\install-windows-task.bat net8.0`
+- `scripts\windows\update-windows-task.bat --framework net8.0`
+
 These `install.*` scripts build the solution, deploy dashboard assets, and install `Armada.Helm` as a global tool from the current checkout.
 
 Platform entrypoints are split under `scripts/windows/`, `scripts/linux/`, and `scripts/macos/`. Shared shell implementations live under `scripts/common/`.

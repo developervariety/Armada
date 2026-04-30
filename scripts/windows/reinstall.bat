@@ -12,5 +12,5 @@ dotnet tool uninstall --global Armada.Helm >nul 2>nul
 
 echo.
 echo [reinstall] Running fresh install...
-call "%SCRIPT_DIR%\install.bat" %ARMADA_TARGET_FRAMEWORK%
+call "%SCRIPT_DIR%\install.bat" --framework %ARMADA_TARGET_FRAMEWORK%
 exit /b %ERRORLEVEL%

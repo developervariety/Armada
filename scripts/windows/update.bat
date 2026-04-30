@@ -19,7 +19,7 @@ call :run_helm server stop
 
 echo.
 echo [update] Reinstalling Armada tool and redeploying dashboard...
-call "%SCRIPT_DIR%\reinstall.bat" %ARMADA_TARGET_FRAMEWORK%
+call "%SCRIPT_DIR%\reinstall.bat" --framework %ARMADA_TARGET_FRAMEWORK%
 if errorlevel 1 exit /b 1
 
 echo.

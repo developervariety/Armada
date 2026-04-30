@@ -50,6 +50,7 @@ namespace Armada.Runtimes.Interfaces
         /// <param name="logFilePath">Optional path to write agent output log.</param>
         /// <param name="finalMessageFilePath">Optional path to write the agent's final response artifact.</param>
         /// <param name="model">Optional model override.</param>
+        /// <param name="captain">Optional captain metadata used by runtimes that need persisted runtime-specific options.</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>Process ID of the started agent.</returns>
         Task<int> StartAsync(

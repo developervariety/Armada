@@ -18,8 +18,9 @@ if errorlevel 1 (
 )
 
 echo.
+echo [install-windows-task] Using target framework %ARMADA_TARGET_FRAMEWORK%...
 echo [install-windows-task] Publishing Armada.Server...
-call "%SCRIPT_DIR%\publish-server.bat" %ARMADA_TARGET_FRAMEWORK%
+call "%SCRIPT_DIR%\publish-server.bat" --framework %ARMADA_TARGET_FRAMEWORK%
 if errorlevel 1 exit /b 1
 
 if not exist "%SERVER_EXE%" (

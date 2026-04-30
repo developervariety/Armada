@@ -20,5 +20,6 @@ echo.
 echo [update-windows-task] Stopping Armada.Server...
 powershell -NoProfile -ExecutionPolicy Bypass -File "%STOP_SCRIPT%" >nul 2>nul
 
-call "%SCRIPT_DIR%\install-windows-task.bat" %ARMADA_TARGET_FRAMEWORK%
+echo [update-windows-task] Using target framework %ARMADA_TARGET_FRAMEWORK%...
+call "%SCRIPT_DIR%\install-windows-task.bat" --framework %ARMADA_TARGET_FRAMEWORK%
 exit /b %ERRORLEVEL%

@@ -78,6 +78,7 @@ namespace Armada.Runtimes
         /// <param name="logFilePath">Optional path to write agent stdout/stderr output.</param>
         /// <param name="finalMessageFilePath">Optional path to write the agent's final response artifact.</param>
         /// <param name="model">Optional model override.</param>
+        /// <param name="captain">Optional captain metadata used by runtimes that need persisted runtime-specific options.</param>
         /// <param name="token">Cancellation token.</param>
         public virtual async Task<int> StartAsync(
             string workingDirectory,
