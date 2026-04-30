@@ -53,6 +53,8 @@ namespace Armada.Runtimes
                     return new GeminiRuntime(_Logging);
                 case AgentRuntimeEnum.Cursor:
                     return new CursorRuntime(_Logging);
+                case AgentRuntimeEnum.Mux:
+                    return new MuxRuntime(_Logging);
                 case AgentRuntimeEnum.Custom:
                     throw new InvalidOperationException("Use Create(string name) for custom runtimes");
                 default:

@@ -677,7 +677,8 @@ namespace Armada.Server
                     prompt,
                     logFilePath: logFilePath,
                     finalMessageFilePath: finalMessageFilePath,
-                    model: captain.Model).ConfigureAwait(false);
+                    model: captain.Model,
+                    captain: captain).ConfigureAwait(false);
 
                 session.ProcessId = processId;
                 session.LastUpdateUtc = DateTime.UtcNow;
@@ -934,6 +935,7 @@ namespace Armada.Server
                     logFilePath: logFilePath,
                     finalMessageFilePath: finalMessageFilePath,
                     model: captain.Model,
+                    captain: captain,
                     token: token).ConfigureAwait(false);
 
                 session.ProcessId = processId;

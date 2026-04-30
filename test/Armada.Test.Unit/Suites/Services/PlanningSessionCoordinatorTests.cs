@@ -72,7 +72,7 @@ namespace Armada.Test.Unit.Suites.Services
                             vessel,
                             new PlanningSessionCreateRequest())).ConfigureAwait(false);
 
-                    AssertContains("built-in ClaudeCode, Codex, Gemini, and Cursor runtimes", ex.Message);
+                    AssertContains("built-in ClaudeCode, Codex, Gemini, Cursor, and Mux runtimes", ex.Message);
                 }
             });
 

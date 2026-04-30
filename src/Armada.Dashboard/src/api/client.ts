@@ -39,6 +39,8 @@ import type {
   Persona,
   Pipeline,
   Playbook,
+  MuxEndpointListResult,
+  MuxEndpointShowResult,
 } from '../types/models';
 
 const BASE_URL = import.meta.env.VITE_ARMADA_SERVER_URL || '';
@@ -207,6 +209,10 @@ export const getCaptainLog = (id: string, lines = 500) => get<LogResult>(`/api/v
 export const stopCaptain = (id: string) => post<void>(`/api/v1/captains/${id}/stop`);
 export const recallCaptain = (id: string) => post<void>(`/api/v1/captains/${id}/recall`);
 export const stopAllCaptains = () => post<void>('/api/v1/captains/stop-all');
+export const listMuxEndpoints = (configDirectory?: string | null) =>
+  get<MuxEndpointListResult>(`/api/v1/runtimes/mux/endpoints${configDirectory ? `?configDirectory=${encodeURIComponent(configDirectory)}` : ''}`);
+export const getMuxEndpoint = (name: string, configDirectory?: string | null) =>
+  get<MuxEndpointShowResult>(`/api/v1/runtimes/mux/endpoints/${encodeURIComponent(name)}${configDirectory ? `?configDirectory=${encodeURIComponent(configDirectory)}` : ''}`);
 
 /** Restart a captain by deleting and recreating it with the same persisted configuration. */
 export async function restartCaptain(id: string): Promise<Captain> {
@@ -219,6 +225,7 @@ export async function restartCaptain(id: string): Promise<Captain> {
     model: captain.model,
     allowedPersonas: captain.allowedPersonas,
     preferredPersona: captain.preferredPersona,
+    runtimeOptionsJson: captain.runtimeOptionsJson,
   });
 }
 

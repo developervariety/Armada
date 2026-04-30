@@ -62,6 +62,7 @@ namespace Armada.Core.Database.Mysql.Queries
             name VARCHAR(450) NOT NULL UNIQUE,
             runtime VARCHAR(450) NOT NULL DEFAULT 'ClaudeCode',
             system_instructions LONGTEXT,
+            runtime_options_json LONGTEXT,
             state VARCHAR(450) NOT NULL DEFAULT 'Idle',
             current_mission_id VARCHAR(450),
             current_dock_id VARCHAR(450),
@@ -621,6 +622,14 @@ namespace Armada.Core.Database.Mysql.Queries
                 FOREIGN KEY (playbook_id) REFERENCES playbooks(id) ON DELETE SET NULL
             );",
             @"CREATE INDEX idx_mission_playbook_snapshots_playbook ON mission_playbook_snapshots(playbook_id);"
+        };
+
+        /// <summary>
+        /// Migration v29 statements for adding runtime options to captains.
+        /// </summary>
+        public static readonly string[] MigrationV29Statements = new string[]
+        {
+            @"ALTER TABLE captains ADD COLUMN IF NOT EXISTS runtime_options_json LONGTEXT NULL;"
         };
 
         /// <summary>

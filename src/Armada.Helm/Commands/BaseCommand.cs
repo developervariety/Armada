@@ -190,6 +190,12 @@ namespace Armada.Helm.Commands
             if (!string.IsNullOrEmpty(settings.DefaultRuntime))
             {
                 runtimeValue = settings.DefaultRuntime;
+                if (String.Equals(runtimeValue, "Mux", StringComparison.OrdinalIgnoreCase))
+                {
+                    AnsiConsole.MarkupLine("[yellow]DefaultRuntime is set to Mux, but Armada cannot auto-create a Mux captain without a named endpoint.[/]");
+                    AnsiConsole.MarkupLine("[dim]Create one explicitly with: armada captain add <name> --runtime mux --mux-endpoint <endpoint-name>[/]");
+                    return new List<Captain>();
+                }
             }
             else
             {
@@ -199,8 +205,17 @@ namespace Armada.Helm.Commands
                     AnsiConsole.MarkupLine("[red]No agent runtimes found on PATH.[/]");
                     AnsiConsole.MarkupLine($"[dim]Install Claude Code: {RuntimeDetectionService.GetInstallHint(Armada.Core.Enums.AgentRuntimeEnum.ClaudeCode)}[/]");
                     AnsiConsole.MarkupLine($"[dim]Install Codex:       {RuntimeDetectionService.GetInstallHint(Armada.Core.Enums.AgentRuntimeEnum.Codex)}[/]");
+                    AnsiConsole.MarkupLine($"[dim]Install Mux:         {RuntimeDetectionService.GetInstallHint(Armada.Core.Enums.AgentRuntimeEnum.Mux)}[/]");
                     return new List<Captain>();
                 }
+
+                if (detected.Value == Armada.Core.Enums.AgentRuntimeEnum.Mux)
+                {
+                    AnsiConsole.MarkupLine("[yellow]Mux was detected, but Armada cannot auto-create a Mux captain without a named endpoint.[/]");
+                    AnsiConsole.MarkupLine("[dim]Create one explicitly with: armada captain add <name> --runtime mux --mux-endpoint <endpoint-name>[/]");
+                    return new List<Captain>();
+                }
+
                 runtimeValue = detected.Value.ToString();
             }
 

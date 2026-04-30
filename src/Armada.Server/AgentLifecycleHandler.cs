@@ -25,6 +25,7 @@ namespace Armada.Server
         private DatabaseDriver _Database;
         private ArmadaSettings _Settings;
         private AgentRuntimeFactory _RuntimeFactory;
+        private MuxCliService _MuxCli;
         private IAdmiralService _Admiral;
         private IMessageTemplateService _TemplateService;
         private IPromptTemplateService? _PromptTemplateService;
@@ -107,6 +108,7 @@ namespace Armada.Server
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _RuntimeFactory = runtimeFactory ?? throw new ArgumentNullException(nameof(runtimeFactory));
+            _MuxCli = new MuxCliService(_Logging);
             _Admiral = admiral ?? throw new ArgumentNullException(nameof(admiral));
             _TemplateService = templateService ?? throw new ArgumentNullException(nameof(templateService));
             _PromptTemplateService = promptTemplateService;
@@ -197,6 +199,8 @@ namespace Armada.Server
         public Task<string?> ValidateCaptainModelAsync(Captain captain, CancellationToken token = default)
         {
             if (captain == null) throw new ArgumentNullException(nameof(captain));
+            if (captain.Runtime == AgentRuntimeEnum.Mux)
+                return ValidateMuxCaptainAsync(captain, token);
             return ValidateModelAsync(captain.Runtime, captain.Model, token);
         }
 
@@ -252,6 +256,7 @@ namespace Armada.Server
                     validationDirectory,
                     "Respond with the single word OK.",
                     model: model,
+                    captain: null,
                     token: token).ConfigureAwait(false);
 
                 Task completedTask = await Task.WhenAny(
@@ -386,7 +391,8 @@ namespace Armada.Server
                     prompt,
                     logFilePath: logFilePath,
                     finalMessageFilePath: finalMessageFilePath,
-                    model: captain.Model).ConfigureAwait(false);
+                    model: captain.Model,
+                    captain: captain).ConfigureAwait(false);
             }
             catch
             {
@@ -780,6 +786,62 @@ namespace Armada.Server
                 (MissionStatusEnum.LandingFailed, MissionStatusEnum.Cancelled) => true,
                 _ => false
             };
+        }
+
+        private async Task<string?> ValidateMuxCaptainAsync(Captain captain, CancellationToken token)
+        {
+            MuxCaptainOptions? options;
+            try
+            {
+                options = CaptainRuntimeOptions.GetMuxOptions(captain);
+            }
+            catch (Exception ex)
+            {
+                return "Mux runtime options are invalid JSON: " + ex.Message;
+            }
+
+            if (options == null)
+            {
+                return "Mux captains require runtime options containing at least a named endpoint.";
+            }
+
+            if (String.IsNullOrWhiteSpace(options.Endpoint))
+            {
+                return "Mux captains require a named endpoint.";
+            }
+
+            try
+            {
+                MuxProbeResult probe = await _MuxCli.ProbeAsync(captain, token).ConfigureAwait(false);
+                if (probe.ContractVersion != 1)
+                {
+                    return "Mux returned structured output contract version " + probe.ContractVersion +
+                        ", but Armada currently supports version 1.";
+                }
+
+                if (!probe.Success)
+                {
+                    string error = !String.IsNullOrWhiteSpace(probe.ErrorMessage)
+                        ? probe.ErrorMessage
+                        : "Mux probe failed with error code " + (String.IsNullOrWhiteSpace(probe.ErrorCode) ? "unknown" : probe.ErrorCode) + ".";
+                    return "Mux endpoint '" + options.Endpoint + "' failed validation: " + error;
+                }
+
+                if (!probe.ToolsEnabled || probe.EffectiveToolCount <= 0)
+                {
+                    return "Mux endpoint '" + options.Endpoint + "' is not tool-enabled for Armada missions.";
+                }
+
+                return null;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                return "Mux endpoint '" + options.Endpoint + "' failed validation: " + ex.Message;
+            }
         }
 
         private static string? ExtractModelValidationError(string output)

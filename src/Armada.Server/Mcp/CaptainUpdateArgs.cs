@@ -16,7 +16,7 @@ namespace Armada.Server.Mcp
         public string? Name { get; set; }
 
         /// <summary>
-        /// New agent runtime: ClaudeCode, Codex, Gemini, Cursor, or Custom.
+        /// New agent runtime: ClaudeCode, Codex, Gemini, Cursor, Mux, or Custom.
         /// </summary>
         public string? Runtime { get; set; }
 
@@ -39,6 +39,52 @@ namespace Armada.Server.Mcp
         /// Preferred persona for dispatch routing priority.
         /// </summary>
         public string? PreferredPersona { get; set; }
+
+        /// <summary>
+        /// Optional Mux config directory override.
+        /// Provide an empty string to clear it.
+        /// </summary>
+        public string? MuxConfigDirectory { get; set; }
+
+        /// <summary>
+        /// Named Mux endpoint to use for this captain.
+        /// Provide an empty string to clear it.
+        /// </summary>
+        public string? MuxEndpoint { get; set; }
+
+        /// <summary>
+        /// Optional Mux base URL override.
+        /// Provide an empty string to clear it.
+        /// </summary>
+        public string? MuxBaseUrl { get; set; }
+
+        /// <summary>
+        /// Optional Mux adapter type override.
+        /// Provide an empty string to clear it.
+        /// </summary>
+        public string? MuxAdapterType { get; set; }
+
+        /// <summary>
+        /// Optional Mux temperature override.
+        /// </summary>
+        public double? MuxTemperature { get; set; }
+
+        /// <summary>
+        /// Optional Mux max tokens override.
+        /// </summary>
+        public int? MuxMaxTokens { get; set; }
+
+        /// <summary>
+        /// Optional Mux system prompt file path.
+        /// Provide an empty string to clear it.
+        /// </summary>
+        public string? MuxSystemPromptPath { get; set; }
+
+        /// <summary>
+        /// Optional Mux approval policy override.
+        /// Provide an empty string to clear it.
+        /// </summary>
+        public string? MuxApprovalPolicy { get; set; }
 
     }
 }

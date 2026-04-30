@@ -42,6 +42,7 @@ namespace Armada.Core.Database.Sqlite.Queries
                         id TEXT PRIMARY KEY,
                         name TEXT NOT NULL UNIQUE,
                         runtime TEXT NOT NULL DEFAULT 'ClaudeCode',
+                        runtime_options_json TEXT,
                         state TEXT NOT NULL DEFAULT 'Idle',
                         current_mission_id TEXT,
                         current_dock_id TEXT,
@@ -839,6 +840,9 @@ namespace Armada.Core.Database.Sqlite.Queries
                     @"ALTER TABLE voyages ADD COLUMN source_planning_session_id TEXT;",
                     @"ALTER TABLE voyages ADD COLUMN source_planning_message_id TEXT;",
                     @"CREATE INDEX IF NOT EXISTS idx_voyages_source_planning_session ON voyages(source_planning_session_id);"
+                ),
+                new SchemaMigration(30, "Add runtime_options_json to captains",
+                    @"ALTER TABLE captains ADD COLUMN runtime_options_json TEXT;"
                 )
             };
         }

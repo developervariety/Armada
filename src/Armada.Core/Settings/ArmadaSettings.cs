@@ -488,6 +488,11 @@ namespace Armada.Core.Settings
                     Enums.AgentRuntimeEnum.Cursor,
                     "cursor",
                     "--agent --prompt"));
+
+                Agents.Add(new AgentSettings(
+                    Enums.AgentRuntimeEnum.Mux,
+                    "mux",
+                    "print --yolo"));
             }
         }
 

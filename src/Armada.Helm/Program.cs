@@ -165,6 +165,8 @@ namespace Armada.Helm
                         .WithDescription("List all captains");
                     captain.AddCommand<CaptainAddCommand>("add")
                         .WithDescription("Recruit a new captain");
+                    captain.AddCommand<CaptainUpdateCommand>("update")
+                        .WithDescription("Update an existing captain");
                     captain.AddCommand<CaptainStopCommand>("stop")
                         .WithDescription("Recall a captain (accepts name or ID)");
                     captain.AddCommand<CaptainRemoveCommand>("remove")

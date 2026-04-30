@@ -133,6 +133,7 @@ export interface Captain {
   model: string | null;
   allowedPersonas: string | null;
   preferredPersona: string | null;
+  runtimeOptionsJson?: string | null;
   state: string;
   currentMissionId: string | null;
   currentDockId: string | null;
@@ -366,6 +367,51 @@ export interface LogResult {
 export interface InstructionsResult {
   fileName: string;
   content: string;
+}
+
+export interface MuxCaptainOptions {
+  schemaVersion: number;
+  configDirectory: string | null;
+  endpoint: string | null;
+  baseUrl: string | null;
+  adapterType: string | null;
+  temperature: number | null;
+  maxTokens: number | null;
+  systemPromptPath: string | null;
+  approvalPolicy: string | null;
+}
+
+export interface MuxEndpointInfo {
+  name: string;
+  adapterType: string;
+  baseUrl: string;
+  model: string;
+  isDefault: boolean;
+  maxTokens: number;
+  temperature: number;
+  contextWindow: number;
+  timeoutMs: number;
+  toolsEnabled: boolean;
+  headerNames: string[];
+  headers: Record<string, string>;
+}
+
+export interface MuxEndpointListResult {
+  contractVersion: number;
+  success: boolean;
+  configDirectory: string;
+  errorCode: string;
+  errorMessage: string;
+  endpoints: MuxEndpointInfo[];
+}
+
+export interface MuxEndpointShowResult {
+  contractVersion: number;
+  success: boolean;
+  configDirectory: string;
+  errorCode: string;
+  errorMessage: string;
+  endpoint: MuxEndpointInfo | null;
 }
 
 export interface DispatchRequest {

@@ -71,6 +71,16 @@ Repo-relative deployment script paths:
 
 If you want to work out the plan with a captain before dispatching anything, use the dashboard planning screen:
 
+```text
+Dashboard Planning UI
+    |
+    +--> Reserve captain + dock/worktree
+    +--> Chat with the captain inside the UI
+    +--> Keep the transcript as the source of truth
+    +--> Select the reply you want to use
+    +--> Summarize it, open it in Dispatch, or dispatch directly
+```
+
 1. Start Armada and open `http://localhost:7890/dashboard`
 2. Go to `Planning`
 3. Pick a captain, vessel, optional pipeline, and playbooks
@@ -81,12 +91,13 @@ If you want to work out the plan with a captain before dispatching anything, use
 
 Current planning-session constraints:
 
-- Planning currently supports only the built-in `ClaudeCode`, `Codex`, `Gemini`, and `Cursor` runtimes. `Custom` captains are blocked there.
+- Planning currently supports the built-in `ClaudeCode`, `Codex`, `Gemini`, `Cursor`, and `Mux` runtimes. `Custom` captains are blocked there.
 - A planning session reserves the selected captain and a dock/worktree for the selected vessel until you stop the session.
 - The captain can inspect and modify the repository while planning.
 - Planning is transcript-backed today. Each turn relaunches the runtime with the preserved transcript and repo context instead of keeping a persistent interactive stdin session alive.
 - Planning-session persistence is SQLite-first. Non-SQLite backends currently return an explicit unsupported response for planning-session endpoints.
 - Armada can summarize a selected planning reply into a dispatch-ready draft before launch.
+- You can open that draft in the main `Dispatch` page without copy/paste or dispatch directly from the planning screen.
 - Optional cleanup controls are available through `PlanningSessionInactivityTimeoutMinutes` and `PlanningSessionRetentionDays`.
 
 ---

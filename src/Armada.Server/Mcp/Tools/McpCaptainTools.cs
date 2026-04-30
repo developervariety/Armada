@@ -11,6 +11,7 @@ namespace Armada.Server.Mcp.Tools
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
     using Armada.Server;
@@ -67,11 +68,19 @@ namespace Armada.Server.Mcp.Tools
                     properties = new
                     {
                         name = new { type = "string", description = "Captain display name" },
-                        runtime = new { type = "string", description = "Agent runtime: ClaudeCode, Codex, Gemini, Cursor, or Custom" },
+                        runtime = new { type = "string", description = "Agent runtime: ClaudeCode, Codex, Gemini, Cursor, Mux, or Custom" },
                         systemInstructions = new { type = "string", description = "System instructions for this captain -- injected into every mission prompt to specialize behavior" },
                         model = new { type = "string", description = "AI model identifier; null means runtime default" },
                         allowedPersonas = new { type = "string", description = "JSON array of persona names this captain can fill, e.g. [\"Worker\",\"Judge\"]. Null means any persona." },
-                        preferredPersona = new { type = "string", description = "Preferred persona for dispatch routing priority" }
+                        preferredPersona = new { type = "string", description = "Preferred persona for dispatch routing priority" },
+                        muxConfigDirectory = new { type = "string", description = "Optional Mux config directory override" },
+                        muxEndpoint = new { type = "string", description = "Named Mux endpoint for this captain" },
+                        muxBaseUrl = new { type = "string", description = "Optional Mux base URL override" },
+                        muxAdapterType = new { type = "string", description = "Optional Mux adapter type override" },
+                        muxTemperature = new { type = "number", description = "Optional Mux temperature override" },
+                        muxMaxTokens = new { type = "integer", description = "Optional Mux max tokens override" },
+                        muxSystemPromptPath = new { type = "string", description = "Optional Mux system prompt file path" },
+                        muxApprovalPolicy = new { type = "string", description = "Optional Mux approval policy override" }
                     },
                     required = new[] { "name" }
                 },
@@ -87,10 +96,11 @@ namespace Armada.Server.Mcp.Tools
                     captain.Model = String.IsNullOrWhiteSpace(request.Model) ? null : request.Model;
                     captain.AllowedPersonas = request.AllowedPersonas;
                     captain.PreferredPersona = request.PreferredPersona;
+                    ApplyMuxOptions(captain, request);
 
                     if (agentLifecycle != null)
                     {
-                        string? validationError = await agentLifecycle.ValidateModelAsync(captain.Runtime, captain.Model).ConfigureAwait(false);
+                        string? validationError = await agentLifecycle.ValidateCaptainModelAsync(captain).ConfigureAwait(false);
                         if (validationError != null) return CreateToolErrorResponse(validationError);
                     }
 
@@ -108,11 +118,19 @@ namespace Armada.Server.Mcp.Tools
                     {
                         captainId = new { type = "string", description = "Captain ID (cpt_ prefix)" },
                         name = new { type = "string", description = "New display name" },
-                        runtime = new { type = "string", description = "New agent runtime: ClaudeCode, Codex, Gemini, Cursor, or Custom" },
+                        runtime = new { type = "string", description = "New agent runtime: ClaudeCode, Codex, Gemini, Cursor, Mux, or Custom" },
                         systemInstructions = new { type = "string", description = "New system instructions for this captain" },
                         model = new { type = "string", description = "New AI model identifier; null means runtime default" },
                         allowedPersonas = new { type = "string", description = "JSON array of persona names this captain can fill, e.g. [\"Worker\",\"Judge\"]. Null means any persona." },
-                        preferredPersona = new { type = "string", description = "Preferred persona for dispatch routing priority" }
+                        preferredPersona = new { type = "string", description = "Preferred persona for dispatch routing priority" },
+                        muxConfigDirectory = new { type = "string", description = "Optional Mux config directory override; empty string clears it" },
+                        muxEndpoint = new { type = "string", description = "Named Mux endpoint; empty string clears it" },
+                        muxBaseUrl = new { type = "string", description = "Optional Mux base URL override; empty string clears it" },
+                        muxAdapterType = new { type = "string", description = "Optional Mux adapter type override; empty string clears it" },
+                        muxTemperature = new { type = "number", description = "Optional Mux temperature override" },
+                        muxMaxTokens = new { type = "integer", description = "Optional Mux max tokens override" },
+                        muxSystemPromptPath = new { type = "string", description = "Optional Mux system prompt file path; empty string clears it" },
+                        muxApprovalPolicy = new { type = "string", description = "Optional Mux approval policy override; empty string clears it" }
                     },
                     required = new[] { "captainId" }
                 },
@@ -134,10 +152,18 @@ namespace Armada.Server.Mcp.Tools
                         captain.AllowedPersonas = request.AllowedPersonas;
                     if (request.PreferredPersona != null)
                         captain.PreferredPersona = request.PreferredPersona;
+                    try
+                    {
+                        ApplyMuxOptions(captain, request, captain.Runtime == AgentRuntimeEnum.Mux ? captain : null);
+                    }
+                    catch (Exception ex)
+                    {
+                        return CreateToolErrorResponse(ex.Message);
+                    }
 
                     if (agentLifecycle != null)
                     {
-                        string? validationError = await agentLifecycle.ValidateModelAsync(captain.Runtime, captain.Model).ConfigureAwait(false);
+                        string? validationError = await agentLifecycle.ValidateCaptainModelAsync(captain).ConfigureAwait(false);
                         if (validationError != null) return CreateToolErrorResponse(validationError);
                     }
 
@@ -326,6 +352,62 @@ namespace Armada.Server.Mcp.Tools
                 },
                 isError = true
             };
+        }
+
+        private static void ApplyMuxOptions(Captain captain, CaptainCreateArgs request)
+        {
+            if (captain.Runtime != AgentRuntimeEnum.Mux)
+            {
+                captain.RuntimeOptionsJson = null;
+                return;
+            }
+
+            MuxCaptainOptions options = new MuxCaptainOptions
+            {
+                ConfigDirectory = request.MuxConfigDirectory,
+                Endpoint = request.MuxEndpoint,
+                BaseUrl = request.MuxBaseUrl,
+                AdapterType = request.MuxAdapterType,
+                Temperature = request.MuxTemperature,
+                MaxTokens = request.MuxMaxTokens,
+                SystemPromptPath = request.MuxSystemPromptPath,
+                ApprovalPolicy = request.MuxApprovalPolicy
+            };
+
+            captain.RuntimeOptionsJson = CaptainRuntimeOptions.Serialize(options);
+        }
+
+        private static void ApplyMuxOptions(Captain captain, CaptainUpdateArgs request, Captain? existingCaptain)
+        {
+            if (captain.Runtime != AgentRuntimeEnum.Mux)
+            {
+                captain.RuntimeOptionsJson = null;
+                return;
+            }
+
+            MuxCaptainOptions options = GetExistingMuxOptions(existingCaptain);
+
+            if (request.MuxConfigDirectory != null) options.ConfigDirectory = request.MuxConfigDirectory;
+            if (request.MuxEndpoint != null) options.Endpoint = request.MuxEndpoint;
+            if (request.MuxBaseUrl != null) options.BaseUrl = request.MuxBaseUrl;
+            if (request.MuxAdapterType != null) options.AdapterType = request.MuxAdapterType;
+            if (request.MuxTemperature.HasValue) options.Temperature = request.MuxTemperature;
+            if (request.MuxMaxTokens.HasValue) options.MaxTokens = request.MuxMaxTokens;
+            if (request.MuxSystemPromptPath != null) options.SystemPromptPath = request.MuxSystemPromptPath;
+            if (request.MuxApprovalPolicy != null) options.ApprovalPolicy = request.MuxApprovalPolicy;
+
+            captain.RuntimeOptionsJson = CaptainRuntimeOptions.Serialize(options);
+        }
+
+        private static MuxCaptainOptions GetExistingMuxOptions(Captain? captain)
+        {
+            if (captain == null || captain.Runtime != AgentRuntimeEnum.Mux || String.IsNullOrWhiteSpace(captain.RuntimeOptionsJson))
+            {
+                return new MuxCaptainOptions();
+            }
+
+            return CaptainRuntimeOptions.GetMuxOptions(captain)
+                ?? new MuxCaptainOptions();
         }
     }
 }

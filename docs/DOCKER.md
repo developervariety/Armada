@@ -46,19 +46,22 @@ curl -H "Authorization: Bearer default" http://localhost:7890/api/v1/status
 ## Architecture
 
 ```
-┌──────────────┐       ┌──────────────────┐
-│  Dashboard   │──────▶│  Armada Server   │
-│  (nginx:80)  │ :7890 │  (REST + WS)     │
-│  port 3000   │       │  ports 7890-7891  │
-└──────────────┘       └──────────────────┘
-                              │
-                       ┌──────┴──────┐
-                       │  SQLite DB  │
-                       │  /app/data/ │
-                       └─────────────┘
+┌──────────────────┐       ┌──────────────────┐
+│    Dashboard     │──────▶│  Armada Server   │
+│ Planning +       │ :7890 │  (REST + WS)     │
+│ Dispatch UI      │       │  ports 7890-7891 │
+│ port 3000        │       │                  │
+└──────────────────┘       └──────────────────┘
+                                │
+                         ┌──────┴──────┐
+                         │  SQLite DB  │
+                         │  /app/data/ │
+                         └─────────────┘
 ```
 
 The dashboard container serves the React SPA and proxies nothing — the browser makes API calls directly to the server on port 7890. The server container runs the .NET application with an embedded SQLite database.
+
+That dashboard includes the planning workflow as well as direct dispatch: you can chat with a captain inside the UI, keep the transcript, and hand the selected reply directly into dispatch without leaving the browser.
 
 ---
 

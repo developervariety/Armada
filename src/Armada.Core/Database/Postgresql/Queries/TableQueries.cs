@@ -115,6 +115,7 @@ namespace Armada.Core.Database.Postgresql.Queries
                         name TEXT NOT NULL,
                         runtime TEXT NOT NULL DEFAULT 'ClaudeCode',
                         system_instructions TEXT,
+                        runtime_options_json TEXT,
                         state TEXT NOT NULL DEFAULT 'Idle',
                         current_mission_id TEXT,
                         current_dock_id TEXT,
@@ -538,6 +539,9 @@ namespace Armada.Core.Database.Postgresql.Queries
                         FOREIGN KEY (playbook_id) REFERENCES playbooks(id) ON DELETE SET NULL
                     );",
                     @"CREATE INDEX IF NOT EXISTS idx_mission_playbook_snapshots_playbook ON mission_playbook_snapshots(playbook_id);"
+                ),
+                new SchemaMigration(29, "Add runtime_options_json to captains",
+                    @"ALTER TABLE captains ADD COLUMN IF NOT EXISTS runtime_options_json TEXT;"
                 )
             };
         }

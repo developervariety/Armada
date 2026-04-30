@@ -2,6 +2,7 @@ namespace Armada.Runtimes
 {
     using System.Diagnostics;
     using System.Text;
+    using Armada.Core.Models;
     using SyslogLogging;
     using Armada.Runtimes.Interfaces;
 
@@ -85,13 +86,14 @@ namespace Armada.Runtimes
             string? logFilePath = null,
             string? finalMessageFilePath = null,
             string? model = null,
+            Captain? captain = null,
             CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(workingDirectory)) throw new ArgumentNullException(nameof(workingDirectory));
             if (String.IsNullOrEmpty(prompt)) throw new ArgumentNullException(nameof(prompt));
 
             string command = GetCommand();
-            List<string> args = BuildArguments(prompt, model, finalMessageFilePath);
+            List<string> args = BuildArguments(workingDirectory, prompt, model, finalMessageFilePath, captain);
 
             ProcessStartInfo startInfo = new ProcessStartInfo
             {
@@ -267,7 +269,12 @@ namespace Armada.Runtimes
         /// <summary>
         /// Build runtime-specific command-line arguments.
         /// </summary>
-        protected abstract List<string> BuildArguments(string prompt, string? model, string? finalMessageFilePath);
+        protected abstract List<string> BuildArguments(
+            string workingDirectory,
+            string prompt,
+            string? model,
+            string? finalMessageFilePath,
+            Captain? captain);
 
         /// <summary>
         /// Check if a process is still running.

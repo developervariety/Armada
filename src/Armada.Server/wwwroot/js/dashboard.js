@@ -167,6 +167,9 @@ function dashboard() {
         modal: null,       // 'create-fleet', 'edit-fleet', 'create-vessel', etc.
         modalData: {},
         modalLoading: false,
+        muxEndpointOptions: [],
+        muxEndpointLoading: false,
+        muxEndpointError: '',
 
         // Viewer modal (reusable for logs, diffs, etc.)
         viewerModal: false,
@@ -1203,13 +1206,126 @@ function dashboard() {
         // ============================================================
         // Captain CRUD
         // ============================================================
+        buildMuxCaptainRuntimeOptions(modalData) {
+            if (!modalData || modalData.runtime !== 'Mux') return null;
+
+            return JSON.stringify({
+                schemaVersion: 1,
+                configDirectory: this.normalizeOptionalString(modalData.muxConfigDirectory),
+                endpoint: this.normalizeOptionalString(modalData.muxEndpoint),
+                baseUrl: this.normalizeOptionalString(modalData.muxBaseUrl),
+                adapterType: this.normalizeOptionalString(modalData.muxAdapterType),
+                temperature: this.parseOptionalNumber(modalData.muxTemperature),
+                maxTokens: this.parseOptionalInteger(modalData.muxMaxTokens),
+                systemPromptPath: this.normalizeOptionalString(modalData.muxSystemPromptPath),
+                approvalPolicy: this.normalizeOptionalString(modalData.muxApprovalPolicy)
+            });
+        },
+
+        parseMuxCaptainRuntimeOptions(runtimeOptionsJson) {
+            if (!runtimeOptionsJson) {
+                return {
+                    muxConfigDirectory: '',
+                    muxEndpoint: '',
+                    muxBaseUrl: '',
+                    muxAdapterType: '',
+                    muxTemperature: '',
+                    muxMaxTokens: '',
+                    muxSystemPromptPath: '',
+                    muxApprovalPolicy: ''
+                };
+            }
+
+            try {
+                let parsed = JSON.parse(runtimeOptionsJson);
+                return {
+                    muxConfigDirectory: parsed.configDirectory || '',
+                    muxEndpoint: parsed.endpoint || '',
+                    muxBaseUrl: parsed.baseUrl || '',
+                    muxAdapterType: parsed.adapterType || '',
+                    muxTemperature: parsed.temperature !== undefined && parsed.temperature !== null ? String(parsed.temperature) : '',
+                    muxMaxTokens: parsed.maxTokens !== undefined && parsed.maxTokens !== null ? String(parsed.maxTokens) : '',
+                    muxSystemPromptPath: parsed.systemPromptPath || '',
+                    muxApprovalPolicy: parsed.approvalPolicy || ''
+                };
+            } catch (_) {
+                return {
+                    muxConfigDirectory: '',
+                    muxEndpoint: '',
+                    muxBaseUrl: '',
+                    muxAdapterType: '',
+                    muxTemperature: '',
+                    muxMaxTokens: '',
+                    muxSystemPromptPath: '',
+                    muxApprovalPolicy: ''
+                };
+            }
+        },
+
+        normalizeOptionalString(value) {
+            if (typeof value !== 'string') return null;
+            let trimmed = value.trim();
+            return trimmed ? trimmed : null;
+        },
+
+        parseOptionalNumber(value) {
+            if (typeof value !== 'string') return null;
+            let trimmed = value.trim();
+            if (!trimmed) return null;
+            let parsed = Number(trimmed);
+            return Number.isFinite(parsed) ? parsed : null;
+        },
+
+        parseOptionalInteger(value) {
+            if (typeof value !== 'string') return null;
+            let trimmed = value.trim();
+            if (!trimmed) return null;
+            let parsed = parseInt(trimmed, 10);
+            return Number.isFinite(parsed) ? parsed : null;
+        },
+
+        async loadMuxEndpoints(configDirectory) {
+            let runtime = this.modalData?.runtime || 'ClaudeCode';
+            if (runtime !== 'Mux') {
+                this.muxEndpointOptions = [];
+                this.muxEndpointError = '';
+                this.muxEndpointLoading = false;
+                return;
+            }
+
+            this.muxEndpointLoading = true;
+            this.muxEndpointError = '';
+
+            try {
+                let query = '';
+                let normalizedConfigDirectory = typeof configDirectory === 'string'
+                    ? configDirectory.trim()
+                    : (this.modalData?.muxConfigDirectory || '').trim();
+                if (normalizedConfigDirectory) {
+                    query = '?configDirectory=' + encodeURIComponent(normalizedConfigDirectory);
+                }
+
+                let result = await this.api('GET', '/api/v1/runtimes/mux/endpoints' + query);
+                this.muxEndpointOptions = Array.isArray(result.endpoints) ? result.endpoints : [];
+            } catch (e) {
+                this.muxEndpointOptions = [];
+                this.muxEndpointError = e.message || 'Failed to load Mux endpoints.';
+            } finally {
+                this.muxEndpointLoading = false;
+            }
+        },
+
         async addCaptain() {
             this.modalLoading = true;
             try {
+                if (this.modalData.runtime === 'Mux' && !(this.modalData.muxEndpoint || '').trim()) {
+                    throw new Error('Mux captains require a named Mux endpoint.');
+                }
                 let captain = await this.api('POST', '/api/v1/captains', {
                     name: this.modalData.name,
                     runtime: this.modalData.runtime || 'ClaudeCode',
-                    model: this.modalData.model && this.modalData.model.trim() ? this.modalData.model.trim() : null
+                    model: this.modalData.model && this.modalData.model.trim() ? this.modalData.model.trim() : null,
+                    runtimeOptionsJson: this.buildMuxCaptainRuntimeOptions(this.modalData)
                 });
                 this.toast('Captain added: ' + captain.name);
                 this.modal = null;
@@ -1221,10 +1337,14 @@ function dashboard() {
         async saveCaptainEdit() {
             this.modalLoading = true;
             try {
+                if (this.modalData.runtime === 'Mux' && !(this.modalData.muxEndpoint || '').trim()) {
+                    throw new Error('Mux captains require a named Mux endpoint.');
+                }
                 await this.api('PUT', '/api/v1/captains/' + this.modalData.id, {
                     name: this.modalData.name,
                     runtime: this.modalData.runtime,
-                    model: this.modalData.model && this.modalData.model.trim() ? this.modalData.model.trim() : null
+                    model: this.modalData.model && this.modalData.model.trim() ? this.modalData.model.trim() : null,
+                    runtimeOptionsJson: this.buildMuxCaptainRuntimeOptions(this.modalData)
                 });
                 this.toast('Captain updated');
                 this.modal = null;
@@ -1599,8 +1719,38 @@ function dashboard() {
         openEditFleet(f) { this.modal = 'edit-fleet'; this.modalData = { id: f.id, name: f.name, description: f.description || '' }; },
         openCreateVessel(fleetId) { this.modal = 'create-vessel'; this.modalData = { name: '', repoUrl: '', defaultBranch: 'main', fleetId: fleetId || '', localPath: '', workingDirectory: '', projectContext: '', styleGuide: '' }; },
         openEditVessel(v) { this.modal = 'edit-vessel'; this.modalData = { id: v.id, name: v.name, repoUrl: v.repoUrl || '', defaultBranch: v.defaultBranch || 'main', fleetId: v.fleetId || '', localPath: v.localPath || '', workingDirectory: v.workingDirectory || '', projectContext: v.projectContext || '', styleGuide: v.styleGuide || '' }; },
-        openAddCaptain() { this.modal = 'add-captain'; this.modalData = { name: '', runtime: 'ClaudeCode', model: '' }; },
-        openEditCaptain(c) { this.modal = 'edit-captain'; this.modalData = { id: c.id, name: c.name, runtime: c.runtime || 'ClaudeCode', model: c.model || '' }; },
+        openAddCaptain() {
+            this.modal = 'add-captain';
+            this.modalData = {
+                name: '',
+                runtime: 'ClaudeCode',
+                model: '',
+                muxConfigDirectory: '',
+                muxEndpoint: '',
+                muxBaseUrl: '',
+                muxAdapterType: '',
+                muxTemperature: '',
+                muxMaxTokens: '',
+                muxSystemPromptPath: '',
+                muxApprovalPolicy: ''
+            };
+            this.muxEndpointOptions = [];
+            this.muxEndpointError = '';
+            this.loadMuxEndpoints();
+        },
+        openEditCaptain(c) {
+            this.modal = 'edit-captain';
+            this.modalData = {
+                id: c.id,
+                name: c.name,
+                runtime: c.runtime || 'ClaudeCode',
+                model: c.model || '',
+                ...this.parseMuxCaptainRuntimeOptions(c.runtimeOptionsJson)
+            };
+            this.muxEndpointOptions = [];
+            this.muxEndpointError = '';
+            this.loadMuxEndpoints(this.modalData.muxConfigDirectory);
+        },
         openEditMission(m) { this.modal = 'edit-mission'; this.modalData = { id: m.id, title: m.title, description: m.description || '', priority: m.priority || 100, vesselId: m.vesselId || '', voyageId: m.voyageId || '' }; },
         openCreateVoyage() { this.modal = 'create-voyage'; this.voyageForm = { title: '', description: '', vesselId: '', missions: [{ title: '', description: '' }] }; },
         openSendSignal() { this.modal = 'send-signal'; this.modalData = { type: 'Nudge', payload: '', fromCaptainId: '', toCaptainId: '' }; },

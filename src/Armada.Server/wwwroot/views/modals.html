@@ -106,11 +106,12 @@
                 <div class="form-group"><label>Name</label><input type="text" x-model="modalData.name" required autofocus title="A unique name for this captain agent"></div>
                 <div class="form-group">
                     <label>Runtime</label>
-                    <select x-model="modalData.runtime" title="The AI agent runtime this captain will use">
+                    <select x-model="modalData.runtime" @change="if (modalData.runtime === 'Mux') { loadMuxEndpoints(modalData.muxConfigDirectory); } else { muxEndpointOptions = []; muxEndpointError = ''; }" title="The AI agent runtime this captain will use">
                         <option value="ClaudeCode">Claude Code</option>
                         <option value="Codex">Codex</option>
                         <option value="Gemini">Gemini</option>
                         <option value="Cursor">Cursor</option>
+                        <option value="Mux">Mux</option>
                         <option value="Custom">Custom</option>
                     </select>
                 </div>
@@ -118,6 +119,48 @@
                     <label>Model</label>
                     <input type="text" x-model="modalData.model" placeholder="e.g. gpt-5.4-mini" title="Optional model identifier. Leave blank to let the runtime choose its default model.">
                 </div>
+                <template x-if="modalData.runtime === 'Mux'">
+                    <div>
+                        <div class="form-group">
+                            <label>Mux Config Directory</label>
+                            <input type="text" x-model="modalData.muxConfigDirectory" @change="loadMuxEndpoints(modalData.muxConfigDirectory)" placeholder="Optional path to the mux config directory" title="Optional mux config directory override">
+                        </div>
+                        <div class="form-group">
+                            <label>Mux Endpoint</label>
+                            <input type="text" x-model="modalData.muxEndpoint" list="legacy-mux-endpoint-options-add" required placeholder="Required named mux endpoint" title="Named mux endpoint for this captain">
+                            <datalist id="legacy-mux-endpoint-options-add">
+                                <template x-for="endpoint in muxEndpointOptions" :key="endpoint.name">
+                                    <option :value="endpoint.name"></option>
+                                </template>
+                            </datalist>
+                            <div class="form-help" x-show="muxEndpointLoading">Loading saved Mux endpoints...</div>
+                            <div class="form-help" x-show="!muxEndpointLoading && !muxEndpointError && muxEndpointOptions.length > 0" x-text="muxEndpointOptions.length + ' saved Mux endpoint(s) available.'"></div>
+                            <div class="form-help" x-show="!muxEndpointLoading && !muxEndpointError && muxEndpointOptions.length === 0">No saved Mux endpoints were found for this config directory.</div>
+                            <div class="form-help text-danger" x-show="muxEndpointError" x-text="muxEndpointError"></div>
+                            <div class="modal-actions" style="justify-content: flex-start; padding-top: 0.5rem;">
+                                <button type="button" class="btn btn-sm" @click="loadMuxEndpoints(modalData.muxConfigDirectory)" :disabled="muxEndpointLoading" x-text="muxEndpointLoading ? 'Refreshing...' : 'Refresh Mux Endpoints'"></button>
+                            </div>
+                        </div>
+                        <details>
+                            <summary>Advanced Mux Overrides</summary>
+                            <div class="form-group"><label>Mux Base URL</label><input type="text" x-model="modalData.muxBaseUrl" placeholder="Optional base URL override"></div>
+                            <div class="form-group"><label>Mux Adapter Type</label><input type="text" x-model="modalData.muxAdapterType" placeholder="Optional adapter type override"></div>
+                            <div class="form-group"><label>Mux Temperature</label><input type="text" x-model="modalData.muxTemperature" placeholder="Optional number"></div>
+                            <div class="form-group"><label>Mux Max Tokens</label><input type="text" x-model="modalData.muxMaxTokens" placeholder="Optional integer"></div>
+                            <div class="form-group"><label>Mux System Prompt Path</label><input type="text" x-model="modalData.muxSystemPromptPath" placeholder="Optional prompt file path"></div>
+                            <div class="form-group">
+                                <label>Mux Approval Policy</label>
+                                <select x-model="modalData.muxApprovalPolicy">
+                                    <option value="">Default (auto)</option>
+                                    <option value="auto">auto</option>
+                                    <option value="autoapprove">autoapprove</option>
+                                    <option value="deny">deny</option>
+                                    <option value="ask">ask</option>
+                                </select>
+                            </div>
+                        </details>
+                    </div>
+                </template>
                 <div class="modal-actions">
                     <button type="button" class="btn btn-sm" @click="modal = null" title="Cancel without adding">Cancel</button>
                     <button type="submit" class="btn btn-primary btn-sm" :disabled="modalLoading" title="Register the captain">Add</button>
@@ -132,11 +175,12 @@
                 <div class="form-group"><label>Name</label><input type="text" x-model="modalData.name" required autofocus title="Captain name"></div>
                 <div class="form-group">
                     <label>Runtime</label>
-                    <select x-model="modalData.runtime" title="The AI agent runtime this captain uses">
+                    <select x-model="modalData.runtime" @change="if (modalData.runtime === 'Mux') { loadMuxEndpoints(modalData.muxConfigDirectory); } else { muxEndpointOptions = []; muxEndpointError = ''; }" title="The AI agent runtime this captain uses">
                         <option value="ClaudeCode">Claude Code</option>
                         <option value="Codex">Codex</option>
                         <option value="Gemini">Gemini</option>
                         <option value="Cursor">Cursor</option>
+                        <option value="Mux">Mux</option>
                         <option value="Custom">Custom</option>
                     </select>
                 </div>
@@ -144,6 +188,48 @@
                     <label>Model</label>
                     <input type="text" x-model="modalData.model" placeholder="e.g. gpt-5.4-mini" title="Optional model identifier. Leave blank to let the runtime choose its default model.">
                 </div>
+                <template x-if="modalData.runtime === 'Mux'">
+                    <div>
+                        <div class="form-group">
+                            <label>Mux Config Directory</label>
+                            <input type="text" x-model="modalData.muxConfigDirectory" @change="loadMuxEndpoints(modalData.muxConfigDirectory)" placeholder="Optional path to the mux config directory" title="Optional mux config directory override">
+                        </div>
+                        <div class="form-group">
+                            <label>Mux Endpoint</label>
+                            <input type="text" x-model="modalData.muxEndpoint" list="legacy-mux-endpoint-options-edit" required placeholder="Required named mux endpoint" title="Named mux endpoint for this captain">
+                            <datalist id="legacy-mux-endpoint-options-edit">
+                                <template x-for="endpoint in muxEndpointOptions" :key="endpoint.name">
+                                    <option :value="endpoint.name"></option>
+                                </template>
+                            </datalist>
+                            <div class="form-help" x-show="muxEndpointLoading">Loading saved Mux endpoints...</div>
+                            <div class="form-help" x-show="!muxEndpointLoading && !muxEndpointError && muxEndpointOptions.length > 0" x-text="muxEndpointOptions.length + ' saved Mux endpoint(s) available.'"></div>
+                            <div class="form-help" x-show="!muxEndpointLoading && !muxEndpointError && muxEndpointOptions.length === 0">No saved Mux endpoints were found for this config directory.</div>
+                            <div class="form-help text-danger" x-show="muxEndpointError" x-text="muxEndpointError"></div>
+                            <div class="modal-actions" style="justify-content: flex-start; padding-top: 0.5rem;">
+                                <button type="button" class="btn btn-sm" @click="loadMuxEndpoints(modalData.muxConfigDirectory)" :disabled="muxEndpointLoading" x-text="muxEndpointLoading ? 'Refreshing...' : 'Refresh Mux Endpoints'"></button>
+                            </div>
+                        </div>
+                        <details>
+                            <summary>Advanced Mux Overrides</summary>
+                            <div class="form-group"><label>Mux Base URL</label><input type="text" x-model="modalData.muxBaseUrl" placeholder="Optional base URL override"></div>
+                            <div class="form-group"><label>Mux Adapter Type</label><input type="text" x-model="modalData.muxAdapterType" placeholder="Optional adapter type override"></div>
+                            <div class="form-group"><label>Mux Temperature</label><input type="text" x-model="modalData.muxTemperature" placeholder="Optional number"></div>
+                            <div class="form-group"><label>Mux Max Tokens</label><input type="text" x-model="modalData.muxMaxTokens" placeholder="Optional integer"></div>
+                            <div class="form-group"><label>Mux System Prompt Path</label><input type="text" x-model="modalData.muxSystemPromptPath" placeholder="Optional prompt file path"></div>
+                            <div class="form-group">
+                                <label>Mux Approval Policy</label>
+                                <select x-model="modalData.muxApprovalPolicy">
+                                    <option value="">Default (auto)</option>
+                                    <option value="auto">auto</option>
+                                    <option value="autoapprove">autoapprove</option>
+                                    <option value="deny">deny</option>
+                                    <option value="ask">ask</option>
+                                </select>
+                            </div>
+                        </details>
+                    </div>
+                </template>
                 <div class="modal-actions">
                     <button type="button" class="btn btn-sm" @click="modal = null" title="Cancel without saving">Cancel</button>
                     <button type="submit" class="btn btn-primary btn-sm" :disabled="modalLoading" title="Save changes">Save</button>

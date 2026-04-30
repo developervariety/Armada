@@ -220,6 +220,7 @@ namespace Armada.Server
                 openApi.Tags.Add(new OpenApiTag { Name = "Captains", Description = "Captain (AI agent) management" });
                 openApi.Tags.Add(new OpenApiTag { Name = "Signals", Description = "Signal (inter-agent messaging) management" });
                 openApi.Tags.Add(new OpenApiTag { Name = "Events", Description = "System event log" });
+                openApi.Tags.Add(new OpenApiTag { Name = "Runtimes", Description = "Runtime-specific integration helpers and discovery" });
                 openApi.Tags.Add(new OpenApiTag { Name = "MergeQueue", Description = "Bors-style merge queue with batch testing" });
                 openApi.Tags.Add(new OpenApiTag { Name = "Authentication", Description = "Authentication and identity" });
                 openApi.Tags.Add(new OpenApiTag { Name = "Tenants", Description = "Multi-tenant management" });
@@ -431,6 +432,10 @@ namespace Armada.Server
 
             // Captains
             new CaptainRoutes(_Database, _Admiral, _Settings, _RuntimeFactory, _AgentLifecycle, EmitEventAsync, _JsonOptions, _PlanningSessions)
+                .Register(_App, authenticate, _AuthorizationService);
+
+            // Runtime helpers
+            new RuntimeRoutes(_Logging)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Planning sessions

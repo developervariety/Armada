@@ -1,5 +1,7 @@
 namespace Armada.Runtimes.Interfaces
 {
+    using Armada.Core.Models;
+
     /// <summary>
     /// Interface for agent runtime adapters.
     /// </summary>
@@ -57,6 +59,7 @@ namespace Armada.Runtimes.Interfaces
             string? logFilePath = null,
             string? finalMessageFilePath = null,
             string? model = null,
+            Captain? captain = null,
             CancellationToken token = default);
 
         /// <summary>

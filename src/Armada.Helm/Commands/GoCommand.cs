@@ -144,6 +144,11 @@ namespace Armada.Helm.Commands
             {
                 int captainNumber = currentCaptainCount + i + 1;
                 string runtimeValue = armadaSettings.DefaultRuntime ?? "ClaudeCode";
+                if (String.Equals(runtimeValue, "Mux", StringComparison.OrdinalIgnoreCase))
+                {
+                    AnsiConsole.MarkupLine("[yellow]Skipping automatic Mux captain creation during auto-scale because a named endpoint is required.[/]");
+                    break;
+                }
 
                 try
                 {

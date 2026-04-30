@@ -121,7 +121,7 @@ namespace Armada.Server.Routes
             if (File.Exists(path))
                 return (fileName, path);
 
-            string[] fallbackNames = { "CLAUDE.md", "CODEX.md", "CURSOR.md", "AGENTS.md", "GEMINI.md" };
+            string[] fallbackNames = { "CLAUDE.md", "CODEX.md", "CURSOR.md", "AGENTS.md", "GEMINI.md", "MUX.md" };
             foreach (string fallbackName in fallbackNames)
             {
                 string fallbackPath = Path.Combine(dock.WorktreePath, fallbackName);
@@ -916,7 +916,7 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("Missions")
                 .WithSummary("Get mission instructions")
-                .WithDescription("Returns the runtime-specific instruction file generated for a mission, such as CLAUDE.md, CODEX.md, CURSOR.md, AGENTS.md, or GEMINI.md.")
+                .WithDescription("Returns the runtime-specific instruction file generated for a mission, such as CLAUDE.md, CODEX.md, CURSOR.md, AGENTS.md, GEMINI.md, or MUX.md.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Mission ID (msn_ prefix)"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
