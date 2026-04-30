@@ -1,6 +1,7 @@
 namespace Armada.Core.Services
 {
     using System.Diagnostics;
+    using System.Text.Json;
     using SyslogLogging;
     using Armada.Core.Database;
     using Armada.Core.Enums;
@@ -25,6 +26,7 @@ namespace Armada.Core.Services
         private DatabaseDriver _Database;
         private ArmadaSettings _Settings;
         private IGitService _Git;
+        private IMergeFailureClassifier _Classifier;
         private Func<PullRequestPlatform, string, IPullRequestService>? _PullRequestServiceFactory;
 
         private bool _Processing = false;
@@ -41,6 +43,8 @@ namespace Armada.Core.Services
         /// <param name="database">Database driver.</param>
         /// <param name="settings">Application settings.</param>
         /// <param name="git">Git service.</param>
+        /// <param name="classifier">Pure classifier invoked at fail-time to populate
+        /// the merge entry's failure-class fields before the Failed status is persisted.</param>
         /// <param name="pullRequestServiceFactory">Optional factory that returns the right
         /// <see cref="IPullRequestService"/> for a (platform, working-directory) pair. When
         /// non-null, entries flagged with <c>AuditCriticalTrigger</c> are routed to PR fallback
@@ -50,12 +54,14 @@ namespace Armada.Core.Services
             DatabaseDriver database,
             ArmadaSettings settings,
             IGitService git,
+            IMergeFailureClassifier classifier,
             Func<PullRequestPlatform, string, IPullRequestService>? pullRequestServiceFactory = null)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _Git = git ?? throw new ArgumentNullException(nameof(git));
+            _Classifier = classifier ?? throw new ArgumentNullException(nameof(classifier));
             _PullRequestServiceFactory = pullRequestServiceFactory;
         }
 
@@ -451,10 +457,26 @@ namespace Armada.Core.Services
                 await _Git.CreateWorktreeAsync(repoPath, integrationPath, integrationBranch, entry.TargetBranch, token).ConfigureAwait(false);
 
                 // Merge the entry's branch
-                bool mergeOk = await MergeBranchAsync(integrationPath, entry.BranchName, token).ConfigureAwait(false);
-                if (!mergeOk)
+                MergeAttemptResult mergeAttempt = await MergeBranchAsync(integrationPath, entry.BranchName, token).ConfigureAwait(false);
+                if (!mergeAttempt.Ok)
                 {
                     _Logging.Warn(_Header + "merge conflict for " + entryTag);
+
+                    // Build classification context BEFORE setting Failed so the recovery
+                    // handler can read populated classification fields when the status
+                    // event fires.
+                    List<string> conflictedFiles = await CollectConflictedFilesAsync(integrationPath, token).ConfigureAwait(false);
+                    int diffLineCount = await ComputeDiffLineCountAsync(integrationPath, entry.TargetBranch, entry.BranchName, token).ConfigureAwait(false);
+                    MergeFailureContext mergeContext = new MergeFailureContext
+                    {
+                        GitExitCode = mergeAttempt.GitExitCode,
+                        GitStandardOutput = mergeAttempt.StandardOutput,
+                        GitStandardError = mergeAttempt.StandardError,
+                        ConflictedFiles = conflictedFiles,
+                        DiffLineCount = diffLineCount
+                    };
+                    ApplyClassification(entry, mergeContext);
+
                     entry.Status = MergeStatusEnum.Failed;
                     entry.TestOutput = "Merge conflict with " + entry.TargetBranch;
                     entry.CompletedUtc = DateTime.UtcNow;
@@ -472,6 +494,20 @@ namespace Armada.Core.Services
                     if (testResult.ExitCode != 0)
                     {
                         _Logging.Warn(_Header + "tests FAILED for " + entryTag + " (exit " + testResult.ExitCode + ")");
+
+                        int diffLineCount = await ComputeDiffLineCountAsync(integrationPath, entry.TargetBranch, entry.BranchName, token).ConfigureAwait(false);
+                        MergeFailureContext testContext = new MergeFailureContext
+                        {
+                            GitExitCode = mergeAttempt.GitExitCode,
+                            GitStandardOutput = mergeAttempt.StandardOutput,
+                            GitStandardError = mergeAttempt.StandardError,
+                            TestExitCode = testResult.ExitCode,
+                            TestOutput = testResult.Output,
+                            ConflictedFiles = new List<string>(),
+                            DiffLineCount = diffLineCount
+                        };
+                        ApplyClassification(entry, testContext);
+
                         entry.Status = MergeStatusEnum.Failed;
                         entry.TestExitCode = testResult.ExitCode;
                         entry.TestOutput = TruncateOutput(testResult.Output);
@@ -882,19 +918,113 @@ namespace Armada.Core.Services
             }
         }
 
-        private async Task<bool> MergeBranchAsync(string worktreePath, string branchName, CancellationToken token)
+        private async Task<MergeAttemptResult> MergeBranchAsync(string worktreePath, string branchName, CancellationToken token)
+        {
+            GitProcessResult mergeResult = await RunGitCapturingAsync(worktreePath, token, "merge", "--no-ff", branchName).ConfigureAwait(false);
+            if (mergeResult.ExitCode == 0)
+            {
+                return new MergeAttemptResult(true, mergeResult.ExitCode, mergeResult.StandardOutput, mergeResult.StandardError);
+            }
+
+            // Abort the failed merge so the worktree is in a clean state for cleanup.
+            try { await RunGitCapturingAsync(worktreePath, token, "merge", "--abort").ConfigureAwait(false); }
+            catch { }
+            return new MergeAttemptResult(false, mergeResult.ExitCode, mergeResult.StandardOutput, mergeResult.StandardError);
+        }
+
+        /// <summary>
+        /// Capture conflicted-file paths reported by git after a failed merge. Returns an
+        /// empty list when git reports nothing or the call fails. Best-effort -- the
+        /// classifier degrades gracefully when the list is empty.
+        /// </summary>
+        private async Task<List<string>> CollectConflictedFilesAsync(string worktreePath, CancellationToken token)
+        {
+            List<string> results = new List<string>();
+            try
+            {
+                GitProcessResult diff = await RunGitCapturingAsync(worktreePath, token, "diff", "--name-only", "--diff-filter=U").ConfigureAwait(false);
+                if (String.IsNullOrEmpty(diff.StandardOutput)) return results;
+                string[] lines = diff.StandardOutput.Split(new char[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
+                foreach (string line in lines)
+                {
+                    string trimmed = line.Trim();
+                    if (!String.IsNullOrEmpty(trimmed)) results.Add(trimmed);
+                }
+            }
+            catch { }
+            return results;
+        }
+
+        /// <summary>
+        /// Compute the total changed line count in the captain branch's diff against the
+        /// target branch, parsed from <c>git diff --shortstat</c> output. Returns 0 on
+        /// any failure -- the router's triviality heuristic treats 0 as "unknown size".
+        /// </summary>
+        private async Task<int> ComputeDiffLineCountAsync(string worktreePath, string targetBranch, string captainBranch, CancellationToken token)
         {
             try
             {
-                await RunGitAsync(worktreePath, token, "merge", "--no-ff", branchName).ConfigureAwait(false);
-                return true;
+                GitProcessResult shortstat = await RunGitCapturingAsync(worktreePath, token, "diff", "--shortstat", targetBranch + "..." + captainBranch).ConfigureAwait(false);
+                return ParseShortstatLineCount(shortstat.StandardOutput);
             }
             catch
             {
-                // Abort the failed merge
-                try { await RunGitAsync(worktreePath, token, "merge", "--abort").ConfigureAwait(false); }
-                catch { }
-                return false;
+                return 0;
+            }
+        }
+
+        private static int ParseShortstatLineCount(string? shortstat)
+        {
+            if (String.IsNullOrEmpty(shortstat)) return 0;
+            int total = 0;
+            int idx = 0;
+            while (idx < shortstat.Length)
+            {
+                int digitStart = -1;
+                while (idx < shortstat.Length && !Char.IsDigit(shortstat[idx])) idx++;
+                if (idx >= shortstat.Length) break;
+                digitStart = idx;
+                while (idx < shortstat.Length && Char.IsDigit(shortstat[idx])) idx++;
+                if (digitStart >= 0 && idx > digitStart)
+                {
+                    int n;
+                    if (Int32.TryParse(shortstat.Substring(digitStart, idx - digitStart), out n))
+                    {
+                        // Skip whitespace, then peek the unit token.
+                        int after = idx;
+                        while (after < shortstat.Length && shortstat[after] == ' ') after++;
+                        if (after < shortstat.Length)
+                        {
+                            char tag = shortstat[after];
+                            if (tag == 'i' || tag == 'd') total += n;
+                        }
+                    }
+                }
+            }
+            return total;
+        }
+
+        /// <summary>
+        /// Run the classifier on <paramref name="context"/> and write its result onto
+        /// the merge entry. MUST be called BEFORE setting <c>entry.Status = Failed</c>
+        /// so the auto-recovery handler can read a populated classification when the
+        /// status-change event fires. Best-effort: a classifier exception leaves the
+        /// merge entry's classification fields null and lets the failure persist.
+        /// </summary>
+        private void ApplyClassification(MergeEntry entry, MergeFailureContext context)
+        {
+            try
+            {
+                MergeFailureClassification classification = _Classifier.Classify(context);
+                entry.MergeFailureClass = classification.FailureClass;
+                entry.ConflictedFiles = JsonSerializer.Serialize(classification.ConflictedFiles);
+                entry.MergeFailureSummary = classification.Summary;
+                entry.DiffLineCount = context.DiffLineCount;
+                _Logging.Info(_Header + "classified " + entry.Id + " as " + classification.FailureClass + ": " + classification.Summary);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "classifier threw for " + entry.Id + ": " + ex.Message);
             }
         }
 
@@ -962,6 +1092,46 @@ namespace Armada.Core.Services
                 }
             }
         }
+
+        /// <summary>
+        /// Run git and capture exit code, stdout, and stderr without throwing on
+        /// non-zero exit. Used by the merge-attempt path so the classifier sees
+        /// the raw failure signal instead of a wrapped exception message.
+        /// </summary>
+        private async Task<GitProcessResult> RunGitCapturingAsync(string workingDir, CancellationToken token, params string[] args)
+        {
+            ProcessStartInfo startInfo = new ProcessStartInfo
+            {
+                FileName = "git",
+                WorkingDirectory = workingDir,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+
+            foreach (string arg in args)
+            {
+                startInfo.ArgumentList.Add(arg);
+            }
+
+            using (Process process = new Process { StartInfo = startInfo })
+            {
+                process.Start();
+
+                Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync();
+                Task<string> stderrTask = process.StandardError.ReadToEndAsync();
+                await process.WaitForExitAsync(token).ConfigureAwait(false);
+                string stdout = await stdoutTask.ConfigureAwait(false);
+                string stderr = await stderrTask.ConfigureAwait(false);
+
+                return new GitProcessResult(process.ExitCode, stdout, stderr);
+            }
+        }
+
+        private sealed record GitProcessResult(int ExitCode, string StandardOutput, string StandardError);
+
+        private sealed record MergeAttemptResult(bool Ok, int GitExitCode, string StandardOutput, string StandardError);
 
         private async Task CleanupWorktreeAsync(string worktreePath, CancellationToken token)
         {

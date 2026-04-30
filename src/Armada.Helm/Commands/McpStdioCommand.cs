@@ -9,6 +9,7 @@ namespace Armada.Helm.Commands
     using Voltaic;
     using Armada.Core;
     using Armada.Core.Database;
+    using Armada.Core.Recovery;
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
@@ -70,7 +71,8 @@ namespace Armada.Helm.Commands
 
             // Register all Armada tools
             IGitService gitService = git;
-            IMergeQueueService mergeQueueService = new MergeQueueService(logging, database, armadaSettings, git);
+            IMergeFailureClassifier mergeFailureClassifier = new MergeFailureClassifier();
+            IMergeQueueService mergeQueueService = new MergeQueueService(logging, database, armadaSettings, git, mergeFailureClassifier);
             LandingService landingService = new LandingService(logging, database, armadaSettings, git);
             McpToolRegistrar.RegisterAll(mcpServer.RegisterTool, database, admiral, armadaSettings, gitService, mergeQueueService, dockService, landingService, agentLifecycle: agentLifecycle, templateService: promptTemplateService);
 

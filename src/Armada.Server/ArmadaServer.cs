@@ -12,6 +12,7 @@ namespace Armada.Server
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Recovery;
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
@@ -146,7 +147,8 @@ namespace Armada.Server
                     _ => throw new NotSupportedException("Unsupported PR platform: " + platform)
                 };
             };
-            _MergeQueue = new MergeQueueService(_Logging, _Database, _Settings, _Git, prServiceFactory);
+            IMergeFailureClassifier mergeFailureClassifier = new MergeFailureClassifier();
+            _MergeQueue = new MergeQueueService(_Logging, _Database, _Settings, _Git, mergeFailureClassifier, prServiceFactory);
             _AutoLandEvaluator = new AutoLandEvaluator();
             _ConventionChecker = new ConventionChecker();
             _CriticalTriggerEvaluator = new CriticalTriggerEvaluator();

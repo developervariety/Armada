@@ -4,6 +4,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Recovery;
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
@@ -143,7 +144,7 @@ namespace Armada.Test.Unit.Suites.Services
                         entry.LastUpdateUtc = DateTime.UtcNow;
                         await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
 
-                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git);
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
                         await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false);
 
                         MergeEntry? updated = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
@@ -193,7 +194,7 @@ namespace Armada.Test.Unit.Suites.Services
                         entry.LastUpdateUtc = DateTime.UtcNow;
                         await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
 
-                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git);
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
                         await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false);
 
                         MergeEntry? updated = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
@@ -243,7 +244,7 @@ namespace Armada.Test.Unit.Suites.Services
                         entry.LastUpdateUtc = DateTime.UtcNow;
                         await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
 
-                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git);
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
                         await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false);
 
                         MergeEntry? updated = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
@@ -292,7 +293,7 @@ namespace Armada.Test.Unit.Suites.Services
                         entry.LastUpdateUtc = DateTime.UtcNow;
                         await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
 
-                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git);
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
                         await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false);
 
                         MergeEntry? updated = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);

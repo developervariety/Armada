@@ -876,6 +876,14 @@ namespace Armada.Core.Database.Sqlite.Queries
                     @"ALTER TABLE voyages ADD COLUMN source_planning_session_id TEXT;",
                     @"ALTER TABLE voyages ADD COLUMN source_planning_message_id TEXT;",
                     @"CREATE INDEX IF NOT EXISTS idx_voyages_source_planning_session ON voyages(source_planning_session_id);"
+                ),
+                new SchemaMigration(38, "Add merge failure classification columns and mission recovery attempts",
+                    @"ALTER TABLE merge_entries ADD COLUMN merge_failure_class TEXT;",
+                    @"ALTER TABLE merge_entries ADD COLUMN conflicted_files TEXT;",
+                    @"ALTER TABLE merge_entries ADD COLUMN merge_failure_summary TEXT;",
+                    @"ALTER TABLE merge_entries ADD COLUMN diff_line_count INTEGER NOT NULL DEFAULT 0;",
+                    @"ALTER TABLE missions ADD COLUMN recovery_attempts INTEGER NOT NULL DEFAULT 0;",
+                    @"ALTER TABLE missions ADD COLUMN last_recovery_action_utc TEXT;"
                 )
             };
         }

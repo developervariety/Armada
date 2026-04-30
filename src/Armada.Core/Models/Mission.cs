@@ -218,6 +218,19 @@ namespace Armada.Core.Models
         /// </summary>
         public DateTime LastUpdateUtc { get; set; } = DateTime.UtcNow;
 
+        /// <summary>
+        /// Number of times the auto-recovery handler has acted on a Failed merge-queue
+        /// entry produced by this mission. Bounded by the auto-recovery handler at 2
+        /// before surfacing.
+        /// </summary>
+        public int RecoveryAttempts { get; set; } = 0;
+
+        /// <summary>
+        /// Timestamp of the most recent auto-recovery action (redispatch, rebase-captain,
+        /// or surface) recorded for this mission. Null when no recovery has run.
+        /// </summary>
+        public DateTime? LastRecoveryActionUtc { get; set; } = null;
+
         #endregion
 
         #region Private-Members

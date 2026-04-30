@@ -5,6 +5,7 @@ namespace Armada.Test.Unit.Suites.Services
     using SyslogLogging;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Recovery;
     using Armada.Core.Services;
     using Armada.Core.Settings;
     using Armada.Test.Common;
@@ -110,7 +111,7 @@ namespace Armada.Test.Unit.Suites.Services
                     logging.Settings.EnableConsole = false;
                     ArmadaSettings settings = new ArmadaSettings();
                     StubGitService git = new StubGitService();
-                    MergeQueueService mergeQueue = new MergeQueueService(logging, testDb.Driver, settings, git);
+                    MergeQueueService mergeQueue = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
 
                     Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
                         new Vessel("pr-reconcile-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
