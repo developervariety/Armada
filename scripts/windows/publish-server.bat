@@ -3,13 +3,15 @@ setlocal
 
 set "SCRIPT_DIR=%~dp0"
 if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
+call "%SCRIPT_DIR%\resolve-framework.bat" %*
+if errorlevel 1 exit /b 1
 for %%I in ("%SCRIPT_DIR%\..\..") do set "REPO_ROOT=%%~fI"
 set "PUBLISH_DIR=%USERPROFILE%\.armada\bin"
 set "SERVER_EXE=%PUBLISH_DIR%\Armada.Server.exe"
 
 echo.
-echo [publish-server] Publishing Armada.Server to %PUBLISH_DIR%...
-dotnet publish "%REPO_ROOT%\src\Armada.Server" -c Release -f net10.0 -o "%PUBLISH_DIR%"
+echo [publish-server] Publishing Armada.Server for %ARMADA_TARGET_FRAMEWORK% to %PUBLISH_DIR%...
+dotnet publish "%REPO_ROOT%\src\Armada.Server" -c Release -f %ARMADA_TARGET_FRAMEWORK% -o "%PUBLISH_DIR%"
 if errorlevel 1 exit /b 1
 
 echo.

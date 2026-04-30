@@ -44,13 +44,45 @@ namespace Armada.Test.Unit.Suites.Services
                 string installMcpShContents = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "scripts", "common", "install-mcp.sh"));
                 string removeMcpBatContents = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "scripts", "windows", "remove-mcp.bat"));
                 string removeMcpShContents = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "scripts", "common", "remove-mcp.sh"));
+                string resolveFrameworkBatContents = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "scripts", "windows", "resolve-framework.bat"));
 
                 AssertContains("private const string SourceMcpFramework = \"net10.0\";", mcpConfigHelperContents, "McpConfigHelper should pin source MCP installs to net10.0");
                 AssertFalse(mcpConfigHelperContents.Contains("\"net8.0\""), "McpConfigHelper should not pin source MCP installs to net8.0");
-                AssertContains("-f net10.0 -- mcp install --yes", installMcpBatContents, "install-mcp.bat should use net10.0");
                 AssertContains("-f net10.0 -- mcp install --yes", installMcpShContents, "install-mcp.sh should use net10.0");
-                AssertContains("-f net10.0 -- mcp remove --yes", removeMcpBatContents, "remove-mcp.bat should use net10.0");
                 AssertContains("-f net10.0 -- mcp remove --yes", removeMcpShContents, "remove-mcp.sh should use net10.0");
+                AssertContains("set \"FRAMEWORK=net10.0\"", resolveFrameworkBatContents, "Windows framework resolver should default to net10.0");
+                AssertContains("call \"%SCRIPT_DIR%\\resolve-framework.bat\" %*", installMcpBatContents, "install-mcp.bat should resolve the Windows framework override");
+                AssertContains("-f %ARMADA_TARGET_FRAMEWORK% -- mcp install --yes", installMcpBatContents, "install-mcp.bat should honor the resolved framework override");
+                AssertContains("call \"%SCRIPT_DIR%\\resolve-framework.bat\" %*", removeMcpBatContents, "remove-mcp.bat should resolve the Windows framework override");
+                AssertContains("-f %ARMADA_TARGET_FRAMEWORK% -- mcp remove --yes", removeMcpBatContents, "remove-mcp.bat should honor the resolved framework override");
+            });
+
+            await RunTest("Windows Install Scripts Allow Explicit Framework Overrides", () =>
+            {
+                string installBatContents = ReadRepositoryFile("scripts", "windows", "install.bat");
+                string reinstallBatContents = ReadRepositoryFile("scripts", "windows", "reinstall.bat");
+                string removeBatContents = ReadRepositoryFile("scripts", "windows", "remove.bat");
+                string updateBatContents = ReadRepositoryFile("scripts", "windows", "update.bat");
+                string publishServerBatContents = ReadRepositoryFile("scripts", "windows", "publish-server.bat");
+                string installWindowsTaskBatContents = ReadRepositoryFile("scripts", "windows", "install-windows-task.bat");
+                string updateWindowsTaskBatContents = ReadRepositoryFile("scripts", "windows", "update-windows-task.bat");
+                string serverStartCommandContents = ReadRepositoryFile("src", "Armada.Helm", "Commands", "ServerStartCommand.cs");
+
+                AssertContains("call \"%SCRIPT_DIR%\\resolve-framework.bat\" %*", installBatContents, "install.bat should resolve framework overrides");
+                AssertContains("dotnet build \"%REPO_ROOT%\\src\\Armada.sln\" -f %ARMADA_TARGET_FRAMEWORK%", installBatContents, "install.bat should build with the resolved framework");
+                AssertContains("dotnet pack \"%REPO_ROOT%\\src\\Armada.Helm\\Armada.Helm.csproj\" -p:TargetFrameworks=%ARMADA_TARGET_FRAMEWORK%", installBatContents, "install.bat should pack with the resolved framework");
+                AssertContains("call \"%SCRIPT_DIR%\\resolve-framework.bat\" %*", reinstallBatContents, "reinstall.bat should resolve framework overrides");
+                AssertContains("call \"%SCRIPT_DIR%\\install.bat\" %ARMADA_TARGET_FRAMEWORK%", reinstallBatContents, "reinstall.bat should forward the resolved framework");
+                AssertContains("call \"%SCRIPT_DIR%\\resolve-framework.bat\" %*", removeBatContents, "remove.bat should accept framework overrides for parity");
+                AssertContains("set \"HELM_DLL=%REPO_ROOT%\\src\\Armada.Helm\\bin\\Debug\\%ARMADA_TARGET_FRAMEWORK%\\Armada.Helm.dll\"", updateBatContents, "update.bat should probe the resolved Helm build output");
+                AssertContains("call \"%SCRIPT_DIR%\\reinstall.bat\" %ARMADA_TARGET_FRAMEWORK%", updateBatContents, "update.bat should forward the resolved framework to reinstall");
+                AssertContains("dotnet run --project \"%REPO_ROOT%\\src\\Armada.Helm\" -f %ARMADA_TARGET_FRAMEWORK% -- %*", updateBatContents, "update.bat should fall back to the resolved framework");
+                AssertContains("dotnet publish \"%REPO_ROOT%\\src\\Armada.Server\" -c Release -f %ARMADA_TARGET_FRAMEWORK%", publishServerBatContents, "publish-server.bat should publish with the resolved framework");
+                AssertContains("call \"%SCRIPT_DIR%\\publish-server.bat\" %ARMADA_TARGET_FRAMEWORK%", installWindowsTaskBatContents, "install-windows-task.bat should forward the resolved framework to publish-server");
+                AssertContains("call \"%SCRIPT_DIR%\\install-windows-task.bat\" %ARMADA_TARGET_FRAMEWORK%", updateWindowsTaskBatContents, "update-windows-task.bat should forward the resolved framework");
+                AssertContains("string targetFramework = GetCliTargetFramework();", serverStartCommandContents, "ServerStartCommand should derive the build framework from the running Helm target");
+                AssertContains("buildInfo.ArgumentList.Add(targetFramework);", serverStartCommandContents, "ServerStartCommand should build Armada.Server with the derived framework");
+                AssertContains("return $\"net{parsed.Version.Major}.{parsed.Version.Minor}\";", serverStartCommandContents, "ServerStartCommand should map the runtime TFM to a dotnet framework moniker");
             });
 
             await RunTest("Status Health Route Uses ProductVersion Constant", () =>

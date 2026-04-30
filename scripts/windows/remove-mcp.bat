@@ -3,11 +3,13 @@ setlocal
 
 set "SCRIPT_DIR=%~dp0"
 if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
+call "%SCRIPT_DIR%\resolve-framework.bat" %*
+if errorlevel 1 exit /b 1
 for %%I in ("%SCRIPT_DIR%\..\..") do set "REPO_ROOT=%%~fI"
 
 echo.
 echo [remove-mcp] Removing Armada MCP for Claude Code, Codex, Gemini, and Cursor...
-dotnet run --project "%REPO_ROOT%\src\Armada.Helm" -f net10.0 -- mcp remove --yes
+dotnet run --project "%REPO_ROOT%\src\Armada.Helm" -f %ARMADA_TARGET_FRAMEWORK% -- mcp remove --yes
 if errorlevel 1 exit /b 1
 
 echo.
