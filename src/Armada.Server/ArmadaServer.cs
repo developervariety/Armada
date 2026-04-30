@@ -56,6 +56,7 @@ namespace Armada.Server
         private ArmadaWebSocketHub _WebSocketHub = null!;
 
         private IMergeQueueService _MergeQueue = null!;
+        private IMergeRecoveryHandler _MergeRecoveryHandler = null!;
         private IAutoLandEvaluator _AutoLandEvaluator = null!;
         private IConventionChecker _ConventionChecker = null!;
         private ICriticalTriggerEvaluator _CriticalTriggerEvaluator = null!;
@@ -149,6 +150,16 @@ namespace Armada.Server
             };
             IMergeFailureClassifier mergeFailureClassifier = new MergeFailureClassifier();
             _MergeQueue = new MergeQueueService(_Logging, _Database, _Settings, _Git, mergeFailureClassifier, prServiceFactory);
+
+            // Auto-recovery wiring: classifier -> router -> handler. The handler reads
+            // the persisted classification on a Failed entry and routes to redispatch,
+            // rebase-captain (via the dock setup), or surface (which re-pokes the
+            // PR-fallback path for recovery_exhausted).
+            IRecoveryRouter recoveryRouter = new RecoveryRouter(_Settings.MaxRecoveryAttempts);
+            IRebaseCaptainDockSetup rebaseDockSetup = new RebaseCaptainDockSetup(_Git, _Database, _Logging);
+            IMergeRecoveryHandler mergeRecoveryHandler = new MergeRecoveryHandler(
+                _Logging, _Database, _Settings, recoveryRouter, rebaseDockSetup, _MergeQueue);
+            _MergeRecoveryHandler = mergeRecoveryHandler;
             _AutoLandEvaluator = new AutoLandEvaluator();
             _ConventionChecker = new ConventionChecker();
             _CriticalTriggerEvaluator = new CriticalTriggerEvaluator();

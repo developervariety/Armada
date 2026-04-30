@@ -107,5 +107,20 @@ namespace Armada.Core.Services.Interfaces
         /// <param name="token">Cancellation token.</param>
         /// <returns>Number of entries reconciled in this pass.</returns>
         Task<int> ReconcilePullRequestEntriesAsync(CancellationToken token = default);
+
+        /// <summary>
+        /// Recovery-exhaustion hook: re-poke the PR-fallback path for an entry whose
+        /// owning mission has used up its recovery budget. The entry is read from the
+        /// database and routed through the same critical-trigger PR-fallback flow as
+        /// the auto-land safety net (push captain branch, open platform PR, mark
+        /// PullRequestOpen). When no PR-service factory is wired (tests/legacy) or the
+        /// platform cannot be detected, the entry is left in its current Failed state
+        /// and the caller's surface bookkeeping is honoured.
+        /// </summary>
+        /// <param name="mergeEntryId">Identifier of the recovery-exhausted merge entry.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True when a PR was opened (the entry was transitioned to
+        /// PullRequestOpen), false otherwise.</returns>
+        Task<bool> TryOpenPullRequestForRecoveryAsync(string mergeEntryId, CancellationToken token = default);
     }
 }
