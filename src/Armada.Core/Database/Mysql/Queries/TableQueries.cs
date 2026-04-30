@@ -703,6 +703,20 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
+        /// Migration v38 statements for adding merge failure classification columns to merge_entries
+        /// and recovery-attempt tracking to missions for the auto-recovery handler.
+        /// </summary>
+        public static readonly string[] MigrationV38Statements = new string[]
+        {
+            @"ALTER TABLE merge_entries ADD COLUMN merge_failure_class VARCHAR(64);",
+            @"ALTER TABLE merge_entries ADD COLUMN conflicted_files LONGTEXT;",
+            @"ALTER TABLE merge_entries ADD COLUMN merge_failure_summary VARCHAR(512);",
+            @"ALTER TABLE merge_entries ADD COLUMN diff_line_count INT NOT NULL DEFAULT 0;",
+            @"ALTER TABLE missions ADD COLUMN recovery_attempts INT NOT NULL DEFAULT 0;",
+            @"ALTER TABLE missions ADD COLUMN last_recovery_action_utc DATETIME(6);"
+        };
+
+        /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
         public static readonly string[] Indexes = new string[]

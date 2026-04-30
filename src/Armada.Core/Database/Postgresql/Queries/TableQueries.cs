@@ -576,6 +576,14 @@ namespace Armada.Core.Database.Postgresql.Queries
                 new SchemaMigration(36, "Add pr_url and pr_base_branch columns to merge_entries for PR-fallback path",
                     @"ALTER TABLE merge_entries ADD COLUMN IF NOT EXISTS pr_url TEXT;",
                     @"ALTER TABLE merge_entries ADD COLUMN IF NOT EXISTS pr_base_branch TEXT;"
+                ),
+                new SchemaMigration(38, "Add merge failure classification columns and mission recovery attempts",
+                    @"ALTER TABLE merge_entries ADD COLUMN IF NOT EXISTS merge_failure_class TEXT;",
+                    @"ALTER TABLE merge_entries ADD COLUMN IF NOT EXISTS conflicted_files TEXT;",
+                    @"ALTER TABLE merge_entries ADD COLUMN IF NOT EXISTS merge_failure_summary TEXT;",
+                    @"ALTER TABLE merge_entries ADD COLUMN IF NOT EXISTS diff_line_count INTEGER NOT NULL DEFAULT 0;",
+                    @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS recovery_attempts INTEGER NOT NULL DEFAULT 0;",
+                    @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS last_recovery_action_utc TIMESTAMP;"
                 )
             };
         }

@@ -3,6 +3,7 @@ namespace Armada.Test.Unit
     using Armada.Test.Common;
     using Armada.Test.Unit.Suites.Database;
     using Armada.Test.Unit.Suites.Models;
+    using Armada.Test.Unit.Suites.Recovery;
     using Armada.Test.Unit.Suites.Routes;
     using Armada.Test.Unit.Suites.Services;
 
@@ -32,6 +33,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new DatabaseInitializationTests());
             runner.AddSuite(new PlanningSessionDatabaseTests());
             runner.AddSuite(new SchemaMigrationTests());
+            runner.AddSuite(new SchemaMigrationV38RoundTripTests());
             runner.AddSuite(new EdgeCaseTests());
             runner.AddSuite(new TenantMethodsTests());
             runner.AddSuite(new UserMethodsTests());

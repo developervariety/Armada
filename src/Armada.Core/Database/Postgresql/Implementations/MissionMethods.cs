@@ -66,10 +66,10 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     cmd.Connection = conn;
                     cmd.CommandText = @"INSERT INTO missions (id, tenant_id, user_id, voyage_id, vessel_id, captain_id, title, description,
                         status, priority, parent_mission_id, branch_name, dock_id, process_id,
-                        pr_url, commit_hash, diff_snapshot, agent_output, persona, depends_on_mission_id, failure_reason, total_runtime_ms, prestaged_files, preferred_captain_id, preferred_model, created_utc, started_utc, completed_utc, last_update_utc)
+                        pr_url, commit_hash, diff_snapshot, agent_output, persona, depends_on_mission_id, failure_reason, total_runtime_ms, prestaged_files, preferred_captain_id, preferred_model, recovery_attempts, last_recovery_action_utc, created_utc, started_utc, completed_utc, last_update_utc)
                         VALUES (@id, @tenant_id, @user_id, @voyage_id, @vessel_id, @captain_id, @title, @description,
                         @status, @priority, @parent_mission_id, @branch_name, @dock_id, @process_id,
-                        @pr_url, @commit_hash, @diff_snapshot, @agent_output, @persona, @depends_on_mission_id, @failure_reason, @total_runtime_ms, @prestaged_files, @preferred_captain_id, @preferred_model, @created_utc, @started_utc, @completed_utc, @last_update_utc);";
+                        @pr_url, @commit_hash, @diff_snapshot, @agent_output, @persona, @depends_on_mission_id, @failure_reason, @total_runtime_ms, @prestaged_files, @preferred_captain_id, @preferred_model, @recovery_attempts, @last_recovery_action_utc, @created_utc, @started_utc, @completed_utc, @last_update_utc);";
                     AddMissionParameters(cmd, mission);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
@@ -140,6 +140,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                         prestaged_files = @prestaged_files,
                         preferred_captain_id = @preferred_captain_id,
                         preferred_model = @preferred_model,
+                        recovery_attempts = @recovery_attempts,
+                        last_recovery_action_utc = @last_recovery_action_utc,
                         started_utc = @started_utc, completed_utc = @completed_utc,
                         last_update_utc = @last_update_utc
                         WHERE id = @id;";
@@ -710,6 +712,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
             cmd.Parameters.AddWithValue("@prestaged_files", (object?)SerializePrestagedFiles(mission.PrestagedFiles) ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@preferred_captain_id", (object?)mission.PreferredCaptainId ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@preferred_model", (object?)mission.PreferredModel ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@recovery_attempts", mission.RecoveryAttempts);
+            cmd.Parameters.AddWithValue("@last_recovery_action_utc", mission.LastRecoveryActionUtc.HasValue ? (object)mission.LastRecoveryActionUtc.Value : DBNull.Value);
             cmd.Parameters.AddWithValue("@created_utc", mission.CreatedUtc);
             cmd.Parameters.AddWithValue("@started_utc", mission.StartedUtc.HasValue ? (object)mission.StartedUtc.Value : DBNull.Value);
             cmd.Parameters.AddWithValue("@completed_utc", mission.CompletedUtc.HasValue ? (object)mission.CompletedUtc.Value : DBNull.Value);
@@ -808,6 +812,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
             try { mission.PrestagedFiles = DeserializePrestagedFiles(reader["prestaged_files"]); } catch { }
             try { mission.PreferredCaptainId = NullableString(reader["preferred_captain_id"]); } catch { }
             try { mission.PreferredModel = NullableString(reader["preferred_model"]); } catch { }
+            try { object rv = reader["recovery_attempts"]; mission.RecoveryAttempts = (rv == null || rv == DBNull.Value) ? 0 : Convert.ToInt32(rv); } catch { }
+            try { mission.LastRecoveryActionUtc = NullableDateTime(reader["last_recovery_action_utc"]); } catch { }
             return mission;
         }
 

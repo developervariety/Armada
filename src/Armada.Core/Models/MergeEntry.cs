@@ -160,6 +160,34 @@ namespace Armada.Core.Models
 
         #endregion
 
+        #region Recovery-Classification
+
+        /// <summary>
+        /// Structured failure-shape classification populated when this entry transitions
+        /// to Failed; null until a classifier has run. Drives the auto-recovery router.
+        /// </summary>
+        public MergeFailureClassEnum? MergeFailureClass { get; set; } = null;
+
+        /// <summary>
+        /// JSON-serialized list of file paths that git reported as conflicted at
+        /// fail-time. Null when no merge conflict was reported (or no merge ran).
+        /// </summary>
+        public string? ConflictedFiles { get; set; } = null;
+
+        /// <summary>
+        /// One-line human-readable summary of the failure, populated alongside
+        /// MergeFailureClass. Null until classification has run.
+        /// </summary>
+        public string? MergeFailureSummary { get; set; } = null;
+
+        /// <summary>
+        /// Total number of changed lines in the captain branch's diff against the
+        /// target branch, captured at fail-time. Used by the router's triviality heuristic.
+        /// </summary>
+        public int DiffLineCount { get; set; } = 0;
+
+        #endregion
+
         #endregion
 
         #region Private-Members

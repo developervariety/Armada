@@ -442,6 +442,8 @@ namespace Armada.Core.Database.SqlServer
             try { mission.PrestagedFiles = Implementations.MissionMethods.DeserializePrestagedFiles(reader["prestaged_files"]); } catch { }
             try { mission.PreferredCaptainId = NullableString(reader["preferred_captain_id"]); } catch { }
             try { mission.PreferredModel = NullableString(reader["preferred_model"]); } catch { }
+            try { object rv = reader["recovery_attempts"]; mission.RecoveryAttempts = (rv == null || rv == DBNull.Value) ? 0 : Convert.ToInt32(rv); } catch { }
+            try { mission.LastRecoveryActionUtc = FromIso8601Nullable(reader["last_recovery_action_utc"]); } catch { }
             return mission;
         }
 
@@ -572,6 +574,16 @@ namespace Armada.Core.Database.SqlServer
             try { entry.AuditDeepRecommendedAction = reader["audit_deep_recommended_action"] as string; } catch { }
             try { entry.PrUrl = reader["pr_url"] as string; } catch { }
             try { entry.PrBaseBranch = reader["pr_base_branch"] as string; } catch { }
+            try
+            {
+                string? mfc = reader["merge_failure_class"] as string;
+                if (!string.IsNullOrEmpty(mfc) && Enum.TryParse<MergeFailureClassEnum>(mfc, out MergeFailureClassEnum parsed))
+                    entry.MergeFailureClass = parsed;
+            }
+            catch { }
+            try { entry.ConflictedFiles = reader["conflicted_files"] as string; } catch { }
+            try { entry.MergeFailureSummary = reader["merge_failure_summary"] as string; } catch { }
+            try { object dlc = reader["diff_line_count"]; entry.DiffLineCount = (dlc == null || dlc == DBNull.Value) ? 0 : Convert.ToInt32(dlc); } catch { }
             return entry;
         }
 
