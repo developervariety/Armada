@@ -38,6 +38,7 @@ import {
   buildDispatchSeed,
   type DispatchSeedState,
   getLatestAssistantMessage,
+  mergeCaptainState,
   removeSession,
   resolveDispatchSeedUpdate,
   upsertMessage,
@@ -159,6 +160,30 @@ export default function Planning() {
         setDetail((current) => current && current.session.id === payload.session!.id
           ? { ...current, session: payload.session! }
           : current);
+        return;
+      }
+
+      if (msg.type === 'captain.changed') {
+        const payload = msg.data as { id?: string; name?: string; state?: string } | undefined;
+        if (!payload?.id || !payload.state) return;
+        const captainUpdate = {
+          id: payload.id,
+          name: payload.name,
+          state: payload.state,
+        };
+
+        setCaptains((current) => mergeCaptainState(current, captainUpdate));
+        setDetail((current) => {
+          if (!current?.captain || current.captain.id !== captainUpdate.id) return current;
+          return {
+            ...current,
+            captain: {
+              ...current.captain,
+              state: captainUpdate.state,
+              name: captainUpdate.name ?? current.captain.name,
+            },
+          };
+        });
         return;
       }
 

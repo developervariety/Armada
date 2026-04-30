@@ -1,4 +1,4 @@
-import type { PlanningSession, PlanningSessionMessage } from '../../types/models';
+import type { Captain, PlanningSession, PlanningSessionMessage } from '../../types/models';
 
 export type DispatchSeedSource = 'auto' | 'summary';
 
@@ -27,6 +27,21 @@ export function upsertMessage(messages: PlanningSessionMessage[], message: Plann
   if (index >= 0) next[index] = message;
   else next.push(message);
   return next.sort((a, b) => a.sequence - b.sequence);
+}
+
+export function mergeCaptainState(
+  captains: Captain[],
+  update: { id: string; state: string; name?: string | null },
+): Captain[] {
+  return captains.map((captain) => (
+    captain.id === update.id
+      ? {
+          ...captain,
+          state: update.state,
+          name: update.name ?? captain.name,
+        }
+      : captain
+  ));
 }
 
 export function getLatestAssistantMessage(messages: PlanningSessionMessage[]): PlanningSessionMessage | null {

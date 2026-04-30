@@ -1,5 +1,5 @@
-import { buildDispatchSeed, getLatestAssistantMessage, removeSession, resolveDispatchSeedUpdate, upsertMessage, upsertSession } from './planningUtils';
-import type { PlanningSession, PlanningSessionMessage } from '../../types/models';
+import { buildDispatchSeed, getLatestAssistantMessage, mergeCaptainState, removeSession, resolveDispatchSeedUpdate, upsertMessage, upsertSession } from './planningUtils';
+import type { Captain, PlanningSession, PlanningSessionMessage } from '../../types/models';
 
 function session(id: string, lastUpdateUtc: string): PlanningSession {
   return {
@@ -34,6 +34,29 @@ function message(id: string, role: string, sequence: number, content: string): P
     sequence,
     content,
     isSelectedForDispatch: false,
+    createdUtc: '2026-04-29T00:00:00Z',
+    lastUpdateUtc: '2026-04-29T00:00:00Z',
+  };
+}
+
+function captain(id: string, state: string, name = `Captain ${id}`): Captain {
+  return {
+    id,
+    tenantId: null,
+    name,
+    runtime: 'Codex',
+    supportsPlanningSessions: true,
+    planningSessionSupportReason: null,
+    systemInstructions: null,
+    model: null,
+    allowedPersonas: null,
+    preferredPersona: null,
+    state,
+    currentMissionId: null,
+    currentDockId: null,
+    processId: null,
+    recoveryAttempts: 0,
+    lastHeartbeatUtc: null,
     createdUtc: '2026-04-29T00:00:00Z',
     lastUpdateUtc: '2026-04-29T00:00:00Z',
   };
@@ -137,5 +160,15 @@ describe('planningUtils', () => {
         source: 'summary',
       },
     })).toBeNull();
+  });
+
+  it('merges captain state updates from websocket events without reloading the list', () => {
+    expect(mergeCaptainState(
+      [captain('cpt_idle', 'Idle'), captain('cpt_busy', 'Working', 'Worker')],
+      { id: 'cpt_idle', state: 'Planning', name: 'Planner' },
+    )).toEqual([
+      captain('cpt_idle', 'Planning', 'Planner'),
+      captain('cpt_busy', 'Working', 'Worker'),
+    ]);
   });
 });
