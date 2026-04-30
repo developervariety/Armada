@@ -417,6 +417,25 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"
                     IF COL_LENGTH('merge_entries', 'pr_base_branch') IS NULL
                         ALTER TABLE merge_entries ADD pr_base_branch NVARCHAR(450);"
+                ),
+                new SchemaMigration(
+                    37,
+                    "Add auto-recovery columns to merge_entries and missions",
+                    @"
+                    IF COL_LENGTH('merge_entries', 'merge_failure_class') IS NULL
+                        ALTER TABLE merge_entries ADD merge_failure_class INT NULL;",
+                    @"
+                    IF COL_LENGTH('merge_entries', 'conflicted_files') IS NULL
+                        ALTER TABLE merge_entries ADD conflicted_files NVARCHAR(MAX) NULL;",
+                    @"
+                    IF COL_LENGTH('merge_entries', 'merge_failure_summary') IS NULL
+                        ALTER TABLE merge_entries ADD merge_failure_summary NVARCHAR(512) NULL;",
+                    @"
+                    IF COL_LENGTH('missions', 'recovery_attempts') IS NULL
+                        ALTER TABLE missions ADD recovery_attempts INT NOT NULL CONSTRAINT DF_missions_recovery_attempts DEFAULT 0;",
+                    @"
+                    IF COL_LENGTH('missions', 'last_recovery_action_utc') IS NULL
+                        ALTER TABLE missions ADD last_recovery_action_utc DATETIME2 NULL;"
                 )
             };
         }

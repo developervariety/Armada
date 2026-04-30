@@ -1,6 +1,7 @@
 namespace Armada.Core.Models
 {
     using Armada.Core.Enums;
+    using Armada.Core.Recovery;
 
     /// <summary>
     /// An entry in the merge queue representing a branch to be tested and merged.
@@ -138,6 +139,33 @@ namespace Armada.Core.Models
 
         /// <summary>Subagent's recommended action when verdict = Critical; null otherwise.</summary>
         public string? AuditDeepRecommendedAction { get; set; }
+
+        #endregion
+
+        #region Recovery
+
+        /// <summary>
+        /// Structured classification of this entry's failure, written by the
+        /// auto-recovery classifier at fail-time. Null while the entry is in
+        /// any non-failed state, or for failed entries created before
+        /// auto-recovery shipped.
+        /// </summary>
+        public MergeFailureClass? MergeFailureClass { get; set; } = null;
+
+        /// <summary>
+        /// JSON-serialized list of file paths the merge fold reported as
+        /// conflicted (e.g. <c>["src/Foo.cs","src/Bar.cs"]</c>). Null when the
+        /// failure shape wasn't a text conflict, when classification has not
+        /// run yet, or for non-failed entries.
+        /// </summary>
+        public string? ConflictedFiles { get; set; } = null;
+
+        /// <summary>
+        /// One-line human-readable summary of the failure produced by the
+        /// classifier (capped at 512 characters by schema). Null until
+        /// classification has run.
+        /// </summary>
+        public string? MergeFailureSummary { get; set; } = null;
 
         #endregion
 

@@ -471,6 +471,11 @@ namespace Armada.Core.Database.Mysql
                     36,
                     "Add pr_url and pr_base_branch columns to merge_entries for PR-fallback path",
                     TableQueries.MigrationV36Statements
+                ),
+                new SchemaMigration(
+                    37,
+                    "Add auto-recovery columns to merge_entries and missions",
+                    TableQueries.MigrationV37Statements
                 )
             };
         }

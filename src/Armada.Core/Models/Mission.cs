@@ -218,6 +218,20 @@ namespace Armada.Core.Models
         /// </summary>
         public DateTime LastUpdateUtc { get; set; } = DateTime.UtcNow;
 
+        /// <summary>
+        /// Number of times the auto-recovery loop has dispatched a
+        /// redispatch or rebase-captain action for this mission. Hard-capped
+        /// at 2 by the recovery router; further failures route to surface
+        /// (PR fallback). Defaults to 0; never decremented.
+        /// </summary>
+        public int RecoveryAttempts { get; set; } = 0;
+
+        /// <summary>
+        /// UTC timestamp of the most recent recovery action taken for this
+        /// mission. Null until auto-recovery has fired at least once.
+        /// </summary>
+        public DateTime? LastRecoveryActionUtc { get; set; } = null;
+
         #endregion
 
         #region Private-Members

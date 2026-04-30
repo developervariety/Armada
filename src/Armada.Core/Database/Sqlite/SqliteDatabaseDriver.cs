@@ -511,6 +511,13 @@ namespace Armada.Core.Database.Sqlite
             try { mission.PrestagedFiles = Implementations.MissionMethods.DeserializePrestagedFiles(reader["prestaged_files"]); } catch { }
             try { mission.PreferredCaptainId = NullableString(reader["preferred_captain_id"]); } catch { }
             try { mission.PreferredModel = NullableString(reader["preferred_model"]); } catch { }
+            try
+            {
+                object ra = reader["recovery_attempts"];
+                if (ra != null && ra != DBNull.Value) mission.RecoveryAttempts = Convert.ToInt32(ra);
+            }
+            catch { }
+            try { mission.LastRecoveryActionUtc = FromIso8601Nullable(reader["last_recovery_action_utc"]); } catch { }
             return mission;
         }
 
@@ -697,6 +704,16 @@ namespace Armada.Core.Database.Sqlite
             try { entry.AuditDeepRecommendedAction = reader["audit_deep_recommended_action"] as string; } catch { }
             try { entry.PrUrl = reader["pr_url"] as string; } catch { }
             try { entry.PrBaseBranch = reader["pr_base_branch"] as string; } catch { }
+            try
+            {
+                object mfc = reader["merge_failure_class"];
+                entry.MergeFailureClass = (mfc == null || mfc == DBNull.Value)
+                    ? (Armada.Core.Recovery.MergeFailureClass?)null
+                    : (Armada.Core.Recovery.MergeFailureClass)Convert.ToInt32(mfc);
+            }
+            catch { }
+            try { entry.ConflictedFiles = reader["conflicted_files"] as string; } catch { }
+            try { entry.MergeFailureSummary = reader["merge_failure_summary"] as string; } catch { }
             return entry;
         }
 
