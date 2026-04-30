@@ -127,6 +127,8 @@ export interface Captain {
   tenantId: string | null;
   name: string;
   runtime: string;
+  supportsPlanningSessions: boolean;
+  planningSessionSupportReason: string | null;
   systemInstructions: string | null;
   model: string | null;
   allowedPersonas: string | null;
@@ -227,6 +229,19 @@ export interface PlanningSessionDetail {
   messages: PlanningSessionMessage[];
   captain: Captain | null;
   vessel: Vessel | null;
+}
+
+export interface PlanningSessionSummaryRequest {
+  messageId?: string;
+  title?: string;
+}
+
+export interface PlanningSessionSummaryResponse {
+  sessionId: string;
+  messageId: string;
+  title: string;
+  description: string;
+  method: string;
 }
 
 export type PlaybookDeliveryMode =

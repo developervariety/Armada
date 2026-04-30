@@ -2,31 +2,27 @@
 
 ## Status Snapshot
 
-As of `2026-04-29`, the repo has a working first vertical slice of planning-to-dispatch.
+As of `2026-04-29`, the planning-to-dispatch product backlog for the current slice is complete.
 
-- [~] Core planning-session workflow is implemented and buildable end to end.
-- [x] React dashboard has a `Planning` page with session setup, transcript, message send, stop, and dispatch actions.
-- [x] Server has a planning-session domain model, SQLite persistence, REST routes, WebSocket events, and coordinator logic.
-- [x] Captains can enter a dedicated `Planning` state and are blocked from normal mission use while planning is active.
-- [x] Voyages record lineage back to the planning session and source message.
-- [~] Test coverage exists for models, SQLite persistence, and authz, but service/route/dashboard coverage is still incomplete.
-- [ ] End-user docs in `README.md` and `GETTING_STARTED.md` do not describe the planning workflow yet.
-- [ ] A true persistent interactive runtime contract does not exist yet; v1 uses transcript-backed turn relaunches.
+- [x] React dashboard supports planning-session creation, transcript streaming, follow-up turns, stop, delete, summarize, open-in-dispatch, and direct dispatch.
+- [x] Server supports planning-session persistence, routing, coordination, recovery, cleanup, summarize/delete flows, and voyage lineage.
+- [x] Captains enter a dedicated `Planning` state and are blocked from normal mission assignment while planning is active.
+- [x] Planning dispatch carries the selected pipeline and playbooks into normal Armada dispatch behavior.
+- [x] Runtime support is explicitly gated to built-in planning-capable runtimes, with server-side enforcement and dashboard messaging.
+- [x] Route-level automated tests exist for planning endpoints.
+- [x] WebSocket payload regression tests exist for planning events.
+- [x] Dashboard behavior tests exist for the extracted planning components and shared planning-page utilities.
+- [x] An explicit `IInteractiveAgentRuntime` contract now exists for future persistent-session work, while the shipped v1 flow still uses transcript-backed relaunches.
 
 ## How To Maintain This File
 
 - Use `[ ]` for not started, `[~]` for in progress, and `[x]` for complete.
-- Add initials, date, PR number, or short notes inline when that helps future readers.
-- When the implementation changes, update:
+- When implementation reality changes, update:
   - the status snapshot
-  - the implementation reality section
-  - the relevant workstream checklist
+  - the shipped behavior section
+  - the workstream checklists
   - the verification section
-- Do not quietly leave aspirational items marked complete if the shipped behavior differs.
-
-Suggested annotation format:
-
-- `[~] Add route tests - JC - 2026-04-29`
+- Keep future expansion ideas separate from the shipped-slice completion checklist.
 
 ## Product Goal
 
@@ -36,7 +32,32 @@ Armada should support the full path from:
 2. preserve that transcript as Armada-owned context
 3. create a dispatch directly from the planning output
 
-This removes the current copy/paste seam between agent planning and Armada execution.
+This removes the copy-paste seam between agent planning and Armada execution.
+
+## Shipped Behavior
+
+The shipped implementation is intentionally a `Planning` workflow, not a generic terminal emulator.
+
+Actual behavior today:
+
+- A planning session reserves one captain and provisions one dock and branch against one vessel.
+- The session transcript is persisted in Armada-owned storage through `PlanningSession` and `PlanningSessionMessage`.
+- Each user message is stored first, then Armada launches one planning turn for the selected captain.
+- Armada writes a `context.md` prompt artifact per session containing captain instructions, vessel context, style/model context, selected playbooks, and the transcript so far.
+- The selected built-in runtime is relaunched for each assistant turn using the existing one-shot runtime contract.
+- Assistant output is streamed back into the current assistant message over WebSocket events and persisted incrementally.
+- The user can choose an assistant reply, summarize it into a cleaner server-owned draft, open that draft in the main `Dispatch` page, or dispatch it directly from the planning page.
+- Planning sessions can be stopped manually, deleted manually, or cleaned up automatically through inactivity/retention settings.
+- The resulting voyage records `SourcePlanningSessionId` and `SourcePlanningMessageId`.
+
+## Current Limitations
+
+- [x] Planning currently supports only built-in `ClaudeCode`, `Codex`, `Gemini`, and `Cursor` runtimes.
+- [x] `Custom` captains are explicitly blocked from planning sessions.
+- [x] SQLite is the only fully implemented backend for planning sessions today.
+- [x] SQL Server, PostgreSQL, and MySQL compile but intentionally reject planning-session operations with explicit unsupported behavior.
+- [x] Playbook selections are persisted with the session, but playbook content is not snapshotted at session start.
+- [x] The current shipped planning flow still uses transcript-backed turn relaunches instead of a long-lived stdin-persistent runtime.
 
 ## Locked Decisions
 
@@ -47,32 +68,13 @@ This removes the current copy/paste seam between agent planning and Armada execu
 - [x] `CaptainStateEnum` includes a distinct `Planning` state.
 - [x] A vessel is required to start a planning session in v1.
 - [x] A dock is provisioned when the session starts and held for the session lifetime.
-- [x] V1 dispatch conversion creates one voyage with one seeded mission.
-- [x] Dispatch can be launched directly from the planning page after optional title/description edits.
+- [x] Dispatch launches from the planning page after optional title and description edits.
+- [x] Dispatch conversion uses one seeded planning output and then hands off to the normal Armada pipeline system.
 - [x] Transcript data persists in the database and survives refresh.
-- [~] Playbook selections persist with the session, but playbook content is not snapshotted at session start.
-- [~] SQLite is the first real backend. Other database backends compile but intentionally throw `NotSupportedException`.
-- [ ] Runtime capability gating and a formal interactive-support allowlist are not implemented.
-
-## Implementation Reality
-
-The shipped v1 is not a raw terminal and not a true stdin-persistent interactive runtime.
-
-Actual behavior today:
-
-- A planning session reserves a captain and provisions a dock/branch for a specific vessel.
-- Each user message is appended to the transcript in the database.
-- For each assistant turn, Armada writes a `context.md` prompt file containing:
-  - captain instructions
-  - vessel context
-  - style/model context
-  - selected playbooks
-  - the transcript so far
-- Armada then launches the selected captain runtime with the existing one-shot `StartAsync` path and asks it to continue the planning conversation from that prompt file.
-- Assistant output is streamed back into the current assistant transcript message over WebSocket events.
-- When the turn exits, the session returns to `Active` and can accept another user message.
-
-This is good enough for multi-turn planning inside Armada, but it is not yet a generalized interactive runtime contract.
+- [x] Runtime support is explicitly gated for planning in both the server and the dashboard.
+- [x] Unsupported runtimes are blocked, not merely warned.
+- [x] Non-SQLite planning-session support remains explicitly out of scope for the current product slice.
+- [x] Session-start playbook snapshotting is not required for the current product slice; dispatch-time mission snapshots remain the reproducibility boundary.
 
 ## Delivered Architecture
 
@@ -84,59 +86,97 @@ This is good enough for multi-turn planning inside Armada, but it is not yet a g
 - [x] `CaptainStateEnum.Planning`
 - [x] `Voyage.SourcePlanningSessionId`
 - [x] `Voyage.SourcePlanningMessageId`
+- [x] `Captain.SupportsPlanningSessions`
+- [x] `Captain.PlanningSessionSupportReason`
+- [x] `PlanningSessionSummaryRequest`
+- [x] `PlanningSessionSummaryResponse`
 
 ### Persistence
 
-- [x] Planning session database interfaces were added to `DatabaseDriver`.
+- [x] Planning-session database interfaces were added to `DatabaseDriver`.
 - [x] SQLite tables and CRUD implementations exist for sessions and messages.
 - [x] SQLite voyage persistence includes planning lineage fields.
-- [x] SQL Server, PostgreSQL, and MySQL drivers expose the shape but currently reject the feature with `NotSupportedException`.
+- [x] Voyage playbook selections and mission snapshots continue to work when dispatch is created from planning output.
+- [x] Non-SQLite drivers expose the shape and fail explicitly instead of silently ignoring the feature.
+
+### Runtimes
+
+- [x] `IAgentRuntime` exposes planning capability gating.
+- [x] `IInteractiveAgentRuntime` now exists as an explicit future-facing contract for persistent-session runtimes.
+- [x] The shipped product still uses transcript-backed relaunches rather than the interactive contract.
 
 ### Server
 
-- [x] `PlanningSessionCoordinator` owns reservation, dock lifecycle, turn execution, recovery, and dispatch conversion.
-- [x] `PlanningSessionRoutes` exposes list/create/get/send/dispatch/stop endpoints.
-- [x] `ArmadaServer` wires the coordinator, routes, and startup recovery.
-- [x] Captain stop/delete flows understand planning sessions.
+- [x] `PlanningSessionCoordinator` owns reservation, dock lifecycle, turn execution, recovery, summarize, cleanup, and dispatch conversion.
+- [x] `PlanningSessionRoutes` exposes list/create/get/send/summarize/dispatch/stop/delete endpoints.
+- [x] `ArmadaServer` wires the coordinator, routes, startup recovery, and planning cleanup maintenance.
+- [x] Planning runtime creation is centrally gated through the coordinator.
+- [x] Captain stop and delete flows understand planning sessions.
 
 ### Dashboard
 
 - [x] `/planning` and `/planning/:id` routes exist in the React dashboard.
 - [x] Planning sessions can be created with captain, fleet, vessel, pipeline, and playbook selection.
 - [x] Transcript streaming works through WebSocket updates.
-- [x] Assistant output can be selected and dispatched directly from the page.
-- [x] Captain detail actions recognize the `Planning` state.
+- [x] Assistant output can be selected, summarized, opened in the main dispatch page, or dispatched directly from the page.
+- [x] Unsupported captains are visibly disabled for planning in the UI.
+- [x] The page calls out that planning reserves the captain and dock and may inspect or modify the repo.
+- [x] `Planning.tsx` has been split into smaller planning components and shared utilities.
+- [x] `Dispatch.tsx` accepts planning-prefilled handoff state from the planning page.
 
-## Explicit Non-Goals For This Slice
+### Documentation
 
-- [x] No generic shell or terminal emulator.
-- [x] No reuse of `Mission` as the planning persistence model.
-- [x] No automatic multi-mission decomposition.
-- [x] No legacy dashboard parity.
-- [x] No forced redesign of the one-shot mission runtime contract.
-- [x] No fake claim of universal runtime support.
+- [x] `README.md` explains planning before dispatch.
+- [x] `GETTING_STARTED.md` includes a planning workflow walkthrough.
+- [x] The docs call out built-in-runtime-only support.
+- [x] The docs call out the SQLite-first limitation.
+- [x] The docs call out the transcript-backed relaunch behavior.
+- [x] The docs call out captain and dock reservation behavior.
+- [x] The docs describe summarize/open-in-dispatch/delete behavior and the cleanup settings.
+
+### Tests
+
+- [x] Planning session model coverage exists.
+- [x] Planning session SQLite persistence coverage exists.
+- [x] Voyage lineage model coverage exists.
+- [x] Authorization coverage includes planning routes.
+- [x] Coordinator lifecycle coverage exists for create, failure cleanup, double-booking protection, summarize fallback, dispatch, default dispatch source selection, stop, delete, maintenance cleanup, and recovery.
+- [x] Route-level automated planning API coverage exists.
+- [x] Planning WebSocket payload regression coverage exists.
+- [x] Dashboard behavior and utility tests exist for the extracted planning UI.
+- [x] Release-version test coverage remains clean.
 
 ## File Map
 
-These are the primary files already carrying the feature:
+These are the primary files carrying the shipped feature today.
 
 ### Core
 
 - [x] `src/Armada.Core/Constants.cs`
 - [x] `src/Armada.Core/Enums/CaptainStateEnum.cs`
 - [x] `src/Armada.Core/Enums/PlanningSessionStatusEnum.cs`
+- [x] `src/Armada.Core/Models/Captain.cs`
 - [x] `src/Armada.Core/Models/PlanningSession.cs`
 - [x] `src/Armada.Core/Models/PlanningSessionMessage.cs`
 - [x] `src/Armada.Core/Models/PlanningSessionCreateRequest.cs`
 - [x] `src/Armada.Core/Models/PlanningSessionMessageRequest.cs`
 - [x] `src/Armada.Core/Models/PlanningSessionDispatchRequest.cs`
+- [x] `src/Armada.Core/Models/PlanningSessionSummaryRequest.cs`
+- [x] `src/Armada.Core/Models/PlanningSessionSummaryResponse.cs`
 - [x] `src/Armada.Core/Models/Voyage.cs`
+- [x] `src/Armada.Core/Settings/ArmadaSettings.cs`
 - [x] `src/Armada.Core/Database/DatabaseDriver.cs`
 - [x] `src/Armada.Core/Database/Interfaces/IPlanningSessionMethods.cs`
 - [x] `src/Armada.Core/Database/Interfaces/IPlanningSessionMessageMethods.cs`
 - [x] `src/Armada.Core/Database/Sqlite/Implementations/PlanningSessionMethods.cs`
 - [x] `src/Armada.Core/Database/Sqlite/Implementations/PlanningSessionMessageMethods.cs`
 - [x] `src/Armada.Core/Database/Sqlite/Queries/TableQueries.cs`
+
+### Runtimes
+
+- [x] `src/Armada.Runtimes/Interfaces/IAgentRuntime.cs`
+- [x] `src/Armada.Runtimes/Interfaces/IInteractiveAgentRuntime.cs`
+- [x] `src/Armada.Runtimes/BaseAgentRuntime.cs`
 
 ### Server
 
@@ -148,193 +188,141 @@ These are the primary files already carrying the feature:
 ### Dashboard
 
 - [x] `src/Armada.Dashboard/src/App.tsx`
-- [x] `src/Armada.Dashboard/src/components/Layout.tsx`
+- [x] `src/Armada.Dashboard/src/App.css`
 - [x] `src/Armada.Dashboard/src/api/client.ts`
 - [x] `src/Armada.Dashboard/src/types/models.ts`
 - [x] `src/Armada.Dashboard/src/pages/Planning.tsx`
+- [x] `src/Armada.Dashboard/src/pages/Dispatch.tsx`
+- [x] `src/Armada.Dashboard/src/pages/planning/planningUtils.ts`
+- [x] `src/Armada.Dashboard/src/components/planning/PlanningStartCard.tsx`
+- [x] `src/Armada.Dashboard/src/components/planning/PlanningSessionListCard.tsx`
+- [x] `src/Armada.Dashboard/src/components/planning/PlanningTranscriptCard.tsx`
+- [x] `src/Armada.Dashboard/src/components/planning/PlanningDispatchCard.tsx`
+
+### Docs
+
+- [x] `README.md`
+- [x] `GETTING_STARTED.md`
+- [x] `PLANNING.md`
 
 ### Tests
 
 - [x] `test/Armada.Test.Unit/Suites/Models/PlanningSessionModelTests.cs`
 - [x] `test/Armada.Test.Unit/Suites/Database/PlanningSessionDatabaseTests.cs`
 - [x] `test/Armada.Test.Unit/Suites/Models/VoyageModelTests.cs`
+- [x] `test/Armada.Test.Unit/Suites/Models/CaptainModelTests.cs`
 - [x] `test/Armada.Test.Unit/Suites/Services/AuthorizationConfigTests.cs`
-- [x] `test/Armada.Test.Unit/Suites/Database/DatabaseInitializationTests.cs`
+- [x] `test/Armada.Test.Unit/Suites/Services/PlanningSessionCoordinatorTests.cs`
+- [x] `test/Armada.Test.Unit/Suites/Services/ReleaseVersionTests.cs`
 - [x] `test/Armada.Test.Unit/Program.cs`
+- [x] `test/Armada.Test.Automated/Suites/PlanningSessionTests.cs`
+- [x] `test/Armada.Test.Automated/Suites/PlanningWebSocketTests.cs`
+- [x] `test/Armada.Test.Automated/Program.cs`
+- [x] `src/Armada.Dashboard/src/components/planning/PlanningDispatchCard.test.tsx`
+- [x] `src/Armada.Dashboard/src/components/planning/PlanningTranscriptCard.test.tsx`
+- [x] `src/Armada.Dashboard/src/pages/planning/planningUtils.test.ts`
 
 ## Workstreams
 
-### Workstream 1: Domain Model And Enums
+### Workstream 1: Domain Model And Persistence
 
-- [x] Add `PlanningSession`.
-- [x] Add `PlanningSessionMessage`.
-- [x] Add `PlanningSessionStatusEnum`.
-- [x] Add ID prefixes for sessions and messages.
-- [x] Add `CaptainStateEnum.Planning`.
+- [x] Add planning-session domain models and enums.
+- [x] Add captain planning-state support.
 - [x] Add voyage lineage fields for planning origin.
-
-### Workstream 2: Database And Persistence
-
-- [x] Add planning session interfaces to the database layer.
 - [x] Add SQLite schema and CRUD implementations.
-- [x] Add session/message enumeration helpers.
 - [x] Persist selected playbook selections with the session.
 - [x] Persist planning lineage on voyages.
-- [x] Add unit tests for create/read/update/enumerate/delete flows.
-- [~] Keep non-SQLite backends buildable with explicit `NotSupportedException` stubs.
-- [ ] Add real SQL Server support.
-- [ ] Add real PostgreSQL support.
-- [ ] Add real MySQL support.
-- [ ] Decide whether playbook content snapshotting is required for reproducibility and implement it if yes.
+- [x] Keep non-SQLite backends buildable with explicit unsupported behavior.
+- [x] Lock the current product scope to SQLite-backed planning sessions and keep other backends on explicit unsupported behavior.
+- [x] Lock the current product scope to dispatch-time playbook snapshots rather than session-start playbook-content snapshots.
 
-### Workstream 3: Runtime Strategy
+### Workstream 2: Runtime Strategy And Capability Gating
 
-- [x] Preserve the existing one-shot mission runtime contract.
-- [x] Implement transcript-backed multi-turn planning by relaunching the captain per turn against the same dock and transcript context.
-- [x] Stream assistant output back into the transcript while the turn is running.
-- [~] Recovery semantics exist at the session level on server restart.
-- [ ] Add a real `IInteractiveAgentRuntime` contract if Armada needs persistent stdin sessions later.
-- [ ] Add runtime capability reporting for planning support.
-- [ ] Decide whether unsupported runtimes should be blocked in the UI or shown with warnings.
+- [x] Preserve the existing one-shot mission runtime contract for v1.
+- [x] Implement transcript-backed multi-turn planning by relaunching the captain per turn.
+- [x] Surface runtime capability support on captains.
+- [x] Block unsupported runtimes in the dashboard.
+- [x] Enforce unsupported-runtime rejection in the coordinator.
+- [x] Document the transcript-relaunch runtime reality.
+- [x] Add an explicit `IInteractiveAgentRuntime` contract for future persistent-session work.
 
-### Workstream 4: Planning Session Coordination
+### Workstream 3: Planning Session Coordination And Dispatch
 
 - [x] Reserve captains for planning sessions.
 - [x] Provision planning docks and branches before first turn execution.
-- [x] Release docks and captains on stop.
 - [x] Persist user messages before execution.
 - [x] Persist assistant output incrementally.
-- [x] Emit events for create/stop/dispatch.
-- [x] Recover active/responding sessions on server start and return them to a sane state.
 - [x] Prevent starting a planning session on a busy captain.
+- [x] Prevent double-booking a captain already reserved for planning.
 - [x] Prevent concurrent turns in the same planning session.
-- [ ] Add configurable inactivity timeout or retention cleanup if needed.
+- [x] Release docks and captains on stop.
+- [x] Recover active and responding sessions on server start into a sane state.
+- [x] Dispatch from selected assistant output.
+- [x] Default dispatch to the latest non-empty assistant output when no message is explicitly selected.
+- [x] Carry pipeline and selected playbooks into downstream Armada dispatch behavior.
+- [x] Add configurable inactivity timeout and retention cleanup controls.
 
-### Workstream 5: REST API
+### Workstream 4: API And Streaming
 
 - [x] `GET /api/v1/planning-sessions`
 - [x] `POST /api/v1/planning-sessions`
 - [x] `GET /api/v1/planning-sessions/{id}`
 - [x] `POST /api/v1/planning-sessions/{id}/messages`
+- [x] `POST /api/v1/planning-sessions/{id}/summarize`
 - [x] `POST /api/v1/planning-sessions/{id}/dispatch`
 - [x] `POST /api/v1/planning-sessions/{id}/stop`
-- [x] Authz rules added for planning-session endpoints.
-- [x] Non-supported backends fail explicitly with `501`.
-- [ ] `DELETE /api/v1/planning-sessions/{id}`
-- [ ] `POST /api/v1/planning-sessions/{id}/summarize`
-- [ ] Route-level automated tests.
-
-### Workstream 6: WebSocket Streaming
-
+- [x] `DELETE /api/v1/planning-sessions/{id}`
+- [x] Explicit `501` behavior for unsupported backends.
 - [x] Broadcast `planning-session.changed`.
 - [x] Broadcast `planning-session.message.created`.
 - [x] Broadcast `planning-session.message.updated`.
+- [x] Broadcast `planning-session.summary.created`.
 - [x] Broadcast `planning-session.dispatch.created`.
-- [x] Rehydrate current state after page refresh through REST detail fetch plus live event subscription.
-- [ ] Add automated event-payload regression tests.
+- [x] Broadcast `planning-session.deleted`.
+- [x] Add route-level automated tests.
+- [x] Add event-payload regression tests.
 
-### Workstream 7: Dispatch Conversion
+### Workstream 5: Dashboard And UX
 
-- [x] Select assistant output as the source for dispatch.
-- [x] Default to the latest non-empty assistant response if no message is explicitly selected.
-- [x] Allow the user to edit voyage title and mission description before launch.
-- [x] Carry pipeline and selected playbooks from the session into voyage dispatch.
-- [x] Persist planning lineage on the resulting voyage.
-- [ ] Add a server-owned summarize/extract flow if dispatch should not rely on raw assistant output.
-- [ ] Consider multi-mission decomposition after the single-mission path is stable.
+- [x] Add planning models and API client methods.
+- [x] Register planning routes and navigation.
+- [x] Add session setup, transcript, stop, and dispatch actions.
+- [x] Handle live updates from WebSocket events.
+- [x] Show explicit runtime support status in the UI.
+- [x] Show explicit messaging around captain reservation, dock reservation, and repo mutation expectations.
+- [x] Split `Planning.tsx` into smaller components and shared planning utilities.
+- [x] Add `Summarize` and `Open In Dispatch` flows.
+- [x] Add dashboard behavior tests.
 
-### Workstream 8: Dashboard Integration
+### Workstream 6: Documentation And Verification
 
-- [x] Add planning models to `src/types/models.ts`.
-- [x] Add API client methods.
-- [x] Register planning routes.
-- [x] Add navigation entry.
-- [x] Add planning page with session setup and transcript.
-- [x] Add dispatch panel on the same page.
-- [x] Handle live updates with WebSocket events.
-- [~] Current page is functional but still monolithic.
-- [ ] Split `Planning.tsx` into smaller planning-specific components if follow-on changes make it harder to maintain.
-- [ ] Show explicit runtime support/capability status in the UI.
-- [ ] Add `Summarize` and `Open In Dispatch` flows if product still wants both.
-- [ ] Add dashboard tests for planning page behavior.
-
-### Workstream 9: Resource Ownership And Safety
-
-- [x] Captains in `Planning` state can be stopped but not deleted.
-- [x] Stop-all handling also attempts to stop active planning sessions.
-- [x] Mission flows are protected by the captain state model.
-- [x] Session start failure reclaims the dock and resets the captain when possible.
-- [x] Session stop reclaims the dock and returns the captain to `Idle`.
-- [ ] Add stronger UI messaging around repo mutation/tool access expectations during planning.
-
-### Workstream 10: Logging And Observability
-
-- [x] Planning-turn artifacts are written under `logs/planning-sessions/<session-id>/`.
-- [x] Session lifecycle emits Armada events.
-- [x] Transcript persistence is the primary audit trail.
-- [x] Failure reasons are surfaced on the session and returned to the UI.
-- [ ] Add first-class dashboard surfacing of session logs if needed.
-- [ ] Decide whether planning lineage should be displayed on voyage detail pages.
-
-### Workstream 11: Tests
-
-- [x] Add planning session model tests.
-- [x] Add SQLite planning persistence tests.
-- [x] Add authz tests for planning routes.
-- [x] Add voyage lineage model coverage.
-- [~] Test runner registration is done, but deeper coverage is still missing.
-- [ ] Add coordinator/service tests for start/send/stop/recovery/failure paths.
-- [ ] Add captain double-booking tests at the service/route layer.
-- [ ] Add planning route tests.
-- [ ] Add WebSocket event-shape tests.
-- [ ] Add dashboard tests.
-
-### Workstream 12: Documentation
-
-- [ ] Update `README.md` with the planning workflow.
-- [ ] Update `GETTING_STARTED.md` with a planning-to-dispatch walkthrough.
-- [ ] Document the SQLite-first limitation and non-SQLite behavior.
-- [ ] Document the runtime reality of transcript-backed turn relaunches.
-- [ ] Document captain/dock reservation behavior during planning.
+- [x] Update `README.md` with the planning workflow.
+- [x] Update `GETTING_STARTED.md` with a planning-to-dispatch walkthrough.
+- [x] Document the SQLite-first limitation and non-SQLite behavior.
+- [x] Document the transcript-backed turn-relaunch model.
+- [x] Document captain and dock reservation behavior.
+- [x] Document summarize/open-in-dispatch/delete behavior and cleanup settings.
+- [x] Keep `PLANNING.md` aligned with the shipped state.
 
 ## Verification
 
-Last verified in this branch on `2026-04-29`:
+Verified in this branch on `2026-04-29`:
 
 - [x] `dotnet build src\Armada.sln`
 - [x] `dotnet test test\Armada.Test.Unit\Test.Unit.csproj`
+- [x] Focused automated planning harness covering `PlanningSessionTests` and `PlanningWebSocketTests`
 - [x] `npm.cmd run build` in `src\Armada.Dashboard`
-- [~] `dotnet run --project test\Armada.Test.Unit\Test.Unit.csproj --framework net10.0`
-  The planning-session coverage added in this branch is green. The runner still reports one unrelated existing failure: `Status Health Route Uses ProductVersion Constant`.
+- [x] `npm.cmd run test:run` in `src\Armada.Dashboard`
+- [x] `git diff --check`
 
-If a later change touches planning behavior, rerun at least:
+## Future Expansion Ideas
 
-- [ ] `dotnet test test\Armada.Test.Unit\Test.Unit.csproj`
-- [ ] `npm.cmd run build`
+These are not part of the completed current-slice backlog:
 
-## Remaining High-Value Follow-On Work
-
-Priority order after the current vertical slice:
-
-1. [ ] Add user-facing docs in `README.md` and `GETTING_STARTED.md`.
-2. [ ] Add coordinator and route tests to harden lifecycle behavior.
-3. [ ] Add runtime support/capability gating in the dashboard.
-4. [ ] Decide whether to build true interactive runtime support or keep the transcript-relaunch model.
-5. [ ] Add non-SQLite implementations if planning sessions must work outside SQLite deployments.
-6. [ ] Add summarize/open-in-dispatch flows if product wants a softer handoff than direct dispatch.
-
-## Risks And Mitigations
-
-- [~] Risk: some runtimes may behave poorly when relaunched turn-by-turn.
-  Mitigation: add explicit runtime capability reporting and block or warn in the UI.
-- [~] Risk: non-SQLite deployments will discover the feature only at runtime today.
-  Mitigation: document the limitation and add UI/server capability checks.
-- [~] Risk: selected playbooks can drift after session creation because only selections, not snapshots, are stored.
-  Mitigation: decide whether to snapshot playbook content at start.
-- [x] Risk: captain contention between planning and missions.
-  Mitigation: dedicated `Planning` captain state plus busy checks are already in place.
-- [x] Risk: dock leaks when startup fails halfway through.
-  Mitigation: the coordinator attempts dock reclaim and captain reset in failure paths.
+- Real SQL Server, PostgreSQL, and MySQL implementations for planning-session persistence if demand appears outside SQLite deployments.
+- Adoption of `IInteractiveAgentRuntime` for a true long-lived planning session instead of transcript-backed relaunches.
+- Playbook-content snapshotting at session start if reproducibility requirements move earlier than mission dispatch.
+- Richer planning analytics, retention policies, lineage views, or branch/share workflows if the product moves beyond the current planning-to-dispatch slice.
 
 ## Definition Of Done For The Current Slice
 
@@ -342,7 +330,8 @@ Priority order after the current vertical slice:
 - [x] The session preserves a transcript in Armada-owned persistence.
 - [x] The captain is reserved while planning is active.
 - [x] Assistant output streams live into the dashboard.
-- [x] The user can dispatch directly from selected planning output.
+- [x] The user can summarize, open in dispatch, or dispatch directly from selected planning output.
 - [x] The resulting voyage records source planning lineage.
-- [~] Critical paths have basic automated coverage, but hardening coverage is not complete.
-- [ ] User-facing documentation is still pending.
+- [x] User-facing docs explain the workflow and its current limitations.
+- [x] Runtime capability gating is enforced in both the server and the dashboard.
+- [x] Automated route, WebSocket, unit, and dashboard tests cover the shipped planning workflow.

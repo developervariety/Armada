@@ -201,6 +201,28 @@ armada watch   # monitor progress in real time
 
 Armada detects the runtime, infers the current repository, provisions a worktree, and dispatches the task.
 
+### Planning Before Dispatch
+
+If you want to negotiate a plan with a captain before launching work, use the dashboard planning flow:
+
+1. Open `http://localhost:7890/dashboard`
+2. Go to `Planning`
+3. Choose a captain, vessel, optional pipeline, and any playbooks
+4. Chat with the captain until the plan is ready
+5. Select the assistant output you want, then either summarize it into a cleaner draft, open it in the main Dispatch page, or dispatch directly from the same screen
+6. Delete the session when you no longer need the transcript, or let Armada clean it up through retention settings
+
+Current planning-session behavior:
+
+- Planning currently supports the built-in `ClaudeCode`, `Codex`, `Gemini`, and `Cursor` runtimes. `Custom` captains are not yet supported there.
+- Planning sessions reserve the selected captain and a dock/worktree for the selected vessel while the session is active.
+- The captain can inspect and modify the repository while planning. Treat the planning session as tool-capable, not read-only.
+- Planning is transcript-backed today: each turn relaunches the runtime against the preserved transcript and repo context rather than holding a persistent stdin session open.
+- Planning-session persistence is implemented for SQLite first. Other database backends currently reject planning-session operations with an explicit `501 Not Supported`.
+- Armada can summarize a selected planning reply into a server-owned dispatch draft before you launch the voyage.
+- You can open the current planning draft in the main `Dispatch` page without copy/paste.
+- Optional cleanup controls are available through `PlanningSessionInactivityTimeoutMinutes` and `PlanningSessionRetentionDays`.
+
 ### Default Credentials
 
 On first boot, Armada seeds a default tenant, user, and credential:
@@ -586,6 +608,8 @@ armada config init              # Interactive setup (optional)
 | `RequireAuthForShutdown` | false | Require authentication for `POST /api/v1/server/stop` |
 | `TerminalBell` | true | Ring terminal bell during `armada watch` |
 | `DefaultRuntime` | null (auto-detect) | Default agent runtime |
+| `PlanningSessionInactivityTimeoutMinutes` | 0 | Automatically stop idle planning sessions after this many minutes; 0 disables the timeout |
+| `PlanningSessionRetentionDays` | 0 | Automatically delete stopped or failed planning transcripts after this many days; 0 disables retention cleanup |
 
 ## Authentication
 

@@ -27,6 +27,8 @@ import type {
   PlanningSessionDetail,
   PlanningSessionDispatchRequest,
   PlanningSessionMessageRequest,
+  PlanningSessionSummaryRequest,
+  PlanningSessionSummaryResponse,
   TransitionRequest,
   SendSignalRequest,
   SettingsData,
@@ -73,6 +75,9 @@ interface RequestOptions {
   timeout?: number;
   rawText?: boolean;
 }
+
+const PLANNING_CREATE_TIMEOUT_MS = 5 * 60 * 1000;
+const PLANNING_SUMMARIZE_TIMEOUT_MS = 3 * 60 * 1000;
 
 async function request<T>(method: string, path: string, body?: unknown, opts?: RequestOptions): Promise<T> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -245,10 +250,14 @@ export const purgeVoyage = (id: string) => del<void>(`/api/v1/voyages/${id}/purg
 // ==================== Planning Sessions ====================
 export const listPlanningSessions = () => get<PlanningSession[]>('/api/v1/planning-sessions');
 export const getPlanningSession = (id: string) => get<PlanningSessionDetail>(`/api/v1/planning-sessions/${id}`);
-export const createPlanningSession = (data: PlanningSessionCreateRequest) => post<PlanningSessionDetail>('/api/v1/planning-sessions', data);
+export const createPlanningSession = (data: PlanningSessionCreateRequest) =>
+  post<PlanningSessionDetail>('/api/v1/planning-sessions', data, { timeout: PLANNING_CREATE_TIMEOUT_MS });
 export const sendPlanningSessionMessage = (id: string, data: PlanningSessionMessageRequest) => post<PlanningSessionDetail>(`/api/v1/planning-sessions/${id}/messages`, data);
+export const summarizePlanningSession = (id: string, data: PlanningSessionSummaryRequest) =>
+  post<PlanningSessionSummaryResponse>(`/api/v1/planning-sessions/${id}/summarize`, data, { timeout: PLANNING_SUMMARIZE_TIMEOUT_MS });
 export const dispatchPlanningSession = (id: string, data: PlanningSessionDispatchRequest) => post<Voyage>(`/api/v1/planning-sessions/${id}/dispatch`, data);
 export const stopPlanningSession = (id: string) => post<PlanningSessionDetail>(`/api/v1/planning-sessions/${id}/stop`);
+export const deletePlanningSession = (id: string) => del<void>(`/api/v1/planning-sessions/${id}`);
 
 // ==================== Events ====================
 export const listEvents = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>

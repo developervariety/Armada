@@ -249,6 +249,34 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Retention period in days for stopped or failed planning sessions.
+        /// Set to 0 to disable automatic planning-session deletion.
+        /// </summary>
+        public int PlanningSessionRetentionDays
+        {
+            get => _PlanningSessionRetentionDays;
+            set
+            {
+                if (value < 0) throw new ArgumentOutOfRangeException(nameof(PlanningSessionRetentionDays), "Must be >= 0");
+                _PlanningSessionRetentionDays = value;
+            }
+        }
+
+        /// <summary>
+        /// Inactivity timeout in minutes for active planning sessions with no running process.
+        /// Set to 0 to disable automatic inactivity stop.
+        /// </summary>
+        public int PlanningSessionInactivityTimeoutMinutes
+        {
+            get => _PlanningSessionInactivityTimeoutMinutes;
+            set
+            {
+                if (value < 0) throw new ArgumentOutOfRangeException(nameof(PlanningSessionInactivityTimeoutMinutes), "Must be >= 0");
+                _PlanningSessionInactivityTimeoutMinutes = value;
+            }
+        }
+
+        /// <summary>
         /// Minimum number of idle captains to maintain.
         /// When idle count drops below this, new captains are spawned automatically.
         /// Set to 0 to disable auto-scaling. Must be >= 0.
@@ -413,6 +441,8 @@ namespace Armada.Core.Settings
         private long _MaxLogFileSizeBytes = Constants.DefaultMaxLogFileSizeBytes;
         private int _MaxLogFileCount = Constants.DefaultMaxLogFileCount;
         private int _DataRetentionDays = Constants.DefaultDataRetentionDays;
+        private int _PlanningSessionRetentionDays = 0;
+        private int _PlanningSessionInactivityTimeoutMinutes = 0;
         private int _MaxLandingRetries = 3;
         private int _MinIdleCaptains = 0;
         private int _MaxCaptains = 0;

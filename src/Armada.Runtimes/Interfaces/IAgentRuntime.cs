@@ -16,6 +16,12 @@ namespace Armada.Runtimes.Interfaces
         bool SupportsResume { get; }
 
         /// <summary>
+        /// Whether this runtime can participate in Armada planning sessions.
+        /// Planning currently uses transcript-backed turn relaunches rather than a persistent stdin session.
+        /// </summary>
+        bool SupportsPlanningSessions { get; }
+
+        /// <summary>
         /// Event raised when the agent writes a line to stdout.
         /// The int parameter is the process ID, the string is the output line.
         /// </summary>

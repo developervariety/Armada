@@ -23,6 +23,12 @@ namespace Armada.Runtimes
         public abstract bool SupportsResume { get; }
 
         /// <summary>
+        /// Whether this runtime can participate in planning sessions.
+        /// The default transcript-relaunch planning flow works for all built-in runtimes.
+        /// </summary>
+        public virtual bool SupportsPlanningSessions => true;
+
+        /// <summary>
         /// Event raised when the agent writes a line to stdout.
         /// </summary>
         public event Action<int, string>? OnOutputReceived;

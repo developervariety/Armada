@@ -757,6 +757,17 @@ tr.clickable { cursor: pointer; }
     transition: width 0.5s ease;
 }
 
+.progress-fill-indeterminate {
+    width: 42%;
+    will-change: transform;
+    animation: progress-indeterminate 1.1s ease-in-out infinite;
+}
+
+@keyframes progress-indeterminate {
+    0% { transform: translateX(-115%); }
+    100% { transform: translateX(255%); }
+}
+
 /* Signal list */
 .signal-list { display: flex; flex-direction: column; gap: 0.4rem; }
 
@@ -888,7 +899,7 @@ tr.clickable { cursor: pointer; }
     justify-content: space-between;
     gap: 1rem;
     align-items: flex-start;
-    margin-bottom: 1rem;
+    margin-bottom: 0;
 }
 
 .playbook-selector-meta {
@@ -903,6 +914,47 @@ tr.clickable { cursor: pointer; }
 
 .playbook-selector-link {
     font-weight: 600;
+}
+
+.playbook-selector-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.35rem 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--bg-hover);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.playbook-selector-toggle:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.playbook-selector-toggle-icon {
+    display: inline-flex;
+    width: 14px;
+    height: 14px;
+    transition: transform 0.2s ease;
+}
+
+.playbook-selector-toggle-icon svg {
+    width: 14px;
+    height: 14px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.playbook-selector-shell.collapsed .playbook-selector-toggle-icon {
+    transform: rotate(-90deg);
 }
 
 .playbook-selector-layout {
@@ -1347,6 +1399,7 @@ tr.clickable { cursor: pointer; }
 }
 
 .alert-success { background: var(--tag-complete-bg); color: var(--tag-complete-fg); border: 1px solid var(--green); }
+.alert-warning { background: color-mix(in srgb, var(--yellow) 12%, var(--surface)); color: var(--text); border: 1px solid var(--yellow); }
 .alert-error { background: var(--tag-failed-bg); color: var(--tag-failed-fg); border: 1px solid var(--red); }
 
 /* Login overlay */

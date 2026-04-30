@@ -63,9 +63,9 @@ export default function App() {
 
                   {/* Operations */}
                   <Route path="dashboard" element={<Dashboard />} />
-                  <Route path="dispatch" element={<Dispatch />} />
                   <Route path="planning" element={<Planning />} />
                   <Route path="planning/:id" element={<Planning />} />
+                  <Route path="dispatch" element={<Dispatch />} />
 
                   {/* Entities - List and Detail */}
                   <Route path="fleets" element={<Fleets />} />

@@ -76,6 +76,17 @@ namespace Armada.Test.Unit.Suites.Models
                 AssertEqual(captain.RecoveryAttempts, deserialized.RecoveryAttempts);
             });
 
+            await RunTest("Captain PlanningSupport Flags Follow Runtime", () =>
+            {
+                Captain builtIn = new Captain("builtin", AgentRuntimeEnum.Codex);
+                Captain custom = new Captain("custom", AgentRuntimeEnum.Custom);
+
+                AssertTrue(builtIn.SupportsPlanningSessions);
+                AssertNull(builtIn.PlanningSessionSupportReason);
+                AssertFalse(custom.SupportsPlanningSessions);
+                AssertContains("built-in ClaudeCode, Codex, Gemini, and Cursor runtimes", custom.PlanningSessionSupportReason ?? String.Empty);
+            });
+
             await RunTest("Captain StateEnum SerializesAsString", () =>
             {
                 Captain captain = new Captain();

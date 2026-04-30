@@ -58,7 +58,7 @@ namespace Armada.Test.Unit.Suites.Services
                 string statusRoutesContents = ReadRepositoryFile("src", "Armada.Server", "Routes", "StatusRoutes.cs");
                 Match healthRouteMatch = Regex.Match(
                     statusRoutesContents,
-                    @"app\.Rest\.Get\(""/api/v1/status/health"",[\s\S]*?\.WithDescription\(""Returns health status\. Does not require authentication\.""\)\);");
+                    @"app(?:\.Rest)?\.Get\(""/api/v1/status/health"",[\s\S]*?\.WithDescription\(""Returns health status\. Does not require authentication\.""\)\);");
 
                 AssertTrue(healthRouteMatch.Success, "StatusRoutes should include the REST health route");
 

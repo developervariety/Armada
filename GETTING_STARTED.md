@@ -67,6 +67,28 @@ Repo-relative deployment script paths:
 - macOS: `scripts/macos/install-launchd-agent.sh`, `scripts/macos/update-launchd-agent.sh`, `scripts/macos/healthcheck-server.sh`
 - Windows: `scripts/windows/install-windows-task.bat`, `scripts/windows/update-windows-task.bat`, `scripts/windows/healthcheck-server.bat`
 
+## Planning Workflow
+
+If you want to work out the plan with a captain before dispatching anything, use the dashboard planning screen:
+
+1. Start Armada and open `http://localhost:7890/dashboard`
+2. Go to `Planning`
+3. Pick a captain, vessel, optional pipeline, and playbooks
+4. Chat until you have a plan you trust
+5. Select the assistant response you want
+6. Either summarize it into a cleaner draft, open that draft in the main `Dispatch` page, or dispatch it directly from the planning page
+7. Delete the session when you no longer need the transcript, or let Armada clean it up through retention settings
+
+Current planning-session constraints:
+
+- Planning currently supports only the built-in `ClaudeCode`, `Codex`, `Gemini`, and `Cursor` runtimes. `Custom` captains are blocked there.
+- A planning session reserves the selected captain and a dock/worktree for the selected vessel until you stop the session.
+- The captain can inspect and modify the repository while planning.
+- Planning is transcript-backed today. Each turn relaunches the runtime with the preserved transcript and repo context instead of keeping a persistent interactive stdin session alive.
+- Planning-session persistence is SQLite-first. Non-SQLite backends currently return an explicit unsupported response for planning-session endpoints.
+- Armada can summarize a selected planning reply into a dispatch-ready draft before launch.
+- Optional cleanup controls are available through `PlanningSessionInactivityTimeoutMinutes` and `PlanningSessionRetentionDays`.
+
 ---
 
 ## Create a project
