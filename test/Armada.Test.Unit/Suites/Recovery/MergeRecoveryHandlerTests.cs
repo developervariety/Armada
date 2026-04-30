@@ -101,7 +101,7 @@ namespace Armada.Test.Unit.Suites.Recovery
                 }
             });
 
-            await RunTest("OnMergeFailed_AdmiralRestartThrows_RollsBackAttempts", async () =>
+            await RunTest("OnMergeFailed_AdmiralRestartThrows_RollsBackAttemptsAndDoesNotSurface", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
@@ -123,7 +123,90 @@ namespace Armada.Test.Unit.Suites.Recovery
 
                     MergeEntry? updatedEntry = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
                     AssertNotNull(updatedEntry, "merge entry should exist");
-                    AssertEqual("recovery_dispatch_failed", updatedEntry!.AuditCriticalTrigger, "entry should surface as recovery_dispatch_failed when admiral throws");
+                    AssertNull(updatedEntry!.AuditCriticalTrigger, "single admiral hiccup must NOT surface the entry; the 3-retry counter defers surface so a future merge_queue.failed event can retry");
+                    AssertEqual(MergeStatusEnum.Failed, updatedEntry.Status, "entry status remains Failed when admiral hiccup is below the surface threshold");
+                }
+            });
+
+            await RunTest("OnMergeFailed_AdmiralRestartThrowsTwice_DoesNotSurfaceUntilThirdFailure", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    Mission mission = await SeedMissionAsync(testDb).ConfigureAwait(false);
+                    MergeEntry entry1 = await SeedFailedEntryAsync(testDb, mission, MergeFailureClassEnum.StaleBase, 0, 5).ConfigureAwait(false);
+                    MergeEntry entry2 = await SeedFailedEntryAsync(testDb, mission, MergeFailureClassEnum.StaleBase, 0, 5).ConfigureAwait(false);
+                    MergeEntry entry3 = await SeedFailedEntryAsync(testDb, mission, MergeFailureClassEnum.StaleBase, 0, 5).ConfigureAwait(false);
+
+                    StubRouter router = new StubRouter(new RecoveryAction.Redispatch());
+                    RecordingAdmiralService admiral = new RecordingAdmiralService();
+                    admiral.ThrowOnRestart = true;
+                    MergeRecoveryHandler handler = new MergeRecoveryHandler(logging, testDb.Driver, router, admiral, settings);
+
+                    // First admiral failure: counter = 1, below threshold (3) -> entry1 NOT surfaced.
+                    await handler.OnMergeFailedAsync(entry1.Id).ConfigureAwait(false);
+                    MergeEntry? after1 = await testDb.Driver.MergeEntries.ReadAsync(entry1.Id).ConfigureAwait(false);
+                    AssertNull(after1!.AuditCriticalTrigger, "after admiral failure 1/3, entry1 must not be surfaced");
+
+                    // Second admiral failure: counter = 2, still below threshold -> entry2 NOT surfaced.
+                    await handler.OnMergeFailedAsync(entry2.Id).ConfigureAwait(false);
+                    MergeEntry? after2 = await testDb.Driver.MergeEntries.ReadAsync(entry2.Id).ConfigureAwait(false);
+                    AssertNull(after2!.AuditCriticalTrigger, "after admiral failure 2/3, entry2 must not be surfaced");
+
+                    // Third admiral failure: counter = 3, threshold reached -> entry3 surfaced.
+                    await handler.OnMergeFailedAsync(entry3.Id).ConfigureAwait(false);
+                    MergeEntry? after3 = await testDb.Driver.MergeEntries.ReadAsync(entry3.Id).ConfigureAwait(false);
+                    AssertEqual("recovery_dispatch_failed", after3!.AuditCriticalTrigger, "after admiral failure 3/3, entry3 must surface as recovery_dispatch_failed");
+
+                    AssertEqual(3, admiral.RestartCalls.Count, "admiral should have been called once per merge failure (and thrown each time)");
+
+                    // Earlier entries must remain un-surfaced; the threshold-cross only surfaces the entry that crossed it.
+                    MergeEntry? finalEntry1 = await testDb.Driver.MergeEntries.ReadAsync(entry1.Id).ConfigureAwait(false);
+                    MergeEntry? finalEntry2 = await testDb.Driver.MergeEntries.ReadAsync(entry2.Id).ConfigureAwait(false);
+                    AssertNull(finalEntry1!.AuditCriticalTrigger, "entry1 must remain non-surfaced after threshold crossing");
+                    AssertNull(finalEntry2!.AuditCriticalTrigger, "entry2 must remain non-surfaced after threshold crossing");
+                }
+            });
+
+            await RunTest("OnMergeFailed_AdmiralRestartFailsThenSucceeds_ResetsRetryCounter", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings(cap: 99);
+                    Mission mission = await SeedMissionAsync(testDb).ConfigureAwait(false);
+
+                    StubRouter router = new StubRouter(new RecoveryAction.Redispatch());
+                    RecordingAdmiralService admiral = new RecordingAdmiralService();
+                    MergeRecoveryHandler handler = new MergeRecoveryHandler(logging, testDb.Driver, router, admiral, settings);
+
+                    // Calls 1 & 2: admiral throws -> counter climbs to 2 (still below threshold).
+                    admiral.ThrowOnRestart = true;
+                    MergeEntry entryA = await SeedFailedEntryAsync(testDb, mission, MergeFailureClassEnum.StaleBase, 0, 5).ConfigureAwait(false);
+                    await handler.OnMergeFailedAsync(entryA.Id).ConfigureAwait(false);
+                    MergeEntry entryB = await SeedFailedEntryAsync(testDb, mission, MergeFailureClassEnum.StaleBase, 0, 5).ConfigureAwait(false);
+                    await handler.OnMergeFailedAsync(entryB.Id).ConfigureAwait(false);
+
+                    // Call 3: admiral succeeds -> counter MUST be reset to 0.
+                    admiral.ThrowOnRestart = false;
+                    MergeEntry entryC = await SeedFailedEntryAsync(testDb, mission, MergeFailureClassEnum.StaleBase, 0, 5).ConfigureAwait(false);
+                    await handler.OnMergeFailedAsync(entryC.Id).ConfigureAwait(false);
+
+                    MergeEntry? cAfter = await testDb.Driver.MergeEntries.ReadAsync(entryC.Id).ConfigureAwait(false);
+                    AssertEqual(MergeStatusEnum.Cancelled, cAfter!.Status, "successful redispatch should mark entryC Cancelled");
+
+                    // Call 4: admiral throws again. If the counter were NOT reset, the running
+                    // count would be 2 (from calls 1 & 2) + 1 = 3, crossing the threshold and
+                    // surfacing entryD. With the reset, the count is 1, well below threshold,
+                    // so entryD must remain non-surfaced. This is the observable proof of reset.
+                    admiral.ThrowOnRestart = true;
+                    MergeEntry entryD = await SeedFailedEntryAsync(testDb, mission, MergeFailureClassEnum.StaleBase, 0, 5).ConfigureAwait(false);
+                    await handler.OnMergeFailedAsync(entryD.Id).ConfigureAwait(false);
+
+                    MergeEntry? dAfter = await testDb.Driver.MergeEntries.ReadAsync(entryD.Id).ConfigureAwait(false);
+                    AssertNull(dAfter!.AuditCriticalTrigger, "after success at call 3, the consecutive-failure counter must be reset; one fresh failure (call 4) must NOT surface entryD");
+                    AssertEqual(MergeStatusEnum.Failed, dAfter.Status, "entryD remains Failed (not surfaced, not cancelled) when below the threshold");
                 }
             });
 

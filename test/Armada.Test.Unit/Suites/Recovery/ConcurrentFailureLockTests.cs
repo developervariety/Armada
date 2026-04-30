@@ -15,8 +15,13 @@ namespace Armada.Test.Unit.Suites.Recovery
 
     /// <summary>
     /// Verifies the per-mission lock in <see cref="MergeRecoveryHandler"/>: when two
-    /// merge-entry failures arrive concurrently for the same mission, only one
-    /// RecoveryAttempts increment is applied (no double-redispatch).
+    /// merge-entry failures arrive concurrently for the same mission, exactly one
+    /// admiral redispatch fires and the RecoveryAttempts counter increments exactly
+    /// once. The router used here gates by the persisted RecoveryAttempts (cap 1) so
+    /// the SECOND invocation -- which can only see a fresh attempts value if the lock
+    /// serialised it after the first invocation's persist -- routes to Surface.
+    /// Without the lock both invocations would read RecoveryAttempts==0 concurrently,
+    /// both route to Redispatch, both call admiral, and the test fails.
     /// </summary>
     public class ConcurrentFailureLockTests : TestSuite
     {
@@ -33,7 +38,10 @@ namespace Armada.Test.Unit.Suites.Recovery
                     LoggingModule logging = new LoggingModule();
                     logging.Settings.EnableConsole = false;
                     ArmadaSettings settings = new ArmadaSettings();
-                    settings.MaxRecoveryAttempts = 2;
+                    // Cap of 1 so a router driven by attempts will return Redispatch when
+                    // attempts==0 and Surface when attempts>=1. The lock is what makes the
+                    // second invocation observe attempts==1 instead of the stale 0.
+                    settings.MaxRecoveryAttempts = 1;
 
                     Fleet fleet = new Fleet("Concurrent Fleet");
                     await testDb.Driver.Fleets.CreateAsync(fleet).ConfigureAwait(false);
@@ -67,13 +75,7 @@ namespace Armada.Test.Unit.Suites.Recovery
                     entryB.MergeFailureSummary = "stale base race B";
                     await testDb.Driver.MergeEntries.CreateAsync(entryB).ConfigureAwait(false);
 
-                    // Router that returns Redispatch on first call, then Surface on subsequent
-                    // calls. Combined with the per-mission lock the handler must:
-                    //  - First invocation: see RecoveryAttempts=0, increment to 1, dispatch.
-                    //  - Second invocation: see RecoveryAttempts=1 (the fresh re-read inside
-                    //    the lock), call Route again; since this stub returns Surface on the
-                    //    second call, no further increment happens.
-                    GatedRouter router = new GatedRouter();
+                    AttemptsAwareRouter router = new AttemptsAwareRouter(maxAttempts: 1);
                     GatedAdmiralService admiral = new GatedAdmiralService();
 
                     MergeRecoveryHandler handler = new MergeRecoveryHandler(logging, testDb.Driver, router, admiral, settings);
@@ -85,26 +87,42 @@ namespace Armada.Test.Unit.Suites.Recovery
                     Mission? finalMission = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
                     AssertNotNull(finalMission, "mission should still exist after concurrent failures");
                     AssertEqual(1, finalMission!.RecoveryAttempts,
-                        "exactly one increment is allowed even with two concurrent fail-events for the same mission");
+                        "exactly one increment is allowed even with two concurrent fail-events for the same mission; without the per-mission lock the second invocation would read attempts==0 and double-increment");
                     AssertEqual(1, admiral.RestartCalls.Count,
-                        "admiral.RestartMissionAsync must only be called once across the two concurrent invocations");
+                        "admiral.RestartMissionAsync must be called once: the second invocation, serialised behind the lock, re-reads attempts==1 and routes to Surface");
+                    AssertEqual(2, router.RouteCallCount,
+                        "router must be consulted by both invocations (no fake-greening via call-count gating)");
                 }
             });
         }
 
         /// <summary>
-        /// Hand-rolled router whose first Route call returns Redispatch, every subsequent
-        /// call returns Surface(recovery_exhausted). Mirrors the natural progression of
-        /// recovery-attempts under the lock.
+        /// Hand-rolled router that gates SOLELY on the recoveryAttempts argument, NOT on
+        /// internal call counts. Returns <see cref="RecoveryAction.Redispatch"/> while
+        /// attempts &lt; cap and <see cref="RecoveryAction.Surface"/> otherwise. This makes
+        /// the per-mission lock load-bearing: the second concurrent invocation can only
+        /// route to Surface if the lock forced it to re-read the persisted (incremented)
+        /// attempts value. A previous version of this test used a router that returned
+        /// Redispatch on its first call and Surface afterward, which masked a missing
+        /// lock because the second router call always returned Surface regardless of
+        /// concurrency.
         /// </summary>
-        private sealed class GatedRouter : IRecoveryRouter
+        private sealed class AttemptsAwareRouter : IRecoveryRouter
         {
-            private int _CallCount = 0;
+            private readonly int _MaxAttempts;
+            private int _RouteCallCount;
+
+            public AttemptsAwareRouter(int maxAttempts)
+            {
+                _MaxAttempts = maxAttempts;
+            }
+
+            public int RouteCallCount => _RouteCallCount;
 
             public RecoveryAction Route(MergeFailureClassEnum failureClass, bool conflictTrivial, int recoveryAttempts)
             {
-                int call = Interlocked.Increment(ref _CallCount);
-                if (call == 1) return new RecoveryAction.Redispatch();
+                Interlocked.Increment(ref _RouteCallCount);
+                if (recoveryAttempts < _MaxAttempts) return new RecoveryAction.Redispatch();
                 return new RecoveryAction.Surface("recovery_exhausted");
             }
         }

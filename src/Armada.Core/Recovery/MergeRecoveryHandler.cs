@@ -28,6 +28,11 @@ namespace Armada.Core.Recovery
         private const string _ConflictTrivialFileCap = "2";
         private const string _ConflictTrivialDiffCap = "100";
 
+        // Surface only after this many *consecutive* admiral.RestartMissionAsync exceptions
+        // for the same mission. Transient admiral hiccups should not permanently downgrade
+        // a recoverable entry to PR-fallback; a real outage will exceed the cap and surface.
+        private const int _AdmiralDispatchFailureThreshold = 3;
+
         private readonly LoggingModule _Logging;
         private readonly DatabaseDriver _Database;
         private readonly IRecoveryRouter _Router;
@@ -41,6 +46,17 @@ namespace Armada.Core.Recovery
         /// </summary>
         private readonly ConcurrentDictionary<string, SemaphoreSlim> _MissionLocks =
             new ConcurrentDictionary<string, SemaphoreSlim>();
+
+        /// <summary>
+        /// Per-mission counter of *consecutive* admiral.RestartMissionAsync exceptions.
+        /// Cleared on a successful redispatch. When the count reaches
+        /// <see cref="_AdmiralDispatchFailureThreshold"/> the entry is surfaced with
+        /// reason <see cref="_RecoveryDispatchFailedReason"/> and the counter is reset.
+        /// In-memory only; a process restart resets the counter, which is acceptable
+        /// because a recurring admiral outage will cross the threshold again quickly.
+        /// </summary>
+        private readonly ConcurrentDictionary<string, int> _AdmiralDispatchFailureCounts =
+            new ConcurrentDictionary<string, int>();
 
         #endregion
 
@@ -168,8 +184,7 @@ namespace Armada.Core.Recovery
             }
             catch (Exception ex)
             {
-                // Revert the increment so a future attempt can still recover. Then surface this
-                // entry to the PR-fallback channel with a dedicated reason so operators see why.
+                // Revert the increment so a future attempt can still recover.
                 _Logging.Error(_Header + "admiral.RestartMissionAsync failed for mission " + mission.Id + ": " + ex.Message);
                 try
                 {
@@ -187,10 +202,31 @@ namespace Armada.Core.Recovery
                     _Logging.Warn(_Header + "rollback of RecoveryAttempts failed for mission " + mission.Id + ": " + rollbackEx.Message);
                 }
 
+                // A single transient admiral hiccup must not permanently surface this entry,
+                // because surfacing sets AuditCriticalTrigger and the entry-level guard would
+                // then block any future merge_queue.failed event from retrying. Track
+                // consecutive admiral failures per mission; only surface once the threshold
+                // is crossed. The counter is cleared on the next successful redispatch (see
+                // post-try block) so a single recovery resets the count.
+                int failures = _AdmiralDispatchFailureCounts.AddOrUpdate(mission.Id, 1, (_, current) => current + 1);
+                if (failures < _AdmiralDispatchFailureThreshold)
+                {
+                    _Logging.Warn(_Header + "admiral dispatch failure " + failures + "/" + _AdmiralDispatchFailureThreshold
+                        + " for mission " + mission.Id + " (entry " + entry.Id + "); deferring surface so a future merge_queue.failed event can retry");
+                    return;
+                }
+
+                _Logging.Error(_Header + "admiral dispatch threshold reached (" + failures + "/" + _AdmiralDispatchFailureThreshold
+                    + ") for mission " + mission.Id + "; surfacing entry " + entry.Id + " as " + _RecoveryDispatchFailedReason);
+                _AdmiralDispatchFailureCounts.TryRemove(mission.Id, out _);
                 await SurfaceEntryAsync(entry, _RecoveryDispatchFailedReason, token).ConfigureAwait(false);
                 await EmitRecoveryEventAsync(entry, mission, "Surface", _RecoveryDispatchFailedReason, previousAttempts, failureClass, token).ConfigureAwait(false);
                 return;
             }
+
+            // Successful admiral dispatch: reset the consecutive-failure counter so a later
+            // hiccup starts from zero rather than carrying over a stale count.
+            _AdmiralDispatchFailureCounts.TryRemove(mission.Id, out _);
 
             // Mark the entry Cancelled with a reason; the redispatched mission will create a
             // fresh merge entry when its work lands.
