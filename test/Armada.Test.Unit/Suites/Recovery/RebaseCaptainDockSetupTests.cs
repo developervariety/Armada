@@ -87,6 +87,8 @@ namespace Armada.Test.Unit.Suites.Recovery
                     AssertEqual(1, spec.SelectedPlaybooks.Count, "exactly one playbook expected");
                     AssertEqual(RebaseCaptainDockSetup.RebaseCaptainPlaybookId, spec.SelectedPlaybooks[0].PlaybookId, "playbook id should be pbk_rebase_captain");
                     AssertEqual(PlaybookDeliveryModeEnum.InlineFullContent, spec.SelectedPlaybooks[0].DeliveryMode, "delivery mode should be InlineFullContent");
+                    AssertEqual(RebaseCaptainPlaybookContent.Markdown, spec.SelectedPlaybooks[0].InlineFullContent ?? "",
+                        "InlineFullContent should be populated with the compile-time playbook body so the dispatched mission ships it without a DB lookup");
                 }
             });
 

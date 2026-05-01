@@ -420,7 +420,8 @@ namespace Armada.Core.Services
             return selections.Select(s => new SelectedPlaybook
             {
                 PlaybookId = s.PlaybookId,
-                DeliveryMode = s.DeliveryMode
+                DeliveryMode = s.DeliveryMode,
+                InlineFullContent = s.InlineFullContent
             }).ToList();
         }
 

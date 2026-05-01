@@ -54,6 +54,11 @@ namespace Armada.Core.Services
                 if (!seen.Add(selection.PlaybookId))
                     throw new InvalidOperationException("Duplicate playbook selection: " + selection.PlaybookId);
 
+                // Inline-content selections bypass DB validation entirely -- they ship
+                // a compile-time playbook (recovery flows) and intentionally have no
+                // curated playbook row.
+                if (!String.IsNullOrEmpty(selection.InlineFullContent)) continue;
+
                 Playbook? playbook = await _Database.Playbooks.ReadAsync(tenantId, selection.PlaybookId, token).ConfigureAwait(false);
                 if (playbook == null)
                     throw new InvalidOperationException("Playbook not found: " + selection.PlaybookId);
@@ -72,13 +77,35 @@ namespace Armada.Core.Services
             if (String.IsNullOrWhiteSpace(tenantId)) throw new ArgumentNullException(nameof(tenantId));
             if (selections == null || selections.Count == 0) return new List<MissionPlaybookSnapshot>();
 
-            List<Playbook> playbooks = await ResolveSelectionsAsync(tenantId, selections, token).ConfigureAwait(false);
+            HashSet<string> seen = new HashSet<string>(StringComparer.Ordinal);
             List<MissionPlaybookSnapshot> snapshots = new List<MissionPlaybookSnapshot>();
 
-            for (int i = 0; i < selections.Count; i++)
+            foreach (SelectedPlaybook selection in selections)
             {
-                SelectedPlaybook selection = selections[i];
-                Playbook playbook = playbooks[i];
+                if (selection == null || String.IsNullOrWhiteSpace(selection.PlaybookId))
+                    throw new InvalidOperationException("Every selected playbook must include a playbookId.");
+                if (!seen.Add(selection.PlaybookId))
+                    throw new InvalidOperationException("Duplicate playbook selection: " + selection.PlaybookId);
+
+                if (!String.IsNullOrEmpty(selection.InlineFullContent))
+                {
+                    snapshots.Add(new MissionPlaybookSnapshot
+                    {
+                        PlaybookId = selection.PlaybookId,
+                        FileName = selection.PlaybookId + ".md",
+                        Description = null,
+                        Content = selection.InlineFullContent,
+                        DeliveryMode = selection.DeliveryMode,
+                        SourceLastUpdateUtc = null
+                    });
+                    continue;
+                }
+
+                Playbook? playbook = await _Database.Playbooks.ReadAsync(tenantId, selection.PlaybookId, token).ConfigureAwait(false);
+                if (playbook == null)
+                    throw new InvalidOperationException("Playbook not found: " + selection.PlaybookId);
+                if (!playbook.Active)
+                    throw new InvalidOperationException("Playbook is inactive: " + playbook.FileName);
 
                 snapshots.Add(new MissionPlaybookSnapshot
                 {

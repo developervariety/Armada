@@ -157,9 +157,11 @@ namespace Armada.Server
             // PR-fallback path for recovery_exhausted).
             IRecoveryRouter recoveryRouter = new RecoveryRouter(_Settings.MaxRecoveryAttempts);
             IRebaseCaptainDockSetup rebaseDockSetup = new RebaseCaptainDockSetup(_Git, _Database, _Logging);
+            IPlaybookService recoveryPlaybookService = new PlaybookService(_Database, _Logging);
             IMergeRecoveryHandler mergeRecoveryHandler = new MergeRecoveryHandler(
-                _Logging, _Database, _Settings, recoveryRouter, rebaseDockSetup, _MergeQueue);
+                _Logging, _Database, _Settings, recoveryRouter, rebaseDockSetup, _MergeQueue, recoveryPlaybookService);
             _MergeRecoveryHandler = mergeRecoveryHandler;
+            ((MergeQueueService)_MergeQueue).SetRecoveryHandler(_MergeRecoveryHandler);
             _AutoLandEvaluator = new AutoLandEvaluator();
             _ConventionChecker = new ConventionChecker();
             _CriticalTriggerEvaluator = new CriticalTriggerEvaluator();

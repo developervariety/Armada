@@ -10,6 +10,7 @@ namespace Armada.Test.Unit.Suites.Recovery
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Recovery;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
     using Armada.Test.Common;
@@ -40,7 +41,7 @@ namespace Armada.Test.Unit.Suites.Recovery
                     StubMergeQueueServiceForRecovery mergeQueue = new StubMergeQueueServiceForRecovery();
                     IRecoveryRouter router = new RecoveryRouter(3);
 
-                    MergeRecoveryHandler handler = new MergeRecoveryHandler(logging, db.Driver, settings, router, dockSetup, mergeQueue);
+                    MergeRecoveryHandler handler = new MergeRecoveryHandler(logging, db.Driver, settings, router, dockSetup, mergeQueue, new PlaybookService(db.Driver, logging));
                     await handler.OnMergeFailedAsync(setupResult.Entry.Id).ConfigureAwait(false);
 
                     MergeEntry? readEntry = await db.Driver.MergeEntries.ReadAsync(setupResult.Entry.Id).ConfigureAwait(false);
@@ -77,7 +78,7 @@ namespace Armada.Test.Unit.Suites.Recovery
                     StubMergeQueueServiceForRecovery mergeQueue = new StubMergeQueueServiceForRecovery();
                     IRecoveryRouter router = new RecoveryRouter(3);
 
-                    MergeRecoveryHandler handler = new MergeRecoveryHandler(logging, db.Driver, settings, router, dockSetup, mergeQueue);
+                    MergeRecoveryHandler handler = new MergeRecoveryHandler(logging, db.Driver, settings, router, dockSetup, mergeQueue, new PlaybookService(db.Driver, logging));
                     await handler.OnMergeFailedAsync(setupResult.Entry.Id).ConfigureAwait(false);
 
                     MergeEntry? readEntry = await db.Driver.MergeEntries.ReadAsync(setupResult.Entry.Id).ConfigureAwait(false);
@@ -101,7 +102,7 @@ namespace Armada.Test.Unit.Suites.Recovery
                     StubMergeQueueServiceForRecovery mergeQueue = new StubMergeQueueServiceForRecovery();
                     IRecoveryRouter router = new RecoveryRouter(3);
 
-                    MergeRecoveryHandler handler = new MergeRecoveryHandler(logging, db.Driver, settings, router, dockSetup, mergeQueue);
+                    MergeRecoveryHandler handler = new MergeRecoveryHandler(logging, db.Driver, settings, router, dockSetup, mergeQueue, new PlaybookService(db.Driver, logging));
                     await handler.OnMergeFailedAsync(setupResult.Entry.Id).ConfigureAwait(false);
 
                     List<Mission> all = await db.Driver.Missions.EnumerateAsync().ConfigureAwait(false);

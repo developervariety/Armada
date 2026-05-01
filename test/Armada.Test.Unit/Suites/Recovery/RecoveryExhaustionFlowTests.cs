@@ -6,6 +6,7 @@ namespace Armada.Test.Unit.Suites.Recovery
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Recovery;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
     using Armada.Test.Common;
@@ -53,7 +54,7 @@ namespace Armada.Test.Unit.Suites.Recovery
                     MergeRecoveryHandlerRebasePathTests.StubRebaseCaptainDockSetup setup = new MergeRecoveryHandlerRebasePathTests.StubRebaseCaptainDockSetup();
                     MergeRecoveryHandlerRebasePathTests.StubMergeQueueServiceForRecovery mergeQueue = new MergeRecoveryHandlerRebasePathTests.StubMergeQueueServiceForRecovery();
                     IRecoveryRouter router = new RecoveryRouter(2);
-                    MergeRecoveryHandler handler = new MergeRecoveryHandler(logging, db.Driver, settings, router, setup, mergeQueue);
+                    MergeRecoveryHandler handler = new MergeRecoveryHandler(logging, db.Driver, settings, router, setup, mergeQueue, new PlaybookService(db.Driver, logging));
 
                     await handler.OnMergeFailedAsync(entry.Id).ConfigureAwait(false);
 
@@ -70,15 +71,25 @@ namespace Armada.Test.Unit.Suites.Recovery
                     LoggingModule logging = NewQuietLogging();
                     ArmadaSettings settings = new ArmadaSettings { MaxRecoveryAttempts = 2 };
 
+                    // Vessel record is required because the PR-fallback path reads vessel.RepoUrl
+                    // for platform detection and vessel.WorkingDirectory for the PR CLI working dir.
+                    Vessel vessel = new Vessel("exhausted-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = "/tmp/repo";
+                    vessel.WorkingDirectory = "/tmp/repo";
+                    vessel.DefaultBranch = "main";
+                    await db.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
                     Mission mission = new Mission("exhausted-mission-2", "body")
                     {
                         BranchName = "captain/exhausted2",
+                        VesselId = vessel.Id,
                         RecoveryAttempts = 2
                     };
                     await db.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
 
                     MergeEntry entry = new MergeEntry("captain/exhausted2", "main")
                     {
+                        VesselId = vessel.Id,
                         MissionId = mission.Id,
                         Status = MergeStatusEnum.Failed,
                         MergeFailureClass = MergeFailureClassEnum.TextConflict,
@@ -88,18 +99,34 @@ namespace Armada.Test.Unit.Suites.Recovery
                     };
                     await db.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
 
-                    MergeRecoveryHandlerRebasePathTests.StubRebaseCaptainDockSetup setup = new MergeRecoveryHandlerRebasePathTests.StubRebaseCaptainDockSetup();
-                    MergeRecoveryHandlerRebasePathTests.StubMergeQueueServiceForRecovery mergeQueue = new MergeRecoveryHandlerRebasePathTests.StubMergeQueueServiceForRecovery
-                    {
-                        RecoveryPokeReturn = true
-                    };
+                    // Real merge-queue service with a recording PR factory: when
+                    // TryOpenPullRequestForRecoveryAsync fires, it calls the factory and
+                    // we capture the title/body for assertion.
+                    StubGitService git = new StubGitService();
+                    RecordingPullRequestService recordingPrService = new RecordingPullRequestService();
+                    Func<PullRequestPlatform, string, IPullRequestService> prFactory =
+                        (platform, workingDir) => recordingPrService;
+
+                    MergeQueueService mergeQueue = new MergeQueueService(
+                        logging, db.Driver, settings, git, new MergeFailureClassifier(), prFactory);
+
                     IRecoveryRouter router = new RecoveryRouter(2);
-                    MergeRecoveryHandler handler = new MergeRecoveryHandler(logging, db.Driver, settings, router, setup, mergeQueue);
+                    IRebaseCaptainDockSetup dockSetup = new RebaseCaptainDockSetup(git, db.Driver, logging);
+                    MergeRecoveryHandler handler = new MergeRecoveryHandler(
+                        logging, db.Driver, settings, router, dockSetup, mergeQueue,
+                        new PlaybookService(db.Driver, logging));
 
                     await handler.OnMergeFailedAsync(entry.Id).ConfigureAwait(false);
 
-                    AssertEqual(1, mergeQueue.RecoveryPokeCalls.Count, "PR-fallback recovery hook should be called exactly once");
-                    AssertEqual(entry.Id, mergeQueue.RecoveryPokeCalls[0], "PR-fallback hook should receive the failed entry id");
+                    AssertEqual(1, recordingPrService.OpenedPrs.Count, "PR-fallback should open exactly one PR for the recovery-exhausted entry");
+
+                    RecordingPullRequestService.OpenedPr opened = recordingPrService.OpenedPrs[0];
+                    AssertEqual("captain/exhausted2", opened.Branch, "PR head branch should be the captain branch from the failed entry");
+                    AssertEqual("main", opened.BaseBranch, "PR base branch should match the failed entry's target branch");
+                    AssertContains("recovery_exhausted", opened.Body, "PR body must surface the recovery_exhausted reason so reviewers see why this surfaced");
+
+                    MergeEntry? read = await db.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
+                    AssertEqual(MergeStatusEnum.PullRequestOpen, read!.Status, "entry should transition to PullRequestOpen after PR creation");
                 }
             });
         }

@@ -93,7 +93,8 @@ namespace Armada.Core.Recovery
                 new SelectedPlaybook
                 {
                     PlaybookId = RebaseCaptainPlaybookId,
-                    DeliveryMode = PlaybookDeliveryModeEnum.InlineFullContent
+                    DeliveryMode = PlaybookDeliveryModeEnum.InlineFullContent,
+                    InlineFullContent = RebaseCaptainPlaybookContent.Markdown
                 }
             };
 

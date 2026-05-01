@@ -38,6 +38,7 @@ namespace Armada.Core.Recovery
         private readonly IRecoveryRouter _Router;
         private readonly IRebaseCaptainDockSetup _DockSetup;
         private readonly IMergeQueueService _MergeQueue;
+        private readonly IPlaybookService? _Playbooks;
 
         #endregion
 
@@ -54,13 +55,18 @@ namespace Armada.Core.Recovery
         /// <param name="dockSetup">Builds the rebase-captain mission spec.</param>
         /// <param name="mergeQueue">Merge-queue service used for the recovery-exhausted
         /// PR-fallback hook.</param>
+        /// <param name="playbooks">Optional playbook service. When provided, the handler
+        /// materializes <see cref="MissionPlaybookSnapshot"/> rows for the rebase mission so
+        /// the inline <c>pbk_rebase_captain</c> body actually reaches the dispatched
+        /// captain. Tests that do not exercise the playbook surface may pass null.</param>
         public MergeRecoveryHandler(
             LoggingModule logging,
             DatabaseDriver database,
             ArmadaSettings settings,
             IRecoveryRouter router,
             IRebaseCaptainDockSetup dockSetup,
-            IMergeQueueService mergeQueue)
+            IMergeQueueService mergeQueue,
+            IPlaybookService? playbooks = null)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Database = database ?? throw new ArgumentNullException(nameof(database));
@@ -68,6 +74,7 @@ namespace Armada.Core.Recovery
             _Router = router ?? throw new ArgumentNullException(nameof(router));
             _DockSetup = dockSetup ?? throw new ArgumentNullException(nameof(dockSetup));
             _MergeQueue = mergeQueue ?? throw new ArgumentNullException(nameof(mergeQueue));
+            _Playbooks = playbooks;
         }
 
         #endregion
@@ -207,6 +214,14 @@ namespace Armada.Core.Recovery
                 return;
             }
 
+            // Materialize playbook snapshots so the inline pbk_rebase_captain body actually
+            // reaches the dispatched captain. AdmiralService.DispatchMissionAsync would do
+            // this on a fresh dispatch, but the recovery handler creates the mission row
+            // directly to avoid the prestaged-file validation rejection that would fire
+            // for the synthesized conflict-state marker. Best-effort: a snapshot persist
+            // failure does not unwind the rebase mission row.
+            await PersistPlaybookSnapshotsAsync(rebase, token).ConfigureAwait(false);
+
             entry.Status = MergeStatusEnum.Cancelled;
             entry.TestOutput = "recovery_rebased";
             entry.LastUpdateUtc = DateTime.UtcNow;
@@ -289,6 +304,52 @@ namespace Armada.Core.Recovery
                     _Logging.Warn(_Header + "PR-fallback re-poke failed for entry " + entry.Id + ": " + ex.Message);
                 }
             }
+        }
+
+        private async Task PersistPlaybookSnapshotsAsync(Mission rebase, CancellationToken token)
+        {
+            if (rebase.SelectedPlaybooks == null || rebase.SelectedPlaybooks.Count == 0) return;
+
+            try
+            {
+                List<MissionPlaybookSnapshot> snapshots;
+                if (_Playbooks != null && !String.IsNullOrEmpty(rebase.TenantId))
+                {
+                    snapshots = await _Playbooks.CreateSnapshotsAsync(rebase.TenantId, rebase.SelectedPlaybooks, token).ConfigureAwait(false);
+                }
+                else
+                {
+                    snapshots = BuildInlineOnlySnapshots(rebase.SelectedPlaybooks);
+                }
+
+                if (snapshots.Count == 0) return;
+
+                rebase.PlaybookSnapshots = snapshots;
+                await _Database.Playbooks.SetMissionSnapshotsAsync(rebase.Id, snapshots, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "playbook snapshot persistence failed for rebase mission " + rebase.Id + ": " + ex.Message);
+            }
+        }
+
+        private static List<MissionPlaybookSnapshot> BuildInlineOnlySnapshots(List<SelectedPlaybook> selections)
+        {
+            List<MissionPlaybookSnapshot> snapshots = new List<MissionPlaybookSnapshot>();
+            foreach (SelectedPlaybook selection in selections)
+            {
+                if (selection == null || String.IsNullOrEmpty(selection.InlineFullContent)) continue;
+                snapshots.Add(new MissionPlaybookSnapshot
+                {
+                    PlaybookId = selection.PlaybookId,
+                    FileName = (selection.PlaybookId ?? "playbook") + ".md",
+                    Description = null,
+                    Content = selection.InlineFullContent!,
+                    DeliveryMode = selection.DeliveryMode,
+                    SourceLastUpdateUtc = null
+                });
+            }
+            return snapshots;
         }
 
         private static MergeFailureClassification ReconstructClassification(MergeEntry entry)

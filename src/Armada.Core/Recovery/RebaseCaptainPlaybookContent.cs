@@ -1,4 +1,4 @@
-namespace Armada.Server.Recovery
+namespace Armada.Core.Recovery
 {
     /// <summary>
     /// Compile-time inlined playbook content for <c>pbk_rebase_captain</c>. Delivered
