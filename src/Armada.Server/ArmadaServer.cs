@@ -266,6 +266,7 @@ namespace Armada.Server
                 openApi.Tags.Add(new OpenApiTag { Name = "Captains", Description = "Captain (AI agent) management" });
                 openApi.Tags.Add(new OpenApiTag { Name = "Signals", Description = "Signal (inter-agent messaging) management" });
                 openApi.Tags.Add(new OpenApiTag { Name = "Events", Description = "System event log" });
+                openApi.Tags.Add(new OpenApiTag { Name = "Runtimes", Description = "Runtime-specific integration helpers and discovery" });
                 openApi.Tags.Add(new OpenApiTag { Name = "MergeQueue", Description = "Bors-style merge queue with batch testing" });
                 openApi.Tags.Add(new OpenApiTag { Name = "Authentication", Description = "Authentication and identity" });
                 openApi.Tags.Add(new OpenApiTag { Name = "Tenants", Description = "Multi-tenant management" });
@@ -360,6 +361,16 @@ namespace Armada.Server
             catch (Exception ex)
             {
                 _Logging.Warn(_Header + "planning session recovery error: " + ex.Message);
+            }
+
+            try
+            {
+                await _PlanningSessions.MaintainSessionsAsync(_TokenSource.Token).ConfigureAwait(false);
+                _Logging.Info(_Header + "planning session maintenance completed");
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "planning session maintenance error: " + ex.Message);
             }
 
             // Start health check loop
@@ -467,6 +478,10 @@ namespace Armada.Server
 
             // Captains
             new CaptainRoutes(_Database, _Admiral, _Settings, _RuntimeFactory, _AgentLifecycle, EmitEventAsync, _JsonOptions, _PlanningSessions)
+                .Register(_App, authenticate, _AuthorizationService);
+
+            // Runtime helpers
+            new RuntimeRoutes(_Logging)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Planning sessions
@@ -732,6 +747,7 @@ namespace Armada.Server
                         string captainLogDir = Path.Combine(_Settings.LogDirectory, "captains");
                         _LogRotation.RotateAllInDirectory(captainLogDir);
                         _LogRotation.RotateIfNeeded(Path.Combine(_Settings.LogDirectory, "admiral.log"));
+                        await _PlanningSessions.MaintainSessionsAsync(token).ConfigureAwait(false);
                     }
 
                     // Run data expiry every 100 health check cycles (~50 min at default interval)

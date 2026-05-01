@@ -1,5 +1,6 @@
 namespace Armada.Runtimes
 {
+    using Armada.Core.Models;
     using System.Diagnostics;
     using System.IO;
     using SyslogLogging;
@@ -95,7 +96,12 @@ namespace Armada.Runtimes
         /// ~8KB command-line length limit when long mission briefs are dispatched
         /// via cursor-agent.cmd.
         /// </summary>
-        protected override List<string> BuildArguments(string prompt, string? model, string? finalMessageFilePath)
+        protected override List<string> BuildArguments(
+            string workingDirectory,
+            string prompt,
+            string? model,
+            string? finalMessageFilePath,
+            Captain? captain)
         {
             List<string> args = new List<string>();
 

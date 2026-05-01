@@ -28,7 +28,7 @@ dotnet run --project test/Armada.Test.Database --framework net10.0 -- --type mys
 |---------|-------|----------------|
 | `Armada.Test.Automated` | ~781 | REST API, MCP tools, WebSocket, authentication, end-to-end workflows |
 | `Armada.Test.Unit` | ~377 | Database operations, model serialization, service logic |
-| `Armada.Test.Runtimes` | ~32 | Agent runtime adapters (Claude Code, Codex) |
+| `Armada.Test.Runtimes` | ~35 | Agent runtime adapters (Claude Code, Codex, Gemini, Cursor, Mux) |
 | `Armada.Test.Database` | ~100+ | Database driver CRUD operations across all 4 backends (SQLite, PostgreSQL, SQL Server, MySQL) |
 | `Armada.Test.Common` | — | Shared test infrastructure (TestRunner, TestSuite, TestResult) |
 

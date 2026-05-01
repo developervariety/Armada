@@ -269,6 +269,53 @@ namespace Armada.Server.Routes
                 .WithRequestBody(OpenApiJson.BodyFor<PlanningSessionDispatchRequest>("Planning dispatch request", false))
                 .WithSecurity("ApiKey"));
 
+            app.Post<PlanningSessionSummaryRequest>("/api/v1/planning-sessions/{id}/summarize", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                {
+                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
+                    return new ApiErrorResponse
+                    {
+                        Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest,
+                        Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required"
+                    };
+                }
+
+                PlanningSessionSummaryRequest request = JsonSerializer.Deserialize<PlanningSessionSummaryRequest>(req.Http.Request.DataAsString, _jsonOptions)
+                    ?? new PlanningSessionSummaryRequest();
+
+                try
+                {
+                    PlanningSession? session = await ReadSessionForContextAsync(ctx, req.Parameters["id"]).ConfigureAwait(false);
+                    if (session == null)
+                    {
+                        req.Http.Response.StatusCode = 404;
+                        return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Planning session not found" };
+                    }
+
+                    PlanningSessionSummaryResponse draft = await _planningSessions.SummarizeAsync(session, request).ConfigureAwait(false);
+                    return draft;
+                }
+                catch (NotSupportedException ex)
+                {
+                    req.Http.Response.StatusCode = 501;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message };
+                }
+                catch (InvalidOperationException ex)
+                {
+                    req.Http.Response.StatusCode = 409;
+                    return new ApiErrorResponse { Error = ApiResultEnum.Conflict, Message = ex.Message };
+                }
+            },
+            api => api
+                .WithTag("Planning")
+                .WithSummary("Summarize planning output into a dispatch draft")
+                .WithDescription("Generates a server-owned dispatch draft from selected or inferred planning output without launching the voyage yet.")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Planning session ID (psn_ prefix)"))
+                .WithRequestBody(OpenApiJson.BodyFor<PlanningSessionSummaryRequest>("Planning summary request", false))
+                .WithSecurity("ApiKey"));
+
             app.Post("/api/v1/planning-sessions/{id}/stop", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
@@ -291,8 +338,8 @@ namespace Armada.Server.Routes
                         return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Planning session not found" };
                     }
 
-                    PlanningSession stopped = await _planningSessions.StopAsync(session).ConfigureAwait(false);
-                    return await BuildDetailResponseAsync(stopped, ctx).ConfigureAwait(false);
+                    PlanningSession stopping = await _planningSessions.RequestStopAsync(session).ConfigureAwait(false);
+                    return await BuildDetailResponseAsync(stopping, ctx).ConfigureAwait(false);
                 }
                 catch (NotSupportedException ex)
                 {
@@ -304,6 +351,50 @@ namespace Armada.Server.Routes
                 .WithTag("Planning")
                 .WithSummary("Stop a planning session")
                 .WithDescription("Stops an active planning session, releases the captain, and reclaims the planning dock.")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Planning session ID (psn_ prefix)"))
+                .WithSecurity("ApiKey"));
+
+            app.Delete("/api/v1/planning-sessions/{id}", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                {
+                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
+                    return new ApiErrorResponse
+                    {
+                        Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest,
+                        Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required"
+                    };
+                }
+
+                try
+                {
+                    PlanningSession? session = await ReadSessionForContextAsync(ctx, req.Parameters["id"]).ConfigureAwait(false);
+                    if (session == null)
+                    {
+                        req.Http.Response.StatusCode = 404;
+                        return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Planning session not found" };
+                    }
+
+                    await _planningSessions.DeleteAsync(session).ConfigureAwait(false);
+                    req.Http.Response.StatusCode = 204;
+                    return null!;
+                }
+                catch (NotSupportedException ex)
+                {
+                    req.Http.Response.StatusCode = 501;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message };
+                }
+                catch (InvalidOperationException ex)
+                {
+                    req.Http.Response.StatusCode = 409;
+                    return new ApiErrorResponse { Error = ApiResultEnum.Conflict, Message = ex.Message };
+                }
+            },
+            api => api
+                .WithTag("Planning")
+                .WithSummary("Delete a planning session")
+                .WithDescription("Deletes a planning session and its transcript. Active sessions are stopped first.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Planning session ID (psn_ prefix)"))
                 .WithSecurity("ApiKey"));
         }

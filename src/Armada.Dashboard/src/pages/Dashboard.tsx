@@ -12,6 +12,7 @@ import {
 } from '../api/client';
 import type { Mission, Vessel, Captain, Signal, Fleet } from '../types/models';
 import { useWebSocket } from '../context/WebSocketContext';
+import ConfirmDialog from '../components/shared/ConfirmDialog';
 import ErrorModal from '../components/shared/ErrorModal';
 import type { WebSocketMessage } from '../types/models';
 import StatusBadge from '../components/shared/StatusBadge';
@@ -73,6 +74,17 @@ export default function Dashboard() {
     open: false,
     title: '',
     data: null,
+  });
+  const [confirm, setConfirm] = useState<{
+    open: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  }>({
+    open: false,
+    title: '',
+    message: '',
+    onConfirm: () => undefined,
   });
 
   // Recent mission filters
@@ -229,7 +241,6 @@ export default function Dashboard() {
   }, [recentMissions, statusFilter, vesselFilter, captainFilter]);
 
   const handleDeleteMission = async (id: string) => {
-    if (!window.confirm(t('Delete this mission?'))) return;
     try {
       await deleteMission(id);
       loadAll();
@@ -283,6 +294,16 @@ export default function Dashboard() {
       </div>
 
       <ErrorModal error={error} onClose={() => setError('')} />
+      <ConfirmDialog
+        open={confirm.open}
+        title={confirm.title}
+        message={confirm.message}
+        confirmLabel={t('Delete')}
+        cancelLabel={t('Cancel')}
+        danger
+        onConfirm={confirm.onConfirm}
+        onCancel={() => setConfirm((current) => ({ ...current, open: false }))}
+      />
 
       {/* Alert Banners */}
       {alerts.length > 0 && (
@@ -525,7 +546,15 @@ export default function Dashboard() {
                           {
                             label: 'Delete',
                             danger: true,
-                            onClick: () => handleDeleteMission(m.id),
+                            onClick: () => setConfirm({
+                              open: true,
+                              title: t('Delete Mission'),
+                              message: t('Delete this mission?'),
+                              onConfirm: async () => {
+                                setConfirm((current) => ({ ...current, open: false }));
+                                await handleDeleteMission(m.id);
+                              },
+                            }),
                           },
                         ]}
                       />

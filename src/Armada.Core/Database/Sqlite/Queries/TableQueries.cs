@@ -42,6 +42,7 @@ namespace Armada.Core.Database.Sqlite.Queries
                         id TEXT PRIMARY KEY,
                         name TEXT NOT NULL UNIQUE,
                         runtime TEXT NOT NULL DEFAULT 'ClaudeCode',
+                        runtime_options_json TEXT,
                         state TEXT NOT NULL DEFAULT 'Idle',
                         current_mission_id TEXT,
                         current_dock_id TEXT,
@@ -884,6 +885,9 @@ namespace Armada.Core.Database.Sqlite.Queries
                     @"ALTER TABLE merge_entries ADD COLUMN diff_line_count INTEGER NOT NULL DEFAULT 0;",
                     @"ALTER TABLE missions ADD COLUMN recovery_attempts INTEGER NOT NULL DEFAULT 0;",
                     @"ALTER TABLE missions ADD COLUMN last_recovery_action_utc TEXT;"
+                ),
+                new SchemaMigration(39, "Add runtime_options_json to captains",
+                    @"ALTER TABLE captains ADD COLUMN runtime_options_json TEXT;"
                 )
             };
         }

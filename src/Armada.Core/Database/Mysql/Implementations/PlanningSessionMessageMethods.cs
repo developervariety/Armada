@@ -11,15 +11,22 @@ namespace Armada.Core.Database.Mysql.Implementations
         /// <summary>
         /// Instantiate.
         /// </summary>
+        /// <param name="connectionString">Database connection string.</param>
         public PlanningSessionMessageMethods(string connectionString)
         {
         }
 
+        /// <inheritdoc />
         public Task<PlanningSessionMessage> CreateAsync(PlanningSessionMessage message, CancellationToken token = default) => throw NotSupported();
+        /// <inheritdoc />
         public Task DeleteAsync(string id, CancellationToken token = default) => throw NotSupported();
+        /// <inheritdoc />
         public Task DeleteBySessionAsync(string planningSessionId, CancellationToken token = default) => throw NotSupported();
+        /// <inheritdoc />
         public Task<List<PlanningSessionMessage>> EnumerateBySessionAsync(string planningSessionId, CancellationToken token = default) => throw NotSupported();
+        /// <inheritdoc />
         public Task<PlanningSessionMessage?> ReadAsync(string id, CancellationToken token = default) => throw NotSupported();
+        /// <inheritdoc />
         public Task<PlanningSessionMessage> UpdateAsync(PlanningSessionMessage message, CancellationToken token = default) => throw NotSupported();
 
         private static NotSupportedException NotSupported()

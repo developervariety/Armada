@@ -12,6 +12,7 @@ import {
 } from '../api/client';
 import type { Captain, Mission, LogResult } from '../types/models';
 import ActionMenu from '../components/shared/ActionMenu';
+import MuxRuntimeFields from '../components/captains/MuxRuntimeFields';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
@@ -19,8 +20,17 @@ import StatusBadge from '../components/shared/StatusBadge';
 import CopyButton from '../components/shared/CopyButton';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
+import { buildMuxRuntimeOptionsJson, EMPTY_MUX_CAPTAIN_FORM, isMuxRuntime, muxFormFromCaptain, parseMuxCaptainOptions, type MuxCaptainFormFields } from '../lib/mux';
 
-const RUNTIMES = ['ClaudeCode', 'Codex', 'Gemini', 'Cursor', 'Custom'];
+const RUNTIMES = ['ClaudeCode', 'Codex', 'Gemini', 'Cursor', 'Mux', 'Custom'];
+type CaptainDetailFormState = {
+  name: string;
+  runtime: string;
+  systemInstructions: string;
+  model: string;
+  allowedPersonas: string;
+  preferredPersona: string;
+} & MuxCaptainFormFields;
 
 export default function CaptainDetail() {
   const { t, formatDateTime, formatRelativeTime } = useLocale();
@@ -35,7 +45,7 @@ export default function CaptainDetail() {
 
   // Edit
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ name: '', runtime: 'ClaudeCode', systemInstructions: '', model: '', allowedPersonas: '', preferredPersona: '' });
+  const [form, setForm] = useState<CaptainDetailFormState>({ name: '', runtime: 'ClaudeCode', systemInstructions: '', model: '', allowedPersonas: '', preferredPersona: '', ...EMPTY_MUX_CAPTAIN_FORM });
 
   // Log viewer
   const [logText, setLogText] = useState<string | null>(null);
@@ -82,7 +92,15 @@ export default function CaptainDetail() {
 
   function openEdit() {
     if (!captain) return;
-    setForm({ name: captain.name, runtime: captain.runtime || 'ClaudeCode', systemInstructions: captain.systemInstructions ?? '', model: captain.model ?? '', allowedPersonas: captain.allowedPersonas ?? '', preferredPersona: captain.preferredPersona ?? '' });
+    setForm({
+      name: captain.name,
+      runtime: captain.runtime || 'ClaudeCode',
+      systemInstructions: captain.systemInstructions ?? '',
+      model: captain.model ?? '',
+      allowedPersonas: captain.allowedPersonas ?? '',
+      preferredPersona: captain.preferredPersona ?? '',
+      ...muxFormFromCaptain(captain),
+    });
     setShowForm(true);
   }
 
@@ -90,11 +108,25 @@ export default function CaptainDetail() {
     e.preventDefault();
     if (!captain) return;
     try {
+      if (isMuxRuntime(form.runtime) && !form.muxEndpoint.trim()) {
+        setError(t('Mux captains require a named Mux endpoint.'));
+        return;
+      }
+
       const payload = { ...form } as Record<string, unknown>;
       if (!payload.systemInstructions) delete payload.systemInstructions;
       payload.model = form.model.trim() ? form.model.trim() : null;
       if (!payload.allowedPersonas) delete payload.allowedPersonas;
       if (!payload.preferredPersona) delete payload.preferredPersona;
+      payload.runtimeOptionsJson = buildMuxRuntimeOptionsJson(form.runtime, form);
+      delete payload.muxConfigDirectory;
+      delete payload.muxEndpoint;
+      delete payload.muxBaseUrl;
+      delete payload.muxAdapterType;
+      delete payload.muxTemperature;
+      delete payload.muxMaxTokens;
+      delete payload.muxSystemPromptPath;
+      delete payload.muxApprovalPolicy;
       await updateCaptain(captain.id, payload);
       setShowForm(false);
       pushToast('success', t('Captain "{{name}}" saved.', { name: form.name }));
@@ -193,6 +225,8 @@ export default function CaptainDetail() {
   if (error && !captain) return <ErrorModal error={error} onClose={() => setError('')} />;
   if (!captain) return <p className="text-dim">{t('Captain not found.')}</p>;
 
+  const muxOptions = parseMuxCaptainOptions(captain.runtimeOptionsJson);
+
   return (
     <div>
       {/* Breadcrumb */}
@@ -228,6 +262,12 @@ export default function CaptainDetail() {
               {t('Model')}
               <input value={form.model} onChange={e => setForm({ ...form, model: e.target.value })} placeholder={t('e.g., gpt-5.4-mini')} />
             </label>
+            <MuxRuntimeFields
+              runtime={form.runtime}
+              form={form}
+              onChange={(patch) => setForm((current) => ({ ...current, ...patch }))}
+              t={t}
+            />
             <label>
               {t('Allowed Personas (JSON array)')}
               <textarea value={form.allowedPersonas} onChange={e => setForm({ ...form, allowedPersonas: e.target.value })} rows={2} placeholder={t('["Worker", "Judge"]')} />
@@ -261,6 +301,26 @@ export default function CaptainDetail() {
         <div className="detail-field"><span className="detail-label">{t('Tenant ID')}</span><span className="mono">{captain.tenantId || '-'}</span></div>
         <div className="detail-field"><span className="detail-label">{t('Runtime')}</span><span>{captain.runtime || 'ClaudeCode'}</span></div>
       </div>
+      {isMuxRuntime(captain.runtime) && (
+        <div className="detail-grid">
+          <div className="detail-field">
+            <span className="detail-label">{t('Mux Endpoint')}</span>
+            <span>{muxOptions?.endpoint || <span className="text-dim">{t('Not configured')}</span>}</span>
+          </div>
+          <div className="detail-field">
+            <span className="detail-label">{t('Mux Config Directory')}</span>
+            <span className="mono">{muxOptions?.configDirectory || <span className="text-dim">{t('Mux default')}</span>}</span>
+          </div>
+          <div className="detail-field">
+            <span className="detail-label">{t('Mux Adapter')}</span>
+            <span>{muxOptions?.adapterType || <span className="text-dim">{t('Endpoint default')}</span>}</span>
+          </div>
+          <div className="detail-field">
+            <span className="detail-label">{t('Mux Base URL')}</span>
+            <span className="mono">{muxOptions?.baseUrl || <span className="text-dim">{t('Endpoint default')}</span>}</span>
+          </div>
+        </div>
+      )}
       {captain.systemInstructions && (
         <div className="detail-context-section">
           <h4>{t('System Instructions')}</h4>

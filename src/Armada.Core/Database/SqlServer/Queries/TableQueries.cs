@@ -439,6 +439,13 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"
                     IF COL_LENGTH('missions', 'last_recovery_action_utc') IS NULL
                         ALTER TABLE missions ADD last_recovery_action_utc DATETIME2;"
+                ),
+                new SchemaMigration(
+                    39,
+                    "Add runtime_options_json to captains",
+                    @"
+                    IF COL_LENGTH('captains', 'runtime_options_json') IS NULL
+                        ALTER TABLE captains ADD runtime_options_json NVARCHAR(MAX) NULL;"
                 )
             };
         }
@@ -556,6 +563,7 @@ namespace Armada.Core.Database.SqlServer.Queries
                 name NVARCHAR(450) NOT NULL,
                 runtime NVARCHAR(450) NOT NULL DEFAULT 'ClaudeCode',
                 system_instructions NVARCHAR(MAX),
+                runtime_options_json NVARCHAR(MAX),
                 state NVARCHAR(450) NOT NULL DEFAULT 'Idle',
                 current_mission_id NVARCHAR(450),
                 current_dock_id NVARCHAR(450),

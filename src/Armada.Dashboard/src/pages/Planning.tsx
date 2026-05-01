@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   createPlanningSession,
+  deletePlanningSession,
   dispatchPlanningSession,
   getPlanningSession,
   listCaptains,
@@ -11,6 +12,7 @@ import {
   listVessels,
   sendPlanningSessionMessage,
   stopPlanningSession,
+  summarizePlanningSession,
 } from '../api/client';
 import type {
   Captain,
@@ -26,23 +28,31 @@ import type {
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { useWebSocket } from '../context/WebSocketContext';
-import PlaybookSelector from '../components/shared/PlaybookSelector';
+import ConfirmDialog from '../components/shared/ConfirmDialog';
 import StatusBadge from '../components/shared/StatusBadge';
+import PlanningDispatchCard from '../components/planning/PlanningDispatchCard';
+import PlanningSessionListCard from '../components/planning/PlanningSessionListCard';
+import PlanningStartCard from '../components/planning/PlanningStartCard';
+import PlanningTranscriptCard from '../components/planning/PlanningTranscriptCard';
+import {
+  buildDispatchSeed,
+  type DispatchSeedState,
+  getLatestAssistantMessage,
+  mergeCaptainState,
+  removeSession,
+  resolveDispatchSeedUpdate,
+  upsertMessage,
+  upsertSession,
+} from './planning/planningUtils';
 
-function upsertSession(sessions: PlanningSession[], session: PlanningSession): PlanningSession[] {
-  const next = [...sessions];
-  const index = next.findIndex((item) => item.id === session.id);
-  if (index >= 0) next[index] = session;
-  else next.unshift(session);
-  return next.sort((a, b) => new Date(b.lastUpdateUtc).getTime() - new Date(a.lastUpdateUtc).getTime());
-}
-
-function upsertMessage(messages: PlanningSessionMessage[], message: PlanningSessionMessage): PlanningSessionMessage[] {
-  const next = [...messages];
-  const index = next.findIndex((item) => item.id === message.id);
-  if (index >= 0) next[index] = message;
-  else next.push(message);
-  return next.sort((a, b) => a.sequence - b.sequence);
+interface PlanningSummaryEventPayload {
+  sessionId?: string;
+  messageId?: string;
+  draft?: {
+    title?: string;
+    description?: string;
+    method?: string;
+  };
 }
 
 export default function Planning() {
@@ -75,11 +85,14 @@ export default function Planning() {
 
   const [creating, setCreating] = useState(false);
   const [sending, setSending] = useState(false);
+  const [summarizing, setSummarizing] = useState(false);
   const [dispatching, setDispatching] = useState(false);
   const [stopping, setStopping] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
   const transcriptRef = useRef<HTMLDivElement | null>(null);
-  const seededDispatchKeyRef = useRef('');
+  const dispatchSeedRef = useRef<DispatchSeedState | null>(null);
 
   const loadCatalog = useCallback(async () => {
     try {
@@ -130,7 +143,7 @@ export default function Planning() {
       setSelectedMessageId('');
       setDispatchTitle('');
       setDispatchDescription('');
-      seededDispatchKeyRef.current = '';
+      dispatchSeedRef.current = null;
       return;
     }
 
@@ -150,6 +163,30 @@ export default function Planning() {
         return;
       }
 
+      if (msg.type === 'captain.changed') {
+        const payload = msg.data as { id?: string; name?: string; state?: string } | undefined;
+        if (!payload?.id || !payload.state) return;
+        const captainUpdate = {
+          id: payload.id,
+          name: payload.name,
+          state: payload.state,
+        };
+
+        setCaptains((current) => mergeCaptainState(current, captainUpdate));
+        setDetail((current) => {
+          if (!current?.captain || current.captain.id !== captainUpdate.id) return current;
+          return {
+            ...current,
+            captain: {
+              ...current.captain,
+              state: captainUpdate.state,
+              name: captainUpdate.name ?? current.captain.name,
+            },
+          };
+        });
+        return;
+      }
+
       if (msg.type === 'planning-session.message.created' || msg.type === 'planning-session.message.updated') {
         const payload = msg.data as { sessionId?: string; message?: PlanningSessionMessage } | undefined;
         if (!payload?.sessionId || !payload.message) return;
@@ -164,23 +201,57 @@ export default function Planning() {
         return;
       }
 
+      if (msg.type === 'planning-session.summary.created') {
+        const payload = msg.data as PlanningSummaryEventPayload | undefined;
+        if (!payload?.sessionId || payload.sessionId !== id || !payload.draft) return;
+
+        if (payload.messageId) {
+          setSelectedMessageId(payload.messageId);
+        }
+        setDispatchTitle(payload.draft.title || '');
+        setDispatchDescription(payload.draft.description || '');
+        dispatchSeedRef.current = {
+          key: `${payload.sessionId}:${payload.messageId || 'latest'}`,
+          title: payload.draft.title || '',
+          description: payload.draft.description || '',
+          source: 'summary',
+        };
+        return;
+      }
+
       if (msg.type === 'planning-session.dispatch.created') {
         const payload = msg.data as { sessionId?: string; voyageId?: string } | undefined;
         if (!payload?.sessionId || payload.sessionId !== id || !payload.voyageId) return;
         pushToast('success', t('Dispatch created from this planning session.'));
+        return;
+      }
+
+      if (msg.type === 'planning-session.deleted') {
+        const payload = msg.data as { sessionId?: string } | undefined;
+        if (!payload?.sessionId) return;
+
+        setSessions((current) => removeSession(current, payload.sessionId!));
+        if (payload.sessionId === id) {
+          setDetail(null);
+          setSelectedMessageId('');
+          setDispatchTitle('');
+          setDispatchDescription('');
+          dispatchSeedRef.current = null;
+          navigate('/planning');
+          if (!deleting) {
+            pushToast('warning', t('Planning session deleted.'));
+          }
+        }
       }
     });
 
     return unsubscribe;
-  }, [id, pushToast, subscribe, t]);
+  }, [deleting, id, navigate, pushToast, subscribe, t]);
 
   useEffect(() => {
     if (!detail) return;
 
-    const latestAssistant = [...detail.messages]
-      .reverse()
-      .find((message) => message.role.toLowerCase() === 'assistant' && message.content.trim().length > 0);
-
+    const latestAssistant = getLatestAssistantMessage(detail.messages);
     if (!latestAssistant) return;
 
     const selectedStillExists = detail.messages.some((message) => message.id === selectedMessageId);
@@ -192,14 +263,25 @@ export default function Planning() {
   useEffect(() => {
     if (!detail) return;
 
-    const selectedMessage = detail.messages.find((message) => message.id === selectedMessageId);
-    const seedKey = `${detail.session.id}:${selectedMessageId}`;
-    if (!selectedMessage || !selectedMessage.content.trim() || seededDispatchKeyRef.current === seedKey) return;
+    const selectedMessage = detail.messages.find((message) => message.id === selectedMessageId) || null;
+    const nextSeed = resolveDispatchSeedUpdate({
+      sessionId: detail.session.id,
+      sessionTitle: detail.session.title,
+      message: selectedMessage,
+      currentTitle: dispatchTitle,
+      currentDescription: dispatchDescription,
+      previousSeed: dispatchSeedRef.current,
+    });
+    if (!nextSeed) return;
 
-    seededDispatchKeyRef.current = seedKey;
-    setDispatchTitle(detail.session.title?.trim() || selectedMessage.content.trim().substring(0, 80));
-    setDispatchDescription(selectedMessage.content.trim());
-  }, [detail, selectedMessageId]);
+    dispatchSeedRef.current = nextSeed;
+    if (nextSeed.title !== dispatchTitle) {
+      setDispatchTitle(nextSeed.title);
+    }
+    if (nextSeed.description !== dispatchDescription) {
+      setDispatchDescription(nextSeed.description);
+    }
+  }, [detail, dispatchDescription, dispatchTitle, selectedMessageId]);
 
   useEffect(() => {
     if (!transcriptRef.current) return;
@@ -218,11 +300,20 @@ export default function Planning() {
     return fleetId ? vessels.filter((vessel) => vessel.fleetId === fleetId) : vessels;
   }, [fleetId, vessels]);
 
+  const selectedCaptain = useMemo(
+    () => captains.find((captain) => captain.id === captainId) || null,
+    [captainId, captains],
+  );
+
   const currentSession = detail?.session || null;
   const currentMessages = detail?.messages || [];
   const selectedMessage = currentMessages.find((message) => message.id === selectedMessageId) || null;
+  const sessionStopping = currentSession?.status === 'Stopping';
+  const canStartSession = !!selectedCaptain && selectedCaptain.supportsPlanningSessions && selectedCaptain.state === 'Idle' && !!vesselId && !creating;
   const canSend = currentSession?.status === 'Active' && composer.trim().length > 0 && !sending;
-  const canStop = !!currentSession && ['Active', 'Responding', 'Stopping'].includes(currentSession.status) && !stopping;
+  const canStop = !!currentSession && ['Active', 'Responding'].includes(currentSession.status) && !stopping;
+  const canSummarize = !!currentSession && !!selectedMessage?.content.trim() && !summarizing;
+  const canOpenInDispatch = !!currentSession && dispatchDescription.trim().length > 0;
   const canDispatch = !!currentSession && !!selectedMessage?.content.trim() && dispatchDescription.trim().length > 0 && !dispatching;
 
   async function handleCreateSession() {
@@ -244,7 +335,13 @@ export default function Planning() {
       pushToast('success', t('Planning session started.'));
       navigate(`/planning/${result.session.id}`);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : t('Failed to start planning session.'));
+      const message = err instanceof Error ? err.message : t('Failed to start planning session.');
+      if (message === 'Request timed out') {
+        await loadCatalog();
+        setError(t('Starting the planning session is taking longer than expected. Armada is still provisioning the dock and worktree. If setup completes, the session will appear in the list on the left.'));
+      } else {
+        setError(message);
+      }
     } finally {
       setCreating(false);
     }
@@ -265,6 +362,47 @@ export default function Planning() {
     } finally {
       setSending(false);
     }
+  }
+
+  async function handleSummarize() {
+    if (!currentSession || !selectedMessageId) return;
+
+    try {
+      setSummarizing(true);
+      setError('');
+      const result = await summarizePlanningSession(currentSession.id, {
+        messageId: selectedMessageId,
+        title: dispatchTitle.trim() || undefined,
+      });
+      setDispatchTitle(result.title);
+      setDispatchDescription(result.description);
+      dispatchSeedRef.current = {
+        key: `${result.sessionId}:${result.messageId}`,
+        title: result.title,
+        description: result.description,
+        source: 'summary',
+      };
+      pushToast('success', t('Dispatch draft summarized from planning output.'));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('Failed to summarize planning output.'));
+    } finally {
+      setSummarizing(false);
+    }
+  }
+
+  function handleOpenInDispatch() {
+    if (!currentSession || !dispatchDescription.trim()) return;
+
+    navigate('/dispatch', {
+      state: {
+        fromPlanning: true,
+        vesselId: currentSession.vesselId,
+        pipelineName: pipelines.find((pipeline) => pipeline.id === currentSession.pipelineId)?.name,
+        selectedPlaybooks: currentSession.selectedPlaybooks || [],
+        prompt: dispatchDescription.trim(),
+        voyageTitle: dispatchTitle.trim() || undefined,
+      },
+    });
   }
 
   async function handleDispatch() {
@@ -297,11 +435,33 @@ export default function Planning() {
       const result = await stopPlanningSession(currentSession.id);
       setDetail(result);
       setSessions((current) => upsertSession(current, result.session));
-      pushToast('warning', t('Planning session stopped.'));
+      pushToast('warning', t('Planning session is stopping.'));
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t('Failed to stop planning session.'));
     } finally {
       setStopping(false);
+    }
+  }
+
+  async function handleDeleteSession() {
+    if (!currentSession) return;
+
+    try {
+      setDeleting(true);
+      setError('');
+      await deletePlanningSession(currentSession.id);
+      setSessions((current) => removeSession(current, currentSession.id));
+      setDetail(null);
+      setSelectedMessageId('');
+      setDispatchTitle('');
+      setDispatchDescription('');
+      dispatchSeedRef.current = null;
+      navigate('/planning');
+      pushToast('warning', t('Planning session deleted.'));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('Failed to delete planning session.'));
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -322,135 +482,41 @@ export default function Planning() {
         </div>
       )}
 
-      <div className="card" style={{ padding: '1rem', marginBottom: '1rem' }}>
-        <h3 style={{ marginBottom: '0.35rem' }}>{t('Start Session')}</h3>
-        <p className="text-muted" style={{ marginBottom: '1rem' }}>
-          {t('Reserve a captain on a vessel, then use the transcript as the source of truth for a later dispatch.')}
-        </p>
-
-        {loadingCatalog ? (
-          <p className="text-muted">{t('Loading planning catalog...')}</p>
-        ) : (
-          <div className="dispatch-form">
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0 1rem' }}>
-              <div className="form-group">
-                <label>{t('Title')}</label>
-                <input
-                  value={title}
-                  onChange={(event) => setTitle(event.target.value)}
-                  placeholder={t('Optional planning session title')}
-                />
-              </div>
-
-              <div className="form-group">
-                <label>{t('Captain')}</label>
-                <select value={captainId} onChange={(event) => setCaptainId(event.target.value)}>
-                  <option value="">{t('Select a captain...')}</option>
-                  {captains.map((captain) => (
-                    <option
-                      key={captain.id}
-                      value={captain.id}
-                      disabled={captain.state !== 'Idle'}
-                    >
-                      {`${captain.name} (${captain.runtime}) - ${captain.state}`}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="form-group">
-                <label>{t('Fleet')}</label>
-                <select value={fleetId} onChange={(event) => setFleetId(event.target.value)}>
-                  <option value="">{t('Any fleet')}</option>
-                  {fleets.map((fleet) => (
-                    <option key={fleet.id} value={fleet.id}>
-                      {fleet.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="form-group">
-                <label>{t('Vessel')}</label>
-                <select value={vesselId} onChange={(event) => setVesselId(event.target.value)}>
-                  <option value="">{t('Select a vessel...')}</option>
-                  {availableVessels.map((vessel) => (
-                    <option key={vessel.id} value={vessel.id}>
-                      {vessel.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="form-group">
-                <label>{t('Pipeline')}</label>
-                <select value={pipelineId} onChange={(event) => setPipelineId(event.target.value)}>
-                  <option value="">{t('Inherit later during dispatch')}</option>
-                  {pipelines.map((pipeline) => (
-                    <option key={pipeline.id} value={pipeline.id}>
-                      {pipeline.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <PlaybookSelector value={selectedPlaybooks} onChange={setSelectedPlaybooks} disabled={creating} />
-
-            <div className="form-actions">
-              <button
-                type="button"
-                className="btn-primary"
-                disabled={creating || !captainId || !vesselId}
-                onClick={handleCreateSession}
-              >
-                {creating ? t('Starting...') : t('Start Planning Session')}
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
+      <PlanningStartCard
+        t={t}
+        loading={loadingCatalog}
+        captains={captains}
+        fleets={fleets}
+        vessels={vessels}
+        pipelines={pipelines}
+        title={title}
+        captainId={captainId}
+        fleetId={fleetId}
+        vesselId={vesselId}
+        pipelineId={pipelineId}
+        availableVessels={availableVessels}
+        selectedCaptain={selectedCaptain}
+        selectedPlaybooks={selectedPlaybooks}
+        creating={creating}
+        canStartSession={canStartSession}
+        onTitleChange={setTitle}
+        onCaptainChange={setCaptainId}
+        onFleetChange={setFleetId}
+        onVesselChange={setVesselId}
+        onPipelineChange={setPipelineId}
+        onSelectedPlaybooksChange={setSelectedPlaybooks}
+        onStart={handleCreateSession}
+      />
 
       <div style={{ display: 'grid', gridTemplateColumns: '360px minmax(0, 1fr)', gap: '1rem', alignItems: 'start' }}>
         <div style={{ display: 'grid', gap: '1rem' }}>
-          <div className="card" style={{ padding: '1rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-              <h3>{t('Recent Sessions')}</h3>
-              <span className="text-muted">{t('{{count}} total', { count: sessions.length })}</span>
-            </div>
-
-            {sessions.length === 0 ? (
-              <p className="text-muted">{t('No planning sessions yet.')}</p>
-            ) : (
-              <div style={{ display: 'grid', gap: '0.5rem' }}>
-                {sessions.map((session) => (
-                  <button
-                    key={session.id}
-                    type="button"
-                    onClick={() => navigate(`/planning/${session.id}`)}
-                    className="btn"
-                    style={{
-                      textAlign: 'left',
-                      padding: '0.75rem',
-                      borderColor: id === session.id ? 'var(--accent)' : undefined,
-                      background: id === session.id ? 'var(--surface-2)' : undefined,
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', alignItems: 'start' }}>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontWeight: 600 }}>{session.title}</div>
-                        <div className="text-dim mono" style={{ fontSize: '0.78rem' }}>{session.id}</div>
-                        <div className="text-dim" style={{ marginTop: '0.2rem', fontSize: '0.82rem' }}>
-                          {t('Updated {{time}}', { time: formatRelativeTime(session.lastUpdateUtc) })}
-                        </div>
-                      </div>
-                      <StatusBadge status={session.status} />
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          <PlanningSessionListCard
+            t={t}
+            sessions={sessions}
+            activeSessionId={id}
+            formatRelativeTime={formatRelativeTime}
+            onSelect={(sessionId) => navigate(`/planning/${sessionId}`)}
+          />
         </div>
 
         <div style={{ display: 'grid', gap: '1rem' }}>
@@ -490,7 +556,10 @@ export default function Planning() {
                   <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                     <StatusBadge status={detail.session.status} />
                     <button type="button" className="btn btn-sm" disabled={!canStop} onClick={handleStopSession}>
-                      {stopping ? t('Stopping...') : t('Stop Session')}
+                      {stopping || sessionStopping ? t('Stopping...') : t('Stop Session')}
+                    </button>
+                    <button type="button" className="btn btn-sm" disabled={deleting} onClick={() => setConfirmDeleteOpen(true)}>
+                      {deleting ? t('Deleting...') : t('Delete Session')}
                     </button>
                   </div>
                 </div>
@@ -499,6 +568,10 @@ export default function Planning() {
                   <div className="detail-field">
                     <span className="detail-label">{t('Captain')}</span>
                     <span>{detail.captain?.name || detail.session.captainId}</span>
+                  </div>
+                  <div className="detail-field">
+                    <span className="detail-label">{t('Runtime')}</span>
+                    <span>{detail.captain?.runtime || '-'}</span>
                   </div>
                   <div className="detail-field">
                     <span className="detail-label">{t('Vessel')}</span>
@@ -522,6 +595,10 @@ export default function Planning() {
                   </div>
                 </div>
 
+                <div className="text-muted" style={{ marginTop: '1rem' }}>
+                  {t('Each planning reply is generated from the preserved transcript and repo context, then streamed back into this session.')}
+                </div>
+
                 {detail.session.failureReason && (
                   <div className="alert alert-error" style={{ marginTop: '1rem' }}>
                     {detail.session.failureReason}
@@ -529,150 +606,59 @@ export default function Planning() {
                 )}
               </div>
 
-              <div className="card" style={{ padding: '1rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'center', marginBottom: '0.75rem' }}>
-                  <h3>{t('Transcript')}</h3>
-                  <span className="text-muted">{t('{{count}} message(s)', { count: currentMessages.length })}</span>
-                </div>
+              <PlanningTranscriptCard
+                t={t}
+                transcriptRef={transcriptRef}
+                messages={currentMessages}
+                selectedMessageId={selectedMessageId}
+                currentStatus={currentSession?.status}
+                composer={composer}
+                sending={sending}
+                canSend={canSend}
+                formatDateTime={formatDateTime}
+                formatRelativeTime={formatRelativeTime}
+                onSelectMessage={(messageId) => {
+                  setSelectedMessageId(messageId);
+                  dispatchSeedRef.current = null;
+                }}
+                onComposerChange={setComposer}
+                onSend={handleSendMessage}
+              />
 
-                <div
-                  ref={transcriptRef}
-                  style={{
-                    maxHeight: '52vh',
-                    overflowY: 'auto',
-                    display: 'grid',
-                    gap: '0.75rem',
-                    paddingRight: '0.25rem',
-                  }}
-                >
-                  {currentMessages.length === 0 ? (
-                    <div className="text-muted">{t('No transcript yet. Send the first planning message below.')}</div>
-                  ) : currentMessages.map((message) => {
-                    const isAssistant = message.role.toLowerCase() === 'assistant';
-                    const isUser = message.role.toLowerCase() === 'user';
-                    const isSelected = selectedMessageId === message.id;
-
-                    return (
-                      <div
-                        key={message.id}
-                        style={{
-                          border: '1px solid var(--border)',
-                          borderRadius: 'var(--radius)',
-                          padding: '0.9rem',
-                          background: isUser ? 'var(--surface-2)' : 'var(--surface)',
-                          boxShadow: isSelected ? '0 0 0 1px var(--accent)' : undefined,
-                        }}
-                      >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'start', marginBottom: '0.5rem' }}>
-                          <div>
-                            <strong>{t(message.role)}</strong>
-                            <div className="text-dim mono" style={{ fontSize: '0.78rem' }}>
-                              {message.id}
-                            </div>
-                          </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                            <span className="text-dim" style={{ fontSize: '0.82rem' }} title={formatDateTime(message.lastUpdateUtc)}>
-                              {formatRelativeTime(message.lastUpdateUtc)}
-                            </span>
-                            {isAssistant && message.content.trim().length > 0 && (
-                              <button
-                                type="button"
-                                className={`btn btn-sm${isSelected ? ' btn-primary' : ''}`}
-                                onClick={() => {
-                                  setSelectedMessageId(message.id);
-                                  seededDispatchKeyRef.current = '';
-                                }}
-                              >
-                                {isSelected ? t('Selected For Dispatch') : t('Use For Dispatch')}
-                              </button>
-                            )}
-                          </div>
-                        </div>
-
-                        <pre
-                          style={{
-                            margin: 0,
-                            whiteSpace: 'pre-wrap',
-                            wordBreak: 'break-word',
-                            fontFamily: isUser ? 'var(--font-body)' : 'var(--mono)',
-                            fontSize: '0.92rem',
-                            lineHeight: 1.45,
-                          }}
-                        >
-                          {message.content || (isAssistant ? t('Waiting for response...') : '')}
-                        </pre>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                <div style={{ marginTop: '1rem' }}>
-                  <label>{t('Send Message')}</label>
-                  <textarea
-                    value={composer}
-                    onChange={(event) => setComposer(event.target.value)}
-                    rows={6}
-                    disabled={currentSession?.status !== 'Active' || sending}
-                    placeholder={t('Describe the problem, ask for a plan, or negotiate the next steps with the captain.')}
-                  />
-                  <div className="form-actions" style={{ marginTop: '0.75rem' }}>
-                    <button type="button" className="btn-primary" disabled={!canSend} onClick={handleSendMessage}>
-                      {sending
-                        ? t('Sending...')
-                        : currentSession?.status === 'Responding'
-                          ? t('Captain Responding...')
-                          : t('Send')}
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <div className="card" style={{ padding: '1rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'start', marginBottom: '0.75rem' }}>
-                  <div>
-                    <h3>{t('Dispatch From Session')}</h3>
-                    <p className="text-muted">
-                      {t('Select an assistant response, edit the resulting mission text if needed, and launch a voyage without leaving the session.')}
-                    </p>
-                  </div>
-                  {selectedMessage && (
-                    <span className="text-dim mono" style={{ fontSize: '0.8rem' }}>
-                      {selectedMessage.id}
-                    </span>
-                  )}
-                </div>
-
-                <div className="dispatch-form">
-                  <div className="form-group">
-                    <label>{t('Voyage Title')}</label>
-                    <input
-                      value={dispatchTitle}
-                      onChange={(event) => setDispatchTitle(event.target.value)}
-                      placeholder={t('Optional override for the resulting voyage title')}
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label>{t('Mission Description')}</label>
-                    <textarea
-                      value={dispatchDescription}
-                      onChange={(event) => setDispatchDescription(event.target.value)}
-                      rows={10}
-                      placeholder={t('Select a planning response to seed the dispatch description.')}
-                    />
-                  </div>
-
-                  <div className="form-actions">
-                    <button type="button" className="btn-primary" disabled={!canDispatch} onClick={handleDispatch}>
-                      {dispatching ? t('Dispatching...') : t('Dispatch')}
-                    </button>
-                  </div>
-                </div>
-              </div>
+              <PlanningDispatchCard
+                t={t}
+                selectedMessage={selectedMessage}
+                dispatchTitle={dispatchTitle}
+                dispatchDescription={dispatchDescription}
+                canSummarize={canSummarize}
+                canOpenInDispatch={canOpenInDispatch}
+                canDispatch={canDispatch}
+                summarizing={summarizing}
+                dispatching={dispatching}
+                onDispatchTitleChange={setDispatchTitle}
+                onDispatchDescriptionChange={setDispatchDescription}
+                onSummarize={handleSummarize}
+                onOpenInDispatch={handleOpenInDispatch}
+                onDispatch={handleDispatch}
+              />
             </>
           )}
         </div>
       </div>
+
+      <ConfirmDialog
+        open={confirmDeleteOpen}
+        title={t('Delete Planning Session')}
+        message={t('Delete this planning session and its transcript?')}
+        confirmLabel={t('Delete Session')}
+        cancelLabel={t('Cancel')}
+        danger
+        onConfirm={() => {
+          setConfirmDeleteOpen(false);
+          void handleDeleteSession();
+        }}
+        onCancel={() => setConfirmDeleteOpen(false)}
+      />
     </div>
   );
 }

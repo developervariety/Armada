@@ -52,6 +52,18 @@ namespace Armada.Core.Models
         public AgentRuntimeEnum Runtime { get; set; } = AgentRuntimeEnum.ClaudeCode;
 
         /// <summary>
+        /// Whether this captain's runtime is currently supported by Armada planning sessions.
+        /// </summary>
+        public bool SupportsPlanningSessions => Runtime != AgentRuntimeEnum.Custom;
+
+        /// <summary>
+        /// Reason the captain cannot be used for planning sessions, if any.
+        /// </summary>
+        public string? PlanningSessionSupportReason => SupportsPlanningSessions
+            ? null
+            : "Planning sessions currently support only the built-in ClaudeCode, Codex, Gemini, Cursor, and Mux runtimes.";
+
+        /// <summary>
         /// Optional model override for the captain's runtime.
         /// Null means the runtime selects its default model.
         /// </summary>
@@ -84,6 +96,12 @@ namespace Armada.Core.Models
         /// The Admiral prefers to assign work matching this persona to this captain.
         /// </summary>
         public string? PreferredPersona { get; set; } = null;
+
+        /// <summary>
+        /// Runtime-specific configuration serialized as JSON.
+        /// Use this for settings that should not be promoted into generic captain fields.
+        /// </summary>
+        public string? RuntimeOptionsJson { get; set; } = null;
 
         /// <summary>
         /// Current state of the captain.

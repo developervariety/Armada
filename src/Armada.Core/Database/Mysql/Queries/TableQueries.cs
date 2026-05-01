@@ -62,6 +62,7 @@ namespace Armada.Core.Database.Mysql.Queries
             name VARCHAR(450) NOT NULL UNIQUE,
             runtime VARCHAR(450) NOT NULL DEFAULT 'ClaudeCode',
             system_instructions LONGTEXT,
+            runtime_options_json LONGTEXT,
             state VARCHAR(450) NOT NULL DEFAULT 'Idle',
             current_mission_id VARCHAR(450),
             current_dock_id VARCHAR(450),
@@ -714,6 +715,14 @@ namespace Armada.Core.Database.Mysql.Queries
             @"ALTER TABLE merge_entries ADD COLUMN diff_line_count INT NOT NULL DEFAULT 0;",
             @"ALTER TABLE missions ADD COLUMN recovery_attempts INT NOT NULL DEFAULT 0;",
             @"ALTER TABLE missions ADD COLUMN last_recovery_action_utc DATETIME(6);"
+        };
+
+        /// <summary>
+        /// Migration v39 statements for adding runtime_options_json to captains.
+        /// </summary>
+        public static readonly string[] MigrationV39Statements = new string[]
+        {
+            @"ALTER TABLE captains ADD COLUMN IF NOT EXISTS runtime_options_json LONGTEXT NULL;"
         };
 
         /// <summary>

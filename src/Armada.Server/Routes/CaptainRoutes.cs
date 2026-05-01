@@ -156,7 +156,8 @@ namespace Armada.Server.Routes
                     ?? throw new InvalidOperationException("Request body could not be deserialized as Captain.");
                 captain.TenantId = ctx.TenantId;
                 captain.UserId = ctx.UserId;
-                string? createValidationError = await _agentLifecycle.ValidateModelAsync(captain.Runtime, captain.Model).ConfigureAwait(false);
+                NormalizeCaptainRuntimeOptions(captain);
+                string? createValidationError = await _agentLifecycle.ValidateCaptainModelAsync(captain).ConfigureAwait(false);
                 if (createValidationError != null)
                 {
                     req.Http.Response.StatusCode = 400;
@@ -218,6 +219,8 @@ namespace Armada.Server.Routes
                 Captain updated = JsonSerializer.Deserialize<Captain>(req.Http.Request.DataAsString, _jsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as Captain.");
                 updated.Id = id;
+                updated.TenantId = existing.TenantId;
+                updated.UserId = existing.UserId;
                 updated.State = existing.State;
                 updated.CurrentMissionId = existing.CurrentMissionId;
                 updated.CurrentDockId = existing.CurrentDockId;
@@ -226,7 +229,8 @@ namespace Armada.Server.Routes
                 updated.LastHeartbeatUtc = existing.LastHeartbeatUtc;
                 updated.CreatedUtc = existing.CreatedUtc;
                 updated.LastUpdateUtc = DateTime.UtcNow;
-                string? updateValidationError = await _agentLifecycle.ValidateModelAsync(updated.Runtime, updated.Model).ConfigureAwait(false);
+                NormalizeCaptainRuntimeOptions(updated, existing);
+                string? updateValidationError = await _agentLifecycle.ValidateCaptainModelAsync(updated).ConfigureAwait(false);
                 if (updateValidationError != null)
                 {
                     req.Http.Response.StatusCode = 400;
@@ -517,6 +521,31 @@ namespace Armada.Server.Routes
                 .WithRequestBody(OpenApiJson.BodyFor<DeleteMultipleRequest>("List of captain IDs to delete"))
                 .WithResponse(200, OpenApiJson.For<DeleteMultipleResult>("Delete result summary"))
                 .WithSecurity("ApiKey"));
+        }
+
+        private static void NormalizeCaptainRuntimeOptions(Captain captain, Captain? existing = null)
+        {
+            if (captain == null) throw new ArgumentNullException(nameof(captain));
+
+            if (captain.Runtime != AgentRuntimeEnum.Mux)
+            {
+                captain.RuntimeOptionsJson = null;
+                return;
+            }
+
+            if (String.IsNullOrWhiteSpace(captain.RuntimeOptionsJson) &&
+                existing != null &&
+                existing.Runtime == AgentRuntimeEnum.Mux &&
+                !String.IsNullOrWhiteSpace(existing.RuntimeOptionsJson))
+            {
+                captain.RuntimeOptionsJson = existing.RuntimeOptionsJson;
+                return;
+            }
+
+            if (String.IsNullOrWhiteSpace(captain.RuntimeOptionsJson))
+            {
+                captain.RuntimeOptionsJson = null;
+            }
         }
     }
 }

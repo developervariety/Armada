@@ -9,6 +9,8 @@ import {
   listFleets,
   listVessels,
 } from '../api/client';
+import MuxRuntimeFields from './captains/MuxRuntimeFields';
+import { buildMuxRuntimeOptionsJson, EMPTY_MUX_CAPTAIN_FORM, isMuxRuntime, type MuxCaptainFormFields } from '../lib/mux';
 import type { Captain, Fleet, Mission, Vessel } from '../types/models';
 import { useLocale } from '../context/LocaleContext';
 
@@ -65,7 +67,7 @@ interface VesselForm {
   allowConcurrentMissions: boolean;
 }
 
-interface CaptainForm {
+interface CaptainForm extends MuxCaptainFormFields {
   name: string;
   runtime: string;
   model: string;
@@ -106,6 +108,8 @@ const tooltips = {
   runtime: 'AI agent runtime Armada should launch for missions assigned to this captain.',
   model: 'Optional runtime-specific model override. Leave blank to use the runtime default.',
   systemInstructions: 'Optional instructions injected into every mission handled by this captain.',
+  muxConfigDirectory: 'Optional mux config directory override for loading saved endpoints.',
+  muxEndpoint: 'Required named mux endpoint when the captain runtime is Mux.',
   missionTitle: 'Short title for the direct setup mission created by dispatch.',
   missionDescription: 'Full task instructions sent to the captain for this setup dispatch.',
   priority: 'Scheduling priority for the mission. Lower values are higher priority in Armada.',
@@ -197,6 +201,7 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
     runtime: 'Codex',
     model: '',
     systemInstructions: t('For setup missions, prefer read-only repository inspection unless the mission explicitly asks for code changes.'),
+    ...EMPTY_MUX_CAPTAIN_FORM,
   }));
   const [dispatchForm, setDispatchForm] = useState<DispatchForm>(() => ({
     title: t('Repository onboarding survey'),
@@ -406,6 +411,10 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
       setResult({ kind: 'error', message: t('Choose a captain runtime.') });
       return;
     }
+    if (isMuxRuntime(captainForm.runtime) && !captainForm.muxEndpoint.trim()) {
+      setResult({ kind: 'error', message: t('Mux captains require a named Mux endpoint.') });
+      return;
+    }
 
     try {
       setBusy(true);
@@ -414,6 +423,7 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
         runtime: captainForm.runtime,
         model: captainForm.model.trim() || null,
         systemInstructions: captainForm.systemInstructions.trim() || null,
+        runtimeOptionsJson: buildMuxRuntimeOptionsJson(captainForm.runtime, captainForm),
       });
       setCaptains((items) => upsertById(items, captain));
       setSelectedCaptainId(captain.id);
@@ -798,6 +808,7 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
                 <option value="Codex">Codex</option>
                 <option value="Gemini">Gemini</option>
                 <option value="Cursor">Cursor</option>
+                <option value="Mux">Mux</option>
               </select>
             </div>
           </div>
@@ -819,6 +830,13 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
               onChange={(event) => setCaptainForm({ ...captainForm, systemInstructions: event.target.value })}
             />
           </div>
+          <MuxRuntimeFields
+            runtime={captainForm.runtime}
+            form={captainForm}
+            onChange={(patch) => setCaptainForm((current) => ({ ...current, ...patch }))}
+            t={t}
+            compact
+          />
         </>
       )}
 

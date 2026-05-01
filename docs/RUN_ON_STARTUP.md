@@ -4,7 +4,7 @@ This guide covers the scripted startup workflows for the Admiral process. The sc
 
 ## Prerequisites
 
-- .NET 10.0 SDK installed
+- .NET SDK installed for the framework you plan to publish, such as `net8.0` or `net10.0`
 - Settings configured in `~/.armada/settings.json` if you are not using the default ports and paths
 - Platform service manager available:
   - Windows: PowerShell and the current-user `Run` registry key
@@ -22,7 +22,7 @@ Canonical helpers:
 - Linux wrappers: `scripts/linux/publish-server.sh`, `scripts/linux/healthcheck-server.sh`
 - macOS wrappers: `scripts/macos/publish-server.sh`, `scripts/macos/healthcheck-server.sh`
 
-`publish-server` publishes `src/Armada.Server` in `Release` mode for `net10.0` to `~/.armada/bin` and then attempts to deploy the React dashboard.
+`publish-server` publishes `src/Armada.Server` in `Release` mode for `net10.0` by default to `~/.armada/bin` and then attempts to deploy the React dashboard. On Windows, you can override that by passing a framework argument such as `scripts\windows\publish-server.bat net8.0` or `scripts\windows\publish-server.bat --framework net8.0`.
 
 `healthcheck-server` probes `http://localhost:7890/api/v1/status/health` by default. If your Admiral port is not `7890`, set `ARMADA_BASE_URL` before invoking the platform wrapper:
 
@@ -53,10 +53,22 @@ Install and start:
 scripts\windows\install-windows-task.bat
 ```
 
+Or publish and install against a specific SDK target:
+
+```powershell
+scripts\windows\install-windows-task.bat net8.0
+```
+
 Update from source and restart:
 
 ```powershell
 scripts\windows\update-windows-task.bat
+```
+
+With an explicit framework override:
+
+```powershell
+scripts\windows\update-windows-task.bat --framework net8.0
 ```
 
 Remove the startup entry:

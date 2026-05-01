@@ -59,6 +59,7 @@ namespace Armada.Test.Unit.Suites.Models
             {
                 Captain captain = new Captain("test-captain", AgentRuntimeEnum.Codex);
                 captain.Model = "gpt-5.4-mini";
+                captain.RuntimeOptionsJson = "{\"schemaVersion\":1,\"endpoint\":\"mux-dev\"}";
                 captain.State = CaptainStateEnum.Working;
                 captain.CurrentMissionId = "msn_test";
                 captain.ProcessId = 12345;
@@ -71,9 +72,21 @@ namespace Armada.Test.Unit.Suites.Models
                 AssertEqual(captain.Name, deserialized.Name);
                 AssertEqual(captain.Runtime, deserialized.Runtime);
                 AssertEqual(captain.Model, deserialized.Model);
+                AssertEqual(captain.RuntimeOptionsJson, deserialized.RuntimeOptionsJson);
                 AssertEqual(captain.State, deserialized.State);
                 AssertEqual(captain.ProcessId, deserialized.ProcessId);
                 AssertEqual(captain.RecoveryAttempts, deserialized.RecoveryAttempts);
+            });
+
+            await RunTest("Captain PlanningSupport Flags Follow Runtime", () =>
+            {
+                Captain builtIn = new Captain("builtin", AgentRuntimeEnum.Codex);
+                Captain custom = new Captain("custom", AgentRuntimeEnum.Custom);
+
+                AssertTrue(builtIn.SupportsPlanningSessions);
+                AssertNull(builtIn.PlanningSessionSupportReason);
+                AssertFalse(custom.SupportsPlanningSessions);
+                AssertContains("built-in ClaudeCode, Codex, Gemini, Cursor, and Mux runtimes", custom.PlanningSessionSupportReason ?? String.Empty);
             });
 
             await RunTest("Captain StateEnum SerializesAsString", () =>

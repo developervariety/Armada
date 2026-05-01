@@ -2,6 +2,7 @@ namespace Armada.Runtimes
 {
     using System.Diagnostics;
     using System.Text;
+    using Armada.Core.Models;
     using SyslogLogging;
     using Armada.Runtimes.Interfaces;
 
@@ -21,6 +22,12 @@ namespace Armada.Runtimes
         /// Whether this runtime supports session resume.
         /// </summary>
         public abstract bool SupportsResume { get; }
+
+        /// <summary>
+        /// Whether this runtime can participate in planning sessions.
+        /// The default transcript-relaunch planning flow works for all built-in runtimes.
+        /// </summary>
+        public virtual bool SupportsPlanningSessions => true;
 
         /// <summary>
         /// Event raised when the agent writes a line to stdout.
@@ -71,6 +78,7 @@ namespace Armada.Runtimes
         /// <param name="logFilePath">Optional path to write agent stdout/stderr output.</param>
         /// <param name="finalMessageFilePath">Optional path to write the agent's final response artifact.</param>
         /// <param name="model">Optional model override.</param>
+        /// <param name="captain">Optional captain metadata used by runtimes that need persisted runtime-specific options.</param>
         /// <param name="token">Cancellation token.</param>
         public virtual async Task<int> StartAsync(
             string workingDirectory,
@@ -79,13 +87,14 @@ namespace Armada.Runtimes
             string? logFilePath = null,
             string? finalMessageFilePath = null,
             string? model = null,
+            Captain? captain = null,
             CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(workingDirectory)) throw new ArgumentNullException(nameof(workingDirectory));
             if (String.IsNullOrEmpty(prompt)) throw new ArgumentNullException(nameof(prompt));
 
             string command = GetCommand();
-            List<string> args = BuildArguments(prompt, model, finalMessageFilePath);
+            List<string> args = BuildArguments(workingDirectory, prompt, model, finalMessageFilePath, captain);
 
             ProcessStartInfo startInfo = new ProcessStartInfo
             {
@@ -310,7 +319,12 @@ namespace Armada.Runtimes
         /// <summary>
         /// Build runtime-specific command-line arguments.
         /// </summary>
-        protected abstract List<string> BuildArguments(string prompt, string? model, string? finalMessageFilePath);
+        protected abstract List<string> BuildArguments(
+            string workingDirectory,
+            string prompt,
+            string? model,
+            string? finalMessageFilePath,
+            Captain? captain);
 
         /// <summary>
         /// Check if a process is still running.

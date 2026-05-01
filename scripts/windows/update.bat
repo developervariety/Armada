@@ -3,8 +3,10 @@ setlocal
 
 set "SCRIPT_DIR=%~dp0"
 if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
+call "%SCRIPT_DIR%\resolve-framework.bat" %*
+if errorlevel 1 exit /b 1
 for %%I in ("%SCRIPT_DIR%\..\..") do set "REPO_ROOT=%%~fI"
-set "HELM_DLL=%REPO_ROOT%\src\Armada.Helm\bin\Debug\net10.0\Armada.Helm.dll"
+set "HELM_DLL=%REPO_ROOT%\src\Armada.Helm\bin\Debug\%ARMADA_TARGET_FRAMEWORK%\Armada.Helm.dll"
 
 echo.
 echo [update] Stopping repo-backed Armada MCP stdio hosts if they are running...
@@ -17,7 +19,7 @@ call :run_helm server stop
 
 echo.
 echo [update] Reinstalling Armada tool and redeploying dashboard...
-call "%SCRIPT_DIR%\reinstall.bat"
+call "%SCRIPT_DIR%\reinstall.bat" %ARMADA_FORWARD_FRAMEWORK_ARGS%
 if errorlevel 1 exit /b 1
 
 echo.
@@ -26,16 +28,18 @@ call :run_helm server start
 exit /b %ERRORLEVEL%
 
 :run_helm
+if exist "%HELM_DLL%" (
+  dotnet "%HELM_DLL%" %*
+  exit /b %ERRORLEVEL%
+)
+
+dotnet run --project "%REPO_ROOT%\src\Armada.Helm" %ARMADA_DOTNET_FRAMEWORK_ARGS% -- %*
+if not errorlevel 1 exit /b 0
+
 where armada >nul 2>nul
 if not errorlevel 1 (
   armada %*
   exit /b %ERRORLEVEL%
 )
 
-if exist "%HELM_DLL%" (
-  dotnet "%HELM_DLL%" %*
-  exit /b %ERRORLEVEL%
-)
-
-dotnet run --project "%REPO_ROOT%\src\Armada.Helm" -f net10.0 -- %*
-exit /b %ERRORLEVEL%
+exit /b 1

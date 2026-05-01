@@ -11,7 +11,7 @@ namespace Armada.Server.Mcp
         public string Name { get; set; } = "";
 
         /// <summary>
-        /// Agent runtime: ClaudeCode, Codex, Gemini, Cursor, or Custom.
+        /// Agent runtime: ClaudeCode, Codex, Gemini, Cursor, Mux, or Custom.
         /// </summary>
         public string? Runtime { get; set; }
 
@@ -34,6 +34,46 @@ namespace Armada.Server.Mcp
         /// Preferred persona for dispatch routing priority.
         /// </summary>
         public string? PreferredPersona { get; set; }
+
+        /// <summary>
+        /// Optional Mux config directory override.
+        /// </summary>
+        public string? MuxConfigDirectory { get; set; }
+
+        /// <summary>
+        /// Named Mux endpoint to use for this captain.
+        /// </summary>
+        public string? MuxEndpoint { get; set; }
+
+        /// <summary>
+        /// Optional Mux base URL override.
+        /// </summary>
+        public string? MuxBaseUrl { get; set; }
+
+        /// <summary>
+        /// Optional Mux adapter type override.
+        /// </summary>
+        public string? MuxAdapterType { get; set; }
+
+        /// <summary>
+        /// Optional Mux temperature override.
+        /// </summary>
+        public double? MuxTemperature { get; set; }
+
+        /// <summary>
+        /// Optional Mux max tokens override.
+        /// </summary>
+        public int? MuxMaxTokens { get; set; }
+
+        /// <summary>
+        /// Optional Mux system prompt file path.
+        /// </summary>
+        public string? MuxSystemPromptPath { get; set; }
+
+        /// <summary>
+        /// Optional Mux approval policy override.
+        /// </summary>
+        public string? MuxApprovalPolicy { get; set; }
 
     }
 }

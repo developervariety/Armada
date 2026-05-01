@@ -1,5 +1,6 @@
 namespace Armada.Test.Runtimes.Suites
 {
+    using Armada.Core.Models;
     using Armada.Runtimes;
     using Armada.Test.Common;
     using SyslogLogging;
@@ -22,6 +23,11 @@ namespace Armada.Test.Runtimes.Suites
 
         protected override string GetCommand() => CommandOverride;
 
-        protected override List<string> BuildArguments(string prompt, string? model, string? finalMessageFilePath) => ArgsOverride;
+        protected override List<string> BuildArguments(
+            string workingDirectory,
+            string prompt,
+            string? model,
+            string? finalMessageFilePath,
+            Captain? captain) => ArgsOverride;
     }
 }

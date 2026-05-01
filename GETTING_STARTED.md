@@ -57,6 +57,8 @@ If you want Armada managed as a local deployment on your machine instead of a fo
 | Verify the running deployment | `./scripts/linux/healthcheck-server.sh` | `./scripts/macos/healthcheck-server.sh` | `scripts\windows\healthcheck-server.bat` |
 | Remove the startup-managed deployment | `./scripts/linux/remove-systemd-user.sh` | `./scripts/macos/remove-launchd-agent.sh` | `scripts\windows\remove-windows-task.bat` |
 
+On Windows, the install and update wrappers also accept a framework override when the machine only has one SDK, for example `scripts\windows\install-windows-task.bat net8.0` or `scripts\windows\update-windows-task.bat --framework net8.0`.
+
 These scripts publish `Armada.Server` into `~/.armada/bin` on Linux and macOS, or `%USERPROFILE%\.armada\bin` on Windows, and deploy dashboard assets into `~/.armada/dashboard` or `%USERPROFILE%\.armada\dashboard`.
 
 The remove scripts unregister the user-scoped startup entry or service, but they do not delete the published files under `~/.armada` or `%USERPROFILE%\.armada`.
@@ -66,6 +68,39 @@ Repo-relative deployment script paths:
 - Linux: `scripts/linux/install-systemd-user.sh`, `scripts/linux/update-systemd-user.sh`, `scripts/linux/healthcheck-server.sh`
 - macOS: `scripts/macos/install-launchd-agent.sh`, `scripts/macos/update-launchd-agent.sh`, `scripts/macos/healthcheck-server.sh`
 - Windows: `scripts/windows/install-windows-task.bat`, `scripts/windows/update-windows-task.bat`, `scripts/windows/healthcheck-server.bat`
+
+## Planning Workflow
+
+If you want to work out the plan with a captain before dispatching anything, use the dashboard planning screen:
+
+```text
+Dashboard Planning UI
+    |
+    +--> Reserve captain + dock/worktree
+    +--> Chat with the captain inside the UI
+    +--> Keep the transcript as the source of truth
+    +--> Select the reply you want to use
+    +--> Summarize it, open it in Dispatch, or dispatch directly
+```
+
+1. Start Armada and open `http://localhost:7890/dashboard`
+2. Go to `Planning`
+3. Pick a captain, vessel, optional pipeline, and playbooks
+4. Chat until you have a plan you trust
+5. Select the assistant response you want
+6. Either summarize it into a cleaner draft, open that draft in the main `Dispatch` page, or dispatch it directly from the planning page
+7. Delete the session when you no longer need the transcript, or let Armada clean it up through retention settings
+
+Current planning-session constraints:
+
+- Planning currently supports the built-in `ClaudeCode`, `Codex`, `Gemini`, `Cursor`, and `Mux` runtimes. `Custom` captains are blocked there.
+- A planning session reserves the selected captain and a dock/worktree for the selected vessel until you stop the session.
+- The captain can inspect and modify the repository while planning.
+- Planning is transcript-backed today. Each turn relaunches the runtime with the preserved transcript and repo context instead of keeping a persistent interactive stdin session alive.
+- Planning-session persistence is SQLite-first. Non-SQLite backends currently return an explicit unsupported response for planning-session endpoints.
+- Armada can summarize a selected planning reply into a dispatch-ready draft before launch.
+- You can open that draft in the main `Dispatch` page without copy/paste or dispatch directly from the planning screen.
+- Optional cleanup controls are available through `PlanningSessionInactivityTimeoutMinutes` and `PlanningSessionRetentionDays`.
 
 ---
 

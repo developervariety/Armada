@@ -3,6 +3,8 @@ setlocal
 
 set "SCRIPT_DIR=%~dp0"
 if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
+call "%SCRIPT_DIR%\resolve-framework.bat" %*
+if errorlevel 1 exit /b 1
 set "STARTUP_VALUE_NAME=ArmadaAdmiral"
 set "STARTUP_DISPLAY_NAME=Armada Admiral"
 set "START_SCRIPT=%SCRIPT_DIR%\start-armada-server.ps1"
@@ -16,8 +18,9 @@ if errorlevel 1 (
 )
 
 echo.
+echo [install-windows-task] Using target framework %ARMADA_TARGET_FRAMEWORK%...
 echo [install-windows-task] Publishing Armada.Server...
-call "%SCRIPT_DIR%\publish-server.bat"
+call "%SCRIPT_DIR%\publish-server.bat" %ARMADA_FORWARD_FRAMEWORK_ARGS%
 if errorlevel 1 exit /b 1
 
 if not exist "%SERVER_EXE%" (

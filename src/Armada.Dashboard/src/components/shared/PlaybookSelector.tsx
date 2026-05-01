@@ -30,6 +30,7 @@ interface PlaybookSelectorProps {
 
 export default function PlaybookSelector({ value, onChange, disabled = false }: PlaybookSelectorProps) {
   const { t, formatRelativeTime } = useLocale();
+  const [expanded, setExpanded] = useState(false);
   const [playbooks, setPlaybooks] = useState<Playbook[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -61,8 +62,8 @@ export default function PlaybookSelector({ value, onChange, disabled = false }: 
 
   const activePlaybooks = playbooks.filter((playbook) => playbook.active !== false);
   const selectedIds = new Set(value.map((item) => item.playbookId));
-  const filteredAvailable = activePlaybooks.filter((playbook) => {
-    if (selectedIds.has(playbook.id)) return false;
+  const availablePlaybooks = activePlaybooks.filter((playbook) => !selectedIds.has(playbook.id));
+  const filteredAvailable = availablePlaybooks.filter((playbook) => {
     const query = search.trim().toLowerCase();
     if (!query) return true;
     return playbook.fileName.toLowerCase().includes(query)
@@ -141,7 +142,7 @@ export default function PlaybookSelector({ value, onChange, disabled = false }: 
     : -1;
 
   return (
-    <section className="playbook-selector-shell">
+    <section className={`playbook-selector-shell${expanded ? '' : ' collapsed'}`}>
       <div className="playbook-selector-head">
         <div>
           <h3>{t('Playbooks')}</h3>
@@ -150,14 +151,38 @@ export default function PlaybookSelector({ value, onChange, disabled = false }: 
           </p>
         </div>
         <div className="playbook-selector-meta">
-          <span>{t('{{count}} available', { count: activePlaybooks.length })}</span>
+          <span>
+            {loading
+              ? t('Loading playbooks...')
+              : error
+                ? t('Playbooks unavailable')
+                : t('{{count}} available', { count: availablePlaybooks.length })}
+          </span>
           <span>{t('{{count}} selected', { count: value.length })}</span>
           <Link to="/playbooks" className="playbook-selector-link">{t('Manage playbooks')}</Link>
+          <button
+            type="button"
+            className="playbook-selector-toggle"
+            aria-expanded={expanded}
+            onClick={() => setExpanded((current) => !current)}
+          >
+            <span>{expanded ? t('Hide') : t('Show')}</span>
+            <span className="playbook-selector-toggle-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+            </span>
+          </button>
         </div>
       </div>
 
-      {error && <div className="alert alert-error">{error}</div>}
+      {expanded && error && <div className="alert alert-error">{error}</div>}
 
+      {!expanded ? (
+        <div className="text-dim">
+          {t('Expand this section to browse, order, and attach playbooks.')}
+        </div>
+      ) : (
       <div className="playbook-selector-layout">
         <div className="playbook-selector-pane">
           <div className="playbook-selector-pane-head">
@@ -326,6 +351,7 @@ export default function PlaybookSelector({ value, onChange, disabled = false }: 
           </div>
         </div>
       </div>
+      )}
     </section>
   );
 }

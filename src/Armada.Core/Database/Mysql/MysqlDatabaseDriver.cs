@@ -476,6 +476,11 @@ namespace Armada.Core.Database.Mysql
                     38,
                     "Add merge failure classification columns and mission recovery attempts",
                     TableQueries.MigrationV38Statements
+                ),
+                new SchemaMigration(
+                    39,
+                    "Add runtime_options_json to captains",
+                    TableQueries.MigrationV39Statements
                 )
             };
         }
@@ -611,6 +616,7 @@ namespace Armada.Core.Database.Mysql
             captain.Runtime = Enum.Parse<AgentRuntimeEnum>(reader["runtime"].ToString()!);
             try { captain.Model = NullableString(reader["model"]); } catch { }
             captain.SystemInstructions = NullableString(reader["system_instructions"]);
+            try { captain.RuntimeOptionsJson = NullableString(reader["runtime_options_json"]); } catch { }
             captain.State = Enum.Parse<CaptainStateEnum>(reader["state"].ToString()!);
             captain.CurrentMissionId = NullableString(reader["current_mission_id"]);
             captain.CurrentDockId = NullableString(reader["current_dock_id"]);

@@ -63,8 +63,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 using (NpgsqlCommand cmd = new NpgsqlCommand())
                 {
                     cmd.Connection = conn;
-                    cmd.CommandText = @"INSERT INTO captains (id, tenant_id, user_id, name, runtime, model, system_instructions, allowed_personas, preferred_persona, state, current_mission_id, current_dock_id, process_id, recovery_attempts, last_heartbeat_utc, created_utc, last_update_utc)
-                        VALUES (@id, @tenant_id, @user_id, @name, @runtime, @model, @system_instructions, @allowed_personas, @preferred_persona, @state, @current_mission_id, @current_dock_id, @process_id, @recovery_attempts, @last_heartbeat_utc, @created_utc, @last_update_utc);";
+                    cmd.CommandText = @"INSERT INTO captains (id, tenant_id, user_id, name, runtime, model, system_instructions, allowed_personas, preferred_persona, runtime_options_json, state, current_mission_id, current_dock_id, process_id, recovery_attempts, last_heartbeat_utc, created_utc, last_update_utc)
+                        VALUES (@id, @tenant_id, @user_id, @name, @runtime, @model, @system_instructions, @allowed_personas, @preferred_persona, @runtime_options_json, @state, @current_mission_id, @current_dock_id, @process_id, @recovery_attempts, @last_heartbeat_utc, @created_utc, @last_update_utc);";
                     cmd.Parameters.AddWithValue("@id", captain.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)captain.TenantId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@user_id", (object?)captain.UserId ?? DBNull.Value);
@@ -74,6 +74,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     cmd.Parameters.AddWithValue("@system_instructions", (object?)captain.SystemInstructions ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@allowed_personas", (object?)captain.AllowedPersonas ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@preferred_persona", (object?)captain.PreferredPersona ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@runtime_options_json", (object?)captain.RuntimeOptionsJson ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@state", captain.State.ToString());
                     cmd.Parameters.AddWithValue("@current_mission_id", (object?)captain.CurrentMissionId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@current_dock_id", (object?)captain.CurrentDockId ?? DBNull.Value);
@@ -173,6 +174,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                         system_instructions = @system_instructions,
                         allowed_personas = @allowed_personas,
                         preferred_persona = @preferred_persona,
+                        runtime_options_json = @runtime_options_json,
                         state = @state,
                         current_mission_id = @current_mission_id,
                         current_dock_id = @current_dock_id,
@@ -190,6 +192,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     cmd.Parameters.AddWithValue("@system_instructions", (object?)captain.SystemInstructions ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@allowed_personas", (object?)captain.AllowedPersonas ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@preferred_persona", (object?)captain.PreferredPersona ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@runtime_options_json", (object?)captain.RuntimeOptionsJson ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@state", captain.State.ToString());
                     cmd.Parameters.AddWithValue("@current_mission_id", (object?)captain.CurrentMissionId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@current_dock_id", (object?)captain.CurrentDockId ?? DBNull.Value);
@@ -865,6 +868,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
             captain.LastUpdateUtc = ((DateTime)reader["last_update_utc"]).ToUniversalTime();
             try { captain.AllowedPersonas = NullableString(reader["allowed_personas"]); } catch { }
             try { captain.PreferredPersona = NullableString(reader["preferred_persona"]); } catch { }
+            try { captain.RuntimeOptionsJson = NullableString(reader["runtime_options_json"]); } catch { }
             return captain;
         }
 

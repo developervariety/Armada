@@ -1,5 +1,6 @@
 namespace Armada.Runtimes
 {
+    using Armada.Core.Models;
     using System.Diagnostics;
     using SyslogLogging;
 
@@ -71,7 +72,12 @@ namespace Armada.Runtimes
         /// <summary>
         /// Build Claude Code CLI arguments.
         /// </summary>
-        protected override List<string> BuildArguments(string prompt, string? model, string? finalMessageFilePath)
+        protected override List<string> BuildArguments(
+            string workingDirectory,
+            string prompt,
+            string? model,
+            string? finalMessageFilePath,
+            Captain? captain)
         {
             List<string> args = new List<string>();
 

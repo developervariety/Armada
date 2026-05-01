@@ -6,15 +6,23 @@ import Pagination from '../components/shared/Pagination';
 import ActionMenu from '../components/shared/ActionMenu';
 import StatusBadge from '../components/shared/StatusBadge';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
+import MuxRuntimeFields from '../components/captains/MuxRuntimeFields';
 import JsonViewer from '../components/shared/JsonViewer';
 import CopyButton from '../components/shared/CopyButton';
 import RefreshButton from '../components/shared/RefreshButton';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
+import { buildMuxRuntimeOptionsJson, EMPTY_MUX_CAPTAIN_FORM, isMuxRuntime, muxFormFromCaptain, type MuxCaptainFormFields } from '../lib/mux';
 
 type SortDir = 'asc' | 'desc';
 type SortField = 'name' | 'runtime' | 'state' | 'createdUtc';
+type CaptainFormState = {
+  name: string;
+  runtime: string;
+  systemInstructions: string;
+  model: string;
+} & MuxCaptainFormFields;
 
 export default function Captains() {
   const navigate = useNavigate();
@@ -27,7 +35,7 @@ export default function Captains() {
   // Modal state
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Captain | null>(null);
-  const [form, setForm] = useState({ name: '', runtime: '', systemInstructions: '', model: '' });
+  const [form, setForm] = useState<CaptainFormState>({ name: '', runtime: '', systemInstructions: '', model: '', ...EMPTY_MUX_CAPTAIN_FORM });
 
   // JSON viewer
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
@@ -119,15 +127,44 @@ export default function Captains() {
   function clearSelection() { setSelected([]); }
 
   // CRUD
-  function openCreate() { setForm({ name: '', runtime: '', systemInstructions: '', model: '' }); setEditing(null); setShowForm(true); }
-  function openEdit(c: Captain) { setForm({ name: c.name, runtime: c.runtime, systemInstructions: c.systemInstructions ?? '', model: c.model ?? '' }); setEditing(c); setShowForm(true); }
+  function openCreate() {
+    setForm({ name: '', runtime: '', systemInstructions: '', model: '', ...EMPTY_MUX_CAPTAIN_FORM });
+    setEditing(null);
+    setShowForm(true);
+  }
+
+  function openEdit(c: Captain) {
+    setForm({
+      name: c.name,
+      runtime: c.runtime,
+      systemInstructions: c.systemInstructions ?? '',
+      model: c.model ?? '',
+      ...muxFormFromCaptain(c),
+    });
+    setEditing(c);
+    setShowForm(true);
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     try {
+      if (isMuxRuntime(form.runtime) && !form.muxEndpoint.trim()) {
+        setError(t('Mux captains require a named Mux endpoint.'));
+        return;
+      }
+
       const payload = { ...form } as Record<string, unknown>;
       if (!payload.systemInstructions) delete payload.systemInstructions;
       payload.model = form.model.trim() ? form.model.trim() : null;
+      payload.runtimeOptionsJson = buildMuxRuntimeOptionsJson(form.runtime, form);
+      delete payload.muxConfigDirectory;
+      delete payload.muxEndpoint;
+      delete payload.muxBaseUrl;
+      delete payload.muxAdapterType;
+      delete payload.muxTemperature;
+      delete payload.muxMaxTokens;
+      delete payload.muxSystemPromptPath;
+      delete payload.muxApprovalPolicy;
       if (editing) await updateCaptain(editing.id, payload);
       else await createCaptain(payload);
       setShowForm(false);
@@ -279,12 +316,19 @@ export default function Captains() {
                 <option value="Codex">Codex</option>
                 <option value="Gemini">Gemini</option>
                 <option value="Cursor">Cursor</option>
+                <option value="Mux">Mux</option>
               </select>
             </label>
             <label title={t('Optional AI model identifier. Leave blank to let the runtime choose its default model.')}>
               {t('Model')}
               <input value={form.model} onChange={e => setForm({ ...form, model: e.target.value })} placeholder={t('e.g., gpt-5.4-mini')} />
             </label>
+            <MuxRuntimeFields
+              runtime={form.runtime}
+              form={form}
+              onChange={(patch) => setForm((current) => ({ ...current, ...patch }))}
+              t={t}
+            />
             <label title={t('Optional instructions injected into every mission prompt for this captain. Use this to specialize behavior, add guardrails, or provide persistent context.')}>
               {t('System Instructions')}
               <textarea value={form.systemInstructions} onChange={e => setForm({ ...form, systemInstructions: e.target.value })} rows={4} placeholder={t('e.g., You are a testing specialist. Always run tests before committing...')} />

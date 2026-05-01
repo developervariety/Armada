@@ -115,6 +115,7 @@ namespace Armada.Core.Database.Postgresql.Queries
                         name TEXT NOT NULL,
                         runtime TEXT NOT NULL DEFAULT 'ClaudeCode',
                         system_instructions TEXT,
+                        runtime_options_json TEXT,
                         state TEXT NOT NULL DEFAULT 'Idle',
                         current_mission_id TEXT,
                         current_dock_id TEXT,
@@ -584,6 +585,9 @@ namespace Armada.Core.Database.Postgresql.Queries
                     @"ALTER TABLE merge_entries ADD COLUMN IF NOT EXISTS diff_line_count INTEGER NOT NULL DEFAULT 0;",
                     @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS recovery_attempts INTEGER NOT NULL DEFAULT 0;",
                     @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS last_recovery_action_utc TIMESTAMP;"
+                ),
+                new SchemaMigration(39, "Add runtime_options_json to captains",
+                    @"ALTER TABLE captains ADD COLUMN IF NOT EXISTS runtime_options_json TEXT;"
                 )
             };
         }

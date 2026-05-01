@@ -4,6 +4,7 @@ namespace Armada.Helm.Commands
     using System.Diagnostics;
     using System.Net.Http;
     using System.Runtime.InteropServices;
+    using System.Runtime.Versioning;
     using System.Threading;
     using Spectre.Console;
     using Spectre.Console.Cli;
@@ -152,7 +153,8 @@ namespace Armada.Helm.Commands
             string? projectDir = FindServerProject();
             if (projectDir == null) return null;
 
-            string builtExe = Path.GetFullPath(Path.Combine(projectDir, "bin", "Debug", "net10.0", exeName));
+            string targetFramework = GetCliTargetFramework();
+            string builtExe = Path.GetFullPath(Path.Combine(projectDir, "bin", "Debug", targetFramework, exeName));
 
             // If the exe exists and is locked by a recently-stopped server, wait for it to be released
             if (File.Exists(builtExe))
@@ -190,7 +192,9 @@ namespace Armada.Helm.Commands
                 buildInfo.ArgumentList.Add("build");
                 buildInfo.ArgumentList.Add(projectDir);
                 buildInfo.ArgumentList.Add("--framework");
-                buildInfo.ArgumentList.Add("net10.0");
+                buildInfo.ArgumentList.Add(targetFramework);
+                buildInfo.ArgumentList.Add("-p:TargetFramework=" + targetFramework);
+                buildInfo.ArgumentList.Add("-p:TargetFrameworks=" + targetFramework);
                 if (buildAttempt == 0)
                     buildInfo.ArgumentList.Add("-q");
 
@@ -278,6 +282,30 @@ namespace Armada.Helm.Commands
             catch { }
 
             return null;
+        }
+
+        private static string GetCliTargetFramework()
+        {
+            try
+            {
+                string? frameworkName = typeof(ServerStartCommand).Assembly
+                    .GetCustomAttributes(typeof(TargetFrameworkAttribute), inherit: false)
+                    .OfType<TargetFrameworkAttribute>()
+                    .FirstOrDefault()?
+                    .FrameworkName;
+
+                if (!String.IsNullOrWhiteSpace(frameworkName))
+                {
+                    FrameworkName parsed = new FrameworkName(frameworkName);
+                    if (String.Equals(parsed.Identifier, ".NETCoreApp", StringComparison.OrdinalIgnoreCase))
+                        return $"net{parsed.Version.Major}.{parsed.Version.Minor}";
+                }
+            }
+            catch
+            {
+            }
+
+            return "net10.0";
         }
 
         /// <summary>

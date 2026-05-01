@@ -35,6 +35,30 @@ namespace Armada.Test.Runtimes.Suites
                 AssertEqual("Codex", runtime.Name);
             });
 
+            await RunTest("Create Gemini Returns GeminiRuntime", () =>
+            {
+                AgentRuntimeFactory factory = CreateFactory();
+                IAgentRuntime runtime = factory.Create(AgentRuntimeEnum.Gemini);
+                AssertNotNull(runtime);
+                AssertEqual("Gemini CLI", runtime.Name);
+            });
+
+            await RunTest("Create Cursor Returns CursorRuntime", () =>
+            {
+                AgentRuntimeFactory factory = CreateFactory();
+                IAgentRuntime runtime = factory.Create(AgentRuntimeEnum.Cursor);
+                AssertNotNull(runtime);
+                AssertEqual("Cursor", runtime.Name);
+            });
+
+            await RunTest("Create Mux Returns MuxRuntime", () =>
+            {
+                AgentRuntimeFactory factory = CreateFactory();
+                IAgentRuntime runtime = factory.Create(AgentRuntimeEnum.Mux);
+                AssertNotNull(runtime);
+                AssertEqual("Mux", runtime.Name);
+            });
+
             await RunTest("Create Custom Without Registration Throws", () =>
             {
                 AgentRuntimeFactory factory = CreateFactory();

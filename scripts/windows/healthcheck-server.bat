@@ -2,6 +2,12 @@
 setlocal
 
 set "BASE_URL=%~1"
+if /I "%~1"=="-f" set "BASE_URL=%~3"
+if /I "%~1"=="--framework" set "BASE_URL=%~3"
+if not "%~1"=="" (
+    echo(%~1| findstr /R /I "^net[0-9][0-9]*\.[0-9][0-9]*$" >nul
+    if not errorlevel 1 set "BASE_URL=%~2"
+)
 if "%BASE_URL%"=="" set "BASE_URL=%ARMADA_BASE_URL%"
 if "%BASE_URL%"=="" set "BASE_URL=http://localhost:7890"
 if "%BASE_URL:~-1%"=="/" set "BASE_URL=%BASE_URL:~0,-1%"

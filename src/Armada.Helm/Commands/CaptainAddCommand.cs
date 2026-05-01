@@ -21,15 +21,41 @@ namespace Armada.Helm.Commands
         {
             string runtimeValue = settings.Runtime?.ToLowerInvariant() switch
             {
+                "claude" => "ClaudeCode",
                 "codex" => "Codex",
+                "gemini" => "Gemini",
+                "cursor" => "Cursor",
+                "mux" => "Mux",
                 "custom" => "Custom",
                 _ => "ClaudeCode"
             };
 
+            if (runtimeValue == "Mux" && String.IsNullOrWhiteSpace(settings.MuxEndpoint))
+            {
+                AnsiConsole.MarkupLine("[red]Mux captains require --mux-endpoint <name>.[/]");
+                return 1;
+            }
+
+            string? runtimeOptionsJson = runtimeValue == "Mux"
+                ? CaptainRuntimeOptions.Serialize(new MuxCaptainOptions
+                {
+                    ConfigDirectory = settings.MuxConfigDirectory,
+                    Endpoint = settings.MuxEndpoint,
+                    BaseUrl = settings.MuxBaseUrl,
+                    AdapterType = settings.MuxAdapterType,
+                    Temperature = settings.MuxTemperature,
+                    MaxTokens = settings.MuxMaxTokens,
+                    SystemPromptPath = settings.MuxSystemPromptPath,
+                    ApprovalPolicy = settings.MuxApprovalPolicy
+                })
+                : null;
+
             object body = new
             {
                 Name = settings.Name,
-                Runtime = runtimeValue
+                Runtime = runtimeValue,
+                Model = String.IsNullOrWhiteSpace(settings.Model) ? null : settings.Model.Trim(),
+                RuntimeOptionsJson = runtimeOptionsJson
             };
 
             Captain? captain = await PostAsync<Captain>("/api/v1/captains", body).ConfigureAwait(false);

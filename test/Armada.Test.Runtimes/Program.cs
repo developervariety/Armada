@@ -15,6 +15,7 @@ namespace Armada.Test.Runtimes
             runner.AddSuite(new CodexRuntimeTests());
             runner.AddSuite(new GeminiRuntimeTests());
             runner.AddSuite(new CursorRuntimeTests());
+            runner.AddSuite(new MuxRuntimeTests());
 
             int exitCode = await runner.RunAllAsync().ConfigureAwait(false);
             return exitCode;

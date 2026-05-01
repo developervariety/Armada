@@ -47,12 +47,13 @@ Everything else in Armada exists to support that: isolated worktrees, parallel d
 - **Less project-switch overhead.** Leave one repo, work somewhere else, then come back to a current view of what happened.
 - **A queryable memory layer.** Logs, diffs, status history, and agent output stay available through the dashboard, API, and MCP instead of vanishing into scrollback.
 - **Persistent vessel context.** Models can maintain repository-specific context, hints, and working notes on each vessel to speed up future dispatches.
+- **Interactive planning before dispatch.** Chat with a captain in the dashboard, keep the transcript, then open the result in Dispatch or launch the work directly from the planning screen.
 - **Parallel execution across repos.** Dispatch work to multiple agents across multiple repositories at once.
 - **Quality gates that run automatically.** Every piece of work can flow through a pipeline: plan it, implement it, test it, review it. No manual intervention between steps.
 - **Git isolation by default.** Every agent works in its own worktree on its own branch. Agents can't step on each other. Your main branch stays clean until you merge.
 - **Configurable and extensible workflows.** Prompt templates, personas, and pipelines are user-controlled, so you can adapt the system to your project instead of fitting your project to the built-ins.
 - **Reusable playbooks at dispatch time.** Store markdown guidance such as `CSHARP_BACKEND_ARCHITECTURE.md`, manage it in the dashboard, and select it per voyage or mission with inline or file-based delivery modes.
-- **Works with the agents you already have.** Claude Code, Codex, Gemini, Cursor -- pluggable runtime system.
+- **Works with the agents you already have.** Claude Code, Codex, Gemini, Cursor, and Mux -- pluggable runtime system.
 - **Guided setup in the dashboard.** First-run configuration can stay inside the setup wizard instead of bouncing between unrelated pages.
 - **Internationalized dashboard UX.** Login, shared shell UI, list/detail/admin routes, setup flows, notifications, pagination, server management, and legacy embedded dashboard surfaces support live language selection and locale-aware formatting.
 
@@ -202,52 +203,63 @@ A by-category inventory of what Armada actually ships. Each feature is implement
 <table align="center">
 <tr><td>
 <pre>
-+-----------------------------------------------------------+
-| You: "Build a FastAPI backend with user auth and tests"   |
-+-----------------------------------------------------------+
-                              |
-                              v
-+-----------------------------------------------------------+
-| Admiral                                                   |
-| Coordinates work, resolves pipeline, assigns captains,    |
-| provisions worktrees, and tracks mission state            |
-+-----------------------------------------------------------+
-                              |
-                              v
-+-----------------------------------------------------------+
-| Architect                                                 |
-| Reads the codebase, breaks work into missions, and        |
-| identifies file boundaries                                |
-+-----------------------------------------------------------+
-                              |
-                              v
-+-----------------------------------------------------------+
-| Worker                                                    |
-| Implements the mission in an isolated git worktree        |
-| and produces a diff                                       |
-+-----------------------------------------------------------+
-                              |
-                              v
-+-----------------------------------------------------------+
-| TestEngineer                                              |
-| Reviews the worker diff and adds or updates tests         |
-+-----------------------------------------------------------+
-                              |
-                              v
-+-----------------------------------------------------------+
-| Judge                                                     |
-| Reviews correctness, completeness, scope, and style       |
-| Produces PASS or FAIL                                     |
-+-----------------------------------------------------------+
++-----------------------------------------------------------+     +-----------------------------------------------------------+
+| Direct Dispatch                                           |     | Planning In The Dashboard                                 |
+| CLI / API / MCP sends work immediately                    |     | Chat with a captain inside the UI on a reserved dock      |
++-----------------------------------------------------------+     +-----------------------------------------------------------+
+                              |                                               |
+                              |                                               v
+                              |                          +-----------------------------------------------------------+
+                              |                          | Select a planning reply                                    |
+                              |                          | Summarize it, open it in Dispatch, or dispatch directly   |
+                              |                          +-----------------------------------------------------------+
+                              |                                               |
+                              +-------------------------------+---------------+
+                                                              |
+                                                              v
+                         +-----------------------------------------------------------+
+                         | Admiral                                                   |
+                         | Coordinates work, resolves pipeline, assigns captains,    |
+                         | provisions worktrees, and tracks mission state            |
+                         +-----------------------------------------------------------+
+                                                              |
+                                                              v
+                         +-----------------------------------------------------------+
+                         | Architect                                                 |
+                         | Reads the codebase, breaks work into missions, and        |
+                         | identifies file boundaries                                |
+                         +-----------------------------------------------------------+
+                                                              |
+                                                              v
+                         +-----------------------------------------------------------+
+                         | Worker                                                    |
+                         | Implements the mission in an isolated git worktree        |
+                         | and produces a diff                                       |
+                         +-----------------------------------------------------------+
+                                                              |
+                                                              v
+                         +-----------------------------------------------------------+
+                         | TestEngineer                                              |
+                         | Reviews the worker diff and adds or updates tests         |
+                         +-----------------------------------------------------------+
+                                                              |
+                                                              v
+                         +-----------------------------------------------------------+
+                         | Judge                                                     |
+                         | Reviews correctness, completeness, scope, and style       |
+                         | Produces PASS or FAIL                                     |
+                         +-----------------------------------------------------------+
 </pre>
 </td></tr>
 </table>
 
-1. **You describe the goal.** This can be a short prompt or a longer spec.
-2. **The Architect plans.** It reads the codebase, breaks the work into missions, and identifies likely file boundaries.
-3. **Workers implement.** Each worker runs in its own git worktree on its own branch.
-4. **TestEngineers add tests.** They get the worker diff as input.
-5. **Judges review.** They check the result against the original task and return a pass/fail verdict.
+1. **You choose the entry point.** Dispatch directly from the CLI/API/MCP, or start a planning session in the dashboard and chat with a captain first.
+2. **Planning can hand off directly to execution.** From the planning UI, select an assistant reply and either summarize it into a dispatch draft, open it in the main Dispatch page, or dispatch it directly without copy/paste.
+3. **The Admiral coordinates execution.** It resolves the pipeline, assigns captains, provisions worktrees, and tracks mission state.
+4. **The Architect plans.** It reads the codebase, breaks the work into missions, and identifies likely file boundaries.
+5. **Workers implement.** Each worker runs in its own git worktree on its own branch.
+6. **TestEngineers add tests.** They get the worker diff as input.
+7. **Judges review.** They check the result against the original task and return a pass/fail verdict.
 
 Each step is a **persona** with its own prompt template. A sequence of personas is a **pipeline**. The built-ins are just defaults; pipelines are user-configurable and can be extended with whatever personas your project needs:
 
@@ -284,6 +296,7 @@ If a captain crashes, the Admiral can repair the worktree and relaunch the agent
   - [Codex](https://github.com/openai/codex) (`codex`)
   - [Gemini CLI](https://github.com/google-gemini/gemini-cli) (`gemini`)
   - [Cursor](https://docs.cursor.com/cli) (`cursor-agent`)
+  - Mux (`mux`)
 
 ### Install
 
@@ -297,6 +310,14 @@ Linux: `./scripts/linux/install.sh`
 macOS: `./scripts/macos/install.sh`
 
 Windows: `scripts\windows\install.bat`
+
+Windows can also override the target framework when only one SDK is available, for example `scripts\windows\install.bat net8.0` or `scripts\windows\install.bat --framework net10.0`. The same override works for `reinstall.bat`, `remove.bat`, `update.bat`, `install-mcp.bat`, `remove-mcp.bat`, `publish-server.bat`, `install-windows-task.bat`, and `update-windows-task.bat`. The default remains `net10.0`.
+
+Examples:
+
+- `scripts\windows\publish-server.bat net8.0`
+- `scripts\windows\install-windows-task.bat net8.0`
+- `scripts\windows\update-windows-task.bat --framework net8.0`
 
 These `install.*` scripts build the solution, deploy dashboard assets, and install `Armada.Helm` as a global tool from the current checkout.
 
@@ -334,6 +355,28 @@ armada watch   # monitor progress in real time
 
 Armada detects the runtime, infers the current repository, provisions a worktree, and dispatches the task.
 
+### Planning Before Dispatch
+
+If you want to negotiate a plan with a captain before launching work, use the dashboard planning flow:
+
+1. Open `http://localhost:7890/dashboard`
+2. Go to `Planning`
+3. Choose a captain, vessel, optional pipeline, and any playbooks
+4. Chat with the captain until the plan is ready
+5. Select the assistant output you want, then either summarize it into a cleaner draft, open it in the main Dispatch page, or dispatch directly from the same screen
+6. Delete the session when you no longer need the transcript, or let Armada clean it up through retention settings
+
+Current planning-session behavior:
+
+- Planning currently supports the built-in `ClaudeCode`, `Codex`, `Gemini`, `Cursor`, and `Mux` runtimes. `Custom` captains are not yet supported there.
+- Planning sessions reserve the selected captain and a dock/worktree for the selected vessel while the session is active.
+- The captain can inspect and modify the repository while planning. Treat the planning session as tool-capable, not read-only.
+- Planning is transcript-backed today: each turn relaunches the runtime against the preserved transcript and repo context rather than holding a persistent stdin session open.
+- Planning-session persistence is implemented for SQLite first. Other database backends currently reject planning-session operations with an explicit `501 Not Supported`.
+- Armada can summarize a selected planning reply into a server-owned dispatch draft before you launch the voyage.
+- You can open the current planning draft in the main `Dispatch` page without copy/paste.
+- Optional cleanup controls are available through `PlanningSessionInactivityTimeoutMinutes` and `PlanningSessionRetentionDays`.
+
 ### Default Credentials
 
 On first boot, Armada seeds a default tenant, user, and credential:
@@ -348,7 +391,7 @@ Dashboard at `http://localhost:7890/dashboard`. API access with `Authorization: 
 
 The dashboard supports language selection from the login screen and keeps the chosen locale for the authenticated session.
 
-> **Security:** Armada runs agents with auto-approve flags by default (Claude Code: `--dangerously-skip-permissions`, Codex: `--full-auto`, Gemini: `--approval-mode yolo`). Agents can read, write, and execute in their worktrees without confirmation. Review the [configuration](#configuration) section before running in sensitive environments.
+> **Security:** Armada runs agents with auto-approve flags by default (Claude Code: `--dangerously-skip-permissions`, Codex: `--full-auto`, Gemini: `--approval-mode yolo`, Mux: `--yolo`). Agents can read, write, and execute in their worktrees without confirmation. Review the [configuration](#configuration) section before running in sensitive environments.
 
 > **Important:** Change the default password in production environments.
 
@@ -515,7 +558,7 @@ Armada is a C#/.NET solution with five main projects:
 | Project | Description |
 |---------|-------------|
 | **Armada.Core** | Domain models (including tenants, users, credentials), database interfaces, service interfaces, settings |
-| **Armada.Runtimes** | Agent runtime adapters (Claude Code, Codex, Gemini, Cursor, extensible via `IAgentRuntime`) |
+| **Armada.Runtimes** | Agent runtime adapters (Claude Code, Codex, Gemini, Cursor, Mux, extensible via `IAgentRuntime`) |
 | **Armada.Server** | Admiral process: REST API ([SwiftStack](https://github.com/jchristn/swiftstack)), MCP server ([Voltaic](https://github.com/jchristn/voltaic)), WebSocket hub, embedded dashboard |
 | **Armada.Dashboard** | Standalone React dashboard for Docker/production deployments |
 | **Armada.Helm** | CLI ([Spectre.Console](https://spectreconsole.net/)), thin HTTP client to Admiral |
@@ -525,11 +568,12 @@ Armada is a C#/.NET solution with five main projects:
 | Term | Plain Language | Description |
 |------|---------------|-------------|
 | **Admiral** | Coordinator | The server process that manages everything. Auto-starts when needed. |
-| **Captain** | Agent/worker | An AI agent instance (Claude Code, Codex, etc.). Auto-created on demand. |
+| **Captain** | Agent/worker | An AI agent instance (Claude Code, Codex, Gemini, Cursor, Mux, etc.). Auto-created on demand. |
 | **Fleet** | Group of repos | Collection of repositories. A default fleet is auto-created. |
 | **Vessel** | Repository | A git repository registered with Armada. Auto-registered from your current directory. |
 | **Mission** | Task | An atomic work unit assigned to a captain. |
 | **Voyage** | Batch | A group of related missions dispatched together. |
+| **Planning Session** | Interactive draft | A dashboard chat session with a captain on a reserved dock/worktree. You can turn a selected reply into a dispatch draft or dispatch directly from the session. |
 | **Dock** | Worktree | A git worktree provisioned for a captain's isolated work. |
 | **Signal** | Message | Communication between the Admiral and captains. |
 | **Persona** | Agent role | A named agent role (Worker, Architect, Judge, TestEngineer) that determines what a captain does during a mission. Users can create custom personas with custom prompt templates. |
@@ -590,24 +634,33 @@ For details on mission scheduling and assignment, see [docs/SCHEDULING.md](docs/
 <table align="center">
 <tr><td>
 <pre>
-User Command (CLI / API / MCP)
-    |
-    v
-Admiral receives command
-    |
-    +--> Creates/updates Mission in database
-    +--> Resolves target Vessel (repository)
-    +--> Allocates Captain (find idle or spawn new)
-    +--> Provisions worktree (git worktree add)
-    +--> Starts agent process with mission context
-    +--> Monitors via stdout/stderr + heartbeat
-    |
-Captain works autonomously
-    |
-    +--> Reports progress via signals
-    +--> Admiral updates Mission status
-    +--> On completion: push branch, create PR (optional)
-    +--> Captain returns to idle pool
+Direct Dispatch (CLI / API / MCP)                Dashboard Planning UI
+                |                                           |
+                |                                           +--> Start planning session
+                |                                           +--> Reserve captain + dock
+                |                                           +--> Chat with captain in the UI
+                |                                           +--> Select reply for handoff
+                |                                           +--> Summarize, open in Dispatch,
+                |                                           |    or dispatch directly
+                |                                           v
+                +---------------------------+---------------+
+                                            |
+                                            v
+                               Admiral receives dispatch
+                                            |
+                                            +--> Creates/updates Mission in database
+                                            +--> Resolves target Vessel (repository)
+                                            +--> Allocates Captain (find idle or spawn new)
+                                            +--> Provisions worktree (git worktree add)
+                                            +--> Starts agent process with mission context
+                                            +--> Monitors via stdout/stderr + heartbeat
+                                            |
+                               Captain works autonomously
+                                            |
+                                            +--> Reports progress via signals
+                                            +--> Admiral updates Mission status
+                                            +--> On completion: push branch, create PR (optional)
+                                            +--> Captain returns to idle pool
 </pre>
 </td></tr>
 </table>
@@ -680,10 +733,12 @@ armada go "Fix the login bug" --vessel my-api
 armada vessel add my-api https://github.com/you/my-api
 armada vessel add my-frontend https://github.com/you/my-frontend
 
-# Add more agents (supports claude, codex, gemini, cursor)
+# Add more agents (supports claude, codex, gemini, cursor, mux)
 armada captain add claude-2 --runtime claude
 armada captain add codex-1 --runtime codex
 armada captain add gemini-1 --runtime gemini
+armada captain add mux-1 --runtime mux --mux-endpoint local-openai
+armada captain update mux-1 --mux-config-dir C:\Users\you\.mux-work --mux-endpoint staging-openai
 
 # Emergency stop all agents
 armada captain stop-all
@@ -694,6 +749,8 @@ armada mission retry msn_abc123
 # Retry all failed missions in a voyage
 armada voyage retry "API Hardening"
 ```
+
+Mux captains require a named endpoint. Armada stores that endpoint selection on the captain, validates it through `mux probe --require-tools`, and can optionally target a non-default Mux config directory via `--mux-config-dir`. The React dashboard and legacy dashboard can both browse saved endpoints through Armada's `/api/v1/runtimes/mux/endpoints` helper APIs.
 
 ## Configuration
 
@@ -719,6 +776,8 @@ armada config init              # Interactive setup (optional)
 | `RequireAuthForShutdown` | false | Require authentication for `POST /api/v1/server/stop` |
 | `TerminalBell` | true | Ring terminal bell during `armada watch` |
 | `DefaultRuntime` | null (auto-detect) | Default agent runtime |
+| `PlanningSessionInactivityTimeoutMinutes` | 0 | Automatically stop idle planning sessions after this many minutes; 0 disables the timeout |
+| `PlanningSessionRetentionDays` | 0 | Automatically delete stopped or failed planning transcripts after this many days; 0 disables retention cleanup |
 
 ## Authentication
 

@@ -1,5 +1,6 @@
 namespace Armada.Test.Runtimes.Suites
 {
+    using System.IO;
     using Armada.Runtimes;
     using Armada.Test.Common;
     using SyslogLogging;
@@ -14,7 +15,8 @@ namespace Armada.Test.Runtimes.Suites
             {
             }
 
-            public List<string> Args(string prompt, string? model = null, string? finalMessageFilePath = null) => BuildArguments(prompt, model, finalMessageFilePath);
+            public List<string> Args(string prompt, string? model = null, string? finalMessageFilePath = null) =>
+                BuildArguments(Path.GetTempPath(), prompt, model, finalMessageFilePath, null);
         }
 
         private InspectableClaudeCodeRuntime CreateRuntime()

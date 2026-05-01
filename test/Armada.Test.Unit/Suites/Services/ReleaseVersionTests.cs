@@ -1,5 +1,7 @@
 namespace Armada.Test.Unit.Suites.Services
 {
+    using System.Collections.Generic;
+    using System.Diagnostics;
     using System.IO;
     using System.Text.RegularExpressions;
     using Armada.Core;
@@ -44,13 +46,178 @@ namespace Armada.Test.Unit.Suites.Services
                 string installMcpShContents = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "scripts", "common", "install-mcp.sh"));
                 string removeMcpBatContents = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "scripts", "windows", "remove-mcp.bat"));
                 string removeMcpShContents = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "scripts", "common", "remove-mcp.sh"));
+                string resolveFrameworkBatContents = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "scripts", "windows", "resolve-framework.bat"));
 
                 AssertContains("private const string SourceMcpFramework = \"net10.0\";", mcpConfigHelperContents, "McpConfigHelper should pin source MCP installs to net10.0");
                 AssertFalse(mcpConfigHelperContents.Contains("\"net8.0\""), "McpConfigHelper should not pin source MCP installs to net8.0");
-                AssertContains("-f net10.0 -- mcp install --yes", installMcpBatContents, "install-mcp.bat should use net10.0");
                 AssertContains("-f net10.0 -- mcp install --yes", installMcpShContents, "install-mcp.sh should use net10.0");
-                AssertContains("-f net10.0 -- mcp remove --yes", removeMcpBatContents, "remove-mcp.bat should use net10.0");
                 AssertContains("-f net10.0 -- mcp remove --yes", removeMcpShContents, "remove-mcp.sh should use net10.0");
+                AssertContains("set \"FRAMEWORK=net10.0\"", resolveFrameworkBatContents, "Windows framework resolver should default to net10.0");
+                AssertContains("set \"ARMADA_FORWARD_FRAMEWORK_ARGS=%FORWARD_ARGS%\"", resolveFrameworkBatContents, "Windows framework resolver should expose reusable wrapper forwarding arguments");
+                AssertContains("set \"ARMADA_DOTNET_FRAMEWORK_ARGS=%DOTNET_FRAMEWORK_ARGS%\"", resolveFrameworkBatContents, "Windows framework resolver should expose reusable dotnet framework arguments");
+                AssertContains("set \"ARMADA_DOTNET_MSBUILD_FRAMEWORK_ARGS=%DOTNET_MSBUILD_FRAMEWORK_ARGS%\"", resolveFrameworkBatContents, "Windows framework resolver should expose reusable msbuild framework arguments");
+                AssertContains("call \"%SCRIPT_DIR%\\resolve-framework.bat\" %*", installMcpBatContents, "install-mcp.bat should resolve the Windows framework override");
+                AssertContains("%ARMADA_DOTNET_FRAMEWORK_ARGS% -- mcp install --yes", installMcpBatContents, "install-mcp.bat should honor the resolved framework override");
+                AssertContains("call \"%SCRIPT_DIR%\\resolve-framework.bat\" %*", removeMcpBatContents, "remove-mcp.bat should resolve the Windows framework override");
+                AssertContains("%ARMADA_DOTNET_FRAMEWORK_ARGS% -- mcp remove --yes", removeMcpBatContents, "remove-mcp.bat should honor the resolved framework override");
+            });
+
+            await RunTest("Windows Install Scripts Allow Explicit Framework Overrides", () =>
+            {
+                string installBatContents = ReadRepositoryFile("scripts", "windows", "install.bat");
+                string reinstallBatContents = ReadRepositoryFile("scripts", "windows", "reinstall.bat");
+                string removeBatContents = ReadRepositoryFile("scripts", "windows", "remove.bat");
+                string updateBatContents = ReadRepositoryFile("scripts", "windows", "update.bat");
+                string publishServerBatContents = ReadRepositoryFile("scripts", "windows", "publish-server.bat");
+                string installWindowsTaskBatContents = ReadRepositoryFile("scripts", "windows", "install-windows-task.bat");
+                string updateWindowsTaskBatContents = ReadRepositoryFile("scripts", "windows", "update-windows-task.bat");
+                string removeWindowsTaskBatContents = ReadRepositoryFile("scripts", "windows", "remove-windows-task.bat");
+                string healthcheckServerBatContents = ReadRepositoryFile("scripts", "windows", "healthcheck-server.bat");
+                string serverStartCommandContents = ReadRepositoryFile("src", "Armada.Helm", "Commands", "ServerStartCommand.cs");
+
+                AssertContains("call \"%SCRIPT_DIR%\\resolve-framework.bat\" %*", installBatContents, "install.bat should resolve framework overrides");
+                AssertContains("dotnet build \"%REPO_ROOT%\\src\\Armada.sln\" %ARMADA_DOTNET_FRAMEWORK_ARGS%", installBatContents, "install.bat should build with the resolved framework");
+                AssertContains("dotnet pack \"%REPO_ROOT%\\src\\Armada.Helm\\Armada.Helm.csproj\" %ARMADA_DOTNET_MSBUILD_FRAMEWORK_ARGS%", installBatContents, "install.bat should pack with the resolved framework");
+                AssertContains("call \"%SCRIPT_DIR%\\resolve-framework.bat\" %*", reinstallBatContents, "reinstall.bat should resolve framework overrides");
+                AssertContains("call \"%SCRIPT_DIR%\\install.bat\" %ARMADA_FORWARD_FRAMEWORK_ARGS%", reinstallBatContents, "reinstall.bat should forward the resolved framework explicitly");
+                AssertContains("call \"%SCRIPT_DIR%\\resolve-framework.bat\" %*", removeBatContents, "remove.bat should accept framework overrides for parity");
+                AssertContains("set \"HELM_DLL=%REPO_ROOT%\\src\\Armada.Helm\\bin\\Debug\\%ARMADA_TARGET_FRAMEWORK%\\Armada.Helm.dll\"", updateBatContents, "update.bat should probe the resolved Helm build output");
+                AssertContains("call \"%SCRIPT_DIR%\\reinstall.bat\" %ARMADA_FORWARD_FRAMEWORK_ARGS%", updateBatContents, "update.bat should forward the resolved framework to reinstall explicitly");
+                AssertContains("dotnet run --project \"%REPO_ROOT%\\src\\Armada.Helm\" %ARMADA_DOTNET_FRAMEWORK_ARGS% -- %*", updateBatContents, "update.bat should fall back to the resolved framework");
+                AssertTrue(
+                    updateBatContents.IndexOf("if exist \"%HELM_DLL%\"", StringComparison.Ordinal) < updateBatContents.IndexOf("where armada", StringComparison.Ordinal),
+                    "update.bat should prefer repo-targeted Helm execution before the global tool");
+                AssertContains("dotnet publish \"%REPO_ROOT%\\src\\Armada.Server\" -c Release %ARMADA_DOTNET_FRAMEWORK_ARGS%", publishServerBatContents, "publish-server.bat should publish with the resolved framework");
+                AssertContains("call \"%SCRIPT_DIR%\\publish-server.bat\" %ARMADA_FORWARD_FRAMEWORK_ARGS%", installWindowsTaskBatContents, "install-windows-task.bat should forward the resolved framework to publish-server explicitly");
+                AssertContains("call \"%SCRIPT_DIR%\\install-windows-task.bat\" %ARMADA_FORWARD_FRAMEWORK_ARGS%", updateWindowsTaskBatContents, "update-windows-task.bat should forward the resolved framework explicitly");
+                AssertContains("call \"%SCRIPT_DIR%\\resolve-framework.bat\" %*", removeWindowsTaskBatContents, "remove-windows-task.bat should accept framework overrides for parity");
+                AssertContains("string targetFramework = GetCliTargetFramework();", serverStartCommandContents, "ServerStartCommand should derive the build framework from the running Helm target");
+                AssertContains("buildInfo.ArgumentList.Add(targetFramework);", serverStartCommandContents, "ServerStartCommand should build Armada.Server with the derived framework");
+                AssertContains("buildInfo.ArgumentList.Add(\"-p:TargetFramework=\" + targetFramework);", serverStartCommandContents, "ServerStartCommand should lock the server build to the derived framework");
+                AssertContains("buildInfo.ArgumentList.Add(\"-p:TargetFrameworks=\" + targetFramework);", serverStartCommandContents, "ServerStartCommand should prevent multi-target evaluation on framework-limited machines");
+                AssertContains("return $\"net{parsed.Version.Major}.{parsed.Version.Minor}\";", serverStartCommandContents, "ServerStartCommand should map the runtime TFM to a dotnet framework moniker");
+                AssertContains("if /I \"%~1\"==\"--framework\" set \"BASE_URL=%~3\"", healthcheckServerBatContents, "healthcheck-server.bat should ignore a leading named framework override");
+                AssertContains("findstr /R /I \"^net[0-9][0-9]*\\.[0-9][0-9]*$\"", healthcheckServerBatContents, "healthcheck-server.bat should ignore a leading positional framework override");
+            });
+
+            await RunTest("Windows Framework Resolver Accepts Positional And Named Overrides", () =>
+            {
+                if (!OperatingSystem.IsWindows())
+                {
+                    return;
+                }
+
+                string repoRoot = FindRepositoryRoot();
+                string resolveFrameworkPath = Path.Combine(repoRoot, "scripts", "windows", "resolve-framework.bat");
+
+                string positionalResult = RunCommandAndCaptureOutput(
+                    "cmd.exe",
+                    "/c call \"" + resolveFrameworkPath + "\" net8.0 >nul && echo %ARMADA_TARGET_FRAMEWORK%",
+                    repoRoot);
+                AssertEqual("net8.0", positionalResult.Trim(), "resolve-framework.bat should accept positional framework values");
+
+                string namedResult = RunCommandAndCaptureOutput(
+                    "cmd.exe",
+                    "/c call \"" + resolveFrameworkPath + "\" --framework net8.0 >nul && echo %ARMADA_TARGET_FRAMEWORK%",
+                    repoRoot);
+                AssertEqual("net8.0", namedResult.Trim(), "resolve-framework.bat should accept named framework values");
+            });
+
+            await RunTest("Windows Install Task Script Preserves Explicit Framework End To End", () =>
+            {
+                if (!OperatingSystem.IsWindows())
+                {
+                    return;
+                }
+
+                string repoRoot = FindRepositoryRoot();
+                string tempRoot = Path.Combine(Path.GetTempPath(), "armada-script-test-" + Guid.NewGuid().ToString("N"));
+                string tempRepo = Path.Combine(tempRoot, "repo");
+                string tempUserProfile = Path.Combine(tempRoot, "user");
+                string toolsDir = Path.Combine(tempRoot, "tools");
+                string logPath = Path.Combine(tempRoot, "dotnet.log");
+
+                Directory.CreateDirectory(tempRepo);
+                Directory.CreateDirectory(tempUserProfile);
+                Directory.CreateDirectory(toolsDir);
+
+                try
+                {
+                    string windowsScriptsDir = Path.Combine(tempRepo, "scripts", "windows");
+                    Directory.CreateDirectory(windowsScriptsDir);
+                    CopyRepositoryFile(repoRoot, tempRepo, Path.Combine("scripts", "windows", "resolve-framework.bat"));
+                    CopyRepositoryFile(repoRoot, tempRepo, Path.Combine("scripts", "windows", "publish-server.bat"));
+                    CopyRepositoryFile(repoRoot, tempRepo, Path.Combine("scripts", "windows", "deploy-dashboard.bat"));
+                    CopyRepositoryFile(repoRoot, tempRepo, Path.Combine("scripts", "windows", "install-windows-task.bat"));
+                    CopyRepositoryFile(repoRoot, tempRepo, Path.Combine("scripts", "windows", "healthcheck-server.bat"));
+                    CopyRepositoryFile(repoRoot, tempRepo, Path.Combine("scripts", "windows", "start-armada-server.ps1"));
+                    CopyRepositoryFile(repoRoot, tempRepo, Path.Combine("scripts", "windows", "stop-armada-server.ps1"));
+
+                    string dashboardDir = Path.Combine(tempRepo, "src", "Armada.Dashboard");
+                    Directory.CreateDirectory(dashboardDir);
+                    File.WriteAllText(Path.Combine(dashboardDir, "package.json"), "{}");
+
+                    File.WriteAllText(
+                        Path.Combine(toolsDir, "dotnet.cmd"),
+                        "@echo off\r\n" +
+                        "echo %*>>\"%DOTNET_LOG%\"\r\n" +
+                        "if /I \"%~1\"==\"publish\" call :publish %*\r\n" +
+                        "exit /b 0\r\n" +
+                        "\r\n" +
+                        ":publish\r\n" +
+                        "set \"OUTPUT_DIR=\"\r\n" +
+                        ":publish_args\r\n" +
+                        "if \"%~1\"==\"\" goto publish_done\r\n" +
+                        "if /I \"%~1\"==\"-o\" (\r\n" +
+                        "  set \"OUTPUT_DIR=%~2\"\r\n" +
+                        "  shift\r\n" +
+                        ")\r\n" +
+                        "shift\r\n" +
+                        "goto publish_args\r\n" +
+                        "\r\n" +
+                        ":publish_done\r\n" +
+                        "if \"%OUTPUT_DIR%\"==\"\" exit /b 1\r\n" +
+                        "mkdir \"%OUTPUT_DIR%\" >nul 2>nul\r\n" +
+                        "type nul > \"%OUTPUT_DIR%\\Armada.Server.exe\"\r\n" +
+                        "exit /b 0\r\n");
+
+                    File.WriteAllText(
+                        Path.Combine(toolsDir, "npm.cmd"),
+                        "@echo off\r\n" +
+                        "set \"DIST_DIR=%REPO_ROOT_FOR_TEST%\\src\\Armada.Dashboard\\dist\"\r\n" +
+                        "mkdir \"%DIST_DIR%\" >nul 2>nul\r\n" +
+                        "type nul > \"%DIST_DIR%\\index.html\"\r\n" +
+                        "exit /b 0\r\n");
+
+                    File.WriteAllText(
+                        Path.Combine(toolsDir, "powershell.cmd"),
+                        "@echo off\r\n" +
+                        "exit /b 0\r\n");
+
+                    string installTaskPath = Path.Combine(tempRepo, "scripts", "windows", "install-windows-task.bat");
+                    RunCommandAndCaptureOutput(
+                        "cmd.exe",
+                        "/c call \"" + installTaskPath + "\" net8.0",
+                        tempRepo,
+                        new Dictionary<string, string>
+                        {
+                            ["PATH"] = toolsDir + Path.PathSeparator + Environment.GetEnvironmentVariable("PATH"),
+                            ["USERPROFILE"] = tempUserProfile,
+                            ["DOTNET_LOG"] = logPath,
+                            ["REPO_ROOT_FOR_TEST"] = tempRepo
+                        });
+
+                    string dotnetLogContents = File.ReadAllText(logPath);
+                    AssertContains("publish \"" + Path.Combine(tempRepo, "src", "Armada.Server") + "\" -c Release --framework net8.0 -p:TargetFramework=net8.0 -p:TargetFrameworks=net8.0 -o \"" + Path.Combine(tempUserProfile, ".armada", "bin") + "\"", dotnetLogContents, "install-windows-task.bat should preserve the explicit framework into publish-server.bat");
+                    AssertFalse(dotnetLogContents.Contains("net10.0", StringComparison.Ordinal), "install-windows-task.bat should not fall back to net10.0 when net8.0 is requested");
+                }
+                finally
+                {
+                    if (Directory.Exists(tempRoot))
+                    {
+                        Directory.Delete(tempRoot, recursive: true);
+                    }
+                }
             });
 
             await RunTest("Status Health Route Uses ProductVersion Constant", () =>
@@ -58,7 +225,7 @@ namespace Armada.Test.Unit.Suites.Services
                 string statusRoutesContents = ReadRepositoryFile("src", "Armada.Server", "Routes", "StatusRoutes.cs");
                 Match healthRouteMatch = Regex.Match(
                     statusRoutesContents,
-                    @"app\.Rest\.Get\(""/api/v1/status/health"",[\s\S]*?\.WithDescription\(""Returns health status\. Does not require authentication\.""\)\);");
+                    @"app(?:\.Rest)?\.Get\(""/api/v1/status/health"",[\s\S]*?\.WithDescription\(""Returns health status\. Does not require authentication\.""\)\);");
 
                 AssertTrue(healthRouteMatch.Success, "StatusRoutes should include the REST health route");
 
@@ -155,6 +322,56 @@ namespace Armada.Test.Unit.Suites.Services
         private static string ReadRepositoryFile(params string[] relativePath)
         {
             return File.ReadAllText(Path.Combine(FindRepositoryRoot(), Path.Combine(relativePath)));
+        }
+
+        private static void CopyRepositoryFile(string repoRoot, string tempRepo, string relativePath)
+        {
+            string sourcePath = Path.Combine(repoRoot, relativePath);
+            string destinationPath = Path.Combine(tempRepo, relativePath);
+            string? destinationDirectory = Path.GetDirectoryName(destinationPath);
+            if (!string.IsNullOrEmpty(destinationDirectory))
+            {
+                Directory.CreateDirectory(destinationDirectory);
+            }
+
+            File.Copy(sourcePath, destinationPath, overwrite: true);
+        }
+
+        private static string RunCommandAndCaptureOutput(string fileName, string arguments, string workingDirectory, IDictionary<string, string>? environmentVariables = null)
+        {
+            using Process process = new Process();
+            ProcessStartInfo startInfo = new ProcessStartInfo
+            {
+                FileName = fileName,
+                Arguments = arguments,
+                WorkingDirectory = workingDirectory,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            if (environmentVariables != null)
+            {
+                foreach (KeyValuePair<string, string> variable in environmentVariables)
+                {
+                    startInfo.Environment[variable.Key] = variable.Value;
+                }
+            }
+
+            process.StartInfo = startInfo;
+
+            process.Start();
+            string stdout = process.StandardOutput.ReadToEnd();
+            string stderr = process.StandardError.ReadToEnd();
+            process.WaitForExit();
+
+            if (process.ExitCode != 0)
+            {
+                throw new Exception("Command failed: " + fileName + " " + arguments + Environment.NewLine + stdout + stderr);
+            }
+
+            return stdout;
         }
 
         private static string ExtractRestHealthResponseSample(string restApiContents)

@@ -34,6 +34,12 @@ namespace Armada.Core.Enums
         Cursor,
 
         /// <summary>
+        /// Mux CLI.
+        /// </summary>
+        [EnumMember(Value = "Mux")]
+        Mux,
+
+        /// <summary>
         /// Custom agent runtime.
         /// </summary>
         [EnumMember(Value = "Custom")]

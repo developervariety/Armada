@@ -2,6 +2,7 @@ namespace Armada.Server
 {
     using System.Diagnostics;
     using System.Text;
+    using System.Text.Json;
     using Armada.Core;
     using Armada.Core.Database;
     using Armada.Core.Enums;
@@ -37,6 +38,8 @@ namespace Armada.Server
         private readonly PlaybookService _Playbooks;
         private readonly System.Collections.Concurrent.ConcurrentDictionary<string, TurnState> _ActiveTurns =
             new System.Collections.Concurrent.ConcurrentDictionary<string, TurnState>(StringComparer.Ordinal);
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, Task<PlanningSession>> _StopOperations =
+            new System.Collections.Concurrent.ConcurrentDictionary<string, Task<PlanningSession>>(StringComparer.Ordinal);
 
         #endregion
 
@@ -84,6 +87,9 @@ namespace Armada.Server
             if (captain == null) throw new ArgumentNullException(nameof(captain));
             if (vessel == null) throw new ArgumentNullException(nameof(vessel));
             if (request == null) throw new ArgumentNullException(nameof(request));
+
+            if (!captain.SupportsPlanningSessions)
+                throw new InvalidOperationException(captain.PlanningSessionSupportReason ?? "This captain runtime is not supported for planning sessions.");
 
             if (captain.State != CaptainStateEnum.Idle)
                 throw new InvalidOperationException("Captain " + captain.Name + " is not idle.");
@@ -260,71 +266,26 @@ namespace Armada.Server
         {
             if (session == null) throw new ArgumentNullException(nameof(session));
 
-            session = await RequireSessionAsync(session.Id, token).ConfigureAwait(false);
-            Captain? captain = await _Database.Captains.ReadAsync(session.CaptainId, token).ConfigureAwait(false);
+            session = await PrepareStopAsync(session, token).ConfigureAwait(false);
+            if (session.Status == PlanningSessionStatusEnum.Stopped || session.Status == PlanningSessionStatusEnum.Failed)
+                return session;
 
-            if (_ActiveTurns.TryGetValue(session.Id, out TurnState? turnState))
-                turnState.StopRequested = true;
+            Task<PlanningSession> stopTask = EnsureStopOperation(session.Id);
+            return await stopTask.ConfigureAwait(false);
+        }
 
-            session.Status = PlanningSessionStatusEnum.Stopping;
-            session.LastUpdateUtc = DateTime.UtcNow;
-            session = await _Database.PlanningSessions.UpdateAsync(session, token).ConfigureAwait(false);
-            BroadcastSessionChanged(session);
+        /// <summary>
+        /// Mark a planning session as stopping and let cleanup continue in the background.
+        /// </summary>
+        public async Task<PlanningSession> RequestStopAsync(PlanningSession session, CancellationToken token = default)
+        {
+            if (session == null) throw new ArgumentNullException(nameof(session));
 
-            if (session.ProcessId.HasValue && captain != null)
-            {
-                try
-                {
-                    Armada.Runtimes.Interfaces.IAgentRuntime runtime = _RuntimeFactory.Create(captain.Runtime);
-                    await runtime.StopAsync(session.ProcessId.Value, token).ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    _Logging.Warn(_Header + "error stopping planning process " + session.ProcessId.Value + " for session " + session.Id + ": " + ex.Message);
-                }
-            }
+            session = await PrepareStopAsync(session, token).ConfigureAwait(false);
+            if (session.Status == PlanningSessionStatusEnum.Stopped || session.Status == PlanningSessionStatusEnum.Failed)
+                return session;
 
-            if (!String.IsNullOrEmpty(session.DockId))
-            {
-                try
-                {
-                    await _Docks.ReclaimAsync(session.DockId, session.TenantId, token).ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    _Logging.Warn(_Header + "error reclaiming planning dock " + session.DockId + " for session " + session.Id + ": " + ex.Message);
-                }
-            }
-
-            if (captain != null)
-            {
-                captain.State = CaptainStateEnum.Idle;
-                captain.CurrentMissionId = null;
-                captain.CurrentDockId = null;
-                captain.ProcessId = null;
-                captain.LastHeartbeatUtc = DateTime.UtcNow;
-                captain.LastUpdateUtc = DateTime.UtcNow;
-                await _Database.Captains.UpdateAsync(captain, token).ConfigureAwait(false);
-                _WebSocketHub?.BroadcastCaptainChange(captain.Id, captain.State.ToString(), captain.Name);
-            }
-
-            session.Status = PlanningSessionStatusEnum.Stopped;
-            session.ProcessId = null;
-            session.CompletedUtc = DateTime.UtcNow;
-            session.LastUpdateUtc = DateTime.UtcNow;
-            session = await _Database.PlanningSessions.UpdateAsync(session, token).ConfigureAwait(false);
-            BroadcastSessionChanged(session);
-
-            await _EmitEventAsync(
-                "planning-session.stopped",
-                "Planning session " + session.Id + " stopped",
-                "planning-session",
-                session.Id,
-                session.CaptainId,
-                null,
-                session.VesselId,
-                null).ConfigureAwait(false);
-
+            _ = EnsureStopOperation(session.Id);
             return session;
         }
 
@@ -337,32 +298,11 @@ namespace Armada.Server
             if (request == null) throw new ArgumentNullException(nameof(request));
 
             session = await RequireSessionAsync(session.Id, token).ConfigureAwait(false);
-
-            PlanningSessionMessage? sourceMessage = null;
-            if (!String.IsNullOrWhiteSpace(request.MessageId))
-            {
-                sourceMessage = await _Database.PlanningSessionMessages.ReadAsync(request.MessageId, token).ConfigureAwait(false);
-                if (sourceMessage == null || sourceMessage.PlanningSessionId != session.Id)
-                    throw new InvalidOperationException("Planning message not found: " + request.MessageId);
-            }
-            else
-            {
-                List<PlanningSessionMessage> messages = await _Database.PlanningSessionMessages
-                    .EnumerateBySessionAsync(session.Id, token)
-                    .ConfigureAwait(false);
-                sourceMessage = messages
-                    .Where(m => String.Equals(m.Role, "Assistant", StringComparison.OrdinalIgnoreCase))
-                    .Where(m => !String.IsNullOrWhiteSpace(m.Content))
-                    .OrderByDescending(m => m.Sequence)
-                    .FirstOrDefault();
-            }
-
-            if (sourceMessage == null)
-                throw new InvalidOperationException("No assistant planning output is available to dispatch.");
+            PlanningSessionMessage sourceMessage = await ResolveSourceMessageAsync(session, request.MessageId, token).ConfigureAwait(false);
 
             string title = !String.IsNullOrWhiteSpace(request.Title)
                 ? request.Title.Trim()
-                : (!String.IsNullOrWhiteSpace(session.Title) ? session.Title.Trim() : sourceMessage.Content.Trim().Substring(0, Math.Min(80, sourceMessage.Content.Trim().Length)));
+                : BuildDefaultDispatchTitle(session, sourceMessage);
             string description = !String.IsNullOrWhiteSpace(request.Description)
                 ? request.Description.Trim()
                 : sourceMessage.Content.Trim();
@@ -409,6 +349,180 @@ namespace Armada.Server
         }
 
         /// <summary>
+        /// Generate a dispatch-ready draft from a planning session without launching the voyage yet.
+        /// </summary>
+        public async Task<PlanningSessionSummaryResponse> SummarizeAsync(
+            PlanningSession session,
+            PlanningSessionSummaryRequest request,
+            CancellationToken token = default)
+        {
+            if (session == null) throw new ArgumentNullException(nameof(session));
+            if (request == null) throw new ArgumentNullException(nameof(request));
+
+            session = await RequireSessionAsync(session.Id, token).ConfigureAwait(false);
+            if (!_ActiveTurns.TryAdd(session.Id, new TurnState()))
+                throw new InvalidOperationException("Planning session " + session.Id + " is already generating a response.");
+            try
+            {
+                PlanningSessionMessage sourceMessage = await ResolveSourceMessageAsync(session, request.MessageId, token).ConfigureAwait(false);
+                Captain captain = await RequireCaptainAsync(session.CaptainId, token).ConfigureAwait(false);
+                Vessel vessel = await RequireVesselAsync(session.VesselId, token).ConfigureAwait(false);
+                Dock dock = await RequireDockAsync(session.DockId, token).ConfigureAwait(false);
+                List<PlanningSessionMessage> messages = await _Database.PlanningSessionMessages.EnumerateBySessionAsync(session.Id, token).ConfigureAwait(false);
+
+                string promptFilePath = await WritePromptFileAsync(session, captain, vessel, dock, messages, token).ConfigureAwait(false);
+                string preferredTitle = !String.IsNullOrWhiteSpace(request.Title) ? request.Title.Trim() : BuildDefaultDispatchTitle(session, sourceMessage);
+                string prompt =
+                    "Read `" + promptFilePath + "` and the selected planning message below.\n" +
+                    "Produce a dispatch draft for Armada.\n" +
+                    "Return JSON only with keys `title` and `description`.\n" +
+                    "- `title` must be concise, actionable, and 80 characters or less.\n" +
+                    "- `description` must be mission-ready markdown that tells a captain exactly what to do.\n" +
+                    "- Preserve the user's concrete intent and constraints.\n" +
+                    "- Do not mention that this was generated from a planning session.\n" +
+                    "- If the existing session title is already strong, keep it close to `" + preferredTitle.Replace("`", "'") + "`.\n\n" +
+                    "Selected planning message:\n" +
+                    sourceMessage.Content.Trim();
+
+                string turnDir = Path.Combine(_Settings.LogDirectory, "planning-sessions", session.Id);
+                Directory.CreateDirectory(turnDir);
+                string finalMessageFilePath = Path.Combine(turnDir, "summary-" + Guid.NewGuid().ToString("N") + ".txt");
+                string logFilePath = Path.Combine(turnDir, "summary.log");
+
+                PlanningSessionSummaryResponse draft = BuildFallbackSummary(session, sourceMessage, request.Title);
+                try
+                {
+                    string runtimeOutput = await RunRuntimePromptAsync(session, captain, vessel, prompt, logFilePath, finalMessageFilePath, token).ConfigureAwait(false);
+
+                    if (TryParseSummaryResponse(runtimeOutput, out PlanningSessionSummaryResponse? parsed) && parsed != null)
+                    {
+                        parsed.SessionId = session.Id;
+                        parsed.MessageId = sourceMessage.Id;
+                        if (String.IsNullOrWhiteSpace(parsed.Title))
+                            parsed.Title = draft.Title;
+                        if (String.IsNullOrWhiteSpace(parsed.Description))
+                            parsed.Description = draft.Description;
+                        draft = parsed;
+                        draft.Method = "runtime-json";
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "planning summary fallback for session " + session.Id + ": " + ex.Message);
+                }
+
+                _WebSocketHub?.BroadcastEvent(
+                    "planning-session.summary.created",
+                    "Dispatch draft summarized from planning session " + session.Id,
+                    new
+                    {
+                        sessionId = session.Id,
+                        messageId = sourceMessage.Id,
+                        draft
+                    });
+
+                await _EmitEventAsync(
+                    "planning-session.summary.created",
+                    "Planning session " + session.Id + " generated a dispatch draft",
+                    "planning-session",
+                    session.Id,
+                    session.CaptainId,
+                    null,
+                    session.VesselId,
+                    null).ConfigureAwait(false);
+
+                return draft;
+            }
+            finally
+            {
+                _ActiveTurns.TryRemove(session.Id, out _);
+            }
+        }
+
+        /// <summary>
+        /// Delete a planning session and its transcript.
+        /// Active sessions are stopped first.
+        /// </summary>
+        public async Task DeleteAsync(PlanningSession session, CancellationToken token = default)
+        {
+            if (session == null) throw new ArgumentNullException(nameof(session));
+
+            session = await RequireSessionAsync(session.Id, token).ConfigureAwait(false);
+            if (session.Status == PlanningSessionStatusEnum.Active ||
+                session.Status == PlanningSessionStatusEnum.Responding ||
+                session.Status == PlanningSessionStatusEnum.Stopping)
+            {
+                session = await StopAsync(session, token).ConfigureAwait(false);
+            }
+
+            await _Database.PlanningSessions.DeleteAsync(session.Id, token).ConfigureAwait(false);
+            _ActiveTurns.TryRemove(session.Id, out _);
+
+            _WebSocketHub?.BroadcastEvent(
+                "planning-session.deleted",
+                "Planning session deleted",
+                new { sessionId = session.Id });
+
+            await _EmitEventAsync(
+                "planning-session.deleted",
+                "Planning session " + session.Id + " deleted",
+                "planning-session",
+                session.Id,
+                session.CaptainId,
+                null,
+                session.VesselId,
+                null).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Apply planning-session inactivity and retention maintenance.
+        /// </summary>
+        public async Task MaintainSessionsAsync(CancellationToken token = default)
+        {
+            if (_Settings.PlanningSessionInactivityTimeoutMinutes <= 0 && _Settings.PlanningSessionRetentionDays <= 0)
+                return;
+
+            List<PlanningSession> sessions = await _Database.PlanningSessions.EnumerateAsync(token).ConfigureAwait(false);
+
+            if (_Settings.PlanningSessionInactivityTimeoutMinutes > 0)
+            {
+                DateTime inactivityCutoff = DateTime.UtcNow.AddMinutes(-_Settings.PlanningSessionInactivityTimeoutMinutes);
+                foreach (PlanningSession session in sessions.Where(s =>
+                    s.Status == PlanningSessionStatusEnum.Active &&
+                    !s.ProcessId.HasValue &&
+                    s.LastUpdateUtc < inactivityCutoff))
+                {
+                    try
+                    {
+                        await StopAsync(session, token).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        _Logging.Warn(_Header + "planning inactivity stop failed for " + session.Id + ": " + ex.Message);
+                    }
+                }
+            }
+
+            if (_Settings.PlanningSessionRetentionDays > 0)
+            {
+                DateTime retentionCutoff = DateTime.UtcNow.AddDays(-_Settings.PlanningSessionRetentionDays);
+                foreach (PlanningSession session in sessions.Where(s =>
+                    (s.Status == PlanningSessionStatusEnum.Stopped || s.Status == PlanningSessionStatusEnum.Failed) &&
+                    (s.CompletedUtc ?? s.LastUpdateUtc) < retentionCutoff))
+                {
+                    try
+                    {
+                        await DeleteAsync(session, token).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        _Logging.Warn(_Header + "planning retention delete failed for " + session.Id + ": " + ex.Message);
+                    }
+                }
+            }
+        }
+
+        /// <summary>
         /// Recover persisted planning sessions on server start.
         /// </summary>
         public async Task RecoverSessionsAsync(CancellationToken token = default)
@@ -435,6 +549,12 @@ namespace Armada.Server
                         continue;
                     }
 
+                    if (session.Status == PlanningSessionStatusEnum.Stopping)
+                    {
+                        await StopAsync(session, token).ConfigureAwait(false);
+                        continue;
+                    }
+
                     if (session.Status == PlanningSessionStatusEnum.Responding && session.ProcessId.HasValue)
                     {
                         bool running = false;
@@ -452,7 +572,7 @@ namespace Armada.Server
                         {
                             try
                             {
-                                Armada.Runtimes.Interfaces.IAgentRuntime runtime = _RuntimeFactory.Create(captain.Runtime);
+                                Armada.Runtimes.Interfaces.IAgentRuntime runtime = CreatePlanningRuntime(captain);
                                 await runtime.StopAsync(session.ProcessId.Value, token).ConfigureAwait(false);
                             }
                             catch
@@ -487,7 +607,7 @@ namespace Armada.Server
                     await _Database.Captains.UpdateAsync(captain, token).ConfigureAwait(false);
                     _WebSocketHub?.BroadcastCaptainChange(captain.Id, captain.State.ToString(), captain.Name);
 
-                    if (session.Status == PlanningSessionStatusEnum.Responding || session.Status == PlanningSessionStatusEnum.Stopping)
+                    if (session.Status == PlanningSessionStatusEnum.Responding)
                     {
                         session.Status = PlanningSessionStatusEnum.Active;
                         session.ProcessId = null;
@@ -517,6 +637,9 @@ namespace Armada.Server
                 Dock dock = await RequireDockAsync(session.DockId, CancellationToken.None).ConfigureAwait(false);
                 List<PlanningSessionMessage> messages = await _Database.PlanningSessionMessages.EnumerateBySessionAsync(session.Id).ConfigureAwait(false);
 
+                if (IsStopRequested(session.Id))
+                    return;
+
                 string promptFilePath = await WritePromptFileAsync(session, captain, vessel, dock, messages, CancellationToken.None).ConfigureAwait(false);
                 string prompt = "Read `" + promptFilePath + "` and continue this Armada planning conversation. Stay in planning mode and answer the latest user message directly.";
 
@@ -525,7 +648,7 @@ namespace Armada.Server
                 string logFilePath = Path.Combine(turnDir, "session.log");
                 string finalMessageFilePath = Path.Combine(turnDir, "final-" + assistantMessage.Id + ".txt");
 
-                Armada.Runtimes.Interfaces.IAgentRuntime runtime = _RuntimeFactory.Create(captain.Runtime);
+                Armada.Runtimes.Interfaces.IAgentRuntime runtime = CreatePlanningRuntime(captain);
                 TaskCompletionSource<int?> exitSource = new TaskCompletionSource<int?>(TaskCreationOptions.RunContinuationsAsynchronously);
                 object outputLock = new object();
                 StringBuilder output = new StringBuilder();
@@ -546,12 +669,16 @@ namespace Armada.Server
                 };
                 runtime.OnProcessExited += (processId, exitCode) => exitSource.TrySetResult(exitCode);
 
+                if (IsStopRequested(session.Id))
+                    return;
+
                 int processId = await runtime.StartAsync(
                     dock.WorktreePath ?? vessel.WorkingDirectory ?? vessel.LocalPath ?? Directory.GetCurrentDirectory(),
                     prompt,
                     logFilePath: logFilePath,
                     finalMessageFilePath: finalMessageFilePath,
-                    model: captain.Model).ConfigureAwait(false);
+                    model: captain.Model,
+                    captain: captain).ConfigureAwait(false);
 
                 session.ProcessId = processId;
                 session.LastUpdateUtc = DateTime.UtcNow;
@@ -771,6 +898,329 @@ namespace Armada.Server
                 return transcript;
 
             return "... transcript truncated ...\n\n" + transcript.Substring(transcript.Length - maxChars, maxChars);
+        }
+
+        private async Task<string> RunRuntimePromptAsync(
+            PlanningSession session,
+            Captain captain,
+            Vessel vessel,
+            string prompt,
+            string logFilePath,
+            string finalMessageFilePath,
+            CancellationToken token)
+        {
+            Armada.Runtimes.Interfaces.IAgentRuntime runtime = CreatePlanningRuntime(captain);
+            TaskCompletionSource<int?> exitSource = new TaskCompletionSource<int?>(TaskCreationOptions.RunContinuationsAsynchronously);
+            StringBuilder output = new StringBuilder();
+            object outputLock = new object();
+            int? processId = null;
+
+            runtime.OnOutputReceived += (processId, line) =>
+            {
+                lock (outputLock)
+                {
+                    if (output.Length > 0) output.AppendLine();
+                    output.Append(line);
+                }
+            };
+            runtime.OnProcessExited += (processId, exitCode) => exitSource.TrySetResult(exitCode);
+
+            try
+            {
+                processId = await runtime.StartAsync(
+                    session.DockId != null
+                        ? (await RequireDockAsync(session.DockId, token).ConfigureAwait(false)).WorktreePath ?? vessel.WorkingDirectory ?? vessel.LocalPath ?? Directory.GetCurrentDirectory()
+                        : vessel.WorkingDirectory ?? vessel.LocalPath ?? Directory.GetCurrentDirectory(),
+                    prompt,
+                    logFilePath: logFilePath,
+                    finalMessageFilePath: finalMessageFilePath,
+                    model: captain.Model,
+                    captain: captain,
+                    token: token).ConfigureAwait(false);
+
+                session.ProcessId = processId;
+                session.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.PlanningSessions.UpdateAsync(session, token).ConfigureAwait(false);
+                BroadcastSessionChanged(session);
+
+                captain.ProcessId = processId;
+                captain.LastHeartbeatUtc = DateTime.UtcNow;
+                captain.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.Captains.UpdateAsync(captain, token).ConfigureAwait(false);
+                _WebSocketHub?.BroadcastCaptainChange(captain.Id, captain.State.ToString(), captain.Name);
+
+                int? exitCode = await exitSource.Task.ConfigureAwait(false);
+
+                string finalOutput;
+                lock (outputLock)
+                {
+                    finalOutput = output.ToString().Trim();
+                }
+
+                try
+                {
+                    if (File.Exists(finalMessageFilePath))
+                    {
+                        string artifact = await File.ReadAllTextAsync(finalMessageFilePath, token).ConfigureAwait(false);
+                        if (!String.IsNullOrWhiteSpace(artifact))
+                            finalOutput = artifact.Trim();
+                    }
+                }
+                catch
+                {
+                }
+
+                if (String.IsNullOrWhiteSpace(finalOutput) && exitCode.HasValue && exitCode.Value != 0)
+                    finalOutput = "Planning helper prompt exited with code " + exitCode.Value + ".";
+
+                return finalOutput;
+            }
+            finally
+            {
+                if (processId.HasValue)
+                {
+                    try
+                    {
+                        PlanningSession? refreshedSession = await _Database.PlanningSessions.ReadAsync(session.Id, CancellationToken.None).ConfigureAwait(false);
+                        if (refreshedSession != null && refreshedSession.ProcessId.HasValue)
+                        {
+                            refreshedSession.ProcessId = null;
+                            refreshedSession.LastUpdateUtc = DateTime.UtcNow;
+                            await _Database.PlanningSessions.UpdateAsync(refreshedSession, CancellationToken.None).ConfigureAwait(false);
+                            BroadcastSessionChanged(refreshedSession);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _Logging.Warn(_Header + "planning summary session cleanup failed for " + session.Id + ": " + ex.Message);
+                    }
+
+                    try
+                    {
+                        Captain? refreshedCaptain = await _Database.Captains.ReadAsync(captain.Id, CancellationToken.None).ConfigureAwait(false);
+                        if (refreshedCaptain != null && refreshedCaptain.ProcessId.HasValue)
+                        {
+                            refreshedCaptain.ProcessId = null;
+                            refreshedCaptain.LastHeartbeatUtc = DateTime.UtcNow;
+                            refreshedCaptain.LastUpdateUtc = DateTime.UtcNow;
+                            await _Database.Captains.UpdateAsync(refreshedCaptain, CancellationToken.None).ConfigureAwait(false);
+                            _WebSocketHub?.BroadcastCaptainChange(refreshedCaptain.Id, refreshedCaptain.State.ToString(), refreshedCaptain.Name);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _Logging.Warn(_Header + "planning summary captain cleanup failed for " + captain.Id + ": " + ex.Message);
+                    }
+                }
+            }
+        }
+
+        private async Task<PlanningSessionMessage> ResolveSourceMessageAsync(PlanningSession session, string? messageId, CancellationToken token)
+        {
+            PlanningSessionMessage? sourceMessage = null;
+            if (!String.IsNullOrWhiteSpace(messageId))
+            {
+                sourceMessage = await _Database.PlanningSessionMessages.ReadAsync(messageId, token).ConfigureAwait(false);
+                if (sourceMessage == null || sourceMessage.PlanningSessionId != session.Id)
+                    throw new InvalidOperationException("Planning message not found: " + messageId);
+            }
+            else
+            {
+                List<PlanningSessionMessage> messages = await _Database.PlanningSessionMessages
+                    .EnumerateBySessionAsync(session.Id, token)
+                    .ConfigureAwait(false);
+                sourceMessage = messages
+                    .Where(m => String.Equals(m.Role, "Assistant", StringComparison.OrdinalIgnoreCase))
+                    .Where(m => !String.IsNullOrWhiteSpace(m.Content))
+                    .OrderByDescending(m => m.Sequence)
+                    .FirstOrDefault();
+            }
+
+            if (sourceMessage == null)
+                throw new InvalidOperationException("No assistant planning output is available.");
+
+            return sourceMessage;
+        }
+
+        private string BuildDefaultDispatchTitle(PlanningSession session, PlanningSessionMessage sourceMessage)
+        {
+            if (!String.IsNullOrWhiteSpace(session.Title))
+                return session.Title.Trim();
+
+            string content = sourceMessage.Content.Trim();
+            if (String.IsNullOrWhiteSpace(content))
+                return "Planning Dispatch";
+
+            string firstLine = content
+                .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                .FirstOrDefault()?
+                .Trim() ?? "Planning Dispatch";
+            if (firstLine.Length <= 80)
+                return firstLine;
+
+            return firstLine.Substring(0, 80).TrimEnd();
+        }
+
+        private PlanningSessionSummaryResponse BuildFallbackSummary(PlanningSession session, PlanningSessionMessage sourceMessage, string? preferredTitle)
+        {
+            string title = !String.IsNullOrWhiteSpace(preferredTitle)
+                ? preferredTitle.Trim()
+                : BuildDefaultDispatchTitle(session, sourceMessage);
+
+            return new PlanningSessionSummaryResponse
+            {
+                SessionId = session.Id,
+                MessageId = sourceMessage.Id,
+                Title = title,
+                Description = sourceMessage.Content.Trim(),
+                Method = "assistant-fallback"
+            };
+        }
+
+        private bool TryParseSummaryResponse(string content, out PlanningSessionSummaryResponse? response)
+        {
+            response = null;
+            if (String.IsNullOrWhiteSpace(content))
+                return false;
+
+            string candidate = content.Trim();
+            int firstBrace = candidate.IndexOf('{');
+            int lastBrace = candidate.LastIndexOf('}');
+            if (firstBrace >= 0 && lastBrace > firstBrace)
+                candidate = candidate.Substring(firstBrace, lastBrace - firstBrace + 1);
+
+            try
+            {
+                using JsonDocument doc = JsonDocument.Parse(candidate);
+                JsonElement root = doc.RootElement;
+                response = new PlanningSessionSummaryResponse
+                {
+                    Title = root.TryGetProperty("title", out JsonElement title) ? title.GetString() ?? String.Empty : String.Empty,
+                    Description = root.TryGetProperty("description", out JsonElement description) ? description.GetString() ?? String.Empty : String.Empty,
+                };
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private bool IsStopRequested(string sessionId)
+        {
+            return _ActiveTurns.TryGetValue(sessionId, out TurnState? turnState) && turnState.StopRequested;
+        }
+
+        private async Task<PlanningSession> PrepareStopAsync(PlanningSession session, CancellationToken token)
+        {
+            session = await RequireSessionAsync(session.Id, token).ConfigureAwait(false);
+            if (session.Status == PlanningSessionStatusEnum.Stopped || session.Status == PlanningSessionStatusEnum.Failed)
+                return session;
+
+            if (_ActiveTurns.TryGetValue(session.Id, out TurnState? turnState))
+                turnState.StopRequested = true;
+
+            if (session.Status != PlanningSessionStatusEnum.Stopping)
+            {
+                session.Status = PlanningSessionStatusEnum.Stopping;
+                session.LastUpdateUtc = DateTime.UtcNow;
+                session = await _Database.PlanningSessions.UpdateAsync(session, token).ConfigureAwait(false);
+                BroadcastSessionChanged(session);
+            }
+
+            return session;
+        }
+
+        private Task<PlanningSession> EnsureStopOperation(string sessionId)
+        {
+            return _StopOperations.GetOrAdd(
+                sessionId,
+                id => Task.Run(() => CompleteStopAsync(id), CancellationToken.None));
+        }
+
+        private async Task<PlanningSession> CompleteStopAsync(string sessionId)
+        {
+            try
+            {
+                PlanningSession session = await RequireSessionAsync(sessionId, CancellationToken.None).ConfigureAwait(false);
+                if (session.Status == PlanningSessionStatusEnum.Stopped || session.Status == PlanningSessionStatusEnum.Failed)
+                    return session;
+
+                Captain? captain = await _Database.Captains.ReadAsync(session.CaptainId).ConfigureAwait(false);
+
+                if (session.ProcessId.HasValue && captain != null)
+                {
+                    try
+                    {
+                        Armada.Runtimes.Interfaces.IAgentRuntime runtime = CreatePlanningRuntime(captain);
+                        await runtime.StopAsync(session.ProcessId.Value, CancellationToken.None).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        _Logging.Warn(_Header + "error stopping planning process " + session.ProcessId.Value + " for session " + session.Id + ": " + ex.Message);
+                    }
+                }
+
+                if (!String.IsNullOrEmpty(session.DockId))
+                {
+                    try
+                    {
+                        await _Docks.ReclaimAsync(session.DockId, session.TenantId, CancellationToken.None).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        _Logging.Warn(_Header + "error reclaiming planning dock " + session.DockId + " for session " + session.Id + ": " + ex.Message);
+                    }
+                }
+
+                if (captain != null)
+                {
+                    captain.State = CaptainStateEnum.Idle;
+                    captain.CurrentMissionId = null;
+                    captain.CurrentDockId = null;
+                    captain.ProcessId = null;
+                    captain.LastHeartbeatUtc = DateTime.UtcNow;
+                    captain.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.Captains.UpdateAsync(captain).ConfigureAwait(false);
+                    _WebSocketHub?.BroadcastCaptainChange(captain.Id, captain.State.ToString(), captain.Name);
+                }
+
+                session = await RequireSessionAsync(session.Id, CancellationToken.None).ConfigureAwait(false);
+                session.Status = PlanningSessionStatusEnum.Stopped;
+                session.ProcessId = null;
+                session.CompletedUtc = DateTime.UtcNow;
+                session.LastUpdateUtc = DateTime.UtcNow;
+                session = await _Database.PlanningSessions.UpdateAsync(session).ConfigureAwait(false);
+                BroadcastSessionChanged(session);
+
+                await _EmitEventAsync(
+                    "planning-session.stopped",
+                    "Planning session " + session.Id + " stopped",
+                    "planning-session",
+                    session.Id,
+                    session.CaptainId,
+                    null,
+                    session.VesselId,
+                    null).ConfigureAwait(false);
+
+                return session;
+            }
+            finally
+            {
+                _StopOperations.TryRemove(sessionId, out _);
+            }
+        }
+
+        private Armada.Runtimes.Interfaces.IAgentRuntime CreatePlanningRuntime(Captain captain)
+        {
+            if (!captain.SupportsPlanningSessions)
+                throw new InvalidOperationException(captain.PlanningSessionSupportReason ?? "This captain runtime is not supported for planning sessions.");
+
+            Armada.Runtimes.Interfaces.IAgentRuntime runtime = _RuntimeFactory.Create(captain.Runtime);
+            if (!runtime.SupportsPlanningSessions)
+                throw new InvalidOperationException("Runtime " + runtime.Name + " does not currently support planning sessions.");
+
+            return runtime;
         }
 
         private void BroadcastSessionChanged(PlanningSession session)

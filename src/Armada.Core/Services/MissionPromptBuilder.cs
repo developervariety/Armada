@@ -28,6 +28,7 @@ namespace Armada.Core.Services
                 "Codex" => "CODEX.md",
                 "Cursor" => "CURSOR.md",
                 "Gemini" => "GEMINI.md",
+                "Mux" => "MUX.md",
                 _ => "CLAUDE.md"
             };
         }

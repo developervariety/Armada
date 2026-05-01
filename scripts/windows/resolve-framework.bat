@@ -1,0 +1,34 @@
+@echo off
+setlocal
+
+set "FRAMEWORK=%ARMADA_TARGET_FRAMEWORK%"
+if "%FRAMEWORK%"=="" set "FRAMEWORK=net10.0"
+
+if /I "%~1"=="-f" (
+    if "%~2"=="" (
+        echo ERROR: Missing framework value after -f.
+        exit /b 1
+    )
+
+    set "FRAMEWORK=%~2"
+) else if /I "%~1"=="--framework" (
+    if "%~2"=="" (
+        echo ERROR: Missing framework value after --framework.
+        exit /b 1
+    )
+
+    set "FRAMEWORK=%~2"
+) else if not "%~1"=="" (
+    set "FRAMEWORK=%~1"
+)
+
+set "FORWARD_ARGS=--framework %FRAMEWORK%"
+set "DOTNET_FRAMEWORK_ARGS=--framework %FRAMEWORK% -p:TargetFramework=%FRAMEWORK% -p:TargetFrameworks=%FRAMEWORK%"
+set "DOTNET_MSBUILD_FRAMEWORK_ARGS=-p:TargetFramework=%FRAMEWORK% -p:TargetFrameworks=%FRAMEWORK%"
+
+endlocal & (
+    set "ARMADA_TARGET_FRAMEWORK=%FRAMEWORK%"
+    set "ARMADA_FORWARD_FRAMEWORK_ARGS=%FORWARD_ARGS%"
+    set "ARMADA_DOTNET_FRAMEWORK_ARGS=%DOTNET_FRAMEWORK_ARGS%"
+    set "ARMADA_DOTNET_MSBUILD_FRAMEWORK_ARGS=%DOTNET_MSBUILD_FRAMEWORK_ARGS%"
+) & exit /b 0

@@ -1,5 +1,7 @@
 namespace Armada.Runtimes.Interfaces
 {
+    using Armada.Core.Models;
+
     /// <summary>
     /// Interface for agent runtime adapters.
     /// </summary>
@@ -14,6 +16,12 @@ namespace Armada.Runtimes.Interfaces
         /// Whether this runtime supports session resume.
         /// </summary>
         bool SupportsResume { get; }
+
+        /// <summary>
+        /// Whether this runtime can participate in Armada planning sessions.
+        /// Planning currently uses transcript-backed turn relaunches rather than a persistent stdin session.
+        /// </summary>
+        bool SupportsPlanningSessions { get; }
 
         /// <summary>
         /// Event raised when the agent writes a line to stdout.
@@ -42,6 +50,7 @@ namespace Armada.Runtimes.Interfaces
         /// <param name="logFilePath">Optional path to write agent output log.</param>
         /// <param name="finalMessageFilePath">Optional path to write the agent's final response artifact.</param>
         /// <param name="model">Optional model override.</param>
+        /// <param name="captain">Optional captain metadata used by runtimes that need persisted runtime-specific options.</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>Process ID of the started agent.</returns>
         Task<int> StartAsync(
@@ -51,6 +60,7 @@ namespace Armada.Runtimes.Interfaces
             string? logFilePath = null,
             string? finalMessageFilePath = null,
             string? model = null,
+            Captain? captain = null,
             CancellationToken token = default);
 
         /// <summary>

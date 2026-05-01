@@ -29,8 +29,23 @@ if not exist "node_modules" (
 echo [deploy-dashboard] Building...
 call npm.cmd run build
 if errorlevel 1 (
-    popd
-    exit /b 1
+    if exist "package-lock.json" (
+        echo [deploy-dashboard] Initial build failed. Reinstalling dashboard dependencies and retrying...
+        if exist "node_modules" rmdir /s /q "node_modules"
+        call npm.cmd ci
+        if errorlevel 1 (
+            popd
+            exit /b 1
+        )
+
+        echo [deploy-dashboard] Retrying build after clean install...
+        call npm.cmd run build
+    )
+
+    if errorlevel 1 (
+        popd
+        exit /b 1
+    )
 )
 popd
 

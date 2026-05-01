@@ -50,7 +50,8 @@ namespace Armada.Core.Services
         private static readonly HashSet<string> _IgnoredMissionArtifactFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             "CODEX.md",
-            "CLAUDE.md"
+            "CLAUDE.md",
+            "MUX.md"
         };
 
         /// <summary>

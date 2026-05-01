@@ -1,19 +1,31 @@
-import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { listVessels, listPipelines, createVoyage } from '../api/client';
 import type { Vessel, Pipeline, SelectedPlaybook } from '../types/models';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import PlaybookSelector from '../components/shared/PlaybookSelector';
 
+interface DispatchPrefillState {
+  fromPlanning?: boolean;
+  vesselId?: string;
+  pipelineName?: string;
+  prompt?: string;
+  selectedPlaybooks?: SelectedPlaybook[];
+  voyageTitle?: string;
+}
+
 export default function Dispatch() {
   const { t } = useLocale();
   const { pushToast } = useNotifications();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [selectedPipeline, setSelectedPipeline] = useState('');
+  const [voyageTitle, setVoyageTitle] = useState('');
 
   const [vesselId, setVesselId] = useState('');
   const [prompt, setPrompt] = useState('');
@@ -21,6 +33,7 @@ export default function Dispatch() {
   const [selectedPlaybooks, setSelectedPlaybooks] = useState<SelectedPlaybook[]>([]);
   const [dispatching, setDispatching] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const prefillAppliedRef = useRef(false);
 
   useEffect(() => {
     Promise.all([
@@ -31,6 +44,21 @@ export default function Dispatch() {
       if (pRes) setPipelines(pRes.objects);
     });
   }, []);
+
+  useEffect(() => {
+    if (prefillAppliedRef.current) return;
+
+    const prefill = location.state as DispatchPrefillState | null;
+    if (!prefill?.fromPlanning) return;
+
+    if (prefill.vesselId) setVesselId(prefill.vesselId);
+    if (prefill.pipelineName) setSelectedPipeline(prefill.pipelineName);
+    if (prefill.prompt) setPrompt(prefill.prompt);
+    if (prefill.selectedPlaybooks?.length) setSelectedPlaybooks(prefill.selectedPlaybooks);
+    if (prefill.voyageTitle) setVoyageTitle(prefill.voyageTitle);
+
+    prefillAppliedRef.current = true;
+  }, [location.state]);
 
   const handleDispatch = async () => {
     if (!prompt.trim()) return;
@@ -48,7 +76,7 @@ export default function Dispatch() {
     setDispatching(true);
     setResult(null);
     try {
-      const voyageTitle = tasks.length > 1 ? t('Multi-task voyage') : tasks[0].substring(0, 80);
+      const resolvedVoyageTitle = voyageTitle.trim() || (tasks.length > 1 ? t('Multi-task voyage') : tasks[0].substring(0, 80));
       const missions = tasks.map((t) => ({
         vesselId,
         title: t.substring(0, 80),
@@ -56,7 +84,7 @@ export default function Dispatch() {
         priority,
       }));
       const voyage = await createVoyage({
-        title: voyageTitle,
+        title: resolvedVoyageTitle,
         vesselId,
         missions,
         ...(selectedPipeline ? { pipeline: selectedPipeline } : {}),
@@ -68,6 +96,7 @@ export default function Dispatch() {
       const successMessage = t('Dispatched voyage with {{missionCount}}', { missionCount });
       setResult({ ok: true, message: successMessage });
       pushToast('success', successMessage);
+      setVoyageTitle('');
       setPrompt('');
       setTimeout(() => {
         navigate(`/voyages/${voyage.id}`);
@@ -93,8 +122,14 @@ export default function Dispatch() {
 
       <div className="card" style={{ marginBottom: '1rem' }}>
         <div className="dispatch-form">
-          {/* Row 1: Vessel + Pipeline + Priority */}
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 2fr 1fr', gap: '0 1.5rem' }}>
+          {(location.state as DispatchPrefillState | null)?.fromPlanning && (
+            <div className="alert" style={{ marginBottom: '1rem' }}>
+              {t('Prefilled from a planning session. Review the draft below and dispatch when ready.')}
+            </div>
+          )}
+
+          {/* Row 1: Vessel + Pipeline + Priority + Optional Voyage Title */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0 1.5rem' }}>
             <div className="form-group">
               <label>{t('Vessel')}</label>
               <select
@@ -111,7 +146,10 @@ export default function Dispatch() {
               </select>
             </div>
             <div className="form-group">
-              <label>{t('Pipeline')}</label>
+              <div className="form-label-row">
+                <label>{t('Pipeline')}</label>
+                <Link to="/pipelines" className="form-label-link">{t('Manage pipelines')}</Link>
+              </div>
               <select
                 value={selectedPipeline}
                 onChange={(e) => setSelectedPipeline(e.target.value)}
@@ -133,6 +171,14 @@ export default function Dispatch() {
                 min={0}
                 max={1000}
                 title={t('Higher priority missions are assigned first (default 100)')}
+              />
+            </div>
+            <div className="form-group">
+              <label>{t('Voyage Title')}</label>
+              <input
+                value={voyageTitle}
+                onChange={(e) => setVoyageTitle(e.target.value)}
+                placeholder={t('Optional override for the voyage title')}
               />
             </div>
           </div>
