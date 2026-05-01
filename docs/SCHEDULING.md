@@ -72,14 +72,14 @@ armada go "Fix critical login bug" --priority 1
 
 Using MCP tools:
 
-- `armada_create_mission` with the `priority` parameter
-- `armada_dispatch` with the `priority` parameter
+- `create_mission` with the `priority` parameter
+- `dispatch` with the `priority` parameter
 
 ### After Creation
 
 Using MCP tools:
 
-- `armada_update_mission` with the `priority` parameter to change the priority of an existing pending mission
+- `update_mission` with the `priority` parameter to change the priority of an existing pending mission
 
 ## Practical Examples
 
@@ -94,7 +94,7 @@ armada go "Fix: users cannot log in after password reset" --priority 1
 If the mission already exists, update its priority via MCP:
 
 ```
-armada_update_mission(id: "msn_abc123", priority: 1)
+update_mission(id: "msn_abc123", priority: 1)
 ```
 
 The mission will be assigned to the next captain that becomes idle, ahead of all default-priority (100) missions.

@@ -18,7 +18,12 @@ echo.
 echo [publish-server] Deploying dashboard assets...
 call "%SCRIPT_DIR%\deploy-dashboard.bat"
 if errorlevel 1 (
-    echo [publish-server] WARNING: Dashboard deploy failed. Armada will fall back to the embedded dashboard if available.
+    if exist "%USERPROFILE%\.armada\dashboard\index.html" (
+        echo [publish-server] WARNING: Dashboard deploy failed. Keeping the previously deployed React dashboard.
+    ) else (
+        echo ERROR: Dashboard deploy failed and no deployed React dashboard is available.
+        exit /b 1
+    )
 )
 
 if not exist "%SERVER_EXE%" (

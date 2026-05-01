@@ -4,7 +4,7 @@ namespace Armada.Core.Models
     using System.Collections.Generic;
 
     /// <summary>
-    /// Response from armada_cancel_merge MCP tool.
+    /// Response from cancel_merge MCP tool.
     /// </summary>
     public class CancelMergeResponse
     {

@@ -48,7 +48,7 @@ In the agent session, type:
 
 > "Check Armada status."
 
-Claude will call `armada_status` and report active captains, missions, and voyages. If it doesn't recognize the tool, verify the Admiral is running and check `claude mcp list` for the armada entry.
+Claude will call `status` and report active captains, missions, and voyages. If it doesn't recognize the tool, verify the Admiral is running and check `claude mcp list` for the armada entry.
 
 ## Quick Start
 
@@ -68,11 +68,11 @@ If you want Claude Code to orchestrate Armada from within a specific project (no
 ## Armada Integration
 
 This project is managed by Armada. When asked to perform large tasks:
-1. Use `armada_enumerate({ entityType: "vessels" })` to find this repository's vessel ID
+1. Use `enumerate({ entityType: "vessels" })` to find this repository's vessel ID
 2. Decompose work into missions that touch **non-overlapping files** — never assign the same file to two missions
 3. For monolithic/shared files, combine all changes into a single mission or chain sequential voyages
-4. Use `armada_dispatch` to create a voyage with missions (include explicit file paths in descriptions)
-5. Monitor with `armada_voyage_status` until complete
+4. Use `dispatch` to create a voyage with missions (include explicit file paths in descriptions)
+5. Monitor with `voyage_status` until complete
 6. Do NOT dispatch a second voyage that touches the same files while a prior voyage is still running
 7. Review results and redispatch failures if needed
 

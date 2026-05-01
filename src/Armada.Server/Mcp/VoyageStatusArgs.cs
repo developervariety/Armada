@@ -1,7 +1,7 @@
 namespace Armada.Server.Mcp
 {
     /// <summary>
-    /// MCP tool arguments for armada_voyage_status.
+    /// MCP tool arguments for voyage_status.
     /// </summary>
     public class VoyageStatusArgs
     {

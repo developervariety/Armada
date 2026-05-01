@@ -96,7 +96,7 @@ namespace Armada.Core.Models
         /// Agent-accumulated context about this repository. Contains key information
         /// discovered by AI agents during missions, such as architectural insights,
         /// testing patterns, build quirks, and other knowledge useful for future missions.
-        /// Updated by agents via armada_update_vessel_context when EnableModelContext is true.
+        /// Updated by agents via update_vessel_context when EnableModelContext is true.
         /// </summary>
         public string? ModelContext { get; set; } = null;
 

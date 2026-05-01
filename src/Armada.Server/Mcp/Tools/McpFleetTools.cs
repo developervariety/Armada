@@ -28,7 +28,7 @@ namespace Armada.Server.Mcp.Tools
         public static void Register(RegisterToolDelegate register, DatabaseDriver database)
         {
             register(
-                "armada_get_fleet",
+                "get_fleet",
                 "Get details of a specific fleet including its vessels",
                 new
                 {
@@ -50,7 +50,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_create_fleet",
+                "create_fleet",
                 "Create a new fleet (collection of repositories)",
                 new
                 {
@@ -74,7 +74,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_update_fleet",
+                "update_fleet",
                 "Update an existing fleet",
                 new
                 {
@@ -105,7 +105,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_delete_fleet",
+                "delete_fleet",
                 "Delete a fleet by ID",
                 new
                 {
@@ -127,7 +127,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_delete_fleets",
+                "delete_fleets",
                 "Permanently delete multiple fleets from the database by ID. Returns a summary of deleted and skipped entries. This cannot be undone.",
                 new
                 {

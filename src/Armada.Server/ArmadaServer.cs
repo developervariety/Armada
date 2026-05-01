@@ -522,8 +522,8 @@ namespace Armada.Server
                 }
             }
 
-            // Fallback: use embedded wwwroot resources (legacy dashboard)
-            _Logging.Info(_Header + "using embedded legacy dashboard (no external dashboard found)");
+            // Fallback: use embedded wwwroot resources (legacy dashboard, not the React dashboard)
+            _Logging.Info(_Header + "using embedded legacy dashboard because no external React dashboard was found");
         }
 
         private static void ApplyCorsHeaders(HttpContextBase ctx)

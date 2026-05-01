@@ -31,7 +31,7 @@ namespace Armada.Server.Mcp.Tools
         public static void Register(RegisterToolDelegate register, DatabaseDriver database, IDockService? dockService = null)
         {
             register(
-                "armada_get_vessel",
+                "get_vessel",
                 "Get details of a specific vessel (repository)",
                 new
                 {
@@ -52,7 +52,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_add_vessel",
+                "add_vessel",
                 "Register a new vessel (git repository) in a fleet",
                 new
                 {
@@ -92,7 +92,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_update_vessel",
+                "update_vessel",
                 "Update an existing vessel's properties",
                 new
                 {
@@ -144,7 +144,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_delete_vessel",
+                "delete_vessel",
                 "Delete a vessel by ID",
                 new
                 {
@@ -171,7 +171,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_delete_vessels",
+                "delete_vessels",
                 "Permanently delete multiple vessels from the database by ID. Returns a summary of deleted and skipped entries. This cannot be undone.",
                 new
                 {
@@ -212,7 +212,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_update_vessel_context",
+                "update_vessel_context",
                 "Update a vessel's project context and style guide without modifying other properties",
                 new
                 {

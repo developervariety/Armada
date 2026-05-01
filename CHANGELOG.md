@@ -109,7 +109,7 @@ Focus: dispatch and pipeline stability.
 - Every prompt is now template-driven and user-editable (18 built-in templates)
 - Categories: mission, persona, structure, commit, landing, agent
 - Dashboard two-column editor with parameter reference panel
-- MCP tools: armada_get/update/reset_prompt_template
+- MCP tools: get/update/reset_prompt_template
 - REST endpoints: /api/v1/prompt-templates CRUD
 
 ### Dashboard
@@ -137,8 +137,8 @@ Focus: dispatch and pipeline stability.
 - 11 new MCP tools (persona, pipeline, prompt template CRUD)
 - 17 new REST endpoints
 - 12 new WebSocket commands
-- armada_enumerate supports personas, prompt_templates, pipelines
-- armada_dispatch accepts pipelineId and pipeline (name) parameters
+- enumerate supports personas, prompt_templates, pipelines
+- dispatch accepts pipelineId and pipeline (name) parameters
 - Voyage status considers LandingFailed, WorkProduced, PullRequestOpen as terminal
 
 ### Documentation

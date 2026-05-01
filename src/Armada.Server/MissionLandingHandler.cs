@@ -430,7 +430,7 @@ namespace Armada.Server
                 else if (landingModeIsMergeQueue)
                 {
                     // MergeQueue mode: auto-enqueue the branch into the merge queue.
-                    // Processing (test-and-land) remains a separate trigger via armada_process_merge_queue.
+                    // Processing (test-and-land) remains a separate trigger via process_merge_queue.
                     try
                     {
                         string targetBranch = vessel?.DefaultBranch ?? "main";

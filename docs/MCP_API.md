@@ -31,91 +31,91 @@ If/when MCP-over-tunnel is added, this document will gain explicit routed-tool s
   - [MCP Authentication Scope](#mcp-authentication-scope)
 - [Tools](#tools)
   - **Status**
-    - [armada_status](#armada_status)
-    - [armada_stop_server](#armada_stop_server)
+    - [status](#status)
+    - [stop_server](#stop_server)
   - **Enumeration**
-    - [armada_enumerate](#armada_enumerate)
+    - [enumerate](#enumerate)
   - **Fleets**
-    - [armada_get_fleet](#armada_get_fleet)
-    - [armada_create_fleet](#armada_create_fleet)
-    - [armada_update_fleet](#armada_update_fleet)
-    - [armada_delete_fleet](#armada_delete_fleet)
-    - [armada_delete_fleets](#armada_delete_fleets)
+    - [get_fleet](#get_fleet)
+    - [create_fleet](#create_fleet)
+    - [update_fleet](#update_fleet)
+    - [delete_fleet](#delete_fleet)
+    - [delete_fleets](#delete_fleets)
   - **Vessels**
-    - [armada_get_vessel](#armada_get_vessel)
-    - [armada_add_vessel](#armada_add_vessel)
-    - [armada_update_vessel](#armada_update_vessel)
-    - [armada_update_vessel_context](#armada_update_vessel_context)
-    - [armada_delete_vessel](#armada_delete_vessel)
-    - [armada_delete_vessels](#armada_delete_vessels)
+    - [get_vessel](#get_vessel)
+    - [add_vessel](#add_vessel)
+    - [update_vessel](#update_vessel)
+    - [update_vessel_context](#update_vessel_context)
+    - [delete_vessel](#delete_vessel)
+    - [delete_vessels](#delete_vessels)
   - **Voyages**
-    - [armada_dispatch](#armada_dispatch)
-    - [armada_voyage_status](#armada_voyage_status)
-    - [armada_cancel_voyage](#armada_cancel_voyage)
-    - [armada_purge_voyage](#armada_purge_voyage)
-    - [armada_delete_voyages](#armada_delete_voyages)
+    - [dispatch](#dispatch)
+    - [voyage_status](#voyage_status)
+    - [cancel_voyage](#cancel_voyage)
+    - [purge_voyage](#purge_voyage)
+    - [delete_voyages](#delete_voyages)
   - **Missions**
-    - [armada_mission_status](#armada_mission_status)
-    - [armada_create_mission](#armada_create_mission)
-    - [armada_update_mission](#armada_update_mission)
-    - [armada_cancel_mission](#armada_cancel_mission)
-    - [armada_restart_mission](#armada_restart_mission)
-    - [armada_purge_mission](#armada_purge_mission)
-    - [armada_delete_missions](#armada_delete_missions)
-    - [armada_transition_mission_status](#armada_transition_mission_status)
-    - [armada_get_mission_diff](#armada_get_mission_diff)
-    - [armada_get_mission_log](#armada_get_mission_log)
+    - [mission_status](#mission_status)
+    - [create_mission](#create_mission)
+    - [update_mission](#update_mission)
+    - [cancel_mission](#cancel_mission)
+    - [restart_mission](#restart_mission)
+    - [purge_mission](#purge_mission)
+    - [delete_missions](#delete_missions)
+    - [transition_mission_status](#transition_mission_status)
+    - [get_mission_diff](#get_mission_diff)
+    - [get_mission_log](#get_mission_log)
   - **Captains**
-    - [armada_get_captain](#armada_get_captain)
-    - [armada_create_captain](#armada_create_captain)
-    - [armada_update_captain](#armada_update_captain)
-    - [armada_stop_captain](#armada_stop_captain)
-    - [armada_stop_all](#armada_stop_all)
-    - [armada_delete_captain](#armada_delete_captain)
-    - [armada_delete_captains](#armada_delete_captains)
-    - [armada_get_captain_log](#armada_get_captain_log)
+    - [get_captain](#get_captain)
+    - [create_captain](#create_captain)
+    - [update_captain](#update_captain)
+    - [stop_captain](#stop_captain)
+    - [stop_all](#stop_all)
+    - [delete_captain](#delete_captain)
+    - [delete_captains](#delete_captains)
+    - [get_captain_log](#get_captain_log)
   - **Signals**
-    - [armada_send_signal](#armada_send_signal)
-    - [armada_delete_signals](#armada_delete_signals)
+    - [send_signal](#send_signal)
+    - [delete_signals](#delete_signals)
   - **Events**
-    - [armada_delete_event](#armada_delete_event)
-    - [armada_delete_events](#armada_delete_events)
+    - [delete_event](#delete_event)
+    - [delete_events](#delete_events)
   - **Docks**
-    - [armada_get_dock](#armada_get_dock)
-    - [armada_delete_dock](#armada_delete_dock)
-    - [armada_purge_dock](#armada_purge_dock)
-    - [armada_delete_docks](#armada_delete_docks)
+    - [get_dock](#get_dock)
+    - [delete_dock](#delete_dock)
+    - [purge_dock](#purge_dock)
+    - [delete_docks](#delete_docks)
   - **Playbooks**
-    - [armada_get_playbook](#armada_get_playbook)
-    - [armada_create_playbook](#armada_create_playbook)
-    - [armada_update_playbook](#armada_update_playbook)
-    - [armada_delete_playbook](#armada_delete_playbook)
+    - [get_playbook](#get_playbook)
+    - [create_playbook](#create_playbook)
+    - [update_playbook](#update_playbook)
+    - [delete_playbook](#delete_playbook)
   - **Merge Queue**
-    - [armada_get_merge_entry](#armada_get_merge_entry)
-    - [armada_enqueue_merge](#armada_enqueue_merge)
-    - [armada_cancel_merge](#armada_cancel_merge)
-    - [armada_process_merge_queue](#armada_process_merge_queue)
-    - [armada_delete_merge](#armada_delete_merge)
-    - [armada_purge_merge_queue](#armada_purge_merge_queue)
-    - [armada_purge_merge_entry](#armada_purge_merge_entry)
-    - [armada_purge_merge_entries](#armada_purge_merge_entries)
+    - [get_merge_entry](#get_merge_entry)
+    - [enqueue_merge](#enqueue_merge)
+    - [cancel_merge](#cancel_merge)
+    - [process_merge_queue](#process_merge_queue)
+    - [delete_merge](#delete_merge)
+    - [purge_merge_queue](#purge_merge_queue)
+    - [purge_merge_entry](#purge_merge_entry)
+    - [purge_merge_entries](#purge_merge_entries)
   - **Prompt Template Management**
-    - [armada_get_prompt_template](#armada_get_prompt_template)
-    - [armada_update_prompt_template](#armada_update_prompt_template)
-    - [armada_reset_prompt_template](#armada_reset_prompt_template)
+    - [get_prompt_template](#get_prompt_template)
+    - [update_prompt_template](#update_prompt_template)
+    - [reset_prompt_template](#reset_prompt_template)
   - **Persona Management**
-    - [armada_create_persona](#armada_create_persona)
-    - [armada_get_persona](#armada_get_persona)
-    - [armada_update_persona](#armada_update_persona)
-    - [armada_delete_persona](#armada_delete_persona)
+    - [create_persona](#create_persona)
+    - [get_persona](#get_persona)
+    - [update_persona](#update_persona)
+    - [delete_persona](#delete_persona)
   - **Pipeline Management**
-    - [armada_create_pipeline](#armada_create_pipeline)
-    - [armada_get_pipeline](#armada_get_pipeline)
-    - [armada_update_pipeline](#armada_update_pipeline)
-    - [armada_delete_pipeline](#armada_delete_pipeline)
+    - [create_pipeline](#create_pipeline)
+    - [get_pipeline](#get_pipeline)
+    - [update_pipeline](#update_pipeline)
+    - [delete_pipeline](#delete_pipeline)
   - **Backup and Restore**
-    - [armada_backup](#armada_backup)
-    - [armada_restore](#armada_restore)
+    - [backup](#backup)
+    - [restore](#restore)
 - [Data Types](#data-types)
   - [Models](#models)
   - [Enumerations](#enumerations)
@@ -218,7 +218,7 @@ This is a deliberate architectural decision, not a missing feature. The stdio tr
 
 ## Tools
 
-### armada_status
+### status
 
 Get aggregate status of all active work in Armada.
 
@@ -284,7 +284,7 @@ No parameters required.
 
 ---
 
-### armada_stop_server
+### stop_server
 
 Initiate a graceful shutdown of the Admiral server.
 
@@ -309,7 +309,7 @@ No parameters required.
 
 ---
 
-### armada_enumerate
+### enumerate
 
 Paginated enumeration of any entity type with filtering and sorting. This is the MCP equivalent of the `POST /api/v1/{entity}/enumerate` REST endpoints. Returns paginated results with total counts, page metadata, and query timing. Supports: fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, playbooks, personas, prompt_templates, pipelines.
 
@@ -394,11 +394,11 @@ Paginated enumeration of any entity type with filtering and sorting. This is the
 }
 ```
 
-> **Note:** When enumerating `missions`, the `DiffSnapshot` field is excluded from results to keep payloads compact. Use `armada_get_mission_diff` to retrieve the full diff for a specific mission.
+> **Note:** When enumerating `missions`, the `DiffSnapshot` field is excluded from results to keep payloads compact. Use `get_mission_diff` to retrieve the full diff for a specific mission.
 
 ---
 
-### armada_dispatch
+### dispatch
 
 Dispatch a new voyage with missions to a vessel. This is the primary way to assign work to the Armada system.
 
@@ -499,7 +499,7 @@ Dispatch a new voyage with missions to a vessel. This is the primary way to assi
 
 ---
 
-### armada_voyage_status
+### voyage_status
 
 Get status of a specific voyage. Returns summary with mission counts by default; opt-in to full mission details.
 
@@ -606,7 +606,7 @@ Get status of a specific voyage. Returns summary with mission counts by default;
 
 ---
 
-### armada_mission_status
+### mission_status
 
 Get status of a specific mission.
 
@@ -631,11 +631,11 @@ Get status of a specific mission.
 
 **Response:** [Mission](#mission) object, or `{"error": "Mission not found"}` if the ID does not exist.
 
-> **Note:** The `DiffSnapshot` field is excluded from status responses to keep payloads compact. Use `armada_get_mission_diff` to retrieve the full diff.
+> **Note:** The `DiffSnapshot` field is excluded from status responses to keep payloads compact. Use `get_mission_diff` to retrieve the full diff.
 
 ---
 
-### armada_get_fleet
+### get_fleet
 
 Get details of a specific fleet including all its vessels.
 
@@ -687,7 +687,7 @@ Returns `{"error": "Fleet not found"}` if the ID does not exist.
 
 ---
 
-### armada_add_vessel
+### add_vessel
 
 Register a new vessel (git repository) in a fleet.
 
@@ -765,7 +765,7 @@ Register a new vessel (git repository) in a fleet.
 
 ---
 
-### armada_delete_event
+### delete_event
 
 Delete a single event by ID.
 
@@ -801,7 +801,7 @@ Returns `{ "Error": "Event not found: evt_..." }` if the event does not exist.
 
 ---
 
-### armada_delete_events
+### delete_events
 
 Delete multiple events by ID. Returns a summary of deleted and skipped entries.
 
@@ -837,7 +837,7 @@ Returns `{ "Error": "ids is required and must not be empty" }` if no IDs are pro
 
 ---
 
-### armada_send_signal
+### send_signal
 
 Send a signal/message to a captain.
 
@@ -871,7 +871,7 @@ The signal is created with type `Mail` (persistent message) from the Admiral (no
 
 ---
 
-### armada_delete_signals
+### delete_signals
 
 Soft-delete multiple signals by marking them as read. Returns a summary of deleted and skipped entries.
 
@@ -907,7 +907,7 @@ Returns `{ "Error": "ids is required and must not be empty" }` if no IDs are pro
 
 ---
 
-### armada_stop_captain
+### stop_captain
 
 Stop a specific captain agent.
 
@@ -941,7 +941,7 @@ Stop a specific captain agent.
 
 ---
 
-### armada_stop_all
+### stop_all
 
 Emergency stop all running captains.
 
@@ -966,7 +966,7 @@ No parameters required.
 
 ---
 
-### armada_cancel_mission
+### cancel_mission
 
 Cancel a specific mission.
 
@@ -995,7 +995,7 @@ Sets the mission status to `Cancelled`. Returns `{"error": "Mission not found"}`
 
 ---
 
-### armada_restart_mission
+### restart_mission
 
 Restart a failed or cancelled mission, resetting it to `Pending` for re-dispatch. Optionally update the title and description (instructions) before restarting. Clears captain assignment, branch, PR URL, and timing fields.
 
@@ -1034,7 +1034,7 @@ Only `Failed` or `Cancelled` missions can be restarted. Returns `{"error": "..."
 
 ---
 
-### armada_cancel_voyage
+### cancel_voyage
 
 Cancel an entire voyage and all its pending missions. Missions that are already `Complete` or `Cancelled` are not affected.
 
@@ -1080,7 +1080,7 @@ Returns `{"error": "Voyage not found"}` if the ID does not exist.
 
 ---
 
-### armada_purge_voyage
+### purge_voyage
 
 Permanently delete a voyage and all its missions from the database. **This cannot be undone.**
 
@@ -1104,7 +1104,7 @@ Permanently delete a voyage and all its missions from the database. **This canno
 
 ---
 
-### armada_delete_voyages
+### delete_voyages
 
 Permanently delete multiple voyages and their associated missions from the database by ID. Voyages that are Open/InProgress or have active missions are skipped. Returns a summary of deleted and skipped entries. **This cannot be undone.**
 
@@ -1140,7 +1140,7 @@ Returns `{ "Error": "ids is required and must not be empty" }` if no IDs are pro
 
 ---
 
-### armada_create_fleet
+### create_fleet
 
 Create a new fleet (collection of repositories).
 
@@ -1161,7 +1161,7 @@ Create a new fleet (collection of repositories).
 
 ---
 
-### armada_update_fleet
+### update_fleet
 
 Update an existing fleet's name or description.
 
@@ -1184,7 +1184,7 @@ Update an existing fleet's name or description.
 
 ---
 
-### armada_delete_fleet
+### delete_fleet
 
 Delete a fleet by ID.
 
@@ -1208,7 +1208,7 @@ Delete a fleet by ID.
 
 ---
 
-### armada_delete_fleets
+### delete_fleets
 
 Permanently delete multiple fleets from the database by ID. Returns a summary of deleted and skipped entries. **This cannot be undone.**
 
@@ -1244,7 +1244,7 @@ Returns `{ "Error": "ids is required and must not be empty" }` if no IDs are pro
 
 ---
 
-### armada_get_vessel
+### get_vessel
 
 Get details of a specific vessel (repository).
 
@@ -1264,7 +1264,7 @@ Get details of a specific vessel (repository).
 
 ---
 
-### armada_update_vessel
+### update_vessel
 
 Update an existing vessel's properties.
 
@@ -1293,7 +1293,7 @@ Update an existing vessel's properties.
 
 ---
 
-### armada_update_vessel_context
+### update_vessel_context
 
 Update a vessel's project context and style guide without modifying other properties.
 
@@ -1323,7 +1323,7 @@ Update a vessel's project context and style guide without modifying other proper
 
 ---
 
-### armada_delete_vessel
+### delete_vessel
 
 Delete a vessel by ID.
 
@@ -1347,7 +1347,7 @@ Delete a vessel by ID.
 
 ---
 
-### armada_delete_vessels
+### delete_vessels
 
 Permanently delete multiple vessels from the database by ID. Returns a summary of deleted and skipped entries. **This cannot be undone.**
 
@@ -1383,7 +1383,7 @@ Returns `{ "Error": "ids is required and must not be empty" }` if no IDs are pro
 
 ---
 
-### armada_create_mission
+### create_mission
 
 Create and dispatch a standalone mission to a vessel. The Admiral assigns a captain and sets up a worktree.
 
@@ -1418,7 +1418,7 @@ Create and dispatch a standalone mission to a vessel. The Admiral assigns a capt
 
 ---
 
-### armada_update_mission
+### update_mission
 
 Update an existing mission's metadata fields. Operational fields (status, timestamps, captain assignment) are managed by the system and cannot be overwritten.
 
@@ -1458,7 +1458,7 @@ Update an existing mission's metadata fields. Operational fields (status, timest
 
 ---
 
-### armada_purge_mission
+### purge_mission
 
 Permanently delete a mission from the database. This cannot be undone.
 
@@ -1488,7 +1488,7 @@ Returns `{ "Error": "Mission not found" }` if the ID does not exist.
 
 ---
 
-### armada_delete_missions
+### delete_missions
 
 Permanently delete multiple missions from the database by ID. Returns a summary of deleted and skipped entries. **This cannot be undone.**
 
@@ -1524,7 +1524,7 @@ Returns `{ "Error": "ids is required and must not be empty" }` if no IDs are pro
 
 ---
 
-### armada_transition_mission_status
+### transition_mission_status
 
 Transition a mission to a new status with validation.
 
@@ -1558,7 +1558,7 @@ Transition a mission to a new status with validation.
 
 ---
 
-### armada_get_mission_diff
+### get_mission_diff
 
 Get the git diff of changes made by a captain for a mission. Returns saved diff if available, otherwise live worktree diff.
 
@@ -1586,7 +1586,7 @@ Get the git diff of changes made by a captain for a mission. Returns saved diff 
 
 ---
 
-### armada_get_mission_log
+### get_mission_log
 
 Get the session log for a mission. Supports pagination.
 
@@ -1617,7 +1617,7 @@ Get the session log for a mission. Supports pagination.
 
 ---
 
-### armada_create_captain
+### create_captain
 
 Register a new captain (AI agent).
 
@@ -1651,7 +1651,7 @@ Register a new captain (AI agent).
 
 ---
 
-### armada_get_captain
+### get_captain
 
 Get details of a specific captain (AI agent).
 
@@ -1671,7 +1671,7 @@ Get details of a specific captain (AI agent).
 
 ---
 
-### armada_update_captain
+### update_captain
 
 Update a captain's name or runtime. Operational fields (state, process, mission) are preserved.
 
@@ -1707,7 +1707,7 @@ Update a captain's name or runtime. Operational fields (state, process, mission)
 
 ---
 
-### armada_delete_captain
+### delete_captain
 
 Delete a captain. If working, the captain is recalled first.
 
@@ -1731,7 +1731,7 @@ Delete a captain. If working, the captain is recalled first.
 
 ---
 
-### armada_delete_captains
+### delete_captains
 
 Permanently delete multiple captains from the database by ID. Captains that are Working or have active missions are skipped. Returns a summary of deleted and skipped entries. **This cannot be undone.**
 
@@ -1767,7 +1767,7 @@ Returns `{ "Error": "ids is required and must not be empty" }` if no IDs are pro
 
 ---
 
-### armada_get_captain_log
+### get_captain_log
 
 Get the current session log for a captain. Supports pagination.
 
@@ -1798,7 +1798,7 @@ Get the current session log for a captain. Supports pagination.
 
 ---
 
-### armada_get_dock
+### get_dock
 
 Get a dock (git worktree) by ID.
 
@@ -1822,7 +1822,7 @@ Get a dock (git worktree) by ID.
 
 ---
 
-### armada_delete_dock
+### delete_dock
 
 Delete a dock and clean up its git worktree. Blocked if the dock is actively in use by a captain.
 
@@ -1853,7 +1853,7 @@ Returns `{ "Error": "Cannot delete dock while it is actively in use by a captain
 
 ---
 
-### armada_purge_dock
+### purge_dock
 
 Force purge a dock and its git worktree, even if a mission references it. **This cannot be undone.**
 
@@ -1883,7 +1883,7 @@ Returns `{ "Error": "Dock not found" }` if the ID does not exist.
 
 ---
 
-### armada_delete_docks
+### delete_docks
 
 Permanently delete multiple docks and their git worktrees from the database by ID. Returns a summary of deleted and skipped entries. **This cannot be undone.**
 
@@ -1919,7 +1919,7 @@ Returns `{ "Error": "ids is required and must not be empty" }` if no IDs are pro
 
 ---
 
-### armada_get_playbook
+### get_playbook
 
 Get a playbook by ID.
 
@@ -1939,7 +1939,7 @@ Get a playbook by ID.
 
 ---
 
-### armada_create_playbook
+### create_playbook
 
 Create a new markdown playbook in the default tenant context used by MCP.
 
@@ -1962,7 +1962,7 @@ Create a new markdown playbook in the default tenant context used by MCP.
 
 ---
 
-### armada_update_playbook
+### update_playbook
 
 Update an existing playbook by ID.
 
@@ -1986,7 +1986,7 @@ Update an existing playbook by ID.
 
 ---
 
-### armada_delete_playbook
+### delete_playbook
 
 Delete a playbook by ID. Existing mission snapshots remain immutable.
 
@@ -2010,7 +2010,7 @@ Delete a playbook by ID. Existing mission snapshots remain immutable.
 
 ---
 
-### armada_get_merge_entry
+### get_merge_entry
 
 Get details of a specific merge queue entry.
 
@@ -2030,7 +2030,7 @@ Get details of a specific merge queue entry.
 
 ---
 
-### armada_enqueue_merge
+### enqueue_merge
 
 Add a branch to the merge queue for testing and merging.
 
@@ -2055,7 +2055,7 @@ Add a branch to the merge queue for testing and merging.
 
 ---
 
-### armada_cancel_merge
+### cancel_merge
 
 Cancel a queued merge entry.
 
@@ -2079,7 +2079,7 @@ Cancel a queued merge entry.
 
 ---
 
-### armada_process_merge_queue
+### process_merge_queue
 
 Process the merge queue: creates integration branches, runs tests, and lands passing batches.
 
@@ -2100,7 +2100,7 @@ Process the merge queue: creates integration branches, runs tests, and lands pas
 
 ---
 
-### armada_delete_merge
+### delete_merge
 
 Permanently delete a terminal merge queue entry from the database. Only entries in Landed, Failed, or Cancelled status can be deleted. **This cannot be undone.**
 
@@ -2131,7 +2131,7 @@ Returns `{ "Error": "Cannot delete merge entry in non-terminal status ..." }` if
 
 ---
 
-### armada_purge_merge_queue
+### purge_merge_queue
 
 Permanently delete all terminal merge queue entries (Landed, Failed, Cancelled) from the database. Optionally filter by vessel ID and/or status. **This cannot be undone.**
 
@@ -2162,7 +2162,7 @@ Returns `{ "Error": "Invalid status. Must be one of: Landed, Failed, Cancelled" 
 
 ---
 
-### armada_purge_merge_entry
+### purge_merge_entry
 
 Permanently delete a single terminal merge queue entry from the database by ID. Only entries in Landed, Failed, or Cancelled status can be purged. **This cannot be undone.**
 
@@ -2193,7 +2193,7 @@ Returns `{ "Error": "Cannot purge merge entry in non-terminal status ..." }` if 
 
 ---
 
-### armada_purge_merge_entries
+### purge_merge_entries
 
 Permanently delete multiple terminal merge queue entries from the database by ID. Returns a summary of purged and skipped entries. **This cannot be undone.**
 
@@ -2229,7 +2229,7 @@ Returns `{ "Error": "entryIds is required and must not be empty" }` if no IDs ar
 
 ---
 
-### armada_get_prompt_template
+### get_prompt_template
 
 Get a prompt template by name.
 
@@ -2253,7 +2253,7 @@ Get a prompt template by name.
 
 ---
 
-### armada_update_prompt_template
+### update_prompt_template
 
 Update a prompt template's content.
 
@@ -2281,7 +2281,7 @@ Update a prompt template's content.
 
 ---
 
-### armada_reset_prompt_template
+### reset_prompt_template
 
 Reset a prompt template to its built-in default content.
 
@@ -2305,7 +2305,7 @@ Reset a prompt template to its built-in default content.
 
 ---
 
-### armada_create_persona
+### create_persona
 
 Create a custom persona.
 
@@ -2333,7 +2333,7 @@ Create a custom persona.
 
 ---
 
-### armada_get_persona
+### get_persona
 
 Get a persona by name.
 
@@ -2357,7 +2357,7 @@ Get a persona by name.
 
 ---
 
-### armada_update_persona
+### update_persona
 
 Update persona properties.
 
@@ -2385,7 +2385,7 @@ Update persona properties.
 
 ---
 
-### armada_delete_persona
+### delete_persona
 
 Delete a custom persona. Built-in personas cannot be deleted.
 
@@ -2416,7 +2416,7 @@ Returns `{ "Error": "Cannot delete built-in persona" }` if the persona is built-
 
 ---
 
-### armada_create_pipeline
+### create_pipeline
 
 Create a custom pipeline with stages.
 
@@ -2470,7 +2470,7 @@ Create a custom pipeline with stages.
 
 ---
 
-### armada_get_pipeline
+### get_pipeline
 
 Get a pipeline by name.
 
@@ -2494,7 +2494,7 @@ Get a pipeline by name.
 
 ---
 
-### armada_update_pipeline
+### update_pipeline
 
 Update pipeline properties and stages. If `stages` is provided, it replaces all existing stages.
 
@@ -2534,7 +2534,7 @@ Update pipeline properties and stages. If `stages` is provided, it replaces all 
 
 ---
 
-### armada_delete_pipeline
+### delete_pipeline
 
 Delete a custom pipeline. Built-in pipelines cannot be deleted.
 
@@ -2565,7 +2565,7 @@ Returns `{ "Error": "Cannot delete built-in pipeline" }` if the pipeline is buil
 
 ---
 
-### armada_backup
+### backup
 
 Create a backup of the Armada database and settings as a ZIP archive.
 
@@ -2607,7 +2607,7 @@ Create a backup of the Armada database and settings as a ZIP archive.
 
 ---
 
-### armada_restore
+### restore
 
 Restore Armada from a previously created backup ZIP file.
 
@@ -2684,7 +2684,7 @@ Restore Armada from a previously created backup ZIP file.
 
 #### EnumerationResult
 
-Paginated result wrapper returned by `armada_enumerate`.
+Paginated result wrapper returned by `enumerate`.
 
 | Field | Type | Description |
 |---|---|---|
@@ -2763,7 +2763,7 @@ Paginated result wrapper returned by `armada_enumerate`.
 | `processId` | int \| null | OS process ID of the agent working this mission |
 | `prUrl` | string \| null | Pull request URL |
 | `commitHash` | string \| null | Git commit hash (HEAD) captured at mission completion |
-| `diffSnapshot` | string \| null | Always `null` in list/status responses. Use `armada_get_mission_diff` to retrieve the full diff. |
+| `diffSnapshot` | string \| null | Always `null` in list/status responses. Use `get_mission_diff` to retrieve the full diff. |
 | `createdUtc` | string | ISO 8601 creation timestamp |
 | `startedUtc` | string \| null | ISO 8601 start timestamp |
 | `completedUtc` | string \| null | ISO 8601 completion timestamp |
@@ -3081,7 +3081,7 @@ Any MCP-compatible client can connect to the Armada MCP server using the HTTP tr
   "id": 2,
   "method": "tools/call",
   "params": {
-    "name": "armada_status",
+    "name": "status",
     "arguments": {}
   }
 }

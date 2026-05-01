@@ -421,7 +421,7 @@ CREATE INDEX idx_vessels_default_pipeline ON vessels(default_pipeline_id);
 
 ### 3.5 Dispatch Pipeline Override
 
-- [x] Add `pipelineId` (string?, optional) parameter to `armada_dispatch` MCP tool
+- [x] Add `pipelineId` (string?, optional) parameter to `dispatch` MCP tool
   - When provided, overrides the fleet/vessel default for this dispatch only
 - [x] Add `pipeline` (string?, optional) parameter as a convenience alias (resolves by name)
 
@@ -431,7 +431,7 @@ CREATE INDEX idx_vessels_default_pipeline ON vessels(default_pipeline_id);
 
 ### 4.1 Pipeline-Aware Dispatch
 
-- [x] When `armada_dispatch` is called:
+- [x] When `dispatch` is called:
   1. Resolve pipeline: explicit param > vessel default > fleet default > `WorkerOnly`
   2. For a single-stage pipeline (e.g. `WorkerOnly`), behave exactly as today
   3. For multi-stage pipelines, create a voyage containing one mission per stage
@@ -553,30 +553,30 @@ CREATE INDEX idx_missions_depends_on ON missions(depends_on_mission_id);
 
 ### 7.1 Prompt Template MCP Tools
 
-- [x] `armada_get_prompt_template` -- get a template by name
-- [x] `armada_update_prompt_template` -- update template content
-- [x] `armada_reset_prompt_template` -- reset to embedded default
+- [x] `get_prompt_template` -- get a template by name
+- [x] `update_prompt_template` -- update template content
+- [x] `reset_prompt_template` -- reset to embedded default
 - [x] Register in `McpToolRegistrar.cs` or create `McpPromptTemplateTools.cs`
 
 ### 7.2 Persona MCP Tools
 
-- [x] `armada_create_persona` -- create a custom persona
-- [x] `armada_get_persona` -- get persona by ID or name
-- [x] `armada_update_persona` -- update persona properties
-- [x] `armada_delete_persona` -- delete a custom persona (block deletion of built-in)
+- [x] `create_persona` -- create a custom persona
+- [x] `get_persona` -- get persona by ID or name
+- [x] `update_persona` -- update persona properties
+- [x] `delete_persona` -- delete a custom persona (block deletion of built-in)
 - [x] Register in `McpToolRegistrar.cs` or create `McpPersonaTools.cs`
 
 ### 7.3 Pipeline MCP Tools
 
-- [x] `armada_create_pipeline` -- create a custom pipeline
-- [x] `armada_get_pipeline` -- get pipeline by ID or name
-- [x] `armada_update_pipeline` -- update pipeline stages
-- [x] `armada_delete_pipeline` -- delete a custom pipeline (block deletion of built-in)
+- [x] `create_pipeline` -- create a custom pipeline
+- [x] `get_pipeline` -- get pipeline by ID or name
+- [x] `update_pipeline` -- update pipeline stages
+- [x] `delete_pipeline` -- delete a custom pipeline (block deletion of built-in)
 - [x] Register in `McpToolRegistrar.cs` or create `McpPipelineTools.cs`
 
 ### 7.4 Enumerate Support
 
-- [x] Add `persona`, `prompt_template`, and `pipeline` as entity types in `armada_enumerate`
+- [x] Add `persona`, `prompt_template`, and `pipeline` as entity types in `enumerate`
 
 ### 7.5 REST API Routes
 
@@ -592,10 +592,10 @@ CREATE INDEX idx_missions_depends_on ON missions(depends_on_mission_id);
 
 ### 7.7 Updated Existing Tools
 
-- [x] `armada_dispatch` -- add `pipelineId` parameter (pipeline name alias TBD)
-- [x] `armada_create_captain` / `armada_update_captain` -- add `allowedPersonas`, `preferredPersona`
-- [x] `armada_update_vessel` -- add `defaultPipelineId`
-- [x] `armada_update_fleet` -- add `defaultPipelineId`
+- [x] `dispatch` -- add `pipelineId` parameter (pipeline name alias TBD)
+- [x] `create_captain` / `update_captain` -- add `allowedPersonas`, `preferredPersona`
+- [x] `update_vessel` -- add `defaultPipelineId`
+- [x] `update_fleet` -- add `defaultPipelineId`
 
 ---
 
@@ -622,8 +622,8 @@ CREATE INDEX idx_missions_depends_on ON missions(depends_on_mission_id);
 ### 9.1 MCP_API.md
 
 - [x] Add sections for all new MCP tools (prompt templates, personas, pipelines)
-- [x] Update `armada_dispatch` documentation with pipeline parameters
-- [x] Update `armada_create_captain` / `armada_update_captain` with new fields
+- [x] Update `dispatch` documentation with pipeline parameters
+- [x] Update `create_captain` / `update_captain` with new fields
 
 ### 9.2 REST_API.md
 

@@ -35,7 +35,7 @@ namespace Armada.Server.Mcp.Tools
         public static void Register(RegisterToolDelegate register, DatabaseDriver database, IAdmiralService admiral, ArmadaSettings? settings = null)
         {
             register(
-                "armada_dispatch",
+                "dispatch",
                 "Dispatch a new voyage with missions to a vessel",
                 new
                 {
@@ -101,7 +101,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_voyage_status",
+                "voyage_status",
                 "Get status of a specific voyage. Returns summary with mission counts by default; opt-in to full mission details.",
                 new
                 {
@@ -158,7 +158,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_cancel_voyage",
+                "cancel_voyage",
                 "Cancel an entire voyage and all its pending missions",
                 new
                 {
@@ -220,7 +220,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_purge_voyage",
+                "purge_voyage",
                 "Permanently delete a voyage and all its missions from the database. This cannot be undone.",
                 new
                 {
@@ -260,7 +260,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_delete_voyages",
+                "delete_voyages",
                 "Permanently delete multiple voyages and their associated missions from the database by ID. Voyages that are Open/InProgress or have active missions are skipped. Returns a summary of deleted and skipped entries. This cannot be undone.",
                 new
                 {

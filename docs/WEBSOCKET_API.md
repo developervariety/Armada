@@ -1775,7 +1775,7 @@ Restore Armada from a previously created backup ZIP file.
 
 #### enumerate
 
-Generic paginated enumeration of any entity type with filtering and sorting. This is the WebSocket equivalent of the REST `POST /api/v1/{entity}/enumerate` endpoints and the MCP `armada_enumerate` tool.
+Generic paginated enumeration of any entity type with filtering and sorting. This is the WebSocket equivalent of the REST `POST /api/v1/{entity}/enumerate` endpoints and the MCP `enumerate` tool.
 
 **Request:**
 

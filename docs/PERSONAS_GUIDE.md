@@ -149,7 +149,7 @@ into new Worker missions is a planned enhancement.
 **Via MCP:**
 
 ```json
-// armada_update_vessel
+// update_vessel
 {
   "vesselId": "vsl_abc123",
   "defaultPipelineId": "ppl_xyz789"
@@ -169,7 +169,7 @@ curl -X PUT http://localhost:7890/api/v1/vessels/vsl_abc123 \
 ### Setting a Default Pipeline on a Fleet
 
 ```json
-// armada_update_fleet
+// update_fleet
 {
   "fleetId": "flt_abc123",
   "defaultPipelineId": "ppl_xyz789"
@@ -178,10 +178,10 @@ curl -X PUT http://localhost:7890/api/v1/vessels/vsl_abc123 \
 
 ### Overriding Per-Dispatch
 
-Pass `pipelineId` to `armada_dispatch` to override for a single voyage:
+Pass `pipelineId` to `dispatch` to override for a single voyage:
 
 ```json
-// armada_dispatch
+// dispatch
 {
   "title": "Add authentication",
   "vesselId": "vsl_abc123",
@@ -200,7 +200,7 @@ Pass `pipelineId` to `armada_dispatch` to override for a single voyage:
 **Via MCP:**
 
 ```json
-// armada_create_pipeline
+// create_pipeline
 {
   "name": "SecurityReview",
   "description": "Implement then run security audit",
@@ -228,7 +228,7 @@ By default, any captain can fill any persona role (`AllowedPersonas` is null). Y
 restrict a captain to specific personas:
 
 ```json
-// armada_update_captain
+// update_captain
 {
   "captainId": "cpt_abc123",
   "allowedPersonas": ["Worker", "TestEngineer"]
@@ -245,7 +245,7 @@ the mission's persona, but will fall back to any available captain if no preferr
 exists.
 
 ```json
-// armada_update_captain
+// update_captain
 {
   "captainId": "cpt_abc123",
   "preferredPersona": "Architect"
@@ -258,7 +258,7 @@ Dedicate a powerful model for Architect work and faster models for Worker tasks:
 
 ```json
 // Create an Opus captain for architecture and review
-// armada_create_captain
+// create_captain
 {
   "name": "opus-architect",
   "runtime": "ClaudeCode",
@@ -267,7 +267,7 @@ Dedicate a powerful model for Architect work and faster models for Worker tasks:
 }
 
 // Create Sonnet captains for implementation
-// armada_create_captain
+// create_captain
 {
   "name": "sonnet-worker-1",
   "runtime": "ClaudeCode",
@@ -338,14 +338,14 @@ display a badge and offer "Reset to Default" in the action menu.
 **Get a template:**
 
 ```json
-// armada_get_prompt_template
+// get_prompt_template
 { "name": "mission.rules" }
 ```
 
 **Update a template:**
 
 ```json
-// armada_update_prompt_template
+// update_prompt_template
 {
   "name": "mission.rules",
   "content": "## Rules\n- Work only within this worktree\n- {MyCustomRule}\n- Commit all changes\n"
@@ -355,7 +355,7 @@ display a badge and offer "Reset to Default" in the action menu.
 **Reset to default:**
 
 ```json
-// armada_reset_prompt_template
+// reset_prompt_template
 { "name": "mission.rules" }
 ```
 
@@ -378,7 +378,7 @@ curl -X POST http://localhost:7890/api/v1/prompt-templates/mission.rules/reset \
 ### Example: Adding a Project-Specific Rule
 
 ```json
-// armada_update_prompt_template
+// update_prompt_template
 {
   "name": "mission.rules",
   "content": "## Rules\n- Work only within this worktree directory\n- All database queries must use parameterized statements\n- Commit all changes to the current branch\n- Exit with code 0 on success\n"
@@ -396,7 +396,7 @@ Follow these steps to create and use a custom persona.
 ### Step 1: Create a Prompt Template
 
 ```json
-// armada_update_prompt_template
+// update_prompt_template
 {
   "name": "persona.security_auditor",
   "content": "You are a security auditor. Review the diff and identify vulnerabilities.\n\n## Instructions\n- Check for SQL injection, XSS, CSRF, authentication bypasses\n- Check for hardcoded secrets or credentials\n- Produce a report with severity ratings\n- Output FAIL with details if critical issues found, PASS with recommendations otherwise\n",
@@ -407,7 +407,7 @@ Follow these steps to create and use a custom persona.
 ### Step 2: Create a Persona
 
 ```json
-// armada_create_persona
+// create_persona
 {
   "name": "SecurityAuditor",
   "description": "Reviews code changes for security vulnerabilities",
@@ -418,7 +418,7 @@ Follow these steps to create and use a custom persona.
 ### Step 3: Add the Persona to a Pipeline
 
 ```json
-// armada_create_pipeline
+// create_pipeline
 {
   "name": "SecureWorkflow",
   "description": "Implement, audit for security, then review",
@@ -433,7 +433,7 @@ Follow these steps to create and use a custom persona.
 ### Step 4: Test by Dispatching
 
 ```json
-// armada_dispatch
+// dispatch
 {
   "title": "Add payment processing",
   "vesselId": "vsl_abc123",
@@ -459,27 +459,27 @@ Each stage sees the diff from the previous stage.
 | Tool | Description |
 |---|---|
 | **Personas** | |
-| `armada_create_persona` | Create a custom persona (name, promptTemplateName required) |
-| `armada_get_persona` | Get a persona by name |
-| `armada_update_persona` | Update persona description or prompt template |
-| `armada_delete_persona` | Delete a custom persona (built-in personas cannot be deleted) |
+| `create_persona` | Create a custom persona (name, promptTemplateName required) |
+| `get_persona` | Get a persona by name |
+| `update_persona` | Update persona description or prompt template |
+| `delete_persona` | Delete a custom persona (built-in personas cannot be deleted) |
 | **Pipelines** | |
-| `armada_create_pipeline` | Create a pipeline with ordered stages |
-| `armada_get_pipeline` | Get a pipeline by name (includes stages) |
-| `armada_update_pipeline` | Update pipeline description or replace stages |
-| `armada_delete_pipeline` | Delete a custom pipeline (built-in pipelines cannot be deleted) |
+| `create_pipeline` | Create a pipeline with ordered stages |
+| `get_pipeline` | Get a pipeline by name (includes stages) |
+| `update_pipeline` | Update pipeline description or replace stages |
+| `delete_pipeline` | Delete a custom pipeline (built-in pipelines cannot be deleted) |
 | **Prompt Templates** | |
-| `armada_get_prompt_template` | Get a template by name |
-| `armada_update_prompt_template` | Update template content and/or description |
-| `armada_reset_prompt_template` | Reset a template to its built-in default |
+| `get_prompt_template` | Get a template by name |
+| `update_prompt_template` | Update template content and/or description |
+| `reset_prompt_template` | Reset a template to its built-in default |
 | **Enumeration** | |
-| `armada_enumerate` | Use `entityType: "persona"`, `"pipeline"`, or `"prompt_template"` to list/filter/paginate |
+| `enumerate` | Use `entityType: "persona"`, `"pipeline"`, or `"prompt_template"` to list/filter/paginate |
 | **Related** | |
-| `armada_dispatch` | Pass `pipelineId` to override the default pipeline |
-| `armada_update_vessel` | Set `defaultPipelineId` on a vessel |
-| `armada_update_fleet` | Set `defaultPipelineId` on a fleet |
-| `armada_create_captain` | Set `allowedPersonas` and `preferredPersona` |
-| `armada_update_captain` | Update `allowedPersonas` and `preferredPersona` |
+| `dispatch` | Pass `pipelineId` to override the default pipeline |
+| `update_vessel` | Set `defaultPipelineId` on a vessel |
+| `update_fleet` | Set `defaultPipelineId` on a fleet |
+| `create_captain` | Set `allowedPersonas` and `preferredPersona` |
+| `update_captain` | Update `allowedPersonas` and `preferredPersona` |
 
 ### REST Endpoints
 

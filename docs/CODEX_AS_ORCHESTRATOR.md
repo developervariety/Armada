@@ -41,7 +41,7 @@ Start the Admiral server (`armada server start`), then:
 codex --approval-mode full-auto "Check Armada status and tell me what's running."
 ```
 
-Codex will call `armada_status` and report active captains, missions, and voyages.
+Codex will call `status` and report active captains, missions, and voyages.
 
 ## Giving Codex Full Instructions
 

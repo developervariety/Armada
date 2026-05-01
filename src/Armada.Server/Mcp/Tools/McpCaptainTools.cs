@@ -39,7 +39,7 @@ namespace Armada.Server.Mcp.Tools
         public static void Register(RegisterToolDelegate register, DatabaseDriver database, IAdmiralService admiral, ArmadaSettings? settings, Func<string, Task>? onStopCaptain = null, AgentLifecycleHandler? agentLifecycle = null)
         {
             register(
-                "armada_get_captain",
+                "get_captain",
                 "Get details of a specific captain (AI agent)",
                 new
                 {
@@ -60,7 +60,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_create_captain",
+                "create_captain",
                 "Register a new captain (AI agent)",
                 new
                 {
@@ -109,7 +109,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_update_captain",
+                "update_captain",
                 "Update a captain's name or runtime. Operational fields (state, process, mission) are preserved.",
                 new
                 {
@@ -173,7 +173,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_stop_captain",
+                "stop_captain",
                 "Stop a specific captain agent, killing its process and recalling it to idle state",
                 new
                 {
@@ -195,7 +195,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_stop_all",
+                "stop_all",
                 "Emergency stop all running captains",
                 new { type = "object", properties = new { } },
                 async (args) =>
@@ -205,7 +205,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_delete_captain",
+                "delete_captain",
                 "Delete a captain. If working, the captain is recalled first.",
                 new
                 {
@@ -238,7 +238,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_delete_captains",
+                "delete_captains",
                 "Permanently delete multiple captains from the database by ID. Captains that are Working or have active missions are skipped. Returns a summary of deleted and skipped entries. This cannot be undone.",
                 new
                 {
@@ -292,7 +292,7 @@ namespace Armada.Server.Mcp.Tools
             if (settings != null)
             {
                 register(
-                    "armada_get_captain_log",
+                    "get_captain_log",
                     "Get the current session log for a captain. Supports pagination.",
                     new
                     {

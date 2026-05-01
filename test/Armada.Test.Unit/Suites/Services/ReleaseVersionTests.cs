@@ -69,6 +69,7 @@ namespace Armada.Test.Unit.Suites.Services
                 string removeBatContents = ReadRepositoryFile("scripts", "windows", "remove.bat");
                 string updateBatContents = ReadRepositoryFile("scripts", "windows", "update.bat");
                 string publishServerBatContents = ReadRepositoryFile("scripts", "windows", "publish-server.bat");
+                string deployDashboardBatContents = ReadRepositoryFile("scripts", "windows", "deploy-dashboard.bat");
                 string installWindowsTaskBatContents = ReadRepositoryFile("scripts", "windows", "install-windows-task.bat");
                 string updateWindowsTaskBatContents = ReadRepositoryFile("scripts", "windows", "update-windows-task.bat");
                 string removeWindowsTaskBatContents = ReadRepositoryFile("scripts", "windows", "remove-windows-task.bat");
@@ -88,6 +89,12 @@ namespace Armada.Test.Unit.Suites.Services
                     updateBatContents.IndexOf("if exist \"%HELM_DLL%\"", StringComparison.Ordinal) < updateBatContents.IndexOf("where armada", StringComparison.Ordinal),
                     "update.bat should prefer repo-targeted Helm execution before the global tool");
                 AssertContains("dotnet publish \"%REPO_ROOT%\\src\\Armada.Server\" -c Release %ARMADA_DOTNET_FRAMEWORK_ARGS%", publishServerBatContents, "publish-server.bat should publish with the resolved framework");
+                AssertContains("set \"LOCAL_TSC=%LOCAL_BIN_DIR%\\tsc.cmd\"", deployDashboardBatContents, "deploy-dashboard.bat should resolve the local TypeScript compiler");
+                AssertContains("set \"LOCAL_VITE=%LOCAL_BIN_DIR%\\vite.cmd\"", deployDashboardBatContents, "deploy-dashboard.bat should resolve the local Vite CLI");
+                AssertContains("call \"%LOCAL_TSC%\"", deployDashboardBatContents, "deploy-dashboard.bat should build with the local TypeScript compiler instead of npm run");
+                AssertContains("call \"%LOCAL_VITE%\" build", deployDashboardBatContents, "deploy-dashboard.bat should build with the local Vite CLI instead of npm run");
+                AssertContains("if exist \"%USERPROFILE%\\.armada\\dashboard\\index.html\" (", publishServerBatContents, "publish-server.bat should only continue after dashboard deploy errors when a React dashboard is already deployed");
+                AssertContains("echo ERROR: Dashboard deploy failed and no deployed React dashboard is available.", publishServerBatContents, "publish-server.bat should fail fresh installs when the React dashboard is unavailable");
                 AssertContains("call \"%SCRIPT_DIR%\\publish-server.bat\" %ARMADA_FORWARD_FRAMEWORK_ARGS%", installWindowsTaskBatContents, "install-windows-task.bat should forward the resolved framework to publish-server explicitly");
                 AssertContains("call \"%SCRIPT_DIR%\\install-windows-task.bat\" %ARMADA_FORWARD_FRAMEWORK_ARGS%", updateWindowsTaskBatContents, "update-windows-task.bat should forward the resolved framework explicitly");
                 AssertContains("call \"%SCRIPT_DIR%\\resolve-framework.bat\" %*", removeWindowsTaskBatContents, "remove-windows-task.bat should accept framework overrides for parity");
@@ -95,6 +102,9 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("buildInfo.ArgumentList.Add(targetFramework);", serverStartCommandContents, "ServerStartCommand should build Armada.Server with the derived framework");
                 AssertContains("buildInfo.ArgumentList.Add(\"-p:TargetFramework=\" + targetFramework);", serverStartCommandContents, "ServerStartCommand should lock the server build to the derived framework");
                 AssertContains("buildInfo.ArgumentList.Add(\"-p:TargetFrameworks=\" + targetFramework);", serverStartCommandContents, "ServerStartCommand should prevent multi-target evaluation on framework-limited machines");
+                AssertContains("string tscPath = Path.Combine(localBinDir, \"tsc\" + toolExtension);", serverStartCommandContents, "ServerStartCommand should use the local TypeScript compiler");
+                AssertContains("string vitePath = Path.Combine(localBinDir, \"vite\" + toolExtension);", serverStartCommandContents, "ServerStartCommand should use the local Vite CLI");
+                AssertContains("Keeping the existing deployed React dashboard", serverStartCommandContents, "ServerStartCommand should preserve the existing React dashboard instead of silently downgrading to the legacy UI");
                 AssertContains("return $\"net{parsed.Version.Major}.{parsed.Version.Minor}\";", serverStartCommandContents, "ServerStartCommand should map the runtime TFM to a dotnet framework moniker");
                 AssertContains("if /I \"%~1\"==\"--framework\" set \"BASE_URL=%~3\"", healthcheckServerBatContents, "healthcheck-server.bat should ignore a leading named framework override");
                 AssertContains("findstr /R /I \"^net[0-9][0-9]*\\.[0-9][0-9]*$\"", healthcheckServerBatContents, "healthcheck-server.bat should ignore a leading positional framework override");
@@ -156,6 +166,18 @@ namespace Armada.Test.Unit.Suites.Services
                     string dashboardDir = Path.Combine(tempRepo, "src", "Armada.Dashboard");
                     Directory.CreateDirectory(dashboardDir);
                     File.WriteAllText(Path.Combine(dashboardDir, "package.json"), "{}");
+                    Directory.CreateDirectory(Path.Combine(dashboardDir, "node_modules", ".bin"));
+                    File.WriteAllText(
+                        Path.Combine(dashboardDir, "node_modules", ".bin", "tsc.cmd"),
+                        "@echo off\r\n" +
+                        "exit /b 0\r\n");
+                    File.WriteAllText(
+                        Path.Combine(dashboardDir, "node_modules", ".bin", "vite.cmd"),
+                        "@echo off\r\n" +
+                        "set \"DIST_DIR=%REPO_ROOT_FOR_TEST%\\src\\Armada.Dashboard\\dist\"\r\n" +
+                        "mkdir \"%DIST_DIR%\" >nul 2>nul\r\n" +
+                        "type nul > \"%DIST_DIR%\\index.html\"\r\n" +
+                        "exit /b 0\r\n");
 
                     File.WriteAllText(
                         Path.Combine(toolsDir, "dotnet.cmd"),
@@ -184,10 +206,7 @@ namespace Armada.Test.Unit.Suites.Services
                     File.WriteAllText(
                         Path.Combine(toolsDir, "npm.cmd"),
                         "@echo off\r\n" +
-                        "set \"DIST_DIR=%REPO_ROOT_FOR_TEST%\\src\\Armada.Dashboard\\dist\"\r\n" +
-                        "mkdir \"%DIST_DIR%\" >nul 2>nul\r\n" +
-                        "type nul > \"%DIST_DIR%\\index.html\"\r\n" +
-                        "exit /b 0\r\n");
+                        "exit /b 1\r\n");
 
                     File.WriteAllText(
                         Path.Combine(toolsDir, "powershell.cmd"),
@@ -210,6 +229,96 @@ namespace Armada.Test.Unit.Suites.Services
                     string dotnetLogContents = File.ReadAllText(logPath);
                     AssertContains("publish \"" + Path.Combine(tempRepo, "src", "Armada.Server") + "\" -c Release --framework net8.0 -p:TargetFramework=net8.0 -p:TargetFrameworks=net8.0 -o \"" + Path.Combine(tempUserProfile, ".armada", "bin") + "\"", dotnetLogContents, "install-windows-task.bat should preserve the explicit framework into publish-server.bat");
                     AssertFalse(dotnetLogContents.Contains("net10.0", StringComparison.Ordinal), "install-windows-task.bat should not fall back to net10.0 when net8.0 is requested");
+                }
+                finally
+                {
+                    if (Directory.Exists(tempRoot))
+                    {
+                        Directory.Delete(tempRoot, recursive: true);
+                    }
+                }
+            });
+
+            await RunTest("Windows Publish Server Script Fails When React Dashboard Is Unavailable", () =>
+            {
+                if (!OperatingSystem.IsWindows())
+                {
+                    return;
+                }
+
+                string repoRoot = FindRepositoryRoot();
+                string tempRoot = Path.Combine(Path.GetTempPath(), "armada-publish-test-" + Guid.NewGuid().ToString("N"));
+                string tempRepo = Path.Combine(tempRoot, "repo");
+                string tempUserProfile = Path.Combine(tempRoot, "user");
+                string toolsDir = Path.Combine(tempRoot, "tools");
+                string logPath = Path.Combine(tempRoot, "dotnet.log");
+
+                Directory.CreateDirectory(tempRepo);
+                Directory.CreateDirectory(tempUserProfile);
+                Directory.CreateDirectory(toolsDir);
+
+                try
+                {
+                    CopyRepositoryFile(repoRoot, tempRepo, Path.Combine("scripts", "windows", "resolve-framework.bat"));
+                    CopyRepositoryFile(repoRoot, tempRepo, Path.Combine("scripts", "windows", "publish-server.bat"));
+                    CopyRepositoryFile(repoRoot, tempRepo, Path.Combine("scripts", "windows", "deploy-dashboard.bat"));
+
+                    string dashboardDir = Path.Combine(tempRepo, "src", "Armada.Dashboard");
+                    Directory.CreateDirectory(dashboardDir);
+                    File.WriteAllText(Path.Combine(dashboardDir, "package.json"), "{}");
+                    File.WriteAllText(Path.Combine(dashboardDir, "package-lock.json"), "{}");
+
+                    File.WriteAllText(
+                        Path.Combine(toolsDir, "dotnet.cmd"),
+                        "@echo off\r\n" +
+                        "echo %*>>\"%DOTNET_LOG%\"\r\n" +
+                        "if /I \"%~1\"==\"publish\" call :publish %*\r\n" +
+                        "exit /b 0\r\n" +
+                        "\r\n" +
+                        ":publish\r\n" +
+                        "set \"OUTPUT_DIR=\"\r\n" +
+                        ":publish_args\r\n" +
+                        "if \"%~1\"==\"\" goto publish_done\r\n" +
+                        "if /I \"%~1\"==\"-o\" (\r\n" +
+                        "  set \"OUTPUT_DIR=%~2\"\r\n" +
+                        "  shift\r\n" +
+                        ")\r\n" +
+                        "shift\r\n" +
+                        "goto publish_args\r\n" +
+                        "\r\n" +
+                        ":publish_done\r\n" +
+                        "if \"%OUTPUT_DIR%\"==\"\" exit /b 1\r\n" +
+                        "mkdir \"%OUTPUT_DIR%\" >nul 2>nul\r\n" +
+                        "type nul > \"%OUTPUT_DIR%\\Armada.Server.exe\"\r\n" +
+                        "exit /b 0\r\n");
+
+                    File.WriteAllText(
+                        Path.Combine(toolsDir, "npm.cmd"),
+                        "@echo off\r\n" +
+                        "exit /b 1\r\n");
+
+                    string publishServerPath = Path.Combine(tempRepo, "scripts", "windows", "publish-server.bat");
+                    Exception? captured = null;
+                    try
+                    {
+                        RunCommandAndCaptureOutput(
+                            "cmd.exe",
+                            "/c call \"" + publishServerPath + "\" net8.0",
+                            tempRepo,
+                            new Dictionary<string, string>
+                            {
+                                ["PATH"] = toolsDir + Path.PathSeparator + Environment.GetEnvironmentVariable("PATH"),
+                                ["USERPROFILE"] = tempUserProfile,
+                                ["DOTNET_LOG"] = logPath
+                            });
+                    }
+                    catch (Exception ex)
+                    {
+                        captured = ex;
+                    }
+
+                    AssertTrue(captured != null, "publish-server.bat should fail when React dashboard deployment fails on a fresh install");
+                    AssertContains("Dashboard deploy failed and no deployed React dashboard is available.", captured!.Message, "publish-server.bat should report that the React dashboard is required for a fresh install");
                 }
                 finally
                 {

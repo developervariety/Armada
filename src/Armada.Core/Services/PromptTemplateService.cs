@@ -325,7 +325,7 @@ namespace Armada.Core.Services
                     "important dependencies, interdependencies between modules, concurrency patterns, " +
                     "and performance considerations.\n" +
                     "\n" +
-                    "If you have useful additions, call `armada_update_vessel_context` with the `modelContext` " +
+                    "If you have useful additions, call `update_vessel_context` with the `modelContext` " +
                     "parameter set to the COMPLETE updated model context (not just your additions -- include " +
                     "the existing content with your additions merged in). Be thorough -- this context is a " +
                     "goldmine for future agents. Focus on information that is not obvious from reading the code, " +

@@ -9,7 +9,7 @@ namespace Armada.Server.Dashboard
     /// <summary>
     /// Serves static files for the web dashboard.
     /// Checks an external directory first (React build output),
-    /// then falls back to embedded wwwroot resources (legacy dashboard).
+    /// then falls back to embedded wwwroot resources (legacy dashboard, not the React dashboard).
     /// </summary>
     public static class StaticFileHandler
     {
@@ -45,7 +45,7 @@ namespace Armada.Server.Dashboard
 
         /// <summary>
         /// Set the external dashboard directory path.
-        /// When set, files are served from this directory before falling back to embedded resources.
+        /// When set, files are served from this directory before falling back to embedded legacy resources.
         /// </summary>
         /// <param name="path">Absolute path to the dashboard build output directory (e.g., dist/).</param>
         public static void SetExternalPath(string? path)
@@ -62,7 +62,7 @@ namespace Armada.Server.Dashboard
 
         /// <summary>
         /// Try to read a static file for the given URL path.
-        /// Checks external dashboard directory first, then falls back to embedded resources.
+        /// Checks external dashboard directory first, then falls back to embedded legacy resources.
         /// </summary>
         /// <param name="urlPath">URL path (e.g., "/dashboard/index.html").</param>
         /// <param name="content">File content bytes.</param>

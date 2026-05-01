@@ -71,8 +71,7 @@ namespace Armada.Test.Automated.Suites
                 {
                     toolNames.Add(tool.GetProperty("name").GetString()!);
                 }
-                List<string> armadaTools = toolNames.Where(t => t.StartsWith("armada_")).ToList();
-                AssertTrue(armadaTools.Count >= 42, "Armada tool count should include the expected baseline set");
+                AssertTrue(toolNames.Count >= 42, "Armada tool count should include the expected baseline set");
             }).ConfigureAwait(false);
 
             await RunTest("ToolsList_ContainsAllExpectedToolNames", async () =>
@@ -87,40 +86,40 @@ namespace Armada.Test.Automated.Suites
 
                 string[] expected = new string[]
                 {
-                    "armada_status",
-                    "armada_stop_server",
-                    "armada_enumerate",
-                    "armada_get_fleet",
-                    "armada_create_fleet",
-                    "armada_update_fleet",
-                    "armada_delete_fleet",
-                    "armada_get_vessel",
-                    "armada_add_vessel",
-                    "armada_update_vessel",
-                    "armada_delete_vessel",
-                    "armada_dispatch",
-                    "armada_voyage_status",
-                    "armada_cancel_voyage",
-                    "armada_purge_voyage",
-                    "armada_mission_status",
-                    "armada_create_mission",
-                    "armada_update_mission",
-                    "armada_cancel_mission",
-                    "armada_transition_mission_status",
-                    "armada_get_mission_diff",
-                    "armada_get_mission_log",
-                    "armada_get_captain",
-                    "armada_create_captain",
-                    "armada_update_captain",
-                    "armada_stop_captain",
-                    "armada_stop_all",
-                    "armada_delete_captain",
-                    "armada_get_captain_log",
-                    "armada_send_signal",
-                    "armada_get_merge_entry",
-                    "armada_enqueue_merge",
-                    "armada_cancel_merge",
-                    "armada_process_merge_queue"
+                    "status",
+                    "stop_server",
+                    "enumerate",
+                    "get_fleet",
+                    "create_fleet",
+                    "update_fleet",
+                    "delete_fleet",
+                    "get_vessel",
+                    "add_vessel",
+                    "update_vessel",
+                    "delete_vessel",
+                    "dispatch",
+                    "voyage_status",
+                    "cancel_voyage",
+                    "purge_voyage",
+                    "mission_status",
+                    "create_mission",
+                    "update_mission",
+                    "cancel_mission",
+                    "transition_mission_status",
+                    "get_mission_diff",
+                    "get_mission_log",
+                    "get_captain",
+                    "create_captain",
+                    "update_captain",
+                    "stop_captain",
+                    "stop_all",
+                    "delete_captain",
+                    "get_captain_log",
+                    "send_signal",
+                    "get_merge_entry",
+                    "enqueue_merge",
+                    "cancel_merge",
+                    "process_merge_queue"
                 };
 
                 foreach (string name in expected)
@@ -136,7 +135,6 @@ namespace Armada.Test.Automated.Suites
                 foreach (JsonElement tool in tools.EnumerateArray())
                 {
                     string name = tool.GetProperty("name").GetString()!;
-                    if (!name.StartsWith("armada_")) continue;
                     Assert(tool.TryGetProperty("description", out JsonElement desc), "Tool " + name + " should have a description");
                     AssertFalse(string.IsNullOrEmpty(desc.GetString()), "Tool " + name + " description should not be empty");
                 }
@@ -149,7 +147,6 @@ namespace Armada.Test.Automated.Suites
                 foreach (JsonElement tool in tools.EnumerateArray())
                 {
                     string name = tool.GetProperty("name").GetString()!;
-                    if (!name.StartsWith("armada_")) continue;
                     Assert(tool.TryGetProperty("inputSchema", out JsonElement schema), "Tool " + name + " should have an inputSchema");
                     AssertEqual("object", schema.GetProperty("type").GetString());
                 }
@@ -163,7 +160,6 @@ namespace Armada.Test.Automated.Suites
                 foreach (JsonElement tool in tools.EnumerateArray())
                 {
                     string name = tool.GetProperty("name").GetString()!;
-                    if (!name.StartsWith("armada_")) continue;
                     toolNames.Add(name);
                 }
                 AssertEqual(toolNames.Count, toolNames.Distinct().Count());
@@ -172,13 +168,13 @@ namespace Armada.Test.Automated.Suites
             // ArmadaStatus
             await RunTest("ArmadaStatus_ExecutesSuccessfully", async () =>
             {
-                JsonElement result = await CallToolAsync("armada_status", new { }).ConfigureAwait(false);
+                JsonElement result = await CallToolAsync("status", new { }).ConfigureAwait(false);
                 AssertToolResultValid(result);
             }).ConfigureAwait(false);
 
             await RunTest("ArmadaStatus_ReturnsValidStatusObject", async () =>
             {
-                JsonElement result = await CallToolAsync("armada_status", new { }).ConfigureAwait(false);
+                JsonElement result = await CallToolAsync("status", new { }).ConfigureAwait(false);
                 string text = GetToolResultText(result);
                 AssertFalse(string.IsNullOrEmpty(text));
                 ArmadaStatus status = JsonHelper.Deserialize<ArmadaStatus>(text);
@@ -191,7 +187,7 @@ namespace Armada.Test.Automated.Suites
                 string fleetId = await RestCreateFleetAsync("DispatchFleet").ConfigureAwait(false);
                 string vesselId = await RestCreateVesselAsync(fleetId, "DispatchVessel").ConfigureAwait(false);
 
-                JsonElement result = await CallToolAsync("armada_dispatch", new
+                JsonElement result = await CallToolAsync("dispatch", new
                 {
                     title = "Test Dispatch Voyage",
                     description = "Dispatched via MCP",
@@ -213,7 +209,7 @@ namespace Armada.Test.Automated.Suites
                 string fleetId = await RestCreateFleetAsync("DispatchMultiFleet").ConfigureAwait(false);
                 string vesselId = await RestCreateVesselAsync(fleetId, "DispatchMultiVessel").ConfigureAwait(false);
 
-                JsonElement result = await CallToolAsync("armada_dispatch", new
+                JsonElement result = await CallToolAsync("dispatch", new
                 {
                     title = "Multi-Mission Voyage",
                     vesselId = vesselId,
@@ -232,7 +228,7 @@ namespace Armada.Test.Automated.Suites
             await RunTest("ArmadaSendSignal_CreatesSignal", async () =>
             {
                 string captainId = await RestCreateCaptainAsync("signal-captain").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync("armada_send_signal", new
+                JsonElement result = await CallToolAsync("send_signal", new
                 {
                     captainId = captainId,
                     message = "Hello from MCP test"
@@ -245,13 +241,13 @@ namespace Armada.Test.Automated.Suites
             await RunTest("ArmadaSendSignal_SignalVisibleViaEnumerate", async () =>
             {
                 string captainId = await RestCreateCaptainAsync("signal-list-captain").ConfigureAwait(false);
-                await CallToolAsync("armada_send_signal", new
+                await CallToolAsync("send_signal", new
                 {
                     captainId = captainId,
                     message = "Signal visibility test"
                 }).ConfigureAwait(false);
 
-                JsonElement listResult = await CallToolAsync("armada_enumerate", new
+                JsonElement listResult = await CallToolAsync("enumerate", new
                 {
                     entityType = "signals",
                     pageSize = 50,
@@ -265,7 +261,7 @@ namespace Armada.Test.Automated.Suites
             await RunTest("ArmadaMissionStatus_ExistingMission_ReturnsMission", async () =>
             {
                 string missionId = await RestCreateMissionAsync("MissionStatusTest").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync("armada_mission_status", new
+                JsonElement result = await CallToolAsync("mission_status", new
                 {
                     missionId = missionId
                 }).ConfigureAwait(false);
@@ -277,7 +273,7 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("ArmadaMissionStatus_NotFound_ReturnsErrorMessage", async () =>
             {
-                JsonElement result = await CallToolAsync("armada_mission_status", new
+                JsonElement result = await CallToolAsync("mission_status", new
                 {
                     missionId = "msn_nonexistent"
                 }).ConfigureAwait(false);
@@ -289,7 +285,7 @@ namespace Armada.Test.Automated.Suites
             await RunTest("ArmadaMissionStatus_ReturnsCorrectStatus", async () =>
             {
                 string missionId = await RestCreateMissionAsync("StatusCheckMission").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync("armada_mission_status", new
+                JsonElement result = await CallToolAsync("mission_status", new
                 {
                     missionId = missionId
                 }).ConfigureAwait(false);
@@ -301,7 +297,7 @@ namespace Armada.Test.Automated.Suites
             await RunTest("ArmadaMissionStatus_DiffSnapshotIsNull", async () =>
             {
                 string missionId = await RestCreateMissionAsync("DiffSnapshotExclusionTest").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync("armada_mission_status", new
+                JsonElement result = await CallToolAsync("mission_status", new
                 {
                     missionId = missionId
                 }).ConfigureAwait(false);
@@ -317,7 +313,7 @@ namespace Armada.Test.Automated.Suites
                 string fleetId = await RestCreateFleetAsync("VoyageStatusFleet").ConfigureAwait(false);
                 string vesselId = await RestCreateVesselAsync(fleetId, "VoyageStatusVessel").ConfigureAwait(false);
                 string voyageId = await RestCreateVoyageAsync(vesselId).ConfigureAwait(false);
-                JsonElement result = await CallToolAsync("armada_voyage_status", new
+                JsonElement result = await CallToolAsync("voyage_status", new
                 {
                     voyageId = voyageId
                 }).ConfigureAwait(false);
@@ -328,7 +324,7 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("ArmadaVoyageStatus_NotFound_ReturnsNullVoyage", async () =>
             {
-                JsonElement result = await CallToolAsync("armada_voyage_status", new
+                JsonElement result = await CallToolAsync("voyage_status", new
                 {
                     voyageId = "vyg_nonexistent"
                 }).ConfigureAwait(false);
@@ -342,7 +338,7 @@ namespace Armada.Test.Automated.Suites
                 string fleetId = await RestCreateFleetAsync("VoyageMissionsFleet").ConfigureAwait(false);
                 string vesselId = await RestCreateVesselAsync(fleetId, "VoyageMissionsVessel").ConfigureAwait(false);
                 string voyageId = await RestCreateVoyageAsync(vesselId).ConfigureAwait(false);
-                JsonElement result = await CallToolAsync("armada_voyage_status", new
+                JsonElement result = await CallToolAsync("voyage_status", new
                 {
                     voyageId = voyageId
                 }).ConfigureAwait(false);
@@ -356,7 +352,7 @@ namespace Armada.Test.Automated.Suites
             await RunTest("ArmadaGetFleet_ExistingFleet_ReturnsFleetDetails", async () =>
             {
                 string fleetId = await RestCreateFleetAsync("GetFleetTest").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync("armada_get_fleet", new
+                JsonElement result = await CallToolAsync("get_fleet", new
                 {
                     fleetId = fleetId
                 }).ConfigureAwait(false);
@@ -368,7 +364,7 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("ArmadaGetFleet_NotFound_ReturnsErrorMessage", async () =>
             {
-                JsonElement result = await CallToolAsync("armada_get_fleet", new
+                JsonElement result = await CallToolAsync("get_fleet", new
                 {
                     fleetId = "flt_nonexistent"
                 }).ConfigureAwait(false);
@@ -382,7 +378,7 @@ namespace Armada.Test.Automated.Suites
                 string fleetId = await RestCreateFleetAsync("FleetWithVessels").ConfigureAwait(false);
                 await RestCreateVesselAsync(fleetId, "FleetVessel1").ConfigureAwait(false);
                 await RestCreateVesselAsync(fleetId, "FleetVessel2").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync("armada_get_fleet", new
+                JsonElement result = await CallToolAsync("get_fleet", new
                 {
                     fleetId = fleetId
                 }).ConfigureAwait(false);
@@ -397,7 +393,7 @@ namespace Armada.Test.Automated.Suites
             await RunTest("ArmadaAddVessel_CreatesVessel", async () =>
             {
                 string fleetId = await RestCreateFleetAsync("AddVesselFleet").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync("armada_add_vessel", new
+                JsonElement result = await CallToolAsync("add_vessel", new
                 {
                     name = "MCP Added Vessel",
                     repoUrl = TestRepoHelper.GetLocalBareRepoUrl(),
@@ -412,7 +408,7 @@ namespace Armada.Test.Automated.Suites
             await RunTest("ArmadaAddVessel_WithDefaultBranch_SetsCorrectBranch", async () =>
             {
                 string fleetId = await RestCreateFleetAsync("AddVesselBranchFleet").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync("armada_add_vessel", new
+                JsonElement result = await CallToolAsync("add_vessel", new
                 {
                     name = "Custom Branch Vessel",
                     repoUrl = TestRepoHelper.GetLocalBareRepoUrl(),
@@ -427,7 +423,7 @@ namespace Armada.Test.Automated.Suites
             await RunTest("ArmadaAddVessel_VisibleViaEnumerate", async () =>
             {
                 string fleetId = await RestCreateFleetAsync("AddVesselVisibleFleet").ConfigureAwait(false);
-                JsonElement addResult = await CallToolAsync("armada_add_vessel", new
+                JsonElement addResult = await CallToolAsync("add_vessel", new
                 {
                     name = "Visible Vessel",
                     repoUrl = TestRepoHelper.GetLocalBareRepoUrl(),
@@ -437,7 +433,7 @@ namespace Armada.Test.Automated.Suites
                 Vessel vessel = JsonHelper.Deserialize<Vessel>(addText);
                 string vesselId = vessel.Id;
 
-                JsonElement listResult = await CallToolAsync("armada_enumerate", new
+                JsonElement listResult = await CallToolAsync("enumerate", new
                 {
                     entityType = "vessels",
                     fleetId = fleetId
@@ -450,7 +446,7 @@ namespace Armada.Test.Automated.Suites
             await RunTest("ArmadaStopCaptain_IdleCaptain_ReturnsStopped", async () =>
             {
                 string captainId = await RestCreateCaptainAsync("stop-idle-captain").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync("armada_stop_captain", new
+                JsonElement result = await CallToolAsync("stop_captain", new
                 {
                     captainId = captainId
                 }).ConfigureAwait(false);
@@ -464,7 +460,7 @@ namespace Armada.Test.Automated.Suites
             {
                 JsonElement response = await SendRawMcpRequestAsync("tools/call", new
                 {
-                    name = "armada_stop_captain",
+                    name = "stop_captain",
                     arguments = new { captainId = "cpt_nonexistent" }
                 }).ConfigureAwait(false);
                 Assert(response.TryGetProperty("error", out _), "Should return error for non-existent captain");
@@ -473,7 +469,7 @@ namespace Armada.Test.Automated.Suites
             // ArmadaStopAll
             await RunTest("ArmadaStopAll_WithNoCaptains_ReturnsAllStopped", async () =>
             {
-                JsonElement result = await CallToolAsync("armada_stop_all", new { }).ConfigureAwait(false);
+                JsonElement result = await CallToolAsync("stop_all", new { }).ConfigureAwait(false);
                 AssertToolResultValid(result);
                 string text = GetToolResultText(result);
                 AssertContains("all_stopped", text);
@@ -483,7 +479,7 @@ namespace Armada.Test.Automated.Suites
             {
                 await RestCreateCaptainAsync("stop-all-captain-1").ConfigureAwait(false);
                 await RestCreateCaptainAsync("stop-all-captain-2").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync("armada_stop_all", new { }).ConfigureAwait(false);
+                JsonElement result = await CallToolAsync("stop_all", new { }).ConfigureAwait(false);
                 AssertToolResultValid(result);
                 string text = GetToolResultText(result);
                 AssertContains("all_stopped", text);
@@ -493,7 +489,7 @@ namespace Armada.Test.Automated.Suites
             await RunTest("ArmadaCancelMission_ExistingMission_CancelsMission", async () =>
             {
                 string missionId = await RestCreateMissionAsync("CancelMeMission").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync("armada_cancel_mission", new
+                JsonElement result = await CallToolAsync("cancel_mission", new
                 {
                     missionId = missionId
                 }).ConfigureAwait(false);
@@ -504,7 +500,7 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("ArmadaCancelMission_NotFound_ReturnsErrorMessage", async () =>
             {
-                JsonElement result = await CallToolAsync("armada_cancel_mission", new
+                JsonElement result = await CallToolAsync("cancel_mission", new
                 {
                     missionId = "msn_nonexistent"
                 }).ConfigureAwait(false);
@@ -516,13 +512,13 @@ namespace Armada.Test.Automated.Suites
             await RunTest("ArmadaCancelMission_VerifyStatusChanged", async () =>
             {
                 string missionId = await RestCreateMissionAsync("CancelVerifyMission").ConfigureAwait(false);
-                await CallToolAsync("armada_cancel_mission", new
+                await CallToolAsync("cancel_mission", new
                 {
                     missionId = missionId
                 }).ConfigureAwait(false);
 
                 // Verify via MCP tool instead of REST (different ports)
-                JsonElement getResult = await CallToolAsync("armada_mission_status", new { missionId = missionId }).ConfigureAwait(false);
+                JsonElement getResult = await CallToolAsync("mission_status", new { missionId = missionId }).ConfigureAwait(false);
                 string getBody = GetToolResultText(getResult);
                 Mission mission = JsonHelper.Deserialize<Mission>(getBody);
                 AssertEqual("Cancelled", mission.Status.ToString());
@@ -534,7 +530,7 @@ namespace Armada.Test.Automated.Suites
                 string fleetId = await RestCreateFleetAsync("CancelVoyageFleet").ConfigureAwait(false);
                 string vesselId = await RestCreateVesselAsync(fleetId, "CancelVoyageVessel").ConfigureAwait(false);
                 string voyageId = await RestCreateVoyageAsync(vesselId).ConfigureAwait(false);
-                JsonElement result = await CallToolAsync("armada_cancel_voyage", new
+                JsonElement result = await CallToolAsync("cancel_voyage", new
                 {
                     voyageId = voyageId
                 }).ConfigureAwait(false);
@@ -545,7 +541,7 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("ArmadaCancelVoyage_NotFound_ReturnsErrorMessage", async () =>
             {
-                JsonElement result = await CallToolAsync("armada_cancel_voyage", new
+                JsonElement result = await CallToolAsync("cancel_voyage", new
                 {
                     voyageId = "vyg_nonexistent"
                 }).ConfigureAwait(false);
@@ -559,7 +555,7 @@ namespace Armada.Test.Automated.Suites
                 string fleetId = await RestCreateFleetAsync("CancelVoyageMissionsFleet").ConfigureAwait(false);
                 string vesselId = await RestCreateVesselAsync(fleetId, "CancelVoyageMissionsVessel").ConfigureAwait(false);
                 string voyageId = await RestCreateVoyageAsync(vesselId).ConfigureAwait(false);
-                JsonElement result = await CallToolAsync("armada_cancel_voyage", new
+                JsonElement result = await CallToolAsync("cancel_voyage", new
                 {
                     voyageId = voyageId
                 }).ConfigureAwait(false);
@@ -573,13 +569,13 @@ namespace Armada.Test.Automated.Suites
                 string fleetId = await RestCreateFleetAsync("CancelVoyageVerifyFleet").ConfigureAwait(false);
                 string vesselId = await RestCreateVesselAsync(fleetId, "CancelVoyageVerifyVessel").ConfigureAwait(false);
                 string voyageId = await RestCreateVoyageAsync(vesselId).ConfigureAwait(false);
-                await CallToolAsync("armada_cancel_voyage", new
+                await CallToolAsync("cancel_voyage", new
                 {
                     voyageId = voyageId
                 }).ConfigureAwait(false);
 
                 // Verify via MCP tool instead of REST (different ports)
-                JsonElement getResult = await CallToolAsync("armada_voyage_status", new { voyageId = voyageId }).ConfigureAwait(false);
+                JsonElement getResult = await CallToolAsync("voyage_status", new { voyageId = voyageId }).ConfigureAwait(false);
                 string getBody = GetToolResultText(getResult);
                 VoyageDetailResponse voyageResult = JsonHelper.Deserialize<VoyageDetailResponse>(getBody);
                 AssertEqual("Cancelled", voyageResult.Voyage!.Status.ToString());
@@ -590,7 +586,7 @@ namespace Armada.Test.Automated.Suites
             {
                 await RestCreateFleetAsync("EnumFleet1").ConfigureAwait(false);
                 await RestCreateFleetAsync("EnumFleet2").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync("armada_enumerate", new
+                JsonElement result = await CallToolAsync("enumerate", new
                 {
                     entityType = "fleets",
                     pageSize = 10,
@@ -609,7 +605,7 @@ namespace Armada.Test.Automated.Suites
             {
                 await RestCreateMissionAsync("EnumMission1").ConfigureAwait(false);
                 await RestCreateMissionAsync("EnumMission2").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync("armada_enumerate", new
+                JsonElement result = await CallToolAsync("enumerate", new
                 {
                     entityType = "missions",
                     status = "Pending"
@@ -625,7 +621,7 @@ namespace Armada.Test.Automated.Suites
                 string fleetId = await RestCreateFleetAsync("EnumVesselFleet").ConfigureAwait(false);
                 await RestCreateVesselAsync(fleetId, "EnumVessel1").ConfigureAwait(false);
                 await RestCreateVesselAsync(fleetId, "EnumVessel2").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync("armada_enumerate", new
+                JsonElement result = await CallToolAsync("enumerate", new
                 {
                     entityType = "vessels",
                     fleetId = fleetId
@@ -639,7 +635,7 @@ namespace Armada.Test.Automated.Suites
             await RunTest("ArmadaEnumerate_Captains_ReturnsResult", async () =>
             {
                 await RestCreateCaptainAsync("enum-captain-1").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync("armada_enumerate", new
+                JsonElement result = await CallToolAsync("enumerate", new
                 {
                     entityType = "captains"
                 }).ConfigureAwait(false);
@@ -651,7 +647,7 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("ArmadaEnumerate_Voyages_ReturnsResult", async () =>
             {
-                JsonElement result = await CallToolAsync("armada_enumerate", new
+                JsonElement result = await CallToolAsync("enumerate", new
                 {
                     entityType = "voyages"
                 }).ConfigureAwait(false);
@@ -663,7 +659,7 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("ArmadaEnumerate_Docks_ReturnsResult", async () =>
             {
-                JsonElement result = await CallToolAsync("armada_enumerate", new
+                JsonElement result = await CallToolAsync("enumerate", new
                 {
                     entityType = "docks"
                 }).ConfigureAwait(false);
@@ -675,7 +671,7 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("ArmadaEnumerate_Signals_ReturnsResult", async () =>
             {
-                JsonElement result = await CallToolAsync("armada_enumerate", new
+                JsonElement result = await CallToolAsync("enumerate", new
                 {
                     entityType = "signals"
                 }).ConfigureAwait(false);
@@ -687,7 +683,7 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("ArmadaEnumerate_Events_ReturnsResult", async () =>
             {
-                JsonElement result = await CallToolAsync("armada_enumerate", new
+                JsonElement result = await CallToolAsync("enumerate", new
                 {
                     entityType = "events"
                 }).ConfigureAwait(false);
@@ -699,7 +695,7 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("ArmadaEnumerate_InvalidEntityType_ReturnsError", async () =>
             {
-                JsonElement result = await CallToolAsync("armada_enumerate", new
+                JsonElement result = await CallToolAsync("enumerate", new
                 {
                     entityType = "widgets"
                 }).ConfigureAwait(false);
@@ -713,7 +709,7 @@ namespace Armada.Test.Automated.Suites
                 for (int i = 0; i < 5; i++)
                     await RestCreateFleetAsync("PageFleet" + i).ConfigureAwait(false);
 
-                JsonElement result = await CallToolAsync("armada_enumerate", new
+                JsonElement result = await CallToolAsync("enumerate", new
                 {
                     entityType = "fleets",
                     pageSize = 2,
@@ -730,7 +726,7 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("ArmadaEnumerate_WithOrder_ChangesSort", async () =>
             {
-                JsonElement result = await CallToolAsync("armada_enumerate", new
+                JsonElement result = await CallToolAsync("enumerate", new
                 {
                     entityType = "fleets",
                     order = "CreatedAscending"
@@ -740,7 +736,7 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("ArmadaEnumerate_SingularEntityType_Works", async () =>
             {
-                JsonElement result = await CallToolAsync("armada_enumerate", new
+                JsonElement result = await CallToolAsync("enumerate", new
                 {
                     entityType = "fleet"
                 }).ConfigureAwait(false);
@@ -752,7 +748,7 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("ArmadaEnumerate_MergeQueue_ReturnsResult", async () =>
             {
-                JsonElement result = await CallToolAsync("armada_enumerate", new
+                JsonElement result = await CallToolAsync("enumerate", new
                 {
                     entityType = "merge_queue"
                 }).ConfigureAwait(false);
@@ -763,7 +759,7 @@ namespace Armada.Test.Automated.Suites
             // ArmadaCreateFleet
             await RunTest("ArmadaCreateFleet_CreatesFleet", async () =>
             {
-                JsonElement result = await CallToolAsync("armada_create_fleet", new
+                JsonElement result = await CallToolAsync("create_fleet", new
                 {
                     name = "MCP Created Fleet",
                     description = "Created via MCP tool"
@@ -776,7 +772,7 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("ArmadaCreateFleet_VisibleViaEnumerate", async () =>
             {
-                JsonElement createResult = await CallToolAsync("armada_create_fleet", new
+                JsonElement createResult = await CallToolAsync("create_fleet", new
                 {
                     name = "FleetVisibilityTest"
                 }).ConfigureAwait(false);
@@ -784,7 +780,7 @@ namespace Armada.Test.Automated.Suites
                 Fleet fleet = JsonHelper.Deserialize<Fleet>(createText);
                 string fleetId = fleet.Id;
 
-                JsonElement listResult = await CallToolAsync("armada_enumerate", new
+                JsonElement listResult = await CallToolAsync("enumerate", new
                 {
                     entityType = "fleets",
                     pageSize = 50
@@ -797,7 +793,7 @@ namespace Armada.Test.Automated.Suites
             await RunTest("ArmadaUpdateFleet_UpdatesName", async () =>
             {
                 string fleetId = await RestCreateFleetAsync("OriginalName").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync("armada_update_fleet", new
+                JsonElement result = await CallToolAsync("update_fleet", new
                 {
                     fleetId = fleetId,
                     name = "UpdatedName"
@@ -809,7 +805,7 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("ArmadaUpdateFleet_NotFound_ReturnsError", async () =>
             {
-                JsonElement result = await CallToolAsync("armada_update_fleet", new
+                JsonElement result = await CallToolAsync("update_fleet", new
                 {
                     fleetId = "flt_nonexistent",
                     name = "Whatever"
@@ -823,7 +819,7 @@ namespace Armada.Test.Automated.Suites
             await RunTest("ArmadaDeleteFleet_DeletesFleet", async () =>
             {
                 string fleetId = await RestCreateFleetAsync("DeleteMeFleet").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync("armada_delete_fleet", new
+                JsonElement result = await CallToolAsync("delete_fleet", new
                 {
                     fleetId = fleetId
                 }).ConfigureAwait(false);
@@ -834,7 +830,7 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("ArmadaDeleteFleet_NotFound_ReturnsError", async () =>
             {
-                JsonElement result = await CallToolAsync("armada_delete_fleet", new
+                JsonElement result = await CallToolAsync("delete_fleet", new
                 {
                     fleetId = "flt_nonexistent"
                 }).ConfigureAwait(false);
@@ -848,7 +844,7 @@ namespace Armada.Test.Automated.Suites
             {
                 string fleetId = await RestCreateFleetAsync("GetVesselFleet").ConfigureAwait(false);
                 string vesselId = await RestCreateVesselAsync(fleetId, "GetVesselTest").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync("armada_get_vessel", new
+                JsonElement result = await CallToolAsync("get_vessel", new
                 {
                     vesselId = vesselId
                 }).ConfigureAwait(false);
@@ -860,7 +856,7 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("ArmadaGetVessel_NotFound_ReturnsError", async () =>
             {
-                JsonElement result = await CallToolAsync("armada_get_vessel", new
+                JsonElement result = await CallToolAsync("get_vessel", new
                 {
                     vesselId = "vsl_nonexistent"
                 }).ConfigureAwait(false);
@@ -874,7 +870,7 @@ namespace Armada.Test.Automated.Suites
             {
                 string fleetId = await RestCreateFleetAsync("UpdateVesselFleet").ConfigureAwait(false);
                 string vesselId = await RestCreateVesselAsync(fleetId, "OriginalVessel").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync("armada_update_vessel", new
+                JsonElement result = await CallToolAsync("update_vessel", new
                 {
                     vesselId = vesselId,
                     name = "UpdatedVessel"
@@ -886,7 +882,7 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("ArmadaUpdateVessel_NotFound_ReturnsError", async () =>
             {
-                JsonElement result = await CallToolAsync("armada_update_vessel", new
+                JsonElement result = await CallToolAsync("update_vessel", new
                 {
                     vesselId = "vsl_nonexistent",
                     name = "Whatever"
@@ -901,7 +897,7 @@ namespace Armada.Test.Automated.Suites
             {
                 string fleetId = await RestCreateFleetAsync("DeleteVesselFleet").ConfigureAwait(false);
                 string vesselId = await RestCreateVesselAsync(fleetId, "DeleteMeVessel").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync("armada_delete_vessel", new
+                JsonElement result = await CallToolAsync("delete_vessel", new
                 {
                     vesselId = vesselId
                 }).ConfigureAwait(false);
@@ -912,7 +908,7 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("ArmadaDeleteVessel_NotFound_ReturnsError", async () =>
             {
-                JsonElement result = await CallToolAsync("armada_delete_vessel", new
+                JsonElement result = await CallToolAsync("delete_vessel", new
                 {
                     vesselId = "vsl_nonexistent"
                 }).ConfigureAwait(false);
@@ -924,7 +920,7 @@ namespace Armada.Test.Automated.Suites
             // ArmadaCreateCaptain
             await RunTest("ArmadaCreateCaptain_CreatesWithName", async () =>
             {
-                JsonElement result = await CallToolAsync("armada_create_captain", new
+                JsonElement result = await CallToolAsync("create_captain", new
                 {
                     name = "mcp-created-captain"
                 }).ConfigureAwait(false);
@@ -936,7 +932,7 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("ArmadaCreateCaptain_WithRuntime_SetsRuntime", async () =>
             {
-                JsonElement result = await CallToolAsync("armada_create_captain", new
+                JsonElement result = await CallToolAsync("create_captain", new
                 {
                     name = "runtime-captain",
                     runtime = "ClaudeCode"
@@ -948,7 +944,7 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("ArmadaCreateCaptain_VisibleViaEnumerate", async () =>
             {
-                JsonElement createResult = await CallToolAsync("armada_create_captain", new
+                JsonElement createResult = await CallToolAsync("create_captain", new
                 {
                     name = "visible-captain"
                 }).ConfigureAwait(false);
@@ -956,7 +952,7 @@ namespace Armada.Test.Automated.Suites
                 Captain captain = JsonHelper.Deserialize<Captain>(createText);
                 string captainId = captain.Id;
 
-                JsonElement listResult = await CallToolAsync("armada_enumerate", new
+                JsonElement listResult = await CallToolAsync("enumerate", new
                 {
                     entityType = "captains",
                     pageSize = 50
@@ -969,7 +965,7 @@ namespace Armada.Test.Automated.Suites
             await RunTest("ArmadaGetCaptain_ExistingCaptain_ReturnsDetails", async () =>
             {
                 string captainId = await RestCreateCaptainAsync("get-captain-test").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync("armada_get_captain", new
+                JsonElement result = await CallToolAsync("get_captain", new
                 {
                     captainId = captainId
                 }).ConfigureAwait(false);
@@ -981,7 +977,7 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("ArmadaGetCaptain_NotFound_ReturnsError", async () =>
             {
-                JsonElement result = await CallToolAsync("armada_get_captain", new
+                JsonElement result = await CallToolAsync("get_captain", new
                 {
                     captainId = "cpt_nonexistent"
                 }).ConfigureAwait(false);
@@ -994,7 +990,7 @@ namespace Armada.Test.Automated.Suites
             await RunTest("ArmadaUpdateCaptain_UpdatesName", async () =>
             {
                 string captainId = await RestCreateCaptainAsync("original-captain").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync("armada_update_captain", new
+                JsonElement result = await CallToolAsync("update_captain", new
                 {
                     captainId = captainId,
                     name = "updated-captain"
@@ -1006,7 +1002,7 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("ArmadaUpdateCaptain_NotFound_ReturnsError", async () =>
             {
-                JsonElement result = await CallToolAsync("armada_update_captain", new
+                JsonElement result = await CallToolAsync("update_captain", new
                 {
                     captainId = "cpt_nonexistent",
                     name = "whatever"
@@ -1020,7 +1016,7 @@ namespace Armada.Test.Automated.Suites
             await RunTest("ArmadaDeleteCaptain_DeletesCaptain", async () =>
             {
                 string captainId = await RestCreateCaptainAsync("delete-captain").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync("armada_delete_captain", new
+                JsonElement result = await CallToolAsync("delete_captain", new
                 {
                     captainId = captainId
                 }).ConfigureAwait(false);
@@ -1031,7 +1027,7 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("ArmadaDeleteCaptain_NotFound_ReturnsError", async () =>
             {
-                JsonElement result = await CallToolAsync("armada_delete_captain", new
+                JsonElement result = await CallToolAsync("delete_captain", new
                 {
                     captainId = "cpt_nonexistent"
                 }).ConfigureAwait(false);
@@ -1044,7 +1040,7 @@ namespace Armada.Test.Automated.Suites
             await RunTest("ArmadaGetCaptainLog_NoCurrent_ReturnsEmptyLog", async () =>
             {
                 string captainId = await RestCreateCaptainAsync("log-captain").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync("armada_get_captain_log", new
+                JsonElement result = await CallToolAsync("get_captain_log", new
                 {
                     captainId = captainId
                 }).ConfigureAwait(false);
@@ -1056,7 +1052,7 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("ArmadaGetCaptainLog_NotFound_ReturnsError", async () =>
             {
-                JsonElement result = await CallToolAsync("armada_get_captain_log", new
+                JsonElement result = await CallToolAsync("get_captain_log", new
                 {
                     captainId = "cpt_nonexistent"
                 }).ConfigureAwait(false);
@@ -1070,7 +1066,7 @@ namespace Armada.Test.Automated.Suites
             {
                 string fleetId = await RestCreateFleetAsync("CreateMissionFleet").ConfigureAwait(false);
                 string vesselId = await RestCreateVesselAsync(fleetId, "CreateMissionVessel").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync("armada_create_mission", new
+                JsonElement result = await CallToolAsync("create_mission", new
                 {
                     title = "MCP Created Mission",
                     description = "Created via MCP tool",
@@ -1086,7 +1082,7 @@ namespace Armada.Test.Automated.Suites
             {
                 string fleetId = await RestCreateFleetAsync("CreateMissionVisFleet").ConfigureAwait(false);
                 string vesselId = await RestCreateVesselAsync(fleetId, "CreateMissionVisVessel").ConfigureAwait(false);
-                JsonElement createResult = await CallToolAsync("armada_create_mission", new
+                JsonElement createResult = await CallToolAsync("create_mission", new
                 {
                     title = "VisibleMission",
                     description = "Should be visible",
@@ -1096,7 +1092,7 @@ namespace Armada.Test.Automated.Suites
                 MissionCreateResponse createResponse = JsonHelper.Deserialize<MissionCreateResponse>(createText);
                 string missionId = createResponse.Mission != null ? createResponse.Mission.Id : JsonHelper.Deserialize<Mission>(createText).Id;
 
-                JsonElement statusResult = await CallToolAsync("armada_mission_status", new
+                JsonElement statusResult = await CallToolAsync("mission_status", new
                 {
                     missionId = missionId
                 }).ConfigureAwait(false);
@@ -1108,7 +1104,7 @@ namespace Armada.Test.Automated.Suites
             await RunTest("ArmadaUpdateMission_UpdatesTitle", async () =>
             {
                 string missionId = await RestCreateMissionAsync("UpdateTitleMission").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync("armada_update_mission", new
+                JsonElement result = await CallToolAsync("update_mission", new
                 {
                     missionId = missionId,
                     title = "Updated Title"
@@ -1121,7 +1117,7 @@ namespace Armada.Test.Automated.Suites
             await RunTest("ArmadaUpdateMission_UpdatesMultipleFields", async () =>
             {
                 string missionId = await RestCreateMissionAsync("UpdateMultiMission").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync("armada_update_mission", new
+                JsonElement result = await CallToolAsync("update_mission", new
                 {
                     missionId = missionId,
                     title = "Multi Update",
@@ -1141,7 +1137,7 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("ArmadaUpdateMission_NotFound_ReturnsError", async () =>
             {
-                JsonElement result = await CallToolAsync("armada_update_mission", new
+                JsonElement result = await CallToolAsync("update_mission", new
                 {
                     missionId = "msn_nonexistent",
                     title = "Should Fail"
@@ -1155,7 +1151,7 @@ namespace Armada.Test.Automated.Suites
             await RunTest("ArmadaTransitionMissionStatus_PendingToAssigned_Succeeds", async () =>
             {
                 string missionId = await RestCreateMissionAsync("TransitionMission").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync("armada_transition_mission_status", new
+                JsonElement result = await CallToolAsync("transition_mission_status", new
                 {
                     missionId = missionId,
                     status = "Assigned"
@@ -1169,7 +1165,7 @@ namespace Armada.Test.Automated.Suites
             {
                 string missionId = await RestCreateMissionAsync("InvalidTransMission").ConfigureAwait(false);
                 // Try transitioning to Pending which should be invalid from any state
-                JsonElement result = await CallToolAsync("armada_transition_mission_status", new
+                JsonElement result = await CallToolAsync("transition_mission_status", new
                 {
                     missionId = missionId,
                     status = "Pending"
@@ -1182,7 +1178,7 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("ArmadaTransitionMissionStatus_NotFound_ReturnsError", async () =>
             {
-                JsonElement result = await CallToolAsync("armada_transition_mission_status", new
+                JsonElement result = await CallToolAsync("transition_mission_status", new
                 {
                     missionId = "msn_nonexistent",
                     status = "Assigned"
@@ -1195,7 +1191,7 @@ namespace Armada.Test.Automated.Suites
             await RunTest("ArmadaTransitionMissionStatus_InvalidStatus_ReturnsError", async () =>
             {
                 string missionId = await RestCreateMissionAsync("BadStatusMission").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync("armada_transition_mission_status", new
+                JsonElement result = await CallToolAsync("transition_mission_status", new
                 {
                     missionId = missionId,
                     status = "BogusStatus"
@@ -1208,7 +1204,7 @@ namespace Armada.Test.Automated.Suites
             await RunTest("ArmadaTransitionMissionStatus_VerifyViaRest", async () =>
             {
                 string missionId = await RestCreateMissionAsync("TransVerifyMission").ConfigureAwait(false);
-                await CallToolAsync("armada_transition_mission_status", new
+                await CallToolAsync("transition_mission_status", new
                 {
                     missionId = missionId,
                     status = "Assigned"
@@ -1216,7 +1212,7 @@ namespace Armada.Test.Automated.Suites
 
                 // Verify via MCP tool instead of REST (different ports)
                 // Mission may auto-advance to InProgress or beyond if a captain picks it up
-                JsonElement getResult = await CallToolAsync("armada_mission_status", new { missionId = missionId }).ConfigureAwait(false);
+                JsonElement getResult = await CallToolAsync("mission_status", new { missionId = missionId }).ConfigureAwait(false);
                 string getBody = GetToolResultText(getResult);
                 Mission mission = JsonHelper.Deserialize<Mission>(getBody);
                 string status = mission.Status.ToString();
@@ -1228,7 +1224,7 @@ namespace Armada.Test.Automated.Suites
             await RunTest("ArmadaGetMissionDiff_NoWorktree_ReturnsError", async () =>
             {
                 string missionId = await RestCreateMissionAsync("DiffMission").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync("armada_get_mission_diff", new
+                JsonElement result = await CallToolAsync("get_mission_diff", new
                 {
                     missionId = missionId
                 }).ConfigureAwait(false);
@@ -1240,7 +1236,7 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("ArmadaGetMissionDiff_NotFound_ReturnsError", async () =>
             {
-                JsonElement result = await CallToolAsync("armada_get_mission_diff", new
+                JsonElement result = await CallToolAsync("get_mission_diff", new
                 {
                     missionId = "msn_nonexistent"
                 }).ConfigureAwait(false);
@@ -1255,7 +1251,7 @@ namespace Armada.Test.Automated.Suites
                 string missionId = await RestCreateMissionAsync("LogMission").ConfigureAwait(false);
                 JsonElement rawResult = await SendRawMcpRequestAsync("tools/call", new
                 {
-                    name = "armada_get_mission_log",
+                    name = "get_mission_log",
                     arguments = new { missionId = missionId }
                 }).ConfigureAwait(false);
 
@@ -1278,7 +1274,7 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("ArmadaGetMissionLog_NotFound_ReturnsError", async () =>
             {
-                JsonElement result = await CallToolAsync("armada_get_mission_log", new
+                JsonElement result = await CallToolAsync("get_mission_log", new
                 {
                     missionId = "msn_nonexistent"
                 }).ConfigureAwait(false);
@@ -1293,7 +1289,7 @@ namespace Armada.Test.Automated.Suites
 
                 JsonElement rawResult = await SendRawMcpRequestAsync("tools/call", new
                 {
-                    name = "armada_get_mission_log",
+                    name = "get_mission_log",
                     arguments = new { missionId = missionId, lines = 10, offset = 5 }
                 }).ConfigureAwait(false);
 
@@ -1318,10 +1314,10 @@ namespace Armada.Test.Automated.Suites
                 string voyageId = await RestCreateVoyageAsync(vesselId).ConfigureAwait(false);
 
                 // Cancel the voyage first — purge is blocked on Open/InProgress voyages
-                await CallToolAsync("armada_cancel_voyage", new { voyageId = voyageId }).ConfigureAwait(false);
+                await CallToolAsync("cancel_voyage", new { voyageId = voyageId }).ConfigureAwait(false);
 
                 // Also cancel any InProgress missions individually (cancel_voyage only cancels Pending/Assigned)
-                JsonElement statusResult = await CallToolAsync("armada_voyage_status", new
+                JsonElement statusResult = await CallToolAsync("voyage_status", new
                 {
                     voyageId = voyageId,
                     summary = false,
@@ -1336,12 +1332,12 @@ namespace Armada.Test.Automated.Suites
                         if (m.Status == Armada.Core.Enums.MissionStatusEnum.InProgress ||
                             m.Status == Armada.Core.Enums.MissionStatusEnum.Assigned)
                         {
-                            await CallToolAsync("armada_cancel_mission", new { missionId = m.Id }).ConfigureAwait(false);
+                            await CallToolAsync("cancel_mission", new { missionId = m.Id }).ConfigureAwait(false);
                         }
                     }
                 }
 
-                JsonElement result = await CallToolAsync("armada_purge_voyage", new
+                JsonElement result = await CallToolAsync("purge_voyage", new
                 {
                     voyageId = voyageId
                 }).ConfigureAwait(false);
@@ -1357,7 +1353,7 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("ArmadaPurgeVoyage_NotFound_ReturnsError", async () =>
             {
-                JsonElement result = await CallToolAsync("armada_purge_voyage", new
+                JsonElement result = await CallToolAsync("purge_voyage", new
                 {
                     voyageId = "vyg_nonexistent"
                 }).ConfigureAwait(false);
@@ -1369,7 +1365,7 @@ namespace Armada.Test.Automated.Suites
             // ArmadaMergeQueue
             await RunTest("ArmadaGetMergeEntry_NotFound_ReturnsError", async () =>
             {
-                JsonElement result = await CallToolAsync("armada_get_merge_entry", new
+                JsonElement result = await CallToolAsync("get_merge_entry", new
                 {
                     entryId = "mrg_nonexistent"
                 }).ConfigureAwait(false);
@@ -1382,7 +1378,7 @@ namespace Armada.Test.Automated.Suites
             {
                 string fleetId = await RestCreateFleetAsync("MergeQueueFleet").ConfigureAwait(false);
                 string vesselId = await RestCreateVesselAsync(fleetId, "MergeQueueVessel").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync("armada_enqueue_merge", new
+                JsonElement result = await CallToolAsync("enqueue_merge", new
                 {
                     vesselId = vesselId,
                     branchName = "feature/test-merge"
@@ -1397,7 +1393,7 @@ namespace Armada.Test.Automated.Suites
             {
                 string fleetId = await RestCreateFleetAsync("MergeVisFleet").ConfigureAwait(false);
                 string vesselId = await RestCreateVesselAsync(fleetId, "MergeVisVessel").ConfigureAwait(false);
-                JsonElement enqResult = await CallToolAsync("armada_enqueue_merge", new
+                JsonElement enqResult = await CallToolAsync("enqueue_merge", new
                 {
                     vesselId = vesselId,
                     branchName = "feature/visible-merge"
@@ -1406,7 +1402,7 @@ namespace Armada.Test.Automated.Suites
                 MergeEntry entry = JsonHelper.Deserialize<MergeEntry>(enqText);
                 string entryId = entry.Id;
 
-                JsonElement listResult = await CallToolAsync("armada_enumerate", new
+                JsonElement listResult = await CallToolAsync("enumerate", new
                 {
                     entityType = "merge_queue",
                     vesselId = vesselId
@@ -1419,7 +1415,7 @@ namespace Armada.Test.Automated.Suites
             {
                 string fleetId = await RestCreateFleetAsync("MergeGetFleet").ConfigureAwait(false);
                 string vesselId = await RestCreateVesselAsync(fleetId, "MergeGetVessel").ConfigureAwait(false);
-                JsonElement enqResult = await CallToolAsync("armada_enqueue_merge", new
+                JsonElement enqResult = await CallToolAsync("enqueue_merge", new
                 {
                     vesselId = vesselId,
                     branchName = "feature/get-merge"
@@ -1428,7 +1424,7 @@ namespace Armada.Test.Automated.Suites
                 MergeEntry entry = JsonHelper.Deserialize<MergeEntry>(enqText);
                 string entryId = entry.Id;
 
-                JsonElement getResult = await CallToolAsync("armada_get_merge_entry", new
+                JsonElement getResult = await CallToolAsync("get_merge_entry", new
                 {
                     entryId = entryId
                 }).ConfigureAwait(false);
@@ -1442,7 +1438,7 @@ namespace Armada.Test.Automated.Suites
             {
                 string fleetId = await RestCreateFleetAsync("MergeCancelFleet").ConfigureAwait(false);
                 string vesselId = await RestCreateVesselAsync(fleetId, "MergeCancelVessel").ConfigureAwait(false);
-                JsonElement enqResult = await CallToolAsync("armada_enqueue_merge", new
+                JsonElement enqResult = await CallToolAsync("enqueue_merge", new
                 {
                     vesselId = vesselId,
                     branchName = "feature/cancel-merge"
@@ -1451,7 +1447,7 @@ namespace Armada.Test.Automated.Suites
                 MergeEntry entry = JsonHelper.Deserialize<MergeEntry>(enqText);
                 string entryId = entry.Id;
 
-                JsonElement cancelResult = await CallToolAsync("armada_cancel_merge", new
+                JsonElement cancelResult = await CallToolAsync("cancel_merge", new
                 {
                     entryId = entryId
                 }).ConfigureAwait(false);
@@ -1462,7 +1458,7 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("ArmadaProcessMergeQueue_Executes", async () =>
             {
-                JsonElement result = await CallToolAsync("armada_process_merge_queue", new { }).ConfigureAwait(false);
+                JsonElement result = await CallToolAsync("process_merge_queue", new { }).ConfigureAwait(false);
                 AssertToolResultValid(result);
                 string text = GetToolResultText(result);
                 AssertContains("processed", text);
@@ -1498,7 +1494,7 @@ namespace Armada.Test.Automated.Suites
             await RunTest("CrossInterface_FleetCreatedViaRest_VisibleViaMcp", async () =>
             {
                 string fleetId = await RestCreateFleetAsync("CrossFleet").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync("armada_enumerate", new
+                JsonElement result = await CallToolAsync("enumerate", new
                 {
                     entityType = "fleets",
                     pageSize = 50
@@ -1510,7 +1506,7 @@ namespace Armada.Test.Automated.Suites
             await RunTest("CrossInterface_FleetCreatedViaRest_GetFleetViaMcp", async () =>
             {
                 string fleetId = await RestCreateFleetAsync("CrossGetFleet").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync("armada_get_fleet", new
+                JsonElement result = await CallToolAsync("get_fleet", new
                 {
                     fleetId = fleetId
                 }).ConfigureAwait(false);
@@ -1522,7 +1518,7 @@ namespace Armada.Test.Automated.Suites
             await RunTest("CrossInterface_CaptainCreatedViaRest_VisibleViaMcp", async () =>
             {
                 string captainId = await RestCreateCaptainAsync("cross-captain").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync("armada_enumerate", new
+                JsonElement result = await CallToolAsync("enumerate", new
                 {
                     entityType = "captains",
                     pageSize = 50
@@ -1535,7 +1531,7 @@ namespace Armada.Test.Automated.Suites
             {
                 string fleetId = await RestCreateFleetAsync("CrossDispatchFleet").ConfigureAwait(false);
                 string vesselId = await RestCreateVesselAsync(fleetId, "CrossDispatchVessel").ConfigureAwait(false);
-                JsonElement dispatchResult = await CallToolAsync("armada_dispatch", new
+                JsonElement dispatchResult = await CallToolAsync("dispatch", new
                 {
                     title = "Cross Dispatch Voyage",
                     vesselId = vesselId,
@@ -1550,7 +1546,7 @@ namespace Armada.Test.Automated.Suites
                 string voyageId = voyage.Id;
 
                 // Verify via MCP tool instead of REST (different ports)
-                JsonElement getResult = await CallToolAsync("armada_voyage_status", new { voyageId = voyageId }).ConfigureAwait(false);
+                JsonElement getResult = await CallToolAsync("voyage_status", new { voyageId = voyageId }).ConfigureAwait(false);
                 string getBody = GetToolResultText(getResult);
                 VoyageDetailResponse voyageData = JsonHelper.Deserialize<VoyageDetailResponse>(getBody);
                 AssertEqual(voyageId, voyageData.Voyage!.Id);
@@ -1560,7 +1556,7 @@ namespace Armada.Test.Automated.Suites
             {
                 string fleetId = await RestCreateFleetAsync("CrossAddVesselFleet").ConfigureAwait(false);
                 string vesselName = "Cross-Added-Vessel-" + Guid.NewGuid().ToString("N").Substring(0, 8);
-                JsonElement addResult = await CallToolAsync("armada_add_vessel", new
+                JsonElement addResult = await CallToolAsync("add_vessel", new
                 {
                     name = vesselName,
                     repoUrl = TestRepoHelper.GetLocalBareRepoUrl(),
@@ -1570,7 +1566,7 @@ namespace Armada.Test.Automated.Suites
                 Vessel addedVessel = JsonHelper.Deserialize<Vessel>(addText);
                 string vesselId = addedVessel.Id;
 
-                JsonElement getResult = await CallToolAsync("armada_enumerate", new
+                JsonElement getResult = await CallToolAsync("enumerate", new
                 {
                     entityType = "vessels",
                     fleetId = fleetId
@@ -1582,13 +1578,13 @@ namespace Armada.Test.Automated.Suites
             await RunTest("CrossInterface_MissionCancelledViaMcp_StatusChangedViaRest", async () =>
             {
                 string missionId = await RestCreateMissionAsync("CrossCancelMission").ConfigureAwait(false);
-                await CallToolAsync("armada_cancel_mission", new
+                await CallToolAsync("cancel_mission", new
                 {
                     missionId = missionId
                 }).ConfigureAwait(false);
 
                 // Verify via MCP tool instead of REST (different ports)
-                JsonElement getResult = await CallToolAsync("armada_mission_status", new { missionId = missionId }).ConfigureAwait(false);
+                JsonElement getResult = await CallToolAsync("mission_status", new { missionId = missionId }).ConfigureAwait(false);
                 string getBody = GetToolResultText(getResult);
                 Mission mission = JsonHelper.Deserialize<Mission>(getBody);
                 AssertEqual("Cancelled", mission.Status.ToString());
@@ -1597,13 +1593,13 @@ namespace Armada.Test.Automated.Suites
             await RunTest("CrossInterface_SignalSentViaMcp_VisibleViaEnumerate", async () =>
             {
                 string captainId = await RestCreateCaptainAsync("cross-signal-captain").ConfigureAwait(false);
-                await CallToolAsync("armada_send_signal", new
+                await CallToolAsync("send_signal", new
                 {
                     captainId = captainId,
                     message = "Cross-interface signal"
                 }).ConfigureAwait(false);
 
-                JsonElement listResult = await CallToolAsync("armada_enumerate", new
+                JsonElement listResult = await CallToolAsync("enumerate", new
                 {
                     entityType = "signals",
                     includeMessage = true,
@@ -1616,7 +1612,7 @@ namespace Armada.Test.Automated.Suites
             // AllTools Execute
             await RunTest("AllTools_ArmadaStatus_Executes", async () =>
             {
-                JsonElement result = await CallToolAsync("armada_status", new { }).ConfigureAwait(false);
+                JsonElement result = await CallToolAsync("status", new { }).ConfigureAwait(false);
                 AssertToolResultValid(result);
             }).ConfigureAwait(false);
 
@@ -1625,7 +1621,7 @@ namespace Armada.Test.Automated.Suites
                 using CancellationTokenSource cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
                 try
                 {
-                    JsonElement result = await CallToolAsync("armada_stop_all", new { }).ConfigureAwait(false);
+                    JsonElement result = await CallToolAsync("stop_all", new { }).ConfigureAwait(false);
                     AssertToolResultValid(result);
                 }
                 catch (TaskCanceledException)
@@ -1640,7 +1636,7 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("AllTools_ArmadaEnumerate_Executes", async () =>
             {
-                JsonElement result = await CallToolAsync("armada_enumerate", new { entityType = "fleets" }).ConfigureAwait(false);
+                JsonElement result = await CallToolAsync("enumerate", new { entityType = "fleets" }).ConfigureAwait(false);
                 AssertToolResultValid(result);
             }).ConfigureAwait(false);
 
@@ -1648,7 +1644,7 @@ namespace Armada.Test.Automated.Suites
             await RunTest("ArmadaEnumerate_DefaultNoIncludeFlags_OmitsHeavyFields", async () =>
             {
                 await RestCreateMissionAsync("EnumFlagsMission").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync("armada_enumerate", new
+                JsonElement result = await CallToolAsync("enumerate", new
                 {
                     entityType = "missions"
                 }).ConfigureAwait(false);
@@ -1662,7 +1658,7 @@ namespace Armada.Test.Automated.Suites
             await RunTest("ArmadaEnumerate_IncludeDescriptionTrue_ReturnsMissionDescription", async () =>
             {
                 await RestCreateMissionAsync("EnumDescMission").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync("armada_enumerate", new
+                JsonElement result = await CallToolAsync("enumerate", new
                 {
                     entityType = "missions",
                     includeDescription = true
@@ -1676,7 +1672,7 @@ namespace Armada.Test.Automated.Suites
             {
                 string fleetId = await RestCreateFleetAsync("EnumCtxFleet").ConfigureAwait(false);
                 await RestCreateVesselAsync(fleetId, "EnumCtxVessel").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync("armada_enumerate", new
+                JsonElement result = await CallToolAsync("enumerate", new
                 {
                     entityType = "vessels",
                     includeContext = true
@@ -1692,7 +1688,7 @@ namespace Armada.Test.Automated.Suites
             {
                 string fleetId = await RestCreateFleetAsync("EnumNoCtxFleet").ConfigureAwait(false);
                 await RestCreateVesselAsync(fleetId, "EnumNoCtxVessel").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync("armada_enumerate", new
+                JsonElement result = await CallToolAsync("enumerate", new
                 {
                     entityType = "vessels"
                 }).ConfigureAwait(false);
@@ -1704,7 +1700,7 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("ArmadaEnumerate_DefaultPageSizeIsTen", async () =>
             {
-                JsonElement result = await CallToolAsync("armada_enumerate", new
+                JsonElement result = await CallToolAsync("enumerate", new
                 {
                     entityType = "fleets"
                 }).ConfigureAwait(false);
@@ -1720,7 +1716,7 @@ namespace Armada.Test.Automated.Suites
                 string fleetId = await RestCreateFleetAsync("VoySumFleet").ConfigureAwait(false);
                 string vesselId = await RestCreateVesselAsync(fleetId, "VoySumVessel").ConfigureAwait(false);
                 string voyageId = await RestCreateVoyageAsync(vesselId).ConfigureAwait(false);
-                JsonElement result = await CallToolAsync("armada_voyage_status", new
+                JsonElement result = await CallToolAsync("voyage_status", new
                 {
                     voyageId = voyageId
                 }).ConfigureAwait(false);
@@ -1736,7 +1732,7 @@ namespace Armada.Test.Automated.Suites
                 string fleetId = await RestCreateFleetAsync("VoyNonSumFleet").ConfigureAwait(false);
                 string vesselId = await RestCreateVesselAsync(fleetId, "VoyNonSumVessel").ConfigureAwait(false);
                 string voyageId = await RestCreateVoyageAsync(vesselId).ConfigureAwait(false);
-                JsonElement result = await CallToolAsync("armada_voyage_status", new
+                JsonElement result = await CallToolAsync("voyage_status", new
                 {
                     voyageId = voyageId,
                     summary = false,
@@ -1755,7 +1751,7 @@ namespace Armada.Test.Automated.Suites
                 string fleetId = await RestCreateFleetAsync("VoyDescFleet").ConfigureAwait(false);
                 string vesselId = await RestCreateVesselAsync(fleetId, "VoyDescVessel").ConfigureAwait(false);
                 string voyageId = await RestCreateVoyageAsync(vesselId).ConfigureAwait(false);
-                JsonElement result = await CallToolAsync("armada_voyage_status", new
+                JsonElement result = await CallToolAsync("voyage_status", new
                 {
                     voyageId = voyageId,
                     summary = false,
@@ -1773,7 +1769,7 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("AllTools_ArmadaProcessMergeQueue_Executes", async () =>
             {
-                JsonElement result = await CallToolAsync("armada_process_merge_queue", new { }).ConfigureAwait(false);
+                JsonElement result = await CallToolAsync("process_merge_queue", new { }).ConfigureAwait(false);
                 AssertToolResultValid(result);
             }).ConfigureAwait(false);
         }
@@ -1892,7 +1888,7 @@ namespace Armada.Test.Automated.Suites
         private async Task<string> RestCreateFleetAsync(string name = "McpTestFleet")
         {
             string uniqueName = name + "-" + Guid.NewGuid().ToString("N").Substring(0, 8);
-            JsonElement result = await CallToolAsync("armada_create_fleet", new { name = uniqueName }).ConfigureAwait(false);
+            JsonElement result = await CallToolAsync("create_fleet", new { name = uniqueName }).ConfigureAwait(false);
             string text = GetToolResultText(result);
             Fleet fleet = JsonHelper.Deserialize<Fleet>(text);
             return fleet.Id;
@@ -1901,7 +1897,7 @@ namespace Armada.Test.Automated.Suites
         private async Task<string> RestCreateVesselAsync(string fleetId, string name = "McpTestVessel")
         {
             string uniqueName = name + "-" + Guid.NewGuid().ToString("N").Substring(0, 8);
-            JsonElement result = await CallToolAsync("armada_add_vessel", new
+            JsonElement result = await CallToolAsync("add_vessel", new
             {
                 name = uniqueName,
                 repoUrl = TestRepoHelper.GetLocalBareRepoUrl(),
@@ -1915,7 +1911,7 @@ namespace Armada.Test.Automated.Suites
         private async Task<string> RestCreateCaptainAsync(string name = "mcp-test-captain")
         {
             string uniqueName = name + "-" + Guid.NewGuid().ToString("N").Substring(0, 8);
-            JsonElement result = await CallToolAsync("armada_create_captain", new
+            JsonElement result = await CallToolAsync("create_captain", new
             {
                 name = uniqueName,
                 runtime = "ClaudeCode"
@@ -1933,7 +1929,7 @@ namespace Armada.Test.Automated.Suites
                 vesselId = await RestCreateVesselAsync(fleetId, "MsnVessel").ConfigureAwait(false);
             }
 
-            JsonElement result = await CallToolAsync("armada_create_mission", new
+            JsonElement result = await CallToolAsync("create_mission", new
             {
                 title = title,
                 description = "Test mission for MCP",
@@ -1953,7 +1949,7 @@ namespace Armada.Test.Automated.Suites
 
         private async Task<string> RestCreateVoyageAsync(string vesselId)
         {
-            JsonElement result = await CallToolAsync("armada_dispatch", new
+            JsonElement result = await CallToolAsync("dispatch", new
             {
                 title = "McpTestVoyage-" + Guid.NewGuid().ToString("N").Substring(0, 8),
                 description = "Voyage for MCP testing",
@@ -1970,7 +1966,7 @@ namespace Armada.Test.Automated.Suites
 
         private async Task<string> RestCreateSignalAsync()
         {
-            JsonElement result = await CallToolAsync("armada_send_signal", new
+            JsonElement result = await CallToolAsync("send_signal", new
             {
                 message = "Test signal"
             }).ConfigureAwait(false);

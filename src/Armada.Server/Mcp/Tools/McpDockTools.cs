@@ -29,7 +29,7 @@ namespace Armada.Server.Mcp.Tools
         public static void Register(RegisterToolDelegate register, DatabaseDriver database, IDockService? dockService = null)
         {
             register(
-                "armada_get_dock",
+                "get_dock",
                 "Get a dock (git worktree) by ID.",
                 new
                 {
@@ -49,7 +49,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_delete_dock",
+                "delete_dock",
                 "Delete a dock and clean up its git worktree. Blocked if the dock is actively in use by a captain.",
                 new
                 {
@@ -73,7 +73,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_purge_dock",
+                "purge_dock",
                 "Force purge a dock and its git worktree, even if a mission references it. This cannot be undone.",
                 new
                 {
@@ -96,7 +96,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_delete_docks",
+                "delete_docks",
                 "Permanently delete multiple docks and their git worktrees from the database by ID. Returns a summary of deleted and skipped entries. This cannot be undone.",
                 new
                 {

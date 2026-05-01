@@ -27,7 +27,7 @@ namespace Armada.Server.Mcp.Tools
         public static void Register(RegisterToolDelegate register, DatabaseDriver database, ArmadaSettings settings)
         {
             register(
-                "armada_backup",
+                "backup",
                 "Create a ZIP backup of the Armada database and settings for disaster recovery. " +
                 "Uses SQLite online backup API for a consistent snapshot.",
                 new
@@ -49,7 +49,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_restore",
+                "restore",
                 "Restore the Armada database and settings from a ZIP backup file. " +
                 "Creates a safety backup of the current state before overwriting. Server restart recommended after restore.",
                 new

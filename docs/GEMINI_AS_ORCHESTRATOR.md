@@ -56,7 +56,7 @@ Start the Admiral server (`armada server start`), then:
 gemini --sandbox none -p "Check Armada status and tell me what's running."
 ```
 
-Gemini will call `armada_status` and report active captains, missions, and voyages.
+Gemini will call `status` and report active captains, missions, and voyages.
 
 ## Giving Gemini Full Instructions
 

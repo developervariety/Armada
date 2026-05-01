@@ -29,7 +29,7 @@ namespace Armada.Server.Mcp.Tools
         public static void Register(RegisterToolDelegate register, DatabaseDriver database)
         {
             register(
-                "armada_send_signal",
+                "send_signal",
                 "Send a signal/message to a captain",
                 new
                 {
@@ -54,7 +54,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_delete_signals",
+                "delete_signals",
                 "Soft-delete multiple signals by marking them as read. Returns a summary of deleted and skipped entries.",
                 new
                 {

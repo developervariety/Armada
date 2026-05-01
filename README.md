@@ -294,11 +294,11 @@ The four built-in personas are starting points. You can create your own:
 
 ```bash
 # Create a security auditor persona with custom instructions
-armada_update_prompt_template name=persona.security_auditor content="Review for OWASP vulnerabilities..."
-armada_create_persona name=SecurityAuditor promptTemplateName=persona.security_auditor
+update_prompt_template name=persona.security_auditor content="Review for OWASP vulnerabilities..."
+create_persona name=SecurityAuditor promptTemplateName=persona.security_auditor
 
 # Build a pipeline that includes security review
-armada_create_pipeline name=SecureRelease stages='[{"personaName":"Worker"},{"personaName":"SecurityAuditor"},{"personaName":"Judge"}]'
+create_pipeline name=SecureRelease stages='[{"personaName":"Worker"},{"personaName":"SecurityAuditor"},{"personaName":"Judge"}]'
 ```
 
 Every prompt Armada sends is backed by an editable template. You can change agent behavior without modifying code. The dashboard includes a template editor with a parameter reference panel.
@@ -701,7 +701,7 @@ armada mcp remove     # Remove those Armada MCP entries again
 
 If you are working from source, MCP helper entrypoints are available under `scripts/windows/`, `scripts/linux/`, and `scripts/macos/`.
 
-Once installed, your MCP client can call tools like `armada_status`, `armada_dispatch`, `armada_enumerate`, `armada_voyage_status`, and `armada_cancel_voyage`. There are also tool groups for playbook, persona, pipeline, and prompt-template management.
+Once installed, your MCP client can call tools like `status`, `dispatch`, `enumerate`, `voyage_status`, and `cancel_voyage`. There are also tool groups for playbook, persona, pipeline, and prompt-template management.
 
 ### AI-Powered Orchestration
 
@@ -963,7 +963,7 @@ No other changes are required -- all other settings remain the same.
 - **Port auto-detection:** Setting `port` to `0` (or omitting it) auto-detects the default port for each database type (PostgreSQL: 5432, SQL Server: 1433, MySQL: 3306).
 - **Connection pooling:** All non-SQLite backends support connection pooling via `minPoolSize` (0-100), `maxPoolSize` (1-200), `connectionLifetimeSeconds` (minimum 30), and `connectionIdleTimeoutSeconds` (minimum 10).
 - **Encryption:** Set `requireEncryption` to `true` to require encrypted connections for PostgreSQL, SQL Server, or MySQL.
-- **Backup/restore:** The `armada_backup` and `armada_restore` MCP tools are only available when using SQLite. If you switch to PostgreSQL, SQL Server, or MySQL, use your database's native backup tools instead.
+- **Backup/restore:** The `backup` and `restore` MCP tools are only available when using SQLite. If you switch to PostgreSQL, SQL Server, or MySQL, use your database's native backup tools instead.
 
 #### Automated migration script
 

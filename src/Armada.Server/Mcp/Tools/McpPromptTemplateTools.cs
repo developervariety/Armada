@@ -27,7 +27,7 @@ namespace Armada.Server.Mcp.Tools
         public static void Register(RegisterToolDelegate register, DatabaseDriver database, IPromptTemplateService templateService)
         {
             register(
-                "armada_get_prompt_template",
+                "get_prompt_template",
                 "Get a prompt template by name. Resolves from database first, falls back to embedded defaults.",
                 new
                 {
@@ -49,7 +49,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_update_prompt_template",
+                "update_prompt_template",
                 "Update a prompt template's content and description. Creates the template if it does not exist.",
                 new
                 {
@@ -90,7 +90,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_reset_prompt_template",
+                "reset_prompt_template",
                 "Reset a prompt template to its embedded resource default content. Only works for built-in templates.",
                 new
                 {

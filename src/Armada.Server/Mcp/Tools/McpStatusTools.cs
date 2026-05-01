@@ -27,7 +27,7 @@ namespace Armada.Server.Mcp.Tools
         public static void Register(RegisterToolDelegate register, IAdmiralService admiral, Action? onStop)
         {
             register(
-                "armada_status",
+                "status",
                 "Get aggregate status of all active work in Armada",
                 new { type = "object", properties = new { } },
                 async (args) =>
@@ -39,7 +39,7 @@ namespace Armada.Server.Mcp.Tools
             if (onStop != null)
             {
                 register(
-                    "armada_stop_server",
+                    "stop_server",
                     "Initiate a graceful shutdown of the Admiral server",
                     new { type = "object", properties = new { } },
                     async (args) =>

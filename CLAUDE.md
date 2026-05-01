@@ -1,7 +1,7 @@
 ## Project Context
 Armada is a multi-agent orchestration system that scales human developers with AI. It coordinates AI coding agents ("captains") to work on tasks ("missions") across git repositories ("vessels"). Written in C# (.NET), it exposes MCP tools for fleet, vessel, captain, mission, voyage, dock, signal, and merge queue management.
 
-IMPORTANT -- Context Conservation: When using Armada MCP tools, use armada_enumerate with a small pageSize (10-25) to conserve context. Use filters (vesselId, status, date ranges) to narrow results. Only set include flags (includeDescription, includeContext, includeTestOutput, includePayload, includeMessage) to true when you specifically need that data -- by default, large fields are excluded and length hints are returned instead.
+IMPORTANT -- Context Conservation: When using Armada MCP tools, use enumerate with a small pageSize (10-25) to conserve context. Use filters (vesselId, status, date ranges) to narrow results. Only set include flags (includeDescription, includeContext, includeTestOutput, includePayload, includeMessage) to true when you specifically need that data -- by default, large fields are excluded and length hints are returned instead.
 
 ## Code Style
 For C#: no var, no tuples, using statements instead of declarations, using statements inside the namespace blocks, XML documentation, public things named LikeThis, private things named _LikeThis, one entity per file, null check on set where appropriate and value-clamping to reasonable ranges where appropriate
@@ -26,19 +26,19 @@ FILES TO MODIFY:
 DO NOT modify any other files.
 
 TASK 1 — docs/MERGING.md:
-- Line 7: Replace `armada_list_merge_queue` in the intro paragraph with `armada_enumerate` with entityType 'merge_queue'. Example: "The merge queue is managed through MCP tools (`armada_enqueue_merge`, `armada_process_merge_queue`, `armada_enumerate` with entityType 'merge_queue', etc.)"
-- Line 79: Replace the monitoring guidance. Change from mentioning both `armada_list_merge_queue` and `armada_enumerate` to just `armada_enumerate`: "Use `armada_enumerate` with entityType 'merge_queue' and status 'Failed' to check for entries that may need attention."
+- Line 7: Replace `armada_list_merge_queue` in the intro paragraph with `enumerate` with entityType 'merge_queue'. Example: "The merge queue is managed through MCP tools (`enqueue_merge`, `process_merge_queue`, `enumerate` with entityType 'merge_queue', etc.)"
+- Line 79: Replace the monitoring guidance. Change from mentioning both `armada_list_merge_queue` and `enumerate` to just `enumerate`: "Use `enumerate` with entityType 'merge_queue' and status 'Failed' to check for entries that may need attention."
 - Line 91: Remove `armada_list_merge_queue` from the tool reference table.
 - Search the entire file for any remaining 'armada_list' references.
 
 TASK 2 — CLAUDE.md (project root):
-- Line 4: Rewrite the context conservation note. Remove all references to armada_list_*. The note currently says "prefer armada_enumerate over armada_list_* tools". Since list tools no longer exist, rewrite to simply state best practices for enumerate:
-  "IMPORTANT — Context Conservation: When using Armada MCP tools, use armada_enumerate with a small pageSize (10-25) to conserve context. Use filters (vesselId, status, date ranges) to narrow results. Only set include flags (includeDescription, includeContext, includeTestOutput, includePayload, includeMessage) to true when you specifically need that data — by default, large fields are excluded and length hints are returned instead."
+- Line 4: Rewrite the context conservation note. Remove all references to armada_list_*. The note currently says "prefer enumerate over armada_list_* tools". Since list tools no longer exist, rewrite to simply state best practices for enumerate:
+  "IMPORTANT — Context Conservation: When using Armada MCP tools, use enumerate with a small pageSize (10-25) to conserve context. Use filters (vesselId, status, date ranges) to narrow results. Only set include flags (includeDescription, includeContext, includeTestOutput, includePayload, includeMessage) to true when you specifically need that data — by default, large fields are excluded and length hints are returned instead."
 
 TASK 3 — README.md (project root):
 - Line 503: Replace the tool examples. Change from mentioning `armada_list_missions` and `armada_list_events` to enumerate equivalents:
-  FROM: "your MCP client can call tools like `armada_status`, `armada_dispatch`, `armada_list_missions`, `armada_cancel_voyage`, `armada_list_events`, and more."
-  TO: "your MCP client can call tools like `armada_status`, `armada_dispatch`, `armada_enumerate`, `armada_voyage_status`, `armada_cancel_voyage`, and more."
+  FROM: "your MCP client can call tools like `status`, `dispatch`, `armada_list_missions`, `cancel_voyage`, `armada_list_events`, and more."
+  TO: "your MCP client can call tools like `status`, `dispatch`, `enumerate`, `voyage_status`, `cancel_voyage`, and more."
 - Search the entire file for any remaining 'armada_list' references.
 
 ## Repository
@@ -85,7 +85,7 @@ You can report progress to the Admiral by printing these lines to stdout:
 ## Project Context
 Armada is a multi-agent orchestration system that scales human developers with AI. It coordinates AI coding agents ("captains") to work on tasks ("missions") across git repositories ("vessels"). Written in C# (.NET), it exposes MCP tools for fleet, vessel, captain, mission, voyage, dock, signal, and merge queue management.
 
-IMPORTANT -- Context Conservation: When using Armada MCP tools, use armada_enumerate with a small pageSize (10-25) to conserve context. Use filters (vesselId, status, date ranges) to narrow results. Only set include flags (includeDescription, includeContext, includeTestOutput, includePayload, includeMessage) to true when you specifically need that data -- by default, large fields are excluded and length hints are returned instead.
+IMPORTANT -- Context Conservation: When using Armada MCP tools, use enumerate with a small pageSize (10-25) to conserve context. Use filters (vesselId, status, date ranges) to narrow results. Only set include flags (includeDescription, includeContext, includeTestOutput, includePayload, includeMessage) to true when you specifically need that data -- by default, large fields are excluded and length hints are returned instead.
 
 ## Code Style
 For C#: no var, no tuples, using statements instead of declarations, using statements inside the namespace blocks, XML documentation, public things named LikeThis, private things named _LikeThis, one entity per file, null check on set where appropriate and value-clamping to reasonable ranges where appropriate
@@ -99,18 +99,18 @@ You are an Armada captain executing a mission. Follow these instructions careful
 - **ID:** msn_mmodt5yk_3G3El3YyMEK
 
 ## Description
-The merge queue is missing public API/MCP tools for cleanup. Missions have `armada_purge_mission`, voyages have `armada_purge_voyage`, but there are NO equivalent tools for merge queue entries. The internal `MergeQueueService.DeleteAsync()` method exists but is not exposed.
+The merge queue is missing public API/MCP tools for cleanup. Missions have `purge_mission`, voyages have `purge_voyage`, but there are NO equivalent tools for merge queue entries. The internal `MergeQueueService.DeleteAsync()` method exists but is not exposed.
 
 ## What to implement
 
-### 1. `armada_delete_merge` MCP tool
+### 1. `delete_merge` MCP tool
 - Deletes a single merge queue entry by ID
 - Only allows deletion of terminal entries (Landed, Failed, Cancelled)
 - Calls the existing `MergeQueueService.DeleteAsync()` method
 - Parameter: `entryId` (string, required, mrg_ prefix)
-- Follow the exact pattern of `armada_purge_mission` for implementation
+- Follow the exact pattern of `purge_mission` for implementation
 
-### 2. `armada_purge_merge_queue` MCP tool  
+### 2. `purge_merge_queue` MCP tool  
 - Bulk purge of all terminal merge queue entries (Landed, Failed, Cancelled)
 - Optional `vesselId` filter to purge only entries for a specific vessel
 - Optional `status` filter (e.g. only purge "Failed" entries)
@@ -119,7 +119,7 @@ The merge queue is missing public API/MCP tools for cleanup. Missions have `arma
 
 ### Key files to modify
 
-1. **`src/Armada.Server/Mcp/McpToolRegistrar.cs`** — Register the two new MCP tools following the existing pattern (look at how `armada_purge_mission` and `armada_purge_voyage` are registered)
+1. **`src/Armada.Server/Mcp/McpToolRegistrar.cs`** — Register the two new MCP tools following the existing pattern (look at how `purge_mission` and `purge_voyage` are registered)
 
 2. **`src/Armada.Server/Mcp/McpToolHandler.cs`** (or wherever tool handlers live) — Add handler methods for the two new tools, calling into MergeQueueService
 
@@ -131,8 +131,8 @@ The merge queue is missing public API/MCP tools for cleanup. Missions have `arma
 
 ### Implementation guidance
 
-- Study how `armada_purge_mission` is implemented end-to-end (registration → handler → service call) and replicate the exact same pattern
-- Study how `armada_cancel_merge` is implemented since it's the closest existing merge queue MCP tool
+- Study how `purge_mission` is implemented end-to-end (registration → handler → service call) and replicate the exact same pattern
+- Study how `cancel_merge` is implemented since it's the closest existing merge queue MCP tool
 - The `DeleteAsync` method already handles git branch cleanup (local + remote), so leverage it
 - Ensure proper error handling: return clear error if entry not found or not in terminal state
 - Follow the project's style guide: no var, XML docs, PascalCase public, _PascalCase private

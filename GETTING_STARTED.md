@@ -138,7 +138,7 @@ Everything below happens inside this Claude session.
 
 > Create a fleet called "demo" and add a vessel named "bookshelf" pointing to ~/code/bookshelf.
 
-Claude calls `armada_create_fleet` and `armada_add_vessel`. You'll see IDs like `flt_...` and `vsl_...` in the response.
+Claude calls `create_fleet` and `add_vessel`. You'll see IDs like `flt_...` and `vsl_...` in the response.
 
 ## Scaffold the project
 

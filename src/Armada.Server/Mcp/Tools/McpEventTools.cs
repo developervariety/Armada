@@ -27,7 +27,7 @@ namespace Armada.Server.Mcp.Tools
         public static void Register(RegisterToolDelegate register, DatabaseDriver database)
         {
             register(
-                "armada_delete_event",
+                "delete_event",
                 "Delete a single event by ID. Permanently removes the event from the database.",
                 new
                 {
@@ -49,7 +49,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_delete_events",
+                "delete_events",
                 "Permanently delete multiple events from the database by ID. Returns a summary of deleted and skipped entries. This cannot be undone.",
                 new
                 {

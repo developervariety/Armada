@@ -319,10 +319,13 @@ namespace Armada.Helm.Commands
 
             string distDir = Path.Combine(dashboardDir, "dist");
             string targetDir = Path.Combine(Constants.DefaultDataDirectory, "dashboard");
+            bool hasExistingDist = Directory.Exists(distDir)
+                && File.Exists(Path.Combine(distDir, "index.html"));
+            bool hasExistingDeployedDashboard = Directory.Exists(targetDir)
+                && File.Exists(Path.Combine(targetDir, "index.html"));
 
             // Check if dashboard needs rebuilding
-            bool needsBuild = !Directory.Exists(distDir)
-                || !File.Exists(Path.Combine(distDir, "index.html"));
+            bool needsBuild = !hasExistingDist;
 
             if (!needsBuild)
             {
@@ -346,41 +349,92 @@ namespace Armada.Helm.Commands
             {
                 AnsiConsole.MarkupLine("[dim]Building dashboard...[/]");
 
-                // Run npm run build
-                ProcessStartInfo npmInfo = new ProcessStartInfo
+                string toolExtension = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? ".cmd" : String.Empty;
+                string localBinDir = Path.Combine(dashboardDir, "node_modules", ".bin");
+                string tscPath = Path.Combine(localBinDir, "tsc" + toolExtension);
+                string vitePath = Path.Combine(localBinDir, "vite" + toolExtension);
+
+                if (!File.Exists(tscPath) || !File.Exists(vitePath))
                 {
-                    FileName = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "cmd" : "npm",
+                    if (hasExistingDist)
+                        AnsiConsole.MarkupLine("[gold1]Dashboard build skipped because local dashboard tools are unavailable. Continuing with the existing React dashboard bundle.[/]");
+                    else if (hasExistingDeployedDashboard)
+                        AnsiConsole.MarkupLine("[gold1]Dashboard build skipped because local dashboard tools are unavailable. Keeping the existing deployed React dashboard.[/]");
+                    else
+                        AnsiConsole.MarkupLine("[gold1]Dashboard build skipped because local dashboard tools are unavailable. React dashboard unavailable; server will fall back to the legacy embedded dashboard.[/]");
+                    return;
+                }
+
+                ProcessStartInfo tscInfo = new ProcessStartInfo
+                {
+                    FileName = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "cmd" : tscPath,
                     UseShellExecute = false,
                     CreateNoWindow = true,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     WorkingDirectory = dashboardDir
                 };
-
                 if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
                 {
-                    npmInfo.ArgumentList.Add("/c");
-                    npmInfo.ArgumentList.Add("npm");
-                    npmInfo.ArgumentList.Add("run");
-                    npmInfo.ArgumentList.Add("build");
-                }
-                else
-                {
-                    npmInfo.ArgumentList.Add("run");
-                    npmInfo.ArgumentList.Add("build");
+                    tscInfo.ArgumentList.Add("/c");
+                    tscInfo.ArgumentList.Add(tscPath);
                 }
 
-                Process npmProcess = new Process { StartInfo = npmInfo };
-                npmProcess.Start();
-                npmProcess.StandardOutput.ReadToEnd();
-                string npmStderr = npmProcess.StandardError.ReadToEnd();
-                npmProcess.WaitForExit();
+                Process tscProcess = new Process { StartInfo = tscInfo };
+                tscProcess.Start();
+                tscProcess.StandardOutput.ReadToEnd();
+                string tscStderr = tscProcess.StandardError.ReadToEnd();
+                tscProcess.WaitForExit();
 
-                if (npmProcess.ExitCode != 0)
+                if (tscProcess.ExitCode != 0)
                 {
-                    AnsiConsole.MarkupLine("[gold1]Dashboard build failed (non-fatal). Server will use legacy dashboard.[/]");
-                    if (!string.IsNullOrEmpty(npmStderr))
-                        AnsiConsole.MarkupLine($"[dim]{Markup.Escape(npmStderr.Trim())}[/]");
+                    if (hasExistingDist)
+                        AnsiConsole.MarkupLine("[gold1]Dashboard build failed. Continuing with the existing React dashboard bundle.[/]");
+                    else if (hasExistingDeployedDashboard)
+                        AnsiConsole.MarkupLine("[gold1]Dashboard build failed. Keeping the existing deployed React dashboard.[/]");
+                    else
+                        AnsiConsole.MarkupLine("[gold1]Dashboard build failed. React dashboard unavailable; server will fall back to the legacy embedded dashboard.[/]");
+
+                    if (!string.IsNullOrEmpty(tscStderr))
+                        AnsiConsole.MarkupLine($"[dim]{Markup.Escape(tscStderr.Trim())}[/]");
+
+                    return;
+                }
+
+                ProcessStartInfo viteInfo = new ProcessStartInfo
+                {
+                    FileName = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "cmd" : vitePath,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    WorkingDirectory = dashboardDir
+                };
+                if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                {
+                    viteInfo.ArgumentList.Add("/c");
+                    viteInfo.ArgumentList.Add(vitePath);
+                }
+                viteInfo.ArgumentList.Add("build");
+
+                Process viteProcess = new Process { StartInfo = viteInfo };
+                viteProcess.Start();
+                viteProcess.StandardOutput.ReadToEnd();
+                string viteStderr = viteProcess.StandardError.ReadToEnd();
+                viteProcess.WaitForExit();
+
+                if (viteProcess.ExitCode != 0)
+                {
+                    if (hasExistingDist)
+                        AnsiConsole.MarkupLine("[gold1]Dashboard build failed. Continuing with the existing React dashboard bundle.[/]");
+                    else if (hasExistingDeployedDashboard)
+                        AnsiConsole.MarkupLine("[gold1]Dashboard build failed. Keeping the existing deployed React dashboard.[/]");
+                    else
+                        AnsiConsole.MarkupLine("[gold1]Dashboard build failed. React dashboard unavailable; server will fall back to the legacy embedded dashboard.[/]");
+
+                    if (!string.IsNullOrEmpty(viteStderr))
+                        AnsiConsole.MarkupLine($"[dim]{Markup.Escape(viteStderr.Trim())}[/]");
+
                     return;
                 }
             }
@@ -393,15 +447,20 @@ namespace Armada.Helm.Commands
             // Deploy: copy dist/ to {dataDir}/dashboard/
             try
             {
+                string stagingDir = targetDir + ".staging";
+                if (Directory.Exists(stagingDir))
+                    Directory.Delete(stagingDir, recursive: true);
+
+                CopyDirectory(distDir, stagingDir);
                 if (Directory.Exists(targetDir))
                     Directory.Delete(targetDir, recursive: true);
 
-                CopyDirectory(distDir, targetDir);
+                Directory.Move(stagingDir, targetDir);
                 AnsiConsole.MarkupLine("[dim]Dashboard deployed to " + Markup.Escape(targetDir) + "[/]");
             }
             catch (Exception ex)
             {
-                AnsiConsole.MarkupLine($"[gold1]Dashboard deploy failed: {Markup.Escape(ex.Message)}[/]");
+                AnsiConsole.MarkupLine($"[gold1]Dashboard deploy failed. Keeping any previously deployed React dashboard if present: {Markup.Escape(ex.Message)}[/]");
             }
         }
 

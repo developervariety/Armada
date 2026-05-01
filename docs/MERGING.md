@@ -4,7 +4,7 @@
 
 Armada includes a built-in merge queue that serializes branch merges into a target branch, running optional tests before landing each one. Entries targeting the same vessel and target branch are processed **sequentially** to avoid conflicts, while different vessel+target-branch groups are processed **in parallel** for throughput. This design ensures correctness within a group (each merge sees the result of the previous one) while maximizing overall processing speed across independent repositories and branches.
 
-The merge queue is managed through MCP tools (`armada_enqueue_merge`, `armada_process_merge_queue`, `armada_enumerate` with entityType 'merge_queue', etc.) and operates on the bare repository clones that Armada maintains for each vessel.
+The merge queue is managed through MCP tools (`enqueue_merge`, `process_merge_queue`, `enumerate` with entityType 'merge_queue', etc.) and operates on the bare repository clones that Armada maintains for each vessel.
 
 ---
 
@@ -29,7 +29,7 @@ Terminal states: `Landed`, `Failed`, `Cancelled`.
 
 ## Processing Flow
 
-1. **Acquire global lock** -- only one queue processing run can happen at a time across *all* vessels and target branches. There is a single lock on the entire `MergeQueueService` instance, not one lock per vessel. If already processing, the call returns immediately (no-op). This means that if you call `armada_process_merge_queue` while a previous run is still working through entries, the second call is silently dropped. Within a single processing run, however, independent vessel+target-branch groups are processed in parallel (see step 3).
+1. **Acquire global lock** -- only one queue processing run can happen at a time across *all* vessels and target branches. There is a single lock on the entire `MergeQueueService` instance, not one lock per vessel. If already processing, the call returns immediately (no-op). This means that if you call `process_merge_queue` while a previous run is still working through entries, the second call is silently dropped. Within a single processing run, however, independent vessel+target-branch groups are processed in parallel (see step 3).
 
 2. **Fetch queued entries** -- all entries with status `Queued` are loaded, ordered by priority (lower number = higher priority) then by creation time.
 
@@ -76,8 +76,8 @@ Because each entry is landed immediately, the next entry in the same group alway
 - **One branch per entry.** Each merge queue entry corresponds to a single feature branch being merged into a target branch.
 - **Keep test commands fast.** Tests run synchronously per entry, blocking subsequent entries in the same group. Long tests slow down the entire group's queue throughput.
 - **Use priorities.** Lower priority numbers are processed first within a group. Use this to land critical fixes ahead of routine changes.
-- **Monitor terminal entries.** Use `armada_enumerate` with entityType 'merge_queue' and status 'Failed' to check for entries that may need attention.
-- **Clean up regularly.** Use `armada_delete_merge` or `armada_purge_merge_queue` to remove terminal entries and their associated git branches.
+- **Monitor terminal entries.** Use `enumerate` with entityType 'merge_queue' and status 'Failed' to check for entries that may need attention.
+- **Clean up regularly.** Use `delete_merge` or `purge_merge_queue` to remove terminal entries and their associated git branches.
 
 ---
 
@@ -85,13 +85,13 @@ Because each entry is landed immediately, the next entry in the same group alway
 
 | Tool | Description |
 |---|---|
-| `armada_enqueue_merge` | Add an entry to the merge queue. |
-| `armada_process_merge_queue` | Trigger a processing run (no-op if already running). |
-| `armada_process_merge_entry` | Process a single entry by ID. |
-| `armada_get_merge_entry` | Get a single entry by ID. |
-| `armada_cancel_merge` | Cancel a queued entry. |
-| `armada_delete_merge` | Delete a terminal entry and clean up its branches. |
-| `armada_purge_merge_queue` | Bulk delete all terminal entries, with optional vessel/status filters. |
+| `enqueue_merge` | Add an entry to the merge queue. |
+| `process_merge_queue` | Trigger a processing run (no-op if already running). |
+| `process_merge_entry` | Process a single entry by ID. |
+| `get_merge_entry` | Get a single entry by ID. |
+| `cancel_merge` | Cancel a queued entry. |
+| `delete_merge` | Delete a terminal entry and clean up its branches. |
+| `purge_merge_queue` | Bulk delete all terminal entries, with optional vessel/status filters. |
 
 ---
 
@@ -129,6 +129,6 @@ After a mission's work has landed, Armada can automatically clean up the mission
 
 - **`LandingMode`** (in `ArmadaSettings`) -- global landing policy. Can be overridden per-vessel (`Vessel.LandingMode`) or per-voyage (`Voyage.LandingMode`).
 - **`BranchCleanupPolicy`** (in `ArmadaSettings`) -- global branch cleanup policy. Can be overridden per-vessel (`Vessel.BranchCleanupPolicy`).
-- **`MergeQueueTestCommand`** (in `ArmadaSettings`) -- default test command to run for entries that don't specify their own. Can be overridden per entry via the `testCommand` parameter on `armada_enqueue_merge`.
+- **`MergeQueueTestCommand`** (in `ArmadaSettings`) -- default test command to run for entries that don't specify their own. Can be overridden per entry via the `testCommand` parameter on `enqueue_merge`.
 - **`DocksDirectory`** -- parent directory for temporary merge worktrees. Worktrees are created under `_merge-queue/` within this directory.
 - **`ReposDirectory`** -- fallback repository path when a vessel's `LocalPath` is not set.

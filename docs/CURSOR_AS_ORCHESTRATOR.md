@@ -54,7 +54,7 @@ Start the Admiral server (`armada server start`), then open Composer and type:
 
 > "Check Armada status and tell me what's running."
 
-Cursor will call `armada_status` and report active captains, missions, and voyages.
+Cursor will call `status` and report active captains, missions, and voyages.
 
 ## Giving Cursor Full Instructions
 

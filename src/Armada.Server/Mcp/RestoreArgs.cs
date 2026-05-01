@@ -1,7 +1,7 @@
 namespace Armada.Server.Mcp
 {
     /// <summary>
-    /// MCP tool arguments for the armada_restore command.
+    /// MCP tool arguments for the restore command.
     /// </summary>
     public class RestoreArgs
     {

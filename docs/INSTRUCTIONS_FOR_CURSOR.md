@@ -27,10 +27,10 @@ Every orchestration follows this pattern: **Research -> Decompose -> Dispatch ->
 Before dispatching work, understand what exists:
 
 ```
-armada_status()                                                    -> overview of captains, missions, voyages
-armada_enumerate({ entityType: "fleets" })                         -> find available fleets
-armada_get_fleet({ fleetId })                                      -> see vessels in a fleet
-armada_enumerate({ entityType: "vessels", fleetId: "flt_..." })    -> find vessels in a fleet
+status()                                                    -> overview of captains, missions, voyages
+enumerate({ entityType: "fleets" })                         -> find available fleets
+get_fleet({ fleetId })                                      -> see vessels in a fleet
+enumerate({ entityType: "vessels", fleetId: "flt_..." })    -> find vessels in a fleet
 ```
 
 Use your own codebase tools (search, file reading, indexing) to understand the codebase and identify what needs to change.
@@ -76,7 +76,7 @@ If a mission might touch these, either assign ALL such work to one mission or se
 **Dispatch a voyage** (preferred -- groups related missions):
 
 ```
-armada_dispatch({
+dispatch({
   title: "Add input validation to API",
   vesselId: "vsl_abc123",
   missions: [
@@ -97,7 +97,7 @@ Returns a Voyage object with all missions created. Save the `voyageId` for monit
 **Or create a standalone mission** (for one-off tasks):
 
 ```
-armada_create_mission({
+create_mission({
   title: "Fix login bug",
   description: "The login endpoint returns 500 when email contains a + character. Fix the email parsing in src/auth/login.ts and add a regression test.",
   vesselId: "vsl_abc123"
@@ -107,7 +107,7 @@ armada_create_mission({
 ### 4. Monitor
 
 ```
-armada_voyage_status({ voyageId: "vyg_..." })
+voyage_status({ voyageId: "vyg_..." })
 ```
 
 Returns the voyage and all its missions with current statuses. Mission statuses:
@@ -126,21 +126,21 @@ Returns the voyage and all its missions with current statuses. Mission statuses:
 To see what a captain is doing right now:
 
 ```
-armada_get_captain_log({ captainId: "cpt_...", lines: 50 })   -> live session output
-armada_get_mission_log({ missionId: "msn_...", lines: 50 })   -> mission session output
-armada_get_mission_diff({ missionId: "msn_..." })              -> git diff of changes
+get_captain_log({ captainId: "cpt_...", lines: 50 })   -> live session output
+get_mission_log({ missionId: "msn_...", lines: 50 })   -> mission session output
+get_mission_diff({ missionId: "msn_..." })              -> git diff of changes
 ```
 
 To find all in-progress missions for a specific vessel:
 
 ```
-armada_enumerate({ entityType: "missions", vesselId: "vsl_...", status: "InProgress" })
+enumerate({ entityType: "missions", vesselId: "vsl_...", status: "InProgress" })
 ```
 
 For a quick system-wide overview:
 
 ```
-armada_status()
+status()
 ```
 
 ### 5. Adapt
@@ -149,12 +149,12 @@ When missions fail:
 
 1. **Read the events** to understand what happened:
    ```
-   armada_enumerate({ entityType: "events", missionId: "msn_..." })
+   enumerate({ entityType: "events", missionId: "msn_..." })
    ```
 
 2. **Read the captain's log** to see the error:
    ```
-   armada_get_mission_log({ missionId: "msn_...", lines: 200 })
+   get_mission_log({ missionId: "msn_...", lines: 200 })
    ```
 
 3. **Dispatch a new voyage** with corrected mission descriptions. Common fixes:
@@ -165,7 +165,7 @@ When missions fail:
 
    For broader event queries (e.g. all events for a voyage), use enumerate:
    ```
-   armada_enumerate({ entityType: "events", voyageId: "vyg_..." })
+   enumerate({ entityType: "events", voyageId: "vyg_..." })
    ```
 
 ## Tool Reference
@@ -174,14 +174,14 @@ When missions fail:
 
 | Tool | Parameters | Description |
 |------|-----------|-------------|
-| `armada_status` | -- | Aggregate status: captain counts, mission counts by status, active voyages |
-| `armada_stop_server` | -- | Graceful shutdown of the Admiral server |
+| `status` | -- | Aggregate status: captain counts, mission counts by status, active voyages |
+| `stop_server` | -- | Graceful shutdown of the Admiral server |
 
 ### Enumeration
 
 | Tool | Parameters | Description |
 |------|-----------|-------------|
-| `armada_enumerate` | `entityType` (required): fleets/vessels/captains/missions/voyages/docks/signals/events/merge_queue | Paginated query for any entity type. Default `pageSize` is 10. |
+| `enumerate` | `entityType` (required): fleets/vessels/captains/missions/voyages/docks/signals/events/merge_queue | Paginated query for any entity type. Default `pageSize` is 10. |
 
 Optional filters: `pageNumber`, `pageSize` (default 10), `order` (CreatedAscending/CreatedDescending), `status`, `createdAfter`, `createdBefore`, plus entity-specific filters (`fleetId`, `vesselId`, `captainId`, `voyageId`, `missionId`, `eventType`, `signalType`).
 
@@ -191,40 +191,40 @@ Boolean include flags (all default to `false`): `includeDescription` (missions, 
 
 | Tool | Parameters | Description |
 |------|-----------|-------------|
-| `armada_get_fleet` | `fleetId` (required) | Get fleet with its vessels |
-| `armada_create_fleet` | `name` (required), `description` | Create a new fleet |
-| `armada_update_fleet` | `fleetId` (required), `name`, `description` | Update fleet |
-| `armada_delete_fleet` | `fleetId` (required) | Delete fleet |
+| `get_fleet` | `fleetId` (required) | Get fleet with its vessels |
+| `create_fleet` | `name` (required), `description` | Create a new fleet |
+| `update_fleet` | `fleetId` (required), `name`, `description` | Update fleet |
+| `delete_fleet` | `fleetId` (required) | Delete fleet |
 
 ### Vessels
 
 | Tool | Parameters | Description |
 |------|-----------|-------------|
-| `armada_get_vessel` | `vesselId` (required) | Get vessel details |
-| `armada_add_vessel` | `name` (required), `repoUrl` (required), `fleetId` (required), `defaultBranch` (default: "main") | Register a new git repo |
-| `armada_update_vessel` | `vesselId` (required), `name`, `repoUrl`, `defaultBranch` | Update vessel |
-| `armada_delete_vessel` | `vesselId` (required) | Delete vessel |
+| `get_vessel` | `vesselId` (required) | Get vessel details |
+| `add_vessel` | `name` (required), `repoUrl` (required), `fleetId` (required), `defaultBranch` (default: "main") | Register a new git repo |
+| `update_vessel` | `vesselId` (required), `name`, `repoUrl`, `defaultBranch` | Update vessel |
+| `delete_vessel` | `vesselId` (required) | Delete vessel |
 
 ### Voyages
 
 | Tool | Parameters | Description |
 |------|-----------|-------------|
-| `armada_dispatch` | `title` (required), `vesselId` (required), `missions` (required: array of {title, description}), `description` | Dispatch a voyage with missions -- the primary way to create work |
-| `armada_voyage_status` | `voyageId` (required), `summary` (default true), `includeMissions` (default false), `includeDescription` (default false), `includeDiffs` (default false), `includeLogs` (default false) | Get voyage status. Default summary mode returns voyage metadata and mission counts by status. Set `includeMissions: true` for full mission details. |
-| `armada_cancel_voyage` | `voyageId` (required) | Cancel voyage and all pending missions |
-| `armada_purge_voyage` | `voyageId` (required) | Permanently delete voyage and all missions (cannot be undone) |
+| `dispatch` | `title` (required), `vesselId` (required), `missions` (required: array of {title, description}), `description` | Dispatch a voyage with missions -- the primary way to create work |
+| `voyage_status` | `voyageId` (required), `summary` (default true), `includeMissions` (default false), `includeDescription` (default false), `includeDiffs` (default false), `includeLogs` (default false) | Get voyage status. Default summary mode returns voyage metadata and mission counts by status. Set `includeMissions: true` for full mission details. |
+| `cancel_voyage` | `voyageId` (required) | Cancel voyage and all pending missions |
+| `purge_voyage` | `voyageId` (required) | Permanently delete voyage and all missions (cannot be undone) |
 
 ### Missions
 
 | Tool | Parameters | Description |
 |------|-----------|-------------|
-| `armada_mission_status` | `missionId` (required) | Get mission details |
-| `armada_create_mission` | `title` (required), `description` (required), `vesselId` (required), `voyageId` | Create a standalone mission |
-| `armada_update_mission` | `missionId` (required), `title`, `description`, `vesselId`, `voyageId`, `priority`, `branchName`, `prUrl`, `parentMissionId` | Update mission metadata |
-| `armada_cancel_mission` | `missionId` (required) | Cancel a mission |
-| `armada_transition_mission_status` | `missionId` (required), `status` (required) | Move mission through the state machine |
-| `armada_get_mission_diff` | `missionId` (required) | Get git diff of changes made |
-| `armada_get_mission_log` | `missionId` (required), `lines` (default 100), `offset` (default 0) | Get paginated session log |
+| `mission_status` | `missionId` (required) | Get mission details |
+| `create_mission` | `title` (required), `description` (required), `vesselId` (required), `voyageId` | Create a standalone mission |
+| `update_mission` | `missionId` (required), `title`, `description`, `vesselId`, `voyageId`, `priority`, `branchName`, `prUrl`, `parentMissionId` | Update mission metadata |
+| `cancel_mission` | `missionId` (required) | Cancel a mission |
+| `transition_mission_status` | `missionId` (required), `status` (required) | Move mission through the state machine |
+| `get_mission_diff` | `missionId` (required) | Get git diff of changes made |
+| `get_mission_log` | `missionId` (required), `lines` (default 100), `offset` (default 0) | Get paginated session log |
 
 Valid status transitions:
 
@@ -240,46 +240,46 @@ Valid status transitions:
 
 | Tool | Parameters | Description |
 |------|-----------|-------------|
-| `armada_get_captain` | `captainId` (required) | Get captain details |
-| `armada_create_captain` | `name` (required), `runtime` (ClaudeCode/Codex/Gemini/Cursor) | Register a new captain |
-| `armada_update_captain` | `captainId` (required), `name`, `runtime` | Update captain |
-| `armada_stop_captain` | `captainId` (required) | Stop a specific captain |
-| `armada_stop_all` | -- | Emergency stop ALL running captains |
-| `armada_delete_captain` | `captainId` (required) | Delete captain (stops it first if working) |
-| `armada_get_captain_log` | `captainId` (required), `lines` (default 100), `offset` (default 0) | Get paginated session log |
+| `get_captain` | `captainId` (required) | Get captain details |
+| `create_captain` | `name` (required), `runtime` (ClaudeCode/Codex/Gemini/Cursor) | Register a new captain |
+| `update_captain` | `captainId` (required), `name`, `runtime` | Update captain |
+| `stop_captain` | `captainId` (required) | Stop a specific captain |
+| `stop_all` | -- | Emergency stop ALL running captains |
+| `delete_captain` | `captainId` (required) | Delete captain (stops it first if working) |
+| `get_captain_log` | `captainId` (required), `lines` (default 100), `offset` (default 0) | Get paginated session log |
 
 ### Signals
 
 | Tool | Parameters | Description |
 |------|-----------|-------------|
-| `armada_send_signal` | `captainId` (required), `message` (required) | Send a message to a captain |
+| `send_signal` | `captainId` (required), `message` (required) | Send a message to a captain |
 
 ### Docks
 
 | Tool | Parameters | Description |
 |------|-----------|-------------|
-| `armada_get_dock` | `dockId` (required) | Get dock details by ID |
-| `armada_delete_dock` | `dockId` (required) | Delete a dock and clean up worktree (blocked if active) |
-| `armada_purge_dock` | `dockId` (required) | Force purge a dock and worktree even if referenced |
+| `get_dock` | `dockId` (required) | Get dock details by ID |
+| `delete_dock` | `dockId` (required) | Delete a dock and clean up worktree (blocked if active) |
+| `purge_dock` | `dockId` (required) | Force purge a dock and worktree even if referenced |
 
 ### Merge Queue
 
 | Tool | Parameters | Description |
 |------|-----------|-------------|
-| `armada_get_merge_entry` | `entryId` (required) | Get merge entry details |
-| `armada_enqueue_merge` | `vesselId` (required), `branchName` (required), `missionId`, `targetBranch` (default: "main"), `priority` (default 0, lower = higher), `testCommand` | Add a branch to the merge queue |
-| `armada_cancel_merge` | `entryId` (required) | Cancel a queued merge |
-| `armada_process_merge_queue` | -- | Run tests and land passing branches |
-| `armada_delete_merge` | `entryId` (required) | Delete a terminal merge entry |
-| `armada_purge_merge_queue` | `vesselId`, `status` | Purge all terminal merge entries (optionally filtered) |
-| `armada_purge_merge_entry` | `entryId` (required) | Purge a single terminal merge entry by ID |
-| `armada_purge_merge_entries` | `entryIds` (required) | Batch purge multiple terminal merge entries by ID |
+| `get_merge_entry` | `entryId` (required) | Get merge entry details |
+| `enqueue_merge` | `vesselId` (required), `branchName` (required), `missionId`, `targetBranch` (default: "main"), `priority` (default 0, lower = higher), `testCommand` | Add a branch to the merge queue |
+| `cancel_merge` | `entryId` (required) | Cancel a queued merge |
+| `process_merge_queue` | -- | Run tests and land passing branches |
+| `delete_merge` | `entryId` (required) | Delete a terminal merge entry |
+| `purge_merge_queue` | `vesselId`, `status` | Purge all terminal merge entries (optionally filtered) |
+| `purge_merge_entry` | `entryId` (required) | Purge a single terminal merge entry by ID |
+| `purge_merge_entries` | `entryIds` (required) | Batch purge multiple terminal merge entries by ID |
 
-**Merge queue lifecycle**: Queued -> Testing -> Passed/Failed -> Landed/Cancelled. Use `armada_enqueue_merge` after a mission completes to queue its branch, then `armada_process_merge_queue` to test and land. Failed entries can be retried by cancelling and re-enqueuing. Terminal entries (Landed/Failed/Cancelled) accumulate over time -- use `armada_purge_merge_queue` to clean them up in bulk, or `armada_purge_merge_entries` to delete specific ones by ID.
+**Merge queue lifecycle**: Queued -> Testing -> Passed/Failed -> Landed/Cancelled. Use `enqueue_merge` after a mission completes to queue its branch, then `process_merge_queue` to test and land. Failed entries can be retried by cancelling and re-enqueuing. Terminal entries (Landed/Failed/Cancelled) accumulate over time -- use `purge_merge_queue` to clean them up in bulk, or `purge_merge_entries` to delete specific ones by ID.
 
 ## Decision-Making Guidance
 
-Use `armada_enumerate` for all collection queries. Use a small `pageSize` (10-25) to conserve context. Only set include flags (`includeDescription`, `includeContext`, etc.) to true when you specifically need that data.
+Use `enumerate` for all collection queries. Use a small `pageSize` (10-25) to conserve context. Only set include flags (`includeDescription`, `includeContext`, etc.) to true when you specifically need that data.
 
 **How many missions per voyage?** 2-6 is typical. More than 8 parallel missions on the same repo risks merge conflicts even with non-overlapping files (shared imports, lock files, etc.). For monolithic codebases (single-page apps, single large files), prefer 1-2 missions per voyage and dispatch sequentially.
 
@@ -292,18 +292,18 @@ Use `armada_enumerate` for all collection queries. Use a small `pageSize` (10-25
 
 **When to use a voyage vs standalone mission?** Use a voyage when work is related and you want to track it as a unit. Use standalone missions for one-off fixes or tasks unrelated to a larger effort.
 
-**When to create captains manually?** Usually you don't need to -- Armada auto-provisions captains when missions are dispatched. Create captains manually with `armada_create_captain` only when you need to pre-configure a specific runtime or name.
+**When to create captains manually?** Usually you don't need to -- Armada auto-provisions captains when missions are dispatched. Create captains manually with `create_captain` only when you need to pre-configure a specific runtime or name.
 
-**When to use the merge queue?** When multiple missions complete and you want their branches tested and merged in order. Enqueue completed mission branches, then call `armada_process_merge_queue` to test and land them. This prevents broken merges from landing. After merges land, use `armada_purge_merge_queue` to bulk-delete old terminal entries (Landed/Failed/Cancelled) and keep the queue clean. You can filter by `vesselId` or `status`. For selective cleanup, use `armada_purge_merge_entries` with an array of entry IDs.
+**When to use the merge queue?** When multiple missions complete and you want their branches tested and merged in order. Enqueue completed mission branches, then call `process_merge_queue` to test and land them. This prevents broken merges from landing. After merges land, use `purge_merge_queue` to bulk-delete old terminal entries (Landed/Failed/Cancelled) and keep the queue clean. You can filter by `vesselId` or `status`. For selective cleanup, use `purge_merge_entries` with an array of entry IDs.
 
-**How to handle a stalled captain?** Check `armada_enumerate({ entityType: "captains", status: "Stalled" })` -- stalled captains have stopped sending heartbeats. Read the log with `armada_get_captain_log` to diagnose. Stop it with `armada_stop_captain` and the mission will be marked Failed for redispatch.
+**How to handle a stalled captain?** Check `enumerate({ entityType: "captains", status: "Stalled" })` -- stalled captains have stopped sending heartbeats. Read the log with `get_captain_log` to diagnose. Stop it with `stop_captain` and the mission will be marked Failed for redispatch.
 
 ## Emergency Controls
 
-- `armada_stop_captain({ captainId })` -- stop one captain
-- `armada_stop_all()` -- stop ALL captains immediately
-- `armada_cancel_voyage({ voyageId })` -- cancel a voyage and all its pending missions
-- `armada_cancel_mission({ missionId })` -- cancel a single mission
+- `stop_captain({ captainId })` -- stop one captain
+- `stop_all()` -- stop ALL captains immediately
+- `cancel_voyage({ voyageId })` -- cancel a voyage and all its pending missions
+- `cancel_mission({ missionId })` -- cancel a single mission
 
 ---
 

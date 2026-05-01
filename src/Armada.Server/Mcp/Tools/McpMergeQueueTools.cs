@@ -28,7 +28,7 @@ namespace Armada.Server.Mcp.Tools
         public static void Register(RegisterToolDelegate register, IMergeQueueService mergeQueue)
         {
             register(
-                "armada_get_merge_entry",
+                "get_merge_entry",
                 "Get details of a specific merge queue entry",
                 new
                 {
@@ -49,7 +49,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_enqueue_merge",
+                "enqueue_merge",
                 "Add a branch to the merge queue for testing and merging",
                 new
                 {
@@ -83,7 +83,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_cancel_merge",
+                "cancel_merge",
                 "Cancel a queued merge entry",
                 new
                 {
@@ -103,7 +103,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_process_merge_entry",
+                "process_merge_entry",
                 "Process a single merge queue entry by ID: creates integration branch, runs tests, and lands if passing",
                 new
                 {
@@ -124,7 +124,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_process_merge_queue",
+                "process_merge_queue",
                 "Process the merge queue: creates integration branches, runs tests, and lands passing batches",
                 new { type = "object", properties = new { } },
                 async (args) =>
@@ -134,7 +134,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_delete_merge",
+                "delete_merge",
                 "Permanently delete a terminal merge queue entry from the database. Only entries in Landed, Failed, or Cancelled status can be deleted. This cannot be undone.",
                 new
                 {
@@ -159,7 +159,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_purge_merge_queue",
+                "purge_merge_queue",
                 "Permanently delete all terminal merge queue entries (Landed, Failed, Cancelled) from the database. Optionally filter by vessel ID and/or status. This cannot be undone.",
                 new
                 {
@@ -189,7 +189,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_purge_merge_entry",
+                "purge_merge_entry",
                 "Permanently delete a single terminal merge queue entry from the database by ID. Only entries in Landed, Failed, or Cancelled status can be purged. This cannot be undone.",
                 new
                 {
@@ -214,7 +214,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_purge_merge_entries",
+                "purge_merge_entries",
                 "Permanently delete multiple terminal merge queue entries from the database by ID. Only entries in Landed, Failed, or Cancelled status can be purged. Returns a summary of purged and skipped entries. This cannot be undone.",
                 new
                 {

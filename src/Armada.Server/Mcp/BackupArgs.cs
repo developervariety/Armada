@@ -1,7 +1,7 @@
 namespace Armada.Server.Mcp
 {
     /// <summary>
-    /// MCP tool arguments for the armada_backup command.
+    /// MCP tool arguments for the backup command.
     /// </summary>
     public class BackupArgs
     {

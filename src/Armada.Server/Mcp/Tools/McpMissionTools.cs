@@ -37,7 +37,7 @@ namespace Armada.Server.Mcp.Tools
         public static void Register(RegisterToolDelegate register, DatabaseDriver database, IAdmiralService admiral, ArmadaSettings? settings, IGitService? git, ILandingService? landingService = null)
         {
             register(
-                "armada_mission_status",
+                "mission_status",
                 "Get status of a specific mission",
                 new
                 {
@@ -59,7 +59,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_create_mission",
+                "create_mission",
                 "Create and dispatch a standalone mission to a vessel",
                 new
                 {
@@ -114,7 +114,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_update_mission",
+                "update_mission",
                 "Update an existing mission's title, description, priority, vessel, voyage, branch, or PR URL. Operational fields (status, timestamps, captain) are managed by the system.",
                 new
                 {
@@ -164,7 +164,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_cancel_mission",
+                "cancel_mission",
                 "Cancel a specific mission",
                 new
                 {
@@ -211,7 +211,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_purge_mission",
+                "purge_mission",
                 "Permanently delete a mission from the database. This cannot be undone.",
                 new
                 {
@@ -270,7 +270,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_delete_missions",
+                "delete_missions",
                 "Permanently delete multiple missions from the database by ID. Returns a summary of deleted and skipped entries. This cannot be undone.",
                 new
                 {
@@ -345,7 +345,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_restart_mission",
+                "restart_mission",
                 "Restart a failed or cancelled mission, resetting it to Pending for re-dispatch. Optionally update title and description (instructions) before restarting.",
                 new
                 {
@@ -389,7 +389,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_retry_landing",
+                "retry_landing",
                 "Retry landing for a mission in LandingFailed status. Rebases the mission branch onto the current target and re-attempts landing.",
                 new
                 {
@@ -410,7 +410,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_transition_mission_status",
+                "transition_mission_status",
                 "Transition a mission to a new status with validation. Valid transitions: Pending->Assigned, Assigned->InProgress, InProgress->Testing/Review/Complete/Failed, Testing->Review/InProgress/Complete/Failed, Review->Complete/InProgress/Failed. Most states allow ->Cancelled.",
                 new
                 {
@@ -457,7 +457,7 @@ namespace Armada.Server.Mcp.Tools
             if (settings != null)
             {
                 register(
-                    "armada_get_mission_diff",
+                    "get_mission_diff",
                     "Get the git diff of changes made by a captain for a mission. Returns saved diff if available, otherwise live worktree diff.",
                     new
                     {
@@ -527,7 +527,7 @@ namespace Armada.Server.Mcp.Tools
                     });
 
                 register(
-                    "armada_get_mission_log",
+                    "get_mission_log",
                     "Get the session log for a mission. Supports pagination.",
                     new
                     {
