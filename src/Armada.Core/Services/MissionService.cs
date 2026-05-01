@@ -436,7 +436,7 @@ namespace Armada.Core.Services
             signal.ToCaptainId = captain.Id;
             await _Database.Signals.CreateAsync(signal, token).ConfigureAwait(false);
 
-            // Generate mission CLAUDE.md into worktree
+            // Generate runtime mission instructions into the worktree.
             await GenerateClaudeMdAsync(dock.WorktreePath!, mission, vessel, captain, token).ConfigureAwait(false);
             await EnsureMissionInstructionsPresentAsync(dock.WorktreePath!, mission, captain, token).ConfigureAwait(false);
 
@@ -853,8 +853,13 @@ namespace Armada.Core.Services
             if (mission == null) throw new ArgumentNullException(nameof(mission));
             if (vessel == null) throw new ArgumentNullException(nameof(vessel));
 
-            string instructionsFileName = MissionPromptBuilder.GetInstructionsFileName(captain != null ? captain.Runtime.ToString() : null);
-            string instructionsPath = Path.Combine(worktreePath, instructionsFileName);
+            string? runtimeName = captain != null ? captain.Runtime.ToString() : null;
+            string instructionsFileName = MissionPromptBuilder.GetInstructionsFileName(runtimeName);
+            string rootInstructionsPath = Path.Combine(worktreePath, instructionsFileName);
+            string instructionsRelativePath = File.Exists(rootInstructionsPath)
+                ? MissionPromptBuilder.GetGeneratedInstructionsRelativePath(runtimeName)
+                : instructionsFileName;
+            string instructionsPath = Path.Combine(worktreePath, instructionsRelativePath);
 
             Dictionary<string, string> templateParams = MissionPromptBuilder.BuildTemplateParams(mission, vessel, captain);
             List<MissionPlaybookSnapshot> playbookSnapshots = await LoadMissionPlaybookSnapshotsAsync(mission, token).ConfigureAwait(false);
@@ -920,17 +925,19 @@ namespace Armada.Core.Services
                 content += await ResolveSectionAsync("mission.model_context_updates", templateParams, token).ConfigureAwait(false);
             }
 
-            // If there's an existing runtime instruction file, preserve it and prepend our instructions
-            if (File.Exists(instructionsPath))
+            // If there's an existing repository instruction file, preserve it as read-only
+            // context and write Armada's generated mission file elsewhere. Do not overwrite
+            // tracked root instruction files such as CLAUDE.md.
+            if (File.Exists(rootInstructionsPath))
             {
-                string existing = await File.ReadAllTextAsync(instructionsPath).ConfigureAwait(false);
+                string existing = await File.ReadAllTextAsync(rootInstructionsPath).ConfigureAwait(false);
                 string sanitizedExisting = SanitizeExistingInstructions(existing);
 
                 if (!String.IsNullOrWhiteSpace(sanitizedExisting))
                 {
                     if (!String.Equals(existing, sanitizedExisting, StringComparison.Ordinal))
                     {
-                        _Logging.Info(_Header + "sanitized generated mission sections from existing instructions at " + instructionsPath);
+                        _Logging.Info(_Header + "sanitized generated mission sections from existing instructions at " + rootInstructionsPath);
                     }
 
                     templateParams["ExistingClaudeMd"] = sanitizedExisting;
@@ -955,26 +962,18 @@ namespace Armada.Core.Services
                 _Logging.Warn(_Header + "could not persist mission instructions snapshot for " + mission.Id + ": " + ex.Message);
             }
 
-            // Ensure the generated instruction file is ignored locally so agents don't commit it.
-            // Mission instructions are ephemeral and should not alter tracked repository files.
+            // Ensure generated instruction and briefing artifacts are ignored locally so
+            // agents do not commit Armada-owned context material. This does not hide
+            // tracked files, so the write path above avoids modifying tracked root
+            // instruction files in the first place.
             try
             {
                 string? excludePath = ResolveGitInfoExcludePath(worktreePath);
                 if (!String.IsNullOrEmpty(excludePath))
                 {
-                    Directory.CreateDirectory(Path.GetDirectoryName(excludePath)!);
-                    string excludeContent = File.Exists(excludePath)
-                        ? await File.ReadAllTextAsync(excludePath).ConfigureAwait(false)
-                        : "";
-                    bool hasEntry = excludeContent
-                        .Split('\n')
-                        .Select(l => l.Trim())
-                        .Any(l => String.Equals(l, instructionsFileName, StringComparison.Ordinal));
-                    if (!hasEntry)
-                    {
-                        string entry = (excludeContent.Length > 0 && !excludeContent.EndsWith("\n") ? "\n" : "") + instructionsFileName + "\n";
-                        await File.AppendAllTextAsync(excludePath, entry).ConfigureAwait(false);
-                    }
+                    await EnsureGitExcludeEntryAsync(excludePath, instructionsRelativePath.Replace("\\", "/"), token).ConfigureAwait(false);
+                    await EnsureGitExcludeEntryAsync(excludePath, ".armada/instructions/", token).ConfigureAwait(false);
+                    await EnsureGitExcludeEntryAsync(excludePath, "_briefing/", token).ConfigureAwait(false);
                 }
             }
             catch (Exception ex)
@@ -2475,8 +2474,13 @@ namespace Armada.Core.Services
             if (mission == null) throw new ArgumentNullException(nameof(mission));
             if (captain == null) throw new ArgumentNullException(nameof(captain));
 
-            string instructionsFileName = MissionPromptBuilder.GetInstructionsFileName(captain.Runtime.ToString());
-            string instructionsPath = Path.Combine(worktreePath, instructionsFileName);
+            string runtimeName = captain.Runtime.ToString();
+            string instructionsFileName = MissionPromptBuilder.GetInstructionsFileName(runtimeName);
+            string rootInstructionsPath = Path.Combine(worktreePath, instructionsFileName);
+            string instructionsRelativePath = File.Exists(rootInstructionsPath)
+                ? MissionPromptBuilder.GetGeneratedInstructionsRelativePath(runtimeName)
+                : instructionsFileName;
+            string instructionsPath = Path.Combine(worktreePath, instructionsRelativePath);
             if (File.Exists(instructionsPath)) return;
 
             string snapshotPath = Path.Combine(_Settings.LogDirectory, "instructions", mission.Id + "." + instructionsFileName);
@@ -2487,7 +2491,7 @@ namespace Armada.Core.Services
                 return;
             }
 
-            Directory.CreateDirectory(worktreePath);
+            Directory.CreateDirectory(Path.GetDirectoryName(instructionsPath)!);
             await File.WriteAllTextAsync(instructionsPath, await File.ReadAllTextAsync(snapshotPath, token).ConfigureAwait(false), token).ConfigureAwait(false);
             _Logging.Warn(_Header + "restored missing mission instructions from snapshot to " + instructionsPath);
         }

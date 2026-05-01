@@ -90,6 +90,24 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("[CLAUDE.MD-PROPOSAL]", reason);
             });
 
+            await RunTest("Built-in protected paths block CLAUDE.md without vessel configuration", () =>
+            {
+                string diff = MakeDiff("CLAUDE.md");
+                IReadOnlyList<string> changed = ProtectedPathsValidator.ExtractChangedFilesFromDiff(diff);
+                string? offending = ProtectedPathsValidator.FindFirstBuiltInOrConfiguredViolation(changed, null);
+                AssertNotNull(offending, "Built-in protected paths should block CLAUDE.md");
+                AssertEqual("CLAUDE.md", offending);
+            });
+
+            await RunTest("Built-in protected paths block _briefing without vessel configuration", () =>
+            {
+                string diff = MakeDiff("_briefing/spec.md");
+                IReadOnlyList<string> changed = ProtectedPathsValidator.ExtractChangedFilesFromDiff(diff);
+                string? offending = ProtectedPathsValidator.FindFirstBuiltInOrConfiguredViolation(changed, null);
+                AssertNotNull(offending, "Built-in protected paths should block _briefing");
+                AssertEqual("_briefing/spec.md", offending);
+            });
+
             await RunTest("Vessel round-trips ProtectedPaths through SQLite", async () =>
             {
                 using (TestHelpers.TestDatabase db = await TestHelpers.TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

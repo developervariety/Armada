@@ -335,6 +335,51 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Built-in protected paths block CLAUDE.md before local landing", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    StubGitService git = new StubGitService();
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    IMessageTemplateService templateService = new MessageTemplateService(logging);
+                    MissionLandingHandler handler = new MissionLandingHandler(
+                        logging,
+                        testDb.Driver,
+                        settings,
+                        git,
+                        new StubMergeQueueService(),
+                        new AutoLandEvaluator(),
+                        new ConventionChecker(),
+                        new CriticalTriggerEvaluator(),
+                        templateService,
+                        null,
+                        dockService,
+                        new NoOpRemoteTriggerService(),
+                        null);
+
+                    LandingTestEntitiesResult entities = await CreateTestEntitiesAsync(
+                        testDb.Driver,
+                        LandingModeEnum.LocalMerge,
+                        BranchCleanupPolicyEnum.LocalAndRemote);
+
+                    git.ExistingBranches.Add(entities.Dock.BranchName!);
+                    entities.Mission.Status = MissionStatusEnum.WorkProduced;
+                    entities.Mission.DiffSnapshot = "diff --git a/CLAUDE.md b/CLAUDE.md\n+++ b/CLAUDE.md\n+generated mission context\n";
+                    await testDb.Driver.Missions.UpdateAsync(entities.Mission).ConfigureAwait(false);
+
+                    await handler.HandleMissionCompleteAsync(entities.Mission, entities.Dock).ConfigureAwait(false);
+
+                    Mission? updatedMission = await testDb.Driver.Missions.ReadAsync(entities.Mission.Id).ConfigureAwait(false);
+                    AssertNotNull(updatedMission, "Mission should still exist");
+                    AssertEqual(MissionStatusEnum.Failed, updatedMission!.Status, "Protected CLAUDE.md changes should fail before landing");
+                    AssertContains("CLAUDE.md", updatedMission.FailureReason ?? "", "Failure should name CLAUDE.md");
+                    AssertFalse(git.OperationCalls.Contains("merge-local:" + entities.Dock.BranchName), "Protected mission should not merge locally");
+                    AssertFalse(git.OperationCalls.Contains("push:" + entities.Vessel.WorkingDirectory), "Protected mission should not push target branch");
+                }
+            });
+
             // === Status Transition Validation ===
 
             await RunTest("PullRequestOpen allows transition to Complete", () =>

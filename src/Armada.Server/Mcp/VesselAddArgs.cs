@@ -58,8 +58,8 @@ namespace Armada.Server.Mcp
         public string? DefaultPipelineId { get; set; }
 
         /// <summary>
-        /// Optional glob patterns that the captain must not modify.
-        /// Default null means no protection. Example: ["**/CLAUDE.md"].
+        /// Optional additional glob patterns that the captain must not modify.
+        /// Armada always protects CLAUDE.md and _briefing.
         /// </summary>
         public List<string>? ProtectedPaths { get; set; }
     }

@@ -116,8 +116,14 @@ namespace Armada.Server.Routes
             if (dock == null || String.IsNullOrEmpty(dock.WorktreePath) || !Directory.Exists(dock.WorktreePath))
                 return null;
 
-            string fileName = MissionPromptBuilder.GetInstructionsFileName(captain != null ? captain.Runtime.ToString() : null);
-            string path = Path.Combine(dock.WorktreePath, fileName);
+            string? runtimeName = captain != null ? captain.Runtime.ToString() : null;
+            string fileName = MissionPromptBuilder.GetInstructionsFileName(runtimeName);
+            string generatedRelativePath = MissionPromptBuilder.GetGeneratedInstructionsRelativePath(runtimeName);
+            string path = Path.Combine(dock.WorktreePath, generatedRelativePath);
+            if (File.Exists(path))
+                return (generatedRelativePath, path);
+
+            path = Path.Combine(dock.WorktreePath, fileName);
             if (File.Exists(path))
                 return (fileName, path);
 

@@ -34,6 +34,15 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Resolve the ignored Armada-owned path used when the repository already
+        /// has a root runtime instruction file.
+        /// </summary>
+        public static string GetGeneratedInstructionsRelativePath(string? runtime)
+        {
+            return ".armada/instructions/" + GetInstructionsFileName(runtime);
+        }
+
+        /// <summary>
         /// Build a consistent template parameter dictionary for mission prompt rendering.
         /// </summary>
         public static Dictionary<string, string> BuildTemplateParams(
@@ -119,6 +128,7 @@ namespace Armada.Core.Services
             if (dock == null) throw new ArgumentNullException(nameof(dock));
 
             string instructionsFileName = GetInstructionsFileName(captain.Runtime.ToString());
+            string generatedInstructionsPath = GetGeneratedInstructionsRelativePath(captain.Runtime.ToString());
 
             List<string> sections = new List<string>();
             sections.Add("Role: " + BuildBootstrapRoleSummary(mission.Persona));
@@ -128,14 +138,14 @@ namespace Armada.Core.Services
             if (String.Equals(mission.Persona, "Architect", StringComparison.OrdinalIgnoreCase))
             {
                 sections.Add(
-                    "Read " + instructionsFileName + " in the working directory. " +
+                    "Read " + generatedInstructionsPath + " if it exists; otherwise read " + instructionsFileName + " in the working directory. " +
                     "It contains the objective, repository context, and mission-format requirements. " +
                     "Do not ask for more input. Read the file immediately and respond only with real [ARMADA:MISSION] blocks derived from that file.");
             }
             else
             {
                 sections.Add(
-                    "Read " + instructionsFileName + " in the working directory. " +
+                    "Read " + generatedInstructionsPath + " if it exists; otherwise read " + instructionsFileName + " in the working directory. " +
                     "It contains the full mission objective, repository context, style guide, model context, and execution rules. Do not ask for more input. Read the file immediately and follow it exactly.");
             }
 
@@ -143,7 +153,7 @@ namespace Armada.Core.Services
             if (prompt.Length <= MaxLaunchPromptChars)
                 return prompt;
 
-            string overflowMessage = "\n\n" + instructionsFileName + " contains the remaining context. Keep working from that file if this launch prompt was truncated.";
+            string overflowMessage = "\n\n" + generatedInstructionsPath + " or " + instructionsFileName + " contains the remaining context. Keep working from that file if this launch prompt was truncated.";
             int allowed = Math.Max(256, MaxLaunchPromptChars - overflowMessage.Length);
             return prompt.Substring(0, allowed).TrimEnd() + overflowMessage;
         }

@@ -73,7 +73,7 @@ namespace Armada.Server.Mcp.Tools
                         {
                             type = "array",
                             items = new { type = "string" },
-                            description = "Optional glob patterns the captain must not modify (e.g. [\"**/CLAUDE.md\"]). On a violation the orchestrator fails the mission before any merge or push."
+                            description = "Optional additional glob patterns the captain must not modify. Armada always protects CLAUDE.md and _briefing before any merge or push."
                         },
                         autoLandPredicate = new
                         {
@@ -178,7 +178,7 @@ namespace Armada.Server.Mcp.Tools
                         {
                             type = "array",
                             items = new { type = "string" },
-                            description = "Glob patterns the captain must not modify (e.g. [\"**/CLAUDE.md\"]). Pass an empty array to clear protection; omit the field to leave the existing list unchanged."
+                            description = "Additional glob patterns the captain must not modify. Armada always protects CLAUDE.md and _briefing. Pass an empty array to clear custom protection; omit the field to leave the existing list unchanged."
                         },
                         autoLandPredicate = new
                         {

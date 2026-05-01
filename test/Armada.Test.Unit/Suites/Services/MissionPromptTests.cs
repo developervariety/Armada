@@ -115,6 +115,48 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("GenerateClaudeMdAsync preserves existing root CLAUDE.md and writes ignored generated copy", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    MissionService service = CreateMissionService(logging, testDb.Driver, settings, git);
+
+                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(tempDir);
+
+                    try
+                    {
+                        string rootClaudePath = Path.Combine(tempDir, "CLAUDE.md");
+                        await File.WriteAllTextAsync(rootClaudePath, "# Stable project instructions\n");
+
+                        Vessel vessel = new Vessel("PromptVessel", "https://github.com/test/repo");
+                        vessel.ProjectContext = "Generated mission context.";
+
+                        Mission mission = new Mission();
+                        mission.Title = "Fix login bug";
+                        mission.Description = "The login form does not validate email addresses.";
+
+                        await service.GenerateClaudeMdAsync(tempDir, mission, vessel);
+
+                        string rootContent = await File.ReadAllTextAsync(rootClaudePath);
+                        AssertEqual("# Stable project instructions\n", rootContent, "Root CLAUDE.md should not be overwritten");
+
+                        string generatedPath = Path.Combine(tempDir, ".armada", "instructions", "CLAUDE.md");
+                        AssertTrue(File.Exists(generatedPath), "Generated mission instructions should be written under .armada/instructions");
+                        string generatedContent = await File.ReadAllTextAsync(generatedPath);
+                        AssertContains("Generated mission context.", generatedContent);
+                        AssertContains("# Stable project instructions", generatedContent);
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(tempDir, true); } catch { }
+                    }
+                }
+            });
+
             await RunTest("GenerateClaudeMdAsync includes StyleGuide when set", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
@@ -761,7 +803,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                         await service.GenerateClaudeMdAsync(tempDir, mission, vessel);
 
-                        string content = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
+                        string content = await File.ReadAllTextAsync(Path.Combine(tempDir, ".armada", "instructions", "CLAUDE.md"));
                         AssertContains("## Existing Project Instructions", content);
                         AssertContains("Stable project guidance.", content);
                         AssertFalse(content.Contains("Stale mission title"), "Generated mission blocks from the existing file should be stripped");
@@ -803,7 +845,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                         await service.GenerateClaudeMdAsync(tempDir, mission, vessel);
 
-                        string content = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
+                        string content = await File.ReadAllTextAsync(Path.Combine(tempDir, ".armada", "instructions", "CLAUDE.md"));
                         AssertFalse(content.Contains("## Existing Project Instructions"), "Empty sanitized instructions should not be wrapped");
                     }
                     finally

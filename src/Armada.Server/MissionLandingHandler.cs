@@ -178,42 +178,38 @@ namespace Armada.Server
 
             // Protected-paths gate: runs before any merge / push / merge-queue enqueue
             // so a violation never produces a merge entry, never opens a PR, and never
-            // pushes the captain's branch. Captains are expected to surface CLAUDE.md or
-            // other curated-file changes through a [CLAUDE.MD-PROPOSAL] block instead of
-            // editing protected files directly.
-            if (vessel != null && vessel.ProtectedPaths != null && vessel.ProtectedPaths.Count > 0)
+            // pushes the captain's branch. Built-in Armada artifacts such as CLAUDE.md
+            // and _briefing are always protected; vessel-specific paths add to that list.
+            IReadOnlyList<string> changedFiles = ProtectedPathsValidator.ExtractChangedFilesFromDiff(mission.DiffSnapshot);
+            string? offending = ProtectedPathsValidator.FindFirstBuiltInOrConfiguredViolation(changedFiles, vessel?.ProtectedPaths);
+            if (!String.IsNullOrEmpty(offending))
             {
-                IReadOnlyList<string> changedFiles = ProtectedPathsValidator.ExtractChangedFilesFromDiff(mission.DiffSnapshot);
-                string? offending = ProtectedPathsValidator.FindFirstViolation(changedFiles, vessel.ProtectedPaths);
-                if (!String.IsNullOrEmpty(offending))
+                string failureReason = ProtectedPathsValidator.FormatFailureReason(offending, vessel?.Name ?? "unknown");
+                _Logging.Warn(_Header + "mission " + mission.Id + " blocked by protected paths gate: " + failureReason);
+
+                mission.Status = MissionStatusEnum.Failed;
+                mission.FailureReason = failureReason;
+                mission.CompletedUtc = DateTime.UtcNow;
+                mission.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+
+                try
                 {
-                    string failureReason = ProtectedPathsValidator.FormatFailureReason(offending, vessel.Name);
-                    _Logging.Warn(_Header + "mission " + mission.Id + " blocked by protected paths gate: " + failureReason);
-
-                    mission.Status = MissionStatusEnum.Failed;
-                    mission.FailureReason = failureReason;
-                    mission.CompletedUtc = DateTime.UtcNow;
-                    mission.LastUpdateUtc = DateTime.UtcNow;
-                    await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
-
-                    try
-                    {
-                        await _RemoteTriggerService.FireDrainerAsync(
-                            mission.VesselId ?? string.Empty,
-                            "MissionFailed: mission " + mission.Id + " (" + mission.Title + ") :: " + (mission.FailureReason ?? "no reason"),
-                            default).ConfigureAwait(false);
-                    }
-                    catch (Exception firEx)
-                    {
-                        _Logging.Warn(_Header + "FireDrainerAsync failed for MissionFailed event: " + firEx.Message);
-                    }
-
-                    if (_WebSocketHub != null)
-                    {
-                        _WebSocketHub.BroadcastMissionChange(mission.Id, MissionStatusEnum.Failed.ToString(), mission.Title);
-                    }
-                    return;
+                    await _RemoteTriggerService.FireDrainerAsync(
+                        mission.VesselId ?? string.Empty,
+                        "MissionFailed: mission " + mission.Id + " (" + mission.Title + ") :: " + (mission.FailureReason ?? "no reason"),
+                        default).ConfigureAwait(false);
                 }
+                catch (Exception firEx)
+                {
+                    _Logging.Warn(_Header + "FireDrainerAsync failed for MissionFailed event: " + firEx.Message);
+                }
+
+                if (_WebSocketHub != null)
+                {
+                    _WebSocketHub.BroadcastMissionChange(mission.Id, MissionStatusEnum.Failed.ToString(), mission.Title);
+                }
+                return;
             }
 
             Voyage? voyage = null;

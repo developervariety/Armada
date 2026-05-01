@@ -12,7 +12,38 @@ namespace Armada.Core.Services
     /// </summary>
     public static class ProtectedPathsValidator
     {
+        #region Public-Members
+
+        /// <summary>
+        /// Armada-owned paths that must never land into a vessel target branch.
+        /// These are generated or briefing artifacts, not product changes.
+        /// </summary>
+        public static readonly IReadOnlyList<string> BuiltInProtectedPaths = new List<string>
+        {
+            "**/CLAUDE.md",
+            ".armada/instructions/**",
+            "_briefing/**",
+            "**/_briefing/**"
+        }.AsReadOnly();
+
+        #endregion
+
         #region Public-Methods
+
+        /// <summary>
+        /// Find the first changed file path that matches either Armada's built-in
+        /// protected paths or the vessel's configured protected paths.
+        /// </summary>
+        /// <param name="changedFilePaths">Repository-relative paths the captain modified.</param>
+        /// <param name="protectedPaths">Optional vessel-specific glob patterns.</param>
+        /// <returns>The first offending path, or null when there is no violation.</returns>
+        public static string? FindFirstBuiltInOrConfiguredViolation(
+            IEnumerable<string>? changedFilePaths,
+            IList<string>? protectedPaths)
+        {
+            List<string> effective = BuildEffectiveProtectedPaths(protectedPaths);
+            return FindFirstViolation(changedFilePaths, effective);
+        }
 
         /// <summary>
         /// Find the first changed file path that matches any glob in <paramref name="protectedPaths"/>.
@@ -107,6 +138,28 @@ namespace Armada.Core.Services
         #endregion
 
         #region Private-Methods
+
+        private static List<string> BuildEffectiveProtectedPaths(IList<string>? protectedPaths)
+        {
+            List<string> effective = new List<string>();
+            foreach (string builtIn in BuiltInProtectedPaths)
+            {
+                effective.Add(builtIn);
+            }
+
+            if (protectedPaths != null)
+            {
+                foreach (string configured in protectedPaths)
+                {
+                    if (!String.IsNullOrWhiteSpace(configured))
+                    {
+                        effective.Add(configured);
+                    }
+                }
+            }
+
+            return effective;
+        }
 
         private static Matcher BuildMatcher(IList<string> patterns)
         {

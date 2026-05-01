@@ -499,6 +499,19 @@ namespace Armada.Core.Services
                     return;
                 }
 
+                string? protectedPathViolation = await FindProtectedPathViolationAsync(entry, integrationPath, token).ConfigureAwait(false);
+                if (!String.IsNullOrEmpty(protectedPathViolation))
+                {
+                    Vessel? violationVessel = await ReadEntryVesselAsync(entry, token).ConfigureAwait(false);
+                    string failureReason = ProtectedPathsValidator.FormatFailureReason(
+                        protectedPathViolation,
+                        violationVessel?.Name ?? entry.VesselId ?? "unknown");
+                    _Logging.Warn(_Header + "protected path violation for " + entryTag + ": " + failureReason);
+                    await TransitionEntryToFailureAsync(entry, failureReason, token, fireRecovery: false).ConfigureAwait(false);
+                    await CleanupWorktreeAsync(integrationPath, token).ConfigureAwait(false);
+                    return;
+                }
+
                 // Run tests if configured
                 string testCommand = entry.TestCommand ?? _Settings.MergeQueueTestCommand ?? "";
                 if (!String.IsNullOrEmpty(testCommand))
@@ -809,7 +822,69 @@ namespace Armada.Core.Services
             }
         }
 
-        private async Task TransitionEntryToFailureAsync(MergeEntry entry, string reason, CancellationToken token)
+        private async Task<string?> FindProtectedPathViolationAsync(MergeEntry entry, string worktreePath, CancellationToken token)
+        {
+            if (entry == null) throw new ArgumentNullException(nameof(entry));
+            if (String.IsNullOrEmpty(worktreePath)) return null;
+
+            List<string> changedFiles = await CollectChangedFilesAgainstTargetAsync(
+                worktreePath,
+                entry.TargetBranch,
+                token).ConfigureAwait(false);
+
+            Vessel? vessel = await ReadEntryVesselAsync(entry, token).ConfigureAwait(false);
+            return ProtectedPathsValidator.FindFirstBuiltInOrConfiguredViolation(changedFiles, vessel?.ProtectedPaths);
+        }
+
+        private async Task<Vessel?> ReadEntryVesselAsync(MergeEntry entry, CancellationToken token)
+        {
+            if (entry == null) throw new ArgumentNullException(nameof(entry));
+            if (String.IsNullOrEmpty(entry.VesselId)) return null;
+
+            try
+            {
+                return !String.IsNullOrEmpty(entry.TenantId)
+                    ? await _Database.Vessels.ReadAsync(entry.TenantId, entry.VesselId, token).ConfigureAwait(false)
+                    : await _Database.Vessels.ReadAsync(entry.VesselId, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not read vessel " + entry.VesselId + " for protected-path validation: " + ex.Message);
+                return null;
+            }
+        }
+
+        private async Task<List<string>> CollectChangedFilesAgainstTargetAsync(string worktreePath, string targetBranch, CancellationToken token)
+        {
+            List<string> results = new List<string>();
+            if (String.IsNullOrEmpty(worktreePath) || String.IsNullOrEmpty(targetBranch)) return results;
+
+            try
+            {
+                GitProcessResult diff = await RunGitCapturingAsync(
+                    worktreePath,
+                    token,
+                    "diff",
+                    "--name-only",
+                    targetBranch + "...HEAD").ConfigureAwait(false);
+                if (String.IsNullOrEmpty(diff.StandardOutput)) return results;
+
+                string[] lines = diff.StandardOutput.Split(new char[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
+                foreach (string line in lines)
+                {
+                    string trimmed = line.Trim();
+                    if (!String.IsNullOrEmpty(trimmed)) results.Add(trimmed);
+                }
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "protected-path validation could not collect changed files in " + worktreePath + ": " + ex.Message);
+            }
+
+            return results;
+        }
+
+        private async Task TransitionEntryToFailureAsync(MergeEntry entry, string reason, CancellationToken token, bool fireRecovery = true)
         {
             entry.Status = MergeStatusEnum.Failed;
             entry.TestOutput = reason;
@@ -817,7 +892,10 @@ namespace Armada.Core.Services
             entry.LastUpdateUtc = DateTime.UtcNow;
             await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
             await ReconcileMissionStatusAsync(entry.MissionId, MissionStatusEnum.LandingFailed, reason, token, entry.TenantId).ConfigureAwait(false);
-            FireRecoveryHandlerForEntry(entry.Id);
+            if (fireRecovery)
+            {
+                FireRecoveryHandlerForEntry(entry.Id);
+            }
         }
 
         /// <summary>

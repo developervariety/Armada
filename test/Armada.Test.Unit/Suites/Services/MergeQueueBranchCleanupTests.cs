@@ -41,7 +41,7 @@ namespace Armada.Test.Unit.Suites.Services
         /// paths to the remote bare repo, the local bare clone, and a regular working clone.
         /// The caller is responsible for cleanup.
         /// </summary>
-        private async Task<GitRepoSetup> CreateGitSetupAsync(string rootDir)
+        private async Task<GitRepoSetup> CreateGitSetupAsync(string rootDir, string captainFilePath = "feature.txt")
         {
             string remoteDir = Path.Combine(rootDir, "remote.git");
             string sourceDir = Path.Combine(rootDir, "source");
@@ -61,8 +61,14 @@ namespace Armada.Test.Unit.Suites.Services
 
             string captainBranch = "armada/captain-1/msn_test001";
             await RunGitAsync(sourceDir, "checkout", "-b", captainBranch).ConfigureAwait(false);
-            await File.WriteAllTextAsync(Path.Combine(sourceDir, "feature.txt"), "feature\n").ConfigureAwait(false);
-            await RunGitAsync(sourceDir, "add", "feature.txt").ConfigureAwait(false);
+            string captainFileAbsolutePath = Path.Combine(sourceDir, captainFilePath);
+            string? captainFileDirectory = Path.GetDirectoryName(captainFileAbsolutePath);
+            if (!String.IsNullOrEmpty(captainFileDirectory))
+            {
+                Directory.CreateDirectory(captainFileDirectory);
+            }
+            await File.WriteAllTextAsync(captainFileAbsolutePath, "feature\n").ConfigureAwait(false);
+            await RunGitAsync(sourceDir, "add", captainFilePath).ConfigureAwait(false);
             await RunGitAsync(sourceDir, "commit", "-m", "Add feature").ConfigureAwait(false);
             await RunGitAsync(sourceDir, "checkout", "main").ConfigureAwait(false);
 
@@ -206,6 +212,54 @@ namespace Armada.Test.Unit.Suites.Services
 
                         bool captainInRemote = await BranchExistsInRepoAsync(repos.RemoteDir, repos.CaptainBranch).ConfigureAwait(false);
                         AssertFalse(captainInRemote, "Captain branch should be deleted from remote on LocalAndRemote policy");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            });
+
+            await RunTest("ProcessEntryByIdAsync_BuiltInProtectedBriefingPath_FailsBeforeLanding", async () =>
+            {
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_protected_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir, "_briefing/spec.md").ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        GitService git = new GitService(logging);
+
+                        Vessel vessel = new Vessel("protected-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.WorkingDirectory = repos.WorkingDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.LocalAndRemote;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.BranchName = repos.CaptainBranch;
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+                        await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false);
+
+                        MergeEntry? updated = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
+                        AssertNotNull(updated, "Entry should still exist");
+                        AssertEqual(MergeStatusEnum.Failed, updated!.Status, "Entry should fail before landing protected briefing files");
+                        AssertContains("_briefing/spec.md", updated.TestOutput ?? "", "Failure should name the protected briefing path");
+
+                        string mainFiles = await RunGitAsync(repos.RemoteDir, "ls-tree", "-r", "--name-only", "main").ConfigureAwait(false);
+                        AssertFalse(mainFiles.Contains("_briefing/spec.md"), "Protected briefing file should not land on main");
                     }
                 }
                 finally

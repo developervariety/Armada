@@ -54,7 +54,7 @@ namespace Armada.Core.Services.Interfaces
         bool IsBroadScope(Mission mission);
 
         /// <summary>
-        /// Generate mission CLAUDE.md into a worktree.
+        /// Generate runtime mission instructions into a worktree.
         /// </summary>
         /// <param name="worktreePath">Worktree directory path.</param>
         /// <param name="mission">Mission details.</param>

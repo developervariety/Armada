@@ -63,9 +63,9 @@ namespace Armada.Server.Mcp
         public string? DefaultPipelineId { get; set; }
 
         /// <summary>
-        /// Optional glob patterns that the captain must not modify.
-        /// Pass an empty array to clear the existing list. Default null leaves the
-        /// existing list unchanged. Example: ["**/CLAUDE.md", "_briefing/**"].
+        /// Optional additional glob patterns that the captain must not modify.
+        /// Armada always protects CLAUDE.md and _briefing. Pass an empty array to
+        /// clear the custom list. Default null leaves the existing list unchanged.
         /// </summary>
         public List<string>? ProtectedPaths { get; set; }
     }

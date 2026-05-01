@@ -128,10 +128,9 @@ namespace Armada.Core.Models
         public string? DefaultPipelineId { get; set; } = null;
 
         /// <summary>
-        /// Optional list of glob patterns that the captain must not modify.
-        /// When set, the orchestrator gates mission landing by checking each
-        /// changed file against these globs and fails the mission on a match.
-        /// Default null means no protection (preserves prior behavior).
+        /// Optional list of additional glob patterns that the captain must not modify.
+        /// The orchestrator always protects CLAUDE.md and _briefing, then adds these
+        /// vessel-specific globs and fails the mission on a match.
         /// Patterns use Microsoft.Extensions.FileSystemGlobbing semantics
         /// (e.g. "**/CLAUDE.md", "_briefing/**", "_skills/**").
         /// </summary>
