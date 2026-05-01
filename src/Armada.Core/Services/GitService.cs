@@ -24,6 +24,7 @@ namespace Armada.Core.Services
 
         private string _Header = "[GitService] ";
         private LoggingModule _Logging;
+        private readonly Func<PullRequestPlatform, string, IPullRequestService>? _PrServiceFactory;
 
         #endregion
 
@@ -33,9 +34,11 @@ namespace Armada.Core.Services
         /// Instantiate.
         /// </summary>
         /// <param name="logging">Logging module.</param>
-        public GitService(LoggingModule logging)
+        /// <param name="prServiceFactory">Optional factory for platform-specific PR services (gh/glab). When null, IsPrMergedAsync always returns false.</param>
+        public GitService(LoggingModule logging, Func<PullRequestPlatform, string, IPullRequestService>? prServiceFactory = null)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
+            _PrServiceFactory = prServiceFactory;
         }
 
         #endregion
@@ -371,20 +374,38 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Check if a pull request has been merged using the gh CLI.
+        /// Check if a pull request has been merged, routing to gh or glab based on the PR URL host.
         /// </summary>
         public async Task<bool> IsPrMergedAsync(string workingDirectory, string prUrl, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(workingDirectory)) throw new ArgumentNullException(nameof(workingDirectory));
             if (String.IsNullOrEmpty(prUrl)) throw new ArgumentNullException(nameof(prUrl));
 
+            if (_PrServiceFactory == null)
+            {
+                _Logging.Warn(_Header + "IsPrMergedAsync: no PR service factory configured, returning false for " + prUrl);
+                return false;
+            }
+
+            PullRequestPlatform platform;
             try
             {
-                string result = await RunProcessAsync(workingDirectory, "gh", "pr", "view", prUrl, "--json", "state", "--jq", ".state").ConfigureAwait(false);
-                return result.Trim().Equals("MERGED", StringComparison.OrdinalIgnoreCase);
+                platform = OriginUrlParser.GetPlatform(prUrl);
             }
-            catch
+            catch (Exception ex)
             {
+                _Logging.Warn(_Header + "IsPrMergedAsync: cannot detect platform for " + prUrl + ": " + ex.Message);
+                return false;
+            }
+
+            IPullRequestService svc = _PrServiceFactory(platform, workingDirectory);
+            try
+            {
+                return await svc.IsMergedAsync(prUrl, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "IsPrMergedAsync: CLI check failed for " + prUrl + ": " + ex.Message);
                 return false;
             }
         }

@@ -71,6 +71,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new ReleaseVersionTests());
             runner.AddSuite(new StartupScriptTests());
             runner.AddSuite(new GitServiceTests());
+            runner.AddSuite(new GitServiceIsPrMergedTests());
             runner.AddSuite(new GitInferenceTests());
             runner.AddSuite(new LogRotationServiceTests());
             runner.AddSuite(new DataExpiryServiceTests());

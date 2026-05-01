@@ -122,18 +122,6 @@ namespace Armada.Server
             _Logging.Info(_Header + "database initialized");
 
             // Initialize services
-            _Git = new GitService(_Logging);
-            IDockService dockService = new DockService(_Logging, _Database, _Settings, _Git);
-            _Docks = dockService;
-            ICaptainService captainService = new CaptainService(_Logging, _Database, _Settings, _Git, dockService);
-            // Prompt template service must be created before MissionService so it can resolve templates
-            _PromptTemplateService = new PromptTemplateService(_Database, _Logging);
-
-            IMissionService missionService = new MissionService(_Logging, _Database, _Settings, dockService, captainService, _PromptTemplateService, _Git);
-            IVoyageService voyageService = new VoyageService(_Logging, _Database);
-            IEscalationService escalationService = new EscalationService(_Logging, _Database, _Settings);
-            AdmiralService admiralService = new AdmiralService(_Logging, _Database, _Settings, captainService, missionService, voyageService, dockService, escalationService);
-            _Admiral = admiralService;
             // PR-fallback wiring: per-call factory selects the right platform CLI (gh / glab).
             // Path defaults match the design's Configuration table — env var override
             // (ARMADA_GH_PATH / ARMADA_GLAB_PATH), else discover via PATH.
@@ -148,6 +136,18 @@ namespace Armada.Server
                     _ => throw new NotSupportedException("Unsupported PR platform: " + platform)
                 };
             };
+            _Git = new GitService(_Logging, prServiceFactory);
+            IDockService dockService = new DockService(_Logging, _Database, _Settings, _Git);
+            _Docks = dockService;
+            ICaptainService captainService = new CaptainService(_Logging, _Database, _Settings, _Git, dockService);
+            // Prompt template service must be created before MissionService so it can resolve templates
+            _PromptTemplateService = new PromptTemplateService(_Database, _Logging);
+
+            IMissionService missionService = new MissionService(_Logging, _Database, _Settings, dockService, captainService, _PromptTemplateService, _Git);
+            IVoyageService voyageService = new VoyageService(_Logging, _Database);
+            IEscalationService escalationService = new EscalationService(_Logging, _Database, _Settings);
+            AdmiralService admiralService = new AdmiralService(_Logging, _Database, _Settings, captainService, missionService, voyageService, dockService, escalationService);
+            _Admiral = admiralService;
             IMergeFailureClassifier mergeFailureClassifier = new MergeFailureClassifier();
             _MergeQueue = new MergeQueueService(_Logging, _Database, _Settings, _Git, mergeFailureClassifier, prServiceFactory);
 
