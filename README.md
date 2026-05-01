@@ -66,6 +66,34 @@ Everything else in Armada exists to support that: isolated worktrees, parallel d
 
 ---
 
+## Fork features vs upstream
+
+This fork (`developervariety/Armada`) is based on `jchristn/Armada` and adds orchestration features for multi-vessel, multi-runtime dispatch with auto-recovery and human-review gating. **Last upstream sync: `cd27ea6` (9 upstream commits absorbed) on 2026-05-01.**
+
+### Fork-only features
+
+- **PR-fallback flow for breaking changes.** New `PullRequestOpen` mission status between `Testing` and `Landed`. When a captain branch fails the merge-queue test pipeline (or hits a "Critical" path/size trigger), admiral opens a platform-aware PR (`gh` on GitHub, `glab` on GitLab) and stays in `PullRequestOpen` until a human reviewer merges. The reconciler then transitions the entry to `Landed` automatically. (`0b6ace6`, `9494b62`, `644f2e8`, `e85d88d`, `63b6f6f`)
+- **Auto-recovery pipeline.** When merge-queue testing fails, `MergeFailureClassifier` categorizes the failure (test-failure, conflict, build-error, etc.) and `RecoveryRouter` dispatches a `RebaseCaptain` (with `pbk_rebase_captain` playbook) to attempt remediation. Recovery exhaustion falls through to PR-fallback. Mission rows track `recovery_attempts` + `last_recovery_action_utc`. Schema v38. (`3276aa5b`, `26700062`, `3be8b13`, `8c1fa2cf`)
+- **Audit queue + Judge-hybrid review.** Judge verdicts of `NEEDS_REVISION`, or `PASS` with non-empty Suggested-Follow-ups, route into a deep-review audit queue. Orchestrator drains via the new `armada_drain_audit_queue` MCP tool, records a final verdict (Pass / Concern / Critical) per entry. Calibration sampling pushes the first N AutoLand-eligible entries through deep review for predicate calibration. (`5fc5b11`)
+- **Cross-vessel `dependsOnMissionId`.** A mission on vessel A may depend on a mission on vessel B. Cross-vessel deps wait for `Complete` (no `WorkProduced` shortcut, since branch handoff across repos is meaningless), and the downstream always gets a fresh branch on its own vessel. (`55fd1367`)
+- **Logical-alias `dependsOnMissionAlias` resolution.** Architect-emitted single-voyage plans dispatch with one or more `alias`-tagged missions; downstream missions reference upstream via alias instead of pre-resolved `msn_*` ids. Server topologically sorts at dispatch and resolves aliases to concrete ids in dependency order. Forward references and cycles rejected at validation. (`c061bd7d`)
+- **Voyage-to-mission playbook propagation.** Vessel `DefaultPlaybooks` merge into every dispatch automatically; voyage-level `selectedPlaybooks` cascade into each mission. Architect and `armada_create_mission` paths included. (`8143268`, `f52720a0`)
+- **Per-stage `PreferredModel` on `PipelineStage`.** A Reviewed pipeline can run Worker stage on Mid-tier and Judge stage on `claude-opus-4-7` independently. Alias-aware dispatch path expands pipeline stages correctly. (`5ae0ce4b`, `fc48ea41`)
+- **`ProtectedPaths` per-vessel gate.** Vessels carry a glob-list of paths that captain commits may NOT touch. Captain commits to `**/CLAUDE.md` (or other protected paths) are rejected with a coaching message teaching the `[CLAUDE.MD-PROPOSAL]` block format for proposing rule changes. (`02e52f6`)
+- **Cursor-agent prompt via stdin.** Cursor runtime feeds the prompt to `cursor-agent` via stdin instead of inlining as a CLI arg. Bypasses Windows `cmd.exe`'s ~8 KB command-line limit which silently failed cursor-agent on long structured briefs. (`db9439c`)
+- **`GitService.IsPrMergedAsync` platform-aware.** PR-merge detection routes to `gh pr view` (GitHub) or `glab mr view` (GitLab) based on URL host. Closes a silent-failure path where GitLab MRs always appeared "not merged" because `gh` returned non-zero on unsupported hosts. (`63b6f6f`)
+- **`LocalDaemon` mode in `RemoteTriggerService`.** Process-spawn wake mode as alternative to Routines `/fire` endpoint. Useful for development setups without inbound HTTP. (`bcc8ba9`)
+- **Captain-lifecycle hardening.** Captain process cleanup on cancel + launch log lock recovery prevents orphaned worktrees and stuck launch state. Merge-queue land + dock-delete honor the vessel's `BranchCleanupPolicy`. (`7f99fa9`, `23c22eb7`)
+- **`JsonStringEnumConverter` registered for settings.json mode loading.** Fixes a startup crash when `settings.json` carries `RemoteTriggerMode` as a string. (`3dcecd5`)
+
+### Upstream features in-tree but not actively wired
+
+- **Mux captain runtime.** Absorbed via `cd27ea6`. Our active captain pool is ClaudeCode + Codex + Cursor + Gemini; we don't currently register Mux captains. The runtime stays available for any future Mux endpoint integration.
+- **Planning Sessions UX refinements.** Absorbed via `cd27ea6`. We use Architect mode (`armada_decompose_plan` + `armada_parse_architect_output`) for spec-to-mission decomposition rather than dashboard-driven Planning Sessions. The refinements are kept so the feature stays usable for users who prefer the dashboard flow.
+- **Windows framework-override scripts.** Absorbed via `cd27ea6`. Server runtime untouched; the scripts are ergonomics for Windows users running install/healthcheck/update flows. Linux/macOS hosts ignore them.
+
+---
+
 ## Features
 
 A by-category inventory of what Armada actually ships. Each feature is implemented in `Armada.Core` / `Armada.Server` / `Armada.Runtimes` and exposed via REST, MCP, the dashboard, or the CLI.

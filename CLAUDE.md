@@ -224,3 +224,49 @@ dotnet run --project test/Armada.Test.Runtimes --framework net10.0
 - Voyage = batch of related missions
 - Dock = git worktree for a captain
 - Signal = message between admiral and captains
+
+## Upstream Sync Protocol
+
+This is a fork of `jchristn/Armada`. Upstream lives at remote `upstream`,
+our fork at `origin`. The fork accumulates orchestration features that
+aren't in upstream (PR-fallback flow, recovery pipeline, audit queue,
+cross-vessel deps, captain-lifecycle hardening, etc.).
+
+**Whenever a mission merges from `upstream/main` into our `main`, that
+same voyage MUST also update `README.md`'s `## Fork features vs
+upstream` section.** The README delta is part of the upstream-sync
+deliverable, not a follow-up. Either:
+
+- the merge commit itself includes the README edit, OR
+- a follow-up commit on the same voyage and same captain branch
+  updates the README before the merge lands.
+
+### What goes in the section
+
+- A short header: "Last upstream sync: `<merge-commit-sha>` (N upstream
+  commits absorbed)" plus the date.
+- **Fork-only features** subsection: bulleted list of features our fork
+  has that upstream does not. Each bullet ends with the relevant fork
+  commit SHA(s) for git anchor. Keep bullets to 1-3 sentences each.
+- **Upstream features in-tree but not actively wired** subsection:
+  lists features upstream ships that we keep in-tree but don't wire
+  into our orchestration flow yet (e.g. Mux runtime, Planning Sessions
+  UX), each with a one-line "why" (typically: not needed for our
+  multi-runtime captain pool yet).
+- Section sits in `README.md` immediately after `## Why Armada`'s
+  "Who It's For" subsection, before `## Features`.
+
+### Trigger
+
+Any commit that:
+- Merges `upstream/main` into our `main`, OR
+- Cherry-picks an upstream commit, OR
+- Reverts a previously-absorbed upstream feature.
+
+### Why this matters
+
+Without explicit fork-vs-upstream tracking in `README.md`, anyone
+comparing forks loses the feature-delta context. The `README.md` is
+the most-likely-read entry point; bury the delta and it's invisible.
+Future maintainers (including future captains) need this to know what
+to preserve through subsequent upstream merges.
