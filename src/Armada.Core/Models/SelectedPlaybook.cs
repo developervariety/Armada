@@ -16,5 +16,14 @@ namespace Armada.Core.Models
         /// Delivery mode to use for this selection.
         /// </summary>
         public PlaybookDeliveryModeEnum DeliveryMode { get; set; } = PlaybookDeliveryModeEnum.InlineFullContent;
+
+        /// <summary>
+        /// Optional inline playbook body. When non-null, the dispatch pipeline
+        /// short-circuits the curated-playbook DB lookup and ships this content
+        /// directly with the mission. Used by recovery flows that ship a
+        /// compile-time playbook (for example <c>pbk_rebase_captain</c>) without
+        /// requiring a tenant-scoped playbook row to exist.
+        /// </summary>
+        public string? InlineFullContent { get; set; } = null;
     }
 }
