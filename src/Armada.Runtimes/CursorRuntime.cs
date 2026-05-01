@@ -86,12 +86,14 @@ namespace Armada.Runtimes
 
         /// <summary>
         /// Build Cursor agent CLI arguments. Uses --print as a boolean (current
-        /// cursor-agent CLI semantics; older releases accepted -p &lt;prompt&gt; as a
+        /// cursor-agent CLI semantics; older releases accepted -p as a
         /// flag-with-value, which silently failed to enable headless mode and
-        /// caused --trust to be ignored). The prompt is the trailing positional
-        /// argument. --trust skips the "Workspace Trust Required" prompt that
-        /// would otherwise hang headless invocations against fresh temp
-        /// directories.
+        /// caused --trust to be ignored). --trust skips the "Workspace Trust
+        /// Required" prompt that would otherwise hang headless invocations against
+        /// fresh temp directories. The prompt is NOT included here; it is written
+        /// to stdin instead (see UsePromptStdin) to avoid the Windows cmd.exe
+        /// ~8KB command-line length limit when long mission briefs are dispatched
+        /// via cursor-agent.cmd.
         /// </summary>
         protected override List<string> BuildArguments(string prompt, string? model, string? finalMessageFilePath)
         {
@@ -110,11 +112,16 @@ namespace Armada.Runtimes
             args.Add("--output-format");
             args.Add("text");
 
-            // Positional prompt must come last after all flags.
-            args.Add(prompt);
-
             return args;
         }
+
+        /// <summary>
+        /// Cursor agent reads the prompt from stdin when launched with --print
+        /// and no positional prompt argument. Writing via stdin avoids the
+        /// Windows cmd.exe ~8KB command-line length limit that causes
+        /// cursor-agent.cmd to silently fail on long mission briefs.
+        /// </summary>
+        protected override bool UsePromptStdin => true;
 
         #endregion
     }

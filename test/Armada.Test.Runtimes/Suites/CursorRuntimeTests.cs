@@ -17,6 +17,8 @@ namespace Armada.Test.Runtimes.Suites
             public string Command() => GetCommand();
 
             public List<string> Args(string prompt, string? model = null, string? finalMessageFilePath = null) => BuildArguments(prompt, model, finalMessageFilePath);
+
+            public bool StdinEnabled() => UsePromptStdin;
         }
 
         private InspectableCursorRuntime CreateRuntime()
@@ -38,8 +40,7 @@ namespace Armada.Test.Runtimes.Suites
             {
                 InspectableCursorRuntime runtime = CreateRuntime();
                 List<string> args = runtime.Args("test prompt");
-                AssertEqual("-p", args[0]);
-                AssertEqual("test prompt", args[1]);
+                AssertEqual("--print", args[0]);
                 AssertTrue(args.Contains("--force"));
                 AssertTrue(args.Contains("--output-format"));
                 AssertTrue(args.Contains("text"));
@@ -59,6 +60,24 @@ namespace Armada.Test.Runtimes.Suites
                 InspectableCursorRuntime runtime = CreateRuntime();
                 string command = runtime.Command();
                 AssertTrue(command.Contains("cursor-agent", StringComparison.OrdinalIgnoreCase), "Expected cursor-agent command");
+            });
+
+            await RunTest("UsePromptStdin Is True", () =>
+            {
+                InspectableCursorRuntime runtime = CreateRuntime();
+                AssertTrue(runtime.StdinEnabled(), "Cursor runtime must use stdin to avoid Windows cmd.exe length limit");
+            });
+
+            await RunTest("BuildArguments_LongPrompt_PromptNotInArguments", () =>
+            {
+                InspectableCursorRuntime runtime = CreateRuntime();
+                string longPrompt = new string('x', 16384);
+                List<string> args = runtime.Args(longPrompt);
+                foreach (string arg in args)
+                {
+                    AssertFalse(arg.Length > 1000, "No single argument should contain the long prompt; prompt must be sent via stdin");
+                }
+                AssertFalse(args.Contains(longPrompt), "Long prompt must not appear as a CLI argument");
             });
         }
     }
