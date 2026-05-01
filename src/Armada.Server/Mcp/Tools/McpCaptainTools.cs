@@ -80,7 +80,8 @@ namespace Armada.Server.Mcp.Tools
                         muxTemperature = new { type = "number", description = "Optional Mux temperature override" },
                         muxMaxTokens = new { type = "integer", description = "Optional Mux max tokens override" },
                         muxSystemPromptPath = new { type = "string", description = "Optional Mux system prompt file path" },
-                        muxApprovalPolicy = new { type = "string", description = "Optional Mux approval policy override" }
+                        muxApprovalPolicy = new { type = "string", description = "Optional Mux approval policy override" },
+                        reasoningEffort = new { type = "string", description = "Reasoning-effort / thinking-budget tier (low|medium|high|xhigh|max). Codex tops out at xhigh; ClaudeCode accepts max. Null means runtime CLI default." }
                     },
                     required = new[] { "name" }
                 },
@@ -96,7 +97,9 @@ namespace Armada.Server.Mcp.Tools
                     captain.Model = String.IsNullOrWhiteSpace(request.Model) ? null : request.Model;
                     captain.AllowedPersonas = request.AllowedPersonas;
                     captain.PreferredPersona = request.PreferredPersona;
-                    ApplyMuxOptions(captain, request);
+                    string? reasoningValidationError = CaptainRuntimeOptions.ValidateReasoningEffort(captain.Runtime, request.ReasoningEffort);
+                    if (reasoningValidationError != null) return CreateToolErrorResponse(reasoningValidationError);
+                    ApplyCaptainOptions(captain, request);
 
                     if (agentLifecycle != null)
                     {
@@ -130,7 +133,8 @@ namespace Armada.Server.Mcp.Tools
                         muxTemperature = new { type = "number", description = "Optional Mux temperature override" },
                         muxMaxTokens = new { type = "integer", description = "Optional Mux max tokens override" },
                         muxSystemPromptPath = new { type = "string", description = "Optional Mux system prompt file path; empty string clears it" },
-                        muxApprovalPolicy = new { type = "string", description = "Optional Mux approval policy override; empty string clears it" }
+                        muxApprovalPolicy = new { type = "string", description = "Optional Mux approval policy override; empty string clears it" },
+                        reasoningEffort = new { type = "string", description = "Reasoning-effort / thinking-budget tier (low|medium|high|xhigh|max). Codex tops out at xhigh; ClaudeCode accepts max. Empty string clears it; null leaves it unchanged." }
                     },
                     required = new[] { "captainId" }
                 },
@@ -140,6 +144,7 @@ namespace Armada.Server.Mcp.Tools
                     string captainId = request.CaptainId;
                     Captain? captain = await database.Captains.ReadAsync(captainId).ConfigureAwait(false);
                     if (captain == null) return (object)new { Error = "Captain not found" };
+                    Captain existingCaptain = CloneForOptionsBaseline(captain);
                     if (request.Name != null)
                         captain.Name = request.Name;
                     if (!String.IsNullOrEmpty(request.Runtime) && Enum.TryParse<AgentRuntimeEnum>(request.Runtime, true, out AgentRuntimeEnum rt))
@@ -152,9 +157,14 @@ namespace Armada.Server.Mcp.Tools
                         captain.AllowedPersonas = request.AllowedPersonas;
                     if (request.PreferredPersona != null)
                         captain.PreferredPersona = request.PreferredPersona;
+                    if (request.ReasoningEffort != null)
+                    {
+                        string? validationError = CaptainRuntimeOptions.ValidateReasoningEffort(captain.Runtime, request.ReasoningEffort);
+                        if (validationError != null) return CreateToolErrorResponse(validationError);
+                    }
                     try
                     {
-                        ApplyMuxOptions(captain, request, captain.Runtime == AgentRuntimeEnum.Mux ? captain : null);
+                        ApplyCaptainOptions(captain, request, existingCaptain);
                     }
                     catch (Exception ex)
                     {
@@ -354,60 +364,116 @@ namespace Armada.Server.Mcp.Tools
             };
         }
 
-        private static void ApplyMuxOptions(Captain captain, CaptainCreateArgs request)
+        /// <summary>
+        /// Apply create-time reasoningEffort + Mux options into the captain row.
+        /// Mux fields are honored only when the runtime is Mux; reasoningEffort applies
+        /// to any runtime whose validator accepts it.
+        /// </summary>
+        private static void ApplyCaptainOptions(Captain captain, CaptainCreateArgs request)
         {
-            if (captain.Runtime != AgentRuntimeEnum.Mux)
+            CaptainOptions options = new CaptainOptions
             {
-                captain.RuntimeOptionsJson = null;
-                return;
-            }
-
-            MuxCaptainOptions options = new MuxCaptainOptions
-            {
-                ConfigDirectory = request.MuxConfigDirectory,
-                Endpoint = request.MuxEndpoint,
-                BaseUrl = request.MuxBaseUrl,
-                AdapterType = request.MuxAdapterType,
-                Temperature = request.MuxTemperature,
-                MaxTokens = request.MuxMaxTokens,
-                SystemPromptPath = request.MuxSystemPromptPath,
-                ApprovalPolicy = request.MuxApprovalPolicy
+                ReasoningEffort = request.ReasoningEffort
             };
 
-            captain.RuntimeOptionsJson = CaptainRuntimeOptions.Serialize(options);
-        }
-
-        private static void ApplyMuxOptions(Captain captain, CaptainUpdateArgs request, Captain? existingCaptain)
-        {
-            if (captain.Runtime != AgentRuntimeEnum.Mux)
+            if (captain.Runtime == AgentRuntimeEnum.Mux)
             {
-                captain.RuntimeOptionsJson = null;
-                return;
+                options.ConfigDirectory = request.MuxConfigDirectory;
+                options.Endpoint = request.MuxEndpoint;
+                options.BaseUrl = request.MuxBaseUrl;
+                options.AdapterType = request.MuxAdapterType;
+                options.Temperature = request.MuxTemperature;
+                options.MaxTokens = request.MuxMaxTokens;
+                options.SystemPromptPath = request.MuxSystemPromptPath;
+                options.ApprovalPolicy = request.MuxApprovalPolicy;
             }
 
-            MuxCaptainOptions options = GetExistingMuxOptions(existingCaptain);
-
-            if (request.MuxConfigDirectory != null) options.ConfigDirectory = request.MuxConfigDirectory;
-            if (request.MuxEndpoint != null) options.Endpoint = request.MuxEndpoint;
-            if (request.MuxBaseUrl != null) options.BaseUrl = request.MuxBaseUrl;
-            if (request.MuxAdapterType != null) options.AdapterType = request.MuxAdapterType;
-            if (request.MuxTemperature.HasValue) options.Temperature = request.MuxTemperature;
-            if (request.MuxMaxTokens.HasValue) options.MaxTokens = request.MuxMaxTokens;
-            if (request.MuxSystemPromptPath != null) options.SystemPromptPath = request.MuxSystemPromptPath;
-            if (request.MuxApprovalPolicy != null) options.ApprovalPolicy = request.MuxApprovalPolicy;
-
-            captain.RuntimeOptionsJson = CaptainRuntimeOptions.Serialize(options);
+            captain.RuntimeOptionsJson = HasAnyOptions(options)
+                ? CaptainRuntimeOptions.Serialize(options)
+                : null;
         }
 
-        private static MuxCaptainOptions GetExistingMuxOptions(Captain? captain)
+        /// <summary>
+        /// Apply update-time reasoningEffort + Mux options. Preserves existing
+        /// non-overwritten keys; null on a request field means "leave unchanged",
+        /// empty-string means "clear".
+        /// </summary>
+        private static void ApplyCaptainOptions(Captain captain, CaptainUpdateArgs request, Captain? existingCaptain)
         {
-            if (captain == null || captain.Runtime != AgentRuntimeEnum.Mux || String.IsNullOrWhiteSpace(captain.RuntimeOptionsJson))
+            CaptainOptions options = GetExistingCaptainOptions(existingCaptain);
+
+            // Reasoning effort: null leaves unchanged; empty string clears.
+            if (request.ReasoningEffort != null)
             {
-                return new MuxCaptainOptions();
+                options.ReasoningEffort = String.IsNullOrEmpty(request.ReasoningEffort)
+                    ? null
+                    : request.ReasoningEffort;
             }
 
-            return CaptainRuntimeOptions.GetMuxOptions(captain)
-                ?? new MuxCaptainOptions();
+            // Mux fields apply only when the captain's current runtime is Mux.
+            // Switching away from Mux clears Mux fields but preserves reasoningEffort.
+            if (captain.Runtime == AgentRuntimeEnum.Mux)
+            {
+                if (request.MuxConfigDirectory != null) options.ConfigDirectory = request.MuxConfigDirectory;
+                if (request.MuxEndpoint != null) options.Endpoint = request.MuxEndpoint;
+                if (request.MuxBaseUrl != null) options.BaseUrl = request.MuxBaseUrl;
+                if (request.MuxAdapterType != null) options.AdapterType = request.MuxAdapterType;
+                if (request.MuxTemperature.HasValue) options.Temperature = request.MuxTemperature;
+                if (request.MuxMaxTokens.HasValue) options.MaxTokens = request.MuxMaxTokens;
+                if (request.MuxSystemPromptPath != null) options.SystemPromptPath = request.MuxSystemPromptPath;
+                if (request.MuxApprovalPolicy != null) options.ApprovalPolicy = request.MuxApprovalPolicy;
+            }
+            else
+            {
+                options.ConfigDirectory = null;
+                options.Endpoint = null;
+                options.BaseUrl = null;
+                options.AdapterType = null;
+                options.Temperature = null;
+                options.MaxTokens = null;
+                options.SystemPromptPath = null;
+                options.ApprovalPolicy = null;
+            }
+
+            captain.RuntimeOptionsJson = HasAnyOptions(options)
+                ? CaptainRuntimeOptions.Serialize(options)
+                : null;
+        }
+
+        private static CaptainOptions GetExistingCaptainOptions(Captain? captain)
+        {
+            if (captain == null || String.IsNullOrWhiteSpace(captain.RuntimeOptionsJson))
+                return new CaptainOptions();
+
+            return CaptainRuntimeOptions.GetCaptainOptions(captain) ?? new CaptainOptions();
+        }
+
+        private static bool HasAnyOptions(CaptainOptions options)
+        {
+            return options.ReasoningEffort != null
+                || options.ConfigDirectory != null
+                || options.Endpoint != null
+                || options.BaseUrl != null
+                || options.AdapterType != null
+                || options.Temperature.HasValue
+                || options.MaxTokens.HasValue
+                || options.SystemPromptPath != null
+                || options.ApprovalPolicy != null;
+        }
+
+        /// <summary>
+        /// Snapshot the captain's existing RuntimeOptionsJson into a temporary captain
+        /// instance so subsequent mutation of <paramref name="captain"/> doesn't
+        /// race the options-merge step.
+        /// </summary>
+        private static Captain CloneForOptionsBaseline(Captain captain)
+        {
+            return new Captain
+            {
+                Id = captain.Id,
+                Runtime = captain.Runtime,
+                RuntimeOptionsJson = captain.RuntimeOptionsJson
+            };
         }
     }
 }

@@ -86,5 +86,13 @@ namespace Armada.Server.Mcp
         /// </summary>
         public string? MuxApprovalPolicy { get; set; }
 
+        /// <summary>
+        /// Reasoning-effort / thinking-budget tier forwarded to the runtime CLI.
+        /// Codex accepts low|medium|high|xhigh; ClaudeCode accepts low|medium|high|xhigh|max;
+        /// Cursor TBD. Provide an empty string to clear it; null leaves the existing
+        /// value unchanged.
+        /// </summary>
+        public string? ReasoningEffort { get; set; }
+
     }
 }

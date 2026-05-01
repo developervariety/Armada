@@ -1,6 +1,7 @@
 namespace Armada.Runtimes
 {
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using System.Diagnostics;
     using SyslogLogging;
 
@@ -101,9 +102,12 @@ namespace Armada.Runtimes
         }
 
         /// <summary>
-        /// Apply Claude Code specific environment variables.
+        /// Apply Claude Code specific environment variables. Forwards per-captain
+        /// reasoning effort (extended thinking budget) via MAX_THINKING_TOKENS, which
+        /// the Claude Code CLI honors as the per-process extended-thinking budget.
+        /// Null/absent reasoningEffort preserves the CLI default (no env var set).
         /// </summary>
-        protected override void ApplyEnvironment(ProcessStartInfo startInfo)
+        protected override void ApplyEnvironment(ProcessStartInfo startInfo, Captain? captain)
         {
             startInfo.Environment["CLAUDE_CODE_DISABLE_NONINTERACTIVE_HINT"] = "1";
 
@@ -111,6 +115,34 @@ namespace Armada.Runtimes
             // even when the Admiral or CLI was started from within a Claude Code session
             startInfo.Environment.Remove("CLAUDECODE");
             startInfo.Environment.Remove("CLAUDE_CODE_ENTRYPOINT");
+
+            string? reasoningEffort = CaptainRuntimeOptions.GetReasoningEffort(captain);
+            int? thinkingBudget = MapReasoningEffortToThinkingBudget(reasoningEffort);
+            if (thinkingBudget.HasValue)
+            {
+                startInfo.Environment["MAX_THINKING_TOKENS"] = thinkingBudget.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            }
+        }
+
+        /// <summary>
+        /// Map a reasoning-effort tier to an Anthropic extended-thinking token budget.
+        /// `max` triggers the per-model documented maximum (claude-opus-4-7 supports
+        /// the largest budget; claude-sonnet-4-6 ships a smaller cap). Conservative
+        /// upper bound of 128k is used at the `max` tier; Claude API silently caps
+        /// to the model's actual max if smaller.
+        /// </summary>
+        private static int? MapReasoningEffortToThinkingBudget(string? reasoningEffort)
+        {
+            if (String.IsNullOrWhiteSpace(reasoningEffort)) return null;
+            switch (reasoningEffort.Trim().ToLowerInvariant())
+            {
+                case "low":     return 4096;
+                case "medium":  return 16384;
+                case "high":    return 32768;
+                case "xhigh":   return 65536;
+                case "max":     return 128000;
+                default:        return null;
+            }
         }
 
         #endregion

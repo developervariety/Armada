@@ -1,6 +1,7 @@
 namespace Armada.Runtimes
 {
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using System.Diagnostics;
     using SyslogLogging;
 
@@ -100,6 +101,19 @@ namespace Armada.Runtimes
             {
                 args.Add("--model");
                 args.Add(model);
+            }
+
+            // Forward per-captain reasoning effort to Codex CLI as a per-invocation
+            // config override. Codex CLI v0.125.0 accepts -c reasoning_effort=<value>
+            // for low|medium|high|xhigh. Position before --output-last-message and
+            // the prompt argument so Codex parses it as a config flag rather than
+            // part of the prompt text. Null reasoningEffort preserves existing args
+            // exactly (regression guard for captains without RuntimeOptionsJson).
+            string? reasoningEffort = CaptainRuntimeOptions.GetReasoningEffort(captain);
+            if (!String.IsNullOrWhiteSpace(reasoningEffort))
+            {
+                args.Add("-c");
+                args.Add("reasoning_effort=" + reasoningEffort.Trim().ToLowerInvariant());
             }
 
             if (!String.IsNullOrEmpty(finalMessageFilePath))

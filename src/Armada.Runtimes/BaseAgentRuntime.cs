@@ -123,7 +123,7 @@ namespace Armada.Runtimes
                 }
             }
 
-            ApplyEnvironment(startInfo);
+            ApplyEnvironment(startInfo, captain);
 
             // Set up optional log file writer. If a prior launch leaked a handle on the
             // canonical log path (admiral crash mid-launch, orphan agent process holding
@@ -358,8 +358,10 @@ namespace Armada.Runtimes
 
         /// <summary>
         /// Apply runtime-specific environment variables to the process start info.
+        /// The captain instance is forwarded so derived runtimes can read
+        /// per-captain settings (e.g. <c>Captain.RuntimeOptionsJson</c>).
         /// </summary>
-        protected virtual void ApplyEnvironment(ProcessStartInfo startInfo)
+        protected virtual void ApplyEnvironment(ProcessStartInfo startInfo, Captain? captain)
         {
         }
 
