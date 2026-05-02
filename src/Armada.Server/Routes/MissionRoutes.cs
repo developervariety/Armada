@@ -24,6 +24,7 @@ namespace Armada.Server.Routes
     {
         private readonly DatabaseDriver _database;
         private readonly IAdmiralService _admiral;
+        private readonly IMissionService _missionService;
         private readonly ArmadaSettings _settings;
         private readonly IGitService _git;
         private readonly ILandingService _landingService;
@@ -38,6 +39,7 @@ namespace Armada.Server.Routes
         /// </summary>
         /// <param name="database">Database driver.</param>
         /// <param name="admiral">Admiral coordination service.</param>
+        /// <param name="missionService">Mission lifecycle service.</param>
         /// <param name="settings">Application settings.</param>
         /// <param name="git">Git operations service.</param>
         /// <param name="landingService">Mission landing service.</param>
@@ -49,6 +51,7 @@ namespace Armada.Server.Routes
         public MissionRoutes(
             DatabaseDriver database,
             IAdmiralService admiral,
+            IMissionService missionService,
             ArmadaSettings settings,
             IGitService git,
             ILandingService landingService,
@@ -60,6 +63,7 @@ namespace Armada.Server.Routes
         {
             _database = database;
             _admiral = admiral;
+            _missionService = missionService;
             _settings = settings;
             _git = git;
             _landingService = landingService;
@@ -476,6 +480,98 @@ namespace Armada.Server.Routes
                 .WithDescription("Transitions a mission to a new status. Valid transitions: Pending→Assigned, Assigned→InProgress, InProgress→Testing/Review/Complete/Failed, Testing→Review/InProgress/Complete/Failed, Review→Complete/InProgress/Failed. Most states allow →Cancelled.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Mission ID (msn_ prefix)"))
                 .WithRequestBody(OpenApiJson.BodyFor<StatusTransitionRequest>("Target status", true))
+                .WithResponse(200, OpenApiJson.For<Mission>("Updated mission"))
+                .WithResponse(400, OpenApiResponseMetadata.BadRequest())
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithSecurity("ApiKey"));
+
+            app.Post<MissionReviewDecisionRequest>("/api/v1/missions/{id}/review/approve", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                {
+                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
+                    return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
+                }
+
+                string id = req.Parameters["id"];
+                Mission? existing = ctx.IsAdmin
+                    ? await _database.Missions.ReadAsync(id).ConfigureAwait(false)
+                    : ctx.IsTenantAdmin
+                        ? await _database.Missions.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                        : await _database.Missions.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
+                if (existing == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found" }; }
+                MissionReviewDecisionRequest body = JsonSerializer.Deserialize<MissionReviewDecisionRequest>(req.Http.Request.DataAsString, _jsonOptions)
+                    ?? new MissionReviewDecisionRequest();
+
+                try
+                {
+                    Mission mission = await _missionService.ApproveReviewAsync(id, ctx.UserId, body.Comment).ConfigureAwait(false);
+                    Signal signal = new Signal(SignalTypeEnum.Progress, "Mission " + id + " review approved");
+                    await _database.Signals.CreateAsync(signal).ConfigureAwait(false);
+                    await _emitEvent("mission.review_approved", "Mission " + id + " review approved",
+                        "mission", id, mission.CaptainId, id, mission.VesselId, mission.VoyageId).ConfigureAwait(false);
+                    _webSocketHub?.BroadcastMissionChange(id, mission.Status.ToString(), mission.Title);
+                    return (object)mission;
+                }
+                catch (InvalidOperationException ioe)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ioe.Message };
+                }
+            },
+            api => api
+                .WithTag("Missions")
+                .WithSummary("Approve a mission review gate")
+                .WithDescription("Approves a mission waiting at a review gate. Non-terminal stages continue to the next pipeline stage, and terminal stages continue to landing.")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Mission ID (msn_ prefix)"))
+                .WithRequestBody(OpenApiJson.BodyFor<MissionReviewDecisionRequest>("Optional review comment", false))
+                .WithResponse(200, OpenApiJson.For<Mission>("Updated mission"))
+                .WithResponse(400, OpenApiResponseMetadata.BadRequest())
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithSecurity("ApiKey"));
+
+            app.Post<MissionReviewDecisionRequest>("/api/v1/missions/{id}/review/deny", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                {
+                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
+                    return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
+                }
+
+                string id = req.Parameters["id"];
+                Mission? existing = ctx.IsAdmin
+                    ? await _database.Missions.ReadAsync(id).ConfigureAwait(false)
+                    : ctx.IsTenantAdmin
+                        ? await _database.Missions.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                        : await _database.Missions.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
+                if (existing == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found" }; }
+                MissionReviewDecisionRequest body = JsonSerializer.Deserialize<MissionReviewDecisionRequest>(req.Http.Request.DataAsString, _jsonOptions)
+                    ?? new MissionReviewDecisionRequest();
+
+                try
+                {
+                    Mission mission = await _missionService.DenyReviewAsync(id, ctx.UserId, body.Comment).ConfigureAwait(false);
+                    Signal signal = new Signal(SignalTypeEnum.Progress, "Mission " + id + " review denied");
+                    await _database.Signals.CreateAsync(signal).ConfigureAwait(false);
+                    await _emitEvent("mission.review_denied", "Mission " + id + " review denied",
+                        "mission", id, mission.CaptainId, id, mission.VesselId, mission.VoyageId).ConfigureAwait(false);
+                    _webSocketHub?.BroadcastMissionChange(id, mission.Status.ToString(), mission.Title);
+                    return (object)mission;
+                }
+                catch (InvalidOperationException ioe)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ioe.Message };
+                }
+            },
+            api => api
+                .WithTag("Missions")
+                .WithSummary("Deny a mission review gate")
+                .WithDescription("Denies a mission waiting at a review gate. The mission either returns to Pending for rework or fails the pipeline, depending on its review policy.")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Mission ID (msn_ prefix)"))
+                .WithRequestBody(OpenApiJson.BodyFor<MissionReviewDecisionRequest>("Optional review comment", false))
                 .WithResponse(200, OpenApiJson.For<Mission>("Updated mission"))
                 .WithResponse(400, OpenApiResponseMetadata.BadRequest())
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())

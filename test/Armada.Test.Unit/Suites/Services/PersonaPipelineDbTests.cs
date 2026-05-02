@@ -109,8 +109,8 @@ namespace Armada.Test.Unit.Suites.Services
                     pipeline.Stages = new List<PipelineStage>
                     {
                         new PipelineStage(1, "Architect"),
-                        new PipelineStage(2, "Worker"),
-                        new PipelineStage(3, "Judge")
+                        new PipelineStage(2, "Worker") { RequiresReview = true },
+                        new PipelineStage(3, "Judge") { RequiresReview = true, ReviewDenyAction = Armada.Core.Enums.ReviewDenyActionEnum.FailPipeline }
                     };
                     pipeline = await testDb.Driver.Pipelines.CreateAsync(pipeline).ConfigureAwait(false);
 
@@ -124,6 +124,8 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual("Architect", ordered[0].PersonaName, "Stage 1 persona");
                     AssertEqual("Worker", ordered[1].PersonaName, "Stage 2 persona");
                     AssertEqual("Judge", ordered[2].PersonaName, "Stage 3 persona");
+                    AssertTrue(ordered[1].RequiresReview, "Stage 2 review gate should persist");
+                    AssertEqual(Armada.Core.Enums.ReviewDenyActionEnum.FailPipeline, ordered[2].ReviewDenyAction, "Stage 3 deny action should persist");
                 }
             });
 

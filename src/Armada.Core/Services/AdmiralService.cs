@@ -139,6 +139,18 @@ namespace Armada.Core.Services
             List<SelectedPlaybook>? selectedPlaybooks,
             CancellationToken token = default)
         {
+            return await DispatchStandardVoyageAsync(title, description, vesselId, missionDescriptions, selectedPlaybooks, null, token).ConfigureAwait(false);
+        }
+
+        private async Task<Voyage> DispatchStandardVoyageAsync(
+            string title,
+            string description,
+            string vesselId,
+            List<MissionDescription> missionDescriptions,
+            List<SelectedPlaybook>? selectedPlaybooks,
+            PipelineStage? singleStagePolicy,
+            CancellationToken token)
+        {
             if (String.IsNullOrEmpty(title)) throw new ArgumentNullException(nameof(title));
             if (String.IsNullOrEmpty(vesselId)) throw new ArgumentNullException(nameof(vesselId));
             if (missionDescriptions == null || missionDescriptions.Count == 0)
@@ -173,6 +185,12 @@ namespace Armada.Core.Services
                 mission.UserId = vessel.UserId;
                 mission.VoyageId = voyage.Id;
                 mission.VesselId = vesselId;
+                if (singleStagePolicy != null)
+                {
+                    mission.Persona = singleStagePolicy.PersonaName;
+                    mission.RequiresReview = singleStagePolicy.RequiresReview;
+                    mission.ReviewDenyAction = singleStagePolicy.ReviewDenyAction;
+                }
                 mission = await _Database.Missions.CreateAsync(mission, token).ConfigureAwait(false);
                 await PersistMissionPlaybooksAsync(mission, voyage.SelectedPlaybooks, token).ConfigureAwait(false);
                 _Logging.Info(_Header + "created mission " + mission.Id + ": " + md.Title);
@@ -237,9 +255,14 @@ namespace Armada.Core.Services
             Pipeline? pipeline = await ResolvePipelineAsync(pipelineId, vessel, token).ConfigureAwait(false);
 
             // If pipeline is single-stage Worker (or null), use the standard dispatch path
-            if (pipeline == null || (pipeline.Stages.Count == 1 && pipeline.Stages[0].PersonaName == "Worker"))
+            if (pipeline == null)
             {
-                return await DispatchVoyageAsync(title, description, vesselId, missionDescriptions, selectedPlaybooks, token).ConfigureAwait(false);
+                return await DispatchStandardVoyageAsync(title, description, vesselId, missionDescriptions, selectedPlaybooks, null, token).ConfigureAwait(false);
+            }
+
+            if (pipeline.Stages.Count == 1 && pipeline.Stages[0].PersonaName == "Worker")
+            {
+                return await DispatchStandardVoyageAsync(title, description, vesselId, missionDescriptions, selectedPlaybooks, pipeline.Stages[0], token).ConfigureAwait(false);
             }
 
             // Multi-stage pipeline: create voyage, then for each mission create a chain of persona stages
@@ -273,6 +296,8 @@ namespace Armada.Core.Services
                     mission.VesselId = vesselId;
                     mission.Persona = stage.PersonaName;
                     mission.DependsOnMissionId = previousMissionId;
+                    mission.RequiresReview = stage.RequiresReview;
+                    mission.ReviewDenyAction = stage.ReviewDenyAction;
 
                     // Only the first stage starts as Pending; dependent stages also start as Pending
                     // but won't be assigned until their dependency completes
@@ -1049,6 +1074,14 @@ namespace Armada.Core.Services
 
             foreach (Mission mission in activeMissions)
             {
+                if (mission.Status == MissionStatusEnum.Review &&
+                    mission.RequiresReview &&
+                    mission.ReviewRequestedUtc.HasValue &&
+                    !mission.ProcessId.HasValue)
+                {
+                    continue;
+                }
+
                 if (String.IsNullOrEmpty(mission.CaptainId)) continue;
 
                 Captain? captain = await _Database.Captains.ReadAsync(mission.CaptainId, token).ConfigureAwait(false);

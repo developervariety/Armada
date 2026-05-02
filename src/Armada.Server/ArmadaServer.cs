@@ -72,6 +72,7 @@ namespace Armada.Server
         private ISessionTokenService _SessionTokenService = null!;
         private IAuthenticationService _AuthenticationService = null!;
         private IAuthorizationService _AuthorizationService = null!;
+        private IMissionService _MissionService = null!;
 
         private AgentLifecycleHandler _AgentLifecycle = null!;
         private MissionLandingHandler _MissionLanding = null!;
@@ -128,6 +129,7 @@ namespace Armada.Server
             _PromptTemplateService = new PromptTemplateService(_Database, _Logging);
 
             IMissionService missionService = new MissionService(_Logging, _Database, _Settings, dockService, captainService, _PromptTemplateService, _Git);
+            _MissionService = missionService;
             IVoyageService voyageService = new VoyageService(_Logging, _Database);
             IEscalationService escalationService = new EscalationService(_Logging, _Database, _Settings);
             AdmiralService admiralService = new AdmiralService(_Logging, _Database, _Settings, captainService, missionService, voyageService, dockService, escalationService);
@@ -447,7 +449,7 @@ namespace Armada.Server
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Missions
-            new MissionRoutes(_Database, _Admiral, _Settings, _Git, _LandingService, EmitEventAsync, _MissionLanding.HandleMissionCompleteAsync, _WebSocketHub, _Logging, _JsonOptions)
+            new MissionRoutes(_Database, _Admiral, _MissionService, _Settings, _Git, _LandingService, EmitEventAsync, _MissionLanding.HandleMissionCompleteAsync, _WebSocketHub, _Logging, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Captains

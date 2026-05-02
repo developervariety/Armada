@@ -442,6 +442,11 @@ namespace Armada.Core.Database.Mysql
                     30,
                     "Add request history tables",
                     TableQueries.MigrationV30Statements
+                ),
+                new SchemaMigration(
+                    31,
+                    "Add pipeline review gates",
+                    TableQueries.MigrationV31Statements
                 )
             };
         }

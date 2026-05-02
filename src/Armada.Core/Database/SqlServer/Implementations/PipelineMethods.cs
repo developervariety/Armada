@@ -380,14 +380,16 @@ namespace Armada.Core.Database.SqlServer.Implementations
         {
             using (SqlCommand cmd = conn.CreateCommand())
             {
-                cmd.CommandText = @"INSERT INTO pipeline_stages (id, pipeline_id, stage_order, persona_name, is_optional, description)
-                        VALUES (@id, @pipeline_id, @stage_order, @persona_name, @is_optional, @description);";
+                cmd.CommandText = @"INSERT INTO pipeline_stages (id, pipeline_id, stage_order, persona_name, is_optional, description, requires_review, review_deny_action)
+                        VALUES (@id, @pipeline_id, @stage_order, @persona_name, @is_optional, @description, @requires_review, @review_deny_action);";
                 cmd.Parameters.AddWithValue("@id", stage.Id);
                 cmd.Parameters.AddWithValue("@pipeline_id", (object?)stage.PipelineId ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@stage_order", stage.Order);
                 cmd.Parameters.AddWithValue("@persona_name", stage.PersonaName);
                 cmd.Parameters.AddWithValue("@is_optional", stage.IsOptional ? 1 : 0);
                 cmd.Parameters.AddWithValue("@description", (object?)stage.Description ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@requires_review", stage.RequiresReview);
+                cmd.Parameters.AddWithValue("@review_deny_action", stage.ReviewDenyAction.ToString());
                 await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
             }
         }
@@ -450,6 +452,16 @@ namespace Armada.Core.Database.SqlServer.Implementations
             stage.PersonaName = reader["persona_name"].ToString()!;
             stage.IsOptional = Convert.ToBoolean(reader["is_optional"]);
             stage.Description = SqlServerDatabaseDriver.NullableString(reader["description"]);
+            try { stage.RequiresReview = reader["requires_review"] != DBNull.Value && Convert.ToBoolean(reader["requires_review"]); } catch { }
+            try
+            {
+                string? reviewDenyAction = SqlServerDatabaseDriver.NullableString(reader["review_deny_action"]);
+                if (!String.IsNullOrEmpty(reviewDenyAction) && Enum.TryParse(reviewDenyAction, true, out ReviewDenyActionEnum parsed))
+                {
+                    stage.ReviewDenyAction = parsed;
+                }
+            }
+            catch { }
             return stage;
         }
 

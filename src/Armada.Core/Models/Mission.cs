@@ -139,6 +139,37 @@ namespace Armada.Core.Models
         public string? FailureReason { get; set; } = null;
 
         /// <summary>
+        /// Whether this mission requires an explicit review approval before the pipeline may continue.
+        /// Copied from the owning pipeline stage when the mission is created.
+        /// </summary>
+        public bool RequiresReview { get; set; } = false;
+
+        /// <summary>
+        /// Action to take if the review gate for this mission is denied.
+        /// </summary>
+        public ReviewDenyActionEnum ReviewDenyAction { get; set; } = ReviewDenyActionEnum.RetryStage;
+
+        /// <summary>
+        /// Reviewer comment from the most recent review decision.
+        /// </summary>
+        public string? ReviewComment { get; set; } = null;
+
+        /// <summary>
+        /// User identifier for the most recent reviewer.
+        /// </summary>
+        public string? ReviewedByUserId { get; set; } = null;
+
+        /// <summary>
+        /// Timestamp when this mission most recently entered the review gate.
+        /// </summary>
+        public DateTime? ReviewRequestedUtc { get; set; } = null;
+
+        /// <summary>
+        /// Timestamp when this mission's most recent review decision was made.
+        /// </summary>
+        public DateTime? ReviewedUtc { get; set; } = null;
+
+        /// <summary>
         /// Selected playbooks supplied when creating or updating the mission.
         /// This is request metadata and is not stored directly on the mission row.
         /// </summary>

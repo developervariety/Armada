@@ -586,6 +586,17 @@ namespace Armada.Core.Database.Postgresql.Queries
                     @"CREATE INDEX IF NOT EXISTS idx_request_history_status_created ON request_history(status_code, created_utc DESC);",
                     @"CREATE INDEX IF NOT EXISTS idx_request_history_success_created ON request_history(is_success, created_utc DESC);",
                     @"CREATE INDEX IF NOT EXISTS idx_request_history_route_created ON request_history(route, created_utc DESC);"
+                ),
+                new SchemaMigration(31, "Add pipeline review gates",
+                    @"ALTER TABLE pipeline_stages ADD COLUMN IF NOT EXISTS requires_review BOOLEAN NOT NULL DEFAULT FALSE;",
+                    @"ALTER TABLE pipeline_stages ADD COLUMN IF NOT EXISTS review_deny_action TEXT NOT NULL DEFAULT 'RetryStage';",
+                    @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS requires_review BOOLEAN NOT NULL DEFAULT FALSE;",
+                    @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS review_deny_action TEXT NOT NULL DEFAULT 'RetryStage';",
+                    @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS review_comment TEXT;",
+                    @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS reviewed_by_user_id TEXT;",
+                    @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS review_requested_utc TIMESTAMP;",
+                    @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS reviewed_utc TIMESTAMP;",
+                    @"CREATE INDEX IF NOT EXISTS idx_missions_requires_review ON missions(requires_review);"
                 )
             };
         }

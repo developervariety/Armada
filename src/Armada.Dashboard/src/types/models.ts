@@ -157,6 +157,12 @@ export interface Mission {
   parentMissionId: string | null;
   persona: string | null;
   dependsOnMissionId: string | null;
+  requiresReview: boolean;
+  reviewDenyAction: 'RetryStage' | 'FailPipeline';
+  reviewComment: string | null;
+  reviewedByUserId: string | null;
+  reviewRequestedUtc: string | null;
+  reviewedUtc: string | null;
   branchName: string | null;
   dockId: string | null;
   processId: number | null;
@@ -717,6 +723,8 @@ export interface PipelineStage {
   personaName: string;
   isOptional: boolean;
   description: string | null;
+  requiresReview: boolean;
+  reviewDenyAction: 'RetryStage' | 'FailPipeline';
 }
 
 export type EntityType = 'fleets' | 'vessels' | 'captains' | 'missions' | 'voyages' | 'signals' | 'events' | 'docks' | 'merge-queue' | 'personas' | 'prompt-templates' | 'pipelines' | 'playbooks';
