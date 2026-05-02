@@ -21,7 +21,7 @@ The core value is not "a generic file browser in the browser." The core value is
 Core Workspace MVP is now implemented in Armada. The remaining unchecked items below are real follow-up work, not placeholders.
 
 - [x] A first-class `Workspace` route exists in the React dashboard
-- [x] The sidebar/nav supports nested hierarchy with `Vessels > Workspace`
+- [x] The sidebar/nav exposes `Workspace` and `Vessels` as separate first-class entries in the `Fleet` section
 - [x] Users can browse a vessel file tree rooted at `Vessel.WorkingDirectory`
 - [x] Users can open and edit text files in a browser editor
 - [x] The Workspace editor uses a line-number gutter and fills the vertical pane instead of stacking cards below the editor
@@ -47,8 +47,8 @@ These are the recommended implementation decisions for the first pass. They shou
   - `/workspace/:vesselId/search`
   - `/workspace/:vesselId/changes`
   - `/workspace/:vesselId/context`
-- Navigation placement: `Fleet > Vessels > Workspace` as the first child under a new collapsible `Vessels` group
-- Existing vessel table keeps living under `Fleet > Vessels > Registry`
+- Navigation placement: `Fleet > Workspace` and `Fleet > Vessels` as separate flat entries
+- Existing vessel table lives under the `Vessels` entry
 - Editable root: `Vessel.WorkingDirectory`
 - No editing against the vessel bare repo `LocalPath`
 - No editing against live captain dock worktrees in the MVP
@@ -109,7 +109,7 @@ This is a better fit for Armada than hiding file actions under `VesselDetail`, b
 
 ## Recommended Dashboard Information Architecture
 
-The current React dashboard sidebar already supports section collapse state in `Layout.tsx`, but each section is still a flat list. Workspace is a good reason to promote the nav model from "flat items under sections" to "hierarchical nodes."
+The current React dashboard sidebar works better with a flat list inside each section than with one-off nested groups. Workspace should be first-class in the Fleet section, not buried as the only child branch in the navigation.
 
 ### Recommended Sidebar Structure
 
@@ -122,9 +122,8 @@ The current React dashboard sidebar already supports section collapse state in `
   - Merge Queue
 - Fleet
   - Fleets
+  - Workspace
   - Vessels
-    - Workspace
-    - Registry
   - Captains
   - Docks
 - Activity
@@ -145,11 +144,11 @@ The current React dashboard sidebar already supports section collapse state in `
 
 ### Navigation Rules
 
-- `Workspace` should be the first child under `Vessels`
-- `Registry` should map to the existing `/vessels` table view
+- `Workspace` should appear immediately after `Fleets`
+- `Vessels` should map to the existing `/vessels` table view
 - `/workspace` should open a vessel picker or restore the last-opened vessel
 - deep links from other pages should be able to open a specific vessel and optional path
-- section and sub-item collapse state should persist in local storage, just like the current section state does
+- section collapse state should persist in local storage
 
 ## Target User Experience
 
