@@ -174,6 +174,144 @@ namespace Armada.Test.Unit.Suites.Services
                         "second mission overrides delivery mode via per-mission list");
                 }
             });
+
+            await RunTest("Dispatch_VesselDefaultsPlusVoyagePlaybook_MissionSnapshotHasFiveEntries", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    ArmadaSettings settings = CreateSettings();
+
+                    AdmiralService admiral = BuildAdmiral(testDb, logging, settings);
+
+                    Vessel vessel = await CreateVesselWithTenantAsync(testDb).ConfigureAwait(false);
+
+                    Playbook pb1 = await SeedPlaybookAsync(testDb, "voy5-a").ConfigureAwait(false);
+                    Playbook pb2 = await SeedPlaybookAsync(testDb, "voy5-b").ConfigureAwait(false);
+                    Playbook pb3 = await SeedPlaybookAsync(testDb, "voy5-c").ConfigureAwait(false);
+                    Playbook pb4 = await SeedPlaybookAsync(testDb, "voy5-d").ConfigureAwait(false);
+                    Playbook pb5 = await SeedPlaybookAsync(testDb, "voy5-e").ConfigureAwait(false);
+
+                    List<object> defaults = new List<object>();
+                    defaults.Add(new { playbookId = pb1.Id, deliveryMode = "InlineFullContent" });
+                    defaults.Add(new { playbookId = pb2.Id, deliveryMode = "InlineFullContent" });
+                    defaults.Add(new { playbookId = pb3.Id, deliveryMode = "InlineFullContent" });
+                    defaults.Add(new { playbookId = pb4.Id, deliveryMode = "InlineFullContent" });
+
+                    vessel.DefaultPlaybooks = JsonSerializer.Serialize(defaults);
+                    vessel = await testDb.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
+
+                    List<SelectedPlaybook> voyageExtra = new List<SelectedPlaybook>
+                    {
+                        new SelectedPlaybook { PlaybookId = pb5.Id, DeliveryMode = PlaybookDeliveryModeEnum.InstructionWithReference }
+                    };
+                    List<SelectedPlaybook> voyagePlaybooks = PlaybookMerge.MergeWithVesselDefaults(
+                        vessel.GetDefaultPlaybooks(), voyageExtra);
+
+                    List<MissionDescription> missionDescriptions = new List<MissionDescription>
+                    {
+                        new MissionDescription("Alpha", "desc a"),
+                        new MissionDescription("Beta", "desc b")
+                    };
+
+                    Voyage voyage = await admiral.DispatchVoyageAsync(
+                        "Voy plus extra",
+                        "vessel defaults plus voyage extra",
+                        vessel.Id,
+                        missionDescriptions,
+                        voyagePlaybooks).ConfigureAwait(false);
+
+                    List<Mission> voyMissions = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+                    AssertEqual(2, voyMissions.Count, "Expected two missions");
+
+                    foreach (Mission mission in voyMissions)
+                    {
+                        List<MissionPlaybookSnapshot> snaps = await testDb.Driver.Playbooks
+                            .GetMissionSnapshotsAsync(mission.Id).ConfigureAwait(false);
+                        AssertEqual(5, snaps.Count, "Mission must have 5 snapshots (4 vessel defaults + 1 voyage extra)");
+
+                        MissionPlaybookSnapshot? pb5Snap = snaps.Find(s => s.PlaybookId == pb5.Id);
+                        AssertNotNull(pb5Snap, "voyage-extra pb5 snapshot must be present on " + mission.Title);
+                        AssertEqual(
+                            PlaybookDeliveryModeEnum.InstructionWithReference,
+                            pb5Snap!.DeliveryMode,
+                            "pb5 must carry the voyage-level delivery mode on " + mission.Title);
+                    }
+                }
+            });
+
+            await RunTest("Dispatch_VoyageExtraWithPerMissionOverride_PerMissionDeliveryModeWins", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    ArmadaSettings settings = CreateSettings();
+
+                    AdmiralService admiral = BuildAdmiral(testDb, logging, settings);
+
+                    Vessel vessel = await CreateVesselWithTenantAsync(testDb).ConfigureAwait(false);
+
+                    Playbook pb1 = await SeedPlaybookAsync(testDb, "ovr-a").ConfigureAwait(false);
+                    Playbook pb2 = await SeedPlaybookAsync(testDb, "ovr-b").ConfigureAwait(false);
+                    Playbook pb3 = await SeedPlaybookAsync(testDb, "ovr-c").ConfigureAwait(false);
+                    Playbook pb4 = await SeedPlaybookAsync(testDb, "ovr-d").ConfigureAwait(false);
+                    Playbook pb5 = await SeedPlaybookAsync(testDb, "ovr-e").ConfigureAwait(false);
+
+                    List<object> defaults = new List<object>();
+                    defaults.Add(new { playbookId = pb1.Id, deliveryMode = "InlineFullContent" });
+                    defaults.Add(new { playbookId = pb2.Id, deliveryMode = "InlineFullContent" });
+                    defaults.Add(new { playbookId = pb3.Id, deliveryMode = "InlineFullContent" });
+                    defaults.Add(new { playbookId = pb4.Id, deliveryMode = "InlineFullContent" });
+
+                    vessel.DefaultPlaybooks = JsonSerializer.Serialize(defaults);
+                    vessel = await testDb.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
+
+                    List<SelectedPlaybook> voyageExtra = new List<SelectedPlaybook>
+                    {
+                        new SelectedPlaybook { PlaybookId = pb5.Id, DeliveryMode = PlaybookDeliveryModeEnum.InlineFullContent }
+                    };
+                    List<SelectedPlaybook> voyagePlaybooks = PlaybookMerge.MergeWithVesselDefaults(
+                        vessel.GetDefaultPlaybooks(), voyageExtra);
+
+                    List<MissionDescription> missionDescriptions = new List<MissionDescription>
+                    {
+                        new MissionDescription("Worker", "with per-mission override")
+                        {
+                            SelectedPlaybooks = new List<SelectedPlaybook>
+                            {
+                                new SelectedPlaybook
+                                {
+                                    PlaybookId = pb5.Id,
+                                    DeliveryMode = PlaybookDeliveryModeEnum.AttachIntoWorktree
+                                }
+                            }
+                        }
+                    };
+
+                    Voyage voyage = await admiral.DispatchVoyageAsync(
+                        "Ovr voyage",
+                        "per-mission overrides voyage extra",
+                        vessel.Id,
+                        missionDescriptions,
+                        voyagePlaybooks).ConfigureAwait(false);
+
+                    List<Mission> missions = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+                    AssertEqual(1, missions.Count, "Expected one mission");
+
+                    List<MissionPlaybookSnapshot> snaps = await testDb.Driver.Playbooks
+                        .GetMissionSnapshotsAsync(missions[0].Id).ConfigureAwait(false);
+                    AssertEqual(5, snaps.Count, "Mission must have 5 snapshots (4 vessel defaults + 1 voyage extra, no duplicate)");
+
+                    MissionPlaybookSnapshot? pb5Snap = snaps.Find(s => s.PlaybookId == pb5.Id);
+                    AssertNotNull(pb5Snap, "pb5 snapshot must be present");
+                    AssertEqual(
+                        PlaybookDeliveryModeEnum.AttachIntoWorktree,
+                        pb5Snap!.DeliveryMode,
+                        "per-mission delivery mode must override voyage delivery mode");
+                }
+            });
         }
 
         private ArmadaSettings CreateSettings()
