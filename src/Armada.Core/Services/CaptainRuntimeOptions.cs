@@ -31,8 +31,10 @@ namespace Armada.Core.Services
         };
 
         /// <summary>
-        /// Reasoning-effort tiers accepted by Cursor agent. Cursor's thinking-level CLI flag
-        /// is not yet documented in cursor-agent --help; conservative subset for now.
+        /// Reasoning-effort tiers accepted for Cursor agent validation. cursor-agent CLI
+        /// v2026.04.29-c83a488 does not expose a --thinking-effort / --reasoning-effort flag;
+        /// values in this set are validated and stored but NOT forwarded to cursor-agent
+        /// invocations (parked until cursor-agent CLI gains the flag).
         /// </summary>
         public static readonly IReadOnlySet<string> CursorReasoningEfforts = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {

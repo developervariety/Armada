@@ -113,6 +113,10 @@ namespace Armada.Runtimes
                 args.Add(model);
             }
 
+            // reasoningEffort from CaptainRuntimeOptions is validated and stored but not
+            // forwarded: cursor-agent CLI v2026.04.29-c83a488 exposes no --thinking-effort /
+            // --reasoning-effort flag. Wire this block when cursor-agent CLI gains the flag.
+
             args.Add("--force");
             args.Add("--trust");
             args.Add("--output-format");
