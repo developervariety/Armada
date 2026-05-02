@@ -106,7 +106,6 @@ Edit `docker/server/armada.json` to customize:
 ```json
 {
   "dataDirectory": "/app/data",
-  "databasePath": "/app/data/db/armada.db",
   "logDirectory": "/app/data/logs",
   "docksDirectory": "/app/data/docks",
   "reposDirectory": "/app/data/repos",
@@ -177,7 +176,7 @@ cd docker/factory
 ./reset.sh
 ```
 
-Both scripts prompt for confirmation, stop containers, and delete database and log files. The `armada.json` configuration file is preserved.
+Both scripts prompt for confirmation, stop containers, and delete local SQLite database and log files. The `armada.json` configuration file is preserved. If the Docker config points at MySQL, PostgreSQL, or SQL Server instead of the mounted SQLite file, the external database is not modified by the reset scripts.
 
 ---
 

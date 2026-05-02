@@ -848,6 +848,8 @@ cd docker/factory
 reset.bat
 ```
 
+The reset scripts delete local SQLite database and log files while preserving `docker/server/armada.json`. If that Docker config points at MySQL, PostgreSQL, or SQL Server instead of the mounted SQLite file, the external database is not modified by the reset scripts.
+
 ### Stop
 
 ```bash

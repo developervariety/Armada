@@ -5,8 +5,10 @@ echo "========================================"
 echo " Armada Factory Reset"
 echo "========================================"
 echo ""
-echo "This will delete all database and log files."
+echo "This will delete local SQLite database files and log files."
 echo "Configuration (armada.json) will be preserved."
+echo "If docker/server/armada.json points at an external database,"
+echo "that external database will NOT be modified by this script."
 echo ""
 read -p "Type 'RESET' to confirm: " confirm
 if [ "$confirm" != "RESET" ]; then
@@ -19,10 +21,10 @@ echo "[1/3] Stopping containers..."
 docker compose down
 echo ""
 
-echo "[2/3] Deleting database files..."
+echo "[2/3] Deleting local database files..."
 if [ -d "../armada/db" ]; then
     rm -f ../armada/db/*
-    echo "  Database files deleted."
+    echo "  Local database files deleted."
 else
     echo "  No database directory found."
 fi
