@@ -41,6 +41,16 @@ import type {
   Playbook,
   MuxEndpointListResult,
   MuxEndpointShowResult,
+  WorkspaceChangesResult,
+  WorkspaceCreateDirectoryRequest,
+  WorkspaceFileResponse,
+  WorkspaceOperationResult,
+  WorkspaceRenameRequest,
+  WorkspaceSaveRequest,
+  WorkspaceSaveResult,
+  WorkspaceSearchResult,
+  WorkspaceStatusResult,
+  WorkspaceTreeResult,
 } from '../types/models';
 
 const BASE_URL = import.meta.env.VITE_ARMADA_SERVER_URL || '';
@@ -197,6 +207,30 @@ export const createVessel = (data: Partial<Vessel>) => post<Vessel>('/api/v1/ves
 export const updateVessel = (id: string, data: Partial<Vessel>) => put<Vessel>(`/api/v1/vessels/${id}`, data);
 export const deleteVessel = (id: string) => del<void>(`/api/v1/vessels/${id}`);
 export const getVesselGitStatus = (id: string) => get<{ vesselId: string; commitsAhead: number | null; commitsBehind: number | null; error?: string }>(`/api/v1/vessels/${id}/git-status`);
+
+// ==================== Workspace ====================
+function encodeWorkspaceQueryPath(path: string) {
+  return encodeURIComponent(path).replace(/%2F/g, '/');
+}
+
+export const getWorkspaceStatus = (vesselId: string) =>
+  get<WorkspaceStatusResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/status`);
+export const getWorkspaceTree = (vesselId: string, path?: string) =>
+  get<WorkspaceTreeResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/tree${path ? `?path=${encodeWorkspaceQueryPath(path)}` : ''}`);
+export const getWorkspaceFile = (vesselId: string, path: string) =>
+  get<WorkspaceFileResponse>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/file?path=${encodeWorkspaceQueryPath(path)}`);
+export const saveWorkspaceFile = (vesselId: string, data: WorkspaceSaveRequest) =>
+  put<WorkspaceSaveResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/file`, data);
+export const createWorkspaceDirectory = (vesselId: string, data: WorkspaceCreateDirectoryRequest) =>
+  post<WorkspaceOperationResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/directory`, data);
+export const renameWorkspaceEntry = (vesselId: string, data: WorkspaceRenameRequest) =>
+  post<WorkspaceOperationResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/rename`, data);
+export const deleteWorkspaceEntry = (vesselId: string, path: string) =>
+  del<WorkspaceOperationResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/entry?path=${encodeWorkspaceQueryPath(path)}`);
+export const searchWorkspace = (vesselId: string, query: string, maxResults = 200) =>
+  get<WorkspaceSearchResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/search?q=${encodeURIComponent(query)}&maxResults=${maxResults}`);
+export const getWorkspaceChanges = (vesselId: string) =>
+  get<WorkspaceChangesResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/changes`);
 
 // ==================== Captains ====================
 export const listCaptains = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>

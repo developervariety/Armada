@@ -9,6 +9,7 @@ import PlaybookSelector from '../components/shared/PlaybookSelector';
 
 interface DispatchPrefillState {
   fromPlanning?: boolean;
+  fromWorkspace?: boolean;
   vesselId?: string;
   pipelineName?: string;
   prompt?: string;
@@ -49,7 +50,7 @@ export default function Dispatch() {
     if (prefillAppliedRef.current) return;
 
     const prefill = location.state as DispatchPrefillState | null;
-    if (!prefill?.fromPlanning) return;
+    if (!prefill?.fromPlanning && !prefill?.fromWorkspace) return;
 
     if (prefill.vesselId) setVesselId(prefill.vesselId);
     if (prefill.pipelineName) setSelectedPipeline(prefill.pipelineName);
@@ -122,9 +123,11 @@ export default function Dispatch() {
 
       <div className="card" style={{ marginBottom: '1rem' }}>
         <div className="dispatch-form">
-          {(location.state as DispatchPrefillState | null)?.fromPlanning && (
+          {((location.state as DispatchPrefillState | null)?.fromPlanning || (location.state as DispatchPrefillState | null)?.fromWorkspace) && (
             <div className="alert" style={{ marginBottom: '1rem' }}>
-              {t('Prefilled from a planning session. Review the draft below and dispatch when ready.')}
+              {(location.state as DispatchPrefillState | null)?.fromPlanning
+                ? t('Prefilled from a planning session. Review the draft below and dispatch when ready.')
+                : t('Prefilled from Workspace selection. Review the scoped draft below and dispatch when ready.')}
             </div>
           )}
 

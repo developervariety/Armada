@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   createPlanningSession,
   deletePlanningSession,
@@ -55,9 +55,19 @@ interface PlanningSummaryEventPayload {
   };
 }
 
+interface PlanningPrefillState {
+  fromWorkspace?: boolean;
+  vesselId?: string;
+  fleetId?: string;
+  pipelineId?: string;
+  title?: string;
+  initialPrompt?: string;
+}
+
 export default function Planning() {
   const { id } = useParams<{ id?: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { t, formatDateTime, formatRelativeTime } = useLocale();
   const { pushToast } = useNotifications();
   const { subscribe } = useWebSocket();
@@ -93,6 +103,7 @@ export default function Planning() {
 
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const dispatchSeedRef = useRef<DispatchSeedState | null>(null);
+  const planningPrefillAppliedRef = useRef(false);
 
   const loadCatalog = useCallback(async () => {
     try {
@@ -284,6 +295,21 @@ export default function Planning() {
   }, [detail, dispatchDescription, dispatchTitle, selectedMessageId]);
 
   useEffect(() => {
+    if (planningPrefillAppliedRef.current || id) return;
+
+    const prefill = location.state as PlanningPrefillState | null;
+    if (!prefill?.fromWorkspace) return;
+
+    if (prefill.title) setTitle(prefill.title);
+    if (prefill.fleetId) setFleetId(prefill.fleetId);
+    if (prefill.vesselId) setVesselId(prefill.vesselId);
+    if (prefill.pipelineId) setPipelineId(prefill.pipelineId);
+    if (prefill.initialPrompt) setComposer(prefill.initialPrompt);
+
+    planningPrefillAppliedRef.current = true;
+  }, [id, location.state]);
+
+  useEffect(() => {
     if (!transcriptRef.current) return;
     transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
   }, [detail?.messages]);
@@ -333,7 +359,9 @@ export default function Planning() {
 
       setSessions((current) => upsertSession(current, result.session));
       pushToast('success', t('Planning session started.'));
-      navigate(`/planning/${result.session.id}`);
+      navigate(`/planning/${result.session.id}`, {
+        state: composer.trim() ? { fromWorkspace: true, initialPrompt: composer.trim() } : undefined,
+      });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : t('Failed to start planning session.');
       if (message === 'Request timed out') {
@@ -497,6 +525,7 @@ export default function Planning() {
         availableVessels={availableVessels}
         selectedCaptain={selectedCaptain}
         selectedPlaybooks={selectedPlaybooks}
+        pendingInitialPrompt={composer}
         creating={creating}
         canStartSession={canStartSession}
         onTitleChange={setTitle}

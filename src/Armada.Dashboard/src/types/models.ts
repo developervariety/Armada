@@ -414,6 +414,115 @@ export interface MuxEndpointShowResult {
   endpoint: MuxEndpointInfo | null;
 }
 
+export interface WorkspaceTreeEntry {
+  name: string;
+  relativePath: string;
+  isDirectory: boolean;
+  isEditable: boolean;
+  sizeBytes: number | null;
+  lastWriteUtc: string;
+}
+
+export interface WorkspaceTreeResult {
+  vesselId: string;
+  rootPath: string;
+  currentPath: string;
+  parentPath: string | null;
+  entries: WorkspaceTreeEntry[];
+}
+
+export interface WorkspaceFileResponse {
+  vesselId: string;
+  path: string;
+  name: string;
+  content: string;
+  contentHash: string;
+  isEditable: boolean;
+  isBinary: boolean;
+  isLarge: boolean;
+  previewTruncated: boolean;
+  sizeBytes: number;
+  lastWriteUtc: string;
+  language: string;
+}
+
+export interface WorkspaceSaveRequest {
+  path: string;
+  content: string;
+  expectedHash?: string | null;
+}
+
+export interface WorkspaceSaveResult {
+  path: string;
+  contentHash: string;
+  sizeBytes: number;
+  lastWriteUtc: string;
+  created: boolean;
+}
+
+export interface WorkspaceCreateDirectoryRequest {
+  path: string;
+}
+
+export interface WorkspaceRenameRequest {
+  path: string;
+  newPath: string;
+}
+
+export interface WorkspaceOperationResult {
+  path: string;
+  newPath?: string | null;
+  status: string;
+}
+
+export interface WorkspaceSearchMatch {
+  path: string;
+  lineNumber: number;
+  preview: string;
+}
+
+export interface WorkspaceSearchResult {
+  query: string;
+  totalMatches: number;
+  truncated: boolean;
+  matches: WorkspaceSearchMatch[];
+}
+
+export interface WorkspaceChangeEntry {
+  path: string;
+  status: string;
+  originalPath?: string | null;
+}
+
+export interface WorkspaceChangesResult {
+  branchName: string;
+  isDirty: boolean;
+  commitsAhead: number;
+  commitsBehind: number;
+  changes: WorkspaceChangeEntry[];
+  error?: string | null;
+}
+
+export interface WorkspaceActiveMission {
+  missionId: string;
+  title: string;
+  status: string;
+  scopedFiles: string[];
+}
+
+export interface WorkspaceStatusResult {
+  vesselId: string;
+  hasWorkingDirectory: boolean;
+  rootPath?: string | null;
+  branchName?: string | null;
+  isDirty: boolean;
+  commitsAhead?: number | null;
+  commitsBehind?: number | null;
+  activeMissionCount: number;
+  activeMissions: WorkspaceActiveMission[];
+  error?: string | null;
+}
+
 export interface DispatchRequest {
   vesselId: string;
   title: string;

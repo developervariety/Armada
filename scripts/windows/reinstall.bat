@@ -8,7 +8,7 @@ if errorlevel 1 exit /b 1
 
 echo.
 echo [reinstall] Removing existing global Armada.Helm tool if present...
-dotnet tool uninstall --global Armada.Helm >nul 2>nul
+call dotnet tool uninstall --global Armada.Helm >nul 2>nul
 
 echo.
 echo [reinstall] Running fresh install...

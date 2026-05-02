@@ -65,6 +65,7 @@ namespace Armada.Server
         private RemoteControlQueryService _RemoteControlQueries = null!;
         private RemoteControlManagementService _RemoteControlManagement = null!;
         private PlanningSessionCoordinator _PlanningSessions = null!;
+        private IWorkspaceService _Workspace = null!;
 
         private ISessionTokenService _SessionTokenService = null!;
         private IAuthenticationService _AuthenticationService = null!;
@@ -132,6 +133,7 @@ namespace Armada.Server
             _LandingService = new LandingService(_Logging, _Database, _Settings, _Git);
             _TemplateService = new MessageTemplateService(_Logging, _PromptTemplateService);
             _RuntimeFactory = new AgentRuntimeFactory(_Logging);
+            _Workspace = new WorkspaceService();
             _RemoteTunnel = new RemoteTunnelManager(_Logging, _Settings);
             admiralService.OnGetRemoteTunnelStatus = _RemoteTunnel.GetStatus;
             _RemoteControlQueries = new RemoteControlQueryService(
@@ -213,6 +215,7 @@ namespace Armada.Server
                 openApi.Tags.Add(new OpenApiTag { Name = "Status", Description = "Health check and system status" });
                 openApi.Tags.Add(new OpenApiTag { Name = "Fleets", Description = "Fleet (repository collection) management" });
                 openApi.Tags.Add(new OpenApiTag { Name = "Vessels", Description = "Vessel (git repository) management" });
+                openApi.Tags.Add(new OpenApiTag { Name = "Workspace", Description = "Workspace browsing, editing, search, and dispatch handoff" });
                 openApi.Tags.Add(new OpenApiTag { Name = "Voyages", Description = "Voyage (mission batch) management" });
                 openApi.Tags.Add(new OpenApiTag { Name = "Missions", Description = "Mission (atomic work unit) management" });
                 openApi.Tags.Add(new OpenApiTag { Name = "Planning", Description = "Captain planning sessions and transcript-to-dispatch flow" });
@@ -420,6 +423,10 @@ namespace Armada.Server
 
             // Vessels
             new VesselRoutes(_Database, EmitEventAsync, _JsonOptions, _Docks)
+                .Register(_App, authenticate, _AuthorizationService);
+
+            // Workspace
+            new WorkspaceRoutes(_Database, _Workspace, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Voyages

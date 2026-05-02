@@ -93,6 +93,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new PromptSignalConsistencyTests());
             runner.AddSuite(new PersonaPipelineDbTests());
             runner.AddSuite(new PipelineDispatchTests());
+            runner.AddSuite(new WorkspaceServiceTests());
 
             int exitCode = await runner.RunAllAsync().ConfigureAwait(false);
             return exitCode;

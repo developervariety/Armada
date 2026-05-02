@@ -10,11 +10,13 @@ import SetupWizard, { isSetupComplete } from './SetupWizard';
 import LanguageSelector from './shared/LanguageSelector';
 
 interface NavItem {
+  key?: string;
   to: string;
   label: string;
   icon: ReactNode;
   hidden?: boolean;
   tooltip?: string;
+  children?: NavItem[];
 }
 
 interface NavSection {
@@ -108,7 +110,7 @@ const navSections: NavSection[] = [
   {
     key: 'fleet',
     label: 'FLEET',
-    matchers: ['/fleets', '/vessels', '/captains', '/docks'],
+    matchers: ['/fleets', '/vessels', '/workspace', '/captains', '/docks'],
     items: [
       {
         to: '/fleets',
@@ -122,14 +124,45 @@ const navSections: NavSection[] = [
         ),
       },
       {
-        to: '/vessels',
+        key: 'vessels-group',
+        to: '/workspace',
         label: 'Vessels',
-        tooltip: 'Git repositories registered with Armada',
+        tooltip: 'Workspace-first repository surfaces and vessel registry',
         icon: (
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
           </svg>
         ),
+        children: [
+          {
+            to: '/workspace',
+            label: 'Workspace',
+            tooltip: 'Open a vessel as a browsable, editable repository workspace',
+            icon: (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 6h18" />
+                <path d="M7 12h10" />
+                <path d="M10 18h4" />
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+              </svg>
+            ),
+          },
+          {
+            to: '/vessels',
+            label: 'Registry',
+            tooltip: 'Registered git repositories and vessel configuration',
+            icon: (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M8 6h13" />
+                <path d="M8 12h13" />
+                <path d="M8 18h13" />
+                <path d="M3 6h.01" />
+                <path d="M3 12h.01" />
+                <path d="M3 18h.01" />
+              </svg>
+            ),
+          },
+        ],
       },
       {
         to: '/captains',
@@ -357,6 +390,17 @@ export default function Layout() {
       admin: true,
     };
   });
+  const [groups, setGroups] = useState<Record<string, boolean>>(() => {
+    try {
+      const stored = localStorage.getItem('armada_sidebar_groups');
+      if (stored) return JSON.parse(stored) as Record<string, boolean>;
+    } catch {
+      // ignore
+    }
+    return {
+      'vessels-group': true,
+    };
+  });
   const [healthStatus, setHealthStatus] = useState<HealthStatus>('unknown');
 
   useEffect(() => {
@@ -375,8 +419,19 @@ export default function Layout() {
     }
   }, [sections]);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem('armada_sidebar_groups', JSON.stringify(groups));
+    } catch {
+      // ignore
+    }
+  }, [groups]);
+
   const toggleSection = useCallback((key: string) => {
     setSections((prev) => ({ ...prev, [key]: !prev[key] }));
+  }, []);
+  const toggleGroup = useCallback((key: string) => {
+    setGroups((prev) => ({ ...prev, [key]: !prev[key] }));
   }, []);
 
   useEffect(() => {
@@ -425,6 +480,58 @@ export default function Layout() {
     [location.pathname],
   );
 
+  const isItemActive = useCallback((item: NavItem): boolean => {
+    if (location.pathname === item.to || location.pathname.startsWith(`${item.to}/`)) return true;
+    return (item.children || []).some((child) => isItemActive(child));
+  }, [location.pathname]);
+
+  const renderNavItem = useCallback((item: NavItem, depth = 0) => {
+    if (item.hidden) return null;
+
+    const hasChildren = !!item.children?.length;
+    const groupKey = item.key || item.to;
+    const groupOpen = groups[groupKey] ?? true;
+    const childClassName = depth > 0 ? ' sidebar-nav-item-child' : '';
+    const style = depth > 0 ? { paddingLeft: `${1 + depth * 1.1}rem` } : undefined;
+
+    return (
+      <div key={`${groupKey}-${depth}`} className={`sidebar-nav-node${hasChildren ? ' has-children' : ''}${isItemActive(item) ? ' active-branch' : ''}`}>
+        <div className="sidebar-nav-item-row">
+          <NavLink
+            to={item.to}
+            className={({ isActive }) => `sidebar-nav-item${childClassName}${isActive || isItemActive(item) ? ' active' : ''}${wizardHighlights.includes(item.to) ? ' wizard-highlight' : ''}`}
+            title={collapsed ? t(item.label) : t(item.tooltip || item.label)}
+            style={style}
+          >
+            {item.icon}
+            <span className="sidebar-label">{t(item.label)}</span>
+            {item.to === '/notifications' && unreadCount > 0 && (
+              <span className="notif-badge">{unreadCount > 99 ? '99+' : unreadCount}</span>
+            )}
+          </NavLink>
+          {!collapsed && hasChildren && (
+            <button
+              type="button"
+              className={`sidebar-group-toggle${groupOpen ? '' : ' collapsed'}`}
+              onClick={() => toggleGroup(groupKey)}
+              title={groupOpen ? t('Collapse group') : t('Expand group')}
+            >
+              <svg viewBox="0 0 24 24">
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+            </button>
+          )}
+        </div>
+
+        {!collapsed && hasChildren && groupOpen && (
+          <div className="sidebar-nav-children">
+            {item.children!.map((child) => renderNavItem(child, depth + 1))}
+          </div>
+        )}
+      </div>
+    );
+  }, [collapsed, groups, isItemActive, t, toggleGroup, unreadCount, wizardHighlights]);
+
   const layoutClassName = [
     'app-layout',
     showWizard ? 'wizard-active' : '',
@@ -472,20 +579,7 @@ export default function Layout() {
                 </button>
               )}
               <div className="sidebar-section-items" style={{ display: collapsed || sections[section.key] ? undefined : 'none' }}>
-                {section.items.filter((item) => !item.hidden).map((item) => (
-                  <NavLink
-                    key={item.to}
-                    to={item.to}
-                    className={({ isActive }) => `sidebar-nav-item${isActive ? ' active' : ''}${wizardHighlights.includes(item.to) ? ' wizard-highlight' : ''}`}
-                    title={collapsed ? t(item.label) : t(item.tooltip || item.label)}
-                  >
-                    {item.icon}
-                    <span className="sidebar-label">{t(item.label)}</span>
-                    {item.to === '/notifications' && unreadCount > 0 && (
-                      <span className="notif-badge">{unreadCount > 99 ? '99+' : unreadCount}</span>
-                    )}
-                  </NavLink>
-                ))}
+                {section.items.filter((item) => !item.hidden).map((item) => renderNavItem(item))}
               </div>
             </div>
           ))}

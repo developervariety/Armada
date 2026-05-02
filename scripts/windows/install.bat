@@ -14,17 +14,17 @@ if errorlevel 1 exit /b 1
 
 echo.
 echo [install] Building Armada solution for %ARMADA_TARGET_FRAMEWORK%...
-dotnet build "%REPO_ROOT%\src\Armada.sln" %ARMADA_DOTNET_FRAMEWORK_ARGS%
+call dotnet build "%REPO_ROOT%\src\Armada.sln" %ARMADA_DOTNET_FRAMEWORK_ARGS%
 if errorlevel 1 exit /b 1
 
 echo.
 echo [install] Packing Armada.Helm for %ARMADA_TARGET_FRAMEWORK%...
-dotnet pack "%REPO_ROOT%\src\Armada.Helm\Armada.Helm.csproj" %ARMADA_DOTNET_MSBUILD_FRAMEWORK_ARGS% -o "%REPO_ROOT%\src\nupkg"
+call dotnet pack "%REPO_ROOT%\src\Armada.Helm\Armada.Helm.csproj" %ARMADA_DOTNET_MSBUILD_FRAMEWORK_ARGS% -o "%REPO_ROOT%\src\nupkg"
 if errorlevel 1 exit /b 1
 
 echo.
 echo [install] Installing Armada.Helm as a global tool...
-dotnet tool install --global --add-source "%REPO_ROOT%\src\nupkg" Armada.Helm
+call dotnet tool install --global --add-source "%REPO_ROOT%\src\nupkg" Armada.Helm
 
 echo.
 echo [install] Completed.

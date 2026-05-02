@@ -122,13 +122,13 @@ namespace Armada.Test.Unit.Suites.Services
 
                 string positionalResult = RunCommandAndCaptureOutput(
                     "cmd.exe",
-                    "/c call \"" + resolveFrameworkPath + "\" net8.0 >nul && echo %ARMADA_TARGET_FRAMEWORK%",
+                    "/v:on /c call \"" + resolveFrameworkPath + "\" net8.0 >nul && echo !ARMADA_TARGET_FRAMEWORK!",
                     repoRoot);
                 AssertEqual("net8.0", positionalResult.Trim(), "resolve-framework.bat should accept positional framework values");
 
                 string namedResult = RunCommandAndCaptureOutput(
                     "cmd.exe",
-                    "/c call \"" + resolveFrameworkPath + "\" --framework net8.0 >nul && echo %ARMADA_TARGET_FRAMEWORK%",
+                    "/v:on /c call \"" + resolveFrameworkPath + "\" --framework net8.0 >nul && echo !ARMADA_TARGET_FRAMEWORK!",
                     repoRoot);
                 AssertEqual("net8.0", namedResult.Trim(), "resolve-framework.bat should accept named framework values");
             });

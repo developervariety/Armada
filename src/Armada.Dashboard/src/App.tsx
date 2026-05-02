@@ -47,6 +47,7 @@ import PromptTemplates from './pages/PromptTemplates';
 import PromptTemplateDetail from './pages/PromptTemplateDetail';
 import Playbooks from './pages/Playbooks';
 import PlaybookDetail from './pages/PlaybookDetail';
+import Workspace from './pages/Workspace';
 
 export default function App() {
   return (
@@ -73,6 +74,9 @@ export default function App() {
 
                   <Route path="vessels" element={<Vessels />} />
                   <Route path="vessels/:id" element={<VesselDetail />} />
+                  <Route path="workspace" element={<Workspace />} />
+                  <Route path="workspace/:vesselId" element={<Workspace />} />
+                  <Route path="workspace/:vesselId/:panel" element={<Workspace />} />
 
                   <Route path="captains" element={<Captains />} />
                   <Route path="captains/:id" element={<CaptainDetail />} />

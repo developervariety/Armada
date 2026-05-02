@@ -262,6 +262,9 @@ export default function Vessels() {
           <p className="text-dim view-subtitle">{t('Git repositories registered with Armada')}</p>
         </div>
         <div className="view-actions">
+          <button className="btn btn-sm" onClick={() => navigate('/workspace')}>
+            {t('Workspace')}
+          </button>
           {selected.length > 0 && (
             <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>
               {t('Delete Selected')} ({selected.length})
@@ -476,6 +479,7 @@ export default function Vessels() {
                     </td>
                     <td className="text-right" onClick={e => e.stopPropagation()}>
                       <ActionMenu id={`vessel-${v.id}`} items={[
+                        { label: 'Open Workspace', onClick: () => navigate(`/workspace/${v.id}`) },
                         { label: 'View Detail', onClick: () => navigate(`/vessels/${v.id}`) },
                         { label: 'Edit', onClick: () => openEdit(v) },
                         { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `Vessel: ${v.name}`, data: v }) },

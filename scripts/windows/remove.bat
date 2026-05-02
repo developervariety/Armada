@@ -8,7 +8,7 @@ if errorlevel 1 exit /b 1
 
 echo.
 echo [remove] Uninstalling global Armada.Helm tool if present...
-dotnet tool uninstall --global Armada.Helm >nul 2>nul
+call dotnet tool uninstall --global Armada.Helm >nul 2>nul
 
 if exist "%USERPROFILE%\.armada\dashboard" (
     echo.
