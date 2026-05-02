@@ -295,7 +295,7 @@ export default function Planning() {
   }, [detail, dispatchDescription, dispatchTitle, selectedMessageId]);
 
   useEffect(() => {
-    if (planningPrefillAppliedRef.current || id) return;
+    if (planningPrefillAppliedRef.current || id || loadingCatalog) return;
 
     const prefill = location.state as PlanningPrefillState | null;
     if (!prefill?.fromWorkspace) return;
@@ -307,7 +307,7 @@ export default function Planning() {
     if (prefill.initialPrompt) setComposer(prefill.initialPrompt);
 
     planningPrefillAppliedRef.current = true;
-  }, [id, location.state]);
+  }, [id, loadingCatalog, location.state]);
 
   useEffect(() => {
     if (!transcriptRef.current) return;
@@ -315,12 +315,15 @@ export default function Planning() {
   }, [detail?.messages]);
 
   useEffect(() => {
-    if (!fleetId) return;
-    const fleetStillMatches = vessels.some((vessel) => vessel.id === vesselId && vessel.fleetId === fleetId);
-    if (!fleetStillMatches) {
+    if (!fleetId || !vesselId || loadingCatalog) return;
+
+    const selectedVessel = vessels.find((vessel) => vessel.id === vesselId);
+    if (!selectedVessel) return;
+
+    if (selectedVessel.fleetId !== fleetId) {
       setVesselId('');
     }
-  }, [fleetId, vesselId, vessels]);
+  }, [fleetId, loadingCatalog, vesselId, vessels]);
 
   const availableVessels = useMemo(() => {
     return fleetId ? vessels.filter((vessel) => vessel.fleetId === fleetId) : vessels;

@@ -98,6 +98,7 @@ export default function Workspace() {
   const [draftsByPath, setDraftsByPath] = useState<Record<string, string>>({});
   const [recentFiles, setRecentFiles] = useState<string[]>([]);
   const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
+  const [loadingWorkspace, setLoadingWorkspace] = useState(false);
   const [workspaceError, setWorkspaceError] = useState('');
   const [showContextModal, setShowContextModal] = useState(false);
   const [metadataEntry, setMetadataEntry] = useState<WorkspaceTreeEntry | null>(null);
@@ -110,6 +111,8 @@ export default function Workspace() {
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
   const editorLineNumberRef = useRef<HTMLDivElement | null>(null);
   const readonlyLineNumberRef = useRef<HTMLDivElement | null>(null);
+  const restoreExpandedPathsRef = useRef<string[]>([]);
+  const workspaceStateHydratedRef = useRef(false);
 
   const currentVessel = useMemo(
     () => vessels.find((item) => item.id === vesselId) || null,
@@ -199,30 +202,38 @@ export default function Workspace() {
       setRecentFiles([]);
       setSelectedPaths([]);
       setExpandedPaths({ '': true });
+      setLoadingWorkspace(false);
+      restoreExpandedPathsRef.current = [];
+      workspaceStateHydratedRef.current = false;
       return;
     }
 
     const persisted = readPersistedState(vesselId);
+    workspaceStateHydratedRef.current = false;
+    restoreExpandedPathsRef.current = getExpandedWorkspacePaths({ '': true, ...(persisted?.expandedPaths || {}) })
+      .filter((path) => path !== '');
     setTabs([]);
     setActivePath(null);
-    setExpandedPaths({ '': true, ...(persisted?.expandedPaths || {}) });
+    setExpandedPaths({ '': true });
     setSelectedPaths([]);
     setRecentFiles(persisted?.recentFiles || []);
     setFilesByPath({});
     setDraftsByPath({});
     setEntriesByDirectory({});
+    setLoadingDirectories([]);
     setWorkspaceError('');
   }, [vesselId]);
 
   useEffect(() => {
     if (!vesselId) return;
+    if (!workspaceStateHydratedRef.current) return;
     persistWorkspaceState(vesselId, { expandedPaths, recentFiles });
   }, [expandedPaths, recentFiles, vesselId]);
 
   useEffect(() => {
     if (!vesselId) return;
     rememberVessel(vesselId);
-    void refreshWorkspace();
+    void refreshWorkspace(restoreExpandedPathsRef.current);
   }, [vesselId]);
 
   useEffect(() => {
@@ -238,22 +249,53 @@ export default function Workspace() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [activeFile?.isEditable, activePath, draftsByPath, filesByPath]);
 
-  async function refreshWorkspace() {
+  async function refreshWorkspace(expandedPathOverrides?: string[]) {
     if (!vesselId) return;
+    setLoadingWorkspace(true);
+    let rebuilt = false;
     try {
-      await loadWorkspaceState(getExpandedWorkspacePaths(expandedPaths));
+      await rebuildWorkspaceState(expandedPathOverrides ?? getExpandedWorkspacePaths(expandedPaths).filter((path) => path !== ''));
+      rebuilt = true;
     } catch (error: unknown) {
       setWorkspaceError(error instanceof Error ? error.message : t('Failed to load Workspace.'));
+    } finally {
+      if (rebuilt) {
+        workspaceStateHydratedRef.current = true;
+      }
+      setLoadingWorkspace(false);
     }
   }
 
-  async function loadWorkspaceState(pathsToRefresh: string[]) {
+  async function rebuildWorkspaceState(pathsToRestore: string[]) {
     if (!vesselId) return;
     const nextStatus = await getWorkspaceStatus(vesselId);
+    const rootTree = await getWorkspaceTree(vesselId, undefined);
+    const nextEntries: Record<string, WorkspaceTreeEntry[]> = { '': rootTree.entries };
+    const nextExpanded: Record<string, boolean> = { '': true };
+    const normalizedPaths = sortWorkspacePathsByDepth(pathsToRestore);
+
+    for (const path of normalizedPaths) {
+      const normalizedPath = normalizeWorkspacePath(path);
+      if (!normalizedPath) continue;
+
+      const parentPath = getWorkspaceParentPath(normalizedPath);
+      if (parentPath && !nextExpanded[parentPath]) continue;
+
+      try {
+        const tree = await getWorkspaceTree(vesselId, normalizedPath);
+        nextEntries[normalizedPath] = tree.entries;
+        nextExpanded[normalizedPath] = true;
+      } catch {
+        // Skip directories that cannot be restored.
+      }
+    }
+
     setStatus(nextStatus);
     setStatusByVesselId((current) => ({ ...current, [vesselId]: nextStatus }));
+    setEntriesByDirectory(nextEntries);
+    setExpandedPaths(nextExpanded);
+    setLoadingDirectories([]);
     setWorkspaceError('');
-    await refreshExpandedDirectories(pathsToRefresh);
   }
 
   async function refreshExpandedDirectories(paths: string[]) {
@@ -313,7 +355,13 @@ export default function Workspace() {
   async function handleToggleDirectory(path: string) {
     const normalizedPath = normalizeWorkspacePath(path);
     if (expandedPaths[normalizedPath]) {
-      setExpandedPaths((current) => ({ ...current, [normalizedPath]: false }));
+      setExpandedPaths((current) => collapseWorkspacePathMap(current, normalizedPath));
+      setWorkspaceError('');
+      return;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(entriesByDirectory, normalizedPath)) {
+      setExpandedPaths((current) => ({ ...current, [normalizedPath]: true }));
       setWorkspaceError('');
       return;
     }
@@ -483,7 +531,7 @@ export default function Workspace() {
       }
       setWorkspaceError('');
       pushToast('success', t('Renamed {{path}}', { path: result.path }));
-      await loadWorkspaceState(getExpandedWorkspacePaths(nextExpandedPaths));
+      await refreshWorkspace(getExpandedWorkspacePaths(nextExpandedPaths).filter((path) => path !== ''));
     } catch (error: unknown) {
       setWorkspaceError(error instanceof Error ? error.message : t('Rename failed.'));
     }
@@ -521,7 +569,7 @@ export default function Workspace() {
       }
       setWorkspaceError('');
       pushToast('warning', t('Deleted {{path}}', { path: normalizedTargetPath }));
-      await loadWorkspaceState(getExpandedWorkspacePaths(nextExpandedPaths));
+      await refreshWorkspace(getExpandedWorkspacePaths(nextExpandedPaths).filter((path) => path !== ''));
     } catch (error: unknown) {
       setWorkspaceError(error instanceof Error ? error.message : t('Delete failed.'));
     }
@@ -712,7 +760,7 @@ export default function Workspace() {
         </div>
       )}
 
-      {!status?.hasWorkingDirectory && (
+      {status && !loadingWorkspace && !status.hasWorkingDirectory && (
         <div className="alert alert-warning" style={{ marginBottom: '1rem' }}>
           {status?.error || t('This vessel does not have a usable working directory.')}
         </div>
@@ -859,6 +907,20 @@ export default function Workspace() {
         </aside>
         )}
       </div>
+
+      {loadingWorkspace && !status && (
+        <div className="modal-overlay workspace-loading-overlay" role="presentation">
+          <div className="modal workspace-loading-modal" role="status" aria-live="polite" aria-modal="true">
+            <h3>{t('Loading Workspace...')}</h3>
+            <div className="progress-bar" aria-hidden="true" style={{ marginTop: '0.85rem', marginBottom: '0.75rem' }}>
+              <div className="progress-fill progress-fill-indeterminate" />
+            </div>
+            <p className="text-muted">
+              {t('Armada is loading the vessel working directory, repository status, and file tree.')}
+            </p>
+          </div>
+        </div>
+      )}
 
       {metadataEntry && (
         <div className="modal-overlay" onClick={() => setMetadataEntry(null)}>
@@ -1022,6 +1084,21 @@ function getExpandedWorkspacePaths(expandedPaths: Record<string, boolean>) {
   return Object.keys(expandedPaths).filter((path) => expandedPaths[path] || path === '');
 }
 
+function sortWorkspacePathsByDepth(paths: string[]) {
+  return paths
+    .map(normalizeWorkspacePath)
+    .filter((path, index, array) => !!path && array.indexOf(path) === index)
+    .sort((left, right) => {
+      const depthDifference = getWorkspacePathDepth(left) - getWorkspacePathDepth(right);
+      return depthDifference !== 0 ? depthDifference : left.localeCompare(right);
+    });
+}
+
+function getWorkspacePathDepth(path: string) {
+  if (!path) return 0;
+  return path.split('/').length;
+}
+
 function isWorkspacePathInScope(candidatePath: string, scopePath: string) {
   return candidatePath === scopePath || candidatePath.startsWith(`${scopePath}/`);
 }
@@ -1044,6 +1121,12 @@ function remapWorkspacePathMap(pathMap: Record<string, boolean>, sourcePath: str
 function pruneWorkspacePathMap(pathMap: Record<string, boolean>, targetPath: string) {
   return Object.fromEntries(
     Object.entries(pathMap).filter(([path]) => !isWorkspacePathInScope(path, targetPath)),
+  );
+}
+
+function collapseWorkspacePathMap(pathMap: Record<string, boolean>, targetPath: string) {
+  return Object.fromEntries(
+    Object.entries(pathMap).filter(([path]) => path === '' || !isWorkspacePathInScope(path, targetPath)),
   );
 }
 

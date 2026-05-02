@@ -971,8 +971,8 @@ tr.clickable { cursor: pointer; }
 }
 
 .workspace-tree-toggle {
-    width: 1rem;
-    min-width: 1rem;
+    width: 1.12rem;
+    min-width: 1.12rem;
     border: none;
     background: transparent;
     color: var(--text-dim);
@@ -984,9 +984,14 @@ tr.clickable { cursor: pointer; }
     justify-content: center;
 }
 
+.workspace-tree-toggle:disabled {
+    cursor: default;
+    opacity: 0.65;
+}
+
 .workspace-tree-toggle-spacer {
-    width: 1rem;
-    min-width: 1rem;
+    width: 1.12rem;
+    min-width: 1.12rem;
     display: inline-block;
 }
 
@@ -994,20 +999,35 @@ tr.clickable { cursor: pointer; }
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 1rem;
-    font-size: 0.95rem;
+    width: 1.12rem;
+    height: 1.12rem;
     line-height: 1;
 }
 
+.workspace-tree-disclosure svg {
+    width: 1rem;
+    height: 1rem;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    fill: none;
+    transition: transform 120ms ease;
+}
+
+.workspace-tree-disclosure.expanded svg {
+    transform: rotate(90deg);
+}
+
 .workspace-tree-checkbox {
-    margin: 0;
+    margin: 0 2px 0 0;
     width: 0.85rem;
     min-width: 0.85rem;
 }
 
 .workspace-tree-checkbox-spacer {
-    width: 0.2rem;
-    min-width: 0.2rem;
+    width: calc(0.2rem + 2px);
+    min-width: calc(0.2rem + 2px);
     display: inline-block;
 }
 
@@ -1393,6 +1413,14 @@ tr.clickable { cursor: pointer; }
 
 .workspace-context-modal {
     max-width: 980px;
+}
+
+.workspace-loading-overlay {
+    z-index: 1300;
+}
+
+.workspace-loading-modal {
+    width: min(480px, calc(100vw - 2rem));
 }
 
 .workspace-metadata-modal {

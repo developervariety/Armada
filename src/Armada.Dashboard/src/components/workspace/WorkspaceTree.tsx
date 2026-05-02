@@ -33,6 +33,7 @@ function TreeBranch(props: WorkspaceTreeProps & { directoryPath: string; depth: 
   } = props;
 
   const entries = entriesByDirectory[directoryPath] || [];
+
   return (
     <>
       {entries.map((entry) => {
@@ -40,11 +41,10 @@ function TreeBranch(props: WorkspaceTreeProps & { directoryPath: string; depth: 
         const expanded = !!expandedPaths[entryPath];
         const selected = selectedPaths.includes(entryPath);
         const loading = loadingDirectories.includes(entryPath);
+
         const entryMenuItems = [
           {
-            label: entry.isDirectory
-              ? (expanded ? 'Collapse' : 'Open')
-              : 'Open',
+            label: entry.isDirectory ? (expanded ? 'Collapse' : 'Open') : 'Open',
             onClick: () => (entry.isDirectory ? onToggleDirectory(entryPath) : onOpenFile(entryPath)),
           },
           {
@@ -73,11 +73,19 @@ function TreeBranch(props: WorkspaceTreeProps & { directoryPath: string; depth: 
                   <button
                     type="button"
                     className="workspace-tree-toggle"
-                    onClick={() => onToggleDirectory(entryPath)}
+                    onClick={() => {
+                      if (!loading) {
+                        onToggleDirectory(entryPath);
+                      }
+                    }}
+                    disabled={loading}
                     title={expanded ? 'Collapse folder' : 'Expand folder'}
+                    aria-expanded={expanded}
                   >
-                    <span className="workspace-tree-disclosure" aria-hidden="true">
-                      {expanded ? '▾' : '▸'}
+                    <span className={`workspace-tree-disclosure${expanded ? ' expanded' : ''}`} aria-hidden="true">
+                      <svg viewBox="0 0 12 12" focusable="false" aria-hidden="true">
+                        <path d="M4 2.5L8 6L4 9.5" />
+                      </svg>
                     </span>
                   </button>
                 ) : (
@@ -99,7 +107,16 @@ function TreeBranch(props: WorkspaceTreeProps & { directoryPath: string; depth: 
                 <button
                   type="button"
                   className={`workspace-tree-entry${entry.isDirectory ? ' directory' : ''}`}
-                  onClick={() => (entry.isDirectory ? onToggleDirectory(entryPath) : onOpenFile(entryPath))}
+                  onClick={() => {
+                    if (entry.isDirectory) {
+                      if (!loading) {
+                        onToggleDirectory(entryPath);
+                      }
+                      return;
+                    }
+
+                    onOpenFile(entryPath);
+                  }}
                   title={entry.relativePath}
                 >
                   {entry.isDirectory && <span className="workspace-tree-folder-icon" aria-hidden="true" />}
