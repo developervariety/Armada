@@ -60,6 +60,7 @@ namespace Armada.Core.Database.Mysql
             Docks = new DockMethods(_ConnectionString);
             Signals = new SignalMethods(_ConnectionString);
             Events = new EventMethods(_ConnectionString);
+            RequestHistory = new RequestHistoryMethods(_ConnectionString);
             MergeEntries = new MergeEntryMethods(_ConnectionString);
             Tenants = new TenantMethods(_ConnectionString);
             Users = new UserMethods(_ConnectionString);
@@ -436,6 +437,11 @@ namespace Armada.Core.Database.Mysql
                     29,
                     "Add runtime options to captains",
                     TableQueries.MigrationV29Statements
+                ),
+                new SchemaMigration(
+                    30,
+                    "Add request history tables",
+                    TableQueries.MigrationV30Statements
                 )
             };
         }

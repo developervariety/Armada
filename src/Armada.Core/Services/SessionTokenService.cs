@@ -90,7 +90,9 @@ namespace Armada.Core.Services
                     UserId = payload.UserId,
                     IsAdmin = false,
                     IsTenantAdmin = false,
-                    AuthMethod = "Session"
+                    AuthMethod = "Session",
+                    CredentialId = null,
+                    PrincipalDisplay = payload.UserId
                 };
             }
             catch

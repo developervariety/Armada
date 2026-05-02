@@ -41,6 +41,20 @@ import type {
   Playbook,
   MuxEndpointListResult,
   MuxEndpointShowResult,
+  WorkspaceChangesResult,
+  WorkspaceCreateDirectoryRequest,
+  WorkspaceFileResponse,
+  WorkspaceOperationResult,
+  WorkspaceRenameRequest,
+  WorkspaceSaveRequest,
+  WorkspaceSaveResult,
+  WorkspaceSearchResult,
+  WorkspaceStatusResult,
+  WorkspaceTreeResult,
+  RequestHistoryEntry,
+  RequestHistoryQuery,
+  RequestHistoryRecord,
+  RequestHistorySummaryResult,
 } from '../types/models';
 
 const BASE_URL = import.meta.env.VITE_ARMADA_SERVER_URL || '';
@@ -153,6 +167,30 @@ function buildQuery(params?: { pageNumber?: number; pageSize?: number; filters?:
   return parts.length ? '?' + parts.join('&') : '';
 }
 
+function buildRequestHistoryQuery(params?: RequestHistoryQuery): string {
+  if (!params) return '';
+
+  const search = new URLSearchParams();
+  const parts: string[] = [];
+  if (params.pageNumber) search.set('pageNumber', String(params.pageNumber));
+  if (params.pageSize) search.set('pageSize', String(params.pageSize));
+  if (params.bucketMinutes) search.set('bucketMinutes', String(params.bucketMinutes));
+  if (params.method) search.set('method', params.method);
+  if (params.principal) search.set('principal', params.principal);
+  if (params.tenantId) search.set('tenantId', params.tenantId);
+  if (params.userId) search.set('userId', params.userId);
+  if (params.credentialId) search.set('credentialId', params.credentialId);
+  if (params.statusCode !== undefined && params.statusCode !== null) search.set('statusCode', String(params.statusCode));
+  if (params.isSuccess !== undefined && params.isSuccess !== null) search.set('isSuccess', String(params.isSuccess));
+  if (params.fromUtc) search.set('fromUtc', params.fromUtc);
+  if (params.toUtc) search.set('toUtc', params.toUtc);
+
+  const query = search.toString();
+  if (query) parts.push(query);
+  if (params.route) parts.push(`route=${encodeWorkspaceQueryPath(params.route)}`);
+  return parts.length ? `?${parts.join('&')}` : '';
+}
+
 // ==================== Auth ====================
 export const authenticate = (req: AuthenticateRequest) =>
   post<AuthenticateResult>('/api/v1/authenticate', req);
@@ -197,6 +235,44 @@ export const createVessel = (data: Partial<Vessel>) => post<Vessel>('/api/v1/ves
 export const updateVessel = (id: string, data: Partial<Vessel>) => put<Vessel>(`/api/v1/vessels/${id}`, data);
 export const deleteVessel = (id: string) => del<void>(`/api/v1/vessels/${id}`);
 export const getVesselGitStatus = (id: string) => get<{ vesselId: string; commitsAhead: number | null; commitsBehind: number | null; error?: string }>(`/api/v1/vessels/${id}/git-status`);
+
+// ==================== Workspace ====================
+function encodeWorkspaceQueryPath(path: string) {
+  return encodeURIComponent(path).replace(/%2F/g, '/');
+}
+
+export const getWorkspaceStatus = (vesselId: string) =>
+  get<WorkspaceStatusResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/status`);
+export const getWorkspaceTree = (vesselId: string, path?: string) =>
+  get<WorkspaceTreeResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/tree${path ? `?path=${encodeWorkspaceQueryPath(path)}` : ''}`);
+export const getWorkspaceFile = (vesselId: string, path: string) =>
+  get<WorkspaceFileResponse>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/file?path=${encodeWorkspaceQueryPath(path)}`);
+export const saveWorkspaceFile = (vesselId: string, data: WorkspaceSaveRequest) =>
+  put<WorkspaceSaveResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/file`, data);
+export const createWorkspaceDirectory = (vesselId: string, data: WorkspaceCreateDirectoryRequest) =>
+  post<WorkspaceOperationResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/directory`, data);
+export const renameWorkspaceEntry = (vesselId: string, data: WorkspaceRenameRequest) =>
+  post<WorkspaceOperationResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/rename`, data);
+export const deleteWorkspaceEntry = (vesselId: string, path: string) =>
+  del<WorkspaceOperationResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/entry?path=${encodeWorkspaceQueryPath(path)}`);
+export const searchWorkspace = (vesselId: string, query: string, maxResults = 200) =>
+  get<WorkspaceSearchResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/search?q=${encodeURIComponent(query)}&maxResults=${maxResults}`);
+export const getWorkspaceChanges = (vesselId: string) =>
+  get<WorkspaceChangesResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/changes`);
+
+// ==================== Request History ====================
+export const listRequestHistory = (params?: RequestHistoryQuery) =>
+  get<EnumerationResult<RequestHistoryEntry>>(`/api/v1/request-history${buildRequestHistoryQuery(params)}`);
+export const getRequestHistorySummary = (params?: RequestHistoryQuery) =>
+  get<RequestHistorySummaryResult>(`/api/v1/request-history/summary${buildRequestHistoryQuery(params)}`);
+export const getRequestHistoryEntry = (id: string) =>
+  get<RequestHistoryRecord>(`/api/v1/request-history/${encodeURIComponent(id)}`);
+export const deleteRequestHistoryEntry = (id: string) =>
+  del<void>(`/api/v1/request-history/${encodeURIComponent(id)}`);
+export const deleteRequestHistoryEntries = (ids: string[]) =>
+  post<BatchDeleteResult>('/api/v1/request-history/delete/multiple', { Ids: ids });
+export const deleteRequestHistoryByFilter = (query: RequestHistoryQuery) =>
+  post<BatchDeleteResult>('/api/v1/request-history/delete/by-filter', query);
 
 // ==================== Captains ====================
 export const listCaptains = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>

@@ -66,6 +66,7 @@ namespace Armada.Core.Database.SqlServer
             Docks = new DockMethods(this, _Settings, _Logging);
             Signals = new SignalMethods(this, _Settings, _Logging);
             Events = new EventMethods(this, _Settings, _Logging);
+            RequestHistory = new RequestHistoryMethods(this);
             MergeEntries = new MergeEntryMethods(this, _Settings, _Logging);
             Tenants = new TenantMethods(this, _Settings, _Logging);
             Users = new UserMethods(this, _Settings, _Logging);

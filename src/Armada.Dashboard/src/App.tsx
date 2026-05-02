@@ -47,6 +47,9 @@ import PromptTemplates from './pages/PromptTemplates';
 import PromptTemplateDetail from './pages/PromptTemplateDetail';
 import Playbooks from './pages/Playbooks';
 import PlaybookDetail from './pages/PlaybookDetail';
+import Workspace from './pages/Workspace';
+import RequestHistory from './pages/RequestHistory';
+import ApiExplorer from './pages/ApiExplorer';
 
 export default function App() {
   return (
@@ -73,6 +76,9 @@ export default function App() {
 
                   <Route path="vessels" element={<Vessels />} />
                   <Route path="vessels/:id" element={<VesselDetail />} />
+                  <Route path="workspace" element={<Workspace />} />
+                  <Route path="workspace/:vesselId" element={<Workspace />} />
+                  <Route path="workspace/:vesselId/:panel" element={<Workspace />} />
 
                   <Route path="captains" element={<Captains />} />
                   <Route path="captains/:id" element={<CaptainDetail />} />
@@ -105,6 +111,10 @@ export default function App() {
                   <Route path="prompt-templates/:name" element={<PromptTemplateDetail />} />
                   <Route path="playbooks" element={<Playbooks />} />
                   <Route path="playbooks/:id" element={<PlaybookDetail />} />
+                  <Route path="requests" element={<RequestHistory />} />
+                  <Route path="requests/:id" element={<RequestHistory />} />
+                  <Route path="api-explorer" element={<ApiExplorer />} />
+                  <Route path="api-explorer/:operationId" element={<ApiExplorer />} />
 
                   <Route path="notifications" element={<Notifications />} />
 

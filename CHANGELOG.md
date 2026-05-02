@@ -31,6 +31,8 @@ Focus: remote access.
 - Added press-and-hold reveal controls for remote-control secrets and other protected login/setup inputs
 - Added a full playbook management surface in the dashboard with list, detail, editing, delete, and ordered selection UX on voyage dispatch flows
 - Added explicit success and warning toast feedback across dashboard mutation flows so save, delete, cancel, stop, and update actions acknowledge completion visibly
+- Added a first-class `Workspace` experience with vessel-aware file browsing, editing, search, git status, context curation, and direct planning/dispatch handoff
+- Added `System > Requests` and `System > API Explorer` so captured REST traffic, OpenAPI-backed live execution, and replay all live inside the Armada dashboard
 
 ### Playbooks
 - Added tenant-scoped markdown playbooks with CRUD across REST, MCP, proxy remote management, dashboard, CLI, SDK, and Postman
@@ -49,11 +51,17 @@ Focus: remote access.
 - Added locale-aware date, time, and number formatting for dashboard runtime data
 - Extended localization coverage to newer operational pages and shared controls so the playbook, dispatch, and administrative flows follow the same runtime and persistence model as the rest of the dashboard
 
+### Planning, Runtimes, and API Tooling
+- Added planning-session REST endpoints for list, create, transcript detail, message turns, summarize-to-dispatch, direct dispatch, stop, and delete flows
+- Added persistent request-history capture, summaries, scoped delete flows, and replay metadata across SQLite, PostgreSQL, SQL Server, and MySQL
+- Added Mux captain runtime integration, Mux endpoint/config support on captains, and runtime helper APIs for saved endpoint discovery
+- Added live OpenAPI publishing at `/openapi.json` and `/swagger` to back the dashboard API Explorer and external tooling
+
 ### Release and Docs
 - Updated shared release metadata, docker tags, Postman examples, REST docs, MCP docs, and WebSocket docs to `v0.7.0`
 - Promoted the shipped remote-management guide into `docs/REMOTE_MGMT.md` and archived the earlier planning doc
 - Added no-op `v0.6.0 -> v0.7.0` migration scripts to reflect the release even though no database schema change is required
-- Updated README and operator docs for the new playbook lifecycle, delivery modes, remote playbook management flows, and internationalized dashboard behavior
+- Updated README and operator docs for the new playbook lifecycle, delivery modes, remote playbook management flows, workspace, request-history, planning-session, Mux, and internationalized dashboard behavior
 
 ---
 

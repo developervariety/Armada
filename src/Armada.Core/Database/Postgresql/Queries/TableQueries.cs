@@ -542,6 +542,50 @@ namespace Armada.Core.Database.Postgresql.Queries
                 ),
                 new SchemaMigration(29, "Add runtime_options_json to captains",
                     @"ALTER TABLE captains ADD COLUMN IF NOT EXISTS runtime_options_json TEXT;"
+                ),
+                new SchemaMigration(30, "Add request history tables",
+                    @"CREATE TABLE IF NOT EXISTS request_history (
+                        id TEXT PRIMARY KEY,
+                        tenant_id TEXT,
+                        user_id TEXT,
+                        credential_id TEXT,
+                        principal_display TEXT,
+                        auth_method TEXT,
+                        method TEXT NOT NULL,
+                        route TEXT NOT NULL,
+                        route_template TEXT,
+                        query_string TEXT,
+                        status_code INTEGER NOT NULL,
+                        duration_ms DOUBLE PRECISION NOT NULL,
+                        request_size_bytes BIGINT NOT NULL DEFAULT 0,
+                        response_size_bytes BIGINT NOT NULL DEFAULT 0,
+                        request_content_type TEXT,
+                        response_content_type TEXT,
+                        is_success BOOLEAN NOT NULL DEFAULT TRUE,
+                        client_ip TEXT,
+                        correlation_id TEXT,
+                        created_utc TIMESTAMP NOT NULL
+                    );",
+                    @"CREATE TABLE IF NOT EXISTS request_history_detail (
+                        request_history_id TEXT PRIMARY KEY,
+                        path_params_json TEXT,
+                        query_params_json TEXT,
+                        request_headers_json TEXT,
+                        response_headers_json TEXT,
+                        request_body_text TEXT,
+                        response_body_text TEXT,
+                        request_body_truncated BOOLEAN NOT NULL DEFAULT FALSE,
+                        response_body_truncated BOOLEAN NOT NULL DEFAULT FALSE,
+                        FOREIGN KEY (request_history_id) REFERENCES request_history(id) ON DELETE CASCADE
+                    );",
+                    @"CREATE INDEX IF NOT EXISTS idx_request_history_created ON request_history(created_utc DESC);",
+                    @"CREATE INDEX IF NOT EXISTS idx_request_history_tenant_created ON request_history(tenant_id, created_utc DESC);",
+                    @"CREATE INDEX IF NOT EXISTS idx_request_history_user_created ON request_history(user_id, created_utc DESC);",
+                    @"CREATE INDEX IF NOT EXISTS idx_request_history_credential_created ON request_history(credential_id, created_utc DESC);",
+                    @"CREATE INDEX IF NOT EXISTS idx_request_history_method_created ON request_history(method, created_utc DESC);",
+                    @"CREATE INDEX IF NOT EXISTS idx_request_history_status_created ON request_history(status_code, created_utc DESC);",
+                    @"CREATE INDEX IF NOT EXISTS idx_request_history_success_created ON request_history(is_success, created_utc DESC);",
+                    @"CREATE INDEX IF NOT EXISTS idx_request_history_route_created ON request_history(route, created_utc DESC);"
                 )
             };
         }

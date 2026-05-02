@@ -843,6 +843,50 @@ namespace Armada.Core.Database.Sqlite.Queries
                 ),
                 new SchemaMigration(30, "Add runtime_options_json to captains",
                     @"ALTER TABLE captains ADD COLUMN runtime_options_json TEXT;"
+                ),
+                new SchemaMigration(31, "Add request history tables",
+                    @"CREATE TABLE IF NOT EXISTS request_history (
+                        id TEXT PRIMARY KEY,
+                        tenant_id TEXT,
+                        user_id TEXT,
+                        credential_id TEXT,
+                        principal_display TEXT,
+                        auth_method TEXT,
+                        method TEXT NOT NULL,
+                        route TEXT NOT NULL,
+                        route_template TEXT,
+                        query_string TEXT,
+                        status_code INTEGER NOT NULL,
+                        duration_ms REAL NOT NULL,
+                        request_size_bytes BIGINT NOT NULL DEFAULT 0,
+                        response_size_bytes BIGINT NOT NULL DEFAULT 0,
+                        request_content_type TEXT,
+                        response_content_type TEXT,
+                        is_success INTEGER NOT NULL DEFAULT 1,
+                        client_ip TEXT,
+                        correlation_id TEXT,
+                        created_utc TEXT NOT NULL
+                    );",
+                    @"CREATE TABLE IF NOT EXISTS request_history_detail (
+                        request_history_id TEXT PRIMARY KEY,
+                        path_params_json TEXT,
+                        query_params_json TEXT,
+                        request_headers_json TEXT,
+                        response_headers_json TEXT,
+                        request_body_text TEXT,
+                        response_body_text TEXT,
+                        request_body_truncated INTEGER NOT NULL DEFAULT 0,
+                        response_body_truncated INTEGER NOT NULL DEFAULT 0,
+                        FOREIGN KEY (request_history_id) REFERENCES request_history(id) ON DELETE CASCADE
+                    );",
+                    @"CREATE INDEX IF NOT EXISTS idx_request_history_created ON request_history(created_utc DESC);",
+                    @"CREATE INDEX IF NOT EXISTS idx_request_history_tenant_created ON request_history(tenant_id, created_utc DESC);",
+                    @"CREATE INDEX IF NOT EXISTS idx_request_history_user_created ON request_history(user_id, created_utc DESC);",
+                    @"CREATE INDEX IF NOT EXISTS idx_request_history_credential_created ON request_history(credential_id, created_utc DESC);",
+                    @"CREATE INDEX IF NOT EXISTS idx_request_history_method_created ON request_history(method, created_utc DESC);",
+                    @"CREATE INDEX IF NOT EXISTS idx_request_history_status_created ON request_history(status_code, created_utc DESC);",
+                    @"CREATE INDEX IF NOT EXISTS idx_request_history_success_created ON request_history(is_success, created_utc DESC);",
+                    @"CREATE INDEX IF NOT EXISTS idx_request_history_route_created ON request_history(route, created_utc DESC);"
                 )
             };
         }

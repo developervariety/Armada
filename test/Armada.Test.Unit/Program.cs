@@ -24,6 +24,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new DockDatabaseTests());
             runner.AddSuite(new SignalDatabaseTests());
             runner.AddSuite(new EventDatabaseTests());
+            runner.AddSuite(new RequestHistoryDatabaseTests());
             runner.AddSuite(new EventTests());
             runner.AddSuite(new EnumerationTests());
             runner.AddSuite(new ForeignKeyTests());
@@ -93,6 +94,8 @@ namespace Armada.Test.Unit
             runner.AddSuite(new PromptSignalConsistencyTests());
             runner.AddSuite(new PersonaPipelineDbTests());
             runner.AddSuite(new PipelineDispatchTests());
+            runner.AddSuite(new WorkspaceServiceTests());
+            runner.AddSuite(new RequestHistoryCaptureServiceTests());
 
             int exitCode = await runner.RunAllAsync().ConfigureAwait(false);
             return exitCode;

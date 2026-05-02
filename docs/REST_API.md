@@ -4,6 +4,8 @@
 **Base URL:** `http://localhost:7890`
 **Content-Type:** `application/json`
 
+Machine-readable OpenAPI is available at `/openapi.json`, and the interactive Swagger UI is available at `/swagger`. When this document and the live server ever diverge, the OpenAPI output is the canonical route and schema source.
+
 ---
 
 ## Table of Contents
@@ -24,18 +26,23 @@
   - [Status](#status)
   - [Fleets](#fleets)
   - [Vessels](#vessels)
+  - [Workspace](#workspace)
   - [Voyages](#voyages)
   - [Missions](#missions)
   - [Captains](#captains)
+  - [Planning Sessions](#planning-sessions)
   - [Signals](#signals)
   - [Events](#events)
   - [Docks](#docks)
   - [Merge Queue](#merge-queue)
+  - [Runtime Helpers](#runtime-helpers)
+  - [Request History](#request-history)
   - [Playbooks](#playbooks)
   - [Prompt Templates](#prompt-templates)
   - [Personas](#personas)
   - [Pipelines](#pipelines)
   - [Backup and Restore](#backup-and-restore)
+  - [OpenAPI Discovery](#openapi-discovery)
 - [Data Types](#data-types)
   - [Models](#models)
   - [Enumerations](#enumerations)
@@ -113,9 +120,24 @@ Operational entities persist both `TenantId` and `UserId`. Those ownership colum
 | `/api/v1/missions` | ALL | Authenticated | Tenant-scoped |
 | `/api/v1/voyages` | ALL | Authenticated | Tenant-scoped |
 | `/api/v1/docks` | ALL | Authenticated | Tenant-scoped |
+| `/api/v1/workspace/vessels/{vesselId}/...` | ALL | Authenticated | Vessel-scoped workspace browsing/editing rooted at the vessel working directory |
+| `/api/v1/planning-sessions` | GET/POST | Authenticated | Planning-session list/create in caller scope |
+| `/api/v1/planning-sessions/{id}` | GET/DELETE | Authenticated | Read or delete one planning session in caller scope |
+| `/api/v1/planning-sessions/{id}/messages` | POST | Authenticated | Send one planning turn |
+| `/api/v1/planning-sessions/{id}/summarize` | POST | Authenticated | Generate a dispatch draft without launching |
+| `/api/v1/planning-sessions/{id}/dispatch` | POST | Authenticated | Launch a voyage from planning output |
+| `/api/v1/planning-sessions/{id}/stop` | POST | Authenticated | Stop an active planning session |
 | `/api/v1/signals` | ALL | Authenticated | Tenant-scoped |
 | `/api/v1/events` | ALL | Authenticated | Tenant-scoped |
 | `/api/v1/merge-queue` | ALL | Authenticated | Tenant-scoped |
+| `/api/v1/request-history` | GET | Authenticated | Regular user: own entries. Tenant admin: tenant entries. Global admin: all entries |
+| `/api/v1/request-history/{id}` | GET | Authenticated | Read one captured request within scope |
+| `/api/v1/request-history/{id}` | DELETE | AdminOnly | Tenant admin or global admin only |
+| `/api/v1/request-history/delete/multiple` | POST | AdminOnly | Tenant admin or global admin only |
+| `/api/v1/request-history/delete/by-filter` | POST | AdminOnly | Tenant admin or global admin only |
+| `/api/v1/request-history/summary` | GET | Authenticated | Summary cards/charts for visible request history |
+| `/api/v1/runtimes/mux/endpoints` | GET | Authenticated | List saved Mux endpoints, optionally from `configDirectory` |
+| `/api/v1/runtimes/mux/endpoints/{name}` | GET | Authenticated | Show one saved Mux endpoint |
 | `/api/v1/playbooks` | GET/POST/PUT/DELETE | Authenticated / TenantAdmin | Reads are tenant-scoped for any authenticated user. Mutations require tenant admin. |
 | `/api/v1/prompt-templates` | ALL | Authenticated | Tenant-scoped |
 | `/api/v1/personas` | ALL | Authenticated | Tenant-scoped |
@@ -2674,6 +2696,286 @@ curl -X POST -H "X-Api-Key: your-key" \
 
 ---
 
+### Workspace
+
+Workspace is a first-class REST surface for browsing and editing a vessel working tree. All paths are repository-relative, normalized to forward slashes, and constrained to the vessel `workingDirectory`. Armada blocks traversal outside that root and reserves `.git` internals.
+
+#### GET /api/v1/workspace/vessels/{vesselId}/tree
+
+List one directory in the vessel workspace.
+
+- Query: optional `path`
+- Response: `200 OK` - `WorkspaceTreeResult`
+
+#### GET /api/v1/workspace/vessels/{vesselId}/file
+
+Read one file in the vessel workspace.
+
+- Query: required `path`
+- Response: `200 OK` - `WorkspaceFileResponse`
+- Errors: `400` when `path` is missing, `404` when the file is not found
+
+#### PUT /api/v1/workspace/vessels/{vesselId}/file
+
+Save one text file with optimistic concurrency validation.
+
+```json
+{
+  "Path": "src/Armada.Server/Routes/RequestHistoryRoutes.cs",
+  "Content": "// updated file content",
+  "ExpectedHash": "sha256:previous-hash"
+}
+```
+
+- Response: `200 OK` - `WorkspaceSaveResult`
+- Errors: `409 Conflict` when the on-disk hash no longer matches `ExpectedHash`
+
+#### POST /api/v1/workspace/vessels/{vesselId}/directory
+
+Create a directory inside the vessel workspace.
+
+```json
+{
+  "Path": "docs/new-folder"
+}
+```
+
+- Response: `201 Created` - `WorkspaceOperationResult`
+
+#### POST /api/v1/workspace/vessels/{vesselId}/rename
+
+Rename or move one file or directory.
+
+```json
+{
+  "Path": "docs/old-name.md",
+  "NewPath": "docs/new-name.md"
+}
+```
+
+- Response: `200 OK` - `WorkspaceOperationResult`
+
+#### DELETE /api/v1/workspace/vessels/{vesselId}/entry
+
+Delete one file or directory.
+
+- Query: required `path`
+- Response: `200 OK` - `WorkspaceOperationResult`
+
+#### GET /api/v1/workspace/vessels/{vesselId}/search
+
+Search text files in the vessel workspace.
+
+- Query: required `q`, optional `maxResults`
+- Response: `200 OK` - `WorkspaceSearchResult`
+
+#### GET /api/v1/workspace/vessels/{vesselId}/changes
+
+Return branch state and changed files.
+
+- Response: `200 OK` - `WorkspaceChangesResult`
+
+#### GET /api/v1/workspace/vessels/{vesselId}/status
+
+Return high-level workspace health, git state, and active-mission overlap context.
+
+- Response: `200 OK` - `WorkspaceStatusResult`
+
+---
+
+### Planning Sessions
+
+Planning sessions back the dashboard’s captain chat flow and transcript-to-dispatch handoff. These routes are implemented for SQLite first; other database backends return `501 Not Supported`.
+
+#### GET /api/v1/planning-sessions
+
+List planning sessions visible to the authenticated caller.
+
+- Response: `200 OK` - `PlanningSession[]`
+
+#### POST /api/v1/planning-sessions
+
+Create a planning session, reserve the selected captain, and provision a planning dock.
+
+```json
+{
+  "Title": "Refactor request history filters",
+  "CaptainId": "cpt_abc123",
+  "VesselId": "vsl_def456",
+  "FleetId": "flt_xyz789",
+  "PipelineId": "pln_fullpipeline",
+  "SelectedPlaybooks": []
+}
+```
+
+- Response: `201 Created`
+- Response shape:
+
+```json
+{
+  "Session": { "...": "PlanningSession" },
+  "Messages": [],
+  "Captain": { "...": "Captain" },
+  "Vessel": { "...": "Vessel" }
+}
+```
+
+#### GET /api/v1/planning-sessions/{id}
+
+Read one planning session with transcript, captain, and vessel context.
+
+- Response: `200 OK`
+- Errors: `404 Not Found`
+
+#### POST /api/v1/planning-sessions/{id}/messages
+
+Append one user message and launch the next planning turn.
+
+```json
+{
+  "Content": "Summarize the changes and propose a safe rollout."
+}
+```
+
+- Response: `200 OK` - same detail shape as `GET /api/v1/planning-sessions/{id}`
+
+#### POST /api/v1/planning-sessions/{id}/summarize
+
+Generate a dispatch-ready draft from a selected or inferred assistant message without launching the voyage.
+
+```json
+{
+  "MessageId": "psm_abc123",
+  "Title": "Refresh request history docs"
+}
+```
+
+- Response: `200 OK` - `PlanningSessionSummaryResponse`
+
+#### POST /api/v1/planning-sessions/{id}/dispatch
+
+Create a voyage directly from planning output.
+
+```json
+{
+  "MessageId": "psm_abc123",
+  "Title": "Refresh request history docs",
+  "Description": "Update docs and validation assets for the shipped request-history feature."
+}
+```
+
+- Response: `200 OK` - `Voyage`
+
+#### POST /api/v1/planning-sessions/{id}/stop
+
+Stop an active planning session and release its resources.
+
+- Response: `200 OK` - same detail shape as `GET /api/v1/planning-sessions/{id}`
+
+#### DELETE /api/v1/planning-sessions/{id}
+
+Delete a planning session and its transcript. Active sessions are stopped first.
+
+- Response: `204 No Content`
+
+---
+
+### Runtime Helpers
+
+These helper routes support runtime-specific UX and validation. As of `v0.7.0`, the shipped runtime-helper surface is focused on Mux endpoint discovery for captain setup and editing.
+
+#### GET /api/v1/runtimes/mux/endpoints
+
+List saved Mux endpoints, optionally from an explicit config directory.
+
+- Query: optional `configDirectory`
+- Response: `200 OK` - `MuxEndpointListResult`
+
+#### GET /api/v1/runtimes/mux/endpoints/{name}
+
+Inspect one saved Mux endpoint with redacted secret values.
+
+- Query: optional `configDirectory`
+- Response: `200 OK` - `MuxEndpointShowResult`
+- Errors: `404 Not Found` when the named endpoint does not exist
+
+---
+
+### Request History
+
+Armada captures sanitized REST request and response metadata for authenticated and unauthenticated traffic, excluding the request-history routes themselves. Secret-bearing headers and request bodies are redacted before persistence.
+
+#### GET /api/v1/request-history
+
+List captured request-history entries in the caller’s scope.
+
+- Query: `pageNumber`, `pageSize`, `method`, `route`, `statusCode`, `principal`, `tenantId`, `userId`, `credentialId`, `isSuccess`, `fromUtc`, `toUtc`
+- Response: `200 OK` - `EnumerationResult<RequestHistoryEntry>`
+
+#### GET /api/v1/request-history/summary
+
+Return aggregate counts and time buckets for matching request-history entries.
+
+- Query: `bucketMinutes`, `fromUtc`, `toUtc`, `method`, `route`, `statusCode`, `principal`
+- Defaults: last 24 hours, 15-minute buckets
+- Response: `200 OK` - `RequestHistorySummaryResult`
+
+#### GET /api/v1/request-history/{id}
+
+Read one captured request, including expanded headers, params, and body snapshots.
+
+- Response: `200 OK` - `RequestHistoryRecord`
+- Errors: `404 Not Found`
+
+#### DELETE /api/v1/request-history/{id}
+
+Delete one captured request-history entry within the caller’s scope.
+
+- Response: `204 No Content`
+
+#### POST /api/v1/request-history/delete/multiple
+
+Delete multiple request-history entries by identifier.
+
+```json
+{
+  "Ids": ["req_abc123", "req_def456"]
+}
+```
+
+- Response: `200 OK` - `DeleteMultipleResult`
+
+#### POST /api/v1/request-history/delete/by-filter
+
+Delete all request-history entries matching the supplied filters within the caller’s scope.
+
+```json
+{
+  "Method": "GET",
+  "Route": "/api/v1/status",
+  "FromUtc": "2026-05-01T00:00:00Z",
+  "ToUtc": "2026-05-02T00:00:00Z"
+}
+```
+
+- Response: `200 OK` - `DeleteMultipleResult`
+
+---
+
+### OpenAPI Discovery
+
+Armada publishes live REST metadata for both human and machine consumers.
+
+#### GET /openapi.json
+
+Return the live OpenAPI document used by the dashboard API Explorer.
+
+#### GET /swagger
+
+Return the interactive Swagger UI for the same OpenAPI surface.
+
+---
+
 ## Data Types
 
 ### Models
@@ -3479,6 +3781,7 @@ All enumerations serialize as strings in JSON (e.g., `"InProgress"`, not `2`).
 | `Codex` | OpenAI Codex CLI |
 | `Gemini` | Google Gemini CLI |
 | `Cursor` | Cursor agent CLI |
+| `Mux` | Mux CLI |
 | `Custom` | Custom agent runtime |
 
 ---
@@ -3720,7 +4023,9 @@ Response from `GET /api/v1/captains/{id}/log`.
 
 ---
 
-## Endpoint Summary
+## Quick Endpoint Summary
+
+This table is a quick route index, not the canonical exhaustive contract. Use `/openapi.json` or `/swagger` for the live complete REST surface, including Workspace, planning-session, request-history, runtime-helper, and newer system routes.
 
 | # | Method | URL | Description | Auth |
 |---|---|---|---|---|

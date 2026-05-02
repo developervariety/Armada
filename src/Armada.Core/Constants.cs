@@ -120,6 +120,11 @@ namespace Armada.Core
         public static readonly string PlaybookIdPrefix = "pbk_";
 
         /// <summary>
+        /// Request history ID prefix.
+        /// </summary>
+        public static readonly string RequestHistoryIdPrefix = "req_";
+
+        /// <summary>
         /// Dock ID prefix.
         /// </summary>
         public static readonly string DockIdPrefix = "dck_";
@@ -138,6 +143,16 @@ namespace Armada.Core
         /// Default data retention period in days for completed records.
         /// </summary>
         public static readonly int DefaultDataRetentionDays = 30;
+
+        /// <summary>
+        /// Default request-history retention period in days.
+        /// </summary>
+        public static readonly int DefaultRequestHistoryRetentionDays = 30;
+
+        /// <summary>
+        /// Default maximum number of request/response body bytes to persist.
+        /// </summary>
+        public static readonly int DefaultRequestHistoryMaxBodyBytes = 32768;
 
         /// <summary>
         /// Branch prefix for Armada-managed branches.
