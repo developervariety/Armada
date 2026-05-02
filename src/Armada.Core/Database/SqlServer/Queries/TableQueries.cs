@@ -386,6 +386,35 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_request_history_status_created') CREATE INDEX idx_request_history_status_created ON request_history(status_code, created_utc DESC);",
                     @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_request_history_success_created') CREATE INDEX idx_request_history_success_created ON request_history(is_success, created_utc DESC);",
                     @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_request_history_route_created') CREATE INDEX idx_request_history_route_created ON request_history(route, created_utc DESC);"
+                ),
+                new SchemaMigration(
+                    31,
+                    "Add pipeline review gates",
+                    @"
+                    IF COL_LENGTH('pipeline_stages', 'requires_review') IS NULL
+                        ALTER TABLE pipeline_stages ADD requires_review BIT NOT NULL CONSTRAINT DF_pipeline_stages_requires_review DEFAULT 0;",
+                    @"
+                    IF COL_LENGTH('pipeline_stages', 'review_deny_action') IS NULL
+                        ALTER TABLE pipeline_stages ADD review_deny_action NVARCHAR(64) NOT NULL CONSTRAINT DF_pipeline_stages_review_deny_action DEFAULT 'RetryStage';",
+                    @"
+                    IF COL_LENGTH('missions', 'requires_review') IS NULL
+                        ALTER TABLE missions ADD requires_review BIT NOT NULL CONSTRAINT DF_missions_requires_review DEFAULT 0;",
+                    @"
+                    IF COL_LENGTH('missions', 'review_deny_action') IS NULL
+                        ALTER TABLE missions ADD review_deny_action NVARCHAR(64) NOT NULL CONSTRAINT DF_missions_review_deny_action DEFAULT 'RetryStage';",
+                    @"
+                    IF COL_LENGTH('missions', 'review_comment') IS NULL
+                        ALTER TABLE missions ADD review_comment NVARCHAR(MAX) NULL;",
+                    @"
+                    IF COL_LENGTH('missions', 'reviewed_by_user_id') IS NULL
+                        ALTER TABLE missions ADD reviewed_by_user_id NVARCHAR(450) NULL;",
+                    @"
+                    IF COL_LENGTH('missions', 'review_requested_utc') IS NULL
+                        ALTER TABLE missions ADD review_requested_utc NVARCHAR(450) NULL;",
+                    @"
+                    IF COL_LENGTH('missions', 'reviewed_utc') IS NULL
+                        ALTER TABLE missions ADD reviewed_utc NVARCHAR(450) NULL;",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_missions_requires_review') CREATE INDEX idx_missions_requires_review ON missions(requires_review);"
                 )
             };
         }

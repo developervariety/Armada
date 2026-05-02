@@ -47,6 +47,24 @@ namespace Armada.Core.Services.Interfaces
         Task HandleCompletionAsync(Captain captain, string missionId, CancellationToken token = default);
 
         /// <summary>
+        /// Approve a mission that is waiting at a review gate.
+        /// </summary>
+        /// <param name="missionId">Mission identifier.</param>
+        /// <param name="reviewedByUserId">Reviewer user identifier, if known.</param>
+        /// <param name="comment">Optional review comment.</param>
+        /// <param name="token">Cancellation token.</param>
+        Task<Mission> ApproveReviewAsync(string missionId, string? reviewedByUserId, string? comment = null, CancellationToken token = default);
+
+        /// <summary>
+        /// Deny a mission that is waiting at a review gate.
+        /// </summary>
+        /// <param name="missionId">Mission identifier.</param>
+        /// <param name="reviewedByUserId">Reviewer user identifier, if known.</param>
+        /// <param name="comment">Optional review comment.</param>
+        /// <param name="token">Cancellation token.</param>
+        Task<Mission> DenyReviewAsync(string missionId, string? reviewedByUserId, string? comment = null, CancellationToken token = default);
+
+        /// <summary>
         /// Detect if a mission is broad-scope (likely to touch many files).
         /// </summary>
         /// <param name="mission">Mission to check.</param>

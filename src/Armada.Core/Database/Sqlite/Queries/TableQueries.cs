@@ -887,6 +887,17 @@ namespace Armada.Core.Database.Sqlite.Queries
                     @"CREATE INDEX IF NOT EXISTS idx_request_history_status_created ON request_history(status_code, created_utc DESC);",
                     @"CREATE INDEX IF NOT EXISTS idx_request_history_success_created ON request_history(is_success, created_utc DESC);",
                     @"CREATE INDEX IF NOT EXISTS idx_request_history_route_created ON request_history(route, created_utc DESC);"
+                ),
+                new SchemaMigration(32, "Add pipeline review gates",
+                    @"ALTER TABLE pipeline_stages ADD COLUMN requires_review INTEGER NOT NULL DEFAULT 0;",
+                    @"ALTER TABLE pipeline_stages ADD COLUMN review_deny_action TEXT NOT NULL DEFAULT 'RetryStage';",
+                    @"ALTER TABLE missions ADD COLUMN requires_review INTEGER NOT NULL DEFAULT 0;",
+                    @"ALTER TABLE missions ADD COLUMN review_deny_action TEXT NOT NULL DEFAULT 'RetryStage';",
+                    @"ALTER TABLE missions ADD COLUMN review_comment TEXT;",
+                    @"ALTER TABLE missions ADD COLUMN reviewed_by_user_id TEXT;",
+                    @"ALTER TABLE missions ADD COLUMN review_requested_utc TEXT;",
+                    @"ALTER TABLE missions ADD COLUMN reviewed_utc TEXT;",
+                    @"CREATE INDEX IF NOT EXISTS idx_missions_requires_review ON missions(requires_review);"
                 )
             };
         }

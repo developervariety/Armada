@@ -12,6 +12,8 @@ import {
   restartMission,
   retryMissionLanding,
   transitionMission,
+  approveMissionReview,
+  denyMissionReview,
   listVessels,
   listCaptains,
 } from '../api/client';
@@ -53,6 +55,7 @@ export default function MissionDetail() {
   // Transition
   const [showTransition, setShowTransition] = useState(false);
   const [transitionStatus, setTransitionStatus] = useState('');
+  const [reviewDecision, setReviewDecision] = useState<{ mode: 'approve' | 'deny'; comment: string } | null>(null);
 
   // Edit form
   const [editModal, setEditModal] = useState(false);
@@ -225,6 +228,25 @@ export default function MissionDetail() {
     }
   }
 
+  async function handleReviewDecision() {
+    if (!mission || !reviewDecision) return;
+
+    try {
+      if (reviewDecision.mode === 'approve') {
+        await approveMissionReview(mission.id, reviewDecision.comment);
+        pushToast('success', t('Review approved for "{{title}}".', { title: mission.title }));
+      } else {
+        await denyMissionReview(mission.id, reviewDecision.comment);
+        pushToast('warning', t('Review denied for "{{title}}".', { title: mission.title }));
+      }
+
+      setReviewDecision(null);
+      loadMission();
+    } catch (e: unknown) {
+      setError(t('Review decision failed: {{message}}', { message: e instanceof Error ? e.message : String(e) }));
+    }
+  }
+
   function handleRestart() {
     if (!mission) return;
     setConfirm({
@@ -284,6 +306,7 @@ export default function MissionDetail() {
 
   if (loading) return <p className="text-dim">{t('Loading...')}</p>;
   if (!mission) return <ErrorModal error={error || t('Mission not found.')} onClose={() => navigate('/missions')} />;
+  const canResolveReview = mission.status === 'Review' && mission.requiresReview;
 
   return (
     <div>
@@ -295,6 +318,12 @@ export default function MissionDetail() {
       <div className="detail-header">
         <h2>{mission.title}</h2>
         <div className="inline-actions">
+          {canResolveReview && (
+            <>
+              <button className="btn btn-sm btn-primary" onClick={() => setReviewDecision({ mode: 'approve', comment: mission.reviewComment || '' })}>{t('Approve')}</button>
+              <button className="btn btn-sm btn-danger" onClick={() => setReviewDecision({ mode: 'deny', comment: mission.reviewComment || '' })}>{t('Deny')}</button>
+            </>
+          )}
           <button className="btn btn-sm" onClick={handleViewDiff} title={t('View mission diff')}>{t('Diff')}</button>
           <button className="btn btn-sm" onClick={handleViewLog} title={t('View mission log')}>{t('Log')}</button>
           <button className="btn btn-sm" onClick={handleViewInstructions} title={t('View mission instructions')}>{t('Instructions')}</button>
@@ -303,6 +332,10 @@ export default function MissionDetail() {
           )}
           <ActionMenu id={`mission-action-${mission.id}`} items={[
             { label: 'Edit', onClick: openEdit },
+            ...(canResolveReview ? [
+              { label: 'Approve Review', onClick: () => setReviewDecision({ mode: 'approve', comment: mission.reviewComment || '' }) },
+              { label: 'Deny Review', onClick: () => setReviewDecision({ mode: 'deny', comment: mission.reviewComment || '' }) },
+            ] : []),
             { label: 'View Diff', onClick: handleViewDiff },
             { label: 'View Log', onClick: handleViewLog },
             { label: 'View Instructions', onClick: handleViewInstructions },
@@ -333,7 +366,7 @@ export default function MissionDetail() {
         title={logModal.title}
         content={logModal.content}
         totalLines={logModal.totalLines}
-        completed={mission != null && ['Complete', 'Failed', 'Cancelled', 'WorkProduced', 'LandingFailed'].includes(mission.status)}
+        completed={mission != null && ['Complete', 'Failed', 'Cancelled', 'WorkProduced', 'LandingFailed', 'Review'].includes(mission.status)}
         onClose={() => setLogModal({ open: false, title: '', missionId: '', content: '', totalLines: 0, lineCount: 200 })}
         onRefresh={handleLogRefresh}
         onLineCountChange={handleLogLineCountChange}
@@ -385,6 +418,37 @@ export default function MissionDetail() {
         </div>
       )}
 
+      {reviewDecision && (
+        <div className="modal-overlay" onClick={() => setReviewDecision(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <h3>{reviewDecision.mode === 'approve' ? t('Approve Review') : t('Deny Review')}</h3>
+            <p className="text-dim">
+              {reviewDecision.mode === 'approve'
+                ? t('Approve this stage and let the pipeline continue.')
+                : t('Deny this stage. Armada will either send it back for rework or fail the pipeline based on the stage policy.')}
+            </p>
+            <label style={{ marginTop: 12 }}>
+              {t('Comment')}
+              <textarea
+                value={reviewDecision.comment}
+                rows={5}
+                onChange={event => setReviewDecision(current => current ? { ...current, comment: event.target.value } : current)}
+                placeholder={t('Add context for the reviewer decision...')}
+              />
+            </label>
+            <div className="modal-actions">
+              <button
+                className={`btn ${reviewDecision.mode === 'approve' ? 'btn-primary' : 'btn-danger'}`}
+                onClick={handleReviewDecision}
+              >
+                {reviewDecision.mode === 'approve' ? t('Approve') : t('Deny')}
+              </button>
+              <button className="btn" onClick={() => setReviewDecision(null)}>{t('Cancel')}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Mission Info */}
       <div className="detail-grid" style={{ gridTemplateColumns: '1fr 1fr 1fr 1fr' }}>
         <div className="detail-field">
@@ -398,6 +462,30 @@ export default function MissionDetail() {
         <div className="detail-field">
           <span className="detail-label">{t('Status')}</span>
           <StatusBadge status={mission.status} />
+        </div>
+        <div className="detail-field">
+          <span className="detail-label">{t('Review Gate')}</span>
+          <span>
+            {mission.requiresReview
+              ? <StatusBadge status={mission.status === 'Review' ? 'Waiting Review' : 'Required'} />
+              : <span className="text-dim">{t('None')}</span>}
+          </span>
+        </div>
+        <div className="detail-field">
+          <span className="detail-label">{t('On Deny')}</span>
+          <span>{mission.requiresReview ? (mission.reviewDenyAction === 'FailPipeline' ? t('Fail pipeline') : t('Retry stage')) : <span className="text-dim">-</span>}</span>
+        </div>
+        <div className="detail-field">
+          <span className="detail-label">{t('Review Requested')}</span>
+          <span>{mission.reviewRequestedUtc ? formatDateTime(mission.reviewRequestedUtc) : '-'}</span>
+        </div>
+        <div className="detail-field">
+          <span className="detail-label">{t('Reviewed')}</span>
+          <span>{mission.reviewedUtc ? formatDateTime(mission.reviewedUtc) : '-'}</span>
+        </div>
+        <div className="detail-field">
+          <span className="detail-label">{t('Reviewed By')}</span>
+          <span className="mono">{mission.reviewedByUserId || '-'}</span>
         </div>
         {mission.failureReason && (
           <div className="detail-field" style={{ gridColumn: '1 / -1' }}>
@@ -414,6 +502,23 @@ export default function MissionDetail() {
               wordBreak: 'break-word',
               fontFamily: 'monospace'
             }}>{mission.failureReason}</pre>
+          </div>
+        )}
+        {mission.reviewComment && (
+          <div className="detail-field" style={{ gridColumn: '1 / -1' }}>
+            <span className="detail-label">{t('Review Comment')}</span>
+            <pre style={{
+              margin: 0,
+              padding: '0.75rem',
+              background: 'rgba(255, 184, 77, 0.08)',
+              border: '1px solid rgba(255, 184, 77, 0.24)',
+              borderRadius: '4px',
+              color: 'var(--text)',
+              fontSize: '0.85em',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+              fontFamily: 'monospace'
+            }}>{mission.reviewComment}</pre>
           </div>
         )}
         <div className="detail-field"><span className="detail-label">{t('Priority')}</span><span>{mission.priority}</span></div>

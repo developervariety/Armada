@@ -6,6 +6,7 @@ namespace Armada.Core.Services
     using System.Threading.Tasks;
     using SyslogLogging;
     using Armada.Core.Database;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
 
     /// <summary>
@@ -86,19 +87,34 @@ namespace Armada.Core.Services
             await SeedPipelineAsync(
                 "Reviewed",
                 "Worker then Judge review.",
-                new List<PipelineStage> { new PipelineStage(1, "Worker"), new PipelineStage(2, "Judge") },
+                new List<PipelineStage>
+                {
+                    new PipelineStage(1, "Worker") { RequiresReview = true },
+                    new PipelineStage(2, "Judge") { RequiresReview = true, ReviewDenyAction = ReviewDenyActionEnum.FailPipeline }
+                },
                 token).ConfigureAwait(false);
 
             await SeedPipelineAsync(
                 "Tested",
                 "Worker then TestEngineer then Judge.",
-                new List<PipelineStage> { new PipelineStage(1, "Worker"), new PipelineStage(2, "TestEngineer"), new PipelineStage(3, "Judge") },
+                new List<PipelineStage>
+                {
+                    new PipelineStage(1, "Worker") { RequiresReview = true },
+                    new PipelineStage(2, "TestEngineer") { RequiresReview = true },
+                    new PipelineStage(3, "Judge") { RequiresReview = true, ReviewDenyAction = ReviewDenyActionEnum.FailPipeline }
+                },
                 token).ConfigureAwait(false);
 
             await SeedPipelineAsync(
                 "FullPipeline",
                 "Architect then Worker then TestEngineer then Judge.",
-                new List<PipelineStage> { new PipelineStage(1, "Architect"), new PipelineStage(2, "Worker"), new PipelineStage(3, "TestEngineer"), new PipelineStage(4, "Judge") },
+                new List<PipelineStage>
+                {
+                    new PipelineStage(1, "Architect") { RequiresReview = true },
+                    new PipelineStage(2, "Worker") { RequiresReview = true },
+                    new PipelineStage(3, "TestEngineer") { RequiresReview = true },
+                    new PipelineStage(4, "Judge") { RequiresReview = true, ReviewDenyAction = ReviewDenyActionEnum.FailPipeline }
+                },
                 token).ConfigureAwait(false);
         }
 

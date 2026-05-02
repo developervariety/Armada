@@ -317,6 +317,8 @@ export const dispatchMission = (data: DispatchRequest) => post<Mission>('/api/v1
 export const restartMission = (id: string) => post<Mission>(`/api/v1/missions/${id}/restart`);
 export const retryMissionLanding = (id: string) => post<any>(`/api/v1/missions/${id}/retry-landing`, {});
 export const transitionMission = (id: string, data: TransitionRequest) => put<Mission>(`/api/v1/missions/${id}/status`, data);
+export const approveMissionReview = (id: string, comment?: string) => post<Mission>(`/api/v1/missions/${id}/review/approve`, comment ? { comment } : {});
+export const denyMissionReview = (id: string, comment?: string) => post<Mission>(`/api/v1/missions/${id}/review/deny`, comment ? { comment } : {});
 export const getMissionDiff = (id: string) => get<DiffResult>(`/api/v1/missions/${id}/diff`, { timeout: 30000 });
 export const getMissionLog = (id: string, lines = 500) => get<LogResult>(`/api/v1/missions/${id}/log?lines=${lines}`);
 export const getMissionInstructions = (id: string) => get<InstructionsResult>(`/api/v1/missions/${id}/instructions`);

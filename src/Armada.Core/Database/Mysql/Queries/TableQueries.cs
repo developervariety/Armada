@@ -682,6 +682,22 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
+        /// Migration v31 statements for adding pipeline review gates.
+        /// </summary>
+        public static readonly string[] MigrationV31Statements = new string[]
+        {
+            @"ALTER TABLE pipeline_stages ADD COLUMN IF NOT EXISTS requires_review TINYINT(1) NOT NULL DEFAULT 0;",
+            @"ALTER TABLE pipeline_stages ADD COLUMN IF NOT EXISTS review_deny_action VARCHAR(64) NOT NULL DEFAULT 'RetryStage';",
+            @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS requires_review TINYINT(1) NOT NULL DEFAULT 0;",
+            @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS review_deny_action VARCHAR(64) NOT NULL DEFAULT 'RetryStage';",
+            @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS review_comment LONGTEXT NULL;",
+            @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS reviewed_by_user_id VARCHAR(450) NULL;",
+            @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS review_requested_utc DATETIME(6) NULL;",
+            @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS reviewed_utc DATETIME(6) NULL;",
+            @"CREATE INDEX idx_missions_requires_review ON missions(requires_review);"
+        };
+
+        /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
         public static readonly string[] Indexes = new string[]

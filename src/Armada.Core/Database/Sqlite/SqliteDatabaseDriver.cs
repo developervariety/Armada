@@ -507,6 +507,20 @@ namespace Armada.Core.Database.Sqlite
             try { mission.Persona = NullableString(reader["persona"]); } catch { }
             try { mission.DependsOnMissionId = NullableString(reader["depends_on_mission_id"]); } catch { }
             try { mission.FailureReason = NullableString(reader["failure_reason"]); } catch { }
+            try { mission.RequiresReview = Convert.ToInt64(reader["requires_review"]) == 1; } catch { }
+            try
+            {
+                string? reviewDenyAction = NullableString(reader["review_deny_action"]);
+                if (!String.IsNullOrEmpty(reviewDenyAction) && Enum.TryParse(reviewDenyAction, true, out ReviewDenyActionEnum parsed))
+                {
+                    mission.ReviewDenyAction = parsed;
+                }
+            }
+            catch { }
+            try { mission.ReviewComment = NullableString(reader["review_comment"]); } catch { }
+            try { mission.ReviewedByUserId = NullableString(reader["reviewed_by_user_id"]); } catch { }
+            try { mission.ReviewRequestedUtc = FromIso8601Nullable(reader["review_requested_utc"]); } catch { }
+            try { mission.ReviewedUtc = FromIso8601Nullable(reader["reviewed_utc"]); } catch { }
             return mission;
         }
 
