@@ -38,6 +38,7 @@ Armada already ships pieces of this lifecycle:
 - [x] Planning sessions
 - [x] Direct dispatch and multi-mission voyages
 - [x] Persona- and pipeline-based orchestration
+- [x] Configurable stage-level review gates with approve and deny flows
 - [x] Vessel-aware Workspace for browsing and editing repositories
 - [x] Request history and API Explorer
 - [x] Merge queue
@@ -308,6 +309,15 @@ Acceptance criteria:
 ## Workstream F: Pull Request and Review Workflow
 
 Armada already reaches branch creation and landing workflows. It should also model human and automated review more explicitly.
+
+### Already Shipped In This Area
+
+- [x] Pipeline stages can require explicit review before the next stage or landing may continue
+- [x] Review decisions support approve and deny flows
+- [x] Denied review can either retry the same stage with reviewer feedback or fail the pipeline and cancel downstream stages
+- [x] Review-gated missions are exposed in the dashboard and REST API
+
+The remaining work in this section is about expanding beyond stage-level mission review into richer PR-aware, provider-aware, and release-aware review workflows.
 
 ### Capability Target
 
