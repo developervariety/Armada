@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "armada-api-collection",
     "name": "Armada API",
-    "description": "Complete API collection for the Armada multi-agent orchestration system.\n\nVersion: 0.7.0\n\n## Setup\n1. Set the `baseUrl` variable to your Admiral server (default: `http://localhost:7890`)\n2. For bearer token auth, set `bearerToken` (default: `default`)\n3. For session token auth, use the Authenticate request and set `sessionToken` from the response\n4. Legacy: If API key authentication is enabled, set the `apiKey` variable (deprecated)\n5. Use the Status > Health Check request to verify connectivity\n\n## Role model\n- IsAdmin=true: global system-wide admin\n- IsAdmin=false and IsTenantAdmin=true: tenant-scoped admin\n- IsAdmin=false and IsTenantAdmin=false: regular user with self-service on own account and credentials\n\n## Notes\n- Tenant, user, and credential protection is server-controlled through IsProtected\n- Immutable fields such as IDs, ownership columns, and creation timestamps are preserved server-side on update",
+    "description": "Complete API collection for the Armada multi-agent orchestration system.\n\nVersion: 0.7.0\n\n## Setup\n1. Set the `baseUrl` variable to your Admiral server (default: `http://localhost:7890`)\n2. For bearer token auth, set `bearerToken` (default: `default`)\n3. For session token auth, use the Authenticate request and set `sessionToken` from the response\n4. Legacy: If API key authentication is enabled, set the `apiKey` variable (deprecated)\n5. Use the Status > Health Check request to verify connectivity\n\n## Role model\n- IsAdmin=true: global system-wide admin\n- IsAdmin=false and IsTenantAdmin=true: tenant-scoped admin\n- IsAdmin=false and IsTenantAdmin=false: regular user with self-service on own account and credentials\n\n## Notes\n- Tenant, user, and credential protection is server-controlled through IsProtected\n- Immutable fields such as IDs, ownership columns, and creation timestamps are preserved server-side on update\n- Includes Workspace, Planning Sessions, Request History, Mux runtime helpers, and OpenAPI discovery examples.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -101,6 +101,36 @@
       "key": "instanceId",
       "value": "armada-1f2e3d4c5b6a",
       "type": "string"
+    },
+    {
+      "key": "planningSessionId",
+      "value": "",
+      "type": "string",
+      "description": "Planning session ID captured from the Planning Sessions folder."
+    },
+    {
+      "key": "requestHistoryId",
+      "value": "",
+      "type": "string",
+      "description": "Request history entry ID for detail/delete calls."
+    },
+    {
+      "key": "workspacePath",
+      "value": "README.md",
+      "type": "string",
+      "description": "Repository-relative workspace path using forward slashes."
+    },
+    {
+      "key": "muxEndpointName",
+      "value": "",
+      "type": "string",
+      "description": "Mux endpoint name for runtime helper requests."
+    },
+    {
+      "key": "muxConfigDirectory",
+      "value": "",
+      "type": "string",
+      "description": "Optional Mux config directory override. Leave blank to use the default Mux config."
     }
   ],
   "item": [
@@ -908,6 +938,287 @@
       ]
     },
     {
+      "name": "System",
+      "description": "System-level helper surfaces including OpenAPI discovery, request history, and runtime endpoint discovery.",
+      "item": [
+        {
+          "name": "API Docs",
+          "item": [
+            {
+              "name": "OpenAPI JSON",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/openapi.json",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "openapi.json"
+                  ]
+                },
+                "description": "Download the live OpenAPI document used by Armada's API Explorer."
+              },
+              "response": []
+            },
+            {
+              "name": "Swagger UI",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/swagger",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "swagger"
+                  ]
+                },
+                "description": "Open the interactive Swagger UI for the live REST surface."
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Request History",
+          "item": [
+            {
+              "name": "List Request History",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/request-history?pageNumber=1&pageSize=50&route=/api/v1/status",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "request-history"
+                  ],
+                  "query": [
+                    {
+                      "key": "pageNumber",
+                      "value": "1"
+                    },
+                    {
+                      "key": "pageSize",
+                      "value": "50"
+                    },
+                    {
+                      "key": "route",
+                      "value": "/api/v1/status"
+                    }
+                  ]
+                },
+                "description": "List captured request-history entries scoped to the authenticated caller."
+              },
+              "response": []
+            },
+            {
+              "name": "Request History Summary",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/request-history/summary?bucketMinutes=15&route=/api/v1/status",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "request-history",
+                    "summary"
+                  ],
+                  "query": [
+                    {
+                      "key": "bucketMinutes",
+                      "value": "15"
+                    },
+                    {
+                      "key": "route",
+                      "value": "/api/v1/status"
+                    }
+                  ]
+                },
+                "description": "Return aggregate request-history counts and time buckets."
+              },
+              "response": []
+            },
+            {
+              "name": "Get Request History Entry",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/request-history/{{requestHistoryId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "request-history",
+                    "{{requestHistoryId}}"
+                  ]
+                },
+                "description": "Read one captured request with expanded headers, params, and body snapshots."
+              },
+              "response": []
+            },
+            {
+              "name": "Delete Request History Entry",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/request-history/{{requestHistoryId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "request-history",
+                    "{{requestHistoryId}}"
+                  ]
+                },
+                "description": "Delete one request-history entry. Tenant admin or global admin only."
+              },
+              "response": []
+            },
+            {
+              "name": "Delete Multiple Request History Entries",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/request-history/delete/multiple",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "request-history",
+                    "delete",
+                    "multiple"
+                  ]
+                },
+                "description": "Delete multiple request-history entries by ID. Tenant admin or global admin only.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"Ids\": [\"{{requestHistoryId}}\"]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Delete Request History By Filter",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/request-history/delete/by-filter",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "request-history",
+                    "delete",
+                    "by-filter"
+                  ]
+                },
+                "description": "Delete all request-history entries matching the supplied filters within the caller's scope. Tenant admin or global admin only.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"Method\": \"GET\",\n  \"Route\": \"/api/v1/status\",\n  \"FromUtc\": \"2026-05-01T00:00:00Z\",\n  \"ToUtc\": \"2026-05-02T00:00:00Z\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Runtime Helpers",
+          "item": [
+            {
+              "name": "List Mux Endpoints",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/runtimes/mux/endpoints",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "runtimes",
+                    "mux",
+                    "endpoints"
+                  ]
+                },
+                "description": "List saved Mux endpoints. Add the optional configDirectory query parameter to inspect a non-default Mux config directory."
+              },
+              "response": []
+            },
+            {
+              "name": "Get Mux Endpoint",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/runtimes/mux/endpoints/{{muxEndpointName}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "runtimes",
+                    "mux",
+                    "endpoints",
+                    "{{muxEndpointName}}"
+                  ]
+                },
+                "description": "Inspect one saved Mux endpoint with redacted secrets. Add the optional configDirectory query parameter to inspect a non-default Mux config directory."
+              },
+              "response": []
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "Fleets",
       "description": "Fleet (repository collection) management. A fleet groups related vessels (repositories) together.",
       "item": [
@@ -1400,6 +1711,283 @@
               "body": "{\n  \"Status\": \"deleted\",\n  \"Deleted\": 2,\n  \"Skipped\": []\n}"
             }
           ]
+        }
+      ]
+    },
+    {
+      "name": "Workspace",
+      "description": "First-class vessel workspace browsing, editing, search, git-aware status, and file operations.",
+      "item": [
+        {
+          "name": "List Workspace Root",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/workspace/vessels/{{vesselId}}/tree",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "workspace",
+                "vessels",
+                "{{vesselId}}",
+                "tree"
+              ]
+            },
+            "description": "List the root directory of the vessel workspace."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Workspace File",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/workspace/vessels/{{vesselId}}/file?path={{workspacePath}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "workspace",
+                "vessels",
+                "{{vesselId}}",
+                "file"
+              ],
+              "query": [
+                {
+                  "key": "path",
+                  "value": "{{workspacePath}}"
+                }
+              ]
+            },
+            "description": "Read one workspace file by repository-relative path."
+          },
+          "response": []
+        },
+        {
+          "name": "Save Workspace File",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/workspace/vessels/{{vesselId}}/file",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "workspace",
+                "vessels",
+                "{{vesselId}}",
+                "file"
+              ]
+            },
+            "description": "Save one text file in the vessel workspace with optimistic concurrency support.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Path\": \"{{workspacePath}}\",\n  \"Content\": \"# Updated by Postman\\n\",\n  \"ExpectedHash\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Workspace Directory",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/workspace/vessels/{{vesselId}}/directory",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "workspace",
+                "vessels",
+                "{{vesselId}}",
+                "directory"
+              ]
+            },
+            "description": "Create a directory inside the vessel workspace.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Path\": \"docs/new-folder\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Rename Workspace Entry",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/workspace/vessels/{{vesselId}}/rename",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "workspace",
+                "vessels",
+                "{{vesselId}}",
+                "rename"
+              ]
+            },
+            "description": "Rename or move one workspace file or directory.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Path\": \"docs/old-name.md\",\n  \"NewPath\": \"docs/new-name.md\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Workspace Entry",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/workspace/vessels/{{vesselId}}/entry?path={{workspacePath}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "workspace",
+                "vessels",
+                "{{vesselId}}",
+                "entry"
+              ],
+              "query": [
+                {
+                  "key": "path",
+                  "value": "{{workspacePath}}"
+                }
+              ]
+            },
+            "description": "Delete one workspace file or directory."
+          },
+          "response": []
+        },
+        {
+          "name": "Search Workspace",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/workspace/vessels/{{vesselId}}/search?q=request history&maxResults=50",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "workspace",
+                "vessels",
+                "{{vesselId}}",
+                "search"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "request history"
+                },
+                {
+                  "key": "maxResults",
+                  "value": "50"
+                }
+              ]
+            },
+            "description": "Search text files in the vessel workspace."
+          },
+          "response": []
+        },
+        {
+          "name": "Workspace Changes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/workspace/vessels/{{vesselId}}/changes",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "workspace",
+                "vessels",
+                "{{vesselId}}",
+                "changes"
+              ]
+            },
+            "description": "Return branch state and changed files for the vessel workspace."
+          },
+          "response": []
+        },
+        {
+          "name": "Workspace Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/workspace/vessels/{{vesselId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "workspace",
+                "vessels",
+                "{{vesselId}}",
+                "status"
+              ]
+            },
+            "description": "Return high-level workspace status, git state, and active mission overlap context."
+          },
+          "response": []
         }
       ]
     },
@@ -2636,6 +3224,252 @@
               "body": "{\n  \"Status\": \"deleted\",\n  \"Deleted\": 2,\n  \"Skipped\": []\n}"
             }
           ]
+        }
+      ]
+    },
+    {
+      "name": "Planning Sessions",
+      "description": "Planning-session lifecycle, transcript turns, summarize-to-dispatch, and direct dispatch flows.",
+      "item": [
+        {
+          "name": "List Planning Sessions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/planning-sessions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "planning-sessions"
+              ]
+            },
+            "description": "List planning sessions visible to the authenticated caller."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Planning Session",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/planning-sessions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "planning-sessions"
+              ]
+            },
+            "description": "Create a planning session, reserve the selected captain, and provision a planning dock.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Title\": \"Investigate request-history UX\",\n  \"CaptainId\": \"{{captainId}}\",\n  \"VesselId\": \"{{vesselId}}\",\n  \"FleetId\": \"{{fleetId}}\",\n  \"SelectedPlaybooks\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    var json = pm.response.json();",
+                  "    if (json && json.Session && json.Session.Id) pm.collectionVariables.set(\"planningSessionId\", json.Session.Id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Planning Session",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/planning-sessions/{{planningSessionId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "planning-sessions",
+                "{{planningSessionId}}"
+              ]
+            },
+            "description": "Read one planning session with transcript, captain, and vessel context."
+          },
+          "response": []
+        },
+        {
+          "name": "Send Planning Message",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/planning-sessions/{{planningSessionId}}/messages",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "planning-sessions",
+                "{{planningSessionId}}",
+                "messages"
+              ]
+            },
+            "description": "Append one user message and launch the next planning turn.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Content\": \"Summarize the plan and prepare a dispatch draft.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Summarize Planning Session",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/planning-sessions/{{planningSessionId}}/summarize",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "planning-sessions",
+                "{{planningSessionId}}",
+                "summarize"
+              ]
+            },
+            "description": "Generate a dispatch-ready draft without launching the voyage.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Title\": \"Refresh API docs\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Dispatch Planning Session",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/planning-sessions/{{planningSessionId}}/dispatch",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "planning-sessions",
+                "{{planningSessionId}}",
+                "dispatch"
+              ]
+            },
+            "description": "Launch a voyage directly from planning output.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Title\": \"Refresh API docs\",\n  \"Description\": \"Update docs and validation assets for the shipped features.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Stop Planning Session",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/planning-sessions/{{planningSessionId}}/stop",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "planning-sessions",
+                "{{planningSessionId}}",
+                "stop"
+              ]
+            },
+            "description": "Stop an active planning session and release its captain and dock."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Planning Session",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/planning-sessions/{{planningSessionId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "planning-sessions",
+                "{{planningSessionId}}"
+              ]
+            },
+            "description": "Delete a planning session and its transcript. Active sessions are stopped first."
+          },
+          "response": []
         }
       ]
     },

@@ -523,6 +523,83 @@ export interface WorkspaceStatusResult {
   error?: string | null;
 }
 
+export interface RequestHistoryEntry {
+  id: string;
+  tenantId: string | null;
+  userId: string | null;
+  credentialId: string | null;
+  principalDisplay: string | null;
+  authMethod: string | null;
+  method: string;
+  route: string;
+  routeTemplate: string | null;
+  queryString: string | null;
+  statusCode: number;
+  durationMs: number;
+  requestSizeBytes: number;
+  responseSizeBytes: number;
+  requestContentType: string | null;
+  responseContentType: string | null;
+  isSuccess: boolean;
+  clientIp: string | null;
+  correlationId: string | null;
+  createdUtc: string;
+}
+
+export interface RequestHistoryDetail {
+  requestHistoryId: string;
+  pathParamsJson: string | null;
+  queryParamsJson: string | null;
+  requestHeadersJson: string | null;
+  responseHeadersJson: string | null;
+  requestBodyText: string | null;
+  responseBodyText: string | null;
+  requestBodyTruncated: boolean;
+  responseBodyTruncated: boolean;
+}
+
+export interface RequestHistoryRecord {
+  entry: RequestHistoryEntry;
+  detail: RequestHistoryDetail | null;
+}
+
+export interface RequestHistorySummaryBucket {
+  bucketStartUtc: string;
+  bucketEndUtc: string;
+  totalCount: number;
+  successCount: number;
+  failureCount: number;
+  averageDurationMs: number;
+}
+
+export interface RequestHistorySummaryResult {
+  totalCount: number;
+  successCount: number;
+  failureCount: number;
+  successRate: number;
+  averageDurationMs: number;
+  fromUtc: string | null;
+  toUtc: string | null;
+  bucketMinutes: number;
+  buckets: RequestHistorySummaryBucket[];
+}
+
+export interface RequestHistoryQuery {
+  tenantId?: string | null;
+  userId?: string | null;
+  credentialId?: string | null;
+  principal?: string | null;
+  method?: string | null;
+  route?: string | null;
+  statusCode?: number | null;
+  isSuccess?: boolean | null;
+  fromUtc?: string | null;
+  toUtc?: string | null;
+  pageNumber?: number;
+  pageSize?: number;
+  bucketMinutes?: number;
+}
+
 export interface DispatchRequest {
   vesselId: string;
   title: string;

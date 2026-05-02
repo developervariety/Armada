@@ -60,6 +60,11 @@ namespace Armada.Core.Database
         public IEventMethods Events { get; protected set; } = null!;
 
         /// <summary>
+        /// Request-history operations.
+        /// </summary>
+        public IRequestHistoryMethods RequestHistory { get; protected set; } = null!;
+
+        /// <summary>
         /// Merge entry operations.
         /// </summary>
         public IMergeEntryMethods MergeEntries { get; protected set; } = null!;

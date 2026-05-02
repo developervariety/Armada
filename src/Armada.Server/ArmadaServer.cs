@@ -1,6 +1,7 @@
 namespace Armada.Server
 {
     using System.IO;
+    using System.Runtime.CompilerServices;
     using System.Text.Json;
     using SyslogLogging;
     using WatsonWebserver;
@@ -66,6 +67,7 @@ namespace Armada.Server
         private RemoteControlManagementService _RemoteControlManagement = null!;
         private PlanningSessionCoordinator _PlanningSessions = null!;
         private IWorkspaceService _Workspace = null!;
+        private RequestHistoryCaptureService _RequestHistoryCapture = null!;
 
         private ISessionTokenService _SessionTokenService = null!;
         private IAuthenticationService _AuthenticationService = null!;
@@ -78,6 +80,7 @@ namespace Armada.Server
         private Task _HealthCheckTask = null!;
         private int _HealthCheckCycles = 0;
         private DateTime _StartUtc = DateTime.UtcNow;
+        private readonly ConditionalWeakTable<HttpContextBase, AuthContext> _RequestAuthContexts = new ConditionalWeakTable<HttpContextBase, AuthContext>();
 
         private static readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions
         {
@@ -134,6 +137,7 @@ namespace Armada.Server
             _TemplateService = new MessageTemplateService(_Logging, _PromptTemplateService);
             _RuntimeFactory = new AgentRuntimeFactory(_Logging);
             _Workspace = new WorkspaceService();
+            _RequestHistoryCapture = new RequestHistoryCaptureService(_Settings);
             _RemoteTunnel = new RemoteTunnelManager(_Logging, _Settings);
             admiralService.OnGetRemoteTunnelStatus = _RemoteTunnel.GetStatus;
             _RemoteControlQueries = new RemoteControlQueryService(
@@ -216,6 +220,7 @@ namespace Armada.Server
                 openApi.Tags.Add(new OpenApiTag { Name = "Fleets", Description = "Fleet (repository collection) management" });
                 openApi.Tags.Add(new OpenApiTag { Name = "Vessels", Description = "Vessel (git repository) management" });
                 openApi.Tags.Add(new OpenApiTag { Name = "Workspace", Description = "Workspace browsing, editing, search, and dispatch handoff" });
+                openApi.Tags.Add(new OpenApiTag { Name = "RequestHistory", Description = "Captured REST request history, summaries, and replay metadata" });
                 openApi.Tags.Add(new OpenApiTag { Name = "Voyages", Description = "Voyage (mission batch) management" });
                 openApi.Tags.Add(new OpenApiTag { Name = "Missions", Description = "Mission (atomic work unit) management" });
                 openApi.Tags.Add(new OpenApiTag { Name = "Planning", Description = "Captain planning sessions and transcript-to-dispatch flow" });
@@ -260,6 +265,7 @@ namespace Armada.Server
                     "(" + (ctx.Timestamp.TotalMs.HasValue ? ctx.Timestamp.TotalMs.Value.ToString("F2") : "?") + "ms)");
 
                 ApplyCorsHeaders(ctx);
+                await CaptureRequestHistoryAsync(ctx).ConfigureAwait(false);
                 await Task.CompletedTask.ConfigureAwait(false);
             };
 
@@ -365,7 +371,10 @@ namespace Armada.Server
             string? authHeader = ctx.Request.Headers.Get("Authorization");
             string? tokenHeader = ctx.Request.Headers.Get("X-Token");
             string? apiKeyHeader = ctx.Request.Headers.Get("X-Api-Key");
-            return await _AuthenticationService.AuthenticateAsync(authHeader, tokenHeader, apiKeyHeader).ConfigureAwait(false);
+            AuthContext result = await _AuthenticationService.AuthenticateAsync(authHeader, tokenHeader, apiKeyHeader).ConfigureAwait(false);
+            _RequestAuthContexts.Remove(ctx);
+            _RequestAuthContexts.Add(ctx, result);
+            return result;
         }
 
         private async Task SeedSyntheticAdminAsync()
@@ -427,6 +436,10 @@ namespace Armada.Server
 
             // Workspace
             new WorkspaceRoutes(_Database, _Workspace, _JsonOptions)
+                .Register(_App, authenticate, _AuthorizationService);
+
+            // Request history
+            new RequestHistoryRoutes(_Database, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Voyages
@@ -541,6 +554,190 @@ namespace Armada.Server
                 ctx.Response.Headers.Add("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS");
             if (!ctx.Response.Headers.AllKeys.Contains("Access-Control-Allow-Headers"))
                 ctx.Response.Headers.Add("Access-Control-Allow-Headers", "Content-Type, X-Api-Key, X-Token, Authorization");
+        }
+
+        private async Task CaptureRequestHistoryAsync(HttpContextBase ctx)
+        {
+            try
+            {
+                string route = ctx.Request.Url.RawWithoutQuery ?? String.Empty;
+                if (!_RequestHistoryCapture.ShouldCapture(route)) return;
+
+                AuthContext? auth = null;
+                _RequestAuthContexts.TryGetValue(ctx, out auth);
+
+                RequestHistoryCaptureInput input = new RequestHistoryCaptureInput
+                {
+                    Method = ctx.Request.Method.ToString().ToUpperInvariant(),
+                    Route = route,
+                    RouteTemplate = route,
+                    QueryString = ExtractQueryString(ctx),
+                    StatusCode = ctx.Response.StatusCode,
+                    DurationMs = Math.Round(ctx.Timestamp.TotalMs ?? 0, 2),
+                    RequestSizeBytes = ctx.Request.ContentLength,
+                    ResponseSizeBytes = ctx.Response.ContentLength,
+                    RequestContentType = ctx.Request.ContentType,
+                    ResponseContentType = ctx.Response.ContentType,
+                    ClientIp = ctx.Request.Source?.IpAddress?.ToString(),
+                    CorrelationId = ctx.Request.Headers.Get("X-Correlation-Id") ?? ctx.Request.Headers.Get("X-Request-Id"),
+                    RequestHeaders = ExtractHeaders(ctx.Request.Headers),
+                    ResponseHeaders = ExtractHeaders(ctx.Response.Headers),
+                    RequestBodyText = ReadBodySnapshot(ctx.Request.ContentType, ctx.Request.ContentLength, () => ctx.Request.DataAsString),
+                    ResponseBodyText = ReadBodySnapshot(ctx.Response.ContentType, ctx.Response.ContentLength, () => ctx.Response.DataAsString)
+                };
+
+                RequestHistoryRecord record = _RequestHistoryCapture.BuildRecord(auth, input);
+                await _Database.RequestHistory.CreateAsync(record.Entry, record.Detail, _TokenSource.Token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "request history capture error: " + ex.Message);
+            }
+        }
+
+        private static Dictionary<string, string?> ExtractHeaders(System.Collections.Specialized.NameValueCollection headers)
+        {
+            Dictionary<string, string?> results = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+            foreach (string? key in headers.AllKeys)
+            {
+                if (String.IsNullOrWhiteSpace(key)) continue;
+                results[key] = headers.Get(key);
+            }
+            return results;
+        }
+
+        private string? ReadBodySnapshot(string? contentType, long contentLength, Func<string?> reader)
+        {
+            int maxPreviewBytes = Math.Max(_Settings.RequestHistoryMaxBodyBytes * 4, _Settings.RequestHistoryMaxBodyBytes);
+            if (contentLength > maxPreviewBytes && !IsTextualContent(contentType)) return null;
+            if (contentLength > maxPreviewBytes && String.IsNullOrWhiteSpace(contentType)) return null;
+
+            try
+            {
+                return reader();
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static bool IsTextualContent(string? contentType)
+        {
+            if (String.IsNullOrWhiteSpace(contentType)) return true;
+            return contentType.StartsWith("text/", StringComparison.OrdinalIgnoreCase)
+                || contentType.Contains("json", StringComparison.OrdinalIgnoreCase)
+                || contentType.Contains("xml", StringComparison.OrdinalIgnoreCase)
+                || contentType.Contains("javascript", StringComparison.OrdinalIgnoreCase)
+                || contentType.Contains("x-www-form-urlencoded", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string? ExtractQueryString(HttpContextBase ctx)
+        {
+            string? rawWithQuery = ctx.Request.Url.RawWithQuery;
+            int idx = !String.IsNullOrWhiteSpace(rawWithQuery) ? rawWithQuery.IndexOf('?') : -1;
+            if (!String.IsNullOrWhiteSpace(rawWithQuery) && idx >= 0)
+            {
+                if (idx == rawWithQuery.Length - 1) return null;
+                return rawWithQuery.Substring(idx + 1);
+            }
+
+            object? url = ctx.Request.Url;
+            string? reflectedUrlQuery = ExtractQueryStringFromObject(url);
+            if (!String.IsNullOrWhiteSpace(reflectedUrlQuery))
+                return reflectedUrlQuery;
+
+            return ExtractQueryStringFromObject(ctx.Request);
+        }
+
+        private static string? ExtractQueryStringFromObject(object? source)
+        {
+            if (source == null) return null;
+
+            Type type = source.GetType();
+
+            foreach (string propertyName in new[] { "Querystring", "QueryString", "Query" })
+            {
+                System.Reflection.PropertyInfo? property = type.GetProperty(propertyName);
+                if (property == null) continue;
+
+                object? value = property.GetValue(source);
+                string? serialized = SerializeQueryValue(value);
+                if (!String.IsNullOrWhiteSpace(serialized))
+                    return serialized;
+            }
+
+            return null;
+        }
+
+        private static string? SerializeQueryValue(object? value)
+        {
+            if (value == null) return null;
+
+            if (value is string stringValue)
+            {
+                if (String.IsNullOrWhiteSpace(stringValue)) return null;
+                return stringValue.StartsWith("?") ? stringValue.Substring(1) : stringValue;
+            }
+
+            if (value is System.Collections.Specialized.NameValueCollection nameValueCollection)
+            {
+                List<string> parts = new List<string>();
+                foreach (string? key in nameValueCollection.AllKeys)
+                {
+                    if (String.IsNullOrWhiteSpace(key)) continue;
+                    string? itemValue = nameValueCollection.Get(key);
+                    parts.Add(String.IsNullOrEmpty(itemValue)
+                        ? Uri.EscapeDataString(key)
+                        : Uri.EscapeDataString(key) + "=" + Uri.EscapeDataString(itemValue));
+                }
+
+                return parts.Count > 0 ? String.Join("&", parts) : null;
+            }
+
+            if (value is System.Collections.IDictionary dictionary)
+            {
+                List<string> parts = new List<string>();
+                foreach (System.Collections.DictionaryEntry entry in dictionary)
+                {
+                    if (entry.Key == null) continue;
+                    string key = entry.Key.ToString() ?? String.Empty;
+                    if (String.IsNullOrWhiteSpace(key)) continue;
+
+                    string? itemValue = entry.Value?.ToString();
+                    parts.Add(String.IsNullOrEmpty(itemValue)
+                        ? Uri.EscapeDataString(key)
+                        : Uri.EscapeDataString(key) + "=" + Uri.EscapeDataString(itemValue));
+                }
+
+                return parts.Count > 0 ? String.Join("&", parts) : null;
+            }
+
+            if (value is System.Collections.IEnumerable enumerable)
+            {
+                List<string> parts = new List<string>();
+                foreach (object? item in enumerable)
+                {
+                    if (item == null) continue;
+
+                    Type itemType = item.GetType();
+                    System.Reflection.PropertyInfo? keyProperty = itemType.GetProperty("Key");
+                    System.Reflection.PropertyInfo? valueProperty = itemType.GetProperty("Value");
+                    if (keyProperty == null || valueProperty == null) continue;
+
+                    string? key = keyProperty.GetValue(item)?.ToString();
+                    if (String.IsNullOrWhiteSpace(key)) continue;
+
+                    string? itemValue = valueProperty.GetValue(item)?.ToString();
+                    parts.Add(String.IsNullOrEmpty(itemValue)
+                        ? Uri.EscapeDataString(key)
+                        : Uri.EscapeDataString(key) + "=" + Uri.EscapeDataString(itemValue));
+                }
+
+                return parts.Count > 0 ? String.Join("&", parts) : null;
+            }
+
+            return null;
         }
 
         /// <summary>
@@ -714,6 +911,7 @@ namespace Armada.Server
                     if (_HealthCheckCycles % 100 == 0)
                     {
                         await _DataExpiry.PurgeExpiredDataAsync(token).ConfigureAwait(false);
+                        await PurgeExpiredRequestHistoryAsync(token).ConfigureAwait(false);
                     }
                 }
                 catch (OperationCanceledException)
@@ -759,6 +957,29 @@ namespace Armada.Server
             }
 
             return await _RemoteControlQueries.HandleAsync(envelope, token).ConfigureAwait(false);
+        }
+
+        private async Task PurgeExpiredRequestHistoryAsync(CancellationToken token)
+        {
+            if (!_Settings.RequestHistoryEnabled || _Settings.RequestHistoryRetentionDays <= 0)
+                return;
+
+            try
+            {
+                int deleted = await _Database.RequestHistory.DeleteByFilterAsync(new RequestHistoryQuery
+                {
+                    ToUtc = DateTime.UtcNow.AddDays(-_Settings.RequestHistoryRetentionDays)
+                }, token).ConfigureAwait(false);
+
+                if (deleted > 0)
+                {
+                    _Logging.Info(_Header + "purged " + deleted + " expired request history records");
+                }
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "request history purge error: " + ex.Message);
+            }
         }
 
         #endregion

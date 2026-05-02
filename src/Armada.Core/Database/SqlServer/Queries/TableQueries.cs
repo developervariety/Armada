@@ -335,6 +335,57 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"
                     IF COL_LENGTH('captains', 'runtime_options_json') IS NULL
                         ALTER TABLE captains ADD runtime_options_json NVARCHAR(MAX) NULL;"
+                ),
+                new SchemaMigration(
+                    30,
+                    "Add request history tables",
+                    @"
+                    IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'request_history')
+                    CREATE TABLE request_history (
+                        id NVARCHAR(450) NOT NULL PRIMARY KEY,
+                        tenant_id NVARCHAR(450),
+                        user_id NVARCHAR(450),
+                        credential_id NVARCHAR(450),
+                        principal_display NVARCHAR(MAX),
+                        auth_method NVARCHAR(450),
+                        method NVARCHAR(32) NOT NULL,
+                        route NVARCHAR(900) NOT NULL,
+                        route_template NVARCHAR(900),
+                        query_string NVARCHAR(MAX),
+                        status_code INT NOT NULL,
+                        duration_ms FLOAT NOT NULL,
+                        request_size_bytes BIGINT NOT NULL DEFAULT 0,
+                        response_size_bytes BIGINT NOT NULL DEFAULT 0,
+                        request_content_type NVARCHAR(450),
+                        response_content_type NVARCHAR(450),
+                        is_success BIT NOT NULL DEFAULT 1,
+                        client_ip NVARCHAR(450),
+                        correlation_id NVARCHAR(450),
+                        created_utc NVARCHAR(450) NOT NULL
+                    );",
+                    @"
+                    IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'request_history_detail')
+                    CREATE TABLE request_history_detail (
+                        request_history_id NVARCHAR(450) NOT NULL PRIMARY KEY,
+                        path_params_json NVARCHAR(MAX),
+                        query_params_json NVARCHAR(MAX),
+                        request_headers_json NVARCHAR(MAX),
+                        response_headers_json NVARCHAR(MAX),
+                        request_body_text NVARCHAR(MAX),
+                        response_body_text NVARCHAR(MAX),
+                        request_body_truncated BIT NOT NULL DEFAULT 0,
+                        response_body_truncated BIT NOT NULL DEFAULT 0,
+                        CONSTRAINT FK_request_history_detail_request
+                            FOREIGN KEY (request_history_id) REFERENCES request_history(id) ON DELETE CASCADE
+                    );",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_request_history_created') CREATE INDEX idx_request_history_created ON request_history(created_utc DESC);",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_request_history_tenant_created') CREATE INDEX idx_request_history_tenant_created ON request_history(tenant_id, created_utc DESC);",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_request_history_user_created') CREATE INDEX idx_request_history_user_created ON request_history(user_id, created_utc DESC);",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_request_history_credential_created') CREATE INDEX idx_request_history_credential_created ON request_history(credential_id, created_utc DESC);",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_request_history_method_created') CREATE INDEX idx_request_history_method_created ON request_history(method, created_utc DESC);",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_request_history_status_created') CREATE INDEX idx_request_history_status_created ON request_history(status_code, created_utc DESC);",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_request_history_success_created') CREATE INDEX idx_request_history_success_created ON request_history(is_success, created_utc DESC);",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_request_history_route_created') CREATE INDEX idx_request_history_route_created ON request_history(route, created_utc DESC);"
                 )
             };
         }

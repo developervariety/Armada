@@ -84,7 +84,9 @@ namespace Armada.Core.Services
                         Constants.SystemUserId,
                         true,
                         true,
-                        "ApiKey");
+                        "ApiKey",
+                        null,
+                        "API Key");
                 }
             }
 
@@ -116,7 +118,14 @@ namespace Armada.Core.Services
                 TenantMetadata? tenant = await _Database.Tenants.ReadAsync(tenantId, token).ConfigureAwait(false);
                 if (tenant == null || !tenant.Active) return new AuthContext();
 
-                return AuthContext.Authenticated(tenantId, user.Id, user.IsAdmin, user.IsAdmin || user.IsTenantAdmin, "Credentials");
+                return AuthContext.Authenticated(
+                    tenantId,
+                    user.Id,
+                    user.IsAdmin,
+                    user.IsAdmin || user.IsTenantAdmin,
+                    "Credentials",
+                    null,
+                    user.Email);
             }
             catch (Exception ex)
             {
@@ -142,7 +151,14 @@ namespace Armada.Core.Services
                 TenantMetadata? tenant = await _Database.Tenants.ReadAsync(credential.TenantId, token).ConfigureAwait(false);
                 if (tenant == null || !tenant.Active) return null;
 
-                return AuthContext.Authenticated(credential.TenantId, credential.UserId, user.IsAdmin, user.IsAdmin || user.IsTenantAdmin, "Bearer");
+                return AuthContext.Authenticated(
+                    credential.TenantId,
+                    credential.UserId,
+                    user.IsAdmin,
+                    user.IsAdmin || user.IsTenantAdmin,
+                    "Bearer",
+                    credential.Id,
+                    !string.IsNullOrEmpty(credential.Name) ? credential.Name : user.Email);
             }
             catch (Exception ex)
             {
@@ -168,6 +184,7 @@ namespace Armada.Core.Services
 
                 ctx.IsAdmin = user.IsAdmin;
                 ctx.IsTenantAdmin = user.IsAdmin || user.IsTenantAdmin;
+                ctx.PrincipalDisplay = user.Email;
                 return ctx;
             }
             catch (Exception ex)

@@ -76,6 +76,7 @@ namespace Armada.Core.Authorization
             if (path.StartsWith("/api/v1/signals") && method != "GET") return PermissionLevel.TenantAdmin;
             if (path.StartsWith("/api/v1/events") && method != "GET") return PermissionLevel.TenantAdmin;
             if (path.StartsWith("/api/v1/merge-queue") && method != "GET") return PermissionLevel.TenantAdmin;
+            if (path.StartsWith("/api/v1/request-history") && method != "GET") return PermissionLevel.TenantAdmin;
 
             // Everything else requires authentication
             return PermissionLevel.Authenticated;

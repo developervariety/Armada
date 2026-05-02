@@ -161,7 +161,7 @@ Send a command to the Admiral for execution. The `action` field determines which
 
 **Server responds with:** a `command.result` or `command.error` message.
 
-See [Command Actions](#command-actions) for the full list of 35 supported actions.
+See [Command Actions](#command-actions) for the current operational action set. This WebSocket surface focuses on real-time monitoring and core orchestration commands; newer REST-only helpers such as Workspace, planning sessions, request history, and runtime discovery remain HTTP-only.
 
 ---
 
@@ -198,6 +198,15 @@ Sent immediately when a client connects via the `subscribe` route. Contains a fu
       }
     ],
     "recentSignals": [],
+    "remoteTunnel": {
+      "enabled": false,
+      "state": "Disabled",
+      "tunnelUrl": null,
+      "instanceId": "armada-1f2e3d4c5b6a",
+      "lastError": null,
+      "reconnectAttempts": 0,
+      "latencyMs": null
+    },
     "timestampUtc": "2026-03-07T12:34:56.789Z"
   },
   "timestamp": "2026-03-07T12:34:56.789Z"
@@ -280,7 +289,7 @@ Broadcast for general system events (e.g., escalation triggers, merge queue upda
 
 ## Command Actions
 
-Commands are sent via the `command` route. Each command returns a `command.result` message on success or a `command.error` message on failure. The WebSocket command surface has full parity with the REST and MCP APIs.
+Commands are sent via the `command` route. Each command returns a `command.result` message on success or a `command.error` message on failure. The WebSocket command surface covers Armada's real-time and core operational flows; it does not currently expose the REST-only Workspace, planning-session, request-history, runtime-helper, or OpenAPI discovery surfaces.
 
 ### Command Actions Summary
 
@@ -1994,7 +2003,25 @@ If a message is sent without a route:
 | `missionsByStatus` | object | Map of status string to count (e.g., `{"Pending": 3, "InProgress": 2}`) |
 | `voyages` | array | List of [VoyageProgress](#voyageprogress) objects |
 | `recentSignals` | array | List of recent [Signal](#signal) objects |
+| `remoteTunnel` | [RemoteTunnelStatus](#remotetunnelstatus) | Current outbound remote tunnel status |
 | `timestampUtc` | string | ISO 8601 UTC timestamp of the snapshot |
+
+#### RemoteTunnelStatus
+
+| Field | Type | Description |
+|---|---|---|
+| `enabled` | bool | Whether the remote tunnel feature is enabled |
+| `state` | string | Tunnel state (`Disabled`, `Disconnected`, `Connecting`, `Connected`, `Error`, `Stopping`) |
+| `tunnelUrl` | string \| null | Configured or normalized websocket endpoint |
+| `instanceId` | string \| null | Stable instance identifier advertised during handshake |
+| `lastConnectAttemptUtc` | string \| null | Last connection attempt timestamp |
+| `connectedUtc` | string \| null | Last successful connection timestamp |
+| `lastHeartbeatUtc` | string \| null | Last heartbeat or inbound tunnel activity timestamp |
+| `lastDisconnectUtc` | string \| null | Last disconnect timestamp |
+| `lastError` | string \| null | Last recorded tunnel error |
+| `reconnectAttempts` | int | Consecutive reconnect attempts since the last successful connection |
+| `latencyMs` | int \| null | Last successful ping/pong latency in milliseconds |
+| `capabilityManifest` | object | Current handshake capability manifest |
 
 #### VoyageProgress
 
@@ -2203,6 +2230,7 @@ If a message is sent without a route:
 | `Codex` | OpenAI Codex CLI |
 | `Gemini` | Google Gemini CLI |
 | `Cursor` | Cursor agent CLI |
+| `Mux` | Mux CLI |
 | `Custom` | Custom agent runtime |
 
 #### MergeStatusEnum

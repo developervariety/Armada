@@ -216,7 +216,7 @@ const navSections: NavSection[] = [
   {
     key: 'system',
     label: 'SYSTEM',
-    matchers: ['/server', '/doctor', '/settings', '/personas', '/pipelines', '/prompt-templates', '/playbooks'],
+    matchers: ['/server', '/doctor', '/settings', '/personas', '/pipelines', '/prompt-templates', '/playbooks', '/requests', '/api-explorer'],
     items: [
       {
         to: '/personas',
@@ -269,6 +269,31 @@ const navSections: NavSection[] = [
         ),
       },
       {
+        to: '/requests',
+        label: 'Requests',
+        tooltip: 'Captured request history with summaries, replay, and request inspection',
+        icon: (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 12h18" />
+            <path d="M8 7l-5 5 5 5" />
+            <path d="M16 17l5-5-5-5" />
+          </svg>
+        ),
+      },
+      {
+        to: '/api-explorer',
+        label: 'API Explorer',
+        tooltip: 'Browse the live OpenAPI document, execute requests, and inspect responses',
+        icon: (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="11" cy="11" r="8" />
+            <path d="m21 21-4.35-4.35" />
+            <path d="M11 8v6" />
+            <path d="M8 11h6" />
+          </svg>
+        ),
+      },
+      {
         to: '/server',
         label: 'Server',
         tooltip: 'Admiral server settings, ports, and configuration',
@@ -294,8 +319,8 @@ const navSections: NavSection[] = [
     ],
   },
   {
-    key: 'admin',
-    label: 'ADMINISTRATION',
+    key: 'security',
+    label: 'SECURITY',
     matchers: ['/admin/tenants', '/admin/users', '/admin/credentials'],
     items: [
       {
@@ -373,7 +398,7 @@ export default function Layout() {
       fleet: true,
       activity: true,
       system: true,
-      admin: true,
+      security: true,
     };
   });
   const [healthStatus, setHealthStatus] = useState<HealthStatus>('unknown');
@@ -425,7 +450,7 @@ export default function Layout() {
 
   const filteredSections = navSections
     .map((section) =>
-      section.key !== 'admin'
+      section.key !== 'security'
         ? section
         : {
             ...section,
@@ -437,7 +462,7 @@ export default function Layout() {
             }),
           }
     )
-    .filter((section) => section.key !== 'admin' || section.items.length > 0);
+    .filter((section) => section.key !== 'security' || section.items.length > 0);
 
   const isSectionActive = useCallback(
     (matchers: string[]) => matchers.some((matcher) => location.pathname.startsWith(matcher)),

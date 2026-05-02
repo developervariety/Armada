@@ -94,6 +94,7 @@ If/when MCP-over-tunnel is added, this document will gain explicit routed-tool s
     - [get_merge_entry](#get_merge_entry)
     - [enqueue_merge](#enqueue_merge)
     - [cancel_merge](#cancel_merge)
+    - [process_merge_entry](#process_merge_entry)
     - [process_merge_queue](#process_merge_queue)
     - [delete_merge](#delete_merge)
     - [purge_merge_queue](#purge_merge_queue)
@@ -128,7 +129,7 @@ If/when MCP-over-tunnel is added, this document will gain explicit routed-tool s
 
 ## Overview
 
-Armada exposes a full MCP server that allows AI agents and MCP-compatible clients to interact with the Admiral orchestrator. Through MCP tools, agents have **full parity** with the REST API Ã¢â‚¬â€ every capability available via HTTP is also available via MCP:
+Armada exposes a full MCP server that allows AI agents and MCP-compatible clients to interact with the Admiral orchestrator. MCP covers Armada's core orchestration and management surfaces directly from tool-calling clients:
 
 - Query system status, stop the server
 - Full CRUD on fleets, vessels, captains
@@ -141,6 +142,14 @@ Armada exposes a full MCP server that allows AI agents and MCP-compatible client
 - Send signals to captains
 - Stop individual captains or all captains (emergency stop)
 - Manage the merge queue (enqueue, cancel, process, inspect)
+
+MCP does **not** currently expose the newer dashboard/system helper REST surfaces such as:
+
+- vessel Workspace file browsing and editing
+- planning-session transcript workflows
+- request-history capture and replay
+- Mux runtime endpoint discovery helpers
+- OpenAPI and Swagger discovery endpoints
 
 The MCP server shares the same tool implementations as the stdio transport, registered via `McpToolRegistrar.RegisterAll()`.
 
@@ -2079,6 +2088,26 @@ Cancel a queued merge entry.
 
 ---
 
+### process_merge_entry
+
+Process a single queued merge entry by ID. Armada creates the integration branch, runs the configured test flow, and lands the branch if the entry passes.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "entryId": { "type": "string", "description": "Merge entry ID (mrg_ prefix)" }
+  },
+  "required": ["entryId"]
+}
+```
+
+**Response:** [MergeEntry](#mergeentry) object, or `{ "Error": "Merge entry not found or not in Queued status" }`.
+
+---
+
 ### process_merge_queue
 
 Process the merge queue: creates integration branches, runs tests, and lands passing batches.
@@ -3018,6 +3047,7 @@ Paginated result wrapper returned by `enumerate`.
 | `Codex` | OpenAI Codex CLI |
 | `Gemini` | Google Gemini CLI |
 | `Cursor` | Cursor agent CLI |
+| `Mux` | Mux CLI |
 | `Custom` | Custom agent runtime |
 
 ---

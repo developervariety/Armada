@@ -45,6 +45,8 @@ Everything else in Armada exists to support that: isolated worktrees, parallel d
 
 - **Less project-switch overhead.** Leave one repo, work somewhere else, then come back to a current view of what happened.
 - **A queryable memory layer.** Logs, diffs, status history, and agent output stay available through the dashboard, API, and MCP instead of vanishing into scrollback.
+- **Integrated API tooling.** `System > Requests` preserves request history, while `System > API Explorer` lets you execute live OpenAPI-backed requests and replay captured traffic without leaving the dashboard.
+- **A first-class repository workspace.** `Workspace` gives you a vessel-aware file tree, in-browser editing, search, git-aware status, and direct handoff into planning, dispatch, and context curation.
 - **Persistent vessel context.** Models can maintain repository-specific context, hints, and working notes on each vessel to speed up future dispatches.
 - **Interactive planning before dispatch.** Chat with a captain in the dashboard, keep the transcript, then open the result in Dispatch or launch the work directly from the planning screen.
 - **Parallel execution across repos.** Dispatch work to multiple agents across multiple repositories at once.
@@ -683,6 +685,19 @@ curl $API/status/health                  # Health check (no auth required)
 ```
 
 Full CRUD endpoints are available for fleets, vessels, missions, voyages, captains, signals, events, playbooks, prompt templates, personas, pipelines, tenants, users, and credentials.
+
+Armada also ships first-class REST surfaces for:
+
+- `Workspace` browsing, editing, search, change inspection, and vessel status under `/api/v1/workspace/vessels/{vesselId}/...`
+- planning-session lifecycle and transcript-to-dispatch flow under `/api/v1/planning-sessions/...`
+- persisted request-history capture, summaries, and replay metadata under `/api/v1/request-history/...`
+- Mux runtime endpoint discovery helpers under `/api/v1/runtimes/mux/endpoints...`
+- live OpenAPI discovery at `/openapi.json` and `/swagger`
+
+The React dashboard exposes that API surface through two first-class system tools:
+
+- `System > Requests` for persisted request history, filtering, payload inspection, and replay.
+- `System > API Explorer` for live OpenAPI browsing, authenticated execution, response inspection, and code snippets.
 
 Start the Admiral as a standalone server:
 

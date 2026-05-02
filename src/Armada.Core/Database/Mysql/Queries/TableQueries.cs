@@ -633,6 +633,55 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
+        /// Migration v30 statements for adding request history tables.
+        /// </summary>
+        public static readonly string[] MigrationV30Statements = new string[]
+        {
+            @"CREATE TABLE IF NOT EXISTS request_history (
+                id VARCHAR(450) NOT NULL PRIMARY KEY,
+                tenant_id VARCHAR(450),
+                user_id VARCHAR(450),
+                credential_id VARCHAR(450),
+                principal_display LONGTEXT,
+                auth_method VARCHAR(450),
+                method VARCHAR(32) NOT NULL,
+                route LONGTEXT NOT NULL,
+                route_template LONGTEXT,
+                query_string LONGTEXT,
+                status_code INT NOT NULL,
+                duration_ms DOUBLE NOT NULL,
+                request_size_bytes BIGINT NOT NULL DEFAULT 0,
+                response_size_bytes BIGINT NOT NULL DEFAULT 0,
+                request_content_type VARCHAR(450),
+                response_content_type VARCHAR(450),
+                is_success TINYINT(1) NOT NULL DEFAULT 1,
+                client_ip VARCHAR(450),
+                correlation_id VARCHAR(450),
+                created_utc DATETIME(6) NOT NULL
+            );",
+            @"CREATE TABLE IF NOT EXISTS request_history_detail (
+                request_history_id VARCHAR(450) NOT NULL PRIMARY KEY,
+                path_params_json LONGTEXT,
+                query_params_json LONGTEXT,
+                request_headers_json LONGTEXT,
+                response_headers_json LONGTEXT,
+                request_body_text LONGTEXT,
+                response_body_text LONGTEXT,
+                request_body_truncated TINYINT(1) NOT NULL DEFAULT 0,
+                response_body_truncated TINYINT(1) NOT NULL DEFAULT 0,
+                FOREIGN KEY (request_history_id) REFERENCES request_history(id) ON DELETE CASCADE
+            );",
+            @"CREATE INDEX idx_request_history_created ON request_history(created_utc DESC);",
+            @"CREATE INDEX idx_request_history_tenant_created ON request_history(tenant_id, created_utc DESC);",
+            @"CREATE INDEX idx_request_history_user_created ON request_history(user_id, created_utc DESC);",
+            @"CREATE INDEX idx_request_history_credential_created ON request_history(credential_id, created_utc DESC);",
+            @"CREATE INDEX idx_request_history_method_created ON request_history(method, created_utc DESC);",
+            @"CREATE INDEX idx_request_history_status_created ON request_history(status_code, created_utc DESC);",
+            @"CREATE INDEX idx_request_history_success_created ON request_history(is_success, created_utc DESC);",
+            @"CREATE INDEX idx_request_history_route_created ON request_history(route(255), created_utc DESC);"
+        };
+
+        /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
         public static readonly string[] Indexes = new string[]

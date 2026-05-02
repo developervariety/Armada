@@ -9,6 +9,12 @@ dotnet run --project test/Armada.Test.Automated --framework net10.0
 dotnet run --project test/Armada.Test.Unit --framework net10.0
 dotnet run --project test/Armada.Test.Runtimes --framework net10.0
 
+# React dashboard build and smoke tests
+cd src/Armada.Dashboard
+npm run build
+npm run test:run
+cd ../..
+
 # Database driver tests (SQLite default)
 dotnet run --project test/Armada.Test.Database --framework net10.0 -- --type sqlite --filename test.db
 
@@ -30,11 +36,14 @@ dotnet run --project test/Armada.Test.Database --framework net10.0 -- --type mys
 | `Armada.Test.Unit` | ~377 | Database operations, model serialization, service logic |
 | `Armada.Test.Runtimes` | ~35 | Agent runtime adapters (Claude Code, Codex, Gemini, Cursor, Mux) |
 | `Armada.Test.Database` | ~100+ | Database driver CRUD operations across all 4 backends (SQLite, PostgreSQL, SQL Server, MySQL) |
+| `Armada.Dashboard` Vitest suite | 16 | React component and page smoke tests, including Workspace, Planning, Request History, and API Explorer |
 | `Armada.Test.Common` | — | Shared test infrastructure (TestRunner, TestSuite, TestResult) |
 
 ## How It Works
 
 No test framework (xUnit, NUnit, MSTest) is used. Each test project is a console app that runs tests sequentially and reports results.
+
+The React dashboard is the exception: it uses `vitest` plus Testing Library for browser-surface smoke tests and interaction tests.
 
 - `TestSuite` — abstract base class in `Armada.Test.Common`. Each suite groups related tests, provides assertion helpers, and cleans up its own test data.
 - `TestRunner` — orchestrates suites, prints colored results, generates summary with failed test details.
@@ -77,6 +86,9 @@ dotnet run --project test/Armada.Test.Automated --framework net10.0
 # Keep test database after run (for debugging)
 dotnet run --project test/Armada.Test.Automated --framework net10.0 -- --no-cleanup
 
+# Run only one automated suite by name fragment
+dotnet run --project test/Armada.Test.Automated --framework net10.0 -- --suite "Request History"
+
 # Test against PostgreSQL instead of default temp SQLite
 dotnet run --project test/Armada.Test.Automated --framework net10.0 -- --type postgresql -h localhost -u postgres -w secret -d armada_test
 
@@ -101,6 +113,8 @@ dotnet run --project test/Armada.Test.Automated --framework net10.0 -- --type my
 | `--schema` | | Database schema | Backend default |
 
 If no `--type` is provided, both Test.Automated and Test.Database default to a temporary SQLite database that is automatically cleaned up after execution.
+
+`Armada.Test.Automated` also supports `--suite <name>` to run only suites whose display name or type name contains the supplied text.
 
 ## Multi-Database Testing
 

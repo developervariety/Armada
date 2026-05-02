@@ -13,23 +13,44 @@ namespace Armada.Test.Automated
     {
         public static async Task<int> Main(string[] args)
         {
-            CommandLineOptions options;
+            List<string> suiteFilters = new List<string>();
+            string[] filteredArgs;
 
             try
             {
-                options = CommandLineOptions.Parse(args);
+                filteredArgs = ExtractSuiteFilters(args, suiteFilters);
             }
             catch (ArgumentException ex)
             {
                 Console.WriteLine("Error: " + ex.Message);
                 Console.WriteLine();
                 CommandLineOptions.PrintUsage("Armada.Test.Automated");
+                Console.WriteLine("Additional Options:");
+                Console.WriteLine("  --suite <name>           Run only suites whose type or display name contains <name>");
+                return 1;
+            }
+
+            CommandLineOptions options;
+
+            try
+            {
+                options = CommandLineOptions.Parse(filteredArgs);
+            }
+            catch (ArgumentException ex)
+            {
+                Console.WriteLine("Error: " + ex.Message);
+                Console.WriteLine();
+                CommandLineOptions.PrintUsage("Armada.Test.Automated");
+                Console.WriteLine("Additional Options:");
+                Console.WriteLine("  --suite <name>           Run only suites whose type or display name contains <name>");
                 return 1;
             }
 
             if (options.Help)
             {
                 CommandLineOptions.PrintUsage("Armada.Test.Automated");
+                Console.WriteLine("Additional Options:");
+                Console.WriteLine("  --suite <name>           Run only suites whose type or display name contains <name>");
                 return 0;
             }
 
@@ -100,26 +121,48 @@ namespace Armada.Test.Automated
             {
                 TestRunner runner = new TestRunner("ARMADA AUTOMATED TEST SUITE");
 
-                runner.AddSuite(new FleetTests(authClient, unauthClient));
-                runner.AddSuite(new VesselTests(authClient, unauthClient));
-                runner.AddSuite(new CaptainTests(authClient, unauthClient));
-                runner.AddSuite(new MissionTests(authClient, unauthClient));
-                runner.AddSuite(new VoyageTests(authClient, unauthClient));
-                runner.AddSuite(new SignalTests(authClient, unauthClient));
-                runner.AddSuite(new EventTests(authClient, unauthClient));
-                runner.AddSuite(new DockTests(authClient, unauthClient));
-                runner.AddSuite(new MergeQueueTests(authClient, unauthClient));
-                runner.AddSuite(new StatusTests(authClient, unauthClient));
-                runner.AddSuite(new LogTests(authClient, unauthClient, tempDir));
-                runner.AddSuite(new AuthenticationTests(authClient, unauthClient, baseUrl, apiKey));
-                runner.AddSuite(new AuthApiTests(authClient, unauthClient, baseUrl, apiKey));
-                runner.AddSuite(new CrossTenantApiTests(authClient, unauthClient, baseUrl, apiKey));
-                runner.AddSuite(new McpToolTests(mcpClient));
-                runner.AddSuite(new WebSocketTests(authClient, unauthClient, restPort, apiKey));
-                runner.AddSuite(new PlanningSessionTests(authClient, unauthClient));
-                runner.AddSuite(new PlanningWebSocketTests(authClient, unauthClient, restPort, apiKey));
-                runner.AddSuite(new WorkflowTests(authClient, unauthClient));
-                runner.AddSuite(new LandingPipelineTests(authClient, unauthClient));
+                List<TestSuite> suites = new List<TestSuite>
+                {
+                    new FleetTests(authClient, unauthClient),
+                    new VesselTests(authClient, unauthClient),
+                    new CaptainTests(authClient, unauthClient),
+                    new MissionTests(authClient, unauthClient),
+                    new VoyageTests(authClient, unauthClient),
+                    new SignalTests(authClient, unauthClient),
+                    new EventTests(authClient, unauthClient),
+                    new DockTests(authClient, unauthClient),
+                    new MergeQueueTests(authClient, unauthClient),
+                    new StatusTests(authClient, unauthClient),
+                    new LogTests(authClient, unauthClient, tempDir),
+                    new AuthenticationTests(authClient, unauthClient, baseUrl, apiKey),
+                    new AuthApiTests(authClient, unauthClient, baseUrl, apiKey),
+                    new CrossTenantApiTests(authClient, unauthClient, baseUrl, apiKey),
+                    new RequestHistoryTests(authClient, unauthClient, baseUrl),
+                    new McpToolTests(mcpClient),
+                    new WebSocketTests(authClient, unauthClient, restPort, apiKey),
+                    new PlanningSessionTests(authClient, unauthClient),
+                    new PlanningWebSocketTests(authClient, unauthClient, restPort, apiKey),
+                    new WorkflowTests(authClient, unauthClient),
+                    new LandingPipelineTests(authClient, unauthClient)
+                };
+
+                if (suiteFilters.Count > 0)
+                {
+                    suites = suites
+                        .Where(suite => suiteFilters.Any(filter =>
+                            suite.Name.Contains(filter, StringComparison.OrdinalIgnoreCase)
+                            || suite.GetType().Name.Contains(filter, StringComparison.OrdinalIgnoreCase)))
+                        .ToList();
+
+                    if (suites.Count == 0)
+                    {
+                        Console.WriteLine("No automated suites matched: " + string.Join(", ", suiteFilters));
+                        return 1;
+                    }
+                }
+
+                foreach (TestSuite suite in suites)
+                    runner.AddSuite(suite);
 
                 exitCode = await runner.RunAllAsync().ConfigureAwait(false);
             }
@@ -214,6 +257,28 @@ namespace Armada.Test.Automated
             int port = ((IPEndPoint)listener.LocalEndpoint).Port;
             listener.Stop();
             return port;
+        }
+
+        private static string[] ExtractSuiteFilters(string[] args, List<string> suiteFilters)
+        {
+            List<string> filtered = new List<string>();
+
+            for (int i = 0; i < args.Length; i++)
+            {
+                string arg = args[i];
+                if (arg.Equals("--suite", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (i + 1 >= args.Length)
+                        throw new ArgumentException("--suite requires a value");
+
+                    suiteFilters.Add(args[++i]);
+                    continue;
+                }
+
+                filtered.Add(arg);
+            }
+
+            return filtered.ToArray();
         }
     }
 }

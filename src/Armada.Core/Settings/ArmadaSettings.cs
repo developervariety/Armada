@@ -249,6 +249,58 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Whether HTTP request-history capture is enabled.
+        /// </summary>
+        public bool RequestHistoryEnabled { get; set; } = true;
+
+        /// <summary>
+        /// Retention period in days for stored request history.
+        /// Set to 0 to disable automatic request-history expiry.
+        /// </summary>
+        public int RequestHistoryRetentionDays
+        {
+            get => _RequestHistoryRetentionDays;
+            set
+            {
+                if (value < 0) throw new ArgumentOutOfRangeException(nameof(RequestHistoryRetentionDays), "Must be >= 0");
+                _RequestHistoryRetentionDays = value;
+            }
+        }
+
+        /// <summary>
+        /// Maximum number of request or response body bytes persisted per entry.
+        /// Set to 0 to disable body capture.
+        /// </summary>
+        public int RequestHistoryMaxBodyBytes
+        {
+            get => _RequestHistoryMaxBodyBytes;
+            set
+            {
+                if (value < 0) throw new ArgumentOutOfRangeException(nameof(RequestHistoryMaxBodyBytes), "Must be >= 0");
+                _RequestHistoryMaxBodyBytes = value;
+            }
+        }
+
+        /// <summary>
+        /// Route prefixes or exact paths excluded from request-history capture.
+        /// </summary>
+        public List<string> RequestHistoryExcludeRoutes { get; set; } = new List<string>
+        {
+            "/api/v1/status/health",
+            "/api/v1/request-history"
+        };
+
+        /// <summary>
+        /// Whether sanitized request headers should be stored with request history.
+        /// </summary>
+        public bool RequestHistoryCaptureRequestHeaders { get; set; } = true;
+
+        /// <summary>
+        /// Whether sanitized response headers should be stored with request history.
+        /// </summary>
+        public bool RequestHistoryCaptureResponseHeaders { get; set; } = true;
+
+        /// <summary>
         /// Retention period in days for stopped or failed planning sessions.
         /// Set to 0 to disable automatic planning-session deletion.
         /// </summary>
@@ -441,6 +493,8 @@ namespace Armada.Core.Settings
         private long _MaxLogFileSizeBytes = Constants.DefaultMaxLogFileSizeBytes;
         private int _MaxLogFileCount = Constants.DefaultMaxLogFileCount;
         private int _DataRetentionDays = Constants.DefaultDataRetentionDays;
+        private int _RequestHistoryRetentionDays = Constants.DefaultRequestHistoryRetentionDays;
+        private int _RequestHistoryMaxBodyBytes = Constants.DefaultRequestHistoryMaxBodyBytes;
         private int _PlanningSessionRetentionDays = 0;
         private int _PlanningSessionInactivityTimeoutMinutes = 0;
         private int _MaxLandingRetries = 3;

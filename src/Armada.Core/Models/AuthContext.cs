@@ -38,6 +38,16 @@ namespace Armada.Core.Models
         /// </summary>
         public string? AuthMethod { get; set; } = null;
 
+        /// <summary>
+        /// Credential identifier used for bearer-token authentication when available.
+        /// </summary>
+        public string? CredentialId { get; set; } = null;
+
+        /// <summary>
+        /// Human-readable principal label for diagnostics and request history.
+        /// </summary>
+        public string? PrincipalDisplay { get; set; } = null;
+
         #endregion
 
         #region Constructors-and-Factories
@@ -57,8 +67,17 @@ namespace Armada.Core.Models
         /// <param name="isAdmin">Admin flag.</param>
         /// <param name="isTenantAdmin">Tenant admin flag.</param>
         /// <param name="authMethod">Authentication method.</param>
+        /// <param name="credentialId">Optional credential identifier.</param>
+        /// <param name="principalDisplay">Optional principal display name.</param>
         /// <returns>Authenticated AuthContext.</returns>
-        public static AuthContext Authenticated(string tenantId, string userId, bool isAdmin, bool isTenantAdmin, string authMethod)
+        public static AuthContext Authenticated(
+            string tenantId,
+            string userId,
+            bool isAdmin,
+            bool isTenantAdmin,
+            string authMethod,
+            string? credentialId = null,
+            string? principalDisplay = null)
         {
             return new AuthContext
             {
@@ -67,7 +86,9 @@ namespace Armada.Core.Models
                 UserId = userId,
                 IsAdmin = isAdmin,
                 IsTenantAdmin = isTenantAdmin,
-                AuthMethod = authMethod
+                AuthMethod = authMethod,
+                CredentialId = credentialId,
+                PrincipalDisplay = principalDisplay
             };
         }
 

@@ -171,6 +171,18 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(PermissionLevel.TenantAdmin, level);
             });
 
+            await RunTest("RequestHistory GET IsAuthenticated", () =>
+            {
+                PermissionLevel level = AuthorizationConfig.GetPermissionLevel("GET", "/api/v1/request-history");
+                AssertEqual(PermissionLevel.Authenticated, level);
+            });
+
+            await RunTest("RequestHistory DELETE IsTenantAdmin", () =>
+            {
+                PermissionLevel level = AuthorizationConfig.GetPermissionLevel("DELETE", "/api/v1/request-history/req_abc");
+                AssertEqual(PermissionLevel.TenantAdmin, level);
+            });
+
             await RunTest("Server POST IsAdminOnly", () =>
             {
                 PermissionLevel level = AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/server/stop");
