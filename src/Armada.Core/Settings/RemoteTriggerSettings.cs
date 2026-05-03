@@ -1,6 +1,9 @@
 namespace Armada.Core.Settings
 {
+    using System.Text.Json.Serialization;
+
     /// <summary>Transport mode for RemoteTriggerService.</summary>
+    [JsonConverter(typeof(JsonStringEnumConverter))]
     public enum RemoteTriggerMode
     {
         /// <summary>All wake calls are no-ops. Explicit opt-out regardless of Enabled flag.</summary>

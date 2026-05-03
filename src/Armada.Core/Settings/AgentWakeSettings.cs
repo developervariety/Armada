@@ -1,8 +1,10 @@
 namespace Armada.Core.Settings
 {
     using System.Collections.Generic;
+    using System.Text.Json.Serialization;
 
     /// <summary>Supported agent runtimes for AgentWake mode.</summary>
+    [JsonConverter(typeof(JsonStringEnumConverter))]
     public enum AgentWakeRuntime
     {
         /// <summary>Wake Claude Code CLI (default).</summary>
