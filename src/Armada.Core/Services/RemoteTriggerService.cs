@@ -304,7 +304,17 @@ namespace Armada.Core.Services
             {
                 _Logging.Warn(_Header + "AgentWake spawn failed on first attempt; retrying");
                 if (_RetryDelay > TimeSpan.Zero)
-                    await Task.Delay(_RetryDelay, token).ConfigureAwait(false);
+                {
+                    try
+                    {
+                        await Task.Delay(_RetryDelay, token).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        ReleaseAgentWakeLease();
+                        throw;
+                    }
+                }
                 started = _AgentWakeHost.TryStart(req, ReleaseAgentWakeLease);
             }
 

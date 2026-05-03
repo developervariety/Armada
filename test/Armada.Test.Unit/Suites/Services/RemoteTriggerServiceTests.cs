@@ -232,6 +232,34 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertFalse(req.ArgumentList.Any(a => a.StartsWith("sess_")), "Codex without SessionId must not include a session id");
             });
 
+            await RunTest("FireDrainer_AgentWake_CustomSettings_PropagatesRequestOptions", async () =>
+            {
+                RecordingAgentWakeProcessHost host = new RecordingAgentWakeProcessHost();
+                RecordingRemoteTriggerHttpClient http = new RecordingRemoteTriggerHttpClient();
+                Dictionary<string, string> env = new Dictionary<string, string>();
+                env["ARMADA_AGENTWAKE_TEST"] = "1";
+                RemoteTriggerSettings settings = MakeAgentWakeSettings();
+                settings.AgentWake = new AgentWakeSettings
+                {
+                    Runtime = AgentWakeRuntime.Claude,
+                    Command = "custom-claude",
+                    WorkingDirectory = "agent-wake-workdir",
+                    TimeoutSeconds = 0,
+                    EnvironmentVariables = env,
+                };
+                RemoteTriggerService service = new RemoteTriggerService(settings, http, host, new LoggingModule(), TimeSpan.Zero);
+
+                await service.FireDrainerAsync("vessel-a", "event");
+
+                AgentWakeProcessRequest req = host.LastRequest!;
+                AssertEqual("custom-claude", req.Command, "custom command should be passed to the process request");
+                AssertEqual("agent-wake-workdir", req.WorkingDirectory, "working directory should be passed through");
+                AssertEqual(1, req.TimeoutSeconds, "timeout should be clamped to at least 1 second");
+                Dictionary<string, string>? actualEnv = req.EnvironmentVariables;
+                AssertNotNull(actualEnv, "environment variables should be passed through");
+                AssertEqual("1", actualEnv!["ARMADA_AGENTWAKE_TEST"], "environment variable should be preserved");
+            });
+
             await RunTest("FireDrainer_AgentWake_SameVesselWithin60s_Coalesced", async () =>
             {
                 RecordingAgentWakeProcessHost host = new RecordingAgentWakeProcessHost();
@@ -258,6 +286,23 @@ namespace Armada.Test.Unit.Suites.Services
                 await service.FireDrainerAsync("vessel-throttled", "should be suppressed");
 
                 AssertEqual(20, host.StartCallCount, "21st fire should be suppressed by throttle");
+            });
+
+            await RunTest("FireCritical_AgentWake_AfterThrottleCap_BypassesThrottle", async () =>
+            {
+                RecordingAgentWakeProcessHost host = new RecordingAgentWakeProcessHost();
+                RecordingRemoteTriggerHttpClient http = new RecordingRemoteTriggerHttpClient();
+                RemoteTriggerService service = new RemoteTriggerService(MakeAgentWakeSettings(), http, host, new LoggingModule(), TimeSpan.Zero);
+
+                for (int i = 0; i < 20; i++)
+                    await service.FireDrainerAsync("vessel-" + i, "event-" + i);
+
+                AssertEqual(20, host.StartCallCount, "drainer wakes should fill the throttle window");
+
+                await service.FireCriticalAsync("critical event after throttle cap");
+
+                AssertEqual(21, host.StartCallCount, "critical AgentWake should bypass drainer throttle");
+                AssertContains("[CRITICAL]", host.LastRequest!.StdinPayload!, "critical payload should retain the critical marker");
             });
 
             await RunTest("FireDrainer_AgentWake_SingleFlight_SuppressesConcurrentWake", async () =>
@@ -310,6 +355,34 @@ namespace Armada.Test.Unit.Suites.Services
 
                 AssertEqual(2, host.StartCallCount, "spawn failure should be retried once (2 total attempts)");
                 AssertEqual(1, service.ConsecutiveFailures, "consecutive failure counter should increment after spawn failure");
+            });
+
+            await RunTest("FireDrainer_AgentWake_CanceledRetry_ReleasesSingleFlightLease", async () =>
+            {
+                RecordingAgentWakeProcessHost host = new RecordingAgentWakeProcessHost();
+                host.AlwaysFail = true;
+                RecordingRemoteTriggerHttpClient http = new RecordingRemoteTriggerHttpClient();
+                RemoteTriggerService service = new RemoteTriggerService(MakeAgentWakeSettings(), http, host, new LoggingModule(), TimeSpan.FromMinutes(5));
+                using CancellationTokenSource cts = new CancellationTokenSource();
+                cts.Cancel();
+                bool canceled = false;
+
+                try
+                {
+                    await service.FireDrainerAsync("vessel-a", "event canceled during retry", cts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    canceled = true;
+                }
+
+                AssertTrue(canceled, "canceled retry delay should propagate cancellation");
+                AssertEqual(1, host.StartCallCount, "canceled retry should not make the second start attempt");
+
+                host.AlwaysFail = false;
+                await service.FireDrainerAsync("vessel-b", "event after cancellation");
+
+                AssertEqual(2, host.StartCallCount, "single-flight lease should be released after canceled retry");
             });
         }
 
