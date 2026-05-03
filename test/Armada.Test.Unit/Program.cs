@@ -139,6 +139,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new McpVoyageToolsTests());
             runner.AddSuite(new McpMissionToolsTests());
             runner.AddSuite(new PreferredModelTierSelectorTests());
+            runner.AddSuite(new MissionServicePreferredModelRoutingTests());
 
             int exitCode = await runner.RunAllAsync().ConfigureAwait(false);
             return exitCode;

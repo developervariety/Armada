@@ -141,6 +141,29 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("SelectModel_MidTier_DuplicatedCaptains_DoNotDuplicateModelCandidates", () =>
+            {
+                List<Captain> captains = new List<Captain>
+                {
+                    MakeCaptain("composer-2-fast"),
+                    MakeCaptain("composer-2-fast"),
+                    MakeCaptain("composer-2-fast"),
+                    MakeCaptain("claude-sonnet-4-6"),
+                    MakeCaptain("gemini-3.5-pro")
+                };
+                int observedUpperBound = 0;
+
+                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, upperBound =>
+                {
+                    observedUpperBound = upperBound;
+                    return 1;
+                });
+
+                AssertEqual(3, observedUpperBound, "Random picker should see one entry per eligible model name");
+                AssertEqual("claude-sonnet-4-6", selected, "Picker index should select the second model, not the second captain");
+                return Task.CompletedTask;
+            });
+
             await RunTest("SelectModel_FiltersByPersonaEligibility", () =>
             {
                 // Two mid-tier captains, only one allows Judge persona
