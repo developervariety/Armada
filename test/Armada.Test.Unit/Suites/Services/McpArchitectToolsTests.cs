@@ -61,7 +61,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                             AssertTrue(admiralDouble.Dispatched.Count == 1, "Should have dispatched one mission description");
                             MissionDescription dispatched = admiralDouble.Dispatched[0];
-                            AssertEqual("claude-opus-4-7", dispatched.PreferredModel);
+                            AssertEqual("high", dispatched.PreferredModel);
                             AssertNotNull(dispatched.PrestagedFiles);
 
                             bool hasSpec = false;
@@ -140,11 +140,11 @@ namespace Armada.Test.Unit.Suites.Services
                                 new ArchitectOutputParser(),
                                 admiralDouble);
 
-                            JsonElement args = JsonSerializer.SerializeToElement(new { specPath = specFile, vesselId = vessel.Id, preferredModel = "gpt-5.5" });
+                            JsonElement args = JsonSerializer.SerializeToElement(new { specPath = specFile, vesselId = vessel.Id, preferredModel = "mid" });
                             await decomposeHandler!(args).ConfigureAwait(false);
 
                             AssertTrue(admiralDouble.Dispatched.Count == 1, "Should have dispatched one mission description");
-                            AssertEqual("gpt-5.5", admiralDouble.Dispatched[0].PreferredModel);
+                            AssertEqual("mid", admiralDouble.Dispatched[0].PreferredModel);
                         }
                         finally
                         {

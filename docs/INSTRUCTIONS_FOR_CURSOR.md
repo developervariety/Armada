@@ -82,10 +82,12 @@ armada_dispatch({
   missions: [
     {
       title: "Validate user endpoints",
+      preferredModel: "mid",
       description: "Add Zod schemas and validation to POST /users and PUT /users/{id} in src/routes/users.ts. Validate email format, password length >= 8, and name is non-empty. Return 400 with field-level errors. Add tests in tests/routes/users.test.ts. Do NOT modify any other route files."
     },
     {
       title: "Validate order endpoints",
+      preferredModel: "mid",
       description: "Add Zod schemas and validation to POST /orders in src/routes/orders.ts. Validate quantity > 0, productId exists, and shipping address fields. Return 400 with field-level errors. Add tests in tests/routes/orders.test.ts. Do NOT modify any other route files."
     }
   ]
@@ -93,6 +95,8 @@ armada_dispatch({
 ```
 
 Returns a Voyage object with all missions created. Save the `voyageId` for monitoring.
+
+Use `preferredModel` as a work complexity tier: `low`, `mid`, or `high`. Omit it when default routing is fine; Armada selects an available model in the requested tier.
 
 **Or create a standalone mission** (for one-off tasks):
 

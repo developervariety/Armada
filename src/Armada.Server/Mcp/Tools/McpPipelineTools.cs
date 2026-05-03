@@ -49,7 +49,7 @@ namespace Armada.Server.Mcp.Tools
                                     personaName = new { type = "string", description = "Persona name for this stage" },
                                     isOptional = new { type = "boolean", description = "Whether this stage is optional (default false)" },
                                     description = new { type = "string", description = "Description of what this stage does" },
-                                    preferredModel = new { type = "string", description = "Optional per-stage Captain.Model override (e.g. 'claude-opus-4-7' for a Judge stage). When set, dispatch routes this stage's mission to captains with this model regardless of the per-mission preferredModel on the dispatch. Null means inherit the dispatch's preferredModel." }
+                                    preferredModel = new { type = "string", description = "Optional per-stage complexity tier: 'low', 'mid', or 'high'. When set, this stage uses that tier instead of the per-mission preferredModel. Null means inherit the dispatch's preferredModel." }
                                 },
                                 required = new[] { "personaName" }
                             }
@@ -133,7 +133,7 @@ namespace Armada.Server.Mcp.Tools
                                     personaName = new { type = "string", description = "Persona name for this stage" },
                                     isOptional = new { type = "boolean", description = "Whether this stage is optional (default false)" },
                                     description = new { type = "string", description = "Description of what this stage does" },
-                                    preferredModel = new { type = "string", description = "Optional per-stage Captain.Model override (e.g. 'claude-opus-4-7' for a Judge stage). When set, dispatch routes this stage's mission to captains with this model regardless of the per-mission preferredModel on the dispatch. Null means inherit the dispatch's preferredModel." }
+                                    preferredModel = new { type = "string", description = "Optional per-stage complexity tier: 'low', 'mid', or 'high'. When set, this stage uses that tier instead of the per-mission preferredModel. Null means inherit the dispatch's preferredModel." }
                                 },
                                 required = new[] { "personaName" }
                             }
