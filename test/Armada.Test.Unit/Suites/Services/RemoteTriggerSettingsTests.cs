@@ -4,6 +4,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System.IO;
     using System.Linq;
     using System.Reflection;
+    using System.Text.Json;
     using System.Threading.Tasks;
     using Armada.Core.Settings;
     using Armada.Test.Common;
@@ -234,6 +235,21 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertNotNull(loaded.RemoteTrigger, "RemoteTrigger section should be present");
                     AssertFalse(loaded.RemoteTrigger!.Enabled, "Enabled should be false");
                     AssertEqual(RemoteTriggerMode.RemoteFire, loaded.RemoteTrigger.Mode, "Mode should deserialize from string \"RemoteFire\"");
+                }
+                finally
+                {
+                    if (File.Exists(tempFile)) File.Delete(tempFile);
+                }
+            });
+
+            await RunTest("LoadAsync_RemoteTriggerMode_StringLocalDaemon_Throws", async () =>
+            {
+                string tempFile = Path.Combine(Path.GetTempPath(), "armada_test_rts_" + Guid.NewGuid().ToString("N") + ".json");
+                try
+                {
+                    string json = "{\"remoteTrigger\":{\"enabled\":true,\"mode\":\"LocalDaemon\"}}";
+                    await File.WriteAllTextAsync(tempFile, json).ConfigureAwait(false);
+                    await AssertThrowsAsync<JsonException>(() => ArmadaSettings.LoadAsync(tempFile));
                 }
                 finally
                 {
