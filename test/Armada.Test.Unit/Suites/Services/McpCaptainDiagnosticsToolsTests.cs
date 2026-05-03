@@ -40,6 +40,21 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Diagnostics_MissingOrBlankCaptainId_ReturnsValidationErrors", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Dictionary<string, Func<JsonElement?, Task<object>>> handlers = RegisterHandlers(testDb.Driver, null);
+                    object missingArgsResult = await handlers["armada_captain_diagnostics"](null).ConfigureAwait(false);
+                    JsonElement blankArgs = JsonSerializer.SerializeToElement(new { captainId = " " });
+
+                    object blankResult = await handlers["armada_captain_diagnostics"](blankArgs).ConfigureAwait(false);
+
+                    AssertContains("missing args", JsonSerializer.Serialize(missingArgsResult));
+                    AssertContains("captainId is required", JsonSerializer.Serialize(blankResult));
+                }
+            });
+
             await RunTest("Diagnostics_UnknownCaptain_ReturnsError", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -100,6 +115,24 @@ namespace Armada.Test.Unit.Suites.Services
                 finally
                 {
                     DeleteDirectory(root);
+                }
+            });
+
+            await RunTest("Diagnostics_MissingDockPath_ReturnsGitStatusError", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    string missingDockPath = Path.Combine(Path.GetTempPath(), "armada_diag_missing_" + Guid.NewGuid().ToString("N"));
+                    WorkingCaptainFixture fixture = await CreateWorkingCaptainAsync(testDb.Driver, missingDockPath).ConfigureAwait(false);
+                    Dictionary<string, Func<JsonElement?, Task<object>>> handlers = RegisterHandlers(testDb.Driver, null);
+                    JsonElement args = JsonSerializer.SerializeToElement(new { captainId = fixture.Captain.Id });
+
+                    object result = await handlers["armada_captain_diagnostics"](args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+
+                    AssertContains("\"activeMissionId\":\"" + fixture.Mission.Id + "\"", resultJson);
+                    AssertContains("\"dockGitStatusError\":\"dock path does not exist\"", resultJson);
+                    AssertContains("\"hasUncommittedDockChanges\":false", resultJson);
                 }
             });
 
