@@ -85,6 +85,12 @@ namespace Armada.Runtimes
             args.Add("--print");
             args.Add("--verbose");
 
+            // Isolate captain settings to project and local sources only; prevents user-level
+            // plugins and MCP servers (e.g. Playwright) from leaking into headless captain processes.
+            args.Add("--setting-sources");
+            args.Add("project,local");
+            args.Add("--strict-mcp-config");
+
             if (!String.IsNullOrEmpty(model))
             {
                 args.Add("--model");

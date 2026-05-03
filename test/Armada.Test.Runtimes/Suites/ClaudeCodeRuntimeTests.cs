@@ -73,6 +73,22 @@ namespace Armada.Test.Runtimes.Suites
                 AssertEqual("sonnet", args[modelIndex + 1]);
             });
 
+            await RunTest("BuildArguments Includes SettingSources ProjectLocal", () =>
+            {
+                InspectableClaudeCodeRuntime runtime = CreateRuntime();
+                List<string> args = runtime.Args("test prompt");
+                int idx = args.IndexOf("--setting-sources");
+                AssertTrue(idx >= 0, "--setting-sources flag missing");
+                AssertEqual("project,local", args[idx + 1]);
+            });
+
+            await RunTest("BuildArguments Includes StrictMcpConfig", () =>
+            {
+                InspectableClaudeCodeRuntime runtime = CreateRuntime();
+                List<string> args = runtime.Args("test prompt");
+                AssertTrue(args.Contains("--strict-mcp-config"), "--strict-mcp-config flag missing");
+            });
+
             await RunTest("IsRunningAsync Invalid ProcessId Returns False", async () =>
             {
                 ClaudeCodeRuntime runtime = CreateRuntime();
