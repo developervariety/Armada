@@ -1,6 +1,7 @@
 namespace Armada.Test.Unit.Suites.Services
 {
     using System;
+    using System.IO;
     using System.Linq;
     using System.Reflection;
     using System.Threading.Tasks;
@@ -184,6 +185,90 @@ namespace Armada.Test.Unit.Suites.Services
                 AgentWakeSettings aws = new AgentWakeSettings { Runtime = AgentWakeRuntime.Claude, Command = "/usr/local/bin/claude" };
                 AssertEqual("/usr/local/bin/claude", aws.GetEffectiveCommand(), "explicit Command should override default");
                 return Task.CompletedTask;
+            });
+
+            await RunTest("LoadAsync_RemoteTriggerMode_StringAgentWake_Deserializes", async () =>
+            {
+                string tempFile = Path.Combine(Path.GetTempPath(), "armada_test_rts_" + Guid.NewGuid().ToString("N") + ".json");
+                try
+                {
+                    string json = "{\"remoteTrigger\":{\"enabled\":true,\"mode\":\"AgentWake\"}}";
+                    await File.WriteAllTextAsync(tempFile, json).ConfigureAwait(false);
+                    ArmadaSettings loaded = await ArmadaSettings.LoadAsync(tempFile);
+                    AssertNotNull(loaded.RemoteTrigger, "RemoteTrigger section should be present");
+                    AssertTrue(loaded.RemoteTrigger!.Enabled, "Enabled should be true");
+                    AssertEqual(RemoteTriggerMode.AgentWake, loaded.RemoteTrigger.Mode, "Mode should deserialize from string \"AgentWake\"");
+                }
+                finally
+                {
+                    if (File.Exists(tempFile)) File.Delete(tempFile);
+                }
+            });
+
+            await RunTest("LoadAsync_AgentWakeRuntime_StringCodex_Deserializes", async () =>
+            {
+                string tempFile = Path.Combine(Path.GetTempPath(), "armada_test_rts_" + Guid.NewGuid().ToString("N") + ".json");
+                try
+                {
+                    string json = "{\"remoteTrigger\":{\"enabled\":true,\"mode\":\"AgentWake\",\"agentWake\":{\"runtime\":\"Codex\"}}}";
+                    await File.WriteAllTextAsync(tempFile, json).ConfigureAwait(false);
+                    ArmadaSettings loaded = await ArmadaSettings.LoadAsync(tempFile);
+                    AssertNotNull(loaded.RemoteTrigger, "RemoteTrigger section should be present");
+                    AssertNotNull(loaded.RemoteTrigger!.AgentWake, "AgentWake section should be present");
+                    AssertEqual(AgentWakeRuntime.Codex, loaded.RemoteTrigger.AgentWake!.Runtime, "Runtime should deserialize from string \"Codex\"");
+                }
+                finally
+                {
+                    if (File.Exists(tempFile)) File.Delete(tempFile);
+                }
+            });
+
+            await RunTest("LoadAsync_RemoteTrigger_DisabledWithStringMode_DoesNotThrow", async () =>
+            {
+                string tempFile = Path.Combine(Path.GetTempPath(), "armada_test_rts_" + Guid.NewGuid().ToString("N") + ".json");
+                try
+                {
+                    string json = "{\"remoteTrigger\":{\"enabled\":false,\"mode\":\"RemoteFire\"}}";
+                    await File.WriteAllTextAsync(tempFile, json).ConfigureAwait(false);
+                    ArmadaSettings loaded = await ArmadaSettings.LoadAsync(tempFile);
+                    AssertNotNull(loaded.RemoteTrigger, "RemoteTrigger section should be present");
+                    AssertFalse(loaded.RemoteTrigger!.Enabled, "Enabled should be false");
+                    AssertEqual(RemoteTriggerMode.RemoteFire, loaded.RemoteTrigger.Mode, "Mode should deserialize from string \"RemoteFire\"");
+                }
+                finally
+                {
+                    if (File.Exists(tempFile)) File.Delete(tempFile);
+                }
+            });
+
+            await RunTest("SaveAsync_RemoteTrigger_AgentWakeMode_WritesStringValue", async () =>
+            {
+                string tempFile = Path.Combine(Path.GetTempPath(), "armada_test_rts_" + Guid.NewGuid().ToString("N") + ".json");
+                try
+                {
+                    ArmadaSettings original = new ArmadaSettings();
+                    original.RemoteTrigger = new RemoteTriggerSettings
+                    {
+                        Enabled = true,
+                        Mode = RemoteTriggerMode.AgentWake,
+                        AgentWake = new AgentWakeSettings { Runtime = AgentWakeRuntime.Codex }
+                    };
+                    await original.SaveAsync(tempFile);
+
+                    string written = await File.ReadAllTextAsync(tempFile).ConfigureAwait(false);
+                    AssertContains("AgentWake", written, "Saved JSON should contain string \"AgentWake\" for Mode");
+                    AssertContains("Codex", written, "Saved JSON should contain string \"Codex\" for Runtime");
+
+                    ArmadaSettings loaded = await ArmadaSettings.LoadAsync(tempFile);
+                    AssertNotNull(loaded.RemoteTrigger, "RemoteTrigger should round-trip");
+                    AssertEqual(RemoteTriggerMode.AgentWake, loaded.RemoteTrigger!.Mode, "Mode round-trip");
+                    AssertNotNull(loaded.RemoteTrigger.AgentWake, "AgentWake should round-trip");
+                    AssertEqual(AgentWakeRuntime.Codex, loaded.RemoteTrigger.AgentWake!.Runtime, "Runtime round-trip");
+                }
+                finally
+                {
+                    if (File.Exists(tempFile)) File.Delete(tempFile);
+                }
             });
         }
     }
