@@ -58,31 +58,48 @@ namespace Armada.Runtimes
         #region Private-Methods
 
         /// <summary>
-        /// Get the cursor CLI command. Resolves Cursor's official Windows installer
-        /// location (%LOCALAPPDATA%\cursor-agent\) when the standard PATH/npm
-        /// resolution misses, so users running Cursor's official installer
-        /// (irm 'https://cursor.com/install?win32=true' | iex) don't need to
-        /// hand-create a wrapper at %APPDATA%\npm\cursor-agent.cmd.
+        /// Get the cursor CLI command. Resolution order on Windows with the default
+        /// "cursor-agent" command:
+        /// 1. ARMADA_TEST_CURSOR_AGENT env var (test shim override, avoids polluting system paths).
+        /// 2. Official Cursor installer path (%LOCALAPPDATA%\cursor-agent\cursor-agent.cmd).
+        /// 3. PATH/npm fallback via ResolveExecutable.
+        /// A stale npm shim at %APPDATA%\npm\cursor-agent.cmd exits 0 without invoking Cursor,
+        /// silently misclassifying missions as WorkProduced; checking the official path first
+        /// prevents it from winning.
         /// </summary>
         protected override string GetCommand()
         {
-            string resolved = ResolveExecutable(_ExecutablePath);
-            if (!String.Equals(resolved, _ExecutablePath, StringComparison.Ordinal))
-                return resolved;
+            // Test shim override: ARMADA_TEST_CURSOR_AGENT lets test harnesses point to a
+            // shim in a temp directory without writing to real system paths (npm or the
+            // official install directory).
+            string? testOverride = Environment.GetEnvironmentVariable("ARMADA_TEST_CURSOR_AGENT");
+            if (!String.IsNullOrEmpty(testOverride))
+                return testOverride;
 
+            // On Windows with the default command, prefer the official Cursor installer path
+            // before falling through to PATH/npm. This prevents a stale npm shim from winning.
             if (OperatingSystem.IsWindows() &&
                 String.Equals(_ExecutablePath, "cursor-agent", StringComparison.OrdinalIgnoreCase))
             {
-                string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-                if (!String.IsNullOrEmpty(localAppData))
-                {
-                    string installCmd = Path.Combine(localAppData, "cursor-agent", "cursor-agent.cmd");
-                    if (File.Exists(installCmd))
-                        return installCmd;
-                }
+                string? officialPath = GetWindowsOfficialInstallPath();
+                if (!String.IsNullOrEmpty(officialPath) && File.Exists(officialPath))
+                    return officialPath;
             }
 
-            return resolved;
+            return ResolveExecutable(_ExecutablePath);
+        }
+
+        /// <summary>
+        /// Returns the expected Windows official Cursor install command path, or null when
+        /// LOCALAPPDATA is unavailable. Virtual so tests can inject a fake path without
+        /// touching real system directories.
+        /// </summary>
+        protected virtual string? GetWindowsOfficialInstallPath()
+        {
+            string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            if (String.IsNullOrEmpty(localAppData))
+                return null;
+            return Path.Combine(localAppData, "cursor-agent", "cursor-agent.cmd");
         }
 
         /// <summary>

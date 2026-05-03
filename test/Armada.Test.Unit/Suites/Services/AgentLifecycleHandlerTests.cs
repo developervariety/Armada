@@ -551,16 +551,15 @@ namespace Armada.Test.Unit.Suites.Services
 
             private readonly string _tempDirectory;
             private readonly string _originalPath;
-            private readonly string? _windowsShimPath;
-            private readonly string? _windowsShimBackupPath;
+            // True when ARMADA_TEST_CURSOR_AGENT was set (Windows path); cleared in Dispose.
+            private readonly bool _setWindowsAgentOverride;
 
-            private CursorShimScope(string tempDirectory, string argsFile, string originalPath, string? windowsShimPath, string? windowsShimBackupPath)
+            private CursorShimScope(string tempDirectory, string argsFile, string originalPath, bool setWindowsAgentOverride)
             {
                 _tempDirectory = tempDirectory;
                 ArgsFile = argsFile;
                 _originalPath = originalPath;
-                _windowsShimPath = windowsShimPath;
-                _windowsShimBackupPath = windowsShimBackupPath;
+                _setWindowsAgentOverride = setWindowsAgentOverride;
             }
 
             public static CursorShimScope Create()
@@ -570,26 +569,21 @@ namespace Armada.Test.Unit.Suites.Services
 
                 string argsFile = Path.Combine(tempDirectory, "cursor-args.txt");
                 string originalPath = Environment.GetEnvironmentVariable("PATH") ?? String.Empty;
-                string? windowsShimPath = null;
-                string? windowsShimBackupPath = null;
+                bool setWindowsAgentOverride = false;
 
                 Environment.SetEnvironmentVariable("ARMADA_TEST_CURSOR_ARGS_FILE", argsFile);
 
                 if (OperatingSystem.IsWindows())
                 {
-                    string npmDirectory = Path.Combine(
-                        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                        "npm");
-                    Directory.CreateDirectory(npmDirectory);
-
-                    windowsShimPath = Path.Combine(npmDirectory, "cursor-agent.cmd");
-                    if (File.Exists(windowsShimPath))
-                    {
-                        windowsShimBackupPath = Path.Combine(tempDirectory, "cursor-agent.original.cmd");
-                        File.Copy(windowsShimPath, windowsShimBackupPath, true);
-                    }
-
-                    File.WriteAllText(windowsShimPath, BuildWindowsShim());
+                    // Write the test shim inside the temp directory and point
+                    // ARMADA_TEST_CURSOR_AGENT at it. This avoids touching %APPDATA%\npm
+                    // (a user-global path that leaks stale shims on abnormal test termination)
+                    // and prevents the shim from racing with the official Cursor install path
+                    // that CursorRuntime now prefers over npm.
+                    string shimPath = Path.Combine(tempDirectory, "cursor-agent.cmd");
+                    File.WriteAllText(shimPath, BuildWindowsShim());
+                    Environment.SetEnvironmentVariable("ARMADA_TEST_CURSOR_AGENT", shimPath);
+                    setWindowsAgentOverride = true;
                 }
                 else
                 {
@@ -603,7 +597,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Environment.SetEnvironmentVariable("PATH", tempDirectory + Path.PathSeparator + originalPath);
                 }
 
-                return new CursorShimScope(tempDirectory, argsFile, originalPath, windowsShimPath, windowsShimBackupPath);
+                return new CursorShimScope(tempDirectory, argsFile, originalPath, setWindowsAgentOverride);
             }
 
             public void Dispose()
@@ -611,20 +605,9 @@ namespace Armada.Test.Unit.Suites.Services
                 Environment.SetEnvironmentVariable("ARMADA_TEST_CURSOR_ARGS_FILE", null);
                 Environment.SetEnvironmentVariable("PATH", _originalPath);
 
-                if (OperatingSystem.IsWindows() && !String.IsNullOrEmpty(_windowsShimPath))
+                if (_setWindowsAgentOverride)
                 {
-                    try
-                    {
-                        if (!String.IsNullOrEmpty(_windowsShimBackupPath) && File.Exists(_windowsShimBackupPath))
-                        {
-                            File.Copy(_windowsShimBackupPath, _windowsShimPath, true);
-                        }
-                        else if (File.Exists(_windowsShimPath))
-                        {
-                            File.Delete(_windowsShimPath);
-                        }
-                    }
-                    catch { }
+                    Environment.SetEnvironmentVariable("ARMADA_TEST_CURSOR_AGENT", null);
                 }
 
                 try { Directory.Delete(_tempDirectory, true); } catch { }
