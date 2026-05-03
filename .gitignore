@@ -10,3 +10,6 @@ out/
 *.db-wal
 *.log
 *.nupkg
+
+# Node tooling
+node_modules/
