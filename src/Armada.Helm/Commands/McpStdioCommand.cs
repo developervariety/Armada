@@ -74,7 +74,8 @@ namespace Armada.Helm.Commands
             IMergeFailureClassifier mergeFailureClassifier = new MergeFailureClassifier();
             IMergeQueueService mergeQueueService = new MergeQueueService(logging, database, armadaSettings, git, mergeFailureClassifier);
             LandingService landingService = new LandingService(logging, database, armadaSettings, git);
-            McpToolRegistrar.RegisterAll(mcpServer.RegisterTool, database, admiral, armadaSettings, gitService, mergeQueueService, dockService, landingService, agentLifecycle: agentLifecycle, templateService: promptTemplateService);
+            ICodeIndexService codeIndexService = new CodeIndexService(logging, database, armadaSettings, git);
+            McpToolRegistrar.RegisterAll(mcpServer.RegisterTool, database, admiral, armadaSettings, gitService, mergeQueueService, dockService, landingService, agentLifecycle: agentLifecycle, templateService: promptTemplateService, codeIndexService: codeIndexService);
 
             // Run until stdin closes or process is killed
             using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);

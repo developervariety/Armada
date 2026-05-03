@@ -47,6 +47,7 @@ Everything else in Armada exists to support that: isolated worktrees, parallel d
 - **Less project-switch overhead.** Leave one repo, work somewhere else, then come back to a current view of what happened.
 - **A queryable memory layer.** Logs, diffs, status history, and agent output stay available through the dashboard, API, and MCP instead of vanishing into scrollback.
 - **Persistent vessel context.** Models can maintain repository-specific context, hints, and working notes on each vessel to speed up future dispatches.
+- **Dispatch-ready code context packs.** Admiral can index a vessel's default branch, search it, and generate a `_briefing/context-pack.md` file to stage into a mission before an agent starts.
 - **Interactive planning before dispatch.** Chat with a captain in the dashboard, keep the transcript, then open the result in Dispatch or launch the work directly from the planning screen.
 - **Parallel execution across repos.** Dispatch work to multiple agents across multiple repositories at once.
 - **Quality gates that run automatically.** Every piece of work can flow through a pipeline: plan it, implement it, test it, review it. No manual intervention between steps.
@@ -106,6 +107,7 @@ A by-category inventory of what Armada actually ships. Each feature is implement
 - **Cross-vessel dependencies.** A mission on vessel A may depend on a mission on vessel B. Cross-vessel deps wait for `Complete` (skipping the `WorkProduced` shortcut, since branch handoff across repos is meaningless), and the downstream always gets a fresh branch on its own vessel — no branch inheritance across repos.
 - **Foundation-first dispatch.** Use `dependsOnMissionId` (or alias) to gate downstream missions on an upstream that introduces shared infra; admiral promotes them only when the dependency is ready.
 - **Pre-staged files.** Optional `prestagedFiles: [{sourcePath, destPath}]` per mission copies absolute Admiral-host paths into the dock worktree before captain spawn. Useful for spec snapshots, generated fixtures, briefing docs the agent shouldn't commit. Cap 50 entries / 50 MB per mission.
+- **Code index context packs.** `armada_index_status`, `armada_index_update`, `armada_code_search`, and `armada_context_pack` provide an Admiral-owned per-vessel code index. `armada_context_pack` builds dispatch-ready markdown for a mission goal and returns a `prestagedFiles` entry for `_briefing/context-pack.md`. Index records include vessel id, repo-relative path, commit SHA, content hash, language, line range, and freshness.
 - **Preferred captain / preferred model.** Pin a mission to a specific captain id or restrict assignment to captains whose `Model` matches a given string. Both honored across all dispatch paths (standard, alias, pipeline).
 - **Architect-mode dispatch.** `armada_decompose_plan` runs an Architect captain that produces a markdown plan + N `[ARMADA:MISSION]` blocks; `armada_parse_architect_output` parses to a structured plan. Spec → architect → captain missions in one flow.
 - **Planning Sessions (interactive plan-to-dispatch).** `PlanningSession` + `PlanningSessionMessage` persist a multi-turn planning conversation with a captain in the dashboard; `PlanningSessionCoordinator` reserves a captain + dock for the session lifetime, re-launching the captain with a `context.md` (instructions + vessel context + selected playbooks + transcript-so-far) on each user turn. `/api/v1/planning-sessions/{id}/dispatch` converts a chosen assistant message into one voyage with one seeded mission; `Voyage.SourcePlanningSessionId` + `SourcePlanningMessageId` preserve lineage. Captain enters `CaptainStateEnum.Planning` for the session lifetime and cannot accept other missions. **V1 is SQLite-only and single-mission**; use Architect-mode dispatch for multi-mission decomposition. Design doc: [`PLANNING.md`](PLANNING.md).
@@ -191,7 +193,7 @@ A by-category inventory of what Armada actually ships. Each feature is implement
 ### Observability
 
 - **REST API.** SwiftStack-based; OpenAPI spec available; covers fleets, vessels, captains, voyages, missions, docks, signals, events, merge queue, playbooks, personas, pipelines, prompt templates, audit, backup, status.
-- **MCP server.** Voltaic-based standards-compliant MCP server on port 7891. ~70 tools spanning every entity type and operation.
+- **MCP server.** Voltaic-based standards-compliant MCP server on port 7891. 70+ tools spanning every entity type, operation, and code-index context workflow.
 - **WebSocket hub.** Real-time captain/mission state changes broadcast at `/ws`.
 - **Embedded dashboard.** Legacy dashboard served from admiral; standalone React dashboard for production.
 - **Mission logs.** Stdout/stderr capture per mission at `~/.armada/logs/missions/<missionId>.log`. Read via `/api/v1/missions/{id}/log` or `armada_get_mission_log`.
@@ -862,7 +864,7 @@ armada mcp remove     # Remove those Armada MCP entries again
 
 If you are working from source, MCP helper entrypoints are available under `scripts/windows/`, `scripts/linux/`, and `scripts/macos/`.
 
-Once installed, your MCP client can call tools like `armada_status`, `armada_dispatch`, `armada_enumerate`, `armada_voyage_status`, and `armada_cancel_voyage`. There are also tool groups for playbook, persona, pipeline, and prompt-template management.
+Once installed, your MCP client can call tools like `armada_status`, `armada_dispatch`, `armada_enumerate`, `armada_voyage_status`, and `armada_cancel_voyage`. There are also tool groups for playbook, persona, pipeline, prompt-template, and code-index management. For repository discovery before dispatch, use `armada_context_pack` and pass its returned `prestagedFiles` entry into the mission.
 
 ### AI-Powered Orchestration
 

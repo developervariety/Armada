@@ -63,6 +63,7 @@ namespace Armada.Server
         private LandingService _LandingService = null!;
         private IMessageTemplateService _TemplateService = null!;
         private IPromptTemplateService _PromptTemplateService = null!;
+        private ICodeIndexService _CodeIndex = null!;
         private PersonaSeedService _PersonaSeedService = null!;
         private LogRotationService _LogRotation = null!;
         private DataExpiryService _DataExpiry = null!;
@@ -142,6 +143,7 @@ namespace Armada.Server
             ICaptainService captainService = new CaptainService(_Logging, _Database, _Settings, _Git, dockService);
             // Prompt template service must be created before MissionService so it can resolve templates
             _PromptTemplateService = new PromptTemplateService(_Database, _Logging);
+            _CodeIndex = new CodeIndexService(_Logging, _Database, _Settings, _Git);
 
             IMissionService missionService = new MissionService(_Logging, _Database, _Settings, dockService, captainService, _PromptTemplateService, _Git);
             IVoyageService voyageService = new VoyageService(_Logging, _Database);
@@ -659,7 +661,8 @@ namespace Armada.Server
                 _AgentLifecycle,
                 _PromptTemplateService,
                 _Logging,
-                _RemoteTriggerService);
+                _RemoteTriggerService,
+                _CodeIndex);
         }
 
         private async Task EmitEventAsync(string eventType, string message,

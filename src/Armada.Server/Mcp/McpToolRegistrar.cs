@@ -51,6 +51,7 @@ namespace Armada.Server.Mcp
         /// <param name="templateService">Prompt template service for template operations.</param>
         /// <param name="logging">Logging module for tools that need validation services.</param>
         /// <param name="remoteTriggerService">Remote trigger service for event-driven wake-up integration.</param>
+        /// <param name="codeIndexService">Code index service for search and context-pack tools.</param>
         public static void RegisterAll(
             RegisterToolDelegate register,
             DatabaseDriver database,
@@ -65,7 +66,8 @@ namespace Armada.Server.Mcp
             AgentLifecycleHandler? agentLifecycle = null,
             IPromptTemplateService? templateService = null,
             LoggingModule? logging = null,
-            IRemoteTriggerService? remoteTriggerService = null)
+            IRemoteTriggerService? remoteTriggerService = null,
+            ICodeIndexService? codeIndexService = null)
         {
             McpStatusTools.Register(register, admiral, onStop);
             McpEnumerateTools.Register(register, database, mergeQueue);
@@ -85,6 +87,7 @@ namespace Armada.Server.Mcp
             if (settings != null) McpBackupTools.Register(register, database, settings);
             McpAuditTools.Register(register, database, remoteTriggerService);
             McpArchitectTools.Register(register, database, new ArchitectOutputParser(), admiral);
+            if (codeIndexService != null) McpCodeIndexTools.Register(register, codeIndexService);
         }
     }
 }

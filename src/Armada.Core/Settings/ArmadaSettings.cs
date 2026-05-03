@@ -444,6 +444,15 @@ namespace Armada.Core.Settings
         /// </summary>
         public RemoteTriggerSettings? RemoteTrigger { get; set; }
 
+        /// <summary>
+        /// Codebase indexing settings.
+        /// </summary>
+        public CodeIndexSettings CodeIndex
+        {
+            get => _CodeIndex;
+            set => _CodeIndex = value ?? new CodeIndexSettings();
+        }
+
         #endregion
 
         #region Private-Members
@@ -482,6 +491,7 @@ namespace Armada.Core.Settings
         private int _IdleCaptainTimeoutSeconds = Constants.DefaultIdleCaptainTimeoutSeconds;
         private RemoteControlSettings _RemoteControl = new RemoteControlSettings();
         private DatabaseSettings _Database = new DatabaseSettings();
+        private CodeIndexSettings _CodeIndex = new CodeIndexSettings();
         private bool _DatabasePathConfigured = false;
 
         #endregion
@@ -597,6 +607,9 @@ namespace Armada.Core.Settings
                 _DatabasePath = sqlitePath;
                 _DatabasePathConfigured = true;
             }
+
+            _CodeIndex ??= new CodeIndexSettings();
+            _CodeIndex.IndexDirectory = ResolvePathRelativeToDataDirectory(_CodeIndex.IndexDirectory);
         }
 
         private string ResolveEffectiveSqlitePath()
