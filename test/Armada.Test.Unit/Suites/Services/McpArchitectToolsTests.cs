@@ -336,7 +336,7 @@ namespace Armada.Test.Unit.Suites.Services
                 missions += "[ARMADA:MISSION]\n";
                 missions += "id: M" + i + "\n";
                 missions += "title: feat(test): M" + i + " -- task " + i + "\n";
-                missions += "preferredModel: claude-sonnet-4-6\n";
+                missions += "preferredModel: mid\n";
                 missions += "dependsOnMissionId: " + dep + "\n";
                 missions += "description: |\n";
                 missions += "  Do task " + i + ".\n";

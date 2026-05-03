@@ -14,14 +14,13 @@ namespace Armada.Core.Services
     /// </summary>
     public sealed class ArchitectOutputParser : IArchitectOutputParser
     {
-        private static readonly HashSet<string> _KnownModels = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        private static readonly HashSet<string> _KnownTierValues = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            "composer-2-fast",
-            "claude-sonnet-4-6",
-            "claude-opus-4-7",
-            "gpt-5.5",
-            "claude-4.6-sonnet-medium",
-            "gpt-5.3-codex-high",
+            PreferredModelTierSelector.LowTier,
+            PreferredModelTierSelector.MidTier,
+            PreferredModelTierSelector.HighTier,
+            "quick",
+            "medium",
         };
 
         private static readonly Regex _MissionIdShape = new Regex(@"^M[0-9]+$", RegexOptions.Compiled);
@@ -100,8 +99,8 @@ namespace Armada.Core.Services
                     result.Errors.Add(new ArchitectParseError("missing_field", entry.Id, "title", "missing title"));
                 if (string.IsNullOrEmpty(entry.PreferredModel))
                     result.Errors.Add(new ArchitectParseError("missing_field", entry.Id, "preferredModel", "missing preferredModel"));
-                else if (!_KnownModels.Contains(entry.PreferredModel))
-                    result.Errors.Add(new ArchitectParseError("unknown_model", entry.Id, "preferredModel", "unknown model: " + entry.PreferredModel));
+                else if (!_KnownTierValues.Contains(entry.PreferredModel))
+                    result.Errors.Add(new ArchitectParseError("invalid_tier", entry.Id, "preferredModel", "preferredModel must be low, mid, or high (got: " + entry.PreferredModel + ")"));
                 if (string.IsNullOrEmpty(entry.Description))
                     result.Errors.Add(new ArchitectParseError("missing_field", entry.Id, "description", "missing description"));
             }

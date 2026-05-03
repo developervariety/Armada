@@ -2874,10 +2874,27 @@ namespace Armada.Core.Services
                 Captain? pinned = await _Database.Captains.ReadAsync(preferredCaptainId, token).ConfigureAwait(false);
                 if (pinned == null) return null;
                 if (pinned.State != CaptainStateEnum.Idle) return null;
-                if (!String.IsNullOrEmpty(preferredModel) &&
-                    !String.Equals(pinned.Model, preferredModel, StringComparison.OrdinalIgnoreCase))
+                if (!String.IsNullOrEmpty(preferredModel))
                 {
-                    return null;
+                    if (PreferredModelTierSelector.IsTierSelector(preferredModel))
+                    {
+                        // Tier check: pinned captain's model must be in the requested tier or higher
+                        IReadOnlyList<string> acceptable = PreferredModelTierSelector.GetTierAndAboveModels(preferredModel);
+                        bool modelAcceptable = false;
+                        foreach (string m in acceptable)
+                        {
+                            if (String.Equals(pinned.Model, m, StringComparison.OrdinalIgnoreCase))
+                            {
+                                modelAcceptable = true;
+                                break;
+                            }
+                        }
+                        if (!modelAcceptable) return null;
+                    }
+                    else if (!String.Equals(pinned.Model, preferredModel, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return null;
+                    }
                 }
                 return pinned;
             }
@@ -2887,21 +2904,40 @@ namespace Armada.Core.Services
             if (idleCaptains.Count == 0)
                 return null;
 
-            // Soft model filter: narrow the idle pool to captains whose Model matches
-            // (case-insensitive) before the persona-preference logic runs.
+            // Model filter: tier selector (random peer selection) or literal match
             if (!String.IsNullOrEmpty(preferredModel))
             {
-                List<Captain> filtered = new List<Captain>();
-                foreach (Captain captain in idleCaptains)
+                if (PreferredModelTierSelector.IsTierSelector(preferredModel))
                 {
-                    if (!String.IsNullOrEmpty(captain.Model) &&
-                        String.Equals(captain.Model, preferredModel, StringComparison.OrdinalIgnoreCase))
+                    string? selectedModel = PreferredModelTierSelector.SelectModel(
+                        preferredModel, idleCaptains, persona, n => Random.Shared.Next(n));
+                    if (selectedModel == null) return null;
+                    List<Captain> filtered = new List<Captain>();
+                    foreach (Captain captain in idleCaptains)
                     {
-                        filtered.Add(captain);
+                        if (!String.IsNullOrEmpty(captain.Model) &&
+                            String.Equals(captain.Model, selectedModel, StringComparison.OrdinalIgnoreCase))
+                        {
+                            filtered.Add(captain);
+                        }
                     }
+                    if (filtered.Count == 0) return null;
+                    idleCaptains = filtered;
                 }
-                if (filtered.Count == 0) return null;
-                idleCaptains = filtered;
+                else
+                {
+                    List<Captain> filtered = new List<Captain>();
+                    foreach (Captain captain in idleCaptains)
+                    {
+                        if (!String.IsNullOrEmpty(captain.Model) &&
+                            String.Equals(captain.Model, preferredModel, StringComparison.OrdinalIgnoreCase))
+                        {
+                            filtered.Add(captain);
+                        }
+                    }
+                    if (filtered.Count == 0) return null;
+                    idleCaptains = filtered;
+                }
             }
 
             // If no persona requirement, return any idle captain

@@ -80,7 +80,7 @@ PART 2 -- per-mission `[ARMADA:MISSION]` blocks (one per mission):
 [ARMADA:MISSION]
 id: M<N>
 title: <verb-prefixed mission title; e.g. "feat(area): Worker -- ...">
-preferredModel: <see tier guidance in RULES>
+preferredModel: <low|mid|high>
 dependsOnMissionId: <previous mission's id, or empty>
 description: |
   **Goal:** <single sentence>
@@ -123,20 +123,20 @@ description: |
 
 ==RULES==
 
-1. **Pick `preferredModel` by tier -- no model bias within a tier.** Three tiers, peer models within each:
+1. **Set `preferredModel` to a tier value -- never a concrete model name.** Three tiers:
 
-   - **Quick** (`kimi-k2.5`): <=30 LOC, zero judgement, established pattern. Acceptance fits in 1 bullet.
+   - **`low`**: <=30 LOC, zero judgement, established pattern. Acceptance fits in 1 bullet.
      Use for typos, single-line fixes, doc-link rot, single-test-add, mechanical wire-ins.
-   - **Mid** (`composer-2-fast`, `claude-sonnet-4-6`, `gemini-3.5-pro`): <=200 LOC up to cross-file
-     refactor with judgement, new abstraction in known pattern, established sibling exists.
-     Acceptance fits in 3 bullets. Pick any peer; do NOT prefer one over another. Distribute across
-     vendors when possible to enable parallelism on multi-mission voyages.
-   - **High** (`claude-opus-4-7`, `gpt-5.5`): architectural design, novel protocol, security primitives,
-     work where the spec opens "design X such that Y," or context windows >300k tokens. Override to Opus
-     only for context constraint; otherwise the two are peers.
+   - **`mid`**: <=200 LOC up to cross-file refactor with judgement, new abstraction in known pattern,
+     established sibling exists. Acceptance fits in 3 bullets.
+   - **`high`**: architectural design, novel protocol, security primitives, work where the spec opens
+     "design X such that Y," or context windows >300k tokens.
 
-   **Anti-bias rule:** Do NOT default to Opus for "safety" on Mid-tier work. If a mission's acceptance
-   is 3 clear bullets and a sibling pattern exists, it is Mid, not High.
+   Armada randomly selects the concrete model within the tier from available captains. You pick
+   the tier only -- never name a specific model. This removes vendor bias and enables parallelism.
+
+   **Anti-bias rule:** Do NOT use `high` for "safety" on mid-tier work. If a mission's acceptance
+   is 3 clear bullets and a sibling pattern exists, it is `mid`, not `high`.
 
 2. Set `dependsOnMissionId` so foundation missions run first. Single-parent dependency only (Armada does
    not support N-parent fan-in).
