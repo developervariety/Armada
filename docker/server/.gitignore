@@ -1,6 +1,7 @@
-# Ignore all runtime data (database, config, logs, etc.)
+# Ignore runtime data; track the default config so new installs work out of the box
 *
-# But keep this .gitignore and the directory structure
+# Keep this .gitignore, the directory skeleton, and the default config template
 !.gitignore
 !.gitkeep
 !logs/
+!armada.json

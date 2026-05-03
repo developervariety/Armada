@@ -101,7 +101,7 @@ services:
 
 ### Server Configuration
 
-Edit `docker/server/armada.json` to customize:
+A default `docker/server/armada.json` is tracked in the repository so `docker compose up -d` works out of the box without manually creating the file. Edit `docker/server/armada.json` to customize (factory reset scripts preserve this file):
 
 ```json
 {

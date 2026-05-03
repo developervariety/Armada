@@ -14,6 +14,7 @@ namespace Armada.Server.Mcp.Tools
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
+    using SyslogLogging;
 
     /// <summary>
     /// Registers MCP tools for voyage operations (dispatch, status, cancel, purge).
@@ -36,6 +37,9 @@ namespace Armada.Server.Mcp.Tools
         /// <param name="onStopCaptain">Optional callback that kills a captain's agent process by captain id.
         /// Invoked from armada_cancel_voyage when an in-flight mission is cancelled so the captain
         /// process actually exits instead of staying orphaned in Working state.</param>
+        /// <param name="logging">Optional logging module. When provided it is used for downstream stage
+        /// snapshot persistence; when null a silent fallback is created so snapshots are always persisted
+        /// regardless of whether the caller threads logging in.</param>
         /// <remarks>
         /// armada_dispatch accepts an optional <c>prestagedFiles</c> array on each
         /// mission entry. Each entry copies an absolute <c>sourcePath</c> on the
@@ -49,7 +53,8 @@ namespace Armada.Server.Mcp.Tools
             DatabaseDriver database,
             IAdmiralService admiral,
             ArmadaSettings? settings = null,
-            Func<string, Task>? onStopCaptain = null)
+            Func<string, Task>? onStopCaptain = null,
+            LoggingModule? logging = null)
         {
             register(
                 "armada_dispatch",
@@ -162,7 +167,7 @@ namespace Armada.Server.Mcp.Tools
                     if (hasAliases)
                     {
                         return await DispatchWithAliasesAsync(
-                            database, admiral, title, description, vesselId,
+                            database, admiral, logging, title, description, vesselId,
                             dispatchVessel, missions, mergedPlaybooks, pipelineId).ConfigureAwait(false);
                     }
 
@@ -468,6 +473,7 @@ namespace Armada.Server.Mcp.Tools
         private static async Task<object> DispatchWithAliasesAsync(
             DatabaseDriver database,
             IAdmiralService admiral,
+            LoggingModule? logging,
             string title,
             string description,
             string vesselId,
@@ -603,6 +609,24 @@ namespace Armada.Server.Mcp.Tools
                         // it up after its dep completes; assigning now would race the
                         // upstream stage's worktree.
                         stageMission = await database.Missions.CreateAsync(stageMission).ConfigureAwait(false);
+
+                        // Persist playbook snapshots for downstream stages the same way
+                        // admiral.DispatchMissionAsync does for the first stage. Without
+                        // this, MissionService.GenerateClaudeMdAsync has no snapshots to
+                        // render, resulting in a missing playbook section in the captain brief.
+                        // A silent fallback LoggingModule is used when none was provided so
+                        // snapshots are always persisted regardless of optional logging.
+                        if (stageMission.SelectedPlaybooks != null
+                            && stageMission.SelectedPlaybooks.Count > 0
+                            && !String.IsNullOrEmpty(stageMission.TenantId))
+                        {
+                            LoggingModule effectiveLogging = logging ?? CreateSilentLogging();
+                            IPlaybookService playbooks = new PlaybookService(database, effectiveLogging);
+                            List<MissionPlaybookSnapshot> snapshots = await playbooks.CreateSnapshotsAsync(
+                                stageMission.TenantId,
+                                stageMission.SelectedPlaybooks).ConfigureAwait(false);
+                            await database.Playbooks.SetMissionSnapshotsAsync(stageMission.Id, snapshots).ConfigureAwait(false);
+                        }
                     }
 
                     previousMissionId = stageMission.Id;
@@ -667,6 +691,18 @@ namespace Armada.Server.Mcp.Tools
         private static List<SelectedPlaybook> MergePlaybooks(List<SelectedPlaybook>? defaults, List<SelectedPlaybook> callerEntries)
         {
             return PlaybookMerge.MergeWithVesselDefaults(defaults, callerEntries);
+        }
+
+        /// <summary>
+        /// Creates a <see cref="LoggingModule"/> with console output disabled, used as a
+        /// fallback when no logging module is supplied to <see cref="Register"/> so that
+        /// downstream stage snapshot persistence is never silently skipped.
+        /// </summary>
+        private static LoggingModule CreateSilentLogging()
+        {
+            LoggingModule logging = new LoggingModule();
+            logging.Settings.EnableConsole = false;
+            return logging;
         }
     }
 }

@@ -1,0 +1,17 @@
+{
+  "dataDirectory": "/app/data",
+  "databasePath": "/app/data/db/armada.db",
+  "logDirectory": "/app/data/logs",
+  "docksDirectory": "/app/data/docks",
+  "reposDirectory": "/app/data/repos",
+  "admiralPort": 7890,
+  "mcpPort": 7891,
+  "allowSelfRegistration": true,
+  "rest": {
+    "hostname": "0.0.0.0"
+  },
+  "database": {
+    "type": "Sqlite",
+    "filename": "/app/data/db/armada.db"
+  }
+}

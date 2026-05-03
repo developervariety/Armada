@@ -1150,7 +1150,7 @@ Create a new voyage with optional missions. Missions are automatically dispatche
 | `Description` | string | no | Voyage description |
 | `VesselId` | string | yes | Target vessel ID |
 | `Missions` | array | no | List of [MissionRequest](#missionrequest) objects |
-| `SelectedPlaybooks` | array | no | Ordered [SelectedPlaybook](#selectedplaybook) rows to apply to all created missions |
+| `SelectedPlaybooks` | array | no | Ordered [SelectedPlaybook](#selectedplaybook) rows for all missions. Merge hierarchy: vessel defaults < voyage `SelectedPlaybooks` < per-mission `SelectedPlaybooks`. A duplicate `PlaybookId` is rendered once; most-specific `DeliveryMode` wins. |
 | `PipelineId` | string | no | Pipeline ID to use for this voyage (overrides vessel/fleet default) |
 | `Pipeline` | string | no | Pipeline name to use for this voyage (alternative to `PipelineId`) |
 
@@ -1324,7 +1324,7 @@ Create and dispatch a new mission. If a `VesselId` is provided, the Admiral will
 | `VesselId` | string | no | Target vessel (required for auto-dispatch) |
 | `VoyageId` | string | no | Parent voyage ID |
 | `Priority` | int | no | Priority (lower = higher priority, default: 100) |
-| `SelectedPlaybooks` | array | no | Ordered [SelectedPlaybook](#selectedplaybook) rows for this standalone mission |
+| `SelectedPlaybooks` | array | no | Ordered [SelectedPlaybook](#selectedplaybook) rows for this standalone mission. Merges with vessel defaults (per-mission wins on collision). |
 
 **Response:** `201 Created` - [Mission](#mission)
 

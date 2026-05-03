@@ -69,7 +69,7 @@ Everything else in Armada exists to support that: isolated worktrees, parallel d
 
 ## Fork features vs upstream
 
-This fork (`developervariety/Armada`) is based on `jchristn/Armada` and adds orchestration features for multi-vessel, multi-runtime dispatch with auto-recovery and human-review gating. **Last upstream sync: `cd27ea6` (9 upstream commits absorbed) on 2026-05-01.**
+This fork (`developervariety/Armada`) is based on `jchristn/Armada` and adds orchestration features for multi-vessel, multi-runtime dispatch with auto-recovery and human-review gating. **Last upstream sync: `cd27ea6` (9 upstream commits absorbed) on 2026-05-01.** Partial cherry-pick: `28d0f846` Docker reset/config hardening ported by hand on 2026-05-03; remaining upstream from that commit deferred due to 56-file conflict surface across MCP renames, dashboard, and pipeline services.
 
 ### Fork-only features
 
@@ -86,6 +86,9 @@ This fork (`developervariety/Armada`) is based on `jchristn/Armada` and adds orc
 - **`LocalDaemon` mode in `RemoteTriggerService`.** Process-spawn wake mode as alternative to Routines `/fire` endpoint. Useful for development setups without inbound HTTP. (`bcc8ba9`)
 - **Captain-lifecycle hardening.** Captain process cleanup on cancel + launch log lock recovery prevents orphaned worktrees and stuck launch state. Merge-queue land + dock-delete honor the vessel's `BranchCleanupPolicy`. (`7f99fa9`, `23c22eb7`)
 - **`JsonStringEnumConverter` registered for settings.json mode loading.** Fixes a startup crash when `settings.json` carries `RemoteTriggerMode` as a string. (`3dcecd5`)
+
+- **Alias-dispatch playbook snapshot fix.** Downstream pipeline stages in alias-aware multi-stage dispatch now persist `MissionPlaybookSnapshot` rows the same way the first stage does. Previously, Judge and subsequent stages had no snapshots, so playbook content was missing from the rendered captain brief. Also clarifies the merge hierarchy (vessel defaults < voyage `selectedPlaybooks` < per-mission `selectedPlaybooks`) in docs and duplicate-prevention behavior in code and docs.
+- **Tracked default `docker/server/armada.json`.** A default server config template is now committed at `docker/server/armada.json` and included via `.gitignore` whitelist so fresh clones work with `docker compose up -d` without manually creating the file. Factory reset scripts already preserved `armada.json`; the `.gitignore` now explicitly allows it. (partial port of `28d0f846`)
 
 ### Upstream features in-tree but not actively wired
 
@@ -165,10 +168,11 @@ A by-category inventory of what Armada actually ships. Each feature is implement
 ### Playbooks
 
 - **Vessel `DefaultPlaybooks`.** Per-vessel default list auto-merges into every dispatch.
-- **Caller overrides.** `selectedPlaybooks` on `armada_dispatch` / `armada_create_mission` / `armada_decompose_plan` merges with vessel defaults; caller's `deliveryMode` wins on collision, additional entries append.
-- **Voyage→mission propagation.** Voyage-level `selectedPlaybooks` plus per-mission `selectedPlaybooks` merge before persisting the per-mission snapshot. Standard, pipeline-expansion, and alias-dispatch paths all merge consistently.
+- **Merge hierarchy.** Playbook selections merge in priority order: vessel defaults (lowest) < voyage `selectedPlaybooks` < per-mission `selectedPlaybooks` (highest). A duplicate `playbookId` is never rendered twice -- the most-specific `deliveryMode` wins on collision, and non-colliding entries append. Place shared guidance at vessel or voyage level to avoid duplicating payload across missions; use per-mission `selectedPlaybooks` only for true mission-specific extras or delivery-mode overrides.
+- **Voyage->mission propagation.** Voyage-level `selectedPlaybooks` plus per-mission `selectedPlaybooks` merge before persisting the per-mission snapshot. Standard, pipeline-expansion, and alias-aware multi-stage dispatch paths all merge and snapshot consistently -- including downstream pipeline stages.
 - **Three delivery modes.** `InlineFullContent` (template substitution), `InstructionWithReference` (path reference), `AttachIntoWorktree` (file copy into dock).
 - **Materialization snapshot.** Mission persists a frozen `PlaybookSnapshots` copy at dispatch so mid-flight playbook edits don't change what the captain sees.
+- **Code-index context packs.** Use `armada_context_pack` to inject targeted repository discovery snippets (symbol locations, file excerpts) as a `prestagedFiles` entry alongside the captain brief. Context packs are a focused supplement to existing playbook guidance, not a replacement for it.
 
 ### Multi-Tenancy & Auth
 
@@ -482,6 +486,18 @@ Playbooks are tenant-scoped markdown instruction documents that you can manage i
 - File-based delivery resolves readable playbook files for the agent without polluting repository history, while inline delivery embeds the full markdown body directly into the rendered instruction set.
 
 This is useful for architecture rules, coding standards, migration checklists, release procedures, security review requirements, or any other reusable instruction set that should travel with the work.
+
+### Playbook Merge Hierarchy and Duplicate Prevention
+
+Playbook selections merge in strict priority order: vessel defaults (lowest) < voyage-level `selectedPlaybooks` < per-mission `selectedPlaybooks` (highest). A `playbookId` that appears at multiple levels is rendered exactly once -- the most-specific `deliveryMode` wins on collision, and non-colliding entries from lower levels append. This means:
+
+- **Vessel defaults** supply baseline guidance that applies to every mission on that vessel.
+- **Voyage-level `selectedPlaybooks`** add or override guidance for all missions in that voyage without repeating it per mission. This is the recommended way to share extra context across a multi-mission voyage.
+- **Per-mission `selectedPlaybooks`** are for true mission-specific extras or `deliveryMode` overrides. If the same `playbookId` appears at voyage level and per-mission level, the per-mission `deliveryMode` wins but the content is not duplicated.
+
+To preserve captain instruction quality, avoid duplicating the same playbook at both voyage and per-mission level just to change the delivery mode -- instead, set it once at voyage level and override only the mode per-mission. Do not globally downgrade `InlineFullContent` to a lighter delivery mode as a blanket token-reduction strategy; use lighter modes only when you can confirm the captain still receives and follows the full required guidance.
+
+For repository discovery context, use `armada_context_pack` to generate targeted snippets (symbol locations, relevant file excerpts). Pass the returned `prestagedFiles` entry into your dispatch to supplement existing playbook guidance without replacing it.
 
 ## Internationalization
 
