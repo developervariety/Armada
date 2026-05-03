@@ -295,6 +295,77 @@ namespace Armada.Test.Unit.Suites.Services
                     }
                 }
             });
+
+            await RunTest("AliasDispatch_LoggingOmitted_DownstreamStageSnapshotsStillPersisted", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule admiralLogging = new LoggingModule();
+                    admiralLogging.Settings.EnableConsole = false;
+
+                    Vessel vessel = new Vessel("alias-fallback-logging-vessel", "https://github.com/test/repo.git");
+                    vessel.TenantId = Constants.DefaultTenantId;
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Playbook pb1 = new Playbook("fallback-guide.md", "# fallback guide");
+                    pb1.TenantId = Constants.DefaultTenantId;
+                    pb1 = await testDb.Driver.Playbooks.CreateAsync(pb1).ConfigureAwait(false);
+
+                    Pipeline reviewed = new Pipeline("FallbackLoggingReviewed");
+                    reviewed.Stages = new List<PipelineStage>
+                    {
+                        new PipelineStage(1, "Worker"),
+                        new PipelineStage(2, "Judge")
+                    };
+                    reviewed = await testDb.Driver.Pipelines.CreateAsync(reviewed).ConfigureAwait(false);
+
+                    // Admiral double uses its own logging for first-stage persistence.
+                    PersistingAdmiralDouble admiralDouble = new PersistingAdmiralDouble(testDb.Driver, reviewed, admiralLogging);
+
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    // Intentionally omit logging so the silent-fallback path in McpVoyageTools is exercised.
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble);
+                    AssertNotNull(dispatchHandler, "armada_dispatch handler must be registered");
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "fallback logging voyage",
+                        description = "downstream stages must persist snapshots via silent fallback",
+                        vesselId = vessel.Id,
+                        pipeline = "FallbackLoggingReviewed",
+                        selectedPlaybooks = new object[]
+                        {
+                            new { playbookId = pb1.Id, deliveryMode = "InlineFullContent" }
+                        },
+                        missions = new object[]
+                        {
+                            new { title = "fallback feature", description = "fb", alias = "F1" }
+                        }
+                    });
+
+                    object result = await dispatchHandler!(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+                    AssertFalse(resultJson.Contains("\"Error\""), "Should not return error: " + resultJson);
+
+                    Voyage voyage = (Voyage)result;
+                    List<Mission> all = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+                    AssertEqual(2, all.Count, "One MD * two pipeline stages = 2 missions");
+
+                    foreach (Mission m in all)
+                    {
+                        List<MissionPlaybookSnapshot> snaps = await testDb.Driver.Playbooks
+                            .GetMissionSnapshotsAsync(m.Id).ConfigureAwait(false);
+                        AssertEqual(1, snaps.Count,
+                            "Every stage must have 1 playbook snapshot (fallback logging path), got "
+                            + snaps.Count + " for " + m.Title);
+                        AssertEqual(pb1.Id, snaps[0].PlaybookId,
+                            "Snapshot must reference pb1 on " + m.Title);
+                    }
+                }
+            });
         }
 
         /// <summary>
