@@ -1,7 +1,5 @@
 namespace Armada.Core.Settings
 {
-    using System.Collections.Generic;
-
     /// <summary>Transport mode for RemoteTriggerService.</summary>
     public enum RemoteTriggerMode
     {
@@ -10,31 +8,6 @@ namespace Armada.Core.Settings
 
         /// <summary>HTTP POST to Claude Code Routines /fire endpoint. Default for backward compatibility.</summary>
         RemoteFire,
-
-        /// <summary>Spawn a local subprocess (e.g. claude CLI) with event text piped to stdin.</summary>
-        LocalDaemon,
-    }
-
-    /// <summary>Settings for spawning a local daemon process in <see cref="RemoteTriggerMode.LocalDaemon"/> mode.</summary>
-    public sealed class LocalDaemonSettings
-    {
-        /// <summary>Executable to run (e.g. "claude"). Required for LocalDaemon mode.</summary>
-        public string? Command { get; set; }
-
-        /// <summary>Command-line arguments appended after the executable (e.g. "--dangerously-skip-permissions --print").</summary>
-        public string Args { get; set; } = "";
-
-        /// <summary>Orchestrator system prompt prepended before the event text. The event text is appended after a blank line.</summary>
-        public string PromptTemplate { get; set; } = "";
-
-        /// <summary>Working directory for the spawned process. Null inherits the admiral process working directory.</summary>
-        public string? WorkingDirectory { get; set; }
-
-        /// <summary>Maximum seconds to allow the process to run before killing it. Default 600.</summary>
-        public int TimeoutSeconds { get; set; } = 600;
-
-        /// <summary>Additional environment variables merged into the spawned process environment.</summary>
-        public Dictionary<string, string>? EnvironmentVariables { get; set; }
     }
 
     /// <summary>
@@ -70,9 +43,6 @@ namespace Armada.Core.Settings
         /// <summary>Anthropic API version header value.</summary>
         public string AnthropicVersion { get; set; } = "2023-06-01";
 
-        /// <summary>Settings for LocalDaemon mode. Required when Mode is LocalDaemon.</summary>
-        public LocalDaemonSettings? LocalDaemon { get; set; }
-
         /// <summary>Returns true if the section has the minimum config to fire drainer wakes via RemoteFire mode.</summary>
         public bool IsDrainerConfigured()
         {
@@ -93,15 +63,6 @@ namespace Armada.Core.Settings
                 && !string.IsNullOrEmpty(CriticalBearerToken)
                 && !string.IsNullOrEmpty(BetaHeader)
                 && !string.IsNullOrEmpty(AnthropicVersion);
-        }
-
-        /// <summary>Returns true if the section has the minimum config to spawn a local daemon process.</summary>
-        public bool IsLocalDaemonConfigured()
-        {
-            return Enabled
-                && Mode == RemoteTriggerMode.LocalDaemon
-                && LocalDaemon != null
-                && !string.IsNullOrWhiteSpace(LocalDaemon.Command);
         }
     }
 }

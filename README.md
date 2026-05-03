@@ -83,7 +83,6 @@ This fork (`developervariety/Armada`) is based on `jchristn/Armada` and adds orc
 - **`ProtectedPaths` per-vessel gate.** Vessels carry a glob-list of paths that captain commits may NOT touch. Captain commits to `**/CLAUDE.md` (or other protected paths) are rejected with a coaching message teaching the `[CLAUDE.MD-PROPOSAL]` block format for proposing rule changes. (`02e52f6`)
 - **Cursor-agent prompt via stdin.** Cursor runtime feeds the prompt to `cursor-agent` via stdin instead of inlining as a CLI arg. Bypasses Windows `cmd.exe`'s ~8 KB command-line limit which silently failed cursor-agent on long structured briefs. (`db9439c`)
 - **`GitService.IsPrMergedAsync` platform-aware.** PR-merge detection routes to `gh pr view` (GitHub) or `glab mr view` (GitLab) based on URL host. Closes a silent-failure path where GitLab MRs always appeared "not merged" because `gh` returned non-zero on unsupported hosts. (`63b6f6f`)
-- **`LocalDaemon` mode in `RemoteTriggerService`.** Process-spawn wake mode as alternative to Routines `/fire` endpoint. Useful for development setups without inbound HTTP. (`bcc8ba9`)
 - **Captain-lifecycle hardening.** Captain process cleanup on cancel + launch log lock recovery prevents orphaned worktrees and stuck launch state. Merge-queue land + dock-delete honor the vessel's `BranchCleanupPolicy`. (`7f99fa9`, `23c22eb7`)
 - **`JsonStringEnumConverter` registered for settings.json mode loading.** Fixes a startup crash when `settings.json` carries `RemoteTriggerMode` as a string. (`3dcecd5`)
 

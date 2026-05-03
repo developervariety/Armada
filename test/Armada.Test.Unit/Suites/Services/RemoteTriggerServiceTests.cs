@@ -118,6 +118,17 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(2, http.CallCount, "critical should fire independently of coalescing; drainer + critical = 2 calls");
                 AssertContains("[CRITICAL]", http.LastRequest!.Text, "critical fallback via drainer should prefix [CRITICAL]");
             });
+
+            await RunTest("FireCritical_Disabled_NoOp", async () =>
+            {
+                RecordingRemoteTriggerHttpClient http = new RecordingRemoteTriggerHttpClient();
+                RemoteTriggerSettings settings = new RemoteTriggerSettings { Enabled = false };
+                RemoteTriggerService service = new RemoteTriggerService(settings, http, new LoggingModule(), TimeSpan.Zero);
+
+                await service.FireCriticalAsync("some critical event");
+
+                AssertEqual(0, http.CallCount, "disabled settings should produce no HTTP calls for FireCritical");
+            });
         }
 
         private static RemoteTriggerSettings MakeSettings()
