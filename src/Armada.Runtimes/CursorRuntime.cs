@@ -86,7 +86,16 @@ namespace Armada.Runtimes
                     return officialPath;
             }
 
-            return ResolveExecutable(_ExecutablePath);
+            return ResolveConfiguredExecutable(_ExecutablePath);
+        }
+
+        /// <summary>
+        /// Resolve the configured executable path. Virtual so tests can inject a stale
+        /// npm-style fallback without touching user-global npm directories.
+        /// </summary>
+        protected virtual string ResolveConfiguredExecutable(string executablePath)
+        {
+            return ResolveExecutable(executablePath);
         }
 
         /// <summary>

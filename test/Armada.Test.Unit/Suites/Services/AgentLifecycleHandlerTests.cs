@@ -88,6 +88,45 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("CursorShimScope on Windows uses temp override and restores environment", () =>
+            {
+                if (!OperatingSystem.IsWindows())
+                    return;
+
+                string? originalOverride = Environment.GetEnvironmentVariable("ARMADA_TEST_CURSOR_AGENT");
+                string sentinelOverride = Path.Combine(Path.GetTempPath(), "armada_original_cursor_agent.cmd");
+
+                try
+                {
+                    Environment.SetEnvironmentVariable("ARMADA_TEST_CURSOR_AGENT", sentinelOverride);
+
+                    using (CursorShimScope shim = CursorShimScope.Create())
+                    {
+                        string? overridePath = Environment.GetEnvironmentVariable("ARMADA_TEST_CURSOR_AGENT");
+                        AssertNotNull(overridePath, "Windows shim scope must set ARMADA_TEST_CURSOR_AGENT");
+                        AssertFalse(
+                            String.Equals(sentinelOverride, overridePath, StringComparison.OrdinalIgnoreCase),
+                            "Windows shim scope must replace the caller override while active");
+                        string appDataNpm = Path.Combine(
+                            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                            "npm");
+                        AssertFalse(
+                            overridePath!.StartsWith(appDataNpm, StringComparison.OrdinalIgnoreCase),
+                            "Windows shim scope must not write the active shim under APPDATA npm");
+                        AssertTrue(File.Exists(overridePath), "Windows shim override must point to the temp shim file");
+                    }
+
+                    AssertEqual(
+                        sentinelOverride,
+                        Environment.GetEnvironmentVariable("ARMADA_TEST_CURSOR_AGENT"),
+                        "Windows shim scope must restore the prior test override on dispose");
+                }
+                finally
+                {
+                    Environment.SetEnvironmentVariable("ARMADA_TEST_CURSOR_AGENT", originalOverride);
+                }
+            });
+
             await RunTest("ValidateCaptainModelAsync requires Mux endpoint", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -551,15 +590,22 @@ namespace Armada.Test.Unit.Suites.Services
 
             private readonly string _tempDirectory;
             private readonly string _originalPath;
-            // True when ARMADA_TEST_CURSOR_AGENT was set (Windows path); cleared in Dispose.
+            // True when ARMADA_TEST_CURSOR_AGENT was set (Windows path); restored in Dispose.
             private readonly bool _setWindowsAgentOverride;
+            private readonly string? _originalCursorAgentOverride;
 
-            private CursorShimScope(string tempDirectory, string argsFile, string originalPath, bool setWindowsAgentOverride)
+            private CursorShimScope(
+                string tempDirectory,
+                string argsFile,
+                string originalPath,
+                bool setWindowsAgentOverride,
+                string? originalCursorAgentOverride)
             {
                 _tempDirectory = tempDirectory;
                 ArgsFile = argsFile;
                 _originalPath = originalPath;
                 _setWindowsAgentOverride = setWindowsAgentOverride;
+                _originalCursorAgentOverride = originalCursorAgentOverride;
             }
 
             public static CursorShimScope Create()
@@ -569,6 +615,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 string argsFile = Path.Combine(tempDirectory, "cursor-args.txt");
                 string originalPath = Environment.GetEnvironmentVariable("PATH") ?? String.Empty;
+                string? originalCursorAgentOverride = Environment.GetEnvironmentVariable("ARMADA_TEST_CURSOR_AGENT");
                 bool setWindowsAgentOverride = false;
 
                 Environment.SetEnvironmentVariable("ARMADA_TEST_CURSOR_ARGS_FILE", argsFile);
@@ -597,7 +644,12 @@ namespace Armada.Test.Unit.Suites.Services
                     Environment.SetEnvironmentVariable("PATH", tempDirectory + Path.PathSeparator + originalPath);
                 }
 
-                return new CursorShimScope(tempDirectory, argsFile, originalPath, setWindowsAgentOverride);
+                return new CursorShimScope(
+                    tempDirectory,
+                    argsFile,
+                    originalPath,
+                    setWindowsAgentOverride,
+                    originalCursorAgentOverride);
             }
 
             public void Dispose()
@@ -607,7 +659,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 if (_setWindowsAgentOverride)
                 {
-                    Environment.SetEnvironmentVariable("ARMADA_TEST_CURSOR_AGENT", null);
+                    Environment.SetEnvironmentVariable("ARMADA_TEST_CURSOR_AGENT", _originalCursorAgentOverride);
                 }
 
                 try { Directory.Delete(_tempDirectory, true); } catch { }
