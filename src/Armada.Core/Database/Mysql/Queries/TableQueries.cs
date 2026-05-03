@@ -698,6 +698,97 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
+        /// Migration v32 statements for adding workflow profiles.
+        /// </summary>
+        public static readonly string[] MigrationV32Statements = new string[]
+        {
+            @"CREATE TABLE IF NOT EXISTS workflow_profiles (
+                id VARCHAR(450) NOT NULL PRIMARY KEY,
+                tenant_id VARCHAR(450),
+                user_id VARCHAR(450),
+                name VARCHAR(450) NOT NULL,
+                description LONGTEXT,
+                scope VARCHAR(64) NOT NULL DEFAULT 'Global',
+                fleet_id VARCHAR(450),
+                vessel_id VARCHAR(450),
+                is_default TINYINT(1) NOT NULL DEFAULT 0,
+                active TINYINT(1) NOT NULL DEFAULT 1,
+                language_hints_json LONGTEXT,
+                lint_command LONGTEXT,
+                build_command LONGTEXT,
+                unit_test_command LONGTEXT,
+                integration_test_command LONGTEXT,
+                e2e_test_command LONGTEXT,
+                package_command LONGTEXT,
+                publish_artifact_command LONGTEXT,
+                release_versioning_command LONGTEXT,
+                changelog_generation_command LONGTEXT,
+                required_secrets_json LONGTEXT,
+                expected_artifacts_json LONGTEXT,
+                environments_json LONGTEXT,
+                created_utc DATETIME(6) NOT NULL,
+                last_update_utc DATETIME(6) NOT NULL,
+                FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
+                FOREIGN KEY (fleet_id) REFERENCES fleets(id) ON DELETE SET NULL,
+                FOREIGN KEY (vessel_id) REFERENCES vessels(id) ON DELETE SET NULL
+            );",
+            @"CREATE INDEX idx_workflow_profiles_tenant ON workflow_profiles(tenant_id);",
+            @"CREATE INDEX idx_workflow_profiles_user ON workflow_profiles(user_id);",
+            @"CREATE INDEX idx_workflow_profiles_scope ON workflow_profiles(scope);",
+            @"CREATE INDEX idx_workflow_profiles_fleet ON workflow_profiles(fleet_id);",
+            @"CREATE INDEX idx_workflow_profiles_vessel ON workflow_profiles(vessel_id);",
+            @"CREATE INDEX idx_workflow_profiles_default_scope ON workflow_profiles(scope, is_default, active);"
+        };
+
+        /// <summary>
+        /// Migration v33 statements for adding check runs.
+        /// </summary>
+        public static readonly string[] MigrationV33Statements = new string[]
+        {
+            @"CREATE TABLE IF NOT EXISTS check_runs (
+                id VARCHAR(450) NOT NULL PRIMARY KEY,
+                tenant_id VARCHAR(450),
+                user_id VARCHAR(450),
+                workflow_profile_id VARCHAR(450),
+                vessel_id VARCHAR(450),
+                mission_id VARCHAR(450),
+                voyage_id VARCHAR(450),
+                label VARCHAR(450),
+                check_type VARCHAR(64) NOT NULL,
+                status VARCHAR(64) NOT NULL DEFAULT 'Pending',
+                environment_name VARCHAR(450),
+                command LONGTEXT NOT NULL,
+                working_directory LONGTEXT,
+                branch_name VARCHAR(450),
+                commit_hash VARCHAR(450),
+                exit_code INT NULL,
+                output LONGTEXT,
+                summary LONGTEXT,
+                artifacts_json LONGTEXT,
+                duration_ms BIGINT NULL,
+                started_utc DATETIME(6) NULL,
+                completed_utc DATETIME(6) NULL,
+                created_utc DATETIME(6) NOT NULL,
+                last_update_utc DATETIME(6) NOT NULL,
+                FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
+                FOREIGN KEY (workflow_profile_id) REFERENCES workflow_profiles(id) ON DELETE SET NULL,
+                FOREIGN KEY (vessel_id) REFERENCES vessels(id) ON DELETE SET NULL,
+                FOREIGN KEY (mission_id) REFERENCES missions(id) ON DELETE SET NULL,
+                FOREIGN KEY (voyage_id) REFERENCES voyages(id) ON DELETE SET NULL
+            );",
+            @"CREATE INDEX idx_check_runs_tenant_created ON check_runs(tenant_id, created_utc DESC);",
+            @"CREATE INDEX idx_check_runs_user_created ON check_runs(user_id, created_utc DESC);",
+            @"CREATE INDEX idx_check_runs_vessel_created ON check_runs(vessel_id, created_utc DESC);",
+            @"CREATE INDEX idx_check_runs_mission_created ON check_runs(mission_id, created_utc DESC);",
+            @"CREATE INDEX idx_check_runs_voyage_created ON check_runs(voyage_id, created_utc DESC);",
+            @"CREATE INDEX idx_check_runs_profile_created ON check_runs(workflow_profile_id, created_utc DESC);",
+            @"CREATE INDEX idx_check_runs_type_created ON check_runs(check_type, created_utc DESC);",
+            @"CREATE INDEX idx_check_runs_status_created ON check_runs(status, created_utc DESC);"
+        };
+
+        /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
         public static readonly string[] Indexes = new string[]

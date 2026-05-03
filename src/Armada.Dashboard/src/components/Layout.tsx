@@ -107,6 +107,36 @@ const navSections: NavSection[] = [
     ],
   },
   {
+    key: 'delivery',
+    label: 'DELIVERY',
+    matchers: ['/workflow-profiles', '/checks'],
+    items: [
+      {
+        to: '/workflow-profiles',
+        label: 'Workflow Profiles',
+        tooltip: 'Project-specific commands for build, test, release, deploy, and verification',
+        icon: (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 7h16" />
+            <path d="M4 12h10" />
+            <path d="M4 17h7" />
+            <rect x="3" y="3" width="18" height="18" rx="2" />
+          </svg>
+        ),
+      },
+      {
+        to: '/checks',
+        label: 'Checks',
+        tooltip: 'Structured build, test, deploy, and verification runs',
+        icon: (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M20 6 9 17l-5-5" />
+          </svg>
+        ),
+      },
+    ],
+  },
+  {
     key: 'fleet',
     label: 'FLEET',
     matchers: ['/fleets', '/vessels', '/workspace', '/captains', '/docks'],

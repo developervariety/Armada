@@ -47,6 +47,8 @@ Everything else in Armada exists to support that: isolated worktrees, parallel d
 - **A queryable memory layer.** Logs, diffs, status history, and agent output stay available through the dashboard, API, and MCP instead of vanishing into scrollback.
 - **Integrated API tooling.** `System > Requests` preserves request history, while `System > API Explorer` lets you execute live OpenAPI-backed requests and replay captured traffic without leaving the dashboard.
 - **A first-class repository workspace.** `Workspace` gives you a vessel-aware file tree, in-browser editing, search, git-aware status, and direct handoff into planning, dispatch, and context curation.
+- **Project-specific delivery profiles.** `Delivery > Workflow Profiles` lets each vessel or fleet declare how it lints, builds, tests, packages, versions, deploys, rolls back, and verifies itself.
+- **Structured check execution.** `Delivery > Checks` turns build, test, deploy, and verification runs into queryable records with logs, artifacts, retry, branch/commit metadata, and links back to missions and voyages.
 - **Persistent vessel context.** Models can maintain repository-specific context, hints, and working notes on each vessel to speed up future dispatches.
 - **Interactive planning before dispatch.** Chat with a captain in the dashboard, keep the transcript, then open the result in Dispatch or launch the work directly from the planning screen.
 - **Parallel execution across repos.** Dispatch work to multiple agents across multiple repositories at once.
@@ -140,6 +142,8 @@ Each step is a **persona** with its own prompt template. A sequence of personas 
 | **FullPipeline** | Plan -> Implement -> Test -> Review | Big features, unfamiliar codebases |
 
 You can set a default pipeline per repository and override it on a single dispatch when needed. If the built-in roles are not enough, define your own personas and compose them into custom pipelines for security review, documentation, migration planning, release checks, architecture review, or any other project-specific step.
+
+Armada also lets each project define its own delivery commands. `Delivery > Workflow Profiles` stores the repo-specific commands for build, test, package, publish, deploy, rollback, smoke-test, and health-check flows, and `Delivery > Checks` executes those commands as durable records you can inspect and retry later.
 
 ### Parallel Tasks
 
@@ -443,6 +447,8 @@ Armada is a C#/.NET solution with five main projects:
 | **Mission** | Task | An atomic work unit assigned to a captain. |
 | **Voyage** | Batch | A group of related missions dispatched together. |
 | **Planning Session** | Interactive draft | A dashboard chat session with a captain on a reserved dock/worktree. You can turn a selected reply into a dispatch draft or dispatch directly from the session. |
+| **Workflow Profile** | Delivery recipe | A vessel- or fleet-scoped set of commands describing how a project builds, tests, packages, versions, deploys, rolls back, and verifies itself. |
+| **Check Run** | Structured validation | A durable execution record for build, test, deploy, or verification work, including logs, artifacts, timings, exit status, and linked mission/voyage context. |
 | **Dock** | Worktree | A git worktree provisioned for a captain's isolated work. |
 | **Signal** | Message | Communication between the Admiral and captains. |
 | **Persona** | Agent role | A named agent role (Worker, Architect, Judge, TestEngineer) that determines what a captain does during a mission. Users can create custom personas with custom prompt templates. |
@@ -689,12 +695,17 @@ Full CRUD endpoints are available for fleets, vessels, missions, voyages, captai
 Armada also ships first-class REST surfaces for:
 
 - `Workspace` browsing, editing, search, change inspection, and vessel status under `/api/v1/workspace/vessels/{vesselId}/...`
+- workflow-profile CRUD, validation, resolution, and enumeration under `/api/v1/workflow-profiles/...`
+- structured check-run execution, retry, detail, and enumeration under `/api/v1/check-runs/...`
 - planning-session lifecycle and transcript-to-dispatch flow under `/api/v1/planning-sessions/...`
 - persisted request-history capture, summaries, and replay metadata under `/api/v1/request-history/...`
 - Mux runtime endpoint discovery helpers under `/api/v1/runtimes/mux/endpoints...`
 - live OpenAPI discovery at `/openapi.json` and `/swagger`
 
-The React dashboard exposes that API surface through two first-class system tools:
+The React dashboard exposes that API surface through first-class `Delivery` and `System` tools:
+
+- `Delivery > Workflow Profiles` for project-specific build/test/release/deploy command definitions and validation.
+- `Delivery > Checks` for running, retrying, and inspecting structured validation and delivery commands.
 
 - `System > Requests` for persisted request history, filtering, payload inspection, and replay.
 - `System > API Explorer` for live OpenAPI browsing, authenticated execution, response inspection, and code snippets.

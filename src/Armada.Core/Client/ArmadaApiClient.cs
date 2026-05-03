@@ -608,6 +608,129 @@ namespace Armada.Core.Client
 
         #endregion
 
+        #region Public-Methods-WorkflowProfiles
+
+        /// <summary>
+        /// List workflow profiles.
+        /// </summary>
+        public async Task<EnumerationResult<WorkflowProfile>?> ListWorkflowProfilesAsync(CancellationToken token = default)
+        {
+            return await GetAsync<EnumerationResult<WorkflowProfile>>("/api/v1/workflow-profiles", token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Enumerate workflow profiles with paging and filtering.
+        /// </summary>
+        public async Task<EnumerationResult<WorkflowProfile>?> EnumerateWorkflowProfilesAsync(WorkflowProfileQuery? query = null, CancellationToken token = default)
+        {
+            return await PostAsync<EnumerationResult<WorkflowProfile>, WorkflowProfileQuery>("/api/v1/workflow-profiles/enumerate", query ?? new WorkflowProfileQuery(), token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Get a workflow profile by ID.
+        /// </summary>
+        public async Task<WorkflowProfile?> GetWorkflowProfileAsync(string id, CancellationToken token = default)
+        {
+            return await GetAsync<WorkflowProfile>("/api/v1/workflow-profiles/" + id, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Validate a workflow profile definition.
+        /// </summary>
+        public async Task<WorkflowProfileValidationResult?> ValidateWorkflowProfileAsync(WorkflowProfile profile, CancellationToken token = default)
+        {
+            return await PostAsync<WorkflowProfileValidationResult, WorkflowProfile>("/api/v1/workflow-profiles/validate", profile, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Resolve the active workflow profile for a vessel.
+        /// </summary>
+        public async Task<WorkflowProfile?> ResolveWorkflowProfileAsync(string vesselId, string? workflowProfileId = null, CancellationToken token = default)
+        {
+            string path = "/api/v1/workflow-profiles/resolve/vessels/" + vesselId;
+            if (!String.IsNullOrWhiteSpace(workflowProfileId))
+                path += "?workflowProfileId=" + Uri.EscapeDataString(workflowProfileId);
+            return await GetAsync<WorkflowProfile>(path, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Create a workflow profile.
+        /// </summary>
+        public async Task<WorkflowProfile?> CreateWorkflowProfileAsync(WorkflowProfile profile, CancellationToken token = default)
+        {
+            return await PostAsync<WorkflowProfile, WorkflowProfile>("/api/v1/workflow-profiles", profile, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Update a workflow profile.
+        /// </summary>
+        public async Task<WorkflowProfile?> UpdateWorkflowProfileAsync(string id, WorkflowProfile profile, CancellationToken token = default)
+        {
+            return await PutAsync<WorkflowProfile, WorkflowProfile>("/api/v1/workflow-profiles/" + id, profile, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Delete a workflow profile.
+        /// </summary>
+        public async Task DeleteWorkflowProfileAsync(string id, CancellationToken token = default)
+        {
+            await DeleteAsync("/api/v1/workflow-profiles/" + id, token).ConfigureAwait(false);
+        }
+
+        #endregion
+
+        #region Public-Methods-CheckRuns
+
+        /// <summary>
+        /// List structured check runs.
+        /// </summary>
+        public async Task<EnumerationResult<CheckRun>?> ListCheckRunsAsync(CancellationToken token = default)
+        {
+            return await GetAsync<EnumerationResult<CheckRun>>("/api/v1/check-runs", token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Enumerate structured check runs with paging and filtering.
+        /// </summary>
+        public async Task<EnumerationResult<CheckRun>?> EnumerateCheckRunsAsync(CheckRunQuery? query = null, CancellationToken token = default)
+        {
+            return await PostAsync<EnumerationResult<CheckRun>, CheckRunQuery>("/api/v1/check-runs/enumerate", query ?? new CheckRunQuery(), token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Get a structured check run by ID.
+        /// </summary>
+        public async Task<CheckRun?> GetCheckRunAsync(string id, CancellationToken token = default)
+        {
+            return await GetAsync<CheckRun>("/api/v1/check-runs/" + id, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Execute a structured check run.
+        /// </summary>
+        public async Task<CheckRun?> RunCheckAsync(CheckRunRequest request, CancellationToken token = default)
+        {
+            return await PostAsync<CheckRun, CheckRunRequest>("/api/v1/check-runs", request, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Retry a structured check run.
+        /// </summary>
+        public async Task<CheckRun?> RetryCheckRunAsync(string id, CancellationToken token = default)
+        {
+            return await PostAsync<CheckRun>("/api/v1/check-runs/" + id + "/retry", new { }, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Delete a structured check run.
+        /// </summary>
+        public async Task DeleteCheckRunAsync(string id, CancellationToken token = default)
+        {
+            await DeleteAsync("/api/v1/check-runs/" + id, token).ConfigureAwait(false);
+        }
+
+        #endregion
+
         #region Public-Methods-Dispose
 
         /// <summary>

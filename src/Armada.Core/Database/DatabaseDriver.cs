@@ -104,6 +104,16 @@ namespace Armada.Core.Database
         /// </summary>
         public IPlaybookMethods Playbooks { get; protected set; } = null!;
 
+        /// <summary>
+        /// Workflow-profile operations.
+        /// </summary>
+        public IWorkflowProfileMethods WorkflowProfiles { get; protected set; } = null!;
+
+        /// <summary>
+        /// Structured check-run operations.
+        /// </summary>
+        public ICheckRunMethods CheckRuns { get; protected set; } = null!;
+
         #endregion
 
         #region Constructors-and-Factories

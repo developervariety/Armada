@@ -69,6 +69,8 @@ namespace Armada.Core.Database.Mysql
             Playbooks = new PlaybookMethods(_ConnectionString);
             Personas = new PersonaMethods(_ConnectionString);
             Pipelines = new PipelineMethods(_ConnectionString);
+            WorkflowProfiles = new WorkflowProfileMethods(_ConnectionString);
+            CheckRuns = new CheckRunMethods(_ConnectionString);
         }
 
         #endregion
@@ -447,6 +449,16 @@ namespace Armada.Core.Database.Mysql
                     31,
                     "Add pipeline review gates",
                     TableQueries.MigrationV31Statements
+                ),
+                new SchemaMigration(
+                    32,
+                    "Add workflow profiles",
+                    TableQueries.MigrationV32Statements
+                ),
+                new SchemaMigration(
+                    33,
+                    "Add check runs",
+                    TableQueries.MigrationV33Statements
                 )
             };
         }

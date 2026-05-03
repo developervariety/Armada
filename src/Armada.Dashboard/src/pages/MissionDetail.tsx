@@ -327,6 +327,11 @@ export default function MissionDetail() {
           <button className="btn btn-sm" onClick={handleViewDiff} title={t('View mission diff')}>{t('Diff')}</button>
           <button className="btn btn-sm" onClick={handleViewLog} title={t('View mission log')}>{t('Log')}</button>
           <button className="btn btn-sm" onClick={handleViewInstructions} title={t('View mission instructions')}>{t('Instructions')}</button>
+          {mission.vesselId && (
+            <button className="btn btn-sm" onClick={() => navigate('/checks', { state: { prefill: { vesselId: mission.vesselId, missionId: mission.id, voyageId: mission.voyageId || null, branchName: mission.branchName || null, commitHash: mission.commitHash || null, label: mission.title } } })}>
+              {t('Run Check')}
+            </button>
+          )}
           {(mission.status === 'WorkProduced' || mission.status === 'LandingFailed') && (
             <button className="btn btn-sm btn-primary" onClick={async () => { try { await retryMissionLanding(mission.id); pushToast('success', t('Landing succeeded! Mission status updated.')); loadMission(); } catch (e) { setError(e instanceof Error ? e.message : t('Retry landing failed.')); } }} title={t('Rebase the mission branch and re-attempt merge into the target branch')}>{t('Retry Landing')}</button>
           )}
@@ -339,6 +344,7 @@ export default function MissionDetail() {
             { label: 'View Diff', onClick: handleViewDiff },
             { label: 'View Log', onClick: handleViewLog },
             { label: 'View Instructions', onClick: handleViewInstructions },
+            ...(mission.vesselId ? [{ label: 'Run Check', onClick: () => navigate('/checks', { state: { prefill: { vesselId: mission.vesselId, missionId: mission.id, voyageId: mission.voyageId || null, branchName: mission.branchName || null, commitHash: mission.commitHash || null, label: mission.title } } }) }] : []),
             { label: 'Transition Status', onClick: () => setShowTransition(true) },
             { label: 'View JSON', onClick: () => setJsonData({ open: true, title: t('Mission: {{title}}', { title: mission.title }), data: mission }) },
             { label: 'Restart', onClick: handleRestart },

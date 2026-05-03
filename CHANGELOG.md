@@ -33,6 +33,7 @@ Focus: remote access.
 - Added explicit success and warning toast feedback across dashboard mutation flows so save, delete, cancel, stop, and update actions acknowledge completion visibly
 - Added a first-class `Workspace` experience with vessel-aware file browsing, editing, search, git status, context curation, and direct planning/dispatch handoff
 - Added `System > Requests` and `System > API Explorer` so captured REST traffic, OpenAPI-backed live execution, and replay all live inside the Armada dashboard
+- Added a first-class `Delivery` section in the dashboard for workflow-profile management and structured check-run inspection
 
 ### Playbooks
 - Added tenant-scoped markdown playbooks with CRUD across REST, MCP, proxy remote management, dashboard, CLI, SDK, and Postman
@@ -57,11 +58,19 @@ Focus: remote access.
 - Added Mux captain runtime integration, Mux endpoint/config support on captains, and runtime helper APIs for saved endpoint discovery
 - Added live OpenAPI publishing at `/openapi.json` and `/swagger` to back the dashboard API Explorer and external tooling
 
+### Delivery Workflows
+- Added workflow profiles as first-class vessel/fleet delivery recipes for lint, build, unit test, integration test, e2e test, package, publish artifact, release versioning, changelog, deploy, rollback, smoke-test, and health-check flows
+- Added workflow-profile validation, scope-aware default resolution, and required secret/config reference declarations across SQLite, PostgreSQL, SQL Server, and MySQL
+- Added workflow-profile CRUD, validation, resolve, and enumerate APIs plus `ArmadaApiClient` support and dashboard list/detail/edit flows
+- Added structured check runs with durable status, timings, logs, artifacts, summaries, retry, branch/commit metadata, and mission/voyage linkage
+- Added check-run execute/read/retry/delete/enumerate APIs, dashboard list/detail flows, and launch hooks from Workspace, vessel detail, and mission detail
+- Added MCP enumeration support for `workflow_profiles` and `check_runs`
+
 ### Release and Docs
 - Updated shared release metadata, docker tags, Postman examples, REST docs, MCP docs, and WebSocket docs to `v0.7.0`
 - Promoted the shipped remote-management guide into `docs/REMOTE_MGMT.md` and archived the earlier planning doc
 - Added no-op `v0.6.0 -> v0.7.0` migration scripts to reflect the release even though no database schema change is required
-- Updated README and operator docs for the new playbook lifecycle, delivery modes, remote playbook management flows, workspace, request-history, planning-session, Mux, and internationalized dashboard behavior
+- Updated README and operator docs for the new playbook lifecycle, delivery modes, workflow profiles, structured checks, remote playbook management flows, workspace, request-history, planning-session, Mux, and internationalized dashboard behavior
 
 ---
 

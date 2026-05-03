@@ -68,6 +68,8 @@ namespace Armada.Server
         private PlanningSessionCoordinator _PlanningSessions = null!;
         private IWorkspaceService _Workspace = null!;
         private RequestHistoryCaptureService _RequestHistoryCapture = null!;
+        private WorkflowProfileService _WorkflowProfileService = null!;
+        private CheckRunService _CheckRunService = null!;
 
         private ISessionTokenService _SessionTokenService = null!;
         private IAuthenticationService _AuthenticationService = null!;
@@ -140,6 +142,8 @@ namespace Armada.Server
             _RuntimeFactory = new AgentRuntimeFactory(_Logging);
             _Workspace = new WorkspaceService();
             _RequestHistoryCapture = new RequestHistoryCaptureService(_Settings);
+            _WorkflowProfileService = new WorkflowProfileService(_Database, _Logging);
+            _CheckRunService = new CheckRunService(_Database, _WorkflowProfileService, _Logging);
             _RemoteTunnel = new RemoteTunnelManager(_Logging, _Settings);
             admiralService.OnGetRemoteTunnelStatus = _RemoteTunnel.GetStatus;
             _RemoteControlQueries = new RemoteControlQueryService(
@@ -222,6 +226,8 @@ namespace Armada.Server
                 openApi.Tags.Add(new OpenApiTag { Name = "Fleets", Description = "Fleet (repository collection) management" });
                 openApi.Tags.Add(new OpenApiTag { Name = "Vessels", Description = "Vessel (git repository) management" });
                 openApi.Tags.Add(new OpenApiTag { Name = "Workspace", Description = "Workspace browsing, editing, search, and dispatch handoff" });
+                openApi.Tags.Add(new OpenApiTag { Name = "WorkflowProfiles", Description = "Project-specific build, test, release, deploy, and verification command profiles" });
+                openApi.Tags.Add(new OpenApiTag { Name = "CheckRuns", Description = "Structured build, test, deploy, and verification executions with durable results" });
                 openApi.Tags.Add(new OpenApiTag { Name = "RequestHistory", Description = "Captured REST request history, summaries, and replay metadata" });
                 openApi.Tags.Add(new OpenApiTag { Name = "Voyages", Description = "Voyage (mission batch) management" });
                 openApi.Tags.Add(new OpenApiTag { Name = "Missions", Description = "Mission (atomic work unit) management" });
@@ -438,6 +444,14 @@ namespace Armada.Server
 
             // Workspace
             new WorkspaceRoutes(_Database, _Workspace, _JsonOptions)
+                .Register(_App, authenticate, _AuthorizationService);
+
+            // Workflow profiles
+            new WorkflowProfileRoutes(_Database, _WorkflowProfileService, _JsonOptions)
+                .Register(_App, authenticate, _AuthorizationService);
+
+            // Structured check runs
+            new CheckRunRoutes(_Database, _CheckRunService, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Request history

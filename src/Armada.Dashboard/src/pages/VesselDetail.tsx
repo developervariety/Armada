@@ -142,10 +142,14 @@ export default function VesselDetail() {
       <div className="detail-header">
         <h2>{vessel.name}</h2>
         <div className="inline-actions">
+          <button type="button" className="btn btn-sm" onClick={() => navigate('/checks', { state: { prefill: { vesselId: vessel.id, branchName: vessel.defaultBranch || '' } } })}>
+            {t('Run Check')}
+          </button>
           <button type="button" className="btn btn-sm" onClick={() => navigate(`/workspace/${vessel.id}`)}>
             {t('Open Workspace')}
           </button>
           <ActionMenu id={`vessel-${vessel.id}`} items={[
+            { label: 'Run Check', onClick: () => navigate('/checks', { state: { prefill: { vesselId: vessel.id, branchName: vessel.defaultBranch || '' } } }) },
             { label: 'Open Workspace', onClick: () => navigate(`/workspace/${vessel.id}`) },
             { label: 'Edit', onClick: openEdit },
             { label: 'View JSON', onClick: () => setJsonData({ open: true, title: t('Vessel: {{name}}', { name: vessel.name }), data: vessel }) },

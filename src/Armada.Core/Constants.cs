@@ -125,6 +125,16 @@ namespace Armada.Core
         public static readonly string RequestHistoryIdPrefix = "req_";
 
         /// <summary>
+        /// Workflow profile ID prefix.
+        /// </summary>
+        public static readonly string WorkflowProfileIdPrefix = "wfp_";
+
+        /// <summary>
+        /// Check run ID prefix.
+        /// </summary>
+        public static readonly string CheckRunIdPrefix = "chk_";
+
+        /// <summary>
         /// Dock ID prefix.
         /// </summary>
         public static readonly string DockIdPrefix = "dck_";

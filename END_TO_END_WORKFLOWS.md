@@ -39,6 +39,8 @@ Armada already ships pieces of this lifecycle:
 - [x] Direct dispatch and multi-mission voyages
 - [x] Persona- and pipeline-based orchestration
 - [x] Configurable stage-level review gates with approve and deny flows
+- [x] Workflow profiles for vessel- and fleet-aware build, test, release, deploy, and verification commands
+- [x] Structured check runs with logs, artifacts, retry, and workflow-profile-backed execution
 - [x] Vessel-aware Workspace for browsing and editing repositories
 - [x] Request history and API Explorer
 - [x] Merge queue
@@ -92,28 +94,28 @@ Acceptance criteria:
 
 A vessel-scoped or fleet-scoped definition of how a project builds, tests, packages, releases, and deploys.
 
-- [ ] Define a project workflow profile model
-- [ ] Support commands or scripts for lint, build, unit test, integration test, e2e, package, publish, smoke test, deploy, rollback, and health check
-- [ ] Support environment-variable inputs and secret references without storing secrets inline
-- [ ] Allow profiles to inherit from fleet defaults and override per vessel
+- [x] Define a project workflow profile model
+- [x] Support commands or scripts for lint, build, unit test, integration test, e2e, package, publish, smoke test, deploy, rollback, and health check
+- [x] Support required secret/config references without storing secret values inline
+- [x] Allow profiles to resolve from global or fleet defaults with vessel overrides
 
 Acceptance criteria:
 
-- Armada can understand how a given repository actually ships without hard-coding one toolchain
-- A vessel can expose build/test/deploy actions using its profile
+- [x] Armada can understand how a given repository actually ships without hard-coding one toolchain
+- [x] A vessel can expose build/test/deploy actions using its profile
 
 ### `CheckRun`
 
 A structured record for any automated validation or execution step.
 
-- [ ] Define a `CheckRun` model with type, status, started/completed times, logs, artifacts, summary, and links to the triggering entity
-- [ ] Support check categories such as lint, build, unit test, integration test, e2e, migration, security scan, smoke test, deploy, and rollback
+- [x] Define a `CheckRun` model with type, status, started/completed times, logs, artifacts, summary, and links to the triggering entity
+- [x] Support check categories such as lint, build, unit test, integration test, e2e, package, publish artifact, release versioning, changelog, smoke test, deploy, rollback, health check, and custom-command execution
 - [ ] Support both Armada-executed and externally-ingested checks
 
 Acceptance criteria:
 
-- Builds, tests, and post-deploy validations are represented consistently
-- A mission, release, or deployment can show all relevant checks in one place
+- [x] Builds, tests, and post-deploy validations are represented consistently for Armada-executed runs
+- [ ] A mission, release, or deployment can show all relevant checks in one place
 
 ### `Environment`
 
@@ -206,12 +208,24 @@ Acceptance criteria:
 
 This is the core abstraction that unlocks the rest of the lifecycle.
 
+### Already Shipped In This Area
+
+- [x] `WorkflowProfile` models, services, and persistence ship across SQLite, PostgreSQL, SQL Server, and MySQL
+- [x] Profiles can be scoped globally, to fleets, or to vessels, with default-selection fallback from vessel to fleet to global
+- [x] Profiles support named commands for lint, build, unit/integration/e2e test, package, publish artifact, release versioning, changelog, and environment-specific deploy/rollback/smoke/health flows
+- [x] Profiles support required secret/config reference lists and expected artifact declarations
+- [x] Validation returns errors, warnings, and available check types before execution
+- [x] Dashboard list/detail/edit flows ship under `Delivery > Workflow Profiles`
+- [x] REST routes and `ArmadaApiClient` support create, read, update, delete, validate, resolve, and enumerate
+- [x] Workflow profiles are queryable through MCP enumeration
+
 ### Capability Target
 
-- [ ] Let each vessel define how to run its build, test, release, deploy, verify, and rollback steps
-- [ ] Support multiple named workflow profiles per vessel when needed
-- [ ] Allow fleet defaults with vessel overrides
-- [ ] Support profile validation and dry-run inspection
+- [x] Let each vessel define how to run its build, test, release, deploy, verify, and rollback steps
+- [x] Support multiple named workflow profiles per vessel when needed
+- [x] Allow fleet defaults with vessel overrides
+- [x] Support profile validation and preview inspection
+- [ ] Support richer command-level dry-run inspection across environments and resolved fallbacks
 
 ### Suggested Workflow Profile Fields
 
@@ -236,52 +250,87 @@ This is the core abstraction that unlocks the rest of the lifecycle.
 
 ### Concrete Work
 
-- [ ] Add workflow profile models and persistence
-- [ ] Add list/detail/edit dashboard flows
-- [ ] Add validation service and preview output
-- [ ] Add REST and MCP access where useful
+- [x] Add workflow profile models and persistence
+- [x] Add list/detail/edit dashboard flows
+- [x] Add validation service and preview output
+- [x] Add REST and MCP access where useful
+
+### Follow-Up Remaining In This Area
+
+- [ ] Add richer preview output showing the fully resolved command set per target environment and scope fallback
+- [ ] Replace plain string secret/config references with first-class provider/key references when Workstream M ships
+- [ ] Connect workflow profiles into future release, deployment, and environment records once those entities exist
 
 Acceptance criteria:
 
-- A developer can configure how a project is built and shipped without modifying Armada code
+- [x] A developer can configure how a project is built and shipped without modifying Armada code
 
 ## Workstream D: Structured Build and Validation Checks
 
 Armada should represent validation as first-class structured work, not just freeform logs inside missions.
 
+### Already Shipped In This Area
+
+- [x] `CheckRun` and `CheckRunArtifact` models, execution service, and persistence ship across SQLite, PostgreSQL, SQL Server, and MySQL
+- [x] Checks resolve commands from workflow profiles and execute inside the vessel working directory
+- [x] Checks capture status, timings, exit code, combined output, summaries, artifacts, branch metadata, commit metadata, and mission/voyage linkage
+- [x] Check runs support retry by reusing the prior run context
+- [x] Dashboard list/detail flows ship under `Delivery > Checks`
+- [x] REST routes and `ArmadaApiClient` support execute, read, enumerate, retry, and delete
+- [x] Workspace, vessel detail, and mission detail can launch check runs
+- [x] Check runs are queryable through MCP enumeration
+
 ### Capability Target
 
-- [ ] Run build and test checks from Workspace, vessel detail, mission detail, release detail, and deployment detail
-- [ ] Capture logs, durations, exit status, artifacts, parsed test counts, and coverage summaries
-- [ ] Support retry and compare-last-run behavior
-- [ ] Support per-check scope such as branch, commit, mission, voyage, or release
+- [x] Run build and test checks from Workspace, vessel detail, and mission detail
+- [ ] Run build and test checks from release detail and deployment detail
+- [x] Capture logs, durations, exit status, and artifacts
+- [ ] Capture parsed test counts and coverage summaries
+- [x] Support retry
+- [ ] Support compare-last-run behavior
+- [x] Support per-check scope such as branch, commit, mission, or voyage
+- [ ] Support release- and deployment-linked runs
 
 ### Check Types Armada Should Support
 
-- [ ] lint
-- [ ] build
-- [ ] unit test
-- [ ] integration test
-- [ ] e2e test
-- [ ] package
+- [x] lint
+- [x] build
+- [x] unit test
+- [x] integration test
+- [x] e2e test
+- [x] package
+- [x] publish artifact
+- [x] release versioning
+- [x] changelog
+- [x] deploy
+- [x] rollback
+- [x] smoke test
+- [x] health check
 - [ ] migration check
 - [ ] security scan
 - [ ] performance check
-- [ ] smoke test
 - [ ] deployment verification
 - [ ] rollback verification
 
 ### Concrete Work
 
-- [ ] Add `CheckRun` and related artifact models
-- [ ] Add services to execute and persist check runs
-- [ ] Add dashboard views for list, detail, logs, artifacts, and summaries
-- [ ] Add REST endpoints for execution and retrieval
-- [ ] Add hooks from missions, voyages, releases, deployments, and environments
+- [x] Add `CheckRun` and related artifact models
+- [x] Add services to execute and persist check runs
+- [x] Add dashboard views for list, detail, logs, artifacts, and summaries
+- [x] Add REST endpoints for execution and retrieval
+- [x] Add hooks from workspace, vessels, and missions
+- [ ] Add hooks from voyages, releases, deployments, and environments
+
+### Follow-Up Remaining In This Area
+
+- [ ] Parse structured test counts and coverage data from common test runners
+- [ ] Add compare-last-run and regression-focused UX in the dashboard
+- [ ] Support externally-ingested CI/provider check runs alongside Armada-executed runs
+- [ ] Connect checks to future release, deployment, and environment records once those entities exist
 
 Acceptance criteria:
 
-- A developer can answer “what checks ran, where, on what code, and with what outcome?” without leaving Armada
+- [x] A developer can answer "what checks ran, where, on what code, and with what outcome?" for current workflow-profile-backed runs without leaving Armada
 
 ## Workstream E: CI/CD Provider Integration
 
@@ -557,6 +606,7 @@ These workflow areas will require rethinking the dashboard layout over time.
   - Captains
   - Docks
 - `Delivery`
+  - Workflow Profiles
   - Checks
   - Releases
   - Deployments
@@ -585,15 +635,16 @@ Implementation notes:
 
 - [ ] Avoid one-off nested exceptions in the nav
 - [ ] Keep delivery workflows coherent and discoverable
-- [ ] Ensure Workflow/Delivery surfaces feel first-class, not admin-only afterthoughts
+- [x] Workflow Profiles and Checks now ship as first-class Delivery surfaces, not admin-only afterthoughts
+- [ ] Ensure future Workflow/Delivery surfaces continue to feel first-class as release/deploy entities arrive
 
 ## API Surface Impact
 
 Armada will likely need new REST route families for:
 
 - [ ] objectives or intake records
-- [ ] workflow profiles
-- [ ] check runs
+- [x] workflow profiles
+- [x] check runs
 - [ ] releases
 - [ ] environments
 - [ ] deployments
@@ -636,7 +687,8 @@ Acceptance criteria:
 
 The plan adds multiple first-class lifecycle entities. Persistence work should stay backend-neutral.
 
-- [ ] Ensure SQLite, PostgreSQL, SQL Server, and MySQL support the new workflow entities
+- [x] Workflow profiles and check runs now ship across SQLite, PostgreSQL, SQL Server, and MySQL
+- [ ] Ensure later lifecycle entities keep the same backend-neutral coverage
 - [ ] Add versioned migrations for all new lifecycle concepts
 - [ ] Define retention strategies for noisy entities like check logs and deployment logs
 - [ ] Separate durable metadata from bulky artifacts where appropriate
@@ -651,17 +703,17 @@ Each workstream should ship with both backend and dashboard coverage where appli
 
 ### Required test layers
 
-- [ ] unit tests for new domain services
+- [x] Unit tests now cover workflow-profile validation/resolution and check-run execution/retry services
 - [ ] database tests for persistence behavior
-- [ ] automated REST tests for lifecycle routes
+- [x] Automated REST tests now cover workflow-profile CRUD/resolve/validate and check-run execute/read/retry/delete routes
 - [ ] dashboard Vitest coverage for key pages and interactions
 - [ ] remote/proxy tests for remote lifecycle workflows where implemented
 
 ### Suggested verification themes
 
-- [ ] build/test/deploy flows respect vessel workflow profiles
-- [ ] role and tenant scoping works correctly
-- [ ] artifacts and logs are queryable after execution
+- [x] build/test flows respect vessel workflow profiles
+- [x] role and tenant scoping works correctly for workflow profiles and check runs
+- [x] artifacts and logs are queryable after execution for workflow-profile-backed check runs
 - [ ] linked timelines remain consistent across entities
 - [ ] rollback and incident flows do not silently lose context
 

@@ -39,6 +39,10 @@ import type {
   Persona,
   Pipeline,
   Playbook,
+  WorkflowProfile,
+  WorkflowProfileValidationResult,
+  CheckRun,
+  CheckRunRequest,
   MuxEndpointListResult,
   MuxEndpointShowResult,
   WorkspaceChangesResult,
@@ -374,6 +378,25 @@ export const getPlaybook = (id: string) => get<Playbook>(`/api/v1/playbooks/${id
 export const createPlaybook = (data: Partial<Playbook>) => post<Playbook>('/api/v1/playbooks', data);
 export const updatePlaybook = (id: string, data: Partial<Playbook>) => put<Playbook>(`/api/v1/playbooks/${id}`, data);
 export const deletePlaybook = (id: string) => del<void>(`/api/v1/playbooks/${id}`);
+
+// ==================== Workflow Profiles ====================
+export const listWorkflowProfiles = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
+  get<EnumerationResult<WorkflowProfile>>(`/api/v1/workflow-profiles${buildQuery(params)}`);
+export const getWorkflowProfile = (id: string) => get<WorkflowProfile>(`/api/v1/workflow-profiles/${encodeURIComponent(id)}`);
+export const createWorkflowProfile = (data: Partial<WorkflowProfile>) => post<WorkflowProfile>('/api/v1/workflow-profiles', data);
+export const updateWorkflowProfile = (id: string, data: Partial<WorkflowProfile>) => put<WorkflowProfile>(`/api/v1/workflow-profiles/${encodeURIComponent(id)}`, data);
+export const deleteWorkflowProfile = (id: string) => del<void>(`/api/v1/workflow-profiles/${encodeURIComponent(id)}`);
+export const validateWorkflowProfile = (data: Partial<WorkflowProfile>) => post<WorkflowProfileValidationResult>('/api/v1/workflow-profiles/validate', data);
+export const resolveWorkflowProfile = (vesselId: string, workflowProfileId?: string | null) =>
+  get<WorkflowProfile>(`/api/v1/workflow-profiles/resolve/vessels/${encodeURIComponent(vesselId)}${workflowProfileId ? `?workflowProfileId=${encodeURIComponent(workflowProfileId)}` : ''}`);
+
+// ==================== Check Runs ====================
+export const listCheckRuns = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
+  get<EnumerationResult<CheckRun>>(`/api/v1/check-runs${buildQuery(params)}`);
+export const getCheckRun = (id: string) => get<CheckRun>(`/api/v1/check-runs/${encodeURIComponent(id)}`);
+export const runCheck = (data: CheckRunRequest) => post<CheckRun>('/api/v1/check-runs', data, { timeout: 35 * 60 * 1000 });
+export const retryCheckRun = (id: string) => post<CheckRun>(`/api/v1/check-runs/${encodeURIComponent(id)}/retry`);
+export const deleteCheckRun = (id: string) => del<void>(`/api/v1/check-runs/${encodeURIComponent(id)}`);
 
 // ==================== Personas ====================
 export const listPersonas = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>

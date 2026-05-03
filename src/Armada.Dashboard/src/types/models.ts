@@ -284,6 +284,115 @@ export interface Playbook {
   lastUpdateUtc: string;
 }
 
+export type WorkflowProfileScope = 'Global' | 'Fleet' | 'Vessel';
+
+export interface WorkflowEnvironmentProfile {
+  environmentName: string;
+  deployCommand: string | null;
+  rollbackCommand: string | null;
+  smokeTestCommand: string | null;
+  healthCheckCommand: string | null;
+}
+
+export interface WorkflowProfile {
+  id: string;
+  tenantId: string | null;
+  userId: string | null;
+  name: string;
+  description: string | null;
+  scope: WorkflowProfileScope;
+  fleetId: string | null;
+  vesselId: string | null;
+  isDefault: boolean;
+  active: boolean;
+  languageHints: string[];
+  lintCommand: string | null;
+  buildCommand: string | null;
+  unitTestCommand: string | null;
+  integrationTestCommand: string | null;
+  e2eTestCommand: string | null;
+  packageCommand: string | null;
+  publishArtifactCommand: string | null;
+  releaseVersioningCommand: string | null;
+  changelogGenerationCommand: string | null;
+  requiredSecrets: string[];
+  expectedArtifacts: string[];
+  environments: WorkflowEnvironmentProfile[];
+  createdUtc: string;
+  lastUpdateUtc: string;
+}
+
+export interface WorkflowProfileValidationResult {
+  isValid: boolean;
+  errors: string[];
+  warnings: string[];
+  availableCheckTypes: string[];
+}
+
+export type CheckRunType =
+  | 'Lint'
+  | 'Build'
+  | 'UnitTest'
+  | 'IntegrationTest'
+  | 'E2ETest'
+  | 'Package'
+  | 'PublishArtifact'
+  | 'ReleaseVersioning'
+  | 'Changelog'
+  | 'Deploy'
+  | 'Rollback'
+  | 'SmokeTest'
+  | 'HealthCheck'
+  | 'Custom';
+
+export type CheckRunStatus = 'Pending' | 'Running' | 'Passed' | 'Failed' | 'Canceled';
+
+export interface CheckRunArtifact {
+  path: string;
+  sizeBytes: number;
+  lastWriteUtc: string;
+}
+
+export interface CheckRun {
+  id: string;
+  tenantId: string | null;
+  userId: string | null;
+  workflowProfileId: string | null;
+  vesselId: string | null;
+  missionId: string | null;
+  voyageId: string | null;
+  label: string | null;
+  type: CheckRunType;
+  status: CheckRunStatus;
+  environmentName: string | null;
+  command: string;
+  workingDirectory: string | null;
+  branchName: string | null;
+  commitHash: string | null;
+  exitCode: number | null;
+  output: string | null;
+  summary: string | null;
+  artifacts: CheckRunArtifact[];
+  durationMs: number | null;
+  startedUtc: string | null;
+  completedUtc: string | null;
+  createdUtc: string;
+  lastUpdateUtc: string;
+}
+
+export interface CheckRunRequest {
+  vesselId: string;
+  workflowProfileId?: string | null;
+  missionId?: string | null;
+  voyageId?: string | null;
+  type: CheckRunType;
+  environmentName?: string | null;
+  label?: string | null;
+  branchName?: string | null;
+  commitHash?: string | null;
+  commandOverride?: string | null;
+}
+
 export interface ArmadaEvent {
   id: string;
   tenantId: string | null;

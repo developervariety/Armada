@@ -33,13 +33,13 @@ namespace Armada.Server.Mcp.Tools
         {
             register(
                 "enumerate",
-                "Find and browse entities with paginated, filtered, sorted access to: fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, personas, prompt_templates, pipelines, playbooks. Returns paginated results with total counts. Filter by vesselId, fleetId, captainId, voyageId, status, date range, and more.",
+                "Find and browse entities with paginated, filtered, sorted access to: fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, personas, prompt_templates, pipelines, playbooks, workflow_profiles, check_runs. Returns paginated results with total counts. Filter by vesselId, fleetId, captainId, voyageId, status, date range, and more.",
                 new
                 {
                     type = "object",
                     properties = new
                     {
-                        entityType = new { type = "string", description = "Entity type to enumerate: fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, personas, prompt_templates, pipelines, playbooks" },
+                        entityType = new { type = "string", description = "Entity type to enumerate: fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, personas, prompt_templates, pipelines, playbooks, workflow_profiles, check_runs" },
                         pageNumber = new { type = "integer", description = "Page number (1-based, default 1)" },
                         pageSize = new { type = "integer", description = "Results per page (default 10, max 1000)" },
                         order = new { type = "string", description = "Sort order: CreatedAscending, CreatedDescending (default)" },
@@ -303,8 +303,26 @@ namespace Armada.Server.Mcp.Tools
                                 return (object)projectedPlaybooks;
                             }
                             return (object)playbooks;
+                        case "workflow_profiles":
+                        case "workflow_profile":
+                        case "workflowprofiles":
+                            EnumerationResult<WorkflowProfile> workflowProfiles = await database.WorkflowProfiles.EnumerateAsync(new WorkflowProfileQuery
+                            {
+                                PageNumber = query.PageNumber,
+                                PageSize = query.PageSize
+                            }).ConfigureAwait(false);
+                            return (object)workflowProfiles;
+                        case "check_runs":
+                        case "check_run":
+                        case "checkruns":
+                            EnumerationResult<CheckRun> checkRuns = await database.CheckRuns.EnumerateAsync(new CheckRunQuery
+                            {
+                                PageNumber = query.PageNumber,
+                                PageSize = query.PageSize
+                            }).ConfigureAwait(false);
+                            return (object)checkRuns;
                         default:
-                            return (object)new { Error = "Unknown entity type: " + entityType + ". Valid types: fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, personas, prompt_templates, pipelines, playbooks" };
+                            return (object)new { Error = "Unknown entity type: " + entityType + ". Valid types: fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, personas, prompt_templates, pipelines, playbooks, workflow_profiles, check_runs" };
                     }
                 });
         }

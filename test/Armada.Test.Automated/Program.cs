@@ -138,6 +138,7 @@ namespace Armada.Test.Automated
                     new AuthApiTests(authClient, unauthClient, baseUrl, apiKey),
                     new CrossTenantApiTests(authClient, unauthClient, baseUrl, apiKey),
                     new RequestHistoryTests(authClient, unauthClient, baseUrl),
+                    new WorkflowProfileCheckRunTests(authClient, unauthClient),
                     new McpToolTests(mcpClient),
                     new WebSocketTests(authClient, unauthClient, restPort, apiKey),
                     new PlanningSessionTests(authClient, unauthClient),

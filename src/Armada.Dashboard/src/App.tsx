@@ -47,6 +47,10 @@ import PromptTemplates from './pages/PromptTemplates';
 import PromptTemplateDetail from './pages/PromptTemplateDetail';
 import Playbooks from './pages/Playbooks';
 import PlaybookDetail from './pages/PlaybookDetail';
+import WorkflowProfiles from './pages/WorkflowProfiles';
+import WorkflowProfileDetail from './pages/WorkflowProfileDetail';
+import CheckRuns from './pages/CheckRuns';
+import CheckRunDetail from './pages/CheckRunDetail';
 import Workspace from './pages/Workspace';
 import RequestHistory from './pages/RequestHistory';
 import ApiExplorer from './pages/ApiExplorer';
@@ -111,6 +115,10 @@ export default function App() {
                   <Route path="prompt-templates/:name" element={<PromptTemplateDetail />} />
                   <Route path="playbooks" element={<Playbooks />} />
                   <Route path="playbooks/:id" element={<PlaybookDetail />} />
+                  <Route path="workflow-profiles" element={<WorkflowProfiles />} />
+                  <Route path="workflow-profiles/:id" element={<WorkflowProfileDetail />} />
+                  <Route path="checks" element={<CheckRuns />} />
+                  <Route path="checks/:id" element={<CheckRunDetail />} />
                   <Route path="requests" element={<RequestHistory />} />
                   <Route path="requests/:id" element={<RequestHistory />} />
                   <Route path="api-explorer" element={<ApiExplorer />} />

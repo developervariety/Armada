@@ -75,6 +75,8 @@ namespace Armada.Core.Database.SqlServer
             Playbooks = new PlaybookMethods(this, _Settings, _Logging);
             Personas = new PersonaMethods(this, _Settings, _Logging);
             Pipelines = new PipelineMethods(this, _Settings, _Logging);
+            WorkflowProfiles = new WorkflowProfileMethods(this);
+            CheckRuns = new CheckRunMethods(this);
         }
 
         #endregion

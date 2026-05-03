@@ -76,6 +76,8 @@ namespace Armada.Core.Database.Sqlite
             Playbooks = new PlaybookMethods(this, _Settings, _Logging);
             Personas = new PersonaMethods(this, _Settings, _Logging);
             Pipelines = new PipelineMethods(this, _Settings, _Logging);
+            WorkflowProfiles = new WorkflowProfileMethods(this, _Settings, _Logging);
+            CheckRuns = new CheckRunMethods(this, _Settings, _Logging);
         }
 
         /// <summary>
@@ -108,6 +110,8 @@ namespace Armada.Core.Database.Sqlite
             Playbooks = new PlaybookMethods(this, _Settings, _Logging);
             Personas = new PersonaMethods(this, _Settings, _Logging);
             Pipelines = new PipelineMethods(this, _Settings, _Logging);
+            WorkflowProfiles = new WorkflowProfileMethods(this, _Settings, _Logging);
+            CheckRuns = new CheckRunMethods(this, _Settings, _Logging);
         }
 
         #endregion

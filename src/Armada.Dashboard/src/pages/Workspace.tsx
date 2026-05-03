@@ -52,6 +52,10 @@ interface WorkspaceDispatchState {
   voyageTitle?: string;
 }
 
+interface WorkspaceCheckState {
+  prefill: Partial<import('../types/models').CheckRunRequest>;
+}
+
 const LAST_VESSEL_KEY = 'armada_workspace_last_vessel';
 const RECENT_VESSELS_KEY = 'armada_workspace_recent_vessels';
 
@@ -671,6 +675,18 @@ export default function Workspace() {
     navigate('/dispatch', { state });
   }
 
+  function handleRunCheck() {
+    if (!currentVessel) return;
+    const state: WorkspaceCheckState = {
+      prefill: {
+        vesselId: currentVessel.id,
+        branchName: status?.branchName || currentVessel.defaultBranch || null,
+        label: actionablePaths.length > 0 ? `${currentVessel.name}: ${actionablePaths[0]}` : currentVessel.name,
+      },
+    };
+    navigate('/checks', { state });
+  }
+
   function handleOpenHomeVessel(nextVesselId: string) {
     navigate(`/workspace/${nextVesselId}`);
   }
@@ -734,6 +750,7 @@ export default function Workspace() {
                 <button type="button" className="btn btn-sm btn-primary" onClick={() => void handleSaveActiveFile()} disabled={!activePath || !activeFile?.isEditable || !hasUnsavedChanges}>
                   {t('Save')}
                 </button>
+                <button type="button" className="btn btn-sm" onClick={handleRunCheck}>{t('Run Check')}</button>
                 <button type="button" className="btn btn-sm" onClick={handlePlanSelection} disabled={actionablePaths.length === 0}>{t('Plan')}</button>
                 <button type="button" className="btn btn-sm" onClick={handleDispatchSelection} disabled={actionablePaths.length === 0}>{t('Dispatch')}</button>
                 <button type="button" className="btn btn-sm" onClick={openContextModal}>{t('Context')}</button>
