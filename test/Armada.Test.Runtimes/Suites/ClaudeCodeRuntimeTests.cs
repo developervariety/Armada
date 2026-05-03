@@ -89,6 +89,16 @@ namespace Armada.Test.Runtimes.Suites
                 AssertTrue(args.Contains("--strict-mcp-config"), "--strict-mcp-config flag missing");
             });
 
+            await RunTest("BuildArguments Includes Isolation Flags When Model Supplied", () =>
+            {
+                InspectableClaudeCodeRuntime runtime = CreateRuntime();
+                List<string> args = runtime.Args("test prompt", "sonnet");
+                int settingSourcesIndex = args.IndexOf("--setting-sources");
+                AssertTrue(settingSourcesIndex >= 0, "--setting-sources flag missing");
+                AssertEqual("project,local", args[settingSourcesIndex + 1]);
+                AssertTrue(args.Contains("--strict-mcp-config"), "--strict-mcp-config flag missing");
+            });
+
             await RunTest("IsRunningAsync Invalid ProcessId Returns False", async () =>
             {
                 ClaudeCodeRuntime runtime = CreateRuntime();
