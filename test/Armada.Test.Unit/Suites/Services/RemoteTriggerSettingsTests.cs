@@ -111,6 +111,80 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertNull(localDaemonType, "LocalDaemonSettings type must not exist in Armada.Core");
                 return Task.CompletedTask;
             });
+
+            await RunTest("RemoteTriggerMode_ContainsAgentWake", () =>
+            {
+                string[] names = Enum.GetNames(typeof(RemoteTriggerMode));
+                AssertTrue(names.Contains("AgentWake"), "AgentWake must be a member of RemoteTriggerMode");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("IsAgentWakeConfigured_EnabledAndAgentWakeMode_True", () =>
+            {
+                RemoteTriggerSettings s = new RemoteTriggerSettings
+                {
+                    Enabled = true,
+                    Mode = RemoteTriggerMode.AgentWake,
+                };
+                AssertTrue(s.IsAgentWakeConfigured(), "Enabled=true and Mode=AgentWake with defaults should be configured");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("IsAgentWakeConfigured_EnabledFalse_False", () =>
+            {
+                RemoteTriggerSettings s = new RemoteTriggerSettings
+                {
+                    Enabled = false,
+                    Mode = RemoteTriggerMode.AgentWake,
+                };
+                AssertFalse(s.IsAgentWakeConfigured(), "Enabled=false should make IsAgentWakeConfigured return false");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("IsAgentWakeConfigured_RemoteFireMode_False", () =>
+            {
+                RemoteTriggerSettings s = new RemoteTriggerSettings
+                {
+                    Enabled = true,
+                    Mode = RemoteTriggerMode.RemoteFire,
+                    DrainerFireUrl = "https://api.anthropic.com/v1/claude_code/routines/trig_x/fire",
+                    DrainerBearerToken = "sk-ant-oat01-xxxxx",
+                };
+                AssertFalse(s.IsAgentWakeConfigured(), "RemoteFire mode should not satisfy IsAgentWakeConfigured");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("IsAgentWakeConfigured_DisabledMode_False", () =>
+            {
+                RemoteTriggerSettings s = new RemoteTriggerSettings
+                {
+                    Enabled = true,
+                    Mode = RemoteTriggerMode.Disabled,
+                };
+                AssertFalse(s.IsAgentWakeConfigured(), "Disabled mode should not satisfy IsAgentWakeConfigured");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("AgentWakeSettings_DefaultCommand_IsClaudeForClaudeRuntime", () =>
+            {
+                AgentWakeSettings aws = new AgentWakeSettings { Runtime = AgentWakeRuntime.Claude };
+                AssertEqual("claude", aws.GetEffectiveCommand(), "default Claude command should be 'claude'");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("AgentWakeSettings_DefaultCommand_IsCodexForCodexRuntime", () =>
+            {
+                AgentWakeSettings aws = new AgentWakeSettings { Runtime = AgentWakeRuntime.Codex };
+                AssertEqual("codex", aws.GetEffectiveCommand(), "default Codex command should be 'codex'");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("AgentWakeSettings_CustomCommand_OverridesDefault", () =>
+            {
+                AgentWakeSettings aws = new AgentWakeSettings { Runtime = AgentWakeRuntime.Claude, Command = "/usr/local/bin/claude" };
+                AssertEqual("/usr/local/bin/claude", aws.GetEffectiveCommand(), "explicit Command should override default");
+                return Task.CompletedTask;
+            });
         }
     }
 }

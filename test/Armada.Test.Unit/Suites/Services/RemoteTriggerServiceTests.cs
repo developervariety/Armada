@@ -2,6 +2,7 @@ namespace Armada.Test.Unit.Suites.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Models;
@@ -10,6 +11,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Settings;
     using Armada.Test.Common;
     using SyslogLogging;
+
 
     public class RemoteTriggerServiceTests : TestSuite
     {
@@ -149,6 +151,166 @@ namespace Armada.Test.Unit.Suites.Services
 
                 AssertEqual(0, http.CallCount, "Disabled mode should produce no critical HTTP calls even when RemoteFire fields are configured");
             });
+
+            await RunTest("FireDrainer_AgentWake_Disabled_NoOp", async () =>
+            {
+                RecordingAgentWakeProcessHost host = new RecordingAgentWakeProcessHost();
+                RecordingRemoteTriggerHttpClient http = new RecordingRemoteTriggerHttpClient();
+                RemoteTriggerSettings settings = new RemoteTriggerSettings { Enabled = false, Mode = RemoteTriggerMode.AgentWake };
+                RemoteTriggerService service = new RemoteTriggerService(settings, http, host, new LoggingModule(), TimeSpan.Zero);
+
+                await service.FireDrainerAsync("vessel-a", "some event");
+
+                AssertEqual(0, host.StartCallCount, "disabled AgentWake should produce no process spawns");
+            });
+
+            await RunTest("FireDrainer_AgentWake_StartsClaude_Continue", async () =>
+            {
+                RecordingAgentWakeProcessHost host = new RecordingAgentWakeProcessHost();
+                RecordingRemoteTriggerHttpClient http = new RecordingRemoteTriggerHttpClient();
+                RemoteTriggerService service = new RemoteTriggerService(MakeAgentWakeSettings(), http, host, new LoggingModule(), TimeSpan.Zero);
+
+                await service.FireDrainerAsync("vessel-a", "WorkProduced event text");
+
+                AssertEqual(1, host.StartCallCount, "AgentWake should spawn exactly one process");
+                AgentWakeProcessRequest req = host.LastRequest!;
+                AssertEqual("claude", req.Command, "default runtime should invoke 'claude'");
+                AssertTrue(req.ArgumentList.Contains("--print"), "Claude args must include --print");
+                AssertTrue(req.ArgumentList.Contains("--continue"), "Claude without SessionId must use --continue");
+                AssertTrue(req.ArgumentList.Contains("--strict-mcp-config"), "Claude args must include --strict-mcp-config");
+                AssertContains("WorkProduced", req.StdinPayload!, "stdin should contain the event text");
+                AssertContains("[AgentWake]", req.StdinPayload!, "stdin should contain one-shot instruction");
+            });
+
+            await RunTest("FireDrainer_AgentWake_WithClaudeSessionId_UsesResume", async () =>
+            {
+                RecordingAgentWakeProcessHost host = new RecordingAgentWakeProcessHost();
+                RecordingRemoteTriggerHttpClient http = new RecordingRemoteTriggerHttpClient();
+                RemoteTriggerSettings settings = MakeAgentWakeSettings();
+                settings.AgentWake = new AgentWakeSettings { Runtime = AgentWakeRuntime.Claude, SessionId = "sess_abc123" };
+                RemoteTriggerService service = new RemoteTriggerService(settings, http, host, new LoggingModule(), TimeSpan.Zero);
+
+                await service.FireDrainerAsync("vessel-a", "event");
+
+                AgentWakeProcessRequest req = host.LastRequest!;
+                AssertTrue(req.ArgumentList.Contains("--resume"), "Claude with SessionId must use --resume");
+                AssertTrue(req.ArgumentList.Contains("sess_abc123"), "Claude --resume must include the session id");
+                AssertFalse(req.ArgumentList.Contains("--continue"), "Claude with SessionId must NOT use --continue");
+            });
+
+            await RunTest("FireDrainer_AgentWake_WithCodexSessionId_UsesExecResume", async () =>
+            {
+                RecordingAgentWakeProcessHost host = new RecordingAgentWakeProcessHost();
+                RecordingRemoteTriggerHttpClient http = new RecordingRemoteTriggerHttpClient();
+                RemoteTriggerSettings settings = MakeAgentWakeSettings();
+                settings.AgentWake = new AgentWakeSettings { Runtime = AgentWakeRuntime.Codex, SessionId = "codex-sess-xyz" };
+                RemoteTriggerService service = new RemoteTriggerService(settings, http, host, new LoggingModule(), TimeSpan.Zero);
+
+                await service.FireDrainerAsync("vessel-a", "event");
+
+                AgentWakeProcessRequest req = host.LastRequest!;
+                AssertEqual("codex", req.Command, "Codex runtime should invoke 'codex'");
+                AssertTrue(req.ArgumentList.Contains("exec"), "Codex args must include exec");
+                AssertTrue(req.ArgumentList.Contains("resume"), "Codex args must include resume");
+                AssertTrue(req.ArgumentList.Contains("codex-sess-xyz"), "Codex resume must include session id");
+                AssertTrue(req.ArgumentList.Contains("-"), "Codex must include - to read stdin");
+                AssertFalse(req.ArgumentList.Contains("--last"), "Codex with SessionId must NOT use --last");
+            });
+
+            await RunTest("FireDrainer_AgentWake_WithoutCodexSessionId_UsesLast", async () =>
+            {
+                RecordingAgentWakeProcessHost host = new RecordingAgentWakeProcessHost();
+                RecordingRemoteTriggerHttpClient http = new RecordingRemoteTriggerHttpClient();
+                RemoteTriggerSettings settings = MakeAgentWakeSettings();
+                settings.AgentWake = new AgentWakeSettings { Runtime = AgentWakeRuntime.Codex };
+                RemoteTriggerService service = new RemoteTriggerService(settings, http, host, new LoggingModule(), TimeSpan.Zero);
+
+                await service.FireDrainerAsync("vessel-a", "event");
+
+                AgentWakeProcessRequest req = host.LastRequest!;
+                AssertTrue(req.ArgumentList.Contains("--last"), "Codex without SessionId must use --last");
+                AssertFalse(req.ArgumentList.Any(a => a.StartsWith("sess_")), "Codex without SessionId must not include a session id");
+            });
+
+            await RunTest("FireDrainer_AgentWake_SameVesselWithin60s_Coalesced", async () =>
+            {
+                RecordingAgentWakeProcessHost host = new RecordingAgentWakeProcessHost();
+                RecordingRemoteTriggerHttpClient http = new RecordingRemoteTriggerHttpClient();
+                RemoteTriggerService service = new RemoteTriggerService(MakeAgentWakeSettings(), http, host, new LoggingModule(), TimeSpan.Zero);
+
+                await service.FireDrainerAsync("vessel-a", "first event");
+                await service.FireDrainerAsync("vessel-a", "second event within window");
+
+                AssertEqual(1, host.StartCallCount, "second call for same vessel within 60s should be coalesced");
+            });
+
+            await RunTest("FireDrainer_AgentWake_HitsThrottle_Suppressed", async () =>
+            {
+                RecordingAgentWakeProcessHost host = new RecordingAgentWakeProcessHost();
+                RecordingRemoteTriggerHttpClient http = new RecordingRemoteTriggerHttpClient();
+                RemoteTriggerService service = new RemoteTriggerService(MakeAgentWakeSettings(), http, host, new LoggingModule(), TimeSpan.Zero);
+
+                for (int i = 0; i < 20; i++)
+                    await service.FireDrainerAsync("vessel-" + i, "event-" + i);
+
+                AssertEqual(20, host.StartCallCount, "20 distinct vessels should each spawn once");
+
+                await service.FireDrainerAsync("vessel-throttled", "should be suppressed");
+
+                AssertEqual(20, host.StartCallCount, "21st fire should be suppressed by throttle");
+            });
+
+            await RunTest("FireDrainer_AgentWake_SingleFlight_SuppressesConcurrentWake", async () =>
+            {
+                RecordingAgentWakeProcessHost host = new RecordingAgentWakeProcessHost();
+                host.BlockRelease = true; // don't call onExited immediately so lease stays held
+                RecordingRemoteTriggerHttpClient http = new RecordingRemoteTriggerHttpClient();
+                RemoteTriggerService service = new RemoteTriggerService(MakeAgentWakeSettings(), http, host, new LoggingModule(), TimeSpan.Zero);
+
+                await service.FireDrainerAsync("vessel-a", "first event -- acquires lease");
+                await service.FireDrainerAsync("vessel-b", "second event -- should be suppressed by single-flight");
+
+                AssertEqual(1, host.StartCallCount, "second call while AgentWake is running should be suppressed by single-flight");
+            });
+
+            await RunTest("FireCritical_AgentWake_BypassesCoalescing_HonorsSingleFlight", async () =>
+            {
+                RecordingAgentWakeProcessHost host = new RecordingAgentWakeProcessHost();
+                RecordingRemoteTriggerHttpClient http = new RecordingRemoteTriggerHttpClient();
+                RemoteTriggerService service = new RemoteTriggerService(MakeAgentWakeSettings(), http, host, new LoggingModule(), TimeSpan.Zero);
+
+                // Critical should start even without a prior drainer call
+                await service.FireCriticalAsync("audit critical finding");
+
+                AssertEqual(1, host.StartCallCount, "critical AgentWake should spawn a process");
+                AssertContains("[CRITICAL]", host.LastRequest!.StdinPayload!, "critical AgentWake stdin should include [CRITICAL] prefix");
+            });
+
+            await RunTest("FireCritical_AgentWake_SingleFlight_SuppressesWhileRunning", async () =>
+            {
+                RecordingAgentWakeProcessHost host = new RecordingAgentWakeProcessHost();
+                host.BlockRelease = true;
+                RecordingRemoteTriggerHttpClient http = new RecordingRemoteTriggerHttpClient();
+                RemoteTriggerService service = new RemoteTriggerService(MakeAgentWakeSettings(), http, host, new LoggingModule(), TimeSpan.Zero);
+
+                await service.FireCriticalAsync("first critical event -- acquires lease");
+                await service.FireCriticalAsync("second critical event -- should be suppressed");
+
+                AssertEqual(1, host.StartCallCount, "second critical while AgentWake is running should be suppressed by single-flight");
+            });
+
+            await RunTest("FireDrainer_AgentWake_SpawnFailure_RetriesAndIncrements", async () =>
+            {
+                RecordingAgentWakeProcessHost host = new RecordingAgentWakeProcessHost();
+                host.AlwaysFail = true;
+                RecordingRemoteTriggerHttpClient http = new RecordingRemoteTriggerHttpClient();
+                RemoteTriggerService service = new RemoteTriggerService(MakeAgentWakeSettings(), http, host, new LoggingModule(), TimeSpan.Zero);
+
+                await service.FireDrainerAsync("vessel-a", "event that will fail");
+
+                AssertEqual(2, host.StartCallCount, "spawn failure should be retried once (2 total attempts)");
+                AssertEqual(1, service.ConsecutiveFailures, "consecutive failure counter should increment after spawn failure");
+            });
         }
 
         private static RemoteTriggerSettings MakeSettings()
@@ -158,6 +320,15 @@ namespace Armada.Test.Unit.Suites.Services
                 Enabled = true,
                 DrainerFireUrl = "https://api.anthropic.com/v1/claude_code/routines/trig_test/fire",
                 DrainerBearerToken = "sk-ant-test-token",
+            };
+        }
+
+        private static RemoteTriggerSettings MakeAgentWakeSettings()
+        {
+            return new RemoteTriggerSettings
+            {
+                Enabled = true,
+                Mode = RemoteTriggerMode.AgentWake,
             };
         }
 
@@ -172,6 +343,32 @@ namespace Armada.Test.Unit.Suites.Services
                 CriticalFireUrl = "https://api.anthropic.com/v1/claude_code/routines/trig_critical/fire",
                 CriticalBearerToken = "sk-ant-critical-token",
             };
+        }
+
+        private sealed class RecordingAgentWakeProcessHost : IAgentWakeProcessHost
+        {
+            private readonly List<AgentWakeProcessRequest> _Calls = new List<AgentWakeProcessRequest>();
+            private Action? _PendingCallback;
+
+            public int StartCallCount => _Calls.Count;
+            public AgentWakeProcessRequest? LastRequest => _Calls.Count > 0 ? _Calls[_Calls.Count - 1] : null;
+            public bool AlwaysFail { get; set; } = false;
+
+            // When true, onExited is stored but not called immediately (simulates long-running process)
+            public bool BlockRelease { get; set; } = false;
+
+            public bool TryStart(AgentWakeProcessRequest request, Action onExited)
+            {
+                _Calls.Add(request);
+                if (AlwaysFail) return false;
+                if (BlockRelease)
+                    _PendingCallback = onExited;
+                else
+                    onExited();
+                return true;
+            }
+
+            public void ReleasePending() { _PendingCallback?.Invoke(); _PendingCallback = null; }
         }
 
         private sealed class RecordingRemoteTriggerHttpClient : IRemoteTriggerHttpClient
