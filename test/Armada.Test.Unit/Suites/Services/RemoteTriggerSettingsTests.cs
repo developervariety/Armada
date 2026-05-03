@@ -57,6 +57,32 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("IsDrainerConfigured_ModeDisabledWithRemoteFireFields_False", () =>
+            {
+                RemoteTriggerSettings s = new RemoteTriggerSettings
+                {
+                    Enabled = true,
+                    Mode = RemoteTriggerMode.Disabled,
+                    DrainerFireUrl = "https://api.anthropic.com/v1/claude_code/routines/trig_x/fire",
+                    DrainerBearerToken = "sk-ant-oat01-xxxxx",
+                };
+                AssertFalse(s.IsDrainerConfigured(), "Disabled mode should suppress drainer config even when RemoteFire fields are present");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("IsCriticalConfigured_ModeDisabledWithRemoteFireFields_False", () =>
+            {
+                RemoteTriggerSettings s = new RemoteTriggerSettings
+                {
+                    Enabled = true,
+                    Mode = RemoteTriggerMode.Disabled,
+                    CriticalFireUrl = "https://api.anthropic.com/v1/claude_code/routines/trig_critical/fire",
+                    CriticalBearerToken = "sk-ant-oat01-critical",
+                };
+                AssertFalse(s.IsCriticalConfigured(), "Disabled mode should suppress critical config even when RemoteFire fields are present");
+                return Task.CompletedTask;
+            });
+
             await RunTest("RemoteTriggerMode_DoesNotContain_LocalDaemon", () =>
             {
                 string[] names = Enum.GetNames(typeof(RemoteTriggerMode));

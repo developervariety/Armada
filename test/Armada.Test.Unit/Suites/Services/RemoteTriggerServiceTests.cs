@@ -28,6 +28,16 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(0, http.CallCount, "disabled settings should produce no HTTP calls");
             });
 
+            await RunTest("FireDrainer_ModeDisabledWithRemoteFireFields_NoOp", async () =>
+            {
+                RecordingRemoteTriggerHttpClient http = new RecordingRemoteTriggerHttpClient();
+                RemoteTriggerService service = new RemoteTriggerService(MakeDisabledModeSettings(), http, new LoggingModule(), TimeSpan.Zero);
+
+                await service.FireDrainerAsync("vessel-disabled-mode", "event with configured RemoteFire fields");
+
+                AssertEqual(0, http.CallCount, "Disabled mode should produce no HTTP calls even when RemoteFire fields are configured");
+            });
+
             await RunTest("FireDrainer_FirstCall_FiresOnce", async () =>
             {
                 RecordingRemoteTriggerHttpClient http = new RecordingRemoteTriggerHttpClient();
@@ -129,6 +139,16 @@ namespace Armada.Test.Unit.Suites.Services
 
                 AssertEqual(0, http.CallCount, "disabled settings should produce no HTTP calls for FireCritical");
             });
+
+            await RunTest("FireCritical_ModeDisabledWithRemoteFireFields_NoOp", async () =>
+            {
+                RecordingRemoteTriggerHttpClient http = new RecordingRemoteTriggerHttpClient();
+                RemoteTriggerService service = new RemoteTriggerService(MakeDisabledModeSettings(), http, new LoggingModule(), TimeSpan.Zero);
+
+                await service.FireCriticalAsync("critical event with configured RemoteFire fields");
+
+                AssertEqual(0, http.CallCount, "Disabled mode should produce no critical HTTP calls even when RemoteFire fields are configured");
+            });
         }
 
         private static RemoteTriggerSettings MakeSettings()
@@ -138,6 +158,19 @@ namespace Armada.Test.Unit.Suites.Services
                 Enabled = true,
                 DrainerFireUrl = "https://api.anthropic.com/v1/claude_code/routines/trig_test/fire",
                 DrainerBearerToken = "sk-ant-test-token",
+            };
+        }
+
+        private static RemoteTriggerSettings MakeDisabledModeSettings()
+        {
+            return new RemoteTriggerSettings
+            {
+                Enabled = true,
+                Mode = RemoteTriggerMode.Disabled,
+                DrainerFireUrl = "https://api.anthropic.com/v1/claude_code/routines/trig_test/fire",
+                DrainerBearerToken = "sk-ant-test-token",
+                CriticalFireUrl = "https://api.anthropic.com/v1/claude_code/routines/trig_critical/fire",
+                CriticalBearerToken = "sk-ant-critical-token",
             };
         }
 
