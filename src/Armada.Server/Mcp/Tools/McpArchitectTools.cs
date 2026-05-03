@@ -21,7 +21,7 @@ namespace Armada.Server.Mcp.Tools
         private const string SpecDestPath = "_briefing/spec.md";
         private const string ProjectClaudeDestPath = "_briefing/PROJECT-CLAUDE.md";
         private const string DefaultProjectClaudePath = @"C:\Users\Owner\RiderProjects\project\CLAUDE.md";
-        private const string DefaultArchitectModel = "claude-opus-4-7";
+        private const string DefaultArchitectModel = "high";
 
         /// <summary>Registers Architect MCP tools with the server.</summary>
         /// <param name="register">Delegate to register each tool.</param>
@@ -44,7 +44,7 @@ namespace Armada.Server.Mcp.Tools
                     {
                         specPath = new { type = "string", description = "Absolute path on the admiral host to the spec markdown file" },
                         vesselId = new { type = "string", description = "Target vessel for the Architect captain and downstream Worker missions" },
-                        preferredModel = new { type = "string", description = "Architect model. Default 'claude-opus-4-7'." },
+                        preferredModel = new { type = "string", description = "Architect complexity tier. Use 'low', 'mid', or 'high'. Default 'high'." },
                         selectedPlaybooks = new
                         {
                             type = "array",

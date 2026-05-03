@@ -58,7 +58,7 @@ namespace Armada.Server.Mcp.Tools
         {
             register(
                 "armada_dispatch",
-                "Dispatch a new voyage with missions to a vessel. Each mission may include an optional prestagedFiles array of {sourcePath, destPath} entries; the Admiral copies sourcePath (absolute, on the Admiral host) into destPath (relative, inside the dock worktree) after the dock is created and before the captain spawns. Each mission may also pin a specific captain via preferredCaptainId, use preferredModel with a tier value (low/mid/high) for random peer-model selection, or pass a literal model name as an escape hatch.",
+                "Dispatch a new voyage with missions to a vessel. Each mission may include an optional prestagedFiles array of {sourcePath, destPath} entries; the Admiral copies sourcePath (absolute, on the Admiral host) into destPath (relative, inside the dock worktree) after the dock is created and before the captain spawns. Each mission may also pin a specific captain via preferredCaptainId or use preferredModel with a complexity tier: low, mid, or high.",
                 new
                 {
                     type = "object",
@@ -93,7 +93,7 @@ namespace Armada.Server.Mcp.Tools
                                         }
                                     },
                                     preferredCaptainId = new { type = "string", description = "Optional captain ID (cap_ prefix) to pin this mission to. If the pinned captain is busy at dispatch time, the mission stays Pending until the next dispatch tick when that captain is idle." },
-                                    preferredModel = new { type = "string", description = "Optional model selector. Use 'low', 'mid', or 'high' for tiered random peer-model selection (Armada picks a concrete model within the tier). Pass a literal model name (e.g. 'claude-opus-4-7') to pin to a specific model as an escape hatch. Tier values are preferred for normal dispatch." },
+                                    preferredModel = new { type = "string", description = "Optional complexity tier. Use 'low', 'mid', or 'high'; Armada picks an available model within that tier. Omit when default routing is sufficient." },
                                     dependsOnMissionId = new { type = "string", description = "Optional mission ID (msn_ prefix) this mission must wait for. The dependent mission stays Pending until the referenced mission reaches a completion state." },
                                     alias = new { type = "string", description = "Optional logical alias for this mission within this dispatch batch (e.g. 'M1', 'resolver'). Other missions in the same batch may reference it via dependsOnMissionAlias. Must be unique within the batch." },
                                     dependsOnMissionAlias = new { type = "string", description = "Optional alias of another mission in this same dispatch batch that this mission must wait for. The server resolves the alias to the concrete msn_* ID after creating the dependency mission. Takes precedence over dependsOnMissionId when both are supplied." },
