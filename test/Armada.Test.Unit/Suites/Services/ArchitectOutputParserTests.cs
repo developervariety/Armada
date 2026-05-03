@@ -28,7 +28,7 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("Parse_ValidSingleMission_ReturnsValid", () =>
             {
                 ArchitectOutputParser sut = CreateSut();
-                string input = MakePlanPrefix() + MakeMissionBlock("M1", "Foundation", "claude-sonnet-4-6");
+                string input = MakePlanPrefix() + MakeMissionBlock("M1", "Foundation", "mid");
                 ArchitectParseResult result = sut.Parse(input);
 
                 AssertEqual(ArchitectParseVerdict.Valid, result.Verdict, "Single valid block should return Valid");
@@ -37,7 +37,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertNotNull(result.Plan, "Plan should be populated");
                 AssertEqual("M1", result.Missions[0].Id, "Mission id should be M1");
                 AssertEqual("Foundation", result.Missions[0].Title, "Mission title should match");
-                AssertEqual("claude-sonnet-4-6", result.Missions[0].PreferredModel, "PreferredModel should match");
+                AssertEqual("mid", result.Missions[0].PreferredModel, "PreferredModel should match");
                 return Task.CompletedTask;
             });
 
@@ -45,9 +45,9 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 ArchitectOutputParser sut = CreateSut();
                 string blocks =
-                    MakeMissionBlock("M1", "First", "claude-sonnet-4-6") + "\n" +
-                    MakeMissionBlock("M2", "Second", "claude-opus-4-7", "M1") + "\n" +
-                    MakeMissionBlock("M3", "Third", "claude-sonnet-4-6", "M2");
+                    MakeMissionBlock("M1", "First", "mid") + "\n" +
+                    MakeMissionBlock("M2", "Second", "high", "M1") + "\n" +
+                    MakeMissionBlock("M3", "Third", "low", "M2");
                 string input = MakePlanPrefix() + blocks;
                 ArchitectParseResult result = sut.Parse(input);
 
@@ -65,7 +65,7 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("Parse_MissingTitle_ReturnsStructuralFailure", () =>
             {
                 ArchitectOutputParser sut = CreateSut();
-                string block = "[ARMADA:MISSION]\nid: M1\npreferredModel: claude-sonnet-4-6\ndescription: something\n[ARMADA:MISSION-END]";
+                string block = "[ARMADA:MISSION]\nid: M1\npreferredModel: mid\ndescription: something\n[ARMADA:MISSION-END]";
                 string input = MakePlanPrefix() + block;
                 ArchitectParseResult result = sut.Parse(input);
 
@@ -105,24 +105,54 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
-            await RunTest("Parse_UnknownPreferredModel_ReturnsStructuralFailure", () =>
+            await RunTest("Parse_NonTierPreferredModel_ReturnsStructuralFailure", () =>
             {
                 ArchitectOutputParser sut = CreateSut();
-                string block = "[ARMADA:MISSION]\nid: M1\ntitle: Test\npreferredModel: bogus-model-xyz\ndescription: something\n[ARMADA:MISSION-END]";
+                // Concrete model names are no longer valid in Architect output; only low/mid/high are accepted.
+                string block = "[ARMADA:MISSION]\nid: M1\ntitle: Test\npreferredModel: claude-sonnet-4-6\ndescription: something\n[ARMADA:MISSION-END]";
                 string input = MakePlanPrefix() + block;
                 ArchitectParseResult result = sut.Parse(input);
 
-                AssertEqual(ArchitectParseVerdict.StructuralFailure, result.Verdict, "Unknown preferredModel should return StructuralFailure");
+                AssertEqual(ArchitectParseVerdict.StructuralFailure, result.Verdict, "Concrete model name should return StructuralFailure in Architect output");
                 bool found = false;
                 foreach (ArchitectParseError e in result.Errors)
                 {
-                    if (e.Type == "unknown_model" && e.MissionId == "M1" && e.Field == "preferredModel")
+                    if (e.Type == "invalid_tier" && e.MissionId == "M1" && e.Field == "preferredModel")
                     {
                         found = true;
                         break;
                     }
                 }
-                AssertTrue(found, "Error should have type=unknown_model for bogus-model-xyz");
+                AssertTrue(found, "Error should have type=invalid_tier for concrete model name");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Parse_AllThreeTierValues_AreValid", () =>
+            {
+                ArchitectOutputParser sut = CreateSut();
+                string blocks =
+                    MakeMissionBlock("M1", "Low tier", "low") + "\n" +
+                    MakeMissionBlock("M2", "Mid tier", "mid", "M1") + "\n" +
+                    MakeMissionBlock("M3", "High tier", "high", "M2");
+                string input = MakePlanPrefix() + blocks;
+                ArchitectParseResult result = sut.Parse(input);
+
+                AssertEqual(ArchitectParseVerdict.Valid, result.Verdict, "low/mid/high should all be valid tier values");
+                AssertEqual(0, result.Errors.Count, "No errors for valid tier values");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Parse_TierAliases_AreValid", () =>
+            {
+                ArchitectOutputParser sut = CreateSut();
+                string blocks =
+                    MakeMissionBlock("M1", "Quick alias", "quick") + "\n" +
+                    MakeMissionBlock("M2", "Medium alias", "medium", "M1");
+                string input = MakePlanPrefix() + blocks;
+                ArchitectParseResult result = sut.Parse(input);
+
+                AssertEqual(ArchitectParseVerdict.Valid, result.Verdict, "quick and medium aliases should be valid");
+                AssertEqual(0, result.Errors.Count, "No errors for tier aliases");
                 return Task.CompletedTask;
             });
 
@@ -131,8 +161,8 @@ namespace Armada.Test.Unit.Suites.Services
                 ArchitectOutputParser sut = CreateSut();
                 // M1 depends on M2, M2 depends on M1 -> cycle
                 string blocks =
-                    MakeMissionBlock("M1", "First", "claude-sonnet-4-6", "M2") + "\n" +
-                    MakeMissionBlock("M2", "Second", "claude-opus-4-7", "M1");
+                    MakeMissionBlock("M1", "First", "mid", "M2") + "\n" +
+                    MakeMissionBlock("M2", "Second", "high", "M1");
                 string input = MakePlanPrefix() + blocks;
                 ArchitectParseResult result = sut.Parse(input);
 
@@ -179,7 +209,7 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("Parse_UnterminatedBlock_ReturnsStructuralFailure", () =>
             {
                 ArchitectOutputParser sut = CreateSut();
-                string input = MakePlanPrefix() + "[ARMADA:MISSION]\nid: M1\ntitle: Unterminated\npreferredModel: claude-sonnet-4-6\ndescription: oops\n";
+                string input = MakePlanPrefix() + "[ARMADA:MISSION]\nid: M1\ntitle: Unterminated\npreferredModel: mid\ndescription: oops\n";
                 ArchitectParseResult result = sut.Parse(input);
 
                 AssertEqual(ArchitectParseVerdict.StructuralFailure, result.Verdict, "Unterminated block should return StructuralFailure");
