@@ -8,6 +8,27 @@ namespace Armada.Runtimes
     /// <summary>
     /// Agent runtime adapter for Cursor agent CLI.
     /// </summary>
+    /// <remarks>
+    /// KNOWN LIMITATION -- reasoning effort not forwarded (cursor-agent CLI v2026.04.29-c83a488):
+    /// cursor-agent exposes no <c>--thinking-effort</c> or <c>--reasoning-effort</c> flag as of
+    /// this version. The value from <c>CaptainRuntimeOptions.ReasoningEffort</c> is validated and
+    /// stored in RuntimeOptionsJson but NOT forwarded to the process. When cursor-agent CLI gains
+    /// this flag, wire it in <c>BuildArguments</c> at the marked comment block.
+    ///
+    /// KNOWN ISSUE -- silent no-op failure (orchestrator-observed 2026-05-03):
+    /// Cursor-agent headless invocations from within Armada dock worktrees can silently produce
+    /// zero diff. Symptom: 8 stderr lines reading "The system cannot find the path specified.",
+    /// single stdout line "ok", exit code 0 -- admiral interprets exit 0 as WorkProduced and
+    /// reports mission complete with an empty diff. Root cause is a PATH / CWD / stdin / Cursor
+    /// IDE auth-state mismatch in the headless process context spawned by Armada; the
+    /// cursor-agent.cmd bootstrap probes fail before any agent logic runs. Observed on voyages
+    /// vyg_moq2qawf (composer-2-fast) and vyg_moq2qxhz (gemini-3.5-pro). A runtime-level fix
+    /// is in progress in a separate session.
+    ///
+    /// Windows install path: <c>%LOCALAPPDATA%\cursor-agent\cursor-agent.cmd</c> (official
+    /// installer). Prompt is delivered via stdin (not CLI argument) to avoid the Windows
+    /// cmd.exe ~8KB command-line length limit.
+    /// </remarks>
     public class CursorRuntime : BaseAgentRuntime
     {
         #region Public-Members

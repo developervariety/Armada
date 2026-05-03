@@ -8,6 +8,19 @@ namespace Armada.Runtimes
     /// <summary>
     /// Agent runtime adapter for Anthropic Claude Code CLI.
     /// </summary>
+    /// <remarks>
+    /// Isolation flags: <c>--setting-sources project,local</c> and <c>--strict-mcp-config</c>
+    /// are forwarded on every invocation (commit ba27e9f). This prevents user-level Claude Code
+    /// plugins and MCP servers -- e.g. Playwright or other browser-automation tools -- from leaking
+    /// into headless captain processes that run inside Armada dock worktrees. Without these flags,
+    /// any MCP server the operator has registered in their personal Claude Code settings would be
+    /// silently activated for every captain, causing unpredictable tool availability and
+    /// potential side effects.
+    ///
+    /// Reasoning effort: mapped from <c>CaptainRuntimeOptions.ReasoningEffort</c> to
+    /// MAX_THINKING_TOKENS env var (low=4096, medium=16384, high=32768, xhigh=65536, max=128000).
+    /// Accepted values: low|medium|high|xhigh|max.
+    /// </remarks>
     public class ClaudeCodeRuntime : BaseAgentRuntime
     {
         #region Public-Members
