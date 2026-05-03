@@ -219,8 +219,7 @@ namespace Armada.Server
 
             // Initialize remote trigger service (no-op when remoteTrigger section is absent or disabled)
             RemoteTriggerHttpClient rtHttp = new RemoteTriggerHttpClient(_Logging);
-            ProcessHost rtProcess = new ProcessHost(_Logging);
-            _RemoteTriggerService = new RemoteTriggerService(_Settings.RemoteTrigger, rtHttp, rtProcess, _Logging);
+            _RemoteTriggerService = new RemoteTriggerService(_Settings.RemoteTrigger, rtHttp, _Logging);
 
             // Initialize handler classes (WebSocketHub is created later, so pass null initially)
             _MissionLanding = new MissionLandingHandler(
