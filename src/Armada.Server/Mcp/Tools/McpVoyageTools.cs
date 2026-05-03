@@ -14,6 +14,7 @@ namespace Armada.Server.Mcp.Tools
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
+    using SyslogLogging;
 
     /// <summary>
     /// Registers MCP tools for voyage operations (dispatch, status, cancel, purge).
@@ -36,6 +37,9 @@ namespace Armada.Server.Mcp.Tools
         /// <param name="onStopCaptain">Optional callback that kills a captain's agent process by captain id.
         /// Invoked from armada_cancel_voyage when an in-flight mission is cancelled so the captain
         /// process actually exits instead of staying orphaned in Working state.</param>
+        /// <param name="logging">Optional logging module used to persist playbook snapshots for downstream
+        /// pipeline stages in the alias-aware dispatch path. When null, downstream stage missions are
+        /// created without snapshots.</param>
         /// <remarks>
         /// armada_dispatch accepts an optional <c>prestagedFiles</c> array on each
         /// mission entry. Each entry copies an absolute <c>sourcePath</c> on the
@@ -49,7 +53,8 @@ namespace Armada.Server.Mcp.Tools
             DatabaseDriver database,
             IAdmiralService admiral,
             ArmadaSettings? settings = null,
-            Func<string, Task>? onStopCaptain = null)
+            Func<string, Task>? onStopCaptain = null,
+            LoggingModule? logging = null)
         {
             register(
                 "armada_dispatch",
@@ -162,7 +167,7 @@ namespace Armada.Server.Mcp.Tools
                     if (hasAliases)
                     {
                         return await DispatchWithAliasesAsync(
-                            database, admiral, title, description, vesselId,
+                            database, admiral, logging, title, description, vesselId,
                             dispatchVessel, missions, mergedPlaybooks, pipelineId).ConfigureAwait(false);
                     }
 
@@ -468,6 +473,7 @@ namespace Armada.Server.Mcp.Tools
         private static async Task<object> DispatchWithAliasesAsync(
             DatabaseDriver database,
             IAdmiralService admiral,
+            LoggingModule? logging,
             string title,
             string description,
             string vesselId,
@@ -603,6 +609,21 @@ namespace Armada.Server.Mcp.Tools
                         // it up after its dep completes; assigning now would race the
                         // upstream stage's worktree.
                         stageMission = await database.Missions.CreateAsync(stageMission).ConfigureAwait(false);
+
+                        // Persist playbook snapshots for downstream stages the same way
+                        // admiral.DispatchMissionAsync does for the first stage. Without
+                        // this, MissionService.GenerateClaudeMdAsync has no snapshots to
+                        // render, resulting in a missing playbook section in the captain brief.
+                        if (logging != null && stageMission.SelectedPlaybooks != null
+                            && stageMission.SelectedPlaybooks.Count > 0
+                            && !String.IsNullOrEmpty(stageMission.TenantId))
+                        {
+                            IPlaybookService playbooks = new PlaybookService(database, logging);
+                            List<MissionPlaybookSnapshot> snapshots = await playbooks.CreateSnapshotsAsync(
+                                stageMission.TenantId,
+                                stageMission.SelectedPlaybooks).ConfigureAwait(false);
+                            await database.Playbooks.SetMissionSnapshotsAsync(stageMission.Id, snapshots).ConfigureAwait(false);
+                        }
                     }
 
                     previousMissionId = stageMission.Id;

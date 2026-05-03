@@ -6,9 +6,12 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
+    using SyslogLogging;
+    using Armada.Core;
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Server.Mcp.Tools;
     using Armada.Test.Common;
@@ -170,6 +173,128 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(a.Id, b.DependsOnMissionId, "B should depend on A's id");
                 }
             });
+
+            await RunTest("AliasDispatch_WithReviewedPipelineAndPlaybooks_PersistsSnapshotsForAllStages", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    // Vessel needs TenantId so snapshot creation is not skipped.
+                    Vessel vessel = new Vessel("alias-pb-snap-vessel", "https://github.com/test/repo.git");
+                    vessel.TenantId = Constants.DefaultTenantId;
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    // Two playbooks for the default tenant.
+                    Playbook pb1 = new Playbook("guide-a.md", "# guide a");
+                    pb1.TenantId = Constants.DefaultTenantId;
+                    pb1 = await testDb.Driver.Playbooks.CreateAsync(pb1).ConfigureAwait(false);
+
+                    Playbook pb2 = new Playbook("guide-b.md", "# guide b");
+                    pb2.TenantId = Constants.DefaultTenantId;
+                    pb2 = await testDb.Driver.Playbooks.CreateAsync(pb2).ConfigureAwait(false);
+
+                    // Reviewed pipeline (Worker -> Judge).
+                    Pipeline reviewed = new Pipeline("SnapshotReviewed");
+                    reviewed.Stages = new List<PipelineStage>
+                    {
+                        new PipelineStage(1, "Worker"),
+                        new PipelineStage(2, "Judge") { PreferredModel = "claude-opus-4-7" }
+                    };
+                    reviewed = await testDb.Driver.Pipelines.CreateAsync(reviewed).ConfigureAwait(false);
+
+                    // Admiral double that also persists snapshots for first-stage missions.
+                    PersistingAdmiralDouble admiralDouble = new PersistingAdmiralDouble(testDb.Driver, reviewed, logging);
+
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null,
+                        null,
+                        logging);
+                    AssertNotNull(dispatchHandler, "armada_dispatch handler must be registered");
+
+                    // Voyage-level: pb1=InlineFullContent, pb2=InlineFullContent.
+                    // M2 per-mission override: pb1=AttachIntoWorktree (most-specific wins).
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "pb snapshot voyage",
+                        description = "alias pipeline snapshot regression",
+                        vesselId = vessel.Id,
+                        pipeline = "SnapshotReviewed",
+                        selectedPlaybooks = new object[]
+                        {
+                            new { playbookId = pb1.Id, deliveryMode = "InlineFullContent" },
+                            new { playbookId = pb2.Id, deliveryMode = "InlineFullContent" }
+                        },
+                        missions = new object[]
+                        {
+                            new { title = "M1 feature", description = "m1", alias = "M1" },
+                            new
+                            {
+                                title = "M2 feature",
+                                description = "m2",
+                                alias = "M2",
+                                dependsOnMissionAlias = "M1",
+                                selectedPlaybooks = new object[]
+                                {
+                                    new { playbookId = pb1.Id, deliveryMode = "AttachIntoWorktree" }
+                                }
+                            }
+                        }
+                    });
+
+                    object result = await dispatchHandler!(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+                    AssertFalse(resultJson.Contains("\"Error\""), "Should not return error: " + resultJson);
+
+                    Voyage voyage = (Voyage)result;
+                    List<Mission> all = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+                    AssertEqual(4, all.Count, "Two MDs * two pipeline stages = 4 missions");
+
+                    // Every stage mission (Worker and Judge, first and downstream) must have snapshots.
+                    foreach (Mission m in all)
+                    {
+                        List<MissionPlaybookSnapshot> snaps = await testDb.Driver.Playbooks
+                            .GetMissionSnapshotsAsync(m.Id).ConfigureAwait(false);
+                        AssertEqual(2, snaps.Count, "Every stage must have 2 playbook snapshots, got " + snaps.Count + " for " + m.Title);
+
+                        // No duplicate playbookIds within a single mission's snapshots.
+                        HashSet<string> seen = new HashSet<string>(StringComparer.Ordinal);
+                        foreach (MissionPlaybookSnapshot snap in snaps)
+                        {
+                            AssertTrue(seen.Add(snap.PlaybookId ?? ""), "Duplicate playbookId in snapshots for " + m.Title + ": " + snap.PlaybookId);
+                        }
+                    }
+
+                    // M1 missions: pb1 should be InlineFullContent (voyage-level, no override).
+                    List<Mission> m1Missions = all.Where(m => m.Title.Contains("M1 feature")).ToList();
+                    foreach (Mission m in m1Missions)
+                    {
+                        List<MissionPlaybookSnapshot> snaps = await testDb.Driver.Playbooks
+                            .GetMissionSnapshotsAsync(m.Id).ConfigureAwait(false);
+                        MissionPlaybookSnapshot? pb1Snap = snaps.Find(s => s.PlaybookId == pb1.Id);
+                        AssertNotNull(pb1Snap, "M1 missions must have pb1 snapshot on " + m.Title);
+                        AssertEqual(PlaybookDeliveryModeEnum.InlineFullContent, pb1Snap!.DeliveryMode,
+                            "M1 pb1 must be InlineFullContent (voyage default) on " + m.Title);
+                    }
+
+                    // M2 missions: pb1 should be AttachIntoWorktree (per-mission override wins).
+                    List<Mission> m2Missions = all.Where(m => m.Title.Contains("M2 feature")).ToList();
+                    foreach (Mission m in m2Missions)
+                    {
+                        List<MissionPlaybookSnapshot> snaps = await testDb.Driver.Playbooks
+                            .GetMissionSnapshotsAsync(m.Id).ConfigureAwait(false);
+                        MissionPlaybookSnapshot? pb1Snap = snaps.Find(s => s.PlaybookId == pb1.Id);
+                        AssertNotNull(pb1Snap, "M2 missions must have pb1 snapshot on " + m.Title);
+                        AssertEqual(PlaybookDeliveryModeEnum.AttachIntoWorktree, pb1Snap!.DeliveryMode,
+                            "M2 pb1 must be AttachIntoWorktree (per-mission override) on " + m.Title);
+                    }
+                }
+            });
         }
 
         /// <summary>
@@ -182,11 +307,13 @@ namespace Armada.Test.Unit.Suites.Services
         {
             private readonly DatabaseDriver _Database;
             private readonly Pipeline? _Pipeline;
+            private readonly LoggingModule? _Logging;
 
-            public PersistingAdmiralDouble(DatabaseDriver database, Pipeline? pipeline)
+            public PersistingAdmiralDouble(DatabaseDriver database, Pipeline? pipeline, LoggingModule? logging = null)
             {
                 _Database = database;
                 _Pipeline = pipeline;
+                _Logging = logging;
             }
 
             public Func<Captain, Mission, Dock, Task<int>>? OnLaunchAgent { get; set; }
@@ -201,7 +328,19 @@ namespace Armada.Test.Unit.Suites.Services
             public async Task<Mission> DispatchMissionAsync(Mission mission, CancellationToken token = default)
             {
                 mission.Status = MissionStatusEnum.Pending;
-                return await _Database.Missions.CreateAsync(mission, token).ConfigureAwait(false);
+                mission = await _Database.Missions.CreateAsync(mission, token).ConfigureAwait(false);
+                if (_Logging != null && mission.SelectedPlaybooks != null
+                    && mission.SelectedPlaybooks.Count > 0
+                    && !String.IsNullOrEmpty(mission.TenantId))
+                {
+                    IPlaybookService playbooks = new PlaybookService(_Database, _Logging);
+                    List<MissionPlaybookSnapshot> snapshots = await playbooks.CreateSnapshotsAsync(
+                        mission.TenantId,
+                        mission.SelectedPlaybooks,
+                        token).ConfigureAwait(false);
+                    await _Database.Playbooks.SetMissionSnapshotsAsync(mission.Id, snapshots, token).ConfigureAwait(false);
+                }
+                return mission;
             }
 
             public Task<Pipeline?> ResolvePipelineAsync(string? pipelineIdOrName, Vessel vessel, CancellationToken token = default)

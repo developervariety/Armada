@@ -440,7 +440,7 @@ Dispatch a new voyage with missions to a vessel. This is the primary way to assi
     },
     "selectedPlaybooks": {
       "type": "array",
-      "description": "Optional ordered playbook selections to apply to every created mission",
+      "description": "Optional ordered playbook selections for all missions in this voyage. Merges with vessel DefaultPlaybooks (voyage wins on collision). Each mission may also carry its own selectedPlaybooks for per-mission overrides.",
       "items": {
         "type": "object",
         "properties": {
@@ -463,7 +463,7 @@ Dispatch a new voyage with missions to a vessel. This is the primary way to assi
 | `missions` | array | Yes | Array of mission objects with `title` and optional `description` |
 | `pipelineId` | string | No | Pipeline ID to use for this voyage (overrides vessel/fleet default) |
 | `pipeline` | string | No | Pipeline name to use (convenience alias for `pipelineId` -- resolves by name) |
-| `selectedPlaybooks` | array | No | Ordered playbook selections with `playbookId` and `deliveryMode` |
+| `selectedPlaybooks` | array | No | Ordered playbook selections for all missions. Merge hierarchy: vessel defaults < voyage `selectedPlaybooks` < per-mission `selectedPlaybooks`. Duplicate `playbookId` entries are not rendered twice -- the most-specific `deliveryMode` wins. |
 
 **Example Input:**
 
