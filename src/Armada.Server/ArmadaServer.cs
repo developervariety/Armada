@@ -79,6 +79,7 @@ namespace Armada.Server
         private AgentLifecycleHandler _AgentLifecycle = null!;
         private MissionLandingHandler _MissionLanding = null!;
         private IRemoteTriggerService _RemoteTriggerService = null!;
+        private IAgentWakeProcessHost _AgentWakeProcessHost = null!;
 
         private CancellationTokenSource _TokenSource = new CancellationTokenSource();
         private Task _HealthCheckTask = null!;
@@ -219,7 +220,8 @@ namespace Armada.Server
 
             // Initialize remote trigger service (no-op when remoteTrigger section is absent or disabled)
             RemoteTriggerHttpClient rtHttp = new RemoteTriggerHttpClient(_Logging);
-            _RemoteTriggerService = new RemoteTriggerService(_Settings.RemoteTrigger, rtHttp, _Logging);
+            _AgentWakeProcessHost = new AgentWakeProcessHost(_Logging);
+            _RemoteTriggerService = new RemoteTriggerService(_Settings.RemoteTrigger, rtHttp, _AgentWakeProcessHost, _Logging);
 
             // Initialize handler classes (WebSocketHub is created later, so pass null initially)
             _MissionLanding = new MissionLandingHandler(

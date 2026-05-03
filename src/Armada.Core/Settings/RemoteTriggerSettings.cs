@@ -8,6 +8,9 @@ namespace Armada.Core.Settings
 
         /// <summary>HTTP POST to Claude Code Routines /fire endpoint. Default for backward compatibility.</summary>
         RemoteFire,
+
+        /// <summary>Spawn a local Claude or Codex process on wake events. No HTTP required.</summary>
+        AgentWake,
     }
 
     /// <summary>
@@ -42,6 +45,18 @@ namespace Armada.Core.Settings
 
         /// <summary>Anthropic API version header value.</summary>
         public string AnthropicVersion { get; set; } = "2023-06-01";
+
+        /// <summary>
+        /// AgentWake mode settings. Used when <see cref="Mode"/> is <see cref="RemoteTriggerMode.AgentWake"/>.
+        /// If absent, defaults are used (Claude runtime, --continue, 600s timeout).
+        /// </summary>
+        public AgentWakeSettings? AgentWake { get; set; }
+
+        /// <summary>Returns true if the section is configured for AgentWake mode (Enabled=true and Mode=AgentWake). AgentWake works with default settings.</summary>
+        public bool IsAgentWakeConfigured()
+        {
+            return Enabled && Mode == RemoteTriggerMode.AgentWake;
+        }
 
         /// <summary>Returns true if the section has the minimum config to fire drainer wakes via RemoteFire mode.</summary>
         public bool IsDrainerConfigured()
