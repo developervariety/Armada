@@ -115,6 +115,50 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("GenerateClaudeMdAsync includes code context section only when context pack exists", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    MissionService service = CreateMissionService(logging, testDb.Driver, settings, git);
+
+                    string noPackDir = Path.Combine(Path.GetTempPath(), "armada_prompt_no_context_" + Guid.NewGuid().ToString("N"));
+                    string withPackDir = Path.Combine(Path.GetTempPath(), "armada_prompt_with_context_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(noPackDir);
+                    Directory.CreateDirectory(withPackDir);
+
+                    try
+                    {
+                        Vessel vessel = new Vessel("ContextPackVessel", "https://github.com/test/repo");
+                        Mission mission = new Mission();
+                        mission.Title = "Use context pack";
+                        mission.Description = "Generated instructions should mention code context only when present.";
+
+                        await service.GenerateClaudeMdAsync(noPackDir, mission, vessel);
+                        string withoutContext = await File.ReadAllTextAsync(Path.Combine(noPackDir, "CLAUDE.md"));
+                        AssertFalse(withoutContext.Contains("## Code Index Context"), "Context section should be omitted when no context pack is present");
+
+                        string briefingDir = Path.Combine(withPackDir, "_briefing");
+                        Directory.CreateDirectory(briefingDir);
+                        await File.WriteAllTextAsync(Path.Combine(briefingDir, "context-pack.md"), "# Context Pack");
+
+                        await service.GenerateClaudeMdAsync(withPackDir, mission, vessel);
+                        string withContext = await File.ReadAllTextAsync(Path.Combine(withPackDir, "CLAUDE.md"));
+                        AssertContains("## Code Index Context", withContext);
+                        AssertContains("Read it before broad code search.", withContext);
+                        AssertContains("discovery evidence, not authority", withContext);
+                        AssertContains("verified against the current branch before editing", withContext);
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(noPackDir, true); } catch { }
+                        try { Directory.Delete(withPackDir, true); } catch { }
+                    }
+                }
+            });
+
             await RunTest("GenerateClaudeMdAsync preserves existing root CLAUDE.md and writes ignored generated copy", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
@@ -601,7 +645,11 @@ namespace Armada.Test.Unit.Suites.Services
 
                         await service.GenerateClaudeMdAsync(tempDir, testMission, vessel);
 
-                        string testContent = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
+                        string generatedTestInstructions = Path.Combine(tempDir, ".armada", "instructions", "CLAUDE.md");
+                        string testContent = await File.ReadAllTextAsync(
+                            File.Exists(generatedTestInstructions)
+                                ? generatedTestInstructions
+                                : Path.Combine(tempDir, "CLAUDE.md"));
                         AssertContains("negative or edge-path", testContent, "Test engineer prompt should require negative-path coverage");
                         AssertContains("## Coverage Added", testContent, "Test engineer prompt should request a coverage summary section");
                         AssertContains("## Residual Risks", testContent, "Test engineer prompt should request residual risk reporting");

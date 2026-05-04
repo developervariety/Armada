@@ -927,6 +927,13 @@ namespace Armada.Core.Services
                 content += "\n";
             }
 
+            string codeContextPackSection = BuildCodeContextPackSection(worktreePath);
+            if (!String.IsNullOrEmpty(codeContextPackSection))
+            {
+                content += codeContextPackSection;
+                content += "\n";
+            }
+
             // Mission preamble and metadata -- resolve persona prompt first, then inject into metadata template
             string personaPrompt = await ResolvePersonaPromptAsync(mission.Persona, templateParams, token).ConfigureAwait(false);
             templateParams["PersonaPrompt"] = personaPrompt;
@@ -1006,6 +1013,22 @@ namespace Armada.Core.Services
             }
 
             _Logging.Info(_Header + "generated mission instructions at " + instructionsPath);
+        }
+
+        private static string BuildCodeContextPackSection(string worktreePath)
+        {
+            string contextPackPath = Path.Combine(worktreePath, "_briefing", "context-pack.md");
+            if (!File.Exists(contextPackPath)) return "";
+
+            return
+                "## Code Index Context\n" +
+                "A generated code-index context pack is available at `_briefing/context-pack.md`. " +
+                "Read it before broad code search.\n" +
+                "\n" +
+                "Treat it as discovery evidence, not authority. Playbooks, vessel CLAUDE.md, " +
+                "project CLAUDE.md, and these mission instructions win on conflict.\n" +
+                "\n" +
+                "Snippets may reflect the default branch and must be verified against the current branch before editing.\n";
         }
 
         /// <summary>

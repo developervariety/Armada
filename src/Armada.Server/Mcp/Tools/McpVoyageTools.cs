@@ -26,6 +26,11 @@ namespace Armada.Server.Mcp.Tools
             PropertyNameCaseInsensitive = true,
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase
         };
+        private const string CodeContextDestPath = "_briefing/context-pack.md";
+        private const string CodeContextModeAuto = "auto";
+        private const string CodeContextModeOff = "off";
+        private const string CodeContextModeForce = "force";
+        private const int DefaultCodeContextTokenBudget = 3000;
 
         /// <summary>
         /// Registers voyage MCP tools with the server.
@@ -40,6 +45,7 @@ namespace Armada.Server.Mcp.Tools
         /// <param name="logging">Optional logging module. When provided it is used for downstream stage
         /// snapshot persistence; when null a silent fallback is created so snapshots are always persisted
         /// regardless of whether the caller threads logging in.</param>
+        /// <param name="codeIndexService">Optional code index service used to auto-attach context packs.</param>
         /// <remarks>
         /// armada_dispatch accepts an optional <c>prestagedFiles</c> array on each
         /// mission entry. Each entry copies an absolute <c>sourcePath</c> on the
@@ -54,11 +60,12 @@ namespace Armada.Server.Mcp.Tools
             IAdmiralService admiral,
             ArmadaSettings? settings = null,
             Func<string, Task>? onStopCaptain = null,
-            LoggingModule? logging = null)
+            LoggingModule? logging = null,
+            ICodeIndexService? codeIndexService = null)
         {
             register(
                 "armada_dispatch",
-                "Dispatch a new voyage with missions to a vessel. Each mission may include an optional prestagedFiles array of {sourcePath, destPath} entries; the Admiral copies sourcePath (absolute, on the Admiral host) into destPath (relative, inside the dock worktree) after the dock is created and before the captain spawns. Each mission may also pin a specific captain via preferredCaptainId or use preferredModel with a complexity tier: low, mid, or high.",
+                "Dispatch a new voyage with missions to a vessel. Each mission may include an optional prestagedFiles array of {sourcePath, destPath} entries; the Admiral copies sourcePath (absolute, on the Admiral host) into destPath (relative, inside the dock worktree) after the dock is created and before the captain spawns. Code-index context packs are attached by default when available; set codeContextMode to off to opt out or force to require generation. Each mission may also pin a specific captain via preferredCaptainId or use preferredModel with a complexity tier: low, mid, or high.",
                 new
                 {
                     type = "object",
@@ -92,6 +99,8 @@ namespace Armada.Server.Mcp.Tools
                                             required = new[] { "sourcePath", "destPath" }
                                         }
                                     },
+                                    codeContextMode = new { type = "string", description = "Optional per-mission code context mode: auto, off, or force. Overrides the dispatch-level codeContextMode." },
+                                    codeContextQuery = new { type = "string", description = "Optional per-mission code search query. Defaults to mission title plus description." },
                                     preferredCaptainId = new { type = "string", description = "Optional captain ID (cap_ prefix) to pin this mission to. If the pinned captain is busy at dispatch time, the mission stays Pending until the next dispatch tick when that captain is idle." },
                                     preferredModel = new { type = "string", description = "Optional complexity tier. Use 'low', 'mid', or 'high'; Armada picks an available model within that tier. Omit when default routing is sufficient." },
                                     dependsOnMissionId = new { type = "string", description = "Optional mission ID (msn_ prefix) this mission must wait for. The dependent mission stays Pending until the referenced mission reaches a completion state." },
@@ -115,6 +124,9 @@ namespace Armada.Server.Mcp.Tools
                                 }
                             }
                         },
+                        codeContextMode = new { type = "string", description = "Code context mode for this dispatch: auto (default), off, or force. Mission-level codeContextMode overrides this value." },
+                        codeContextTokenBudget = new { type = "integer", description = "Optional token budget for each generated context pack. Defaults to a conservative 3000 tokens." },
+                        codeContextMaxResults = new { type = "integer", description = "Optional maximum number of code-index evidence results per context pack. Omit to use CodeIndex settings." },
                         pipelineId = new { type = "string", description = "Pipeline ID to use for this dispatch (overrides vessel/fleet default)" },
                         pipeline = new { type = "string", description = "Pipeline name to use (convenience alias for pipelineId -- resolves by name)" },
                         selectedPlaybooks = new
@@ -158,6 +170,16 @@ namespace Armada.Server.Mcp.Tools
                         if (namedPipeline != null) pipelineId = namedPipeline.Id;
                         else return (object)new { Error = "Pipeline not found: " + request.Pipeline };
                     }
+
+                    string? codeContextError = await ApplyDispatchCodeContextAsync(
+                        codeIndexService,
+                        logging,
+                        vesselId,
+                        request.CodeContextMode,
+                        request.CodeContextTokenBudget,
+                        request.CodeContextMaxResults,
+                        missions).ConfigureAwait(false);
+                    if (codeContextError != null) return (object)new { Error = codeContextError };
 
                     // When any mission carries an alias or dependsOnMissionAlias, use the
                     // alias-aware dispatch path which topologically sorts missions and
@@ -456,6 +478,168 @@ namespace Armada.Server.Mcp.Tools
                 }
                 catch { }
             }
+        }
+
+        private static async Task<string?> ApplyDispatchCodeContextAsync(
+            ICodeIndexService? codeIndexService,
+            LoggingModule? logging,
+            string vesselId,
+            string? topLevelMode,
+            int? tokenBudget,
+            int? maxResults,
+            List<MissionDescription> missions)
+        {
+            if (missions == null || missions.Count == 0) return null;
+
+            string dispatchMode;
+            if (!TryNormalizeCodeContextMode(topLevelMode, CodeContextModeAuto, out dispatchMode))
+                return "invalid codeContextMode: " + topLevelMode + ". Expected auto, off, or force.";
+
+            bool loggedUnavailable = false;
+            for (int i = 0; i < missions.Count; i++)
+            {
+                MissionDescription mission = missions[i];
+                if (mission == null) continue;
+
+                string mode;
+                if (!TryNormalizeCodeContextMode(mission.CodeContextMode, dispatchMode, out mode))
+                    return "invalid codeContextMode for mission '" + mission.Title + "': " + mission.CodeContextMode + ". Expected auto, off, or force.";
+
+                if (String.Equals(mode, CodeContextModeOff, StringComparison.Ordinal))
+                    continue;
+
+                string query = BuildMissionCodeContextQuery(mission);
+                if (String.IsNullOrWhiteSpace(query))
+                {
+                    if (String.Equals(mode, CodeContextModeForce, StringComparison.Ordinal))
+                        return "code context force requested for mission '" + mission.Title + "' but no query could be built";
+
+                    LogCodeContextWarning(logging, "skipping code context for mission '" + mission.Title + "' because no query could be built");
+                    continue;
+                }
+
+                if (codeIndexService == null)
+                {
+                    if (String.Equals(mode, CodeContextModeForce, StringComparison.Ordinal))
+                        return "code context force requested but code index service is unavailable";
+
+                    if (!loggedUnavailable)
+                    {
+                        LogCodeContextWarning(logging, "code index service is unavailable; dispatch will continue without auto code context");
+                        loggedUnavailable = true;
+                    }
+                    continue;
+                }
+
+                ContextPackRequest contextRequest = new ContextPackRequest
+                {
+                    VesselId = vesselId,
+                    Goal = query,
+                    TokenBudget = tokenBudget ?? DefaultCodeContextTokenBudget,
+                    MaxResults = maxResults
+                };
+
+                try
+                {
+                    ContextPackResponse contextPack = await codeIndexService
+                        .BuildContextPackAsync(contextRequest)
+                        .ConfigureAwait(false);
+
+                    if (contextPack.PrestagedFiles == null || contextPack.PrestagedFiles.Count == 0)
+                    {
+                        if (String.Equals(mode, CodeContextModeForce, StringComparison.Ordinal))
+                            return "code context generation returned no prestaged files for mission '" + mission.Title + "'";
+
+                        LogCodeContextWarning(logging, "code context generation returned no prestaged files for mission '" + mission.Title + "'");
+                        continue;
+                    }
+
+                    MergeGeneratedPrestagedFiles(mission, contextPack.PrestagedFiles, logging);
+                }
+                catch (Exception ex)
+                {
+                    if (String.Equals(mode, CodeContextModeForce, StringComparison.Ordinal))
+                        return "code context generation failed for mission '" + mission.Title + "': " + ex.Message;
+
+                    LogCodeContextWarning(logging, "code context generation failed for mission '" + mission.Title + "': " + ex.Message);
+                }
+            }
+
+            return null;
+        }
+
+        private static bool TryNormalizeCodeContextMode(string? value, string fallback, out string normalized)
+        {
+            if (String.IsNullOrWhiteSpace(value))
+            {
+                normalized = fallback;
+                return true;
+            }
+
+            string candidate = value.Trim().ToLowerInvariant();
+            if (String.Equals(candidate, CodeContextModeAuto, StringComparison.Ordinal)
+                || String.Equals(candidate, CodeContextModeOff, StringComparison.Ordinal)
+                || String.Equals(candidate, CodeContextModeForce, StringComparison.Ordinal))
+            {
+                normalized = candidate;
+                return true;
+            }
+
+            normalized = fallback;
+            return false;
+        }
+
+        private static string BuildMissionCodeContextQuery(MissionDescription mission)
+        {
+            if (!String.IsNullOrWhiteSpace(mission.CodeContextQuery))
+                return mission.CodeContextQuery.Trim();
+
+            string title = mission.Title ?? "";
+            string description = mission.Description ?? "";
+            if (String.IsNullOrWhiteSpace(description)) return title.Trim();
+            if (String.IsNullOrWhiteSpace(title)) return description.Trim();
+            return title.Trim() + "\n\n" + description.Trim();
+        }
+
+        private static void MergeGeneratedPrestagedFiles(
+            MissionDescription mission,
+            List<PrestagedFile> generatedFiles,
+            LoggingModule? logging)
+        {
+            if (generatedFiles == null || generatedFiles.Count == 0) return;
+
+            List<PrestagedFile> merged = mission.PrestagedFiles ?? new List<PrestagedFile>();
+            foreach (PrestagedFile generated in generatedFiles)
+            {
+                if (generated == null) continue;
+
+                bool duplicateDest = false;
+                foreach (PrestagedFile existing in merged)
+                {
+                    if (existing == null) continue;
+                    if (String.Equals(existing.DestPath, generated.DestPath, StringComparison.Ordinal))
+                    {
+                        duplicateDest = true;
+                        break;
+                    }
+                }
+
+                if (duplicateDest)
+                {
+                    LogCodeContextWarning(logging, "skipping generated code context prestaged file because destPath already exists: " + generated.DestPath);
+                    continue;
+                }
+
+                merged.Add(new PrestagedFile(generated.SourcePath ?? "", generated.DestPath ?? CodeContextDestPath));
+            }
+
+            mission.PrestagedFiles = merged.Count > 0 ? merged : null;
+        }
+
+        private static void LogCodeContextWarning(LoggingModule? logging, string message)
+        {
+            if (logging == null) return;
+            logging.Warn("[McpVoyageTools] " + message);
         }
 
         /// <summary>

@@ -2,12 +2,14 @@ namespace Armada.Test.Unit.Suites.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.IO;
     using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
+    using Armada.Server.Mcp;
     using Armada.Server.Mcp.Tools;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
@@ -128,6 +130,358 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Dispatch_CodeContextAuto_AttachesContextPackAndPreservesPrestagedFiles", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("code-context-auto-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
+                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService();
+                    codeIndex.ContextPackResponse.PrestagedFiles.Add(new PrestagedFile(
+                        Path.Combine(Path.GetTempPath(), "context-pack-auto.md"),
+                        "_briefing/context-pack.md"));
+
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null,
+                        null,
+                        null,
+                        codeIndex);
+
+                    AssertNotNull(dispatchHandler);
+
+                    string existingSource = Path.Combine(Path.GetTempPath(), "existing-prestage.txt");
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "context voyage",
+                        vesselId = vessel.Id,
+                        codeContextTokenBudget = 1200,
+                        codeContextMaxResults = 3,
+                        missions = new object[]
+                        {
+                            new
+                            {
+                                title = "Task A",
+                                description = "Fix dispatch parsing",
+                                prestagedFiles = new[]
+                                {
+                                    new { sourcePath = existingSource, destPath = "notes/input.md" }
+                                }
+                            }
+                        }
+                    });
+
+                    object result = await dispatchHandler!(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+
+                    AssertFalse(resultJson.Contains("\"Error\""), "Should not return error: " + resultJson);
+                    AssertEqual(1, codeIndex.ContextPackRequests.Count, "Auto mode should request one context pack");
+                    AssertContains("Task A", codeIndex.ContextPackRequests[0].Goal);
+                    AssertContains("Fix dispatch parsing", codeIndex.ContextPackRequests[0].Goal);
+                    AssertEqual(1200, codeIndex.ContextPackRequests[0].TokenBudget);
+                    AssertEqual(3, codeIndex.ContextPackRequests[0].MaxResults!.Value);
+
+                    AssertEqual(1, admiralDouble.LastMissionDescriptions.Count, "Standard dispatch should receive one mission description");
+                    List<PrestagedFile>? prestaged = admiralDouble.LastMissionDescriptions[0].PrestagedFiles;
+                    AssertNotNull(prestaged, "Prestaged files should be preserved and extended");
+                    AssertEqual(2, prestaged!.Count);
+                    AssertEqual("notes/input.md", prestaged[0].DestPath);
+                    AssertEqual("_briefing/context-pack.md", prestaged[1].DestPath);
+                }
+            });
+
+            await RunTest("Dispatch_CodeContextOff_SkipsContextPack", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("code-context-off-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
+                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService();
+
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null,
+                        null,
+                        null,
+                        codeIndex);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "off voyage",
+                        vesselId = vessel.Id,
+                        codeContextMode = "off",
+                        missions = new object[]
+                        {
+                            new { title = "Task A", description = "No context" }
+                        }
+                    });
+
+                    object result = await dispatchHandler!(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+
+                    AssertFalse(resultJson.Contains("\"Error\""), "Should not return error: " + resultJson);
+                    AssertEqual(0, codeIndex.ContextPackRequests.Count, "Off mode should not request context packs");
+                    AssertNull(admiralDouble.LastMissionDescriptions[0].PrestagedFiles, "Off mode should not add prestaged files");
+                }
+            });
+
+            await RunTest("Dispatch_CodeContextAuto_ContinuesWhenGenerationFails", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("code-context-auto-failure-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
+                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService();
+                    codeIndex.BuildException = new InvalidOperationException("index offline");
+
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null,
+                        null,
+                        null,
+                        codeIndex);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "auto failure voyage",
+                        vesselId = vessel.Id,
+                        missions = new object[]
+                        {
+                            new { title = "Task A", description = "Auto mode should continue" }
+                        }
+                    });
+
+                    object result = await dispatchHandler!(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+
+                    AssertFalse(resultJson.Contains("\"Error\""), "Auto mode should continue after context generation failure: " + resultJson);
+                    AssertEqual(1, codeIndex.ContextPackRequests.Count, "Auto mode should attempt context generation");
+                    AssertTrue(admiralDouble.DispatchVoyageCalled, "Auto generation failure should not block dispatch persistence");
+                    AssertEqual(1, admiralDouble.LastMissionDescriptions.Count, "Dispatch should still receive the mission");
+                    AssertNull(admiralDouble.LastMissionDescriptions[0].PrestagedFiles, "Failed auto generation should not add prestaged files");
+                }
+            });
+
+            await RunTest("Dispatch_CodeContextForce_ReturnsErrorWhenUnavailable", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("code-context-force-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
+
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "force voyage",
+                        vesselId = vessel.Id,
+                        codeContextMode = "force",
+                        missions = new object[]
+                        {
+                            new { title = "Task A", description = "Must have context" }
+                        }
+                    });
+
+                    object result = await dispatchHandler!(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+
+                    AssertContains("\"Error\"", resultJson);
+                    AssertContains("code index service is unavailable", resultJson);
+                    AssertFalse(admiralDouble.DispatchVoyageCalled, "Force failure should happen before dispatch persistence");
+                }
+            });
+
+            await RunTest("Dispatch_CodeContextForce_ReturnsErrorWhenGenerationFails", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("code-context-force-failure-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
+                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService();
+                    codeIndex.BuildException = new InvalidOperationException("index crashed");
+
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null,
+                        null,
+                        null,
+                        codeIndex);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "force failure voyage",
+                        vesselId = vessel.Id,
+                        codeContextMode = "force",
+                        missions = new object[]
+                        {
+                            new { title = "Task A", description = "Must fail clearly" }
+                        }
+                    });
+
+                    object result = await dispatchHandler!(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+
+                    AssertContains("\"Error\"", resultJson);
+                    AssertContains("code context generation failed", resultJson);
+                    AssertContains("index crashed", resultJson);
+                    AssertEqual(1, codeIndex.ContextPackRequests.Count, "Force mode should attempt context generation once");
+                    AssertFalse(admiralDouble.DispatchVoyageCalled, "Force generation failure should happen before dispatch persistence");
+                }
+            });
+
+            await RunTest("Dispatch_MissionCodeContextOverride_OverridesTopLevelOff", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("code-context-override-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
+                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService();
+                    codeIndex.ContextPackResponse.PrestagedFiles.Add(new PrestagedFile(
+                        Path.Combine(Path.GetTempPath(), "context-pack-override.md"),
+                        "_briefing/context-pack.md"));
+
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null,
+                        null,
+                        null,
+                        codeIndex);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "override voyage",
+                        vesselId = vessel.Id,
+                        codeContextMode = "off",
+                        missions = new object[]
+                        {
+                            new { title = "Task A", description = "Skipped by top-level off" },
+                            new { title = "Task B", description = "Forced by mission", codeContextMode = "force", codeContextQuery = "custom query for task b" }
+                        }
+                    });
+
+                    object result = await dispatchHandler!(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+
+                    AssertFalse(resultJson.Contains("\"Error\""), "Should not return error: " + resultJson);
+                    AssertEqual(1, codeIndex.ContextPackRequests.Count, "Mission-level force should override top-level off");
+                    AssertEqual("custom query for task b", codeIndex.ContextPackRequests[0].Goal);
+                    AssertNull(admiralDouble.LastMissionDescriptions[0].PrestagedFiles, "Top-level off mission should not receive context");
+                    AssertNotNull(admiralDouble.LastMissionDescriptions[1].PrestagedFiles, "Forced mission should receive context");
+                }
+            });
+
+            await RunTest("Dispatch_InvalidMissionCodeContextMode_ReturnsErrorBeforeDispatch", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("code-context-invalid-mode-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
+                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService();
+
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null,
+                        null,
+                        null,
+                        codeIndex);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "invalid context mode voyage",
+                        vesselId = vessel.Id,
+                        missions = new object[]
+                        {
+                            new { title = "Task A", description = "Invalid mode", codeContextMode = "required" }
+                        }
+                    });
+
+                    object result = await dispatchHandler!(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+
+                    AssertContains("\"Error\"", resultJson);
+                    AssertContains("invalid codeContextMode for mission", resultJson);
+                    AssertContains("required", resultJson);
+                    AssertEqual(0, codeIndex.ContextPackRequests.Count, "Invalid mode should fail before context generation");
+                    AssertFalse(admiralDouble.DispatchVoyageCalled, "Invalid mode should fail before dispatch persistence");
+                }
+            });
+
+            await RunTest("RegisterAll_PassesCodeIndexServiceToVoyageTools", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("registrar-code-context-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
+                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService();
+                    codeIndex.ContextPackResponse.PrestagedFiles.Add(new PrestagedFile(
+                        Path.Combine(Path.GetTempPath(), "context-pack-registrar.md"),
+                        "_briefing/context-pack.md"));
+
+                    Dictionary<string, Func<JsonElement?, Task<object>>> handlers = new Dictionary<string, Func<JsonElement?, Task<object>>>();
+                    McpToolRegistrar.RegisterAll(
+                        (name, _, _, handler) => { handlers[name] = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        codeIndexService: codeIndex);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "registrar voyage",
+                        vesselId = vessel.Id,
+                        codeContextMode = "force",
+                        missions = new object[]
+                        {
+                            new { title = "Task A", description = "Registrar should pass code index" }
+                        }
+                    });
+
+                    object result = await handlers["armada_dispatch"](args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+
+                    AssertFalse(resultJson.Contains("\"Error\""), "Registrar-wired dispatch should not fail: " + resultJson);
+                    AssertEqual(1, codeIndex.ContextPackRequests.Count, "Registrar must pass ICodeIndexService to voyage tools");
+                }
+            });
+
             await RunTest("Dispatch_InvalidAliasCycle_ReturnsError", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -239,6 +593,9 @@ namespace Armada.Test.Unit.Suites.Services
             /// <summary>True when DispatchVoyageAsync was invoked (legacy path).</summary>
             public bool DispatchVoyageCalled { get; private set; }
 
+            /// <summary>Mission descriptions passed to the most recent voyage dispatch call.</summary>
+            public List<MissionDescription> LastMissionDescriptions { get; private set; } = new List<MissionDescription>();
+
             public Func<Captain, Mission, Dock, Task<int>>? OnLaunchAgent { get; set; }
             public Func<Captain, Task>? OnStopAgent { get; set; }
             public Func<Mission, Dock, Task>? OnCaptureDiff { get; set; }
@@ -263,6 +620,7 @@ namespace Armada.Test.Unit.Suites.Services
                 CancellationToken token = default)
             {
                 DispatchVoyageCalled = true;
+                CaptureMissionDescriptions(missionDescriptions);
                 Voyage voyage = new Voyage(title, description);
                 voyage.Id = "vyg_test_0001";
                 voyage.Status = VoyageStatusEnum.Open;
@@ -276,6 +634,7 @@ namespace Armada.Test.Unit.Suites.Services
                 CancellationToken token = default)
             {
                 DispatchVoyageCalled = true;
+                CaptureMissionDescriptions(missionDescriptions);
                 Voyage voyage = new Voyage(title, description);
                 voyage.Id = "vyg_test_0001";
                 voyage.Status = VoyageStatusEnum.Open;
@@ -289,6 +648,7 @@ namespace Armada.Test.Unit.Suites.Services
                 CancellationToken token = default)
             {
                 DispatchVoyageCalled = true;
+                CaptureMissionDescriptions(missionDescriptions);
                 Voyage voyage = new Voyage(title, description);
                 voyage.Id = "vyg_test_0001";
                 voyage.Status = VoyageStatusEnum.Open;
@@ -303,6 +663,7 @@ namespace Armada.Test.Unit.Suites.Services
                 CancellationToken token = default)
             {
                 DispatchVoyageCalled = true;
+                CaptureMissionDescriptions(missionDescriptions);
                 Voyage voyage = new Voyage(title, description);
                 voyage.Id = "vyg_test_0001";
                 voyage.Status = VoyageStatusEnum.Open;
@@ -311,6 +672,13 @@ namespace Armada.Test.Unit.Suites.Services
 
             public Task<Pipeline?> ResolvePipelineAsync(string? pipelineIdOrName, Vessel vessel, CancellationToken token = default)
                 => Task.FromResult<Pipeline?>(null);
+
+            private void CaptureMissionDescriptions(List<MissionDescription> missionDescriptions)
+            {
+                LastMissionDescriptions = new List<MissionDescription>();
+                if (missionDescriptions != null)
+                    LastMissionDescriptions.AddRange(missionDescriptions);
+            }
 
             public Task<ArmadaStatus> GetStatusAsync(CancellationToken token = default)
                 => throw new NotImplementedException();
@@ -331,6 +699,31 @@ namespace Armada.Test.Unit.Suites.Services
                 int processId, int? exitCode, string captainId, string missionId,
                 CancellationToken token = default)
                 => throw new NotImplementedException();
+        }
+
+        private sealed class RecordingCodeIndexService : ICodeIndexService
+        {
+            public List<ContextPackRequest> ContextPackRequests { get; } = new List<ContextPackRequest>();
+
+            public ContextPackResponse ContextPackResponse { get; } = new ContextPackResponse();
+
+            public Exception? BuildException { get; set; }
+
+            public Task<CodeIndexStatus> GetStatusAsync(string vesselId, CancellationToken token = default)
+                => throw new NotImplementedException();
+
+            public Task<CodeIndexStatus> UpdateAsync(string vesselId, CancellationToken token = default)
+                => throw new NotImplementedException();
+
+            public Task<CodeSearchResponse> SearchAsync(CodeSearchRequest request, CancellationToken token = default)
+                => throw new NotImplementedException();
+
+            public Task<ContextPackResponse> BuildContextPackAsync(ContextPackRequest request, CancellationToken token = default)
+            {
+                ContextPackRequests.Add(request);
+                if (BuildException != null) throw BuildException;
+                return Task.FromResult(ContextPackResponse);
+            }
         }
     }
 }

@@ -29,6 +29,22 @@ namespace Armada.Server.Mcp
         public List<MissionDescription> Missions { get; set; } = new List<MissionDescription>();
 
         /// <summary>
+        /// Dispatch-level code context mode. Supported values are auto, off, and force.
+        /// Default behavior is auto.
+        /// </summary>
+        public string? CodeContextMode { get; set; }
+
+        /// <summary>
+        /// Optional token budget for generated code context packs.
+        /// </summary>
+        public int? CodeContextTokenBudget { get; set; }
+
+        /// <summary>
+        /// Optional maximum evidence result count for generated code context packs.
+        /// </summary>
+        public int? CodeContextMaxResults { get; set; }
+
+        /// <summary>
         /// Pipeline ID to use for this dispatch (overrides vessel/fleet default).
         /// </summary>
         public string? PipelineId { get; set; }
