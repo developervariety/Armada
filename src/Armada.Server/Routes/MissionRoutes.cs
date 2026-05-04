@@ -202,6 +202,13 @@ namespace Armada.Server.Routes
                         ? await _database.Missions.EnumerateSummariesAsync(ctx.TenantId!, query).ConfigureAwait(false)
                         : await _database.Missions.EnumerateSummariesAsync(ctx.TenantId!, ctx.UserId!, query).ConfigureAwait(false);
                 result.TotalMs = Math.Round(sw.Elapsed.TotalMilliseconds, 2);
+                foreach (Mission m in result.Objects)
+                {
+                    m.DiffSnapshot = null;
+                    m.Description = null;
+                    m.AgentOutput = null;
+                    m.PlaybookSnapshots = new List<MissionPlaybookSnapshot>();
+                }
                 return result;
             },
             api => api
@@ -232,6 +239,13 @@ namespace Armada.Server.Routes
                         ? await _database.Missions.EnumerateSummariesAsync(ctx.TenantId!, query).ConfigureAwait(false)
                         : await _database.Missions.EnumerateSummariesAsync(ctx.TenantId!, ctx.UserId!, query).ConfigureAwait(false);
                 result.TotalMs = Math.Round(sw.Elapsed.TotalMilliseconds, 2);
+                foreach (Mission m in result.Objects)
+                {
+                    m.DiffSnapshot = null;
+                    m.Description = null;
+                    m.AgentOutput = null;
+                    m.PlaybookSnapshots = new List<MissionPlaybookSnapshot>();
+                }
                 return result;
             },
             api => api
@@ -289,6 +303,7 @@ namespace Armada.Server.Routes
                         : await _database.Missions.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (mission == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found" }; }
                 mission.DiffSnapshot = null;
+                mission.AgentOutput = null;
                 mission.PlaybookSnapshots = await _database.Playbooks.GetMissionSnapshotsAsync(id).ConfigureAwait(false);
                 return (object)mission;
             },

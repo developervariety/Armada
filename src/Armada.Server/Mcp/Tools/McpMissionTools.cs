@@ -52,9 +52,8 @@ namespace Armada.Server.Mcp.Tools
                 {
                     MissionIdArgs request = JsonSerializer.Deserialize<MissionIdArgs>(args!.Value, _JsonOptions)!;
                     string missionId = request.MissionId;
-                    Mission? mission = await database.Missions.ReadAsync(missionId).ConfigureAwait(false);
+                    Mission? mission = await database.Missions.ReadSummaryAsync(missionId).ConfigureAwait(false);
                     if (mission == null) return (object)new { Error = "Mission not found" };
-                    mission.DiffSnapshot = null;
                     return (object)mission;
                 });
 
@@ -106,11 +105,11 @@ namespace Armada.Server.Mcp.Tools
                     {
                         return (object)new
                         {
-                            Mission = mission,
+                            Mission = SanitizeMissionForStatus(mission),
                             Warning = "Mission created but could not be assigned to any captain. It will be retried on the next health check cycle."
                         };
                     }
-                    return (object)mission;
+                    return (object)SanitizeMissionForStatus(mission);
                 });
 
             register(
@@ -160,7 +159,7 @@ namespace Armada.Server.Mcp.Tools
                         mission.Persona = request.Persona;
                     mission.LastUpdateUtc = DateTime.UtcNow;
                     mission = await database.Missions.UpdateAsync(mission).ConfigureAwait(false);
-                    return (object)mission;
+                    return (object)SanitizeMissionForStatus(mission);
                 });
 
             register(
@@ -207,7 +206,7 @@ namespace Armada.Server.Mcp.Tools
                     mission.CompletedUtc = DateTime.UtcNow;
                     mission.LastUpdateUtc = DateTime.UtcNow;
                     mission = await database.Missions.UpdateAsync(mission).ConfigureAwait(false);
-                    return (object)mission;
+                    return (object)SanitizeMissionForStatus(mission);
                 });
 
             register(
@@ -385,7 +384,7 @@ namespace Armada.Server.Mcp.Tools
                     signal.TenantId = ArmadaConstants.DefaultTenantId;
                     await database.Signals.CreateAsync(signal).ConfigureAwait(false);
 
-                    return (object)mission;
+                    return (object)SanitizeMissionForStatus(mission);
                 });
 
             register(
@@ -406,7 +405,7 @@ namespace Armada.Server.Mcp.Tools
                     MissionRetryLandingArgs request = JsonSerializer.Deserialize<MissionRetryLandingArgs>(args!.Value, _JsonOptions)!;
                     bool success = await landingService.RetryLandingAsync(request.MissionId).ConfigureAwait(false);
                     Mission? mission = await database.Missions.ReadAsync(request.MissionId).ConfigureAwait(false);
-                    return (object)new { Success = success, Mission = mission };
+                    return (object)new { Success = success, Mission = mission != null ? SanitizeMissionForStatus(mission) : null };
                 });
 
             register(
@@ -450,7 +449,7 @@ namespace Armada.Server.Mcp.Tools
                     if (!String.IsNullOrEmpty(mission.CaptainId)) signal.FromCaptainId = mission.CaptainId;
                     await database.Signals.CreateAsync(signal).ConfigureAwait(false);
 
-                    return (object)mission;
+                    return (object)SanitizeMissionForStatus(mission);
                 });
 
             // Diff and log tools require settings and git service
@@ -562,6 +561,14 @@ namespace Armada.Server.Mcp.Tools
                         return (object)new { MissionId = missionId, Log = log, Lines = slice.Length, TotalLines = totalLines };
                     });
             }
+        }
+
+        private static Mission SanitizeMissionForStatus(Mission mission)
+        {
+            mission.DiffSnapshot = null;
+            mission.AgentOutput = null;
+            mission.PlaybookSnapshots = new List<MissionPlaybookSnapshot>();
+            return mission;
         }
     }
 }

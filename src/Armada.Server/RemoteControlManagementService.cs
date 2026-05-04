@@ -579,20 +579,15 @@ namespace Armada.Server
         private async Task<RemoteTunnelRequestResult> ListMissionsAsync(RemoteTunnelQueryRequest request, CancellationToken token)
         {
             int limit = Clamp(request.Limit, 16, 1, 200);
-            IEnumerable<Mission> missions;
+            EnumerationQuery query = new EnumerationQuery
+            {
+                PageSize = limit
+            };
 
             if (!String.IsNullOrWhiteSpace(request.VoyageId))
-            {
-                missions = await _Database.Missions.EnumerateByVoyageAsync(request.VoyageId.Trim(), token).ConfigureAwait(false);
-            }
-            else if (!String.IsNullOrWhiteSpace(request.VesselId))
-            {
-                missions = await _Database.Missions.EnumerateByVesselAsync(request.VesselId.Trim(), token).ConfigureAwait(false);
-            }
-            else
-            {
-                missions = await _Database.Missions.EnumerateAsync(token).ConfigureAwait(false);
-            }
+                query.VoyageId = request.VoyageId.Trim();
+            if (!String.IsNullOrWhiteSpace(request.VesselId))
+                query.VesselId = request.VesselId.Trim();
 
             if (!String.IsNullOrWhiteSpace(request.Status))
             {
@@ -601,19 +596,15 @@ namespace Armada.Server
                     return BadRequest("invalid_mission_status", "Invalid mission status: " + request.Status);
                 }
 
-                missions = missions.Where(m => m.Status == status);
+                query.Status = status.ToString();
             }
 
-            List<Mission> rows = missions
+            EnumerationResult<Mission> missions = await _Database.Missions.EnumerateSummariesAsync(query, token).ConfigureAwait(false);
+            List<Mission> rows = missions.Objects
                 .OrderByDescending(m => m.LastUpdateUtc)
                 .ThenByDescending(m => m.CreatedUtc)
                 .Take(limit)
                 .ToList();
-
-            foreach (Mission mission in rows)
-            {
-                mission.DiffSnapshot = null;
-            }
 
             return Ok(new
             {
@@ -642,6 +633,8 @@ namespace Armada.Server
             }
 
             Mission created = await _Admiral.DispatchMissionAsync(mission, token).ConfigureAwait(false);
+            created.DiffSnapshot = null;
+            created.AgentOutput = null;
             await _EmitEventAsync("mission.created", "Mission created from proxy: " + created.Title, "mission", created.Id, created.CaptainId, created.Id, created.VesselId, created.VoyageId).ConfigureAwait(false);
             return Created(created, "Mission created.");
         }
@@ -679,6 +672,7 @@ namespace Armada.Server
 
             Mission updated = await _Database.Missions.UpdateAsync(existing, token).ConfigureAwait(false);
             updated.DiffSnapshot = null;
+            updated.AgentOutput = null;
             await _EmitEventAsync("mission.updated", "Mission updated from proxy: " + updated.Title, "mission", updated.Id, updated.CaptainId, updated.Id, updated.VesselId, updated.VoyageId).ConfigureAwait(false);
             return Ok(updated, "Mission updated.");
         }
@@ -715,6 +709,7 @@ namespace Armada.Server
             mission.LastUpdateUtc = _UtcNow();
             mission = await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
             mission.DiffSnapshot = null;
+            mission.AgentOutput = null;
 
             await _EmitEventAsync("mission.cancelled", "Mission cancelled from proxy: " + mission.Title, "mission", mission.Id, mission.CaptainId, mission.Id, mission.VesselId, mission.VoyageId).ConfigureAwait(false);
             return Ok(mission, "Mission cancelled.");
@@ -766,6 +761,7 @@ namespace Armada.Server
 
             mission = await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
             mission.DiffSnapshot = null;
+            mission.AgentOutput = null;
 
             await _EmitEventAsync("mission.restarted", "Mission restarted from proxy: " + mission.Title, "mission", mission.Id, null, mission.Id, mission.VesselId, mission.VoyageId).ConfigureAwait(false);
             return Ok(mission, "Mission restarted.");

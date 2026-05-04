@@ -130,6 +130,29 @@ namespace Armada.Core.Database.Sqlite.Implementations
         }
 
         /// <inheritdoc />
+        public async Task<Mission?> ReadSummaryAsync(string id, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(id)) throw new ArgumentNullException(nameof(id));
+
+            using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (SqliteCommand cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "SELECT " + _MissionSummaryColumns + " FROM missions WHERE id = @id;";
+                    cmd.Parameters.AddWithValue("@id", id);
+                    using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
+                    {
+                        if (await reader.ReadAsync(token).ConfigureAwait(false))
+                            return SqliteDatabaseDriver.MissionFromReader(reader);
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        /// <inheritdoc />
         public async Task<Mission> UpdateAsync(Mission mission, CancellationToken token = default)
         {
             if (mission == null) throw new ArgumentNullException(nameof(mission));
@@ -985,6 +1008,12 @@ namespace Armada.Core.Database.Sqlite.Implementations
             {
                 conditions.Add("voyage_id = @voyage_id");
                 parameters.Add(new SqliteParameter("@voyage_id", query.VoyageId));
+            }
+
+            if (!String.IsNullOrEmpty(query.MissionId))
+            {
+                conditions.Add("id = @mission_id");
+                parameters.Add(new SqliteParameter("@mission_id", query.MissionId));
             }
 
             if (!String.IsNullOrEmpty(query.VesselId))

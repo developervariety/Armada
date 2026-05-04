@@ -287,8 +287,12 @@ namespace Armada.Server.WebSocket
                         return new { type = "command.error", action = "get_voyage", error = "Voyage not found" };
                     else
                     {
-                        List<Mission> voyageMissions = await _Database.Missions.EnumerateByVoyageAsync(getVoyageId).ConfigureAwait(false);
-                        return new { type = "command.result", action = "get_voyage", data = (object)new { voyage = foundVoyage, missions = voyageMissions } };
+                        EnumerationResult<Mission> voyageMissions = await _Database.Missions.EnumerateSummariesAsync(new EnumerationQuery
+                        {
+                            VoyageId = getVoyageId,
+                            PageSize = 1000
+                        }).ConfigureAwait(false);
+                        return new { type = "command.result", action = "get_voyage", data = (object)new { voyage = foundVoyage, missions = voyageMissions.Objects } };
                     }
 
                 case "create_voyage":
@@ -434,13 +438,13 @@ namespace Armada.Server.WebSocket
                 case "list_missions":
                     EnumerationQuery missionQuery = command.Query ?? new EnumerationQuery();
                     Stopwatch missionSw = Stopwatch.StartNew();
-                    EnumerationResult<Mission> missionResult = await _Database.Missions.EnumerateAsync(missionQuery).ConfigureAwait(false);
+                    EnumerationResult<Mission> missionResult = await _Database.Missions.EnumerateSummariesAsync(missionQuery).ConfigureAwait(false);
                     missionResult.TotalMs = Math.Round(missionSw.Elapsed.TotalMilliseconds, 2);
                     return new { type = "command.result", action = "list_missions", data = (object)missionResult };
 
                 case "get_mission":
                     string getMissionId = command.Id ?? "";
-                    Mission? foundMission = await _Database.Missions.ReadAsync(getMissionId).ConfigureAwait(false);
+                    Mission? foundMission = await _Database.Missions.ReadSummaryAsync(getMissionId).ConfigureAwait(false);
                     if (foundMission == null)
                         return new { type = "command.error", action = "get_mission", error = "Mission not found" };
                     else
@@ -910,7 +914,7 @@ namespace Armada.Server.WebSocket
                             break;
                         case "missions":
                         case "mission":
-                            EnumerationResult<Mission> enumMissions = await _Database.Missions.EnumerateAsync(enumQuery).ConfigureAwait(false);
+                            EnumerationResult<Mission> enumMissions = await _Database.Missions.EnumerateSummariesAsync(enumQuery).ConfigureAwait(false);
                             enumMissions.TotalMs = Math.Round(enumSw.Elapsed.TotalMilliseconds, 2);
                             enumData = enumMissions;
                             break;

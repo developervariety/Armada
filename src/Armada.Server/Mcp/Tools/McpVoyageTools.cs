@@ -124,21 +124,26 @@ namespace Armada.Server.Mcp.Tools
                     Voyage? voyage = await database.Voyages.ReadAsync(voyageId).ConfigureAwait(false);
                     if (voyage == null) return (object)new { Error = "Voyage not found" };
 
-                    List<Mission> missions = await database.Missions.EnumerateByVoyageAsync(voyageId).ConfigureAwait(false);
-
                     // Default: summary mode (returns voyage metadata + mission counts by status, no mission objects)
                     bool isSummary = request.Summary != false;
                     if (isSummary)
                     {
-                        Dictionary<string, int> counts = missions.GroupBy(m => m.Status.ToString())
-                            .ToDictionary(g => g.Key, g => g.Count());
+                        Dictionary<MissionStatusEnum, int> statusCounts = await database.Missions.CountByVoyageStatusAsync(voyageId).ConfigureAwait(false);
+                        Dictionary<string, int> counts = statusCounts.ToDictionary(kvp => kvp.Key.ToString(), kvp => kvp.Value);
                         return (object)new
                         {
                             Voyage = new { voyage.Id, voyage.Title, voyage.Description, voyage.Status, voyage.CreatedUtc, voyage.LastUpdateUtc },
-                            TotalMissions = missions.Count,
+                            TotalMissions = counts.Values.Sum(),
                             MissionCountsByStatus = counts
                         };
                     }
+
+                    EnumerationResult<Mission> missionResult = await database.Missions.EnumerateSummariesAsync(new EnumerationQuery
+                    {
+                        VoyageId = voyageId,
+                        PageSize = 1000
+                    }).ConfigureAwait(false);
+                    List<Mission> missions = missionResult.Objects;
 
                     // Non-summary: optionally include mission objects
                     if (request.IncludeMissions != true)
@@ -146,14 +151,7 @@ namespace Armada.Server.Mcp.Tools
                         return (object)new { Voyage = voyage, TotalMissions = missions.Count };
                     }
 
-                    // Full mission objects with optional field inclusion
-                    foreach (Mission m in missions)
-                    {
-                        m.DiffSnapshot = request.IncludeDiffs == true ? m.DiffSnapshot : null;
-                        if (request.IncludeDescription != true) m.Description = null;
-                        // includeLogs is reserved for future use -- logs are stored in external files
-                        // and are not available on the mission object. This flag currently has no effect.
-                    }
+                    // Mission objects are lightweight summaries. Logs and diffs are available through mission-specific tools.
                     return (object)new { Voyage = voyage, Missions = missions };
                 });
 
