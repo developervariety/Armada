@@ -54,6 +54,35 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertStripsHeavyMissionFields(listEndpoint, "GET /api/v1/missions");
                 AssertStripsHeavyMissionFields(enumerateEndpoint, "POST /api/v1/missions/enumerate");
             });
+
+            await RunTest("MissionEnumerationRoutes UseSummaryProjection", () =>
+            {
+                string routes = ReadRepositoryFile("src", "Armada.Server", "Routes", "MissionRoutes.cs");
+                string listEndpoint = ExtractBetween(routes, "app.Get(\"/api/v1/missions\"", "app.Post<EnumerationQuery>");
+                string enumerateEndpoint = ExtractBetween(routes, "app.Post<EnumerationQuery>(\"/api/v1/missions/enumerate\"", "app.Post<Mission>");
+
+                AssertContains("EnumerateSummariesAsync", listEndpoint, "GET /api/v1/missions should use the lightweight mission summary projection.");
+                AssertContains("EnumerateSummariesAsync", enumerateEndpoint, "POST /api/v1/missions/enumerate should use the lightweight mission summary projection.");
+            });
+
+            await RunTest("EmbeddedDashboardRefresh CoalescesAndAvoidsBackgroundMergeQueueLoad", () =>
+            {
+                string dashboard = ReadRepositoryFile("src", "Armada.Server", "wwwroot", "js", "dashboard.js");
+
+                AssertContains("refreshInFlight", dashboard, "Embedded dashboard refresh should use single-flight coalescing.");
+                AssertContains("refreshQueued", dashboard, "Embedded dashboard refresh should queue one follow-up refresh after bursts.");
+                AssertContains("this.view === 'merge-queue' ? this.loadMergeQueue() : Promise.resolve()", dashboard, "Embedded dashboard should not enrich merge queue entries while viewing unrelated pages.");
+            });
+
+            await RunTest("SqliteMissionSummaries DoNotSelectHeavyMissionColumns", () =>
+            {
+                string methods = ReadRepositoryFile("src", "Armada.Core", "Database", "Sqlite", "Implementations", "MissionMethods.cs");
+
+                AssertContains("NULL AS description", methods, "SQLite mission summary projection should not hydrate description.");
+                AssertContains("NULL AS diff_snapshot", methods, "SQLite mission summary projection should not hydrate diff snapshots.");
+                AssertContains("NULL AS agent_output", methods, "SQLite mission summary projection should not hydrate agent output.");
+                AssertContains("CountByVoyageStatusAsync", methods, "Voyage progress should use grouped counts instead of full mission rows.");
+            });
         }
 
         private void AssertStripsHeavyMissionFields(string endpointBlock, string surface)

@@ -101,25 +101,29 @@ namespace Armada.Core.Services
                 : await _Database.Voyages.ReadAsync(voyageId, token).ConfigureAwait(false);
             if (voyage == null) return null;
 
-            List<Mission> missions = await _Database.Missions.EnumerateByVoyageAsync(voyage.Id, token).ConfigureAwait(false);
+            Dictionary<MissionStatusEnum, int> missionCounts = await _Database.Missions.CountByVoyageStatusAsync(voyage.Id, token).ConfigureAwait(false);
 
             VoyageProgress progress = new VoyageProgress
             {
                 Voyage = voyage,
-                TotalMissions = missions.Count,
-                CompletedMissions = missions.Count(m =>
-                    m.Status == MissionStatusEnum.Complete ||
-                    m.Status == MissionStatusEnum.WorkProduced),
-                FailedMissions = missions.Count(m => m.Status == MissionStatusEnum.Failed || m.Status == MissionStatusEnum.LandingFailed),
-                InProgressMissions = missions.Count(m =>
-                    m.Status == MissionStatusEnum.InProgress ||
-                    m.Status == MissionStatusEnum.Assigned ||
-                    m.Status == MissionStatusEnum.Testing ||
-                    m.Status == MissionStatusEnum.Review ||
-                    m.Status == MissionStatusEnum.PullRequestOpen)
+                TotalMissions = missionCounts.Values.Sum(),
+                CompletedMissions = CountStatus(missionCounts, MissionStatusEnum.Complete) +
+                    CountStatus(missionCounts, MissionStatusEnum.WorkProduced),
+                FailedMissions = CountStatus(missionCounts, MissionStatusEnum.Failed) +
+                    CountStatus(missionCounts, MissionStatusEnum.LandingFailed),
+                InProgressMissions = CountStatus(missionCounts, MissionStatusEnum.InProgress) +
+                    CountStatus(missionCounts, MissionStatusEnum.Assigned) +
+                    CountStatus(missionCounts, MissionStatusEnum.Testing) +
+                    CountStatus(missionCounts, MissionStatusEnum.Review) +
+                    CountStatus(missionCounts, MissionStatusEnum.PullRequestOpen)
             };
 
             return progress;
+        }
+
+        private static int CountStatus(Dictionary<MissionStatusEnum, int> counts, MissionStatusEnum status)
+        {
+            return counts.TryGetValue(status, out int count) ? count : 0;
         }
 
         #endregion

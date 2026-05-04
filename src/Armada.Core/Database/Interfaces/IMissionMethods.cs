@@ -45,6 +45,18 @@ namespace Armada.Core.Database.Interfaces
         Task<EnumerationResult<Mission>> EnumerateAsync(EnumerationQuery query, CancellationToken token = default);
 
         /// <summary>
+        /// Enumerate missions with pagination and filtering for list/dashboard surfaces.
+        /// Implementations should avoid hydrating large mission text payloads such as
+        /// description, diff_snapshot, agent_output, and playbook snapshot content.
+        /// </summary>
+        async Task<EnumerationResult<Mission>> EnumerateSummariesAsync(EnumerationQuery query, CancellationToken token = default)
+        {
+            EnumerationResult<Mission> result = await EnumerateAsync(query, token).ConfigureAwait(false);
+            StripHeavyFields(result.Objects);
+            return result;
+        }
+
+        /// <summary>
         /// Enumerate missions by voyage identifier.
         /// </summary>
         Task<List<Mission>> EnumerateByVoyageAsync(string voyageId, CancellationToken token = default);
@@ -72,6 +84,17 @@ namespace Armada.Core.Database.Interfaces
         Task<Dictionary<MissionStatusEnum, int>> CountByStatusAsync(CancellationToken token = default);
 
         /// <summary>
+        /// Count missions in a voyage grouped by status without hydrating mission rows.
+        /// </summary>
+        async Task<Dictionary<MissionStatusEnum, int>> CountByVoyageStatusAsync(string voyageId, CancellationToken token = default)
+        {
+            List<Mission> missions = await EnumerateByVoyageAsync(voyageId, token).ConfigureAwait(false);
+            return missions
+                .GroupBy(m => m.Status)
+                .ToDictionary(g => g.Key, g => g.Count());
+        }
+
+        /// <summary>
         /// Check if a mission exists by identifier.
         /// </summary>
         Task<bool> ExistsAsync(string id, CancellationToken token = default);
@@ -95,6 +118,16 @@ namespace Armada.Core.Database.Interfaces
         /// Enumerate missions with pagination and filtering (tenant-scoped).
         /// </summary>
         Task<EnumerationResult<Mission>> EnumerateAsync(string tenantId, EnumerationQuery query, CancellationToken token = default);
+
+        /// <summary>
+        /// Enumerate mission summaries with pagination and filtering (tenant-scoped).
+        /// </summary>
+        async Task<EnumerationResult<Mission>> EnumerateSummariesAsync(string tenantId, EnumerationQuery query, CancellationToken token = default)
+        {
+            EnumerationResult<Mission> result = await EnumerateAsync(tenantId, query, token).ConfigureAwait(false);
+            StripHeavyFields(result.Objects);
+            return result;
+        }
 
         /// <summary>
         /// Enumerate missions by tenant and voyage identifier (tenant-scoped).
@@ -140,5 +173,26 @@ namespace Armada.Core.Database.Interfaces
         /// Enumerate missions with pagination and filtering (user-scoped).
         /// </summary>
         Task<EnumerationResult<Mission>> EnumerateAsync(string tenantId, string userId, EnumerationQuery query, CancellationToken token = default);
+
+        /// <summary>
+        /// Enumerate mission summaries with pagination and filtering (user-scoped).
+        /// </summary>
+        async Task<EnumerationResult<Mission>> EnumerateSummariesAsync(string tenantId, string userId, EnumerationQuery query, CancellationToken token = default)
+        {
+            EnumerationResult<Mission> result = await EnumerateAsync(tenantId, userId, query, token).ConfigureAwait(false);
+            StripHeavyFields(result.Objects);
+            return result;
+        }
+
+        private static void StripHeavyFields(IEnumerable<Mission> missions)
+        {
+            foreach (Mission mission in missions)
+            {
+                mission.Description = null;
+                mission.DiffSnapshot = null;
+                mission.AgentOutput = null;
+                mission.PlaybookSnapshots = new List<MissionPlaybookSnapshot>();
+            }
+        }
     }
 }

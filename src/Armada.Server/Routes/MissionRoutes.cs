@@ -199,10 +199,10 @@ namespace Armada.Server.Routes
                 query.ApplyQuerystringOverrides(key => req.Query.GetValueOrDefault(key));
                 Stopwatch sw = Stopwatch.StartNew();
                 EnumerationResult<Mission> result = ctx.IsAdmin
-                    ? await _database.Missions.EnumerateAsync(query).ConfigureAwait(false)
+                    ? await _database.Missions.EnumerateSummariesAsync(query).ConfigureAwait(false)
                     : ctx.IsTenantAdmin
-                        ? await _database.Missions.EnumerateAsync(ctx.TenantId!, query).ConfigureAwait(false)
-                        : await _database.Missions.EnumerateAsync(ctx.TenantId!, ctx.UserId!, query).ConfigureAwait(false);
+                        ? await _database.Missions.EnumerateSummariesAsync(ctx.TenantId!, query).ConfigureAwait(false)
+                        : await _database.Missions.EnumerateSummariesAsync(ctx.TenantId!, ctx.UserId!, query).ConfigureAwait(false);
                 result.TotalMs = Math.Round(sw.Elapsed.TotalMilliseconds, 2);
                 foreach (Mission m in result.Objects)
                 {
@@ -236,10 +236,10 @@ namespace Armada.Server.Routes
                 query.ApplyQuerystringOverrides(key => req.Query.GetValueOrDefault(key));
                 Stopwatch sw = Stopwatch.StartNew();
                 EnumerationResult<Mission> result = ctx.IsAdmin
-                    ? await _database.Missions.EnumerateAsync(query).ConfigureAwait(false)
+                    ? await _database.Missions.EnumerateSummariesAsync(query).ConfigureAwait(false)
                     : ctx.IsTenantAdmin
-                        ? await _database.Missions.EnumerateAsync(ctx.TenantId!, query).ConfigureAwait(false)
-                        : await _database.Missions.EnumerateAsync(ctx.TenantId!, ctx.UserId!, query).ConfigureAwait(false);
+                        ? await _database.Missions.EnumerateSummariesAsync(ctx.TenantId!, query).ConfigureAwait(false)
+                        : await _database.Missions.EnumerateSummariesAsync(ctx.TenantId!, ctx.UserId!, query).ConfigureAwait(false);
                 result.TotalMs = Math.Round(sw.Elapsed.TotalMilliseconds, 2);
                 foreach (Mission m in result.Objects)
                 {
