@@ -69,7 +69,20 @@ Everything else in Armada exists to support that: isolated worktrees, parallel d
 
 ## Fork features vs upstream
 
-This fork (`developervariety/Armada`) is based on `jchristn/Armada` and adds orchestration features for multi-vessel, multi-runtime dispatch with auto-recovery and human-review gating. **Last upstream sync: `cd27ea6` (9 upstream commits absorbed) on 2026-05-01.** Partial cherry-pick: `28d0f846` Docker reset/config hardening ported by hand on 2026-05-03; remaining upstream from that commit deferred due to 56-file conflict surface across MCP renames, dashboard, and pipeline services.
+This fork (`developervariety/Armada`) is based on `jchristn/Armada` and adds orchestration features for multi-vessel, multi-runtime dispatch with auto-recovery and human-review gating. Current local fork head includes the memory/OOM hotfix series through `7cf460e9`; `origin/main` is `351d7f88`; the checked upstream comparison point is `upstream/main` at `adfdc3b3`. Earlier upstream sync: `cd27ea6` (9 upstream commits absorbed) on 2026-05-01. Partial cherry-pick: `28d0f846` Docker reset/config hardening ported by hand on 2026-05-03; remaining upstream from that commit deferred due to 56-file conflict surface across MCP renames, dashboard, and pipeline services.
+
+To upstream only the memory/dashboard bugfix without fork-only features, create an upstream-based branch and cherry-pick just these commits:
+
+```bash
+git fetch upstream origin
+git switch -c fix/memory-dashboard-oom upstream/main
+git cherry-pick 0fe4411c 22869d01 c6b8ffe1 7cf460e9
+dotnet build src/Armada.Server/Armada.Server.csproj --framework net10.0
+dotnet build test/Armada.Test.Unit/Test.Unit.csproj --framework net8.0
+git push origin fix/memory-dashboard-oom
+```
+
+Do not branch that PR from this fork's `main`; it contains AgentWake, tier routing, diagnostics, MCP/runtime hardening, and other fork-only behavior that should stay out of a narrow upstream memory fix.
 
 ### Fork-only features
 
@@ -79,13 +92,16 @@ This fork (`developervariety/Armada`) is based on `jchristn/Armada` and adds orc
 - **Cross-vessel `dependsOnMissionId`.** A mission on vessel A may depend on a mission on vessel B. Cross-vessel deps wait for `Complete` (no `WorkProduced` shortcut, since branch handoff across repos is meaningless), and the downstream always gets a fresh branch on its own vessel. (`55fd1367`)
 - **Logical-alias `dependsOnMissionAlias` resolution.** Architect-emitted single-voyage plans dispatch with one or more `alias`-tagged missions; downstream missions reference upstream via alias instead of pre-resolved `msn_*` ids. Server topologically sorts at dispatch and resolves aliases to concrete ids in dependency order. Forward references and cycles rejected at validation. (`c061bd7d`)
 - **Voyage-to-mission playbook propagation.** Vessel `DefaultPlaybooks` merge into every dispatch automatically; voyage-level `selectedPlaybooks` cascade into each mission. Architect and `armada_create_mission` paths included. (`8143268`, `f52720a0`)
-- **Per-stage `PreferredModel` on `PipelineStage`.** A Reviewed pipeline can run Worker stage on Mid-tier and Judge stage on `claude-opus-4-7` independently. Alias-aware dispatch path expands pipeline stages correctly. (`5ae0ce4b`, `fc48ea41`)
+- **Per-stage `PreferredModel` on `PipelineStage`.** Pipeline stages can route by tier (`low`, `mid`, `high`) or literal model. Tier routing randomly selects among available peer models in the tier and upgrades upward when a tier has no available captain; literal model names remain an escape hatch. Alias-aware dispatch path expands pipeline stages correctly. (`5ae0ce4b`, `fc48ea41`, `dae5a50a`, `fbc724f8`)
 - **`ProtectedPaths` per-vessel gate.** Vessels carry a glob-list of paths that captain commits may NOT touch. Captain commits to `**/CLAUDE.md` (or other protected paths) are rejected with a coaching message teaching the `[CLAUDE.MD-PROPOSAL]` block format for proposing rule changes. (`02e52f6`)
-- **Cursor-agent prompt via stdin.** Cursor runtime feeds the prompt to `cursor-agent` via stdin instead of inlining as a CLI arg. Bypasses Windows `cmd.exe`'s ~8 KB command-line limit which silently failed cursor-agent on long structured briefs. (`db9439c`)
+- **Cursor-agent launch hardening.** Cursor runtime feeds the prompt to `cursor-agent` via stdin instead of inlining as a CLI arg, bypassing Windows `cmd.exe`'s ~8 KB command-line limit. On Windows it also prefers the official Cursor agent install path under `%LOCALAPPDATA%\cursor-agent\cursor-agent.cmd` when PATH/npm shim resolution would hit the broken `AppData\Roaming\npm\cursor-agent.cmd` wrapper that prints repeated "The system cannot find the path specified." lines and exits `0` without invoking the model. (`db9439c`, `351d7f88`)
 - **`GitService.IsPrMergedAsync` platform-aware.** PR-merge detection routes to `gh pr view` (GitHub) or `glab mr view` (GitLab) based on URL host. Closes a silent-failure path where GitLab MRs always appeared "not merged" because `gh` returned non-zero on unsupported hosts. (`63b6f6f`)
 - **Captain-lifecycle hardening.** Captain process cleanup on cancel + launch log lock recovery prevents orphaned worktrees and stuck launch state. Merge-queue land + dock-delete honor the vessel's `BranchCleanupPolicy`. (`7f99fa9`, `23c22eb7`)
 - **`JsonStringEnumConverter` registered for settings.json mode loading.** Fixes a startup crash when `settings.json` carries `RemoteTriggerMode` as a string. (`3dcecd5`)
-- **`RemoteTriggerMode.AgentWake` -- local Claude/Codex process wake.** New transport mode that spawns a local Claude Code or Codex CLI process on WorkProduced, MissionFailed, auto_land_skipped, and audit-Critical events. No HTTP token or Routines API required. Configure via `remoteTrigger.mode = "AgentWake"` with optional `agentWake` subsection (runtime, sessionId, workingDirectory, timeoutSeconds). Supports Claude --print --continue/--resume and Codex exec resume paths. Per-vessel 60s coalescing, rolling 20/hour throttle, and global single-flight lease prevent burst spawning. LocalDaemon mode has been removed; AgentWake is its replacement.
+- **`RemoteTriggerMode.AgentWake` -- local Claude/Codex one-shot wake.** New transport mode that spawns a local Claude Code or Codex CLI process only when Armada has real work: WorkProduced, MissionFailed, auto_land_skipped, and audit-Critical events. No HTTP token, Routines API, or constant daemon loop required. Configure via `remoteTrigger.mode = "AgentWake"` with optional `agentWake` subsection (`runtime`, `command`, `sessionId`, `workingDirectory`, `timeoutSeconds`, `environmentVariables`). Supports Claude `--print --continue` / `--resume <sessionId>` and Codex `exec resume --last -` / session resume paths. Per-vessel 60s coalescing, rolling 20/hour throttle, and global single-flight lease prevent burst spawning. LocalDaemon mode has been removed; AgentWake is its replacement.
+- **Codex/Claude MCP startup hardening.** `armada mcp install` now configures Codex through the native `codex mcp add` flow and the correct `~/.codex/config.toml` target, using a stdio Armada entrypoint from source checkouts. Claude Code captain launches are restricted to project/local settings with `--strict-mcp-config` so user-level MCP servers do not leak into headless captain processes.
+- **Captain diagnostics for long-running/no-diff cases.** `armada_captain_diagnostics` is a read-only MCP tool for investigating captains that appear busy without producing files. It reports active mission elapsed time, dock git status, uncommitted files, launch/log hints, and code-index freshness/staleness so operators can distinguish stuck model startup, missing context, stale index, and normal long-running work.
+- **Mission/dashboard memory hardening.** Mission stdout/stderr buffers are capped, status/progress APIs use grouped counts instead of hydrating all mission rows, mission list APIs project lightweight summaries that omit `description`, `diff_snapshot`, and `agent_output`, and the embedded dashboard coalesces refreshes while avoiding background merge-queue enrichment outside the merge view. This fixes the observed Admiral memory growth and browser out-of-memory failure when many missions carry large logs/output. (`0fe4411c`, `22869d01`, `c6b8ffe1`, `7cf460e9`)
 
 - **Alias-dispatch playbook snapshot fix.** Downstream pipeline stages in alias-aware multi-stage dispatch now persist `MissionPlaybookSnapshot` rows the same way the first stage does. Previously, Judge and subsequent stages had no snapshots, so playbook content was missing from the rendered captain brief. Also clarifies the merge hierarchy (vessel defaults < voyage `selectedPlaybooks` < per-mission `selectedPlaybooks`) in docs and duplicate-prevention behavior in code and docs.
 - **Tracked default `docker/server/armada.json`.** A default server config template is now committed at `docker/server/armada.json` and included via `.gitignore` whitelist so fresh clones work with `docker compose up -d` without manually creating the file. Factory reset scripts already preserved `armada.json`; the `.gitignore` now explicitly allows it. (partial port of `28d0f846`)
@@ -128,10 +144,10 @@ A by-category inventory of what Armada actually ships. Each feature is implement
 ### Agent Runtimes
 
 - **Pluggable runtime adapter.** `IAgentRuntime` abstraction; `BaseAgentRuntime` factors out shared stdout/stderr/log piping + process lifecycle.
-- **Claude Code.** Local `claude` CLI runtime.
-- **Codex.** OpenAI Codex CLI.
+- **Claude Code.** Local `claude` CLI runtime. Captain launches use `--print --verbose --setting-sources project,local --strict-mcp-config` and strip nested Claude session environment variables so headless captains do not inherit user-level MCP/plugin state.
+- **Codex.** OpenAI Codex CLI. On Windows, Armada maps full-auto execution to `--dangerously-bypass-approvals-and-sandbox`; other platforms use the normal full-auto flag. Per-captain `runtime_options_json.reasoning_effort` is forwarded to Codex.
 - **Gemini.** Google Gemini CLI.
-- **Cursor.** Cursor agent CLI (`cursor-agent`); supports cursor-specific models (composer-2-fast, kimi-k2.5, claude-4.6-sonnet-medium, gemini-3-flash).
+- **Cursor.** Cursor agent CLI (`cursor-agent`); supports cursor-specific models (composer-2-fast, kimi-k2.5, claude-4.6-sonnet-medium, gemini-3-flash). Prompts are sent on stdin, and Windows launches prefer the official Cursor agent install path when the npm shim is broken.
 - **Cross-runtime model equivalence.** Captains expose a `Model` string used for both literal-pin matching and tier eligibility. Equivalence pairs (e.g. `claude-sonnet-4-6` and `claude-4.6-sonnet-medium`) are documented; the orchestrator picks overflow captains across runtime variants when needed. Tier-based dispatch randomly selects across peer models within a tier to avoid vendor concentration.
 
 ### Quality Gates & Auto-land
@@ -183,8 +199,8 @@ A by-category inventory of what Armada actually ships. Each feature is implement
 
 ### Persistence
 
-- **Four database backends.** SQLite (default, embedded), PostgreSQL, MySQL, SQL Server. Same schema, same migration sequence (currently v36).
-- **Numbered schema migrations.** Versioned `SchemaMigration(N, description, statements)` entries applied at admiral startup. Latest migrations: v34 `default_playbooks`, v35 `pipeline_stages.preferred_model`, v36 `merge_entries.pr_url + pr_base_branch`.
+- **Four database backends.** SQLite (default, embedded), PostgreSQL, MySQL, SQL Server. Same schema, same migration sequence (currently v39).
+- **Numbered schema migrations.** Versioned `SchemaMigration(N, description, statements)` entries applied at admiral startup. Latest fork migrations: v37 planning sessions/transcripts/lineage, v38 merge failure classification and mission recovery attempts, v39 captain `runtime_options_json`.
 - **Backup / restore.** `armada_backup` and `armada_restore` MCP tools for full-database snapshots.
 - **Bulk delete / purge.** `armada_delete_*` and `armada_purge_*` per entity for terminal-state cleanup.
 
@@ -203,7 +219,8 @@ A by-category inventory of what Armada actually ships. Each feature is implement
 - **Mission logs.** Stdout/stderr capture per mission at `~/.armada/logs/missions/<missionId>.log`. Read via `/api/v1/missions/{id}/log` or `armada_get_mission_log`.
 - **Captain logs.** Per-captain `.current` pointer at `~/.armada/logs/captains/<captainId>.current` always points at the active mission log.
 - **Diff snapshots.** Mission diffs persisted on `WorkProduced` so they survive worktree reclamation. `armada_get_mission_diff`.
-- **AgentOutput capture.** Final agent stdout captured into `Mission.AgentOutput` for audit + Judge verdict parsing.
+- **AgentOutput capture.** Final agent stdout captured into `Mission.AgentOutput` for audit + Judge verdict parsing. Runtime stdout/stderr buffers are capped, and list/status APIs use lightweight projections so large agent output does not make normal dashboard/status refreshes hydrate heavy mission payloads.
+- **Captain diagnostics.** `armada_captain_diagnostics` reports captain state, active mission elapsed time, dock git status, uncommitted files, log hints, and code-index freshness for investigating long-running captains or no-modified-file missions.
 - **Structured logging.** SyslogLogging-based; placeholder-style throughout (`{DeviceId}`, `{StatusCode}`, `{ElapsedMs}`).
 - **Events table.** Every state transition + lifecycle hook fires an event with entity refs and JSON payload; queryable via `armada_enumerate events`.
 
@@ -825,6 +842,31 @@ armada config init              # Interactive setup (optional)
 | `PlanningSessionInactivityTimeoutMinutes` | 0 | Automatically stop idle planning sessions after this many minutes; 0 disables the timeout |
 | `PlanningSessionRetentionDays` | 0 | Automatically delete stopped or failed planning transcripts after this many days; 0 disables retention cleanup |
 
+### Remote trigger / AgentWake
+
+Remote triggers are disabled by default. Supported modes are `Disabled`, `RemoteFire`, and `AgentWake`. `LocalDaemon` is intentionally removed and is not supported.
+
+`AgentWake` is the local, event-driven replacement for dormant Claude/Codex orchestrator sessions. It does not run a loop. Armada starts one Claude Code or Codex CLI process only after real work events, coalesces bursts per vessel, throttles repeated wakes, and uses a global single-flight lease so a burst cannot spawn many agents.
+
+Example:
+
+```json
+{
+  "remoteTrigger": {
+    "enabled": true,
+    "mode": "AgentWake",
+    "agentWake": {
+      "runtime": "Codex",
+      "sessionId": null,
+      "workingDirectory": "C:\\Users\\Owner\\RiderProjects\\project",
+      "timeoutSeconds": 600
+    }
+  }
+}
+```
+
+For Claude Code, set `runtime` to `Claude`; Armada uses `--print --continue` when `sessionId` is empty and `--print --resume <sessionId>` when one is configured. For Codex, Armada resumes the configured session when available or uses the last session path. `RemoteFire` remains available for HTTP webhook style triggers.
+
 ## Authentication
 
 As of v0.3.0, Armada supports multi-tenant authentication with three methods:
@@ -878,7 +920,7 @@ armada mcp install    # Configure Claude Code, Codex, Gemini, and Cursor for Arm
 armada mcp remove     # Remove those Armada MCP entries again
 ```
 
-If you are working from source, MCP helper entrypoints are available under `scripts/windows/`, `scripts/linux/`, and `scripts/macos/`.
+If you are working from source, MCP helper entrypoints are available under `scripts/windows/`, `scripts/linux/`, and `scripts/macos/`. Codex MCP setup uses the native `codex mcp add` command and writes the current Codex `config.toml` format. Source checkouts register a stdio command that runs Armada through `dotnet`, which avoids stale HTTP/client startup assumptions in new Codex sessions.
 
 Once installed, your MCP client can call tools like `armada_status`, `armada_dispatch`, `armada_enumerate`, `armada_voyage_status`, and `armada_cancel_voyage`. There are also tool groups for playbook, persona, pipeline, prompt-template, and code-index management. For repository discovery before dispatch, use `armada_context_pack` and pass its returned `prestagedFiles` entry into the mission.
 
