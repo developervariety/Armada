@@ -2,11 +2,9 @@ namespace Armada.Helm.Commands
 {
     using System.ComponentModel;
     using System.IO;
-    using System.Text.Json;
     using System.Threading;
     using Spectre.Console.Cli;
     using SyslogLogging;
-    using Voltaic;
     using Armada.Core;
     using Armada.Core.Database;
     using Armada.Core.Recovery;
@@ -19,9 +17,9 @@ namespace Armada.Helm.Commands
 
     /// <summary>
     /// Run Armada as an MCP server over stdio (stdin/stdout).
-    /// Designed to be launched by Claude Code or other MCP clients as a subprocess.
+    /// Designed to be launched by Codex, Claude Code, or other MCP clients as a subprocess.
     /// </summary>
-    [Description("Run MCP server over stdio for direct Claude Code integration")]
+    [Description("Run MCP server over stdio for direct MCP client integration")]
     public class McpStdioCommand : AsyncCommand<McpStdioSettings>
     {
         /// <inheritdoc />
@@ -65,7 +63,7 @@ namespace Armada.Helm.Commands
                 (_, _, _, _, _, _, _, _) => Task.CompletedTask);
 
             // Create stdio MCP server
-            McpServer mcpServer = new McpServer();
+            ArmadaMcpStdioServer mcpServer = new ArmadaMcpStdioServer();
             mcpServer.ServerName = Constants.ProductName;
             mcpServer.ServerVersion = Constants.ProductVersion;
 

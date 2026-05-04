@@ -217,7 +217,7 @@ namespace Armada.Helm
                     mcp.AddCommand<McpRemoveCommand>("remove")
                         .WithDescription("Remove MCP integration for Claude Code, Codex, Gemini, and Cursor");
                     mcp.AddCommand<McpStdioCommand>("stdio")
-                        .WithDescription("Run MCP server over stdio (for Claude Code subprocess)");
+                        .WithDescription("Run MCP server over stdio (for Codex and Claude subprocesses)");
                 });
             });
 
