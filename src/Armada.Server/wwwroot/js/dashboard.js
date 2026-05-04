@@ -39,6 +39,8 @@ function dashboard() {
         apiConnected: false,
         ws: null,
         pollTimer: null,
+        refreshInFlight: false,
+        refreshQueued: false,
 
         // Auth
         authRequired: false,
@@ -493,17 +495,31 @@ function dashboard() {
         },
 
         async refresh() {
-            await Promise.all([
-                this.loadStatus(),
-                this.loadFleets(),
-                this.loadVoyages(),
-                this.loadCaptains(),
-                this.loadVessels(),
-                this.loadRecentMissions(),
-                this.loadMergeQueue(),
-                this.loadDocks(),
-                this.refreshDoctorStatus()
-            ]);
+            if (this.refreshInFlight) {
+                this.refreshQueued = true;
+                return;
+            }
+
+            this.refreshInFlight = true;
+            try {
+                await Promise.all([
+                    this.loadStatus(),
+                    this.loadFleets(),
+                    this.loadVoyages(),
+                    this.loadCaptains(),
+                    this.loadVessels(),
+                    this.loadRecentMissions(),
+                    this.view === 'merge-queue' ? this.loadMergeQueue() : Promise.resolve(),
+                    this.view === 'docks' ? this.loadDocks() : Promise.resolve(),
+                    this.refreshDoctorStatus()
+                ]);
+            } finally {
+                this.refreshInFlight = false;
+                if (this.refreshQueued) {
+                    this.refreshQueued = false;
+                    setTimeout(() => this.refresh(), 250);
+                }
+            }
         },
 
         // refreshDoctorStatus: moved to modules/data-loaders.js

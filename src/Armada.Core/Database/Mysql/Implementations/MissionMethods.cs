@@ -412,6 +412,61 @@ namespace Armada.Core.Database.Mysql.Implementations
             return results;
         }
 
+        /// <inheritdoc />
+        public async Task<Dictionary<MissionStatusEnum, int>> CountByStatusAsync(CancellationToken token = default)
+        {
+            Dictionary<MissionStatusEnum, int> results = new Dictionary<MissionStatusEnum, int>();
+
+            using (MySqlConnection conn = new MySqlConnection(_ConnectionString))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (MySqlCommand cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "SELECT status, COUNT(*) AS count FROM missions GROUP BY status;";
+                    using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
+                    {
+                        while (await reader.ReadAsync(token).ConfigureAwait(false))
+                        {
+                            string? statusText = reader["status"].ToString();
+                            if (!Enum.TryParse(statusText, out MissionStatusEnum missionStatus)) continue;
+                            results[missionStatus] = Convert.ToInt32(reader["count"]);
+                        }
+                    }
+                }
+            }
+
+            return results;
+        }
+
+        /// <inheritdoc />
+        public async Task<Dictionary<MissionStatusEnum, int>> CountByVoyageStatusAsync(string voyageId, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(voyageId)) throw new ArgumentNullException(nameof(voyageId));
+
+            Dictionary<MissionStatusEnum, int> results = new Dictionary<MissionStatusEnum, int>();
+
+            using (MySqlConnection conn = new MySqlConnection(_ConnectionString))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (MySqlCommand cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "SELECT status, COUNT(*) AS count FROM missions WHERE voyage_id = @voyage_id GROUP BY status;";
+                    cmd.Parameters.AddWithValue("@voyage_id", voyageId);
+                    using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
+                    {
+                        while (await reader.ReadAsync(token).ConfigureAwait(false))
+                        {
+                            string? statusText = reader["status"].ToString();
+                            if (!Enum.TryParse(statusText, out MissionStatusEnum missionStatus)) continue;
+                            results[missionStatus] = Convert.ToInt32(reader["count"]);
+                        }
+                    }
+                }
+            }
+
+            return results;
+        }
+
         /// <summary>
         /// Enumerate missions with pagination and filtering.
         /// </summary>

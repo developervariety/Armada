@@ -47,6 +47,8 @@ namespace Armada.Test.Unit.Suites.Database
             await Mission_EnumerateByVessel();
             await Mission_EnumerateByCaptain();
             await Mission_EnumerateByStatus();
+            await Mission_CountByStatus();
+            await Mission_EnumerateSummaries_StripsHeavyPayloads();
             await Mission_Delete();
             await Mission_ReadNotFound();
             await Mission_ExistsNotFound();
@@ -518,6 +520,62 @@ namespace Armada.Test.Unit.Suites.Database
 
                     List<Mission> assigned = await db.Missions.EnumerateByStatusAsync(MissionStatusEnum.Assigned);
                     AssertEqual(0, assigned.Count);
+                }
+            });
+        }
+
+        private async Task Mission_CountByStatus()
+        {
+            await RunTest("Mission_CountByStatus", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+
+                    Mission pending = new Mission("Pending Count") { Status = MissionStatusEnum.Pending };
+                    Mission complete1 = new Mission("Complete Count 1") { Status = MissionStatusEnum.Complete };
+                    Mission complete2 = new Mission("Complete Count 2") { Status = MissionStatusEnum.Complete };
+
+                    await db.Missions.CreateAsync(pending);
+                    await db.Missions.CreateAsync(complete1);
+                    await db.Missions.CreateAsync(complete2);
+
+                    Dictionary<MissionStatusEnum, int> counts = await db.Missions.CountByStatusAsync();
+
+                    AssertEqual(1, counts[MissionStatusEnum.Pending]);
+                    AssertEqual(2, counts[MissionStatusEnum.Complete]);
+                    AssertFalse(counts.ContainsKey(MissionStatusEnum.InProgress));
+                }
+            });
+        }
+
+        private async Task Mission_EnumerateSummaries_StripsHeavyPayloads()
+        {
+            await RunTest("Mission_EnumerateSummaries_StripsHeavyPayloads", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+
+                    Mission mission = new Mission("Summary Mission", new string('d', 4096))
+                    {
+                        DiffSnapshot = new string('x', 4096),
+                        AgentOutput = new string('o', 4096)
+                    };
+                    await db.Missions.CreateAsync(mission);
+
+                    EnumerationResult<Mission> summaries = await db.Missions.EnumerateSummariesAsync(new EnumerationQuery
+                    {
+                        PageSize = 10
+                    });
+
+                    AssertEqual(1, summaries.Objects.Count);
+                    Mission summary = summaries.Objects[0];
+                    AssertEqual("Summary Mission", summary.Title);
+                    AssertNull(summary.Description);
+                    AssertNull(summary.DiffSnapshot);
+                    AssertNull(summary.AgentOutput);
+                    AssertEqual(0, summary.PlaybookSnapshots.Count);
                 }
             });
         }

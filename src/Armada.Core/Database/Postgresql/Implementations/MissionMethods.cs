@@ -372,6 +372,63 @@ namespace Armada.Core.Database.Postgresql.Implementations
             return await EnumerateByColumnAsync("status", status.ToString(), token).ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
+        public async Task<Dictionary<MissionStatusEnum, int>> CountByStatusAsync(CancellationToken token = default)
+        {
+            Dictionary<MissionStatusEnum, int> results = new Dictionary<MissionStatusEnum, int>();
+
+            using (NpgsqlConnection conn = new NpgsqlConnection(_Settings.GetConnectionString()))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (NpgsqlCommand cmd = new NpgsqlCommand())
+                {
+                    cmd.Connection = conn;
+                    cmd.CommandText = "SELECT status, COUNT(*) AS count FROM missions GROUP BY status;";
+                    using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
+                    {
+                        while (await reader.ReadAsync(token).ConfigureAwait(false))
+                        {
+                            string? statusText = reader["status"].ToString();
+                            if (!Enum.TryParse(statusText, out MissionStatusEnum missionStatus)) continue;
+                            results[missionStatus] = Convert.ToInt32(reader["count"]);
+                        }
+                    }
+                }
+            }
+
+            return results;
+        }
+
+        /// <inheritdoc />
+        public async Task<Dictionary<MissionStatusEnum, int>> CountByVoyageStatusAsync(string voyageId, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(voyageId)) throw new ArgumentNullException(nameof(voyageId));
+
+            Dictionary<MissionStatusEnum, int> results = new Dictionary<MissionStatusEnum, int>();
+
+            using (NpgsqlConnection conn = new NpgsqlConnection(_Settings.GetConnectionString()))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (NpgsqlCommand cmd = new NpgsqlCommand())
+                {
+                    cmd.Connection = conn;
+                    cmd.CommandText = "SELECT status, COUNT(*) AS count FROM missions WHERE voyage_id = @voyage_id GROUP BY status;";
+                    cmd.Parameters.AddWithValue("@voyage_id", voyageId);
+                    using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
+                    {
+                        while (await reader.ReadAsync(token).ConfigureAwait(false))
+                        {
+                            string? statusText = reader["status"].ToString();
+                            if (!Enum.TryParse(statusText, out MissionStatusEnum missionStatus)) continue;
+                            results[missionStatus] = Convert.ToInt32(reader["count"]);
+                        }
+                    }
+                }
+            }
+
+            return results;
+        }
+
         /// <summary>
         /// Check if a mission exists by identifier.
         /// </summary>

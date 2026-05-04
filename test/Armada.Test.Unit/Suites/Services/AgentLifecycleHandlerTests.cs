@@ -294,6 +294,28 @@ namespace Armada.Test.Unit.Suites.Services
                     }
                 }
             });
+
+            await RunTest("HandleAgentOutput caps streamed mission output", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _);
+                    string missionId = "msn_output_cap";
+                    RegisterTrackedProcess(handler, 525252, "cpt_output_cap", missionId);
+
+                    string line = new string('x', 4096);
+                    for (int i = 0; i < 120; i++)
+                    {
+                        handler.HandleAgentOutput(525252, line);
+                    }
+
+                    string? output = handler.GetAndClearMissionOutput(missionId);
+
+                    AssertNotNull(output);
+                    AssertTrue(output!.Length <= 256 * 1024, "Streamed output should be capped");
+                    AssertContains("[ARMADA: streamed output truncated to retain tail]", output);
+                }
+            });
         }
 
         private AgentLifecycleHandler CreateHandler(DatabaseDriver database, out ArmadaSettings settings)

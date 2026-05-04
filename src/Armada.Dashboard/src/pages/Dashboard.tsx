@@ -124,17 +124,17 @@ export default function Dashboard() {
     try {
       const [statusRes, missionRes, vesselRes, captainRes, fleetRes] = await Promise.all([
         getStatus().catch(() => null),
-        listMissions({ pageSize: 9999 }).catch(() => null),
+        listMissions({ pageSize: 200 }).catch(() => null),
         listVessels({ pageSize: 9999 }).catch(() => null),
         listCaptains({ pageSize: 9999 }).catch(() => null),
         listFleets({ pageSize: 9999 }).catch(() => null),
       ]);
       if (statusRes) setStatus(statusRes as unknown as StatusData);
       if (missionRes) {
-        setAllMissions(missionRes.objects);
         const sorted = [...missionRes.objects].sort(
           (a, b) => new Date(b.createdUtc).getTime() - new Date(a.createdUtc).getTime(),
         );
+        setAllMissions(sorted);
         setRecentMissions(sorted.slice(0, 10));
       }
       if (vesselRes) setVessels(vesselRes.objects);
