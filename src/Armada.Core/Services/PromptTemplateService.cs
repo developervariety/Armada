@@ -599,7 +599,7 @@ namespace Armada.Core.Services
                 "persona.tenant_security_reviewer",
                 "Tenant security reviewer persona for authorization, tenant isolation, secrets, and auditability.",
                 "TenantSecurityReviewer",
-                "otrbuddy authz/authn, tenant isolation, secrets, auditability, and cross-tenant leak risk.",
+                "multi-tenant authz/authn, tenant isolation, secrets, auditability, and cross-tenant leak risk.",
                 "- Verify authorization and authentication checks are applied at every entry point and background path touched by the diff.\n" +
                 "- Check tenant scoping on queries, events, logs, caches, queues, and identifiers.\n" +
                 "- Look for secrets in logs, exceptions, persisted payloads, test fixtures, and client-visible responses.\n" +
@@ -629,17 +629,17 @@ namespace Armada.Core.Services
                 "persona.porting_reference_analyst",
                 "Porting reference analyst persona for evidence-based parity work against known references.",
                 "PortingReferenceAnalyst",
-                "JPRO/OTR/decompiler-reference parity and evidence-based porting work.",
-                "- Compare the implementation to available JPRO, OTR, decompiler, protocol, or behavior references cited by the mission.\n" +
+                "approved reference material, decompiler-derived notes, vendor traces, protocol captures, and semantic parity evidence for porting work.",
+                "- Compare the implementation to approved reference material, decompiler-derived notes, vendor traces, protocol captures, or other semantic parity evidence cited by the mission.\n" +
                 "- Distinguish evidence-backed parity from guesses, and flag missing references or assumptions explicitly.\n" +
-                "- Check naming, constants, byte layouts, state transitions, error mapping, and edge-case behavior against the source evidence.\n" +
+                "- Check naming, constants, byte layouts, state transitions, error mapping, and edge-case behavior against the cited evidence.\n" +
                 "- Keep changes traceable to the referenced behavior without copying unrelated implementation structure.\n");
 
             defaults["persona.frontend_workflow_reviewer"] = BuildSpecialistPersonaTemplate(
                 "persona.frontend_workflow_reviewer",
                 "Frontend workflow reviewer persona for UX, accessibility, responsive states, and design consistency.",
                 "FrontendWorkflowReviewer",
-                "otrbuddy frontend UX/workflow, accessibility, responsive states, i18n, errors, and design consistency.",
+                "frontend UX/workflow, accessibility, responsive states, i18n, errors, and design consistency.",
                 "- Walk the affected user workflow end to end, including empty, loading, error, disabled, success, and permission states.\n" +
                 "- Check accessibility semantics, keyboard flow, focus management, contrast, labels, and screen-reader impact.\n" +
                 "- Review responsive layout, text fit, i18n-ready copy, validation messages, and recoverability from failures.\n" +

@@ -103,11 +103,11 @@ Key design decisions:
 | Judge | `persona.judge` | Reviews diffs for correctness, completeness, scope, and style |
 | TestEngineer | `persona.test_engineer` | Writes tests for changes, follows existing test patterns |
 | DiagnosticProtocolReviewer | `persona.diagnostic_protocol_reviewer` | Reviews J1939, UDS, J1708, K-line, OEM seed-key/security access, diagnostic timing/framing, and banned reflash boundaries |
-| TenantSecurityReviewer | `persona.tenant_security_reviewer` | Reviews otrbuddy authz/authn, tenant isolation, secrets, auditability, and cross-tenant leak risk |
+| TenantSecurityReviewer | `persona.tenant_security_reviewer` | Reviews multi-tenant authz/authn, tenant isolation, secrets, auditability, and cross-tenant leak risk |
 | MigrationDataReviewer | `persona.migration_data_reviewer` | Reviews migrations, schema/provider parity, indexes, backfills, rollback/restart safety, and data-loss risk |
 | PerformanceMemoryReviewer | `persona.performance_memory_reviewer` | Reviews memory/allocations, retained object graphs, process output/log growth, DB materialization, throughput, and resource lifetime |
-| PortingReferenceAnalyst | `persona.porting_reference_analyst` | Reviews JPRO/OTR/decompiler-reference parity and evidence-based porting work |
-| FrontendWorkflowReviewer | `persona.frontend_workflow_reviewer` | Reviews otrbuddy frontend UX/workflow, accessibility, responsive states, i18n, errors, and design consistency |
+| PortingReferenceAnalyst | `persona.porting_reference_analyst` | Reviews approved reference material, decompiler-derived notes, vendor traces, protocol captures, and semantic parity evidence for porting work |
+| FrontendWorkflowReviewer | `persona.frontend_workflow_reviewer` | Reviews frontend UX/workflow, accessibility, responsive states, i18n, errors, and design consistency |
 
 ### Pipelines (seeded on startup by `PersonaSeedService`)
 

@@ -178,11 +178,11 @@ pipelines already matches the risk:
 | Pipeline | Choose it for |
 |---|---|
 | `DiagnosticProtocolTested` | J1939, UDS, J1708, K-line, OEM seed-key/security access, diagnostic timing/framing, and banned reflash boundary checks. |
-| `TenantSecurityTested` | otrbuddy authz/authn, tenant isolation, secrets, auditability, and cross-tenant leak risk. |
+| `TenantSecurityTested` | Multi-tenant authz/authn, tenant isolation, secrets, auditability, and cross-tenant leak risk. |
 | `MigrationDataTested` | Migrations, schema/provider parity, indexes, backfills, rollback/restart safety, and data-loss risk. |
 | `PerformanceMemoryTested` | Memory/allocations, retained object graphs, process output/log growth, DB materialization, throughput, and resource lifetime. |
-| `ReferencePortingTested` | JPRO/OTR/decompiler-reference parity and evidence-based porting work. |
-| `FrontendWorkflowTested` | otrbuddy frontend UX/workflow, accessibility, responsive states, i18n, errors, and design consistency. |
+| `ReferencePortingTested` | Approved reference material, decompiler-derived notes, vendor traces, protocol captures, and semantic parity evidence for porting work. |
+| `FrontendWorkflowTested` | Frontend UX/workflow, accessibility, responsive states, i18n, errors, and design consistency. |
 
 The expected mission chain is always Worker -> specialist reviewer -> TestEngineer -> Judge.
 Verify that the second mission uses the specialist persona and that the specialist stage

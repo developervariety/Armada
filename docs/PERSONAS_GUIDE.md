@@ -100,11 +100,11 @@ or Judge may not inspect deeply enough.
 | Persona | Prompt template | When to use |
 |---|---|---|
 | **DiagnosticProtocolReviewer** | `persona.diagnostic_protocol_reviewer` | J1939, UDS, J1708, K-line, OEM seed-key/security access, diagnostic timing/framing, and banned reflash boundary checks. |
-| **TenantSecurityReviewer** | `persona.tenant_security_reviewer` | otrbuddy authz/authn, tenant isolation, secrets, auditability, and cross-tenant leak risk. |
+| **TenantSecurityReviewer** | `persona.tenant_security_reviewer` | Multi-tenant authz/authn, tenant isolation, secrets, auditability, and cross-tenant leak risk. |
 | **MigrationDataReviewer** | `persona.migration_data_reviewer` | Migrations, schema/provider parity, indexes, backfills, rollback/restart safety, and data-loss risk. |
 | **PerformanceMemoryReviewer** | `persona.performance_memory_reviewer` | Memory/allocations, retained object graphs, process output/log growth, DB materialization, throughput, and resource lifetime. |
-| **PortingReferenceAnalyst** | `persona.porting_reference_analyst` | JPRO/OTR/decompiler-reference parity and evidence-based porting work. |
-| **FrontendWorkflowReviewer** | `persona.frontend_workflow_reviewer` | otrbuddy frontend UX/workflow, accessibility, responsive states, i18n, errors, and design consistency. |
+| **PortingReferenceAnalyst** | `persona.porting_reference_analyst` | Approved reference material, decompiler-derived notes, vendor traces, protocol captures, and semantic parity evidence for porting work. |
+| **FrontendWorkflowReviewer** | `persona.frontend_workflow_reviewer` | Frontend UX/workflow, accessibility, responsive states, i18n, errors, and design consistency. |
 
 ---
 
@@ -129,7 +129,7 @@ previous one.
 | **TenantSecurityTested** | Worker -> TenantSecurityReviewer -> TestEngineer -> Judge | Use for auth, tenant isolation, secrets, audit, or cross-tenant leak risk. |
 | **MigrationDataTested** | Worker -> MigrationDataReviewer -> TestEngineer -> Judge | Use for migrations, provider parity, backfills, indexes, or data-loss risk. |
 | **PerformanceMemoryTested** | Worker -> PerformanceMemoryReviewer -> TestEngineer -> Judge | Use for allocation, retention, throughput, output growth, or resource lifetime risk. |
-| **ReferencePortingTested** | Worker -> PortingReferenceAnalyst -> TestEngineer -> Judge | Use for evidence-based JPRO/OTR/decompiler-reference parity work. |
+| **ReferencePortingTested** | Worker -> PortingReferenceAnalyst -> TestEngineer -> Judge | Use for evidence-based parity work against approved reference material, decompiler-derived notes, vendor traces, or protocol captures. |
 | **FrontendWorkflowTested** | Worker -> FrontendWorkflowReviewer -> TestEngineer -> Judge | Use for frontend workflow, accessibility, responsive, i18n, error, and design review. |
 
 ### Pipeline Resolution Order (Precedence)

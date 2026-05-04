@@ -308,11 +308,11 @@ Each step is a **persona** with its own prompt template. A sequence of personas 
 | **Tested** | Implement -> Test -> Review | When you need coverage |
 | **FullPipeline** | Plan -> Implement -> Test -> Review | Big features, unfamiliar codebases |
 | **DiagnosticProtocolTested** | Implement -> Diagnostic protocol review -> Test -> Review | J1939, UDS, J1708, K-line, seed-key/security access, diagnostic timing/framing, and banned reflash boundary checks |
-| **TenantSecurityTested** | Implement -> Tenant security review -> Test -> Review | otrbuddy authz/authn, tenant isolation, secrets, auditability, and cross-tenant leak risk |
+| **TenantSecurityTested** | Implement -> Tenant security review -> Test -> Review | Multi-tenant authz/authn, tenant isolation, secrets, auditability, and cross-tenant leak risk |
 | **MigrationDataTested** | Implement -> Migration/data review -> Test -> Review | Migrations, schema/provider parity, indexes, backfills, rollback/restart safety, and data-loss risk |
 | **PerformanceMemoryTested** | Implement -> Performance/memory review -> Test -> Review | Memory/allocations, retained object graphs, output/log growth, DB materialization, throughput, and resource lifetime |
-| **ReferencePortingTested** | Implement -> Reference parity analysis -> Test -> Review | JPRO/OTR/decompiler-reference parity and evidence-based porting |
-| **FrontendWorkflowTested** | Implement -> Frontend workflow review -> Test -> Review | otrbuddy frontend UX/workflow, accessibility, responsive states, i18n, errors, and design consistency |
+| **ReferencePortingTested** | Implement -> Reference parity analysis -> Test -> Review | Approved reference material, decompiler-derived notes, vendor traces, protocol captures, and semantic parity evidence for porting work |
+| **FrontendWorkflowTested** | Implement -> Frontend workflow review -> Test -> Review | Frontend UX/workflow, accessibility, responsive states, i18n, errors, and design consistency |
 
 You can set a default pipeline per repository and override it on a single dispatch when needed. Use the specialist tested pipelines when the mission has one of those known risk profiles; if the built-in roles are not enough, define your own personas and compose them into custom pipelines for additional project-specific steps.
 

@@ -58,11 +58,11 @@ namespace Armada.Core.Services
             await SeedPersonaAsync("Judge", "Reviews completed mission diffs for correctness and completeness.", "persona.judge", token).ConfigureAwait(false);
             await SeedPersonaAsync("TestEngineer", "Writes and updates tests for mission changes.", "persona.test_engineer", token).ConfigureAwait(false);
             await SeedPersonaAsync("DiagnosticProtocolReviewer", "Specialist reviewer for J1939, UDS, J1708, K-line, OEM seed-key/security access, diagnostic timing/framing, and banned reflash boundary checks.", "persona.diagnostic_protocol_reviewer", token).ConfigureAwait(false);
-            await SeedPersonaAsync("TenantSecurityReviewer", "Specialist reviewer for otrbuddy authz/authn, tenant isolation, secrets, auditability, and cross-tenant leak risk.", "persona.tenant_security_reviewer", token).ConfigureAwait(false);
+            await SeedPersonaAsync("TenantSecurityReviewer", "Specialist reviewer for multi-tenant authz/authn, tenant isolation, secrets, auditability, and cross-tenant leak risk.", "persona.tenant_security_reviewer", token).ConfigureAwait(false);
             await SeedPersonaAsync("MigrationDataReviewer", "Specialist reviewer for migrations, schema/provider parity, indexes, backfills, rollback/restart safety, and data-loss risk.", "persona.migration_data_reviewer", token).ConfigureAwait(false);
             await SeedPersonaAsync("PerformanceMemoryReviewer", "Specialist reviewer for memory/allocations, retained object graphs, process output/log growth, DB materialization, throughput, and resource lifetime.", "persona.performance_memory_reviewer", token).ConfigureAwait(false);
-            await SeedPersonaAsync("PortingReferenceAnalyst", "Specialist analyst for JPRO/OTR/decompiler-reference parity and evidence-based porting work.", "persona.porting_reference_analyst", token).ConfigureAwait(false);
-            await SeedPersonaAsync("FrontendWorkflowReviewer", "Specialist reviewer for otrbuddy frontend UX/workflow, accessibility, responsive states, i18n, errors, and design consistency.", "persona.frontend_workflow_reviewer", token).ConfigureAwait(false);
+            await SeedPersonaAsync("PortingReferenceAnalyst", "Specialist analyst for approved reference material, decompiler-derived notes, vendor traces, protocol captures, and semantic parity evidence for porting work.", "persona.porting_reference_analyst", token).ConfigureAwait(false);
+            await SeedPersonaAsync("FrontendWorkflowReviewer", "Specialist reviewer for frontend UX/workflow, accessibility, responsive states, i18n, errors, and design consistency.", "persona.frontend_workflow_reviewer", token).ConfigureAwait(false);
         }
 
         private async Task SeedPersonaAsync(string name, string description, string templateName, CancellationToken token)
