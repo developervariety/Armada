@@ -188,6 +188,52 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("DecomposePlan_CodeContextForce_ReturnsErrorWhenGenerationFails", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("arch-context-force", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    string specFile = Path.GetTempFileName();
+                    try
+                    {
+                        File.WriteAllText(specFile, "# Force Context Spec\n\nArchitect dispatch requires context.");
+
+                        RecordingAdmiralService admiralDouble = new RecordingAdmiralService(testDb.Driver);
+                        RecordingCodeIndexService codeIndex = new RecordingCodeIndexService();
+                        codeIndex.BuildException = new InvalidOperationException("architect index failed");
+
+                        Func<JsonElement?, Task<object>>? decomposeHandler = null;
+                        McpArchitectTools.Register(
+                            (name, _, _, handler) => { if (name == "armada_decompose_plan") decomposeHandler = handler; },
+                            testDb.Driver,
+                            new ArchitectOutputParser(),
+                            admiralDouble,
+                            codeIndex);
+                        AssertNotNull(decomposeHandler);
+
+                        JsonElement args = JsonSerializer.SerializeToElement(new
+                        {
+                            specPath = specFile,
+                            vesselId = vessel.Id,
+                            codeContextMode = "force"
+                        });
+
+                        object result = await decomposeHandler!(args).ConfigureAwait(false);
+                        string resultJson = JsonSerializer.Serialize(result);
+
+                        AssertContains("\"Error\"", resultJson);
+                        AssertContains("code context generation failed for architect mission", resultJson);
+                        AssertContains("architect index failed", resultJson);
+                        AssertEqual(1, codeIndex.ContextPackRequests.Count, "Force mode should attempt architect context generation once");
+                        AssertEqual(0, admiralDouble.Dispatched.Count, "Force context failure should block architect dispatch");
+                    }
+                    finally
+                    {
+                        if (File.Exists(specFile)) File.Delete(specFile);
+                    }
+                }
+            });
+
             await RunTest("DecomposePlan_CustomPreferredModel_RespectsInput", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -534,6 +580,8 @@ namespace Armada.Test.Unit.Suites.Services
 
             public ContextPackResponse ContextPackResponse { get; } = new ContextPackResponse();
 
+            public Exception? BuildException { get; set; }
+
             public Task<CodeIndexStatus> GetStatusAsync(string vesselId, CancellationToken token = default)
                 => throw new NotImplementedException();
 
@@ -546,6 +594,7 @@ namespace Armada.Test.Unit.Suites.Services
             public Task<ContextPackResponse> BuildContextPackAsync(ContextPackRequest request, CancellationToken token = default)
             {
                 ContextPackRequests.Add(request);
+                if (BuildException != null) throw BuildException;
                 return Task.FromResult(ContextPackResponse);
             }
         }

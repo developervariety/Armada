@@ -2,6 +2,7 @@ namespace Armada.Test.Unit.Suites.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.IO;
     using System.Linq;
     using System.Text.Json;
     using System.Threading;
@@ -120,6 +121,73 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertFalse(String.IsNullOrEmpty(m.Persona),
                             "Pipeline-expanded stage missions must carry a Persona; got null/empty for " + m.Title);
                     }
+                }
+            });
+
+            await RunTest("AliasDispatch_WithPipelineCodeContext_AttachesOnlyFirstStage", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("alias-pipeline-context-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    Pipeline reviewed = new Pipeline("ContextReviewed");
+                    reviewed.Stages = new List<PipelineStage>
+                    {
+                        new PipelineStage(1, "Worker"),
+                        new PipelineStage(2, "Judge")
+                    };
+                    reviewed = await testDb.Driver.Pipelines.CreateAsync(reviewed).ConfigureAwait(false);
+
+                    PersistingAdmiralDouble admiralDouble = new PersistingAdmiralDouble(testDb.Driver, reviewed);
+                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService();
+                    codeIndex.ContextPackResponse.PrestagedFiles.Add(new PrestagedFile(
+                        Path.Combine(Path.GetTempPath(), "context-pack-pipeline.md"),
+                        "_briefing/context-pack.md"));
+
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null,
+                        null,
+                        null,
+                        codeIndex);
+                    AssertNotNull(dispatchHandler, "armada_dispatch handler must be registered");
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "pipeline context voyage",
+                        description = "context pack should follow first pipeline stage only",
+                        vesselId = vessel.Id,
+                        pipeline = "ContextReviewed",
+                        codeContextMode = "force",
+                        codeContextTokenBudget = 900,
+                        codeContextMaxResults = 2,
+                        missions = new object[]
+                        {
+                            new { title = "context feature", description = "stage handoff", alias = "C1" }
+                        }
+                    });
+
+                    object result = await dispatchHandler!(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+                    AssertFalse(resultJson.Contains("\"Error\""), "Should not return error: " + resultJson);
+                    AssertEqual(1, codeIndex.ContextPackRequests.Count, "Pipeline dispatch should build one context pack per mission description");
+                    AssertEqual(900, codeIndex.ContextPackRequests[0].TokenBudget);
+                    AssertEqual(2, codeIndex.ContextPackRequests[0].MaxResults!.Value);
+
+                    Voyage voyage = (Voyage)result;
+                    List<Mission> all = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+                    AssertEqual(2, all.Count, "One MD * two pipeline stages = 2 missions");
+
+                    Mission workerMission = all.First(m => m.Persona == "Worker");
+                    Mission judgeMission = all.First(m => m.Persona == "Judge");
+                    AssertNotNull(workerMission.PrestagedFiles, "First stage should receive generated context prestage");
+                    AssertEqual(1, workerMission.PrestagedFiles!.Count, "First stage should receive exactly the generated context file");
+                    AssertEqual("_briefing/context-pack.md", workerMission.PrestagedFiles[0].DestPath);
+                    AssertNull(judgeMission.PrestagedFiles, "Downstream stages should not receive generated context prestage");
                 }
             });
 
@@ -505,6 +573,28 @@ namespace Armada.Test.Unit.Suites.Services
             public Task CleanupStaleCaptainsAsync(CancellationToken token = default) => throw new NotImplementedException();
             public Task HandleProcessExitAsync(int processId, int? exitCode, string captainId, string missionId, CancellationToken token = default)
                 => Task.CompletedTask;
+        }
+
+        private sealed class RecordingCodeIndexService : ICodeIndexService
+        {
+            public List<ContextPackRequest> ContextPackRequests { get; } = new List<ContextPackRequest>();
+
+            public ContextPackResponse ContextPackResponse { get; } = new ContextPackResponse();
+
+            public Task<CodeIndexStatus> GetStatusAsync(string vesselId, CancellationToken token = default)
+                => throw new NotImplementedException();
+
+            public Task<CodeIndexStatus> UpdateAsync(string vesselId, CancellationToken token = default)
+                => throw new NotImplementedException();
+
+            public Task<CodeSearchResponse> SearchAsync(CodeSearchRequest request, CancellationToken token = default)
+                => throw new NotImplementedException();
+
+            public Task<ContextPackResponse> BuildContextPackAsync(ContextPackRequest request, CancellationToken token = default)
+            {
+                ContextPackRequests.Add(request);
+                return Task.FromResult(ContextPackResponse);
+            }
         }
     }
 }

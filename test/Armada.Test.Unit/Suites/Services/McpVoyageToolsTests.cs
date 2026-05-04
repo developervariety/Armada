@@ -235,6 +235,48 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Dispatch_CodeContextAuto_ContinuesWhenGenerationFails", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("code-context-auto-failure-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
+                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService();
+                    codeIndex.BuildException = new InvalidOperationException("index offline");
+
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null,
+                        null,
+                        null,
+                        codeIndex);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "auto failure voyage",
+                        vesselId = vessel.Id,
+                        missions = new object[]
+                        {
+                            new { title = "Task A", description = "Auto mode should continue" }
+                        }
+                    });
+
+                    object result = await dispatchHandler!(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+
+                    AssertFalse(resultJson.Contains("\"Error\""), "Auto mode should continue after context generation failure: " + resultJson);
+                    AssertEqual(1, codeIndex.ContextPackRequests.Count, "Auto mode should attempt context generation");
+                    AssertTrue(admiralDouble.DispatchVoyageCalled, "Auto generation failure should not block dispatch persistence");
+                    AssertEqual(1, admiralDouble.LastMissionDescriptions.Count, "Dispatch should still receive the mission");
+                    AssertNull(admiralDouble.LastMissionDescriptions[0].PrestagedFiles, "Failed auto generation should not add prestaged files");
+                }
+            });
+
             await RunTest("Dispatch_CodeContextForce_ReturnsErrorWhenUnavailable", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -268,6 +310,49 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertContains("\"Error\"", resultJson);
                     AssertContains("code index service is unavailable", resultJson);
                     AssertFalse(admiralDouble.DispatchVoyageCalled, "Force failure should happen before dispatch persistence");
+                }
+            });
+
+            await RunTest("Dispatch_CodeContextForce_ReturnsErrorWhenGenerationFails", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("code-context-force-failure-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
+                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService();
+                    codeIndex.BuildException = new InvalidOperationException("index crashed");
+
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null,
+                        null,
+                        null,
+                        codeIndex);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "force failure voyage",
+                        vesselId = vessel.Id,
+                        codeContextMode = "force",
+                        missions = new object[]
+                        {
+                            new { title = "Task A", description = "Must fail clearly" }
+                        }
+                    });
+
+                    object result = await dispatchHandler!(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+
+                    AssertContains("\"Error\"", resultJson);
+                    AssertContains("code context generation failed", resultJson);
+                    AssertContains("index crashed", resultJson);
+                    AssertEqual(1, codeIndex.ContextPackRequests.Count, "Force mode should attempt context generation once");
+                    AssertFalse(admiralDouble.DispatchVoyageCalled, "Force generation failure should happen before dispatch persistence");
                 }
             });
 
@@ -314,6 +399,47 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual("custom query for task b", codeIndex.ContextPackRequests[0].Goal);
                     AssertNull(admiralDouble.LastMissionDescriptions[0].PrestagedFiles, "Top-level off mission should not receive context");
                     AssertNotNull(admiralDouble.LastMissionDescriptions[1].PrestagedFiles, "Forced mission should receive context");
+                }
+            });
+
+            await RunTest("Dispatch_InvalidMissionCodeContextMode_ReturnsErrorBeforeDispatch", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("code-context-invalid-mode-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
+                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService();
+
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null,
+                        null,
+                        null,
+                        codeIndex);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "invalid context mode voyage",
+                        vesselId = vessel.Id,
+                        missions = new object[]
+                        {
+                            new { title = "Task A", description = "Invalid mode", codeContextMode = "required" }
+                        }
+                    });
+
+                    object result = await dispatchHandler!(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+
+                    AssertContains("\"Error\"", resultJson);
+                    AssertContains("invalid codeContextMode for mission", resultJson);
+                    AssertContains("required", resultJson);
+                    AssertEqual(0, codeIndex.ContextPackRequests.Count, "Invalid mode should fail before context generation");
+                    AssertFalse(admiralDouble.DispatchVoyageCalled, "Invalid mode should fail before dispatch persistence");
                 }
             });
 
