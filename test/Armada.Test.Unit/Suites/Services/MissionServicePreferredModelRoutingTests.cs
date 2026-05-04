@@ -109,6 +109,27 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("TryAssign_LiteralPreferredModelNoPin_AssignsPersonaEligibleCaptain", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+                    await CreateCaptainAsync(testDb.Driver, "architect-pin", "gpt-5.5", "[\"Architect\"]").ConfigureAwait(false);
+                    await CreateCaptainAsync(testDb.Driver, "opus-worker", "claude-opus-4-7", "[\"Worker\"]").ConfigureAwait(false);
+                    Captain judgeCaptain = await CreateCaptainAsync(testDb.Driver, "opus-judge", "claude-opus-4-7", "[\"Judge\"]").ConfigureAwait(false);
+                    Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "literal persona route", "claude-opus-4-7", "Judge").ConfigureAwait(false);
+
+                    bool assigned = await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false);
+
+                    Mission? readBack = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertTrue(assigned, "Cleared PreferredCaptainId should allow literal preferredModel pool routing");
+                    AssertEqual(MissionStatusEnum.InProgress, readBack!.Status, "Mission should be launched");
+                    AssertEqual(judgeCaptain.Id, readBack.CaptainId, "Literal preferredModel should route to a persona-eligible Judge captain");
+                }
+            });
+
             await RunTest("TryAssign_TierPreferredModel_FiltersPersonaBeforeModelSelection", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -167,6 +188,30 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(MissionStatusEnum.Pending, readBack!.Status, "Mission should remain pending");
                     AssertNull(readBack.CaptainId, "No captain should be assigned");
                     AssertEqual(CaptainStateEnum.Idle, lowReadBack!.State, "Rejected pinned captain should stay idle");
+                }
+            });
+
+            await RunTest("TryAssign_PinnedCaptainWithDisallowedPersona_StaysPending", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+                    Captain architectCaptain = await CreateCaptainAsync(testDb.Driver, "architect-only", "claude-opus-4-7", "[\"Architect\"]").ConfigureAwait(false);
+                    Captain judgeCaptain = await CreateCaptainAsync(testDb.Driver, "available-judge", "claude-opus-4-7", "[\"Judge\"]").ConfigureAwait(false);
+                    Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "pinned persona mismatch", "claude-opus-4-7", "Judge", architectCaptain.Id).ConfigureAwait(false);
+
+                    bool assigned = await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false);
+
+                    Mission? readBack = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    Captain? architectReadBack = await testDb.Driver.Captains.ReadAsync(architectCaptain.Id).ConfigureAwait(false);
+                    Captain? judgeReadBack = await testDb.Driver.Captains.ReadAsync(judgeCaptain.Id).ConfigureAwait(false);
+                    AssertFalse(assigned, "PreferredCaptainId should not fall back to the pool when persona rejects the pin");
+                    AssertEqual(MissionStatusEnum.Pending, readBack!.Status, "Mission should remain pending");
+                    AssertNull(readBack.CaptainId, "No captain should be assigned");
+                    AssertEqual(CaptainStateEnum.Idle, architectReadBack!.State, "Rejected pinned captain should stay idle");
+                    AssertEqual(CaptainStateEnum.Idle, judgeReadBack!.State, "Pool captain should not be consumed while a hard pin is incompatible");
                 }
             });
 
