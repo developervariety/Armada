@@ -110,8 +110,8 @@ namespace Armada.Core.Services
                 string name = kvp.Key;
                 EmbeddedTemplate embedded = kvp.Value;
 
-                bool exists = await _Database.PromptTemplates.ExistsByNameAsync(name, token).ConfigureAwait(false);
-                if (!exists)
+                PromptTemplate? existing = await _Database.PromptTemplates.ReadByNameAsync(name, token).ConfigureAwait(false);
+                if (existing == null)
                 {
                     PromptTemplate template = new PromptTemplate(name, embedded.Content)
                     {
@@ -122,6 +122,17 @@ namespace Armada.Core.Services
 
                     await _Database.PromptTemplates.CreateAsync(template, token).ConfigureAwait(false);
                     _Logging.Info(_Header + "seeded built-in template '" + name + "'");
+                }
+                else if (!existing.IsBuiltIn ||
+                    !String.Equals(existing.Description, embedded.Description, StringComparison.Ordinal) ||
+                    !String.Equals(existing.Category, embedded.Category, StringComparison.Ordinal))
+                {
+                    existing.Description = embedded.Description;
+                    existing.Category = embedded.Category;
+                    existing.IsBuiltIn = true;
+
+                    await _Database.PromptTemplates.UpdateAsync(existing, token).ConfigureAwait(false);
+                    _Logging.Info(_Header + "reconciled built-in template metadata '" + name + "'");
                 }
             }
         }
@@ -159,6 +170,7 @@ namespace Armada.Core.Services
                 existing.Content = embedded.Content;
                 existing.Description = embedded.Description;
                 existing.Category = embedded.Category;
+                existing.IsBuiltIn = true;
                 existing.LastUpdateUtc = DateTime.UtcNow;
 
                 PromptTemplate updated = await _Database.PromptTemplates.UpdateAsync(existing, token).ConfigureAwait(false);
@@ -573,6 +585,66 @@ namespace Armada.Core.Services
                     "summary of the tests you added or why no new tests were needed.\n"
             };
 
+            defaults["persona.diagnostic_protocol_reviewer"] = BuildSpecialistPersonaTemplate(
+                "persona.diagnostic_protocol_reviewer",
+                "Diagnostic protocol reviewer persona for heavy vehicle diagnostic and protocol safety checks.",
+                "DiagnosticProtocolReviewer",
+                "J1939, UDS, J1708, K-line, OEM seed-key/security access, diagnostic timing/framing, and banned reflash boundary checks.",
+                "- Verify diagnostic framing, timing, retries, byte order, sentinel handling, and transport assumptions.\n" +
+                "- Check seed-key and security-access code for scope, auditability, and secret handling.\n" +
+                "- Treat UDS 0x34 RequestDownload/reflash behavior as out of bounds unless the mission explicitly authorizes a guarded analysis-only change.\n" +
+                "- Flag any path that could emit unsafe reflash traffic or weaken a banned reflash boundary.\n");
+
+            defaults["persona.tenant_security_reviewer"] = BuildSpecialistPersonaTemplate(
+                "persona.tenant_security_reviewer",
+                "Tenant security reviewer persona for authorization, tenant isolation, secrets, and auditability.",
+                "TenantSecurityReviewer",
+                "otrbuddy authz/authn, tenant isolation, secrets, auditability, and cross-tenant leak risk.",
+                "- Verify authorization and authentication checks are applied at every entry point and background path touched by the diff.\n" +
+                "- Check tenant scoping on queries, events, logs, caches, queues, and identifiers.\n" +
+                "- Look for secrets in logs, exceptions, persisted payloads, test fixtures, and client-visible responses.\n" +
+                "- Confirm audit trails are complete enough to explain sensitive access or cross-tenant administration.\n");
+
+            defaults["persona.migration_data_reviewer"] = BuildSpecialistPersonaTemplate(
+                "persona.migration_data_reviewer",
+                "Migration and data reviewer persona for schema, provider parity, and data-loss risk.",
+                "MigrationDataReviewer",
+                "migrations, schema/provider parity, indexes, backfills, rollback/restart safety, and data-loss risk.",
+                "- Verify every supported provider has equivalent schema, index, nullability, default, and reader/writer behavior.\n" +
+                "- Check backfills and migrations for idempotency, restart safety, ordering, and large-data behavior.\n" +
+                "- Look for data-loss, truncation, casing, collation, timestamp, and enum/string compatibility risks.\n" +
+                "- Confirm rollback or failure behavior is documented or contained when a migration cannot be reversed.\n");
+
+            defaults["persona.performance_memory_reviewer"] = BuildSpecialistPersonaTemplate(
+                "persona.performance_memory_reviewer",
+                "Performance and memory reviewer persona for allocation, retention, throughput, and lifetime risks.",
+                "PerformanceMemoryReviewer",
+                "memory/allocations, retained object graphs, process output/log growth, DB materialization, throughput, and resource lifetime.",
+                "- Look for unbounded collections, retained object graphs, large string accumulation, and process output/log growth.\n" +
+                "- Check database materialization, pagination, projection size, streaming, and repeated query patterns.\n" +
+                "- Review allocation-heavy loops, async lifetime, timer/task cleanup, disposal, cancellation, and retry behavior.\n" +
+                "- Validate that throughput-sensitive paths keep resource usage bounded under repeated orchestration operations.\n");
+
+            defaults["persona.porting_reference_analyst"] = BuildSpecialistPersonaTemplate(
+                "persona.porting_reference_analyst",
+                "Porting reference analyst persona for evidence-based parity work against known references.",
+                "PortingReferenceAnalyst",
+                "JPRO/OTR/decompiler-reference parity and evidence-based porting work.",
+                "- Compare the implementation to available JPRO, OTR, decompiler, protocol, or behavior references cited by the mission.\n" +
+                "- Distinguish evidence-backed parity from guesses, and flag missing references or assumptions explicitly.\n" +
+                "- Check naming, constants, byte layouts, state transitions, error mapping, and edge-case behavior against the source evidence.\n" +
+                "- Keep changes traceable to the referenced behavior without copying unrelated implementation structure.\n");
+
+            defaults["persona.frontend_workflow_reviewer"] = BuildSpecialistPersonaTemplate(
+                "persona.frontend_workflow_reviewer",
+                "Frontend workflow reviewer persona for UX, accessibility, responsive states, and design consistency.",
+                "FrontendWorkflowReviewer",
+                "otrbuddy frontend UX/workflow, accessibility, responsive states, i18n, errors, and design consistency.",
+                "- Walk the affected user workflow end to end, including empty, loading, error, disabled, success, and permission states.\n" +
+                "- Check accessibility semantics, keyboard flow, focus management, contrast, labels, and screen-reader impact.\n" +
+                "- Review responsive layout, text fit, i18n-ready copy, validation messages, and recoverability from failures.\n" +
+                "- Keep visual changes consistent with the existing design system and avoid introducing workflow dead ends.\n");
+
             // Structure/layout templates -- control how sections are framed in the CLAUDE.md
             defaults["mission.captain_instructions_wrapper"] = new EmbeddedTemplate
             {
@@ -677,6 +749,41 @@ namespace Armada.Core.Services
             };
 
             return defaults;
+        }
+
+        private static EmbeddedTemplate BuildSpecialistPersonaTemplate(string name, string description, string roleName, string focus, string checklist)
+        {
+            return new EmbeddedTemplate
+            {
+                Name = name,
+                Description = description,
+                Category = "persona",
+                Content =
+                    "You are an Armada specialist reviewer agent: " + roleName + ". End with a standalone [ARMADA:RESULT] COMPLETE line followed by a brief plain-text summary.\n" +
+                    "\n" +
+                    "Review the previous Worker stage output and diff before the TestEngineer and Judge stages run. Your job is to catch domain-specific defects early, make narrowly scoped corrective changes when the fix is clear and inside the mission scope, and leave precise notes for the following stages when a risk cannot be fully resolved.\n" +
+                    "\n" +
+                    "## Diff to Review\n" +
+                    "{Diff}\n" +
+                    "\n" +
+                    "## Previous Stage Output\n" +
+                    "{PreviousStageOutput}\n" +
+                    "\n" +
+                    "## Specialist Focus\n" +
+                    focus + "\n" +
+                    "\n" +
+                    "## Review Checklist\n" +
+                    checklist +
+                    "\n" +
+                    "## Operating Rules\n" +
+                    "- Stay within the current mission description and diff. Do not add sibling-mission work.\n" +
+                    "- Prefer minimal, evidence-backed corrections over broad refactors.\n" +
+                    "- Run the most relevant compile, lint, unit, smoke, or inspection check that is practical for your changes.\n" +
+                    "- Commit any scoped code or doc changes you make.\n" +
+                    "- Before the result line, include short sections titled `## Findings`, `## Changes Made`, `## Validation`, and `## Residual Risk`.\n" +
+                    "\n" +
+                    "End your response with a standalone line `[ARMADA:RESULT] COMPLETE` followed by a brief plain-text summary of what you reviewed, changed, and validated.\n"
+            };
         }
 
         #endregion

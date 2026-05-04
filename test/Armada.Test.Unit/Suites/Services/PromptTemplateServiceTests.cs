@@ -51,6 +51,65 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Seed defaults includes specialist persona templates", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    PromptTemplateService service = new PromptTemplateService(testDb.Driver, logging);
+                    await service.SeedDefaultsAsync().ConfigureAwait(false);
+
+                    List<PromptTemplate> personaTemplates = await service.ListAsync("persona").ConfigureAwait(false);
+                    List<string> names = personaTemplates.Select(t => t.Name).ToList();
+                    List<string> specialistNames = new List<string>
+                    {
+                        "persona.diagnostic_protocol_reviewer",
+                        "persona.tenant_security_reviewer",
+                        "persona.migration_data_reviewer",
+                        "persona.performance_memory_reviewer",
+                        "persona.porting_reference_analyst",
+                        "persona.frontend_workflow_reviewer"
+                    };
+
+                    foreach (string name in specialistNames)
+                    {
+                        AssertTrue(names.Contains(name), "Should contain " + name);
+
+                        PromptTemplate? template = personaTemplates.FirstOrDefault(t => t.Name == name);
+                        AssertNotNull(template, "Template should be listed by persona category");
+                        AssertEqual("persona", template!.Category, "Specialist template category");
+                        AssertTrue(template.IsBuiltIn, "Specialist template should be built in");
+                        AssertContains("[ARMADA:RESULT] COMPLETE", template.Content, "Specialist template should include completion signal contract");
+                    }
+                }
+            });
+
+            await RunTest("Seed defaults preserves existing template content", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    PromptTemplate existing = new PromptTemplate("persona.diagnostic_protocol_reviewer", "CUSTOM CONTENT");
+                    existing.Category = "custom";
+                    existing.Description = "Custom reviewer";
+                    existing.IsBuiltIn = false;
+                    await testDb.Driver.PromptTemplates.CreateAsync(existing).ConfigureAwait(false);
+
+                    PromptTemplateService service = new PromptTemplateService(testDb.Driver, logging);
+                    await service.SeedDefaultsAsync().ConfigureAwait(false);
+
+                    PromptTemplate? resolved = await service.ResolveAsync("persona.diagnostic_protocol_reviewer").ConfigureAwait(false);
+                    AssertNotNull(resolved, "Resolved template should not be null");
+                    AssertEqual("CUSTOM CONTENT", resolved!.Content, "Seeding should preserve database-edited content");
+                    AssertEqual("persona", resolved.Category, "Seeding should reconcile built-in category metadata");
+                    AssertTrue(resolved.IsBuiltIn, "Seeding should reconcile built-in metadata");
+                }
+            });
+
             await RunTest("Resolve returns database template when exists", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

@@ -17,12 +17,16 @@ Verify setup:
 // MCP: check built-in personas exist
 armada_enumerate({ entityType: "personas" })
 
-// Expected: Worker, Architect, Judge, TestEngineer
+// Expected: Worker, Architect, Judge, TestEngineer,
+// DiagnosticProtocolReviewer, TenantSecurityReviewer, MigrationDataReviewer,
+// PerformanceMemoryReviewer, PortingReferenceAnalyst, FrontendWorkflowReviewer
 
 // MCP: check built-in pipelines exist
 armada_enumerate({ entityType: "pipelines" })
 
-// Expected: WorkerOnly, Reviewed, Tested, FullPipeline
+// Expected: WorkerOnly, Reviewed, Tested, FullPipeline,
+// DiagnosticProtocolTested, TenantSecurityTested, MigrationDataTested,
+// PerformanceMemoryTested, ReferencePortingTested, FrontendWorkflowTested
 ```
 
 ---
@@ -167,6 +171,22 @@ armada_enumerate({
 ---
 
 ## Example 4: Custom Pipeline with a Security Auditor
+
+Before creating a custom reviewer, check whether one of the built-in specialist tested
+pipelines already matches the risk:
+
+| Pipeline | Choose it for |
+|---|---|
+| `DiagnosticProtocolTested` | J1939, UDS, J1708, K-line, OEM seed-key/security access, diagnostic timing/framing, and banned reflash boundary checks. |
+| `TenantSecurityTested` | otrbuddy authz/authn, tenant isolation, secrets, auditability, and cross-tenant leak risk. |
+| `MigrationDataTested` | Migrations, schema/provider parity, indexes, backfills, rollback/restart safety, and data-loss risk. |
+| `PerformanceMemoryTested` | Memory/allocations, retained object graphs, process output/log growth, DB materialization, throughput, and resource lifetime. |
+| `ReferencePortingTested` | JPRO/OTR/decompiler-reference parity and evidence-based porting work. |
+| `FrontendWorkflowTested` | otrbuddy frontend UX/workflow, accessibility, responsive states, i18n, errors, and design consistency. |
+
+The expected mission chain is always Worker -> specialist reviewer -> TestEngineer -> Judge.
+Verify that the second mission uses the specialist persona and that the specialist stage
+has `preferredModel: "high"` when reading the pipeline definition.
 
 This tests creating a custom persona and pipeline from scratch.
 
