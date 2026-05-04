@@ -232,6 +232,12 @@ our fork at `origin`. The fork accumulates orchestration features that
 aren't in upstream (PR-fallback flow, recovery pipeline, audit queue,
 cross-vessel deps, captain-lifecycle hardening, etc.).
 
+**Branch retention note:** keep `origin/fix/memory-dashboard-oom` until
+upstream either merges or explicitly rejects the upstream memory/OOM PR.
+Do not delete that branch during cleanup just because the local fork has
+already absorbed the fixes; we previously lost a Cursor-related bug branch
+by cleaning it up before the upstream disposition was settled.
+
 **Whenever a mission merges from `upstream/main` into our `main`, that
 same voyage MUST also update `README.md`'s `## Fork features vs
 upstream` section.** The README delta is part of the upstream-sync
