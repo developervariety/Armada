@@ -86,6 +86,39 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Resolve falls back to specialist embedded defaults when unseeded", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    PromptTemplateService service = new PromptTemplateService(testDb.Driver, logging);
+                    Dictionary<string, string> expectedRoleNames = new Dictionary<string, string>
+                    {
+                        { "persona.diagnostic_protocol_reviewer", "DiagnosticProtocolReviewer" },
+                        { "persona.tenant_security_reviewer", "TenantSecurityReviewer" },
+                        { "persona.migration_data_reviewer", "MigrationDataReviewer" },
+                        { "persona.performance_memory_reviewer", "PerformanceMemoryReviewer" },
+                        { "persona.porting_reference_analyst", "PortingReferenceAnalyst" },
+                        { "persona.frontend_workflow_reviewer", "FrontendWorkflowReviewer" }
+                    };
+
+                    foreach (KeyValuePair<string, string> kvp in expectedRoleNames)
+                    {
+                        PromptTemplate? resolved = await service.ResolveAsync(kvp.Key).ConfigureAwait(false);
+                        AssertNotNull(resolved, "Specialist template should resolve from embedded defaults: " + kvp.Key);
+                        AssertEqual(kvp.Key, resolved!.Name, "Specialist template name");
+                        AssertEqual("persona", resolved.Category, "Specialist template category");
+                        AssertTrue(resolved.IsBuiltIn, "Embedded specialist template should be built in");
+                        AssertContains(kvp.Value, resolved.Content, "Specialist content should identify the role");
+                        AssertContains("{Diff}", resolved.Content, "Specialist content should include diff placeholder");
+                        AssertContains("{PreviousStageOutput}", resolved.Content, "Specialist content should include previous stage placeholder");
+                        AssertContains("[ARMADA:RESULT] COMPLETE", resolved.Content, "Specialist content should include completion signal");
+                    }
+                }
+            });
+
             await RunTest("Seed defaults preserves existing template content", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

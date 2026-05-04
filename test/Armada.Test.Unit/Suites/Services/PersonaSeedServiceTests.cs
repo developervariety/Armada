@@ -90,6 +90,55 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertContains("DiagnosticProtocolReviewer", pipeline!.Description ?? "", "Pipeline description should be canonical");
                 }
             });
+
+            await RunTest("Seed preserves unrelated custom persona and pipeline", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    Persona customPersona = new Persona("CustomSecurityAuditor", "persona.custom_security_auditor");
+                    customPersona.TenantId = Constants.DefaultTenantId;
+                    customPersona.Description = "Custom project security auditor";
+                    customPersona.IsBuiltIn = false;
+                    customPersona.Active = false;
+                    await testDb.Driver.Personas.CreateAsync(customPersona).ConfigureAwait(false);
+
+                    Pipeline customPipeline = new Pipeline("CustomSecurityReview");
+                    customPipeline.TenantId = Constants.DefaultTenantId;
+                    customPipeline.Description = "Custom security review workflow";
+                    customPipeline.IsBuiltIn = false;
+                    customPipeline.Active = false;
+                    customPipeline.Stages = new List<PipelineStage>
+                    {
+                        new PipelineStage(1, "Worker") { PreferredModel = "medium" },
+                        new PipelineStage(2, "CustomSecurityAuditor") { IsOptional = true, PreferredModel = "custom-high" }
+                    };
+                    await testDb.Driver.Pipelines.CreateAsync(customPipeline).ConfigureAwait(false);
+
+                    PersonaSeedService service = new PersonaSeedService(testDb.Driver, CreateLogging());
+                    await service.SeedAsync().ConfigureAwait(false);
+
+                    Persona? resolvedPersona = await testDb.Driver.Personas.ReadByNameAsync("CustomSecurityAuditor").ConfigureAwait(false);
+                    AssertNotNull(resolvedPersona, "Custom persona should still exist");
+                    AssertEqual("persona.custom_security_auditor", resolvedPersona!.PromptTemplateName, "Custom persona template should be unchanged");
+                    AssertEqual("Custom project security auditor", resolvedPersona.Description, "Custom persona description should be unchanged");
+                    AssertFalse(resolvedPersona.IsBuiltIn, "Custom persona should not be upgraded to built in");
+                    AssertFalse(resolvedPersona.Active, "Custom persona active flag should be unchanged");
+
+                    Pipeline? resolvedPipeline = await testDb.Driver.Pipelines.ReadByNameAsync("CustomSecurityReview").ConfigureAwait(false);
+                    AssertNotNull(resolvedPipeline, "Custom pipeline should still exist");
+                    AssertEqual("Custom security review workflow", resolvedPipeline!.Description, "Custom pipeline description should be unchanged");
+                    AssertFalse(resolvedPipeline.IsBuiltIn, "Custom pipeline should not be upgraded to built in");
+                    AssertFalse(resolvedPipeline.Active, "Custom pipeline active flag should be unchanged");
+                    AssertEqual(2, resolvedPipeline.Stages.Count, "Custom pipeline stages should be unchanged");
+
+                    List<PipelineStage> ordered = resolvedPipeline.Stages.OrderBy(s => s.Order).ToList();
+                    AssertEqual("Worker", ordered[0].PersonaName, "Custom stage 1 persona");
+                    AssertEqual("medium", ordered[0].PreferredModel, "Custom stage 1 preferred model");
+                    AssertEqual("CustomSecurityAuditor", ordered[1].PersonaName, "Custom stage 2 persona");
+                    AssertTrue(ordered[1].IsOptional, "Custom stage 2 optional flag should be unchanged");
+                    AssertEqual("custom-high", ordered[1].PreferredModel, "Custom stage 2 preferred model");
+                }
+            });
         }
 
         private static LoggingModule CreateLogging()
