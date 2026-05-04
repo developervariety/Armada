@@ -23,6 +23,9 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         public Func<string, string?>? OnGetMissionOutput { get; set; }
 
+        /// <inheritdoc />
+        public Func<Mission, bool, Task>? OnMissionOutcome { get; set; }
+
         #endregion
 
         #region Private-Members
@@ -733,6 +736,18 @@ namespace Armada.Core.Services
             {
                 _Logging.Info(_Header + "skipping landing for mission " + mission.Id +
                     " because it is not a terminal landed stage yet (status: " + mission.Status + ")");
+            }
+
+            if (OnMissionOutcome != null)
+            {
+                try
+                {
+                    await OnMissionOutcome.Invoke(mission, shouldAttemptLanding).ConfigureAwait(false);
+                }
+                catch (Exception outcomeEx)
+                {
+                    _Logging.Warn(_Header + "error in OnMissionOutcome handler for " + mission.Id + ": " + outcomeEx.Message);
+                }
             }
 
             // Invoke OnMissionComplete synchronously (Phase A: push branch, create PR, or enqueue).

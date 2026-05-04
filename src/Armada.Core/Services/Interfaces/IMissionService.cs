@@ -24,6 +24,19 @@ namespace Armada.Core.Services.Interfaces
         Func<string, string?>? OnGetMissionOutput { get; set; }
 
         /// <summary>
+        /// Delegate invoked after mission outcome telemetry is emitted, for every mission
+        /// transition that flows through HandleCompletionAsync (including intermediate
+        /// pipeline stages whose downstream missions are prepared, and terminal failure
+        /// statuses that bypass the landing handler). The boolean argument is true when
+        /// the mission will subsequently be passed to OnMissionComplete (i.e. the landing
+        /// handler will run) and false otherwise. Receivers can use the flag to avoid
+        /// duplicate wake-ups: the landing handler already fires its own remote-trigger
+        /// notifications for MissionFailed, WorkProduced, and auto_land_skipped in the
+        /// merge-queue auto-land path.
+        /// </summary>
+        Func<Mission, bool, Task>? OnMissionOutcome { get; set; }
+
+        /// <summary>
         /// Try to assign a mission to an available captain.
         /// </summary>
         /// <param name="mission">Mission to assign.</param>
