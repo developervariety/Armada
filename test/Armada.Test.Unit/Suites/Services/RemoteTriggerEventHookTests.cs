@@ -46,6 +46,9 @@ namespace Armada.Test.Unit.Suites.Services
                 CriticalCalls.Add(text);
                 return Task.CompletedTask;
             }
+
+            public AgentWakeSessionRegistration RegisterAgentWakeSession(AgentWakeSessionRegistration registration) => registration;
+            public AgentWakeSessionRegistration? GetAgentWakeSession() => null;
         }
 
         private sealed class StubMergeQueueService : IMergeQueueService

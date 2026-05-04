@@ -3,12 +3,14 @@ namespace Armada.Test.Unit.Suites.Services
     using System;
     using System.Collections.Generic;
     using System.Linq;
+    using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
+    using Armada.Server.Mcp.Tools;
     using Armada.Test.Common;
     using SyslogLogging;
 
@@ -232,6 +234,90 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertFalse(req.ArgumentList.Any(a => a.StartsWith("sess_")), "Codex without SessionId must not include a session id");
             });
 
+            await RunTest("FireDrainer_AgentWake_Auto_DefaultPreferenceUsesCodexLast", async () =>
+            {
+                RecordingAgentWakeProcessHost host = new RecordingAgentWakeProcessHost();
+                RecordingRemoteTriggerHttpClient http = new RecordingRemoteTriggerHttpClient();
+                RemoteTriggerSettings settings = MakeAgentWakeSettings();
+                settings.AgentWake = new AgentWakeSettings { Runtime = AgentWakeRuntime.Auto };
+                RemoteTriggerService service = new RemoteTriggerService(settings, http, host, new LoggingModule(), TimeSpan.Zero);
+
+                await service.FireDrainerAsync("vessel-a", "event");
+
+                AgentWakeProcessRequest req = host.LastRequest!;
+                AssertEqual("codex", req.Command, "Auto without a registered session should use Codex first by default");
+                AssertTrue(req.ArgumentList.Contains("--last"), "Auto Codex fallback should use --last");
+            });
+
+            await RunTest("FireDrainer_AgentWake_Auto_RegisteredClaudeSessionWins", async () =>
+            {
+                RecordingAgentWakeProcessHost host = new RecordingAgentWakeProcessHost();
+                RecordingRemoteTriggerHttpClient http = new RecordingRemoteTriggerHttpClient();
+                RemoteTriggerSettings settings = MakeAgentWakeSettings();
+                settings.AgentWake = new AgentWakeSettings { Runtime = AgentWakeRuntime.Auto };
+                RemoteTriggerService service = new RemoteTriggerService(settings, http, host, new LoggingModule(), TimeSpan.Zero);
+                service.RegisterAgentWakeSession(new AgentWakeSessionRegistration
+                {
+                    Runtime = AgentWakeRuntime.Claude,
+                    SessionId = "claude-session-123",
+                    Command = "custom-claude",
+                    WorkingDirectory = "registered-workdir",
+                    ClientName = "unit-test"
+                });
+
+                await service.FireDrainerAsync("vessel-a", "event");
+
+                AgentWakeProcessRequest req = host.LastRequest!;
+                AssertEqual("custom-claude", req.Command, "registered command should be used for Auto session wake");
+                AssertEqual("registered-workdir", req.WorkingDirectory, "registered working directory should be used for Auto session wake");
+                AssertTrue(req.ArgumentList.Contains("--resume"), "registered Claude session should use --resume");
+                AssertTrue(req.ArgumentList.Contains("claude-session-123"), "registered Claude session id should be resumed");
+            });
+
+            await RunTest("FireDrainer_AgentWake_Auto_FallsBackWhenFirstCandidateUnavailable", async () =>
+            {
+                RecordingAgentWakeProcessHost host = new RecordingAgentWakeProcessHost();
+                host.FailCommands.Add("codex");
+                RecordingRemoteTriggerHttpClient http = new RecordingRemoteTriggerHttpClient();
+                RemoteTriggerSettings settings = MakeAgentWakeSettings();
+                settings.AgentWake = new AgentWakeSettings
+                {
+                    Runtime = AgentWakeRuntime.Auto,
+                    RuntimePreference = new List<AgentWakeRuntime> { AgentWakeRuntime.Codex, AgentWakeRuntime.Claude }
+                };
+                RemoteTriggerService service = new RemoteTriggerService(settings, http, host, new LoggingModule(), TimeSpan.Zero);
+
+                await service.FireDrainerAsync("vessel-a", "event");
+
+                AssertEqual(2, host.StartCallCount, "Auto should try Codex then fall back to Claude when Codex cannot start");
+                AssertEqual("claude", host.LastRequest!.Command, "Auto fallback should start Claude after Codex fails");
+                AssertTrue(host.LastRequest.ArgumentList.Contains("--continue"), "Claude fallback without session should use --continue");
+            });
+
+            await RunTest("McpAgentWakeTools_RegisterSession_UpdatesAutoRuntime", async () =>
+            {
+                RecordingAgentWakeProcessHost host = new RecordingAgentWakeProcessHost();
+                RecordingRemoteTriggerHttpClient http = new RecordingRemoteTriggerHttpClient();
+                RemoteTriggerSettings settings = MakeAgentWakeSettings();
+                settings.AgentWake = new AgentWakeSettings { Runtime = AgentWakeRuntime.Auto };
+                RemoteTriggerService service = new RemoteTriggerService(settings, http, host, new LoggingModule(), TimeSpan.Zero);
+                Func<JsonElement?, Task<object>>? handler = null;
+                McpAgentWakeTools.Register((name, description, schema, registeredHandler) =>
+                {
+                    if (name == "armada_register_agentwake_session") handler = registeredHandler;
+                }, service);
+
+                AssertNotNull(handler, "armada_register_agentwake_session handler should be registered");
+                using JsonDocument doc = JsonDocument.Parse("{\"runtime\":\"Codex\",\"sessionId\":\"codex-session-456\",\"workingDirectory\":\"mcp-workdir\"}");
+                await handler!(doc.RootElement).ConfigureAwait(false);
+                await service.FireDrainerAsync("vessel-a", "event").ConfigureAwait(false);
+
+                AgentWakeProcessRequest req = host.LastRequest!;
+                AssertEqual("codex", req.Command, "MCP-registered runtime should drive Auto wake");
+                AssertTrue(req.ArgumentList.Contains("codex-session-456"), "MCP-registered session should be resumed");
+                AssertEqual("mcp-workdir", req.WorkingDirectory, "MCP-registered working directory should be used");
+            });
+
             await RunTest("FireDrainer_AgentWake_CustomSettings_PropagatesRequestOptions", async () =>
             {
                 RecordingAgentWakeProcessHost host = new RecordingAgentWakeProcessHost();
@@ -426,6 +512,7 @@ namespace Armada.Test.Unit.Suites.Services
             public int StartCallCount => _Calls.Count;
             public AgentWakeProcessRequest? LastRequest => _Calls.Count > 0 ? _Calls[_Calls.Count - 1] : null;
             public bool AlwaysFail { get; set; } = false;
+            public HashSet<string> FailCommands { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             // When true, onExited is stored but not called immediately (simulates long-running process)
             public bool BlockRelease { get; set; } = false;
@@ -433,6 +520,7 @@ namespace Armada.Test.Unit.Suites.Services
             public bool TryStart(AgentWakeProcessRequest request, Action onExited)
             {
                 _Calls.Add(request);
+                if (FailCommands.Contains(request.Command)) return false;
                 if (AlwaysFail) return false;
                 if (BlockRelease)
                     _PendingCallback = onExited;

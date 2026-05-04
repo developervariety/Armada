@@ -7,6 +7,9 @@ namespace Armada.Core.Settings
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public enum AgentWakeRuntime
     {
+        /// <summary>Resolve the runtime from a registered orchestrator session or configured fallback order.</summary>
+        Auto,
+
         /// <summary>Wake Claude Code CLI (default).</summary>
         Claude,
 
@@ -23,6 +26,12 @@ namespace Armada.Core.Settings
     {
         /// <summary>Agent runtime to invoke. Defaults to <see cref="AgentWakeRuntime.Claude"/>.</summary>
         public AgentWakeRuntime Runtime { get; set; } = AgentWakeRuntime.Claude;
+
+        /// <summary>
+        /// Runtime fallback order used only when <see cref="Runtime"/> is <see cref="AgentWakeRuntime.Auto"/>
+        /// and no registered orchestrator session is available. Defaults to Codex, then Claude.
+        /// </summary>
+        public List<AgentWakeRuntime>? RuntimePreference { get; set; }
 
         /// <summary>
         /// Optional command override. If null or empty, defaults to "claude" for the Claude runtime
@@ -54,8 +63,39 @@ namespace Armada.Core.Settings
         /// <summary>Returns the effective CLI command to invoke.</summary>
         public string GetEffectiveCommand()
         {
+            AgentWakeRuntime runtime = Runtime == AgentWakeRuntime.Auto ? GetRuntimePreference()[0] : Runtime;
+            return GetEffectiveCommand(runtime, Command);
+        }
+
+        /// <summary>Returns the effective CLI command to invoke for a concrete runtime.</summary>
+        public string GetEffectiveCommand(AgentWakeRuntime runtime, string? commandOverride = null)
+        {
+            if (!string.IsNullOrEmpty(commandOverride)) return commandOverride!;
             if (!string.IsNullOrEmpty(Command)) return Command!;
-            return Runtime == AgentWakeRuntime.Codex ? "codex" : "claude";
+            return runtime == AgentWakeRuntime.Codex ? "codex" : "claude";
+        }
+
+        /// <summary>Returns the configured Auto fallback order, excluding Auto itself.</summary>
+        public List<AgentWakeRuntime> GetRuntimePreference()
+        {
+            List<AgentWakeRuntime> source = RuntimePreference == null || RuntimePreference.Count == 0
+                ? new List<AgentWakeRuntime> { AgentWakeRuntime.Codex, AgentWakeRuntime.Claude }
+                : RuntimePreference;
+
+            List<AgentWakeRuntime> result = new List<AgentWakeRuntime>();
+            foreach (AgentWakeRuntime runtime in source)
+            {
+                if (runtime == AgentWakeRuntime.Auto) continue;
+                if (!result.Contains(runtime)) result.Add(runtime);
+            }
+
+            if (result.Count == 0)
+            {
+                result.Add(AgentWakeRuntime.Codex);
+                result.Add(AgentWakeRuntime.Claude);
+            }
+
+            return result;
         }
     }
 }

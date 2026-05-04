@@ -423,6 +423,8 @@ namespace Armada.Test.Unit.Suites.Services
         {
             public Task FireDrainerAsync(string vesselId, string text, CancellationToken token = default) => Task.CompletedTask;
             public Task FireCriticalAsync(string text, CancellationToken token = default) => Task.CompletedTask;
+            public AgentWakeSessionRegistration RegisterAgentWakeSession(AgentWakeSessionRegistration registration) => registration;
+            public AgentWakeSessionRegistration? GetAgentWakeSession() => null;
         }
 
         private sealed class StubMergeQueueService : IMergeQueueService

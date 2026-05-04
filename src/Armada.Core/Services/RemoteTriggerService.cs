@@ -41,6 +41,7 @@ namespace Armada.Core.Services
         private int _ConsecutiveFailures = 0;
         private DateTime? _LastThrottleNotification = null;
         private bool _AgentWakeRunning = false;
+        private AgentWakeSessionRegistration? _AgentWakeSession = null;
         private readonly object _Lock = new object();
 
         #endregion
@@ -190,6 +191,40 @@ namespace Armada.Core.Services
             await SendWithRetryAsync(req, token).ConfigureAwait(false);
         }
 
+        /// <inheritdoc/>
+        public AgentWakeSessionRegistration RegisterAgentWakeSession(AgentWakeSessionRegistration registration)
+        {
+            if (registration == null) throw new ArgumentNullException(nameof(registration));
+            if (registration.Runtime == AgentWakeRuntime.Auto)
+                throw new ArgumentException("AgentWake session registration requires a concrete runtime.", nameof(registration));
+
+            AgentWakeSessionRegistration normalized = new AgentWakeSessionRegistration
+            {
+                Runtime = registration.Runtime,
+                SessionId = NormalizeOptional(registration.SessionId),
+                Command = NormalizeOptional(registration.Command),
+                WorkingDirectory = NormalizeOptional(registration.WorkingDirectory),
+                ClientName = NormalizeOptional(registration.ClientName),
+                LastSeenUtc = DateTime.UtcNow,
+            };
+
+            lock (_Lock)
+            {
+                _AgentWakeSession = normalized;
+            }
+
+            return CloneAgentWakeSession(normalized);
+        }
+
+        /// <inheritdoc/>
+        public AgentWakeSessionRegistration? GetAgentWakeSession()
+        {
+            lock (_Lock)
+            {
+                return _AgentWakeSession == null ? null : CloneAgentWakeSession(_AgentWakeSession);
+            }
+        }
+
         #endregion
 
         #region Private-Methods
@@ -229,8 +264,8 @@ namespace Armada.Core.Services
                 _AgentWakeRunning = true;
             }
 
-            AgentWakeProcessRequest req = BuildAgentWakeRequest(text);
-            await StartAgentWakeWithRetryAsync(req, token).ConfigureAwait(false);
+            List<AgentWakeProcessRequest> requests = BuildAgentWakeRequests(text);
+            await StartAgentWakeWithRetryAsync(requests, token).ConfigureAwait(false);
         }
 
         private async Task FireAgentWakeCriticalAsync(string text, CancellationToken token)
@@ -245,23 +280,64 @@ namespace Armada.Core.Services
                 _AgentWakeRunning = true;
             }
 
-            AgentWakeProcessRequest req = BuildAgentWakeRequest("[CRITICAL] " + text);
-            await StartAgentWakeWithRetryAsync(req, token).ConfigureAwait(false);
+            List<AgentWakeProcessRequest> requests = BuildAgentWakeRequests("[CRITICAL] " + text);
+            await StartAgentWakeWithRetryAsync(requests, token).ConfigureAwait(false);
         }
 
-        private AgentWakeProcessRequest BuildAgentWakeRequest(string text)
+        private List<AgentWakeProcessRequest> BuildAgentWakeRequests(string text)
         {
             AgentWakeSettings awSettings = _Settings.AgentWake ?? new AgentWakeSettings();
-            string command = awSettings.GetEffectiveCommand();
+            string payload = text + "\n\n[AgentWake] This is a one-shot wake. Handle current Armada work and exit. Do not start a polling loop or recurring schedule.";
+            List<AgentWakeProcessRequest> requests = new List<AgentWakeProcessRequest>();
 
+            if (awSettings.Runtime != AgentWakeRuntime.Auto)
+            {
+                requests.Add(BuildAgentWakeRequest(awSettings.Runtime, awSettings, awSettings.SessionId, awSettings.Command, awSettings.WorkingDirectory, payload));
+                return requests;
+            }
+
+            AgentWakeSessionRegistration? session = GetAgentWakeSession();
+            HashSet<AgentWakeRuntime> added = new HashSet<AgentWakeRuntime>();
+
+            if (session != null)
+            {
+                requests.Add(BuildAgentWakeRequest(
+                    session.Runtime,
+                    awSettings,
+                    string.IsNullOrEmpty(awSettings.SessionId) ? session.SessionId : awSettings.SessionId,
+                    string.IsNullOrEmpty(awSettings.Command) ? session.Command : awSettings.Command,
+                    string.IsNullOrEmpty(awSettings.WorkingDirectory) ? session.WorkingDirectory : awSettings.WorkingDirectory,
+                    payload));
+                added.Add(session.Runtime);
+            }
+
+            foreach (AgentWakeRuntime runtime in awSettings.GetRuntimePreference())
+            {
+                if (added.Contains(runtime)) continue;
+                requests.Add(BuildAgentWakeRequest(runtime, awSettings, awSettings.SessionId, awSettings.Command, awSettings.WorkingDirectory, payload));
+                added.Add(runtime);
+            }
+
+            return requests;
+        }
+
+        private static AgentWakeProcessRequest BuildAgentWakeRequest(
+            AgentWakeRuntime runtime,
+            AgentWakeSettings awSettings,
+            string? sessionId,
+            string? commandOverride,
+            string? workingDirectory,
+            string payload)
+        {
+            string command = awSettings.GetEffectiveCommand(runtime, commandOverride);
             List<string> args = new List<string>();
 
-            if (awSettings.Runtime == AgentWakeRuntime.Codex)
+            if (runtime == AgentWakeRuntime.Codex)
             {
                 args.Add("exec");
                 args.Add("resume");
-                if (!string.IsNullOrEmpty(awSettings.SessionId))
-                    args.Add(awSettings.SessionId!);
+                if (!string.IsNullOrEmpty(sessionId))
+                    args.Add(sessionId!);
                 else
                     args.Add("--last");
                 args.Add("-");
@@ -269,10 +345,10 @@ namespace Armada.Core.Services
             else
             {
                 args.Add("--print");
-                if (!string.IsNullOrEmpty(awSettings.SessionId))
+                if (!string.IsNullOrEmpty(sessionId))
                 {
                     args.Add("--resume");
-                    args.Add(awSettings.SessionId!);
+                    args.Add(sessionId!);
                 }
                 else
                 {
@@ -283,22 +359,20 @@ namespace Armada.Core.Services
                 args.Add("--strict-mcp-config");
             }
 
-            string payload = text + "\n\n[AgentWake] This is a one-shot wake. Handle current Armada work and exit. Do not start a polling loop or recurring schedule.";
-
             return new AgentWakeProcessRequest
             {
                 Command = command,
                 ArgumentList = args,
                 StdinPayload = payload,
-                WorkingDirectory = awSettings.WorkingDirectory,
+                WorkingDirectory = workingDirectory,
                 TimeoutSeconds = awSettings.TimeoutSeconds,
                 EnvironmentVariables = awSettings.EnvironmentVariables,
             };
         }
 
-        private async Task StartAgentWakeWithRetryAsync(AgentWakeProcessRequest req, CancellationToken token)
+        private async Task StartAgentWakeWithRetryAsync(List<AgentWakeProcessRequest> requests, CancellationToken token)
         {
-            bool started = _AgentWakeHost!.TryStart(req, ReleaseAgentWakeLease);
+            bool started = TryStartAnyAgentWakeRequest(requests);
 
             if (!started)
             {
@@ -315,7 +389,7 @@ namespace Armada.Core.Services
                         throw;
                     }
                 }
-                started = _AgentWakeHost.TryStart(req, ReleaseAgentWakeLease);
+                started = TryStartAnyAgentWakeRequest(requests);
             }
 
             if (started)
@@ -337,9 +411,40 @@ namespace Armada.Core.Services
             }
         }
 
+        private bool TryStartAnyAgentWakeRequest(List<AgentWakeProcessRequest> requests)
+        {
+            foreach (AgentWakeProcessRequest request in requests)
+            {
+                if (_AgentWakeHost!.TryStart(request, ReleaseAgentWakeLease))
+                    return true;
+
+                _Logging.Warn(_Header + "AgentWake spawn candidate failed: " + request.Command + " " + string.Join(" ", request.ArgumentList));
+            }
+
+            return false;
+        }
+
         private void ReleaseAgentWakeLease()
         {
             lock (_Lock) { _AgentWakeRunning = false; }
+        }
+
+        private static string? NormalizeOptional(string? value)
+        {
+            return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        }
+
+        private static AgentWakeSessionRegistration CloneAgentWakeSession(AgentWakeSessionRegistration source)
+        {
+            return new AgentWakeSessionRegistration
+            {
+                Runtime = source.Runtime,
+                SessionId = source.SessionId,
+                Command = source.Command,
+                WorkingDirectory = source.WorkingDirectory,
+                ClientName = source.ClientName,
+                LastSeenUtc = source.LastSeenUtc,
+            };
         }
 
         private async Task SendWithRetryAsync(FireRequest req, CancellationToken token)

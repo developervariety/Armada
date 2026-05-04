@@ -121,6 +121,15 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("AgentWakeRuntime_ContainsAuto", () =>
+            {
+                string[] names = Enum.GetNames(typeof(AgentWakeRuntime));
+                AssertTrue(names.Contains("Auto"), "AgentWakeRuntime must support Auto mode");
+                AgentWakeSettings settings = new AgentWakeSettings { Runtime = AgentWakeRuntime.Auto };
+                AssertEqual("codex", settings.GetEffectiveCommand(), "Auto should default command resolution to the first fallback runtime");
+                return Task.CompletedTask;
+            });
+
             await RunTest("IsAgentWakeConfigured_EnabledAndAgentWakeMode_True", () =>
             {
                 RemoteTriggerSettings s = new RemoteTriggerSettings
@@ -217,6 +226,26 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertNotNull(loaded.RemoteTrigger, "RemoteTrigger section should be present");
                     AssertNotNull(loaded.RemoteTrigger!.AgentWake, "AgentWake section should be present");
                     AssertEqual(AgentWakeRuntime.Codex, loaded.RemoteTrigger.AgentWake!.Runtime, "Runtime should deserialize from string \"Codex\"");
+                }
+                finally
+                {
+                    if (File.Exists(tempFile)) File.Delete(tempFile);
+                }
+            });
+
+            await RunTest("LoadAsync_AgentWakeRuntime_StringAuto_Deserializes", async () =>
+            {
+                string tempFile = Path.Combine(Path.GetTempPath(), "armada_test_rts_" + Guid.NewGuid().ToString("N") + ".json");
+                try
+                {
+                    string json = "{\"remoteTrigger\":{\"enabled\":true,\"mode\":\"AgentWake\",\"agentWake\":{\"runtime\":\"Auto\",\"runtimePreference\":[\"Codex\",\"Claude\"]}}}";
+                    await File.WriteAllTextAsync(tempFile, json).ConfigureAwait(false);
+                    ArmadaSettings loaded = await ArmadaSettings.LoadAsync(tempFile);
+                    AssertNotNull(loaded.RemoteTrigger, "RemoteTrigger section should be present");
+                    AssertNotNull(loaded.RemoteTrigger!.AgentWake, "AgentWake section should be present");
+                    AssertEqual(AgentWakeRuntime.Auto, loaded.RemoteTrigger.AgentWake!.Runtime, "Runtime should deserialize from string \"Auto\"");
+                    AssertEqual(AgentWakeRuntime.Codex, loaded.RemoteTrigger.AgentWake.RuntimePreference![0], "RuntimePreference[0]");
+                    AssertEqual(AgentWakeRuntime.Claude, loaded.RemoteTrigger.AgentWake.RuntimePreference![1], "RuntimePreference[1]");
                 }
                 finally
                 {

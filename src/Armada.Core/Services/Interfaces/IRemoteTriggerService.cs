@@ -2,6 +2,7 @@ namespace Armada.Core.Services.Interfaces
 {
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Models;
 
     /// <summary>
     /// Orchestrates per-vessel coalescing + admiral-wide throttle + dual-routine routing
@@ -16,5 +17,11 @@ namespace Armada.Core.Services.Interfaces
 
         /// <summary>Fire a critical wake (audit Critical or similar). Bypasses coalescing and throttle since these are rare and high-priority.</summary>
         Task FireCriticalAsync(string text, CancellationToken token = default);
+
+        /// <summary>Register the most recent orchestrator session used by AgentWake Auto mode.</summary>
+        AgentWakeSessionRegistration RegisterAgentWakeSession(AgentWakeSessionRegistration registration);
+
+        /// <summary>Return the most recently registered AgentWake orchestrator session, if any.</summary>
+        AgentWakeSessionRegistration? GetAgentWakeSession();
     }
 }

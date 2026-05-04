@@ -98,7 +98,7 @@ Do not branch that PR from this fork's `main`; it contains AgentWake, tier routi
 - **`GitService.IsPrMergedAsync` platform-aware.** PR-merge detection routes to `gh pr view` (GitHub) or `glab mr view` (GitLab) based on URL host. Closes a silent-failure path where GitLab MRs always appeared "not merged" because `gh` returned non-zero on unsupported hosts. (`63b6f6f`)
 - **Captain-lifecycle hardening.** Captain process cleanup on cancel + launch log lock recovery prevents orphaned worktrees and stuck launch state. Merge-queue land + dock-delete honor the vessel's `BranchCleanupPolicy`. (`7f99fa9`, `23c22eb7`)
 - **`JsonStringEnumConverter` registered for settings.json mode loading.** Fixes a startup crash when `settings.json` carries `RemoteTriggerMode` as a string. (`3dcecd5`)
-- **`RemoteTriggerMode.AgentWake` -- local Claude/Codex one-shot wake.** New transport mode that spawns a local Claude Code or Codex CLI process only when Armada has real work: WorkProduced, MissionFailed, auto_land_skipped, and audit-Critical events. No HTTP token, Routines API, or constant daemon loop required. Configure via `remoteTrigger.mode = "AgentWake"` with optional `agentWake` subsection (`runtime`, `command`, `sessionId`, `workingDirectory`, `timeoutSeconds`, `environmentVariables`). Supports Claude `--print --continue` / `--resume <sessionId>` and Codex `exec resume --last -` / session resume paths. Per-vessel 60s coalescing, rolling 20/hour throttle, and global single-flight lease prevent burst spawning. LocalDaemon mode has been removed; AgentWake is its replacement.
+- **`RemoteTriggerMode.AgentWake` -- local Claude/Codex one-shot wake.** New transport mode that spawns a local Claude Code or Codex CLI process only when Armada has real work: WorkProduced, MissionFailed, auto_land_skipped, and audit-Critical events. No HTTP token, Routines API, or constant daemon loop required. Configure via `remoteTrigger.mode = "AgentWake"` with optional `agentWake` subsection (`runtime`, `runtimePreference`, `command`, `sessionId`, `workingDirectory`, `timeoutSeconds`, `environmentVariables`). Supports fixed `Claude`/`Codex` runtime selection or `Auto`, where MCP clients can call `armada_register_agentwake_session` so Armada resumes the most recently registered orchestrator session before falling back to the configured runtime order. Supports Claude `--print --continue` / `--resume <sessionId>` and Codex `exec resume --last -` / session resume paths. Per-vessel 60s coalescing, rolling 20/hour throttle, and global single-flight lease prevent burst spawning. LocalDaemon mode has been removed; AgentWake is its replacement.
 - **Codex/Claude MCP startup hardening.** `armada mcp install` now configures Codex through the native `codex mcp add` flow and the correct `~/.codex/config.toml` target, using a stdio Armada entrypoint from source checkouts. Claude Code captain launches are restricted to project/local settings with `--strict-mcp-config` so user-level MCP servers do not leak into headless captain processes.
 - **Captain diagnostics for long-running/no-diff cases.** `armada_captain_diagnostics` is a read-only MCP tool for investigating captains that appear busy without producing files. It reports active mission elapsed time, dock git status, uncommitted files, launch/log hints, and code-index freshness/staleness so operators can distinguish stuck model startup, missing context, stale index, and normal long-running work.
 - **Mission/dashboard/MCP memory hardening.** Mission stdout/stderr buffers are capped, planning-session live output is tail-bounded, status/progress APIs use grouped counts instead of hydrating all mission rows, mission list and MCP enumerate/status paths project lightweight summaries that omit `description`, `diff_snapshot`, and `agent_output`, and the embedded dashboard coalesces refreshes while avoiding background merge-queue enrichment outside the merge view. This fixes the observed Admiral memory growth and browser out-of-memory failure when many missions or planning turns carry large logs/output. (`0fe4411c`, `22869d01`, `c6b8ffe1`, `7cf460e9`)
@@ -847,7 +847,7 @@ armada config init              # Interactive setup (optional)
 
 Remote triggers are disabled by default. Supported modes are `Disabled`, `RemoteFire`, and `AgentWake`. `LocalDaemon` is intentionally removed and is not supported.
 
-`AgentWake` is the local, event-driven replacement for dormant Claude/Codex orchestrator sessions. It does not run a loop. Armada starts one Claude Code or Codex CLI process only after real work events, coalesces bursts per vessel, throttles repeated wakes, and uses a global single-flight lease so a burst cannot spawn many agents.
+`AgentWake` is the local, event-driven replacement for dormant Claude/Codex orchestrator sessions. It does not run a loop. Armada starts one Claude Code or Codex CLI process only after real work events, coalesces bursts per vessel, throttles repeated wakes, and uses a global single-flight lease so a burst cannot spawn many agents. Set `runtime` to `Auto` when you want Armada to pick whichever orchestrator was most recently registered.
 
 Example:
 
@@ -866,7 +866,24 @@ Example:
 }
 ```
 
-For Claude Code, set `runtime` to `Claude`; Armada uses `--print --continue` when `sessionId` is empty and `--print --resume <sessionId>` when one is configured. For Codex, Armada resumes the configured session when available or uses the last session path. `RemoteFire` remains available for HTTP webhook style triggers.
+Auto example:
+
+```json
+{
+  "remoteTrigger": {
+    "enabled": true,
+    "mode": "AgentWake",
+    "agentWake": {
+      "runtime": "Auto",
+      "runtimePreference": [ "Codex", "Claude" ],
+      "workingDirectory": "C:\\Users\\Owner\\RiderProjects\\project",
+      "timeoutSeconds": 600
+    }
+  }
+}
+```
+
+For Claude Code, set `runtime` to `Claude`; Armada uses `--print --continue` when `sessionId` is empty and `--print --resume <sessionId>` when one is configured. For Codex, Armada resumes the configured session when available or uses the last session path. With `runtime: "Auto"`, Armada first uses the most recent `armada_register_agentwake_session` registration, then tries `runtimePreference` in order. `RemoteFire` remains available for HTTP webhook style triggers.
 
 ## Authentication
 
@@ -923,7 +940,7 @@ armada mcp remove     # Remove those Armada MCP entries again
 
 If you are working from source, MCP helper entrypoints are available under `scripts/windows/`, `scripts/linux/`, and `scripts/macos/`. Codex MCP setup uses the native `codex mcp add` command and writes the current Codex `config.toml` format. Source checkouts register a stdio command that runs Armada through `dotnet`, which avoids stale HTTP/client startup assumptions in new Codex sessions.
 
-Once installed, your MCP client can call tools like `armada_status`, `armada_dispatch`, `armada_enumerate`, `armada_voyage_status`, and `armada_cancel_voyage`. There are also tool groups for playbook, persona, pipeline, prompt-template, and code-index management. Mission enumeration and status tools intentionally return lightweight summaries; use mission log/diff tools when you need large text. For repository discovery before dispatch, use `armada_context_pack` and pass its returned `prestagedFiles` entry into the mission.
+Once installed, your MCP client can call tools like `armada_status`, `armada_dispatch`, `armada_enumerate`, `armada_voyage_status`, and `armada_cancel_voyage`. There are also tool groups for playbook, persona, pipeline, prompt-template, and code-index management. Mission enumeration and status tools intentionally return lightweight summaries; use mission log/diff tools when you need large text. If AgentWake uses `runtime: "Auto"`, call `armada_register_agentwake_session` from the active Codex/Claude orchestrator session so future one-shot wakes resume that runtime/session. For repository discovery before dispatch, use `armada_context_pack` and pass its returned `prestagedFiles` entry into the mission.
 
 ### AI-Powered Orchestration
 

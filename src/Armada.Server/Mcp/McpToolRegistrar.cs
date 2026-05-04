@@ -86,6 +86,7 @@ namespace Armada.Server.Mcp
             McpPersonaTools.Register(register, database);
             McpPipelineTools.Register(register, database);
             if (settings != null) McpBackupTools.Register(register, database, settings);
+            McpAgentWakeTools.Register(register, remoteTriggerService);
             McpAuditTools.Register(register, database, remoteTriggerService);
             McpArchitectTools.Register(register, database, new ArchitectOutputParser(), admiral);
             if (codeIndexService != null) McpCodeIndexTools.Register(register, codeIndexService);
