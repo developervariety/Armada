@@ -64,6 +64,7 @@ namespace Armada.Test.Unit
 
             // Service tests
             runner.AddSuite(new AdmiralServiceTests());
+            runner.AddSuite(new MemoryHotfixRegressionTests());
             runner.AddSuite(new EntityResolverTests());
             runner.AddSuite(new MessageTemplateServiceTests());
             runner.AddSuite(new ProgressParserTests());

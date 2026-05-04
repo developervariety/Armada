@@ -292,6 +292,27 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("HandleAgentOutput bounds single oversized runtime chunk", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _);
+                    int processId = 929292;
+                    string missionId = "msn_single_oversized_output_capture";
+                    RegisterTrackedProcess(handler, processId, "captain-single-oversized", missionId);
+
+                    string oversizedChunk = "single oversized chunk " + new string('b', 2 * 1024 * 1024);
+                    handler.HandleAgentOutput(processId, oversizedChunk);
+
+                    string? output = handler.GetAndClearMissionOutput(missionId);
+
+                    AssertNotNull(output, "Streamed output should still be available after a single oversized append");
+                    AssertTrue(output!.Length < 1024 * 1024, "A single runtime output chunk must still obey the mission output cap");
+                    AssertContains("[ARMADA: streamed output truncated to retain tail]", output, "Truncation marker should be inserted for a single oversized chunk");
+                    AssertFalse(output.Contains("single oversized chunk", StringComparison.Ordinal), "Older head content from the oversized chunk should be dropped");
+                }
+            });
+
             await RunTest("DiscardUnclaimedMissionOutput removes streamed buffer and final-message artifact", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
