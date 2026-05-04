@@ -212,7 +212,7 @@ namespace Armada.Server
                 return BadRequest("missing_mission_id", "MissionId is required.");
             }
 
-            Mission? mission = await _Database.Missions.ReadAsync(missionId, token).ConfigureAwait(false);
+            Mission? mission = await _Database.Missions.ReadSummaryAsync(missionId, token).ConfigureAwait(false);
             if (mission == null)
             {
                 return NotFound("Mission not found.");
@@ -258,7 +258,11 @@ namespace Armada.Server
                 return NotFound("Voyage not found.");
             }
 
-            List<Mission> missions = await _Database.Missions.EnumerateByVoyageAsync(voyageId, token).ConfigureAwait(false);
+            EnumerationResult<Mission> missions = await _Database.Missions.EnumerateSummariesAsync(new EnumerationQuery
+            {
+                VoyageId = voyageId,
+                PageSize = 1000
+            }, token).ConfigureAwait(false);
 
             return new RemoteTunnelRequestResult
             {
@@ -266,7 +270,7 @@ namespace Armada.Server
                 Payload = new
                 {
                     voyage = voyage,
-                    missions = missions.OrderByDescending(m => m.LastUpdateUtc).ThenByDescending(m => m.CreatedUtc).ToList()
+                    missions = missions.Objects.OrderByDescending(m => m.LastUpdateUtc).ThenByDescending(m => m.CreatedUtc).ToList()
                 },
                 Message = "Voyage detail captured."
             };
@@ -287,12 +291,16 @@ namespace Armada.Server
             }
 
             Mission? currentMission = !String.IsNullOrWhiteSpace(captain.CurrentMissionId)
-                ? await _Database.Missions.ReadAsync(captain.CurrentMissionId, token).ConfigureAwait(false)
+                ? await _Database.Missions.ReadSummaryAsync(captain.CurrentMissionId, token).ConfigureAwait(false)
                 : null;
             Dock? currentDock = !String.IsNullOrWhiteSpace(captain.CurrentDockId)
                 ? await _Database.Docks.ReadAsync(captain.CurrentDockId, token).ConfigureAwait(false)
                 : null;
-            List<Mission> missions = await _Database.Missions.EnumerateByCaptainAsync(captainId, token).ConfigureAwait(false);
+            EnumerationResult<Mission> missions = await _Database.Missions.EnumerateSummariesAsync(new EnumerationQuery
+            {
+                CaptainId = captainId,
+                PageSize = 10
+            }, token).ConfigureAwait(false);
 
             return new RemoteTunnelRequestResult
             {
@@ -302,7 +310,7 @@ namespace Armada.Server
                     captain = captain,
                     currentMission = currentMission,
                     currentDock = currentDock,
-                    recentMissions = missions
+                    recentMissions = missions.Objects
                         .OrderByDescending(m => m.LastUpdateUtc)
                         .ThenByDescending(m => m.CreatedUtc)
                         .Take(10)
@@ -320,7 +328,7 @@ namespace Armada.Server
                 return BadRequest("missing_mission_id", "MissionId is required.");
             }
 
-            Mission? mission = await _Database.Missions.ReadAsync(missionId, token).ConfigureAwait(false);
+            Mission? mission = await _Database.Missions.ReadSummaryAsync(missionId, token).ConfigureAwait(false);
             if (mission == null)
             {
                 return NotFound("Mission not found.");
@@ -526,8 +534,11 @@ namespace Armada.Server
 
         private async Task<IEnumerable<object>> BuildRecentMissionRowsAsync(int limit, CancellationToken token)
         {
-            List<Mission> missions = await _Database.Missions.EnumerateAsync(token).ConfigureAwait(false);
-            return missions
+            EnumerationResult<Mission> missions = await _Database.Missions.EnumerateSummariesAsync(new EnumerationQuery
+            {
+                PageSize = limit
+            }, token).ConfigureAwait(false);
+            return missions.Objects
                 .OrderByDescending(m => m.LastUpdateUtc)
                 .ThenByDescending(m => m.CreatedUtc)
                 .Take(limit)

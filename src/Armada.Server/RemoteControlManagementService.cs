@@ -226,11 +226,15 @@ namespace Armada.Server
                 return NotFound("Vessel not found.");
             }
 
-            List<Mission> missions = await _Database.Missions.EnumerateByVesselAsync(vesselId, token).ConfigureAwait(false);
+            EnumerationResult<Mission> missions = await _Database.Missions.EnumerateSummariesAsync(new EnumerationQuery
+            {
+                VesselId = vesselId,
+                PageSize = 12
+            }, token).ConfigureAwait(false);
             return Ok(new
             {
                 vessel = vessel,
-                recentMissions = missions
+                recentMissions = missions.Objects
                     .OrderByDescending(m => m.LastUpdateUtc)
                     .ThenByDescending(m => m.CreatedUtc)
                     .Take(12)
@@ -579,20 +583,15 @@ namespace Armada.Server
         private async Task<RemoteTunnelRequestResult> ListMissionsAsync(RemoteTunnelQueryRequest request, CancellationToken token)
         {
             int limit = Clamp(request.Limit, 16, 1, 200);
-            IEnumerable<Mission> missions;
+            EnumerationQuery query = new EnumerationQuery
+            {
+                PageSize = limit
+            };
 
             if (!String.IsNullOrWhiteSpace(request.VoyageId))
-            {
-                missions = await _Database.Missions.EnumerateByVoyageAsync(request.VoyageId.Trim(), token).ConfigureAwait(false);
-            }
-            else if (!String.IsNullOrWhiteSpace(request.VesselId))
-            {
-                missions = await _Database.Missions.EnumerateByVesselAsync(request.VesselId.Trim(), token).ConfigureAwait(false);
-            }
-            else
-            {
-                missions = await _Database.Missions.EnumerateAsync(token).ConfigureAwait(false);
-            }
+                query.VoyageId = request.VoyageId.Trim();
+            if (!String.IsNullOrWhiteSpace(request.VesselId))
+                query.VesselId = request.VesselId.Trim();
 
             if (!String.IsNullOrWhiteSpace(request.Status))
             {
@@ -601,19 +600,15 @@ namespace Armada.Server
                     return BadRequest("invalid_mission_status", "Invalid mission status: " + request.Status);
                 }
 
-                missions = missions.Where(m => m.Status == status);
+                query.Status = status.ToString();
             }
 
-            List<Mission> rows = missions
+            EnumerationResult<Mission> missions = await _Database.Missions.EnumerateSummariesAsync(query, token).ConfigureAwait(false);
+            List<Mission> rows = missions.Objects
                 .OrderByDescending(m => m.LastUpdateUtc)
                 .ThenByDescending(m => m.CreatedUtc)
                 .Take(limit)
                 .ToList();
-
-            foreach (Mission mission in rows)
-            {
-                mission.DiffSnapshot = null;
-            }
 
             return Ok(new
             {

@@ -40,6 +40,8 @@ namespace Armada.Server
             new System.Collections.Concurrent.ConcurrentDictionary<string, TurnState>(StringComparer.Ordinal);
         private readonly System.Collections.Concurrent.ConcurrentDictionary<string, Task<PlanningSession>> _StopOperations =
             new System.Collections.Concurrent.ConcurrentDictionary<string, Task<PlanningSession>>(StringComparer.Ordinal);
+        private const int _PlanningOutputCapChars = 256 * 1024;
+        private const string _PlanningOutputTruncationMarker = "[ARMADA: planning output truncated to retain tail]";
 
         #endregion
 
@@ -658,9 +660,8 @@ namespace Armada.Server
                     string updatedContent;
                     lock (outputLock)
                     {
-                        if (output.Length > 0) output.AppendLine();
-                        output.Append(line);
-                        updatedContent = output.ToString();
+                        AppendPlanningOutputBounded(output, line);
+                        updatedContent = output.ToString().TrimEnd();
                     }
 
                     assistantMessage.Content = updatedContent;
@@ -900,6 +901,30 @@ namespace Armada.Server
             return "... transcript truncated ...\n\n" + transcript.Substring(transcript.Length - maxChars, maxChars);
         }
 
+        private static void AppendPlanningOutputBounded(StringBuilder output, string? line)
+        {
+            if (output == null) return;
+
+            if (output.Length > 0) output.AppendLine();
+            output.Append(line ?? String.Empty);
+
+            if (output.Length <= _PlanningOutputCapChars) return;
+
+            int markerLength = _PlanningOutputTruncationMarker.Length + Environment.NewLine.Length;
+            int retainChars = Math.Max(0, _PlanningOutputCapChars - markerLength);
+            string tail = retainChars > 0 && output.Length > retainChars
+                ? output.ToString(output.Length - retainChars, retainChars)
+                : String.Empty;
+
+            output.Clear();
+            output.Append(_PlanningOutputTruncationMarker);
+            output.AppendLine();
+            if (!String.IsNullOrEmpty(tail))
+            {
+                output.Append(tail);
+            }
+        }
+
         private async Task<string> RunRuntimePromptAsync(
             PlanningSession session,
             Captain captain,
@@ -919,8 +944,7 @@ namespace Armada.Server
             {
                 lock (outputLock)
                 {
-                    if (output.Length > 0) output.AppendLine();
-                    output.Append(line);
+                    AppendPlanningOutputBounded(output, line);
                 }
             };
             runtime.OnProcessExited += (processId, exitCode) => exitSource.TrySetResult(exitCode);

@@ -57,7 +57,7 @@ namespace Armada.Server.Mcp.Tools
                     Mission? mission = null;
                     if (!String.IsNullOrWhiteSpace(captain.CurrentMissionId))
                     {
-                        mission = await database.Missions.ReadAsync(captain.CurrentMissionId).ConfigureAwait(false);
+                        mission = await database.Missions.ReadSummaryAsync(captain.CurrentMissionId).ConfigureAwait(false);
                     }
 
                     Dock? dock = null;

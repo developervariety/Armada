@@ -19,6 +19,18 @@ namespace Armada.Core.Database.Interfaces
         Task<Mission?> ReadAsync(string id, CancellationToken token = default);
 
         /// <summary>
+        /// Read a mission by identifier for status/list/detail surfaces that do not
+        /// need large captured payloads. Implementations should avoid hydrating
+        /// diff_snapshot, agent_output, and playbook snapshot content.
+        /// </summary>
+        async Task<Mission?> ReadSummaryAsync(string id, CancellationToken token = default)
+        {
+            Mission? mission = await ReadAsync(id, token).ConfigureAwait(false);
+            if (mission != null) StripHeavyFields(new[] { mission });
+            return mission;
+        }
+
+        /// <summary>
         /// Update a mission.
         /// </summary>
         Task<Mission> UpdateAsync(Mission mission, CancellationToken token = default);

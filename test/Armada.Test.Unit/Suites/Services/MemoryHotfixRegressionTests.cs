@@ -65,6 +65,32 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("EnumerateSummariesAsync", enumerateEndpoint, "POST /api/v1/missions/enumerate should use the lightweight mission summary projection.");
             });
 
+            await RunTest("McpMissionEnumeration UsesSummaryProjection", () =>
+            {
+                string tools = ReadRepositoryFile("src", "Armada.Server", "Mcp", "Tools", "McpEnumerateTools.cs");
+                string missionCase = ExtractBetween(tools, "case \"missions\":", "case \"voyages\":");
+
+                AssertContains("EnumerateSummariesAsync", missionCase, "MCP mission enumeration should not hydrate heavy mission payload columns.");
+                AssertDoesNotContain("Missions.EnumerateAsync(query)", missionCase, "MCP mission enumeration must not use full mission enumeration.");
+            });
+
+            await RunTest("PlanningSessionRuntimeOutput IsBounded", () =>
+            {
+                string coordinator = ReadRepositoryFile("src", "Armada.Server", "PlanningSessionCoordinator.cs");
+
+                AssertContains("_PlanningOutputCapChars", coordinator, "Planning session output should have a bounded live buffer.");
+                AssertContains("AppendPlanningOutputBounded(output, line)", coordinator, "Planning runtime output handlers should use the bounded append helper.");
+                AssertDoesNotContain("output.Append(line);", coordinator, "Planning runtime output handlers must not append unbounded runtime output directly.");
+            });
+
+            await RunTest("MissionDetailRoute StripsPersistedAgentOutput", () =>
+            {
+                string routes = ReadRepositoryFile("src", "Armada.Server", "Routes", "MissionRoutes.cs");
+                string detailEndpoint = ExtractBetween(routes, "app.Get(\"/api/v1/missions/{id}\"", "app.Put<Mission>");
+
+                AssertContains("mission.AgentOutput = null", detailEndpoint, "Mission detail responses should not return persisted agent output.");
+            });
+
             await RunTest("EmbeddedDashboardRefresh CoalescesAndAvoidsBackgroundMergeQueueLoad", () =>
             {
                 string dashboard = ReadRepositoryFile("src", "Armada.Server", "wwwroot", "js", "dashboard.js");
@@ -90,6 +116,14 @@ namespace Armada.Test.Unit.Suites.Services
             AssertContains("m.DiffSnapshot = null", endpointBlock, surface + " should strip diff snapshots by default.");
             AssertContains("m.Description = null", endpointBlock, surface + " should strip mission descriptions by default.");
             AssertContains("m.AgentOutput = null", endpointBlock, surface + " should strip agent output by default.");
+        }
+
+        private void AssertDoesNotContain(string unexpected, string actual, string message)
+        {
+            if (actual.Contains(unexpected, StringComparison.Ordinal))
+            {
+                throw new Exception(message + " Unexpected text: " + unexpected);
+            }
         }
 
         private static string ExtractBetween(string contents, string startToken, string endToken)

@@ -55,7 +55,7 @@ namespace Armada.Server.Mcp.Tools
                         signalType = new { type = "string", description = "Filter by signal type (signals only)" },
                         toCaptainId = new { type = "string", description = "Filter by recipient captain ID (signals only)" },
                         unreadOnly = new { type = "boolean", description = "Return only unread signals (signals only)" },
-                        includeDescription = new { type = "boolean", description = "Include full Description on missions/voyages (default false; returns descriptionLength hint when false)" },
+                        includeDescription = new { type = "boolean", description = "Include full Description on voyages (default false; returns descriptionLength hint when false). Mission enumeration always returns lightweight mission summaries; use mission-specific tools for details/logs/diffs." },
                         includeContext = new { type = "boolean", description = "Include ProjectContext and StyleGuide on vessels (default false; returns length hints when false)" },
                         includeTestOutput = new { type = "boolean", description = "Include TestOutput on merge queue entries (default false; returns testOutputLength hint when false)" },
                         includePayload = new { type = "boolean", description = "Include full Payload on events (default false; returns payloadLength hint when false)" },
@@ -124,30 +124,27 @@ namespace Armada.Server.Mcp.Tools
                             return (object)projectedCaptains;
                         case "missions":
                         case "mission":
-                            EnumerationResult<Mission> missions = await database.Missions.EnumerateAsync(query).ConfigureAwait(false);
-                            foreach (Mission m in missions.Objects) m.DiffSnapshot = null;
-                            if (request.IncludeDescription != true)
+                            EnumerationResult<Mission> missions = await database.Missions.EnumerateSummariesAsync(query).ConfigureAwait(false);
+                            object projectedMissions = new
                             {
-                                object projectedMissions = new
+                                missions.Success,
+                                missions.PageNumber,
+                                missions.PageSize,
+                                missions.TotalPages,
+                                missions.TotalRecords,
+                                Objects = missions.Objects.Select(m => new
                                 {
-                                    missions.Success,
-                                    missions.PageNumber,
-                                    missions.PageSize,
-                                    missions.TotalPages,
-                                    missions.TotalRecords,
-                                    Objects = missions.Objects.Select(m => new
-                                    {
-                                        m.Id, m.Title, m.Status, m.VesselId, m.VoyageId, m.CaptainId,
-                                        m.BranchName, m.DockId, m.ProcessId, m.PrUrl, m.CommitHash,
-                                        m.Priority, m.ParentMissionId,
-                                        m.CreatedUtc, m.LastUpdateUtc, m.StartedUtc, m.CompletedUtc,
-                                        DescriptionLength = m.Description?.Length ?? 0
-                                    }).ToList(),
-                                    missions.TotalMs
-                                };
-                                return (object)projectedMissions;
-                            }
-                            return (object)missions;
+                                    m.Id, m.Title, m.Status, m.VesselId, m.VoyageId, m.CaptainId,
+                                    m.BranchName, m.DockId, m.ProcessId, m.PrUrl, m.CommitHash,
+                                    m.Priority, m.ParentMissionId, m.Persona, m.DependsOnMissionId,
+                                    m.FailureReason, m.TotalRuntimeMs,
+                                    m.CreatedUtc, m.LastUpdateUtc, m.StartedUtc, m.CompletedUtc,
+                                    DescriptionLength = m.Description?.Length ?? 0,
+                                    AgentOutputLength = m.AgentOutput?.Length ?? 0
+                                }).ToList(),
+                                missions.TotalMs
+                            };
+                            return (object)projectedMissions;
                         case "voyages":
                         case "voyage":
                             EnumerationResult<Voyage> voyages = await database.Voyages.EnumerateAsync(query).ConfigureAwait(false);
