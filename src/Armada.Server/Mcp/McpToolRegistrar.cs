@@ -14,7 +14,7 @@ namespace Armada.Server.Mcp
     using SyslogLogging;
 
     /// <summary>
-    /// Delegate matching the RegisterTool signature shared by McpHttpServer and McpServer.
+    /// Delegate matching the RegisterTool signature shared by MCP transports.
     /// </summary>
     public delegate void RegisterToolDelegate(
         string name,
@@ -24,7 +24,6 @@ namespace Armada.Server.Mcp
 
     /// <summary>
     /// Registers all Armada MCP tools on any MCP server transport.
-    /// Shared between the HTTP MCP server and the stdio MCP server.
     /// </summary>
     public static class McpToolRegistrar
     {
@@ -37,7 +36,7 @@ namespace Armada.Server.Mcp
         /// <summary>
         /// Register all Armada tools using the provided registration delegate.
         /// </summary>
-        /// <param name="register">Tool registration delegate (works with both McpHttpServer and McpServer).</param>
+        /// <param name="register">Tool registration delegate.</param>
         /// <param name="database">Database driver for direct queries.</param>
         /// <param name="admiral">Admiral service for orchestration operations.</param>
         /// <param name="settings">Application settings for log/diff paths.</param>
