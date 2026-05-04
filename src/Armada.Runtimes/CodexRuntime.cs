@@ -8,6 +8,16 @@ namespace Armada.Runtimes
     /// <summary>
     /// Agent runtime adapter for OpenAI Codex CLI.
     /// </summary>
+    /// <remarks>
+    /// Per-invocation reasoning effort: when <c>CaptainRuntimeOptions.ReasoningEffort</c> is set
+    /// for a captain, Codex CLI receives <c>-c reasoning_effort=&lt;value&gt;</c> on each call
+    /// (commit b5088b0). Accepted values: low|medium|high|xhigh. The flag is injected before
+    /// <c>--output-last-message</c> and the prompt argument so Codex parses it as a config
+    /// override rather than prompt text.
+    ///
+    /// ReasoningEffort is silently ignored if absent from the captain's RuntimeOptionsJson,
+    /// preserving backward compatibility for captains provisioned before the setting existed.
+    /// </remarks>
     public class CodexRuntime : BaseAgentRuntime
     {
         #region Public-Members

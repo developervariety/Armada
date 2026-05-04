@@ -47,6 +47,7 @@ namespace Armada.Runtimes
         /// <summary>
         /// Instantiate.
         /// </summary>
+        /// <param name="logging">Logging module.</param>
         public MuxRuntime(LoggingModule logging) : base(logging)
         {
         }
