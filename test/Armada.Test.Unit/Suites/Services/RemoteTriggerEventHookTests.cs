@@ -467,6 +467,8 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(1, outcomes.Count, "OnMissionOutcome must fire exactly once after HandleCompletionAsync");
                     AssertEqual(mission.Id, outcomes[0].MissionId, "Outcome mission id matches");
                     AssertEqual(MissionStatusEnum.WorkProduced, outcomes[0].Status, "Status reported as WorkProduced after work emitted");
+                    AssertTrue(outcomes[0].WillInvokeLanding,
+                        "Terminal WorkProduced mission must tell the outcome hook that MissionLandingHandler will run.");
                 }
             });
 
@@ -580,6 +582,55 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(winner == exited.Task,
                     "onExited must be invoked for a normal-exit child so the diagnostic block runs.");
             });
+
+            await RunTest("AgentWakeProcessHost_NonZeroExit_LogsExitCodeAndOutputSnippets", async () =>
+            {
+                string logPath = Path.Combine(Path.GetTempPath(), "armada_agentwake_diag_" + Guid.NewGuid().ToString("N") + ".log");
+                LoggingModule logging = CreateFileLogging(logPath);
+                AgentWakeProcessHost host = new AgentWakeProcessHost(logging);
+
+                AgentWakeProcessRequest request = BuildOutputExitProcessRequest(exitCode: 7);
+
+                TaskCompletionSource exited = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                bool started = host.TryStart(request, () => exited.TrySetResult());
+
+                AssertTrue(started, "AgentWakeProcessHost.TryStart should succeed for a diagnostic shell command.");
+
+                Task winner = await Task.WhenAny(exited.Task, Task.Delay(TimeSpan.FromSeconds(15))).ConfigureAwait(false);
+                AssertTrue(winner == exited.Task, "diagnostic shell command should exit within the test timeout.");
+
+                await logging.FlushAsync(CancellationToken.None).ConfigureAwait(false);
+                string logText = File.ReadAllText(logPath);
+
+                AssertContains("exited abnormally", logText, "non-zero process exit should be logged as abnormal.");
+                AssertContains("exitCode=7", logText, "diagnostic log should include the child exit code.");
+                AssertContains("stdout=agent-wake-stdout-marker", logText, "diagnostic log should include bounded stdout.");
+                AssertContains("stderr=agent-wake-stderr-marker", logText, "diagnostic log should include bounded stderr.");
+            });
+
+            await RunTest("AgentWakeProcessHost_Timeout_LogsTimedOutDiagnostic", async () =>
+            {
+                string logPath = Path.Combine(Path.GetTempPath(), "armada_agentwake_timeout_" + Guid.NewGuid().ToString("N") + ".log");
+                LoggingModule logging = CreateFileLogging(logPath);
+                AgentWakeProcessHost host = new AgentWakeProcessHost(logging);
+
+                AgentWakeProcessRequest request = BuildTimeoutProcessRequest();
+
+                TaskCompletionSource exited = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                bool started = host.TryStart(request, () => exited.TrySetResult());
+
+                AssertTrue(started, "AgentWakeProcessHost.TryStart should succeed for a timeout shell command.");
+
+                Task winner = await Task.WhenAny(exited.Task, Task.Delay(TimeSpan.FromSeconds(15))).ConfigureAwait(false);
+                AssertTrue(winner == exited.Task, "timeout shell command should invoke onExited after kill.");
+
+                await logging.FlushAsync(CancellationToken.None).ConfigureAwait(false);
+                string logText = File.ReadAllText(logPath);
+
+                AssertContains("process timed out after 1s", logText, "timeout diagnostic should include configured timeout.");
+                AssertContains("exited abnormally", logText, "timeout process exit should be logged as abnormal.");
+                AssertContains("timed out", logText, "exit diagnostic should preserve timeout state.");
+            });
         }
 
         private sealed class MissionOutcomeCapture
@@ -611,6 +662,65 @@ namespace Armada.Test.Unit.Suites.Services
             }
             request.StdinPayload = string.Empty;
             request.TimeoutSeconds = 10;
+            return request;
+        }
+
+        private static LoggingModule CreateFileLogging(string logPath)
+        {
+            LoggingModule logging = new LoggingModule(logPath, FileLoggingMode.SingleLogFile, false);
+            logging.Settings.EnableConsole = false;
+            return logging;
+        }
+
+        private static AgentWakeProcessRequest BuildOutputExitProcessRequest(int exitCode)
+        {
+            AgentWakeProcessRequest request = new AgentWakeProcessRequest();
+            if (OperatingSystem.IsWindows())
+            {
+                request.Command = "cmd.exe";
+                request.ArgumentList = new List<string>
+                {
+                    "/c",
+                    "echo agent-wake-stdout-marker && echo agent-wake-stderr-marker 1>&2 && exit /b " + exitCode
+                };
+            }
+            else
+            {
+                request.Command = "/bin/sh";
+                request.ArgumentList = new List<string>
+                {
+                    "-c",
+                    "printf 'agent-wake-stdout-marker\\n'; printf 'agent-wake-stderr-marker\\n' >&2; exit " + exitCode
+                };
+            }
+            request.StdinPayload = string.Empty;
+            request.TimeoutSeconds = 10;
+            return request;
+        }
+
+        private static AgentWakeProcessRequest BuildTimeoutProcessRequest()
+        {
+            AgentWakeProcessRequest request = new AgentWakeProcessRequest();
+            if (OperatingSystem.IsWindows())
+            {
+                request.Command = "cmd.exe";
+                request.ArgumentList = new List<string>
+                {
+                    "/c",
+                    "echo agent-wake-timeout-marker && ping 127.0.0.1 -n 6 > nul"
+                };
+            }
+            else
+            {
+                request.Command = "/bin/sh";
+                request.ArgumentList = new List<string>
+                {
+                    "-c",
+                    "printf 'agent-wake-timeout-marker\\n'; sleep 5"
+                };
+            }
+            request.StdinPayload = string.Empty;
+            request.TimeoutSeconds = 1;
             return request;
         }
     }
