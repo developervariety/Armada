@@ -41,6 +41,51 @@ namespace Armada.Test.Unit.Suites.Services
             return settings;
         }
 
+        private string ReadRepoFile(string relativePath)
+        {
+            string? directory = System.IO.Directory.GetCurrentDirectory();
+            while (!String.IsNullOrEmpty(directory))
+            {
+                string candidate = System.IO.Path.Combine(directory, relativePath);
+                if (System.IO.File.Exists(candidate))
+                {
+                    return System.IO.File.ReadAllText(candidate);
+                }
+
+                directory = System.IO.Directory.GetParent(directory)?.FullName;
+            }
+
+            throw new System.IO.FileNotFoundException("Could not find repository file", relativePath);
+        }
+
+        private static string ExtractMethodBody(string source, string signature)
+        {
+            int signatureIndex = source.IndexOf(signature, StringComparison.Ordinal);
+            if (signatureIndex < 0) throw new InvalidOperationException("Signature not found: " + signature);
+
+            int openBraceIndex = source.IndexOf('{', signatureIndex);
+            if (openBraceIndex < 0) throw new InvalidOperationException("Opening brace not found: " + signature);
+
+            int depth = 0;
+            for (int i = openBraceIndex; i < source.Length; i++)
+            {
+                if (source[i] == '{')
+                {
+                    depth++;
+                }
+                else if (source[i] == '}')
+                {
+                    depth--;
+                    if (depth == 0)
+                    {
+                        return source.Substring(openBraceIndex, i - openBraceIndex + 1);
+                    }
+                }
+            }
+
+            throw new InvalidOperationException("Closing brace not found: " + signature);
+        }
+
         #endregion
 
         /// <summary>
@@ -255,6 +300,53 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("CountByStatusAsync_TenantScoped_ExcludesOtherTenants", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+
+                    string tenantId = Armada.Core.Constants.DefaultTenantId;
+                    TenantMetadata otherTenant = new TenantMetadata("Other Count Tenant");
+                    await db.Tenants.CreateAsync(otherTenant);
+
+                    Fleet fleet = new Fleet("TenantFilterFleet");
+                    fleet.TenantId = tenantId;
+                    await db.Fleets.CreateAsync(fleet);
+
+                    Voyage voyage = new Voyage("TenantFilterVoyage");
+                    voyage.Status = VoyageStatusEnum.InProgress;
+                    voyage.TenantId = tenantId;
+                    await db.Voyages.CreateAsync(voyage);
+
+                    Vessel vessel = new Vessel("TenantFilterVessel", "https://github.com/test/repo");
+                    vessel.FleetId = fleet.Id;
+                    vessel.TenantId = tenantId;
+                    await db.Vessels.CreateAsync(vessel);
+
+                    Mission defaultTenantMission = new Mission("Default Tenant Failed");
+                    defaultTenantMission.Status = MissionStatusEnum.Failed;
+                    defaultTenantMission.TenantId = tenantId;
+                    defaultTenantMission.VesselId = vessel.Id;
+                    defaultTenantMission.VoyageId = voyage.Id;
+                    await db.Missions.CreateAsync(defaultTenantMission);
+
+                    Mission otherTenantMission = new Mission("Other Tenant Failed");
+                    otherTenantMission.Status = MissionStatusEnum.Failed;
+                    otherTenantMission.TenantId = otherTenant.Id;
+                    await db.Missions.CreateAsync(otherTenantMission);
+
+                    Dictionary<MissionStatusEnum, int> defaultCounts = await db.Missions.CountByStatusAsync(tenantId);
+                    Dictionary<MissionStatusEnum, int> otherCounts = await db.Missions.CountByStatusAsync(otherTenant.Id);
+
+                    defaultCounts.TryGetValue(MissionStatusEnum.Failed, out int defaultFailedCount);
+                    otherCounts.TryGetValue(MissionStatusEnum.Failed, out int otherFailedCount);
+
+                    AssertEqual(1, defaultFailedCount, "Tenant-scoped count should not include failed missions from other tenants");
+                    AssertEqual(1, otherFailedCount, "Other tenant count should remain independently scoped");
+                }
+            });
+
             await RunTest("CountByStatusAsync_Admin_ReturnsCorrectAggregateCounts", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
@@ -350,6 +442,82 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertFalse(missionService.IsBroadScope(summary), "Title should NOT be detected as broad-scope: " + title);
                     }
                 }
+            });
+
+            await RunTest("TryAssignAsync_SourceGuard_UsesActiveSummariesOnly", async () =>
+            {
+                string source = ReadRepoFile(System.IO.Path.Combine("src", "Armada.Core", "Services", "MissionService.cs"));
+                string method = ExtractMethodBody(source, "public async Task<bool> TryAssignAsync");
+
+                AssertContains("GetActiveVesselSummariesAsync", method, "TryAssignAsync should use the lightweight active mission projection");
+                AssertContains("int concurrentCount = activeSummaries.Count;", method, "Concurrent capacity should use the lightweight active summary count");
+                AssertFalse(method.Contains("EnumerateByVesselAsync", StringComparison.Ordinal), "TryAssignAsync must not hydrate full vessel missions");
+            });
+
+            await RunTest("GetActiveVesselSummaries_SourceGuard_AllBackendsUseLightProjection", async () =>
+            {
+                string[] paths = new string[]
+                {
+                    System.IO.Path.Combine("src", "Armada.Core", "Database", "Sqlite", "Implementations", "MissionMethods.cs"),
+                    System.IO.Path.Combine("src", "Armada.Core", "Database", "Mysql", "Implementations", "MissionMethods.cs"),
+                    System.IO.Path.Combine("src", "Armada.Core", "Database", "Postgresql", "Implementations", "MissionMethods.cs"),
+                    System.IO.Path.Combine("src", "Armada.Core", "Database", "SqlServer", "Implementations", "MissionMethods.cs")
+                };
+
+                foreach (string path in paths)
+                {
+                    string source = ReadRepoFile(path);
+                    string method = ExtractMethodBody(source, "GetActiveVesselSummariesAsync");
+
+                    AssertContains("SELECT id, title, status FROM missions", method, path + " should select only scheduler summary columns");
+                    AssertContains("status IN ('Assigned','InProgress')", method, path + " should filter to active assignment statuses in SQL");
+                    AssertFalse(method.Contains("SELECT *", StringComparison.OrdinalIgnoreCase), path + " must not use SELECT * for active summaries");
+                    AssertFalse(method.Contains("description", StringComparison.OrdinalIgnoreCase), path + " must not select description");
+                    AssertFalse(method.Contains("diff_snapshot", StringComparison.OrdinalIgnoreCase), path + " must not select diff_snapshot");
+                    AssertFalse(method.Contains("agent_output", StringComparison.OrdinalIgnoreCase), path + " must not select agent_output");
+                    AssertFalse(method.Contains("playbook", StringComparison.OrdinalIgnoreCase), path + " must not select playbook snapshots");
+                }
+            });
+
+            await RunTest("CountByStatusAsync_SourceGuard_AllBackendsUseGroupByCounts", async () =>
+            {
+                string[] paths = new string[]
+                {
+                    System.IO.Path.Combine("src", "Armada.Core", "Database", "Sqlite", "Implementations", "MissionMethods.cs"),
+                    System.IO.Path.Combine("src", "Armada.Core", "Database", "Mysql", "Implementations", "MissionMethods.cs"),
+                    System.IO.Path.Combine("src", "Armada.Core", "Database", "Postgresql", "Implementations", "MissionMethods.cs"),
+                    System.IO.Path.Combine("src", "Armada.Core", "Database", "SqlServer", "Implementations", "MissionMethods.cs")
+                };
+
+                foreach (string path in paths)
+                {
+                    string source = ReadRepoFile(path);
+                    AssertContains("SELECT status, COUNT(*) AS cnt FROM missions GROUP BY status;", source, path + " should count statuses without hydrating rows");
+                    AssertContains("SELECT status, COUNT(*) AS cnt FROM missions WHERE tenant_id = @tenantId GROUP BY status;", source, path + " should count tenant statuses without hydrating rows");
+                }
+            });
+
+            await RunTest("DoctorRoute_SourceGuard_UsesCountOnlyFailedMissionLogic", async () =>
+            {
+                string source = ReadRepoFile(System.IO.Path.Combine("src", "Armada.Server", "Routes", "StatusRoutes.cs"));
+                int failedMissionStart = source.IndexOf("// 6. Failed Missions", StringComparison.Ordinal);
+                int runtimeStart = source.IndexOf("// 7. Agent Runtimes", StringComparison.Ordinal);
+                AssertTrue(failedMissionStart >= 0, "Doctor failed mission section should exist");
+                AssertTrue(runtimeStart > failedMissionStart, "Doctor runtime section should follow failed mission section");
+
+                string failedMissionSection = source.Substring(failedMissionStart, runtimeStart - failedMissionStart);
+                AssertContains("CountByStatusAsync", failedMissionSection, "Doctor failed mission check should use count-only database APIs");
+                AssertFalse(failedMissionSection.Contains("EnumerateByStatusAsync", StringComparison.Ordinal), "Doctor failed mission check must not enumerate failed mission rows");
+                AssertFalse(failedMissionSection.Contains("EnumerateAsync", StringComparison.Ordinal), "Doctor failed mission check must not enumerate full mission rows");
+            });
+
+            await RunTest("DashboardRefresh_SourceGuard_DoctorRefreshIsViewGated", async () =>
+            {
+                string source = ReadRepoFile(System.IO.Path.Combine("src", "Armada.Server", "wwwroot", "js", "dashboard.js"));
+                string refreshMethod = ExtractMethodBody(source, "async refresh()");
+
+                AssertContains("this.view === 'doctor' ? this.refreshDoctorStatus() : Promise.resolve()", refreshMethod, "Background refresh should call doctor only on the doctor view");
+                AssertFalse(source.Contains("setInterval(() => this.refreshDoctorStatus()", StringComparison.Ordinal), "Dashboard timer must not poll doctor directly");
             });
         }
     }
