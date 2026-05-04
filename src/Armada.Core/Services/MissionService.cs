@@ -2874,6 +2874,80 @@ namespace Armada.Core.Services
             }
         }
 
+        /// <summary>
+        /// Whether a captain satisfies optional persona allow-list and optional preferred model
+        /// (literal or tier selector), ignoring idle state. Used for hard pins and pipeline
+        /// stage pin resolution.
+        /// </summary>
+        /// <param name="captain">Captain row to evaluate.</param>
+        /// <param name="missionPersona">Mission persona, if any.</param>
+        /// <param name="preferredModel">Preferred model or tier selector, if any.</param>
+        /// <returns>True when the captain may run the mission under the given pins.</returns>
+        public static bool CaptainSatisfiesPreferredRouting(Captain captain, string? missionPersona, string? preferredModel)
+        {
+            if (captain == null) throw new ArgumentNullException(nameof(captain));
+
+            if (!String.IsNullOrEmpty(preferredModel))
+            {
+                if (PreferredModelTierSelector.IsTierSelector(preferredModel))
+                {
+                    IReadOnlyList<string> acceptable = PreferredModelTierSelector.GetTierAndAboveModels(preferredModel);
+                    bool modelAcceptable = false;
+                    foreach (string m in acceptable)
+                    {
+                        if (String.Equals(captain.Model, m, StringComparison.OrdinalIgnoreCase))
+                        {
+                            modelAcceptable = true;
+                            break;
+                        }
+                    }
+                    if (!modelAcceptable) return false;
+                }
+                else if (!String.Equals(captain.Model, preferredModel, StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+            }
+
+            if (!String.IsNullOrEmpty(missionPersona))
+            {
+                if (String.IsNullOrEmpty(captain.AllowedPersonas))
+                    return true;
+                if (captain.AllowedPersonas.Contains("\"" + missionPersona + "\"", StringComparison.OrdinalIgnoreCase))
+                    return true;
+                return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// When a pipeline stage sets <see cref="PipelineStage.PreferredModel"/>, the
+        /// dispatch-level captain pin is kept only if that captain satisfies the stage persona and
+        /// that stage model. Otherwise returns null so assignment uses the model pool.
+        /// </summary>
+        /// <param name="dispatchPreferredCaptainId">PreferredCaptainId from the mission description.</param>
+        /// <param name="dispatchPreferredCaptainRow">Loaded captain row for that id, or null.</param>
+        /// <param name="stagePersonaName">Persona name for this pipeline stage.</param>
+        /// <param name="stagePreferredModel">Non-empty stage-level preferred model.</param>
+        /// <returns>The pin id to store on the stage mission, or null when the pin must be dropped.</returns>
+        public static string? ResolvePipelineStagePreferredCaptainId(
+            string? dispatchPreferredCaptainId,
+            Captain? dispatchPreferredCaptainRow,
+            string stagePersonaName,
+            string? stagePreferredModel)
+        {
+            if (String.IsNullOrWhiteSpace(dispatchPreferredCaptainId))
+                return null;
+            if (String.IsNullOrWhiteSpace(stagePreferredModel))
+                return dispatchPreferredCaptainId;
+            if (dispatchPreferredCaptainRow == null)
+                return null;
+            if (CaptainSatisfiesPreferredRouting(dispatchPreferredCaptainRow, stagePersonaName, stagePreferredModel))
+                return dispatchPreferredCaptainId;
+            return null;
+        }
+
         private async Task<Captain?> FindAvailableCaptainAsync(Mission mission, CancellationToken token)
         {
             string? persona = mission?.Persona;
@@ -2889,28 +2963,8 @@ namespace Armada.Core.Services
                 Captain? pinned = await _Database.Captains.ReadAsync(preferredCaptainId, token).ConfigureAwait(false);
                 if (pinned == null) return null;
                 if (pinned.State != CaptainStateEnum.Idle) return null;
-                if (!String.IsNullOrEmpty(preferredModel))
-                {
-                    if (PreferredModelTierSelector.IsTierSelector(preferredModel))
-                    {
-                        // Tier check: pinned captain's model must be in the requested tier or higher
-                        IReadOnlyList<string> acceptable = PreferredModelTierSelector.GetTierAndAboveModels(preferredModel);
-                        bool modelAcceptable = false;
-                        foreach (string m in acceptable)
-                        {
-                            if (String.Equals(pinned.Model, m, StringComparison.OrdinalIgnoreCase))
-                            {
-                                modelAcceptable = true;
-                                break;
-                            }
-                        }
-                        if (!modelAcceptable) return null;
-                    }
-                    else if (!String.Equals(pinned.Model, preferredModel, StringComparison.OrdinalIgnoreCase))
-                    {
-                        return null;
-                    }
-                }
+                if (!CaptainSatisfiesPreferredRouting(pinned, persona, preferredModel))
+                    return null;
                 return pinned;
             }
 
