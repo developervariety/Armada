@@ -120,10 +120,10 @@ A by-category inventory of what Armada actually ships. Each feature is implement
 
 ### Pipelines & Personas
 
-- **Built-in pipelines.** `WorkerOnly` (single Worker stage), `Reviewed` (Worker → Judge), `Architect-Worker-Judge`, `Architect-Worker-TestEngineer-Judge`. Configurable at fleet/vessel level with per-dispatch override.
+- **Built-in pipelines.** `WorkerOnly`, `Reviewed`, `Tested`, `FullPipeline`, plus specialist tested pipelines for diagnostic protocol, tenant security, migration/data, performance/memory, reference porting, and frontend workflow review. Configurable at fleet/vessel level with per-dispatch override.
 - **Custom pipelines.** Define your own ordered persona chain via `armada_create_pipeline` with `stages: [{personaName, isOptional, description, preferredModel}]`.
 - **Per-stage `PreferredModel`.** Each pipeline stage can carry an optional `PreferredModel` that overrides the per-mission pin for missions created from that stage. Lets the `Reviewed` pipeline route Worker to Mid-tier Sonnet and Judge to Opus independently. Dispatcher precedence: `mission.PreferredModel = stage.PreferredModel ?? md.PreferredModel`.
-- **Built-in personas.** Worker, Architect, Judge, TestEngineer.
+- **Built-in personas.** Worker, Architect, Judge, TestEngineer, DiagnosticProtocolReviewer, TenantSecurityReviewer, MigrationDataReviewer, PerformanceMemoryReviewer, PortingReferenceAnalyst, FrontendWorkflowReviewer.
 - **Custom personas.** `armada_create_persona` registers a persona with `name`, `description`, `promptTemplateName`. Pipelines reference personas by name, so user-defined personas slot into stages just like built-ins.
 - **Prompt templates.** Every prompt agents see is template-driven. `armada_create_prompt_template` / `armada_update_prompt_template` / `armada_reset_prompt_template`. Templates use `{Placeholder}` parameters. Built-in templates ship as defaults; user edits persist in the database.
 - **Allowed-personas filter on captains.** Each captain has an `AllowedPersonas` list (e.g. Opus captains: `Worker, Judge, Architect`; Codex: `Worker, Architect`). Hard filter inside the dispatcher — a mission with `Persona = "Judge"` only routes to captains whose `AllowedPersonas` includes Judge.
@@ -307,8 +307,14 @@ Each step is a **persona** with its own prompt template. A sequence of personas 
 | **Reviewed** | Implement -> Review | Normal development |
 | **Tested** | Implement -> Test -> Review | When you need coverage |
 | **FullPipeline** | Plan -> Implement -> Test -> Review | Big features, unfamiliar codebases |
+| **DiagnosticProtocolTested** | Implement -> Diagnostic protocol review -> Test -> Review | J1939, UDS, J1708, K-line, seed-key/security access, diagnostic timing/framing, and banned reflash boundary checks |
+| **TenantSecurityTested** | Implement -> Tenant security review -> Test -> Review | Multi-tenant authz/authn, tenant isolation, secrets, auditability, and cross-tenant leak risk |
+| **MigrationDataTested** | Implement -> Migration/data review -> Test -> Review | Migrations, schema/provider parity, indexes, backfills, rollback/restart safety, and data-loss risk |
+| **PerformanceMemoryTested** | Implement -> Performance/memory review -> Test -> Review | Memory/allocations, retained object graphs, output/log growth, DB materialization, throughput, and resource lifetime |
+| **ReferencePortingTested** | Implement -> Reference parity analysis -> Test -> Review | Approved reference material, decompiler-derived notes, vendor traces, protocol captures, and semantic parity evidence for porting work |
+| **FrontendWorkflowTested** | Implement -> Frontend workflow review -> Test -> Review | Frontend UX/workflow, accessibility, responsive states, i18n, errors, and design consistency |
 
-You can set a default pipeline per repository and override it on a single dispatch when needed. If the built-in roles are not enough, define your own personas and compose them into custom pipelines for security review, documentation, migration planning, release checks, architecture review, or any other project-specific step.
+You can set a default pipeline per repository and override it on a single dispatch when needed. Use the specialist tested pipelines when the mission has one of those known risk profiles; if the built-in roles are not enough, define your own personas and compose them into custom pipelines for additional project-specific steps.
 
 ### Parallel Tasks
 
@@ -462,7 +468,7 @@ When you dispatch, Armada picks the pipeline in this order:
 
 ### Custom Personas and Pipelines
 
-The four built-in personas are starting points. You can create your own:
+The built-in personas are starting points. You can create your own:
 
 ```bash
 # Create a security auditor persona with custom instructions
@@ -475,7 +481,7 @@ armada_create_pipeline name=SecureRelease stages='[{"personaName":"Worker"},{"pe
 
 Every prompt Armada sends is backed by an editable template. You can change agent behavior without modifying code. The dashboard includes a template editor with a parameter reference panel.
 
-Pipelines are not limited to planning, implementation, testing, and review. If a project needs a SecurityAuditor, PerformanceAnalyst, MigrationPlanner, DocsWriter, ReleaseManager, or some internal role with custom instructions and handoff rules, Armada can support that by adding the persona and inserting it into the pipeline.
+Pipelines are not limited to planning, implementation, testing, and review. Armada ships specialist tested pipelines for diagnostic protocol, tenant security, migration/data, performance/memory, reference porting, and frontend workflow review. If a project needs a SecurityAuditor, DocsWriter, ReleaseManager, or another internal role with custom instructions and handoff rules, Armada can support that by adding the persona and inserting it into the pipeline.
 
 For the full pipeline reference, see [docs/PIPELINES.md](docs/PIPELINES.md).
 
@@ -529,6 +535,7 @@ That gives you three parallel branches to review instead of one long queue.
 ### Ship with Confidence
 
 Set `Tested` as the default pipeline if you want implementation, test generation, and review on every dispatch.
+Set a specialist tested pipeline as the default for repositories where that domain risk is routine, or choose it per dispatch when a single mission touches that area.
 
 ### Code Review Prep
 
@@ -627,7 +634,7 @@ Armada is a C#/.NET solution with five main projects:
 | **Planning Session** | Interactive draft | A dashboard chat session with a captain on a reserved dock/worktree. You can turn a selected reply into a dispatch draft or dispatch directly from the session. |
 | **Dock** | Worktree | A git worktree provisioned for a captain's isolated work. |
 | **Signal** | Message | Communication between the Admiral and captains. |
-| **Persona** | Agent role | A named agent role (Worker, Architect, Judge, TestEngineer) that determines what a captain does during a mission. Users can create custom personas with custom prompt templates. |
+| **Persona** | Agent role | A named agent role (Worker, Architect, Judge, TestEngineer, or a specialist reviewer) that determines what a captain does during a mission. Users can create custom personas with custom prompt templates. |
 | **Pipeline** | Workflow | An ordered sequence of persona stages (e.g. Architect -> Worker -> TestEngineer -> Judge). Configured at fleet/vessel level with per-dispatch override. |
 | **Prompt Template** | Instructions | A user-editable template controlling the instructions given to agents. Every prompt in the system is template-driven with `{Placeholder}` parameters. |
 
@@ -1239,8 +1246,8 @@ v0.4.0 adds personas, pipelines, and prompt templates. The database schema is au
 
 - New tables: `prompt_templates`, `personas`, `pipelines`, `pipeline_stages`
 - New columns: `captains.allowed_personas`, `captains.preferred_persona`, `missions.persona`, `missions.depends_on_mission_id`, `fleets.default_pipeline_id`, `vessels.default_pipeline_id`
-- Built-in personas (Worker, Architect, Judge, TestEngineer) and pipelines (WorkerOnly, Reviewed, Tested, FullPipeline) are seeded automatically
-- 18 built-in prompt templates are seeded automatically
+- Built-in personas (Worker, Architect, Judge, TestEngineer, and the six specialist reviewers) and pipelines (WorkerOnly, Reviewed, Tested, FullPipeline, and the six specialist tested pipelines) are seeded automatically
+- 24 built-in prompt templates are seeded automatically
 - Standalone migration scripts available in `migrations/` for manual execution
 
 ### v0.4.0 to v0.5.0

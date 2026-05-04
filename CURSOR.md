@@ -118,7 +118,7 @@ target vessel's `CLAUDE.md`. This playbook distils the project-wide
    fixes get a regression test.
 2. **No mocking libraries.** Hand-rolled doubles only
    (`RecordingHttpHandler`, `ConstantVehicleDataSource`, etc.).
-   `NullLogger<T>.Instance` (otrbuddy/j1939mitm/jpro/otr) or
+   `NullLogger<T>.Instance` (otrbuddy/j1939mitm/reference repos) or
    `new LoggingModule()` (armada) for loggers.
 3. **Algorithm math lives in `j1939mitm` only.** Per-OEM primitives
    are pure static functions in `J1939Mitm.Core/<Manufacturer>/`.
@@ -144,9 +144,10 @@ target vessel's `CLAUDE.md`. This playbook distils the project-wide
    (8-bit), `0xFFFF` (16-bit), `0xFFFFFFFF` (32-bit). Check before
    trusting; preserve prior value, don't overwrite with zero.
 9. **Never hand-edit generated or embedded files.**
-   `output/jpro-export/`, `output/otr-export/`, `otrperformance/`
-   JADX dump, embedded workflow JSON in otrbuddy. **Fix the
-   extractor upstream and re-run.** EF migrations may be edited
+   `output/approved-reference/`, `output/reference-export/`,
+   `output/source-export/`, source dumps, decompiler dumps, decrypted
+   data exports, embedded workflow JSON in otrbuddy. **Fix the
+   exporter or extractor upstream and re-run.** EF migrations may be edited
    only to fix idempotency issues; document the edit.
 10. **Do not reintroduce removed features.** otrbuddy's IFTA / Fuel
     Tax Compliance is permanently removed.
@@ -198,8 +199,8 @@ target vessel's `CLAUDE.md`. This playbook distils the project-wide
 | armada | `LoggingModule` (SyslogLogging) | `_Logging.Info(_Header + "op " + value)` (concat, NOT `$"..."`) |
 | otrbuddy | `ILogger<T>` | `_log.LogInformation("op {Foo} {Bar}", foo, bar)` (placeholders) |
 | j1939mitm | `ILogger<T>` (rare; mostly pure static) | `_log.LogDebug("op {Foo}", foo)` |
-| jpro | `ILogger<T>` | `_log.LogInformation("op {Foo}", foo)` |
-| otrperformance | `ILogger<T>` | `_log.LogInformation("op {Foo}", foo)` |
+| reference-port | `ILogger<T>` | `_log.LogInformation("op {Foo}", foo)` |
+| reference-source | `ILogger<T>` | `_log.LogInformation("op {Foo}", foo)` |
 
 Never `$"..."` interpolation in `ILogger<T>.LogX(...)` calls.
 
@@ -260,16 +261,16 @@ to your mission.
 - The `<Area>/` subfolder is the only allowed nesting — typically
   `<Manufacturer>/` mirroring source.
 
-### JproDeobfuscator
+### Reference decompiler projects
 
-- Production: `src/JproDeobfuscator/<Project>/`.
-- Tests: `src/JproDeobfuscator/<Project>.Tests/<Class>Tests.cs`,
+- Production: `src/<ReferenceDecompiler>/<Project>/`.
+- Tests: `src/<ReferenceDecompiler>/<Project>.Tests/<Class>Tests.cs`,
   flat at root.
 
-### OtrPerformanceDeobfuscator
+### Reference source-dump projects
 
-- Production: `src/OtrPerformanceDeobfuscator/<Project>/`.
-- Tests: `src/OtrPerformanceDeobfuscator/<Project>.Tests/<Class>Tests.cs`,
+- Production: `src/<ReferenceSourceDump>/<Project>/`.
+- Tests: `src/<ReferenceSourceDump>/<Project>.Tests/<Class>Tests.cs`,
   flat at root.
 
 ## File-name convention
@@ -294,7 +295,7 @@ different behaviours; split them.
 - EF migration up/down behaviour.
 - Razor / Blazor component markup.
 - Third-party library behaviour.
-- Generated code (under `output/` in jpro/otr; under `obj/` /
+- Generated code (under `output/` in reference repos; under `obj/` /
   `bin/`; auto-scaffolded API client classes).
 
 ## Cross-vessel consistency
@@ -585,7 +586,7 @@ You are an Armada worker agent. Implement only the current mission description, 
 
 ## Project CORE RULES (non-negotiable)
 
-These rules apply to every mission against the otrbuddy / j1939mitm / JproDeobfuscator / OtrPerformanceDeobfuscator repos. Read the repo's in-tree CLAUDE.md before any change for repo-specific overrides.
+These rules apply to every mission against the configured project repos. Read the repo's in-tree CLAUDE.md before any change for repo-specific overrides.
 
 1. **Tests are required.** Every new public type, service, endpoint, or handler gets an xUnit test in the parallel `*.Tests` project. Bug fixes get a regression test. No exceptions.
 2. **No mocking libraries.** Ever. Hand-rolled test doubles only (`RecordingHttpHandler`, `ConstantVehicleDataSource`, `FlakyPollHandler`, ...). `NullLogger<T>.Instance` for loggers. `Options.Create(...)` for options. No Moq / NSubstitute / FakeItEasy / JustMock.

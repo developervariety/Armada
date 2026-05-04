@@ -107,9 +107,10 @@ namespace Armada.Core.Settings
             "output",
             "decompiled-src",
             "decrypted-db",
-            "jpro-export",
-            "otr-export",
-            "otrperformance"
+            "approved-reference",
+            "reference-export",
+            "source-export",
+            "source-dump"
         };
 
         /// <summary>
@@ -173,9 +174,10 @@ namespace Armada.Core.Settings
             "/build-output/",
             "/generated/",
             "/decompiled-src/",
-            "/jpro-export/",
-            "/otr-export/",
-            "/otrperformance/"
+            "/approved-reference/",
+            "/reference-export/",
+            "/source-export/",
+            "/source-dump/"
         };
 
         /// <summary>

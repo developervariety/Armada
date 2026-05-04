@@ -96,6 +96,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new AuthEndpointTests());
             runner.AddSuite(new PromptTemplateServiceTests());
             runner.AddSuite(new PromptSignalConsistencyTests());
+            runner.AddSuite(new PersonaSeedServiceTests());
             runner.AddSuite(new PersonaPipelineDbTests());
             runner.AddSuite(new PipelineDispatchTests());
             runner.AddSuite(new PerStagePreferredModelTests());
