@@ -69,20 +69,7 @@ Everything else in Armada exists to support that: isolated worktrees, parallel d
 
 ## Fork features vs upstream
 
-This fork (`developervariety/Armada`) is based on `jchristn/Armada` and adds orchestration features for multi-vessel, multi-runtime dispatch with auto-recovery and human-review gating. Current local fork head includes the memory/OOM hotfix series through `7cf460e9`; `origin/main` is `351d7f88`; the checked upstream comparison point is `upstream/main` at `adfdc3b3`. Earlier upstream sync: `cd27ea6` (9 upstream commits absorbed) on 2026-05-01. Partial cherry-pick: `28d0f846` Docker reset/config hardening ported by hand on 2026-05-03; remaining upstream from that commit deferred due to 56-file conflict surface across MCP renames, dashboard, and pipeline services.
-
-To upstream only the memory/dashboard bugfix without fork-only features, create an upstream-based branch and cherry-pick just these commits:
-
-```bash
-git fetch upstream origin
-git switch -c fix/memory-dashboard-oom upstream/main
-git cherry-pick 0fe4411c 22869d01 c6b8ffe1 7cf460e9
-dotnet build src/Armada.Server/Armada.Server.csproj --framework net10.0
-dotnet build test/Armada.Test.Unit/Test.Unit.csproj --framework net8.0
-git push origin fix/memory-dashboard-oom
-```
-
-Do not branch that PR from this fork's `main`; it contains AgentWake, tier routing, diagnostics, MCP/runtime hardening, and other fork-only behavior that should stay out of a narrow upstream memory fix.
+This fork (`developervariety/Armada`) is based on `jchristn/Armada` and adds orchestration features for multi-vessel, multi-runtime dispatch with auto-recovery and human-review gating.
 
 ### Fork-only features
 
