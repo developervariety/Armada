@@ -116,6 +116,78 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("DecomposePlan_CodeContextAuto_AttachesContextPack", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("arch-context", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    string specFile = Path.GetTempFileName();
+                    string claudeFile = Path.GetTempFileName();
+                    try
+                    {
+                        File.WriteAllText(specFile, "# Context Spec\n\nDispatch should inspect MCP voyage tools.");
+                        File.WriteAllText(claudeFile, "# Project CLAUDE.md");
+
+                        string? origEnv = Environment.GetEnvironmentVariable("ARMADA_PROJECT_CLAUDE_MD");
+                        Environment.SetEnvironmentVariable("ARMADA_PROJECT_CLAUDE_MD", claudeFile);
+                        try
+                        {
+                            RecordingAdmiralService admiralDouble = new RecordingAdmiralService(testDb.Driver);
+                            RecordingCodeIndexService codeIndex = new RecordingCodeIndexService();
+                            codeIndex.ContextPackResponse.PrestagedFiles.Add(new PrestagedFile(
+                                Path.Combine(Path.GetTempPath(), "architect-context-pack.md"),
+                                "_briefing/context-pack.md"));
+
+                            Func<JsonElement?, Task<object>>? decomposeHandler = null;
+                            McpArchitectTools.Register(
+                                (name, _, _, handler) => { if (name == "armada_decompose_plan") decomposeHandler = handler; },
+                                testDb.Driver,
+                                new ArchitectOutputParser(),
+                                admiralDouble,
+                                codeIndex);
+                            AssertNotNull(decomposeHandler);
+
+                            JsonElement args = JsonSerializer.SerializeToElement(new { specPath = specFile, vesselId = vessel.Id });
+                            object result = await decomposeHandler!(args).ConfigureAwait(false);
+                            string resultJson = JsonSerializer.Serialize(result);
+
+                            AssertFalse(resultJson.Contains("\"Error\""), "Should not return error: " + resultJson);
+                            AssertEqual(1, codeIndex.ContextPackRequests.Count, "Auto mode should build one architect context pack");
+                            AssertContains(Path.GetFileName(specFile), codeIndex.ContextPackRequests[0].Goal);
+                            AssertContains("Dispatch should inspect MCP voyage tools.", codeIndex.ContextPackRequests[0].Goal);
+
+                            MissionDescription dispatched = admiralDouble.Dispatched[0];
+                            AssertNotNull(dispatched.PrestagedFiles);
+
+                            bool hasSpec = false;
+                            bool hasClaude = false;
+                            bool hasContext = false;
+                            foreach (PrestagedFile pf in dispatched.PrestagedFiles!)
+                            {
+                                if (pf.DestPath == "_briefing/spec.md") hasSpec = true;
+                                if (pf.DestPath == "_briefing/PROJECT-CLAUDE.md") hasClaude = true;
+                                if (pf.DestPath == "_briefing/context-pack.md") hasContext = true;
+                            }
+                            AssertTrue(hasSpec, "Spec prestaging should be preserved");
+                            AssertTrue(hasClaude, "Project CLAUDE prestaging should be preserved");
+                            AssertTrue(hasContext, "Context pack prestaging should be added");
+                        }
+                        finally
+                        {
+                            if (origEnv == null)
+                                Environment.SetEnvironmentVariable("ARMADA_PROJECT_CLAUDE_MD", null);
+                            else
+                                Environment.SetEnvironmentVariable("ARMADA_PROJECT_CLAUDE_MD", origEnv);
+                        }
+                    }
+                    finally
+                    {
+                        if (File.Exists(specFile)) File.Delete(specFile);
+                        if (File.Exists(claudeFile)) File.Delete(claudeFile);
+                    }
+                }
+            });
+
             await RunTest("DecomposePlan_CustomPreferredModel_RespectsInput", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -454,6 +526,28 @@ namespace Armada.Test.Unit.Suites.Services
                 string missionId,
                 CancellationToken token = default)
                 => throw new NotImplementedException();
+        }
+
+        private sealed class RecordingCodeIndexService : ICodeIndexService
+        {
+            public List<ContextPackRequest> ContextPackRequests { get; } = new List<ContextPackRequest>();
+
+            public ContextPackResponse ContextPackResponse { get; } = new ContextPackResponse();
+
+            public Task<CodeIndexStatus> GetStatusAsync(string vesselId, CancellationToken token = default)
+                => throw new NotImplementedException();
+
+            public Task<CodeIndexStatus> UpdateAsync(string vesselId, CancellationToken token = default)
+                => throw new NotImplementedException();
+
+            public Task<CodeSearchResponse> SearchAsync(CodeSearchRequest request, CancellationToken token = default)
+                => throw new NotImplementedException();
+
+            public Task<ContextPackResponse> BuildContextPackAsync(ContextPackRequest request, CancellationToken token = default)
+            {
+                ContextPackRequests.Add(request);
+                return Task.FromResult(ContextPackResponse);
+            }
         }
     }
 }

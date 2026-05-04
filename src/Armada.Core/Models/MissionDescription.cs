@@ -28,6 +28,18 @@ namespace Armada.Core.Models
         public List<PrestagedFile>? PrestagedFiles { get; set; } = null;
 
         /// <summary>
+        /// Optional per-mission code context mode. Supported values are auto,
+        /// off, and force. When null, the dispatch-level mode is used.
+        /// </summary>
+        public string? CodeContextMode { get; set; } = null;
+
+        /// <summary>
+        /// Optional query used to build the code-index context pack for this
+        /// mission. When null or empty, the mission title and description are used.
+        /// </summary>
+        public string? CodeContextQuery { get; set; } = null;
+
+        /// <summary>
         /// Optional captain identifier this mission must be assigned to. Plumbed
         /// through to <see cref="Mission.PreferredCaptainId"/> on the created mission.
         /// </summary>

@@ -73,7 +73,7 @@ namespace Armada.Server.Mcp
             McpEnumerateTools.Register(register, database, mergeQueue);
             McpFleetTools.Register(register, database);
             McpVesselTools.Register(register, database, dockService);
-            McpVoyageTools.Register(register, database, admiral, settings, onStopCaptain, logging);
+            McpVoyageTools.Register(register, database, admiral, settings, onStopCaptain, logging, codeIndexService);
             McpMissionTools.Register(register, database, admiral, settings, git, landingService, onStopCaptain);
             McpCaptainTools.Register(register, database, admiral, settings, onStopCaptain, agentLifecycle);
             McpCaptainDiagnosticsTools.Register(register, database, codeIndexService);
@@ -88,7 +88,7 @@ namespace Armada.Server.Mcp
             if (settings != null) McpBackupTools.Register(register, database, settings);
             McpAgentWakeTools.Register(register, remoteTriggerService);
             McpAuditTools.Register(register, database, remoteTriggerService);
-            McpArchitectTools.Register(register, database, new ArchitectOutputParser(), admiral);
+            McpArchitectTools.Register(register, database, new ArchitectOutputParser(), admiral, codeIndexService, logging);
             if (codeIndexService != null) McpCodeIndexTools.Register(register, codeIndexService);
         }
     }
