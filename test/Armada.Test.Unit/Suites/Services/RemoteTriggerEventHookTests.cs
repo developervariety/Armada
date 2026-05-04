@@ -1,6 +1,7 @@
 namespace Armada.Test.Unit.Suites.Services
 {
     using System.Collections.Generic;
+    using System.Diagnostics;
     using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
@@ -328,6 +329,289 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(0, passRecording.DrainerCalls.Count, "Pass verdict should not fire drainer");
                 }
             });
+
+            await RunTest("MissionOutcomeWakeHandler_WillInvokeLanding_DoesNotFire", async () =>
+            {
+                RecordingRemoteTriggerService recording = new RecordingRemoteTriggerService();
+                MissionOutcomeWakeHandler handler = new MissionOutcomeWakeHandler(recording, CreateLogging());
+                Mission mission = new Mission("intermediate stage")
+                {
+                    Status = MissionStatusEnum.WorkProduced,
+                    VesselId = "vsl_test"
+                };
+
+                await handler.HandleAsync(mission, willInvokeLandingHandler: true).ConfigureAwait(false);
+
+                AssertEqual(0, recording.DrainerCalls.Count,
+                    "Wake handler must stay silent when landing handler will run (avoids duplicate wake-ups).");
+            });
+
+            await RunTest("MissionOutcomeWakeHandler_IntermediateWorkProduced_FiresDrainer", async () =>
+            {
+                RecordingRemoteTriggerService recording = new RecordingRemoteTriggerService();
+                MissionOutcomeWakeHandler handler = new MissionOutcomeWakeHandler(recording, CreateLogging());
+                Mission mission = new Mission("intermediate stage")
+                {
+                    Status = MissionStatusEnum.WorkProduced,
+                    VesselId = "vsl_intermediate"
+                };
+
+                await handler.HandleAsync(mission, willInvokeLandingHandler: false).ConfigureAwait(false);
+
+                AssertEqual(1, recording.DrainerCalls.Count,
+                    "Intermediate WorkProduced must fire a drainer when landing handler is bypassed.");
+                AssertEqual("vsl_intermediate", recording.DrainerCalls[0].vesselId, "vesselId routed to FireDrainerAsync");
+                AssertContains("WorkProduced", recording.DrainerCalls[0].text, "wake text identifies WorkProduced");
+                AssertContains(mission.Id, recording.DrainerCalls[0].text, "wake text contains mission id");
+            });
+
+            await RunTest("MissionOutcomeWakeHandler_FailedStatus_FiresMissionFailed", async () =>
+            {
+                RecordingRemoteTriggerService recording = new RecordingRemoteTriggerService();
+                MissionOutcomeWakeHandler handler = new MissionOutcomeWakeHandler(recording, CreateLogging());
+                Mission mission = new Mission("doomed stage")
+                {
+                    Status = MissionStatusEnum.Failed,
+                    VesselId = "vsl_failed",
+                    FailureReason = "agent crashed"
+                };
+
+                await handler.HandleAsync(mission, willInvokeLandingHandler: false).ConfigureAwait(false);
+
+                AssertEqual(1, recording.DrainerCalls.Count, "Terminal failure that bypasses landing handler must wake.");
+                AssertContains("MissionFailed", recording.DrainerCalls[0].text, "wake text labels MissionFailed");
+                AssertContains("agent crashed", recording.DrainerCalls[0].text, "wake text includes failure reason");
+            });
+
+            await RunTest("MissionOutcomeWakeHandler_NonOutcomeStatus_DoesNotFire", async () =>
+            {
+                RecordingRemoteTriggerService recording = new RecordingRemoteTriggerService();
+                MissionOutcomeWakeHandler handler = new MissionOutcomeWakeHandler(recording, CreateLogging());
+                Mission mission = new Mission("still working")
+                {
+                    Status = MissionStatusEnum.InProgress,
+                    VesselId = "vsl_active"
+                };
+
+                await handler.HandleAsync(mission, willInvokeLandingHandler: false).ConfigureAwait(false);
+
+                AssertEqual(0, recording.DrainerCalls.Count,
+                    "Non-outcome statuses (heartbeats, in-progress) must not wake.");
+            });
+
+            await RunTest("MissionOutcomeWakeHandler_BuildWakeText_NullForHeartbeat", () =>
+            {
+                Mission missionInProgress = new Mission("in flight") { Status = MissionStatusEnum.InProgress };
+                Mission missionPending = new Mission("queued") { Status = MissionStatusEnum.Pending };
+                Mission missionAssigned = new Mission("assigned") { Status = MissionStatusEnum.Assigned };
+
+                AssertNull(MissionOutcomeWakeHandler.BuildWakeText(missionInProgress), "InProgress must not produce wake text");
+                AssertNull(MissionOutcomeWakeHandler.BuildWakeText(missionPending), "Pending must not produce wake text");
+                AssertNull(MissionOutcomeWakeHandler.BuildWakeText(missionAssigned), "Assigned must not produce wake text");
+
+                return Task.CompletedTask;
+            });
+
+            await RunTest("MissionService_OnMissionOutcome_FiresAfterHandleCompletion", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    StubGitService git = new StubGitService();
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+
+                    List<MissionOutcomeCapture> outcomes = new List<MissionOutcomeCapture>();
+                    missionService.OnMissionOutcome = (Mission mission, bool willInvokeLanding) =>
+                    {
+                        outcomes.Add(new MissionOutcomeCapture(mission.Id, mission.Status, willInvokeLanding));
+                        return Task.CompletedTask;
+                    };
+
+                    Vessel vessel = new Vessel("outcome-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_outcome_bare_" + Guid.NewGuid().ToString("N"));
+                    vessel.WorkingDirectory = Path.Combine(Path.GetTempPath(), "armada_outcome_work_" + Guid.NewGuid().ToString("N"));
+                    vessel.DefaultBranch = "main";
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain captain = new Captain("outcome-captain") { State = CaptainStateEnum.Working };
+                    await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    Dock dock = new Dock(vessel.Id)
+                    {
+                        CaptainId = captain.Id,
+                        WorktreePath = Path.Combine(Path.GetTempPath(), "armada_outcome_wt_" + Guid.NewGuid().ToString("N")),
+                        BranchName = "armada/test/msn_outcome",
+                        Active = true
+                    };
+                    await testDb.Driver.Docks.CreateAsync(dock).ConfigureAwait(false);
+
+                    Mission mission = new Mission("outcome mission")
+                    {
+                        Status = MissionStatusEnum.InProgress,
+                        CaptainId = captain.Id,
+                        DockId = dock.Id,
+                        VesselId = vessel.Id
+                    };
+                    await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    captain.CurrentMissionId = mission.Id;
+                    captain.CurrentDockId = dock.Id;
+                    await testDb.Driver.Captains.UpdateAsync(captain).ConfigureAwait(false);
+
+                    await missionService.HandleCompletionAsync(captain).ConfigureAwait(false);
+
+                    AssertEqual(1, outcomes.Count, "OnMissionOutcome must fire exactly once after HandleCompletionAsync");
+                    AssertEqual(mission.Id, outcomes[0].MissionId, "Outcome mission id matches");
+                    AssertEqual(MissionStatusEnum.WorkProduced, outcomes[0].Status, "Status reported as WorkProduced after work emitted");
+                }
+            });
+
+            await RunTest("MissionService_OnMissionOutcome_IntermediatePipelineStage_WillInvokeLandingFalse", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    StubGitService git = new StubGitService();
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+
+                    RecordingRemoteTriggerService recording = new RecordingRemoteTriggerService();
+                    MissionOutcomeWakeHandler outcomeWake = new MissionOutcomeWakeHandler(recording, logging);
+                    missionService.OnMissionOutcome = (Mission mission, bool willInvokeLanding) =>
+                        outcomeWake.HandleAsync(mission, willInvokeLanding);
+
+                    Vessel vessel = new Vessel("pipeline-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_pipe_bare_" + Guid.NewGuid().ToString("N"));
+                    vessel.WorkingDirectory = Path.Combine(Path.GetTempPath(), "armada_pipe_work_" + Guid.NewGuid().ToString("N"));
+                    vessel.DefaultBranch = "main";
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Voyage voyage = new Voyage("pipeline voyage");
+                    await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+
+                    Captain captain = new Captain("pipe-captain") { State = CaptainStateEnum.Working };
+                    await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    Dock dock = new Dock(vessel.Id)
+                    {
+                        CaptainId = captain.Id,
+                        WorktreePath = Path.Combine(Path.GetTempPath(), "armada_pipe_wt_" + Guid.NewGuid().ToString("N")),
+                        BranchName = "armada/test/msn_stage1",
+                        Active = true
+                    };
+                    await testDb.Driver.Docks.CreateAsync(dock).ConfigureAwait(false);
+
+                    Mission stage1 = new Mission("stage 1 (worker)")
+                    {
+                        Status = MissionStatusEnum.InProgress,
+                        CaptainId = captain.Id,
+                        DockId = dock.Id,
+                        VesselId = vessel.Id,
+                        VoyageId = voyage.Id
+                    };
+                    await testDb.Driver.Missions.CreateAsync(stage1).ConfigureAwait(false);
+
+                    Mission stage2 = new Mission("stage 2 (judge)")
+                    {
+                        Status = MissionStatusEnum.Pending,
+                        VesselId = vessel.Id,
+                        VoyageId = voyage.Id,
+                        DependsOnMissionId = stage1.Id
+                    };
+                    await testDb.Driver.Missions.CreateAsync(stage2).ConfigureAwait(false);
+
+                    captain.CurrentMissionId = stage1.Id;
+                    captain.CurrentDockId = dock.Id;
+                    await testDb.Driver.Captains.UpdateAsync(captain).ConfigureAwait(false);
+
+                    await missionService.HandleCompletionAsync(captain).ConfigureAwait(false);
+
+                    AssertTrue(recording.DrainerCalls.Count >= 1,
+                        "Intermediate pipeline stage WorkProduced must fire FireDrainerAsync via OnMissionOutcome.");
+                    bool foundWake = false;
+                    foreach ((string vid, string txt) in recording.DrainerCalls)
+                    {
+                        if (vid == vessel.Id && txt.Contains("WorkProduced") && txt.Contains(stage1.Id))
+                        {
+                            foundWake = true;
+                            break;
+                        }
+                    }
+                    AssertTrue(foundWake, "Drainer fire must reference vessel id and intermediate mission id with WorkProduced label.");
+                }
+            });
+
+            await RunTest("AgentWakeProcessHost_NonZeroExit_InvokesOnExited", async () =>
+            {
+                LoggingModule logging = CreateLogging();
+                AgentWakeProcessHost host = new AgentWakeProcessHost(logging);
+
+                AgentWakeProcessRequest request = BuildExitProcessRequest(exitCode: 7);
+
+                TaskCompletionSource exited = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                bool started = host.TryStart(request, () => exited.TrySetResult());
+
+                AssertTrue(started, "AgentWakeProcessHost.TryStart should succeed for a real shell exit command.");
+
+                Task winner = await Task.WhenAny(exited.Task, Task.Delay(TimeSpan.FromSeconds(15))).ConfigureAwait(false);
+                AssertTrue(winner == exited.Task,
+                    "onExited must be invoked for a non-zero-exit child so the diagnostic block runs.");
+            });
+
+            await RunTest("AgentWakeProcessHost_SuccessfulExit_InvokesOnExited", async () =>
+            {
+                LoggingModule logging = CreateLogging();
+                AgentWakeProcessHost host = new AgentWakeProcessHost(logging);
+
+                AgentWakeProcessRequest request = BuildExitProcessRequest(exitCode: 0);
+
+                TaskCompletionSource exited = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                bool started = host.TryStart(request, () => exited.TrySetResult());
+
+                AssertTrue(started, "AgentWakeProcessHost.TryStart should succeed for a normal exit command.");
+                Task winner = await Task.WhenAny(exited.Task, Task.Delay(TimeSpan.FromSeconds(15))).ConfigureAwait(false);
+                AssertTrue(winner == exited.Task,
+                    "onExited must be invoked for a normal-exit child so the diagnostic block runs.");
+            });
+        }
+
+        private sealed class MissionOutcomeCapture
+        {
+            public string MissionId { get; }
+            public MissionStatusEnum Status { get; }
+            public bool WillInvokeLanding { get; }
+
+            public MissionOutcomeCapture(string missionId, MissionStatusEnum status, bool willInvokeLanding)
+            {
+                MissionId = missionId;
+                Status = status;
+                WillInvokeLanding = willInvokeLanding;
+            }
+        }
+
+        private static AgentWakeProcessRequest BuildExitProcessRequest(int exitCode)
+        {
+            AgentWakeProcessRequest request = new AgentWakeProcessRequest();
+            if (OperatingSystem.IsWindows())
+            {
+                request.Command = "cmd.exe";
+                request.ArgumentList = new List<string> { "/c", "exit " + exitCode };
+            }
+            else
+            {
+                request.Command = "/bin/sh";
+                request.ArgumentList = new List<string> { "-c", "exit " + exitCode };
+            }
+            request.StdinPayload = string.Empty;
+            request.TimeoutSeconds = 10;
+            return request;
         }
     }
 }

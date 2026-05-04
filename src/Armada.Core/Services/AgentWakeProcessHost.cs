@@ -90,6 +90,7 @@ namespace Armada.Core.Services
 
         private async Task MonitorAsync(Process process, AgentWakeProcessRequest request, Action onExited)
         {
+            bool timedOut = false;
             try
             {
                 if (!string.IsNullOrEmpty(request.StdinPayload))
@@ -106,12 +107,20 @@ namespace Armada.Core.Services
                 }
                 catch (OperationCanceledException)
                 {
+                    timedOut = true;
                     _Logging.Warn(_Header + "process timed out after " + request.TimeoutSeconds + "s; killing pid " + process.Id);
                     try { process.Kill(entireProcessTree: true); } catch { }
                 }
 
                 await Task.WhenAny(Task.WhenAll(stdoutDrain, stderrDrain), Task.Delay(5000)).ConfigureAwait(false);
-                _Logging.Info(_Header + "pid " + process.Id + " exited");
+
+                string stdoutSnippet = ExtractSnippet(stdoutDrain);
+                string stderrSnippet = ExtractSnippet(stderrDrain);
+
+                int? exitCode = null;
+                try { if (process.HasExited) exitCode = process.ExitCode; } catch { }
+
+                LogExit(process.Id, request.Command, exitCode, timedOut, stdoutSnippet, stderrSnippet);
             }
             catch (Exception ex)
             {
@@ -121,6 +130,45 @@ namespace Armada.Core.Services
             {
                 try { process.Dispose(); } catch { }
                 onExited();
+            }
+        }
+
+        private static string ExtractSnippet(Task<string> drain)
+        {
+            if (drain == null) return string.Empty;
+            if (!drain.IsCompletedSuccessfully) return string.Empty;
+            string value = drain.Result ?? string.Empty;
+            return TruncateForLog(value);
+        }
+
+        private static string TruncateForLog(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return string.Empty;
+            const int maxChars = 1024;
+            string trimmed = value.Trim();
+            if (trimmed.Length <= maxChars) return trimmed;
+            return "..." + trimmed.Substring(trimmed.Length - maxChars);
+        }
+
+        private void LogExit(int pid, string command, int? exitCode, bool timedOut, string stdoutSnippet, string stderrSnippet)
+        {
+            string baseInfo = "pid " + pid + " command " + command +
+                " exitCode=" + (exitCode.HasValue ? exitCode.Value.ToString() : "unknown") +
+                (timedOut ? " (timed out)" : string.Empty);
+
+            bool failed = timedOut || (exitCode.HasValue && exitCode.Value != 0) || !exitCode.HasValue;
+            if (failed)
+            {
+                string detail = baseInfo;
+                if (!string.IsNullOrEmpty(stdoutSnippet)) detail += " :: stdout=" + stdoutSnippet;
+                if (!string.IsNullOrEmpty(stderrSnippet)) detail += " :: stderr=" + stderrSnippet;
+                _Logging.Warn(_Header + "exited abnormally " + detail);
+            }
+            else
+            {
+                string detail = baseInfo;
+                if (!string.IsNullOrEmpty(stderrSnippet)) detail += " :: stderr=" + stderrSnippet;
+                _Logging.Info(_Header + "exited " + detail);
             }
         }
 
