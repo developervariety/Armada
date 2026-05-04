@@ -820,26 +820,27 @@ namespace Armada.Server
         {
             if (sb == null) return;
             string lineText = line ?? string.Empty;
-            int newlineLen = Environment.NewLine.Length;
 
             lock (sb)
             {
-                if (sb.Length + lineText.Length + newlineLen > _MissionOutputCapChars)
-                {
-                    int retainChars = _MissionOutputCapChars / 2;
-                    if (sb.Length > retainChars)
-                    {
-                        int dropCount = sb.Length - retainChars;
-                        string tail = sb.ToString(dropCount, retainChars);
-                        sb.Clear();
-                        sb.Append(_MissionOutputTruncationMarker);
-                        sb.Append(Environment.NewLine);
-                        sb.Append(tail);
-                    }
-                }
-
                 sb.Append(lineText);
                 sb.Append(Environment.NewLine);
+
+                if (sb.Length <= _MissionOutputCapChars) return;
+
+                int markerLength = _MissionOutputTruncationMarker.Length + Environment.NewLine.Length;
+                int retainChars = Math.Max(0, _MissionOutputCapChars - markerLength);
+                string tail = retainChars > 0 && sb.Length > retainChars
+                    ? sb.ToString(sb.Length - retainChars, retainChars)
+                    : string.Empty;
+
+                sb.Clear();
+                sb.Append(_MissionOutputTruncationMarker);
+                sb.Append(Environment.NewLine);
+                if (!String.IsNullOrEmpty(tail))
+                {
+                    sb.Append(tail);
+                }
             }
         }
 

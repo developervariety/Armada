@@ -204,7 +204,13 @@ namespace Armada.Server.Routes
                         ? await _database.Missions.EnumerateAsync(ctx.TenantId!, query).ConfigureAwait(false)
                         : await _database.Missions.EnumerateAsync(ctx.TenantId!, ctx.UserId!, query).ConfigureAwait(false);
                 result.TotalMs = Math.Round(sw.Elapsed.TotalMilliseconds, 2);
-                foreach (Mission m in result.Objects) m.DiffSnapshot = null;
+                foreach (Mission m in result.Objects)
+                {
+                    m.DiffSnapshot = null;
+                    m.Description = null;
+                    m.AgentOutput = null;
+                    m.PlaybookSnapshots = new List<MissionPlaybookSnapshot>();
+                }
                 return result;
             },
             api => api
@@ -235,7 +241,13 @@ namespace Armada.Server.Routes
                         ? await _database.Missions.EnumerateAsync(ctx.TenantId!, query).ConfigureAwait(false)
                         : await _database.Missions.EnumerateAsync(ctx.TenantId!, ctx.UserId!, query).ConfigureAwait(false);
                 result.TotalMs = Math.Round(sw.Elapsed.TotalMilliseconds, 2);
-                foreach (Mission m in result.Objects) m.DiffSnapshot = null;
+                foreach (Mission m in result.Objects)
+                {
+                    m.DiffSnapshot = null;
+                    m.Description = null;
+                    m.AgentOutput = null;
+                    m.PlaybookSnapshots = new List<MissionPlaybookSnapshot>();
+                }
                 return result;
             },
             api => api
