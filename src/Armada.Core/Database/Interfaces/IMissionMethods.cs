@@ -91,6 +91,15 @@ namespace Armada.Core.Database.Interfaces
         Task<Dictionary<MissionStatusEnum, int>> CountByStatusAsync(CancellationToken token = default);
 
         /// <summary>
+        /// Count missions grouped by status for a specific tenant without hydrating heavy mission payload columns.
+        /// </summary>
+        async Task<Dictionary<MissionStatusEnum, int>> CountByStatusAsync(string tenantId, CancellationToken token = default)
+        {
+            List<Mission> all = await EnumerateAsync(tenantId, token).ConfigureAwait(false);
+            return all.GroupBy(m => m.Status).ToDictionary(g => g.Key, g => g.Count());
+        }
+
+        /// <summary>
         /// Count missions in a voyage grouped by status without hydrating mission rows.
         /// </summary>
         async Task<Dictionary<MissionStatusEnum, int>> CountByVoyageStatusAsync(string voyageId, CancellationToken token = default)
@@ -99,6 +108,22 @@ namespace Armada.Core.Database.Interfaces
             return missions
                 .GroupBy(m => m.Status)
                 .ToDictionary(g => g.Key, g => g.Count());
+        }
+
+        /// <summary>
+        /// Return lightweight summaries (id, title, status only) for active missions on a vessel.
+        /// Avoids hydrating heavy columns (description, diff_snapshot, agent_output).
+        /// </summary>
+        async Task<List<ActiveMissionSummary>> GetActiveVesselSummariesAsync(string vesselId, CancellationToken token = default)
+        {
+            List<Mission> all = await EnumerateByVesselAsync(vesselId, token).ConfigureAwait(false);
+            List<ActiveMissionSummary> summaries = new List<ActiveMissionSummary>();
+            foreach (Mission m in all)
+            {
+                if (m.Status == MissionStatusEnum.Assigned || m.Status == MissionStatusEnum.InProgress)
+                    summaries.Add(new ActiveMissionSummary { Id = m.Id, Title = m.Title ?? "", Status = m.Status });
+            }
+            return summaries;
         }
 
         /// <summary>

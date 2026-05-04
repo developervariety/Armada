@@ -215,10 +215,10 @@ namespace Armada.Server.Routes
                 // 6. Failed Missions
                 try
                 {
-                    List<Mission> failedMissions = ctx.IsAdmin
-                        ? await _database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Failed).ConfigureAwait(false)
-                        : await _database.Missions.EnumerateByStatusAsync(ctx.TenantId!, MissionStatusEnum.Failed).ConfigureAwait(false);
-                    int failedCount = failedMissions.Count;
+                    Dictionary<MissionStatusEnum, int> missionCounts = ctx.IsAdmin
+                        ? await _database.Missions.CountByStatusAsync().ConfigureAwait(false)
+                        : await _database.Missions.CountByStatusAsync(ctx.TenantId!).ConfigureAwait(false);
+                    missionCounts.TryGetValue(MissionStatusEnum.Failed, out int failedCount);
                     if (failedCount == 0)
                         results.Add(new { Name = "Failed Missions", Status = "Pass", Message = "No failed missions" });
                     else

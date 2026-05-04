@@ -511,7 +511,7 @@ function dashboard() {
                     this.loadRecentMissions(),
                     this.view === 'merge-queue' ? this.loadMergeQueue() : Promise.resolve(),
                     this.view === 'docks' ? this.loadDocks() : Promise.resolve(),
-                    this.refreshDoctorStatus()
+                    this.view === 'doctor' ? this.refreshDoctorStatus() : Promise.resolve()
                 ]);
             } finally {
                 this.refreshInFlight = false;

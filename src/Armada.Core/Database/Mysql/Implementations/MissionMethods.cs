@@ -467,6 +467,66 @@ namespace Armada.Core.Database.Mysql.Implementations
             return results;
         }
 
+        /// <inheritdoc />
+        public async Task<Dictionary<MissionStatusEnum, int>> CountByStatusAsync(string tenantId, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
+
+            Dictionary<MissionStatusEnum, int> results = new Dictionary<MissionStatusEnum, int>();
+
+            using (MySqlConnection conn = new MySqlConnection(_ConnectionString))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (MySqlCommand cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "SELECT status, COUNT(*) AS count FROM missions WHERE tenant_id = @tenantId GROUP BY status;";
+                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
+                    using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
+                    {
+                        while (await reader.ReadAsync(token).ConfigureAwait(false))
+                        {
+                            string? statusText = reader["status"].ToString();
+                            if (!Enum.TryParse(statusText, out MissionStatusEnum missionStatus)) continue;
+                            results[missionStatus] = Convert.ToInt32(reader["count"]);
+                        }
+                    }
+                }
+            }
+
+            return results;
+        }
+
+        /// <inheritdoc />
+        public async Task<List<ActiveMissionSummary>> GetActiveVesselSummariesAsync(string vesselId, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(vesselId)) throw new ArgumentNullException(nameof(vesselId));
+
+            List<ActiveMissionSummary> results = new List<ActiveMissionSummary>();
+
+            using (MySqlConnection conn = new MySqlConnection(_ConnectionString))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (MySqlCommand cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "SELECT id, title, status FROM missions WHERE vessel_id = @vessel_id AND status IN ('Assigned','InProgress');";
+                    cmd.Parameters.AddWithValue("@vessel_id", vesselId);
+                    using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
+                    {
+                        while (await reader.ReadAsync(token).ConfigureAwait(false))
+                        {
+                            string id = reader["id"].ToString() ?? "";
+                            string title = reader["title"].ToString() ?? "";
+                            string statusText = reader["status"].ToString() ?? "";
+                            if (!Enum.TryParse(statusText, out MissionStatusEnum status)) continue;
+                            results.Add(new ActiveMissionSummary { Id = id, Title = title, Status = status });
+                        }
+                    }
+                }
+            }
+
+            return results;
+        }
+
         /// <summary>
         /// Enumerate missions with pagination and filtering.
         /// </summary>

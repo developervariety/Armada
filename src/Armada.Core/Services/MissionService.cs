@@ -234,14 +234,12 @@ namespace Armada.Core.Services
             }
 
             // Check for vessel-level lock (broad-scope missions block new assignments)
-            List<Mission> activeMissions = await _Database.Missions.EnumerateByVesselAsync(vessel.Id, token).ConfigureAwait(false);
-            List<Mission> broadMissions = activeMissions.Where(m =>
-                (m.Status == MissionStatusEnum.InProgress || m.Status == MissionStatusEnum.Assigned) &&
-                IsBroadScope(m)).ToList();
+            List<ActiveMissionSummary> activeSummaries = await _Database.Missions.GetActiveVesselSummariesAsync(vessel.Id, token).ConfigureAwait(false);
+            List<ActiveMissionSummary> broadMissions = activeSummaries.Where(m => IsBroadScope(m)).ToList();
 
             if (broadMissions.Count > 0)
             {
-                _Logging.Warn(_Header + "vessel " + vessel.Id + " has a broad-scope mission in progress — deferring assignment of " + mission.Id);
+                _Logging.Warn(_Header + "vessel " + vessel.Id + " has a broad-scope mission in progress -- deferring assignment of " + mission.Id);
                 return false;
             }
 
@@ -249,9 +247,7 @@ namespace Armada.Core.Services
             // Only count truly active missions (agent running or assigned).
             // WorkProduced and PullRequestOpen are post-agent states where the agent
             // has finished -- they should NOT block new mission dispatch.
-            int concurrentCount = activeMissions.Count(m =>
-                m.Status == MissionStatusEnum.Assigned ||
-                m.Status == MissionStatusEnum.InProgress);
+            int concurrentCount = activeSummaries.Count;
 
             if (IsBroadScope(mission) && concurrentCount > 0)
             {
@@ -869,6 +865,45 @@ namespace Armada.Core.Services
             if (mission == null) return false;
 
             string text = ((mission.Title ?? "") + " " + (mission.Description ?? "")).ToLowerInvariant();
+
+            string[] broadIndicators = new[]
+            {
+                "refactor entire",
+                "refactor all",
+                "rename across",
+                "migrate project",
+                "upgrade framework",
+                "restructure",
+                "rewrite",
+                "overhaul",
+                "global search and replace",
+                "update all",
+                "format all",
+                "lint entire"
+            };
+
+            foreach (string indicator in broadIndicators)
+            {
+                if (text.Contains(indicator)) return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Determine if a lightweight active-mission summary is broad-scope by title.
+        /// </summary>
+        public bool IsBroadScope(ActiveMissionSummary summary)
+        {
+            if (summary == null) return false;
+            return IsBroadScopeTitle(summary.Title);
+        }
+
+        private static bool IsBroadScopeTitle(string? title)
+        {
+            if (String.IsNullOrEmpty(title)) return false;
+
+            string text = title.ToLowerInvariant();
 
             string[] broadIndicators = new[]
             {

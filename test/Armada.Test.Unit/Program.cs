@@ -99,6 +99,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new RequestHistoryCaptureServiceTests());
             runner.AddSuite(new WorkflowProfileCheckRunServiceTests());
             runner.AddSuite(new MemoryHotfixRegressionTests());
+            runner.AddSuite(new SchedulerHydrationTests());
 
             int exitCode = await runner.RunAllAsync().ConfigureAwait(false);
             return exitCode;
