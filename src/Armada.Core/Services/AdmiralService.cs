@@ -299,11 +299,22 @@ namespace Armada.Core.Services
                     // downstream stages always depend on the previous stage of the chain.
                     mission.DependsOnMissionId = previousMissionId
                         ?? (String.IsNullOrEmpty(md.DependsOnMissionId) ? null : md.DependsOnMissionId);
-                    // Per-mission captain pin applies to every stage so a pinned captain runs the
-                    // whole sequence end-to-end. PreferredModel uses the stage-level value when set
-                    // (lets pipelines route Worker stage to Mid-tier and Judge stage to Opus, etc.)
-                    // and falls back to the dispatch's per-mission PreferredModel otherwise.
-                    mission.PreferredCaptainId = md.PreferredCaptainId;
+                    // Per-mission captain pin runs the whole chain when each stage is compatible.
+                    // A stage-level PreferredModel can require a different model than the pinned
+                    // captain; drop the pin for that stage so the pool can satisfy the stage model.
+                    // PreferredModel uses the stage-level value when set and falls back to the
+                    // dispatch's per-mission PreferredModel otherwise.
+                    string? stagePreferredCaptainId = md.PreferredCaptainId;
+                    if (!String.IsNullOrWhiteSpace(md.PreferredCaptainId) && !String.IsNullOrWhiteSpace(stage.PreferredModel))
+                    {
+                        Captain? pinnedCaptain = await _Database.Captains.ReadAsync(md.PreferredCaptainId, token).ConfigureAwait(false);
+                        stagePreferredCaptainId = MissionService.ResolvePipelineStagePreferredCaptainId(
+                            md.PreferredCaptainId,
+                            pinnedCaptain,
+                            stage.PersonaName,
+                            stage.PreferredModel);
+                    }
+                    mission.PreferredCaptainId = stagePreferredCaptainId;
                     mission.PreferredModel = stage.PreferredModel ?? md.PreferredModel;
                     // Only the first stage of each pipeline mission gets the prestaged files.
                     // Downstream stages re-use the same worktree and would hit the

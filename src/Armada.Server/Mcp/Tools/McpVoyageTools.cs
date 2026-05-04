@@ -583,10 +583,20 @@ namespace Armada.Server.Mcp.Tools
                     // First stage carries the external dep (alias-resolved or literal);
                     // downstream stages depend on the previous stage of this chain.
                     stageMission.DependsOnMissionId = previousMissionId ?? externalDep;
-                    // Captain pin applies to the whole chain. Stage-level PreferredModel
-                    // wins when set (e.g. Reviewed pipeline pinning Judge to Opus);
-                    // otherwise inherit the per-mission pin.
-                    stageMission.PreferredCaptainId = md.PreferredCaptainId;
+                    // Captain pin applies across stages only when compatible with each stage's
+                    // persona and model. Stage-level PreferredModel can force dropping the pin so
+                    // the pool routes Judge to Opus while Worker keeps a Mid-tier pin, etc.
+                    string? stagePreferredCaptainId = md.PreferredCaptainId;
+                    if (!String.IsNullOrWhiteSpace(md.PreferredCaptainId) && !String.IsNullOrWhiteSpace(stage.PreferredModel))
+                    {
+                        Captain? pinnedCaptain = await database.Captains.ReadAsync(md.PreferredCaptainId).ConfigureAwait(false);
+                        stagePreferredCaptainId = MissionService.ResolvePipelineStagePreferredCaptainId(
+                            md.PreferredCaptainId,
+                            pinnedCaptain,
+                            stage.PersonaName,
+                            stage.PreferredModel);
+                    }
+                    stageMission.PreferredCaptainId = stagePreferredCaptainId;
                     stageMission.PreferredModel = stage.PreferredModel ?? md.PreferredModel;
                     stageMission.SelectedPlaybooks = ClonePlaybookSelectionsLocal(mergedForMission);
                     if (previousMissionId == null)
