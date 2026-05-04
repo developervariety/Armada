@@ -375,6 +375,35 @@ namespace Armada.Core.Database.Postgresql.Implementations
             return await EnumerateByColumnAsync("status", status.ToString(), token).ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
+        public async Task<Dictionary<MissionStatusEnum, int>> CountByStatusAsync(CancellationToken token = default)
+        {
+            Dictionary<MissionStatusEnum, int> results = new Dictionary<MissionStatusEnum, int>();
+
+            using (NpgsqlConnection conn = new NpgsqlConnection(_Settings.GetConnectionString()))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (NpgsqlCommand cmd = new NpgsqlCommand())
+                {
+                    cmd.Connection = conn;
+                    cmd.CommandText = "SELECT status, COUNT(*) AS cnt FROM missions GROUP BY status;";
+                    using (NpgsqlDataReader reader = (NpgsqlDataReader)await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
+                    {
+                        while (await reader.ReadAsync(token).ConfigureAwait(false))
+                        {
+                            string? statusText = reader["status"] as string;
+                            if (string.IsNullOrEmpty(statusText)) continue;
+                            if (!Enum.TryParse(statusText, ignoreCase: false, out MissionStatusEnum parsed)) continue;
+                            int count = Convert.ToInt32(reader["cnt"]);
+                            results[parsed] = count;
+                        }
+                    }
+                }
+            }
+
+            return results;
+        }
+
         /// <summary>
         /// Check if a mission exists by identifier.
         /// </summary>

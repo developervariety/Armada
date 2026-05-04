@@ -47,6 +47,7 @@ namespace Armada.Test.Unit.Suites.Database
             await Mission_EnumerateByVessel();
             await Mission_EnumerateByCaptain();
             await Mission_EnumerateByStatus();
+            await Mission_CountByStatus_IgnoresPayloadHydration();
             await Mission_Delete();
             await Mission_ReadNotFound();
             await Mission_ExistsNotFound();
@@ -506,6 +507,58 @@ namespace Armada.Test.Unit.Suites.Database
 
                     List<Mission> assigned = await db.Missions.EnumerateByStatusAsync(MissionStatusEnum.Assigned);
                     AssertEqual(0, assigned.Count);
+                }
+            });
+        }
+
+        private async Task Mission_CountByStatus_IgnoresPayloadHydration()
+        {
+            await RunTest("Mission_CountByStatus_IgnoresPayloadHydration", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    MissionTestPrerequisites prereqs = await CreatePrerequisitesAsync(db);
+                    Vessel vessel = prereqs.Vessel;
+
+                    string heavyText = new string('x', 64 * 1024);
+
+                    Mission inProgress = new Mission("InProgress count check")
+                    {
+                        VesselId = vessel.Id,
+                        Status = MissionStatusEnum.InProgress,
+                        Description = heavyText,
+                        DiffSnapshot = heavyText,
+                        AgentOutput = heavyText
+                    };
+                    Mission workProduced = new Mission("WorkProduced count check")
+                    {
+                        VesselId = vessel.Id,
+                        Status = MissionStatusEnum.WorkProduced,
+                        AgentOutput = heavyText
+                    };
+                    Mission landingFailed1 = new Mission("LandingFailed 1")
+                    {
+                        VesselId = vessel.Id,
+                        Status = MissionStatusEnum.LandingFailed
+                    };
+                    Mission landingFailed2 = new Mission("LandingFailed 2")
+                    {
+                        VesselId = vessel.Id,
+                        Status = MissionStatusEnum.LandingFailed
+                    };
+
+                    await db.Missions.CreateAsync(inProgress);
+                    await db.Missions.CreateAsync(workProduced);
+                    await db.Missions.CreateAsync(landingFailed1);
+                    await db.Missions.CreateAsync(landingFailed2);
+
+                    Dictionary<MissionStatusEnum, int> counts = await db.Missions.CountByStatusAsync();
+
+                    AssertEqual(1, counts[MissionStatusEnum.InProgress]);
+                    AssertEqual(1, counts[MissionStatusEnum.WorkProduced]);
+                    AssertEqual(2, counts[MissionStatusEnum.LandingFailed]);
+                    AssertFalse(counts.ContainsKey(MissionStatusEnum.Pending), "Pending should not appear when there are no pending rows");
                 }
             });
         }

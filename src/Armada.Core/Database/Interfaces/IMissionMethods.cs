@@ -65,6 +65,13 @@ namespace Armada.Core.Database.Interfaces
         Task<List<Mission>> EnumerateByStatusAsync(MissionStatusEnum status, CancellationToken token = default);
 
         /// <summary>
+        /// Count missions grouped by status without hydrating heavy text columns
+        /// (description, diff_snapshot, agent_output). Used by status polling paths
+        /// where the full mission rows are not needed.
+        /// </summary>
+        Task<Dictionary<MissionStatusEnum, int>> CountByStatusAsync(CancellationToken token = default);
+
+        /// <summary>
         /// Check if a mission exists by identifier.
         /// </summary>
         Task<bool> ExistsAsync(string id, CancellationToken token = default);

@@ -158,6 +158,38 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("GetStatusAsync IncludesWorkProducedAndLandingFailedAfterLightweightCounts", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    StubGitService git = new StubGitService();
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), db, CreateSettings(), git);
+
+                    Mission produced = new Mission("WP")
+                    {
+                        Status = MissionStatusEnum.WorkProduced,
+                        AgentOutput = new string('o', 32 * 1024),
+                        DiffSnapshot = new string('d', 32 * 1024)
+                    };
+                    Mission landingFailed1 = new Mission("LF1") { Status = MissionStatusEnum.LandingFailed };
+                    Mission landingFailed2 = new Mission("LF2") { Status = MissionStatusEnum.LandingFailed };
+                    Mission failed = new Mission("F1") { Status = MissionStatusEnum.Failed };
+
+                    await db.Missions.CreateAsync(produced);
+                    await db.Missions.CreateAsync(landingFailed1);
+                    await db.Missions.CreateAsync(landingFailed2);
+                    await db.Missions.CreateAsync(failed);
+
+                    ArmadaStatus status = await service.GetStatusAsync();
+
+                    AssertEqual(1, status.MissionsByStatus["WorkProduced"]);
+                    AssertEqual(2, status.MissionsByStatus["LandingFailed"]);
+                    AssertEqual(1, status.MissionsByStatus["Failed"]);
+                    AssertFalse(status.MissionsByStatus.ContainsKey("Pending"), "Empty buckets should be omitted");
+                }
+            });
+
             await RunTest("GetStatusAsync WithActiveVoyages IncludesProgress", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

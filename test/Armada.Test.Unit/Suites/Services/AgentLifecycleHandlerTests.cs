@@ -265,6 +265,63 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("HandleAgentOutput bounds streamed output and retains tail with truncation marker", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _);
+                    int processId = 919191;
+                    string missionId = "msn_bounded_output_capture";
+                    RegisterTrackedProcess(handler, processId, "captain-bounded", missionId);
+
+                    // Each line is ~1 KiB; feeding 4096 of them is ~4 MiB total -- well past the 256 KiB cap.
+                    string filler = new string('a', 1024);
+                    int totalLines = 4096;
+                    for (int i = 0; i < totalLines; i++)
+                    {
+                        handler.HandleAgentOutput(processId, "line " + i + " " + filler);
+                    }
+
+                    string? output = handler.GetAndClearMissionOutput(missionId);
+
+                    AssertNotNull(output, "Streamed output should still be available after bounded appends");
+                    AssertTrue(output!.Length < 1024 * 1024, "Bounded output must not retain multi-MiB transcripts");
+                    AssertContains("[ARMADA: streamed output truncated to retain tail]", output, "Truncation marker should be inserted when buffer is clipped");
+                    AssertContains("line " + (totalLines - 1), output, "Most recent tail should be retained");
+                    AssertFalse(output.Contains("line 0 ", StringComparison.Ordinal), "Older head content should be dropped to preserve memory cap");
+                }
+            });
+
+            await RunTest("DiscardUnclaimedMissionOutput removes streamed buffer and final-message artifact", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _);
+                    string missionId = "msn_discard_unclaimed_output";
+                    string artifactDirectory = Path.Combine(Path.GetTempPath(), "armada_discard_output_" + Guid.NewGuid().ToString("N"));
+                    string artifactPath = Path.Combine(artifactDirectory, missionId + ".txt");
+                    Directory.CreateDirectory(artifactDirectory);
+
+                    try
+                    {
+                        SeedMissionOutput(handler, missionId, "leftover streamed output");
+                        RegisterFinalMessageArtifact(handler, missionId, artifactPath);
+                        await File.WriteAllTextAsync(artifactPath, "leftover final message").ConfigureAwait(false);
+
+                        handler.DiscardUnclaimedMissionOutput(missionId);
+
+                        // After discard, retrieval should observe nothing -- buffer cleared and file removed.
+                        string? output = handler.GetAndClearMissionOutput(missionId);
+                        AssertNull(output, "DiscardUnclaimedMissionOutput should leave no streamed output behind");
+                        AssertFalse(File.Exists(artifactPath), "DiscardUnclaimedMissionOutput should delete the final-message artifact");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(artifactDirectory, true); } catch { }
+                    }
+                }
+            });
+
             await RunTest("GetAndClearMissionOutput prefers final message artifact over streamed output", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

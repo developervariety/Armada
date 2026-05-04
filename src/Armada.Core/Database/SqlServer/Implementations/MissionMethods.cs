@@ -457,6 +457,34 @@ namespace Armada.Core.Database.SqlServer.Implementations
         }
 
         /// <inheritdoc />
+        public async Task<Dictionary<MissionStatusEnum, int>> CountByStatusAsync(CancellationToken token = default)
+        {
+            Dictionary<MissionStatusEnum, int> results = new Dictionary<MissionStatusEnum, int>();
+
+            using (SqlConnection conn = new SqlConnection(_Driver.ConnectionString))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (SqlCommand cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "SELECT status, COUNT(*) AS cnt FROM missions GROUP BY status;";
+                    using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
+                    {
+                        while (await reader.ReadAsync(token).ConfigureAwait(false))
+                        {
+                            string? statusText = reader["status"] as string;
+                            if (string.IsNullOrEmpty(statusText)) continue;
+                            if (!Enum.TryParse(statusText, ignoreCase: false, out MissionStatusEnum parsed)) continue;
+                            int count = Convert.ToInt32(reader["cnt"]);
+                            results[parsed] = count;
+                        }
+                    }
+                }
+            }
+
+            return results;
+        }
+
+        /// <inheritdoc />
         public async Task<bool> ExistsAsync(string id, CancellationToken token = default)
         {
             if (string.IsNullOrEmpty(id)) throw new ArgumentNullException(nameof(id));

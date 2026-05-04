@@ -35,7 +35,20 @@ namespace Armada.Server
         private readonly TimeSpan _MissionHeartbeatPersistInterval = TimeSpan.FromSeconds(15);
 
         /// <summary>
-        /// Accumulates agent stdout per mission for pipeline handoff.
+        /// Maximum characters retained per mission for streamed agent output.
+        /// Verbose runtimes (notably Codex on stderr) can otherwise grow this buffer
+        /// to multi-GB and pin server memory until completion.
+        /// </summary>
+        private const int _MissionOutputCapChars = 256 * 1024;
+
+        /// <summary>
+        /// Marker inserted in the streamed buffer when output is truncated to retain only the tail.
+        /// </summary>
+        private const string _MissionOutputTruncationMarker = "[ARMADA: streamed output truncated to retain tail]";
+
+        /// <summary>
+        /// Accumulates agent stdout per mission for pipeline handoff. Bounded per mission
+        /// to a finite cap with tail-retention to prevent unbounded growth on verbose runtimes.
         /// </summary>
         private System.Collections.Concurrent.ConcurrentDictionary<string, System.Text.StringBuilder> _MissionOutput = new System.Collections.Concurrent.ConcurrentDictionary<string, System.Text.StringBuilder>();
 
@@ -133,7 +146,10 @@ namespace Armada.Server
             string? streamedOutput = null;
             if (_MissionOutput.TryRemove(missionId, out System.Text.StringBuilder? sb))
             {
-                streamedOutput = sb.ToString().Trim();
+                lock (sb)
+                {
+                    streamedOutput = sb.ToString().Trim();
+                }
                 if (String.IsNullOrEmpty(streamedOutput))
                     streamedOutput = null;
             }
@@ -597,7 +613,7 @@ namespace Armada.Server
             if (!String.IsNullOrEmpty(outputMissionId))
             {
                 System.Text.StringBuilder sb = _MissionOutput.GetOrAdd(outputMissionId, _ => new System.Text.StringBuilder());
-                sb.AppendLine(line);
+                AppendBounded(sb, line);
             }
 
             ProgressParser.ProgressSignal? signal = ProgressParser.TryParse(line);
@@ -727,10 +743,49 @@ namespace Armada.Server
 
         /// <summary>
         /// Async handler for agent process exit, delegating to the admiral service.
+        /// After admiral processing completes, discards any unclaimed streamed output buffer
+        /// so failure/cancel exits do not leak per-mission StringBuilders into long-lived memory.
+        /// The successful pipeline-handoff path drains the buffer via OnGetMissionOutput before this point;
+        /// final-message artifacts consumed by handoff are removed by GetAndClearMissionOutput, so this
+        /// follow-up only cleans up entries that no successful path claimed.
         /// </summary>
         public async Task HandleAgentProcessExitedAsync(int processId, int? exitCode, string captainId, string missionId)
         {
-            await _Admiral.HandleProcessExitAsync(processId, exitCode, captainId, missionId).ConfigureAwait(false);
+            try
+            {
+                await _Admiral.HandleProcessExitAsync(processId, exitCode, captainId, missionId).ConfigureAwait(false);
+            }
+            finally
+            {
+                DiscardUnclaimedMissionOutput(missionId);
+            }
+        }
+
+        /// <summary>
+        /// Discard any streamed output buffer and final-message artifact registration for the given mission
+        /// if the successful handoff path did not already claim them. Safe to call repeatedly.
+        /// Used to ensure failure/cancel/lost-output terminal paths do not retain unbounded buffers.
+        /// </summary>
+        /// <param name="missionId">Mission identifier.</param>
+        public void DiscardUnclaimedMissionOutput(string missionId)
+        {
+            if (String.IsNullOrEmpty(missionId)) return;
+
+            _MissionOutput.TryRemove(missionId, out _);
+
+            if (_MissionFinalMessageFiles.TryRemove(missionId, out string? finalMessageFilePath) &&
+                !String.IsNullOrEmpty(finalMessageFilePath))
+            {
+                try
+                {
+                    if (File.Exists(finalMessageFilePath))
+                        File.Delete(finalMessageFilePath);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "error discarding final message artifact for mission " + missionId + ": " + ex.Message);
+                }
+            }
         }
 
         /// <summary>
@@ -752,6 +807,41 @@ namespace Armada.Server
         #endregion
 
         #region Private-Methods
+
+        /// <summary>
+        /// Append a line to a per-mission output buffer with a tail-retention cap.
+        /// When the buffer would exceed the configured cap, drop the older half and insert
+        /// a single truncation marker so consumers can tell the streamed transcript was clipped.
+        /// StringBuilder is not thread-safe; the caller-provided instance is locked here.
+        /// </summary>
+        /// <param name="sb">Per-mission StringBuilder.</param>
+        /// <param name="line">Output line to append (will be followed by a newline).</param>
+        private static void AppendBounded(System.Text.StringBuilder sb, string line)
+        {
+            if (sb == null) return;
+            string lineText = line ?? string.Empty;
+            int newlineLen = Environment.NewLine.Length;
+
+            lock (sb)
+            {
+                if (sb.Length + lineText.Length + newlineLen > _MissionOutputCapChars)
+                {
+                    int retainChars = _MissionOutputCapChars / 2;
+                    if (sb.Length > retainChars)
+                    {
+                        int dropCount = sb.Length - retainChars;
+                        string tail = sb.ToString(dropCount, retainChars);
+                        sb.Clear();
+                        sb.Append(_MissionOutputTruncationMarker);
+                        sb.Append(Environment.NewLine);
+                        sb.Append(tail);
+                    }
+                }
+
+                sb.Append(lineText);
+                sb.Append(Environment.NewLine);
+            }
+        }
 
         private static bool IsValidTransition(MissionStatusEnum current, MissionStatusEnum target)
         {

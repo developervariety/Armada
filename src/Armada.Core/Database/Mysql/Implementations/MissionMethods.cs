@@ -411,6 +411,38 @@ namespace Armada.Core.Database.Mysql.Implementations
         }
 
         /// <summary>
+        /// Count missions grouped by status without hydrating heavy text columns.
+        /// </summary>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Dictionary of mission status to count.</returns>
+        public async Task<Dictionary<MissionStatusEnum, int>> CountByStatusAsync(CancellationToken token = default)
+        {
+            Dictionary<MissionStatusEnum, int> results = new Dictionary<MissionStatusEnum, int>();
+
+            using (MySqlConnection conn = new MySqlConnection(_ConnectionString))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (MySqlCommand cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "SELECT status, COUNT(*) AS cnt FROM missions GROUP BY status;";
+                    using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
+                    {
+                        while (await reader.ReadAsync(token).ConfigureAwait(false))
+                        {
+                            string? statusText = reader["status"] as string;
+                            if (string.IsNullOrEmpty(statusText)) continue;
+                            if (!Enum.TryParse(statusText, ignoreCase: false, out MissionStatusEnum parsed)) continue;
+                            int count = Convert.ToInt32(reader["cnt"]);
+                            results[parsed] = count;
+                        }
+                    }
+                }
+            }
+
+            return results;
+        }
+
+        /// <summary>
         /// Enumerate missions with pagination and filtering.
         /// </summary>
         /// <param name="query">Enumeration query parameters.</param>
