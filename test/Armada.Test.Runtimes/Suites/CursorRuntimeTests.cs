@@ -25,11 +25,49 @@ namespace Armada.Test.Runtimes.Suites
             public bool StdinEnabled() => UsePromptStdin;
         }
 
+        // Overrides GetWindowsOfficialInstallPath() to inject a controlled path
+        // without touching real system directories.
+        private sealed class PathInjectableCursorRuntime : CursorRuntime
+        {
+            private readonly string? _FakeOfficialPath;
+            private readonly string? _FakeResolvedPath;
+
+            public PathInjectableCursorRuntime(
+                LoggingModule logging,
+                string? fakeOfficialPath,
+                string? fakeResolvedPath) : base(logging)
+            {
+                _FakeOfficialPath = fakeOfficialPath;
+                _FakeResolvedPath = fakeResolvedPath;
+            }
+
+            public int ResolveCallCount { get; private set; }
+
+            public string Command() => GetCommand();
+
+            protected override string? GetWindowsOfficialInstallPath() => _FakeOfficialPath;
+
+            protected override string ResolveConfiguredExecutable(string executablePath)
+            {
+                ResolveCallCount++;
+                if (!String.IsNullOrEmpty(_FakeResolvedPath))
+                    return _FakeResolvedPath;
+                return base.ResolveConfiguredExecutable(executablePath);
+            }
+        }
+
         private InspectableCursorRuntime CreateRuntime()
         {
             LoggingModule logging = new LoggingModule();
             logging.Settings.EnableConsole = false;
             return new InspectableCursorRuntime(logging);
+        }
+
+        private PathInjectableCursorRuntime CreatePathInjectable(string? fakeOfficialPath, string? fakeResolvedPath = null)
+        {
+            LoggingModule logging = new LoggingModule();
+            logging.Settings.EnableConsole = false;
+            return new PathInjectableCursorRuntime(logging, fakeOfficialPath, fakeResolvedPath);
         }
 
         protected override async Task RunTestsAsync()
@@ -136,6 +174,83 @@ namespace Armada.Test.Runtimes.Suites
                 string? error = CaptainRuntimeOptions.ValidateReasoningEffort(AgentRuntimeEnum.Cursor, "HIGH");
                 AssertNull(error, "Validation must be case-insensitive");
             });
+
+            // Command resolution preference tests.
+
+            await RunTest("GetCommand_TestEnvVarOverride_UsesOverridePath", () =>
+            {
+                string fakePath = Path.Combine(Path.GetTempPath(), "fake-cursor-agent.cmd");
+                try
+                {
+                    Environment.SetEnvironmentVariable("ARMADA_TEST_CURSOR_AGENT", fakePath);
+                    InspectableCursorRuntime runtime = CreateRuntime();
+                    string command = runtime.Command();
+                    AssertEqual(fakePath, command, "ARMADA_TEST_CURSOR_AGENT must take priority over all other resolution");
+                }
+                finally
+                {
+                    Environment.SetEnvironmentVariable("ARMADA_TEST_CURSOR_AGENT", null);
+                }
+            });
+
+            if (OperatingSystem.IsWindows())
+            {
+                await RunTest("GetCommand_OfficialPathExists_TakesPriorityOverNpmShim", () =>
+                {
+                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_cursor_official_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(tempDir);
+                    string fakeOfficialPath = Path.Combine(tempDir, "cursor-agent.cmd");
+                    File.WriteAllText(fakeOfficialPath, "@echo off");
+                    string fakeNpmDir = Path.Combine(tempDir, "npm");
+                    Directory.CreateDirectory(fakeNpmDir);
+                    string fakeNpmShimPath = Path.Combine(fakeNpmDir, "cursor-agent.cmd");
+                    File.WriteAllText(fakeNpmShimPath, "@echo off\r\necho stale shim\r\n");
+                    try
+                    {
+                        PathInjectableCursorRuntime runtime = CreatePathInjectable(fakeOfficialPath, fakeNpmShimPath);
+                        string command = runtime.Command();
+                        AssertEqual(fakeOfficialPath, command, "Official Cursor install path must win over any npm shim");
+                        AssertEqual(0, runtime.ResolveCallCount, "Fallback resolution must not run when official install exists");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(tempDir, true); } catch { }
+                    }
+                });
+
+                await RunTest("GetCommand_OfficialPathMissing_FallsBackToResolution", () =>
+                {
+                    // Return a path that does not exist -- runtime must fall back to ResolveExecutable.
+                    string nonExistentPath = Path.Combine(Path.GetTempPath(), "armada_no_cursor_" + Guid.NewGuid().ToString("N"), "cursor-agent.cmd");
+                    string fakeResolvedPath = Path.Combine(Path.GetTempPath(), "armada_cursor_resolved_" + Guid.NewGuid().ToString("N"), "cursor-agent.cmd");
+                    PathInjectableCursorRuntime runtime = CreatePathInjectable(nonExistentPath, fakeResolvedPath);
+                    string command = runtime.Command();
+                    AssertEqual(fakeResolvedPath, command,
+                        "When official path does not exist, fallback must still resolve to cursor-agent");
+                    AssertEqual(1, runtime.ResolveCallCount, "Missing official path must fall back exactly once");
+                });
+
+                await RunTest("GetCommand_CustomExecutablePath_DoesNotUseOfficialPath", () =>
+                {
+                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_cursor_custom_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(tempDir);
+                    string fakeOfficialPath = Path.Combine(tempDir, "cursor-agent.cmd");
+                    File.WriteAllText(fakeOfficialPath, "@echo off");
+                    try
+                    {
+                        string fakeResolvedPath = Path.Combine(tempDir, "custom-cursor-agent.cmd");
+                        PathInjectableCursorRuntime runtime = CreatePathInjectable(fakeOfficialPath, fakeResolvedPath);
+                        runtime.ExecutablePath = "custom-cursor-agent";
+                        string command = runtime.Command();
+                        AssertEqual(fakeResolvedPath, command, "Custom executable paths must keep using configured resolution");
+                        AssertEqual(1, runtime.ResolveCallCount, "Custom executable path must bypass official default lookup");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(tempDir, true); } catch { }
+                    }
+                });
+            }
         }
     }
 }
