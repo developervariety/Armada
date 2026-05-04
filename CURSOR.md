@@ -144,9 +144,10 @@ target vessel's `CLAUDE.md`. This playbook distils the project-wide
    (8-bit), `0xFFFF` (16-bit), `0xFFFFFFFF` (32-bit). Check before
    trusting; preserve prior value, don't overwrite with zero.
 9. **Never hand-edit generated or embedded files.**
-   `output/jpro-export/`, `output/otr-export/`, `otrperformance/`
-   JADX dump, embedded workflow JSON in otrbuddy. **Fix the
-   extractor upstream and re-run.** EF migrations may be edited
+   `output/approved-reference/`, `output/reference-export/`,
+   `output/source-export/`, source dumps, decompiler dumps, decrypted
+   data exports, embedded workflow JSON in otrbuddy. **Fix the
+   exporter or extractor upstream and re-run.** EF migrations may be edited
    only to fix idempotency issues; document the edit.
 10. **Do not reintroduce removed features.** otrbuddy's IFTA / Fuel
     Tax Compliance is permanently removed.
