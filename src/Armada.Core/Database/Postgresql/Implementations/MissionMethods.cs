@@ -404,6 +404,74 @@ namespace Armada.Core.Database.Postgresql.Implementations
             return results;
         }
 
+        /// <inheritdoc />
+        public async Task<Dictionary<MissionStatusEnum, int>> CountByStatusAsync(string tenantId, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
+            Dictionary<MissionStatusEnum, int> results = new Dictionary<MissionStatusEnum, int>();
+
+            using (NpgsqlConnection conn = new NpgsqlConnection(_Settings.GetConnectionString()))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (NpgsqlCommand cmd = new NpgsqlCommand())
+                {
+                    cmd.Connection = conn;
+                    cmd.CommandText = "SELECT status, COUNT(*) AS cnt FROM missions WHERE tenant_id = @tenantId GROUP BY status;";
+                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
+                    using (NpgsqlDataReader reader = (NpgsqlDataReader)await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
+                    {
+                        while (await reader.ReadAsync(token).ConfigureAwait(false))
+                        {
+                            string? statusText = reader["status"] as string;
+                            if (string.IsNullOrEmpty(statusText)) continue;
+                            if (!Enum.TryParse(statusText, ignoreCase: false, out MissionStatusEnum parsed)) continue;
+                            int count = Convert.ToInt32(reader["cnt"]);
+                            results[parsed] = count;
+                        }
+                    }
+                }
+            }
+
+            return results;
+        }
+
+        /// <inheritdoc />
+        public async Task<List<ActiveMissionSummary>> GetActiveVesselSummariesAsync(string vesselId, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(vesselId)) throw new ArgumentNullException(nameof(vesselId));
+            List<ActiveMissionSummary> results = new List<ActiveMissionSummary>();
+
+            using (NpgsqlConnection conn = new NpgsqlConnection(_Settings.GetConnectionString()))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (NpgsqlCommand cmd = new NpgsqlCommand())
+                {
+                    cmd.Connection = conn;
+                    cmd.CommandText =
+                        "SELECT id, title, status FROM missions " +
+                        "WHERE vessel_id = @vessel_id AND status IN ('Assigned','InProgress');";
+                    cmd.Parameters.AddWithValue("@vessel_id", vesselId);
+                    using (NpgsqlDataReader reader = (NpgsqlDataReader)await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
+                    {
+                        while (await reader.ReadAsync(token).ConfigureAwait(false))
+                        {
+                            string? statusText = reader["status"] as string;
+                            if (string.IsNullOrEmpty(statusText)) continue;
+                            if (!Enum.TryParse(statusText, ignoreCase: false, out MissionStatusEnum parsed)) continue;
+                            results.Add(new ActiveMissionSummary
+                            {
+                                Id = reader["id"] as string ?? "",
+                                Title = reader["title"] as string ?? "",
+                                Status = parsed
+                            });
+                        }
+                    }
+                }
+            }
+
+            return results;
+        }
+
         /// <summary>
         /// Check if a mission exists by identifier.
         /// </summary>

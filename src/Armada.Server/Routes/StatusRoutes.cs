@@ -212,13 +212,13 @@ namespace Armada.Server.Routes
                     results.Add(new { Name = "Stalled Captains", Status = "Fail", Message = "Error checking captains: " + ex.Message });
                 }
 
-                // 6. Failed Missions
+                // 6. Failed Missions -- use count-only query to avoid hydrating all failed rows
                 try
                 {
-                    List<Mission> failedMissions = ctx.IsAdmin
-                        ? await _database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Failed).ConfigureAwait(false)
-                        : await _database.Missions.EnumerateByStatusAsync(ctx.TenantId!, MissionStatusEnum.Failed).ConfigureAwait(false);
-                    int failedCount = failedMissions.Count;
+                    Dictionary<MissionStatusEnum, int> missionCounts = ctx.IsAdmin
+                        ? await _database.Missions.CountByStatusAsync().ConfigureAwait(false)
+                        : await _database.Missions.CountByStatusAsync(ctx.TenantId!).ConfigureAwait(false);
+                    missionCounts.TryGetValue(MissionStatusEnum.Failed, out int failedCount);
                     if (failedCount == 0)
                         results.Add(new { Name = "Failed Missions", Status = "Pass", Message = "No failed missions" });
                     else

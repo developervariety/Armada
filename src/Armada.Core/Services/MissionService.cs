@@ -260,29 +260,25 @@ namespace Armada.Core.Services
                 return false;
             }
 
-            // Check for vessel-level lock (broad-scope missions block new assignments)
-            List<Mission> activeMissions = await _Database.Missions.EnumerateByVesselAsync(vessel.Id, token).ConfigureAwait(false);
-            List<Mission> broadMissions = activeMissions.Where(m =>
-                (m.Status == MissionStatusEnum.InProgress || m.Status == MissionStatusEnum.Assigned) &&
-                IsBroadScope(m)).ToList();
+            // Check for vessel-level lock (broad-scope missions block new assignments).
+            // Use lightweight summaries (id/title/status only) to avoid hydrating large
+            // description, diff_snapshot, and agent_output columns for every pending check.
+            List<ActiveMissionSummary> activeSummaries = await _Database.Missions.GetActiveVesselSummariesAsync(vessel.Id, token).ConfigureAwait(false);
+            List<ActiveMissionSummary> broadMissions = activeSummaries.Where(m => IsBroadScope(m)).ToList();
 
             if (broadMissions.Count > 0)
             {
-                _Logging.Warn(_Header + "vessel " + vessel.Id + " has a broad-scope mission in progress — deferring assignment of " + mission.Id);
+                _Logging.Warn(_Header + "vessel " + vessel.Id + " has a broad-scope mission in progress -- deferring assignment of " + mission.Id);
                 return false;
             }
 
-            // Check if this mission is broad-scope and vessel already has active work
-            // Only count truly active missions (agent running or assigned).
-            // WorkProduced and PullRequestOpen are post-agent states where the agent
-            // has finished -- they should NOT block new mission dispatch.
-            int concurrentCount = activeMissions.Count(m =>
-                m.Status == MissionStatusEnum.Assigned ||
-                m.Status == MissionStatusEnum.InProgress);
+            // Check if this mission is broad-scope and vessel already has active work.
+            // activeSummaries already contains only Assigned/InProgress missions.
+            int concurrentCount = activeSummaries.Count;
 
             if (IsBroadScope(mission) && concurrentCount > 0)
             {
-                _Logging.Warn(_Header + "broad-scope mission " + mission.Id + " deferred — vessel " + vessel.Id + " has " + concurrentCount + " active mission(s)");
+                _Logging.Warn(_Header + "broad-scope mission " + mission.Id + " deferred -- vessel " + vessel.Id + " has " + concurrentCount + " active mission(s)");
                 return false;
             }
 
@@ -296,7 +292,7 @@ namespace Armada.Core.Services
             // Warn about concurrent missions on same vessel when allowed
             if (vessel.AllowConcurrentMissions && concurrentCount > 0)
             {
-                _Logging.Warn(_Header + "vessel " + vessel.Id + " already has " + concurrentCount + " active mission(s) — potential for conflicts (AllowConcurrentMissions=true)");
+                _Logging.Warn(_Header + "vessel " + vessel.Id + " already has " + concurrentCount + " active mission(s) -- potential for conflicts (AllowConcurrentMissions=true)");
             }
 
             // Find an idle captain, preferring those matching the mission's persona,
@@ -828,14 +824,27 @@ namespace Armada.Core.Services
         public bool IsBroadScope(Mission mission)
         {
             if (mission == null) return false;
+            return IsBroadScopeTitle(mission.Title);
+        }
 
+        /// <summary>
+        /// Overload for lightweight scheduler summaries -- avoids requiring a full Mission hydration.
+        /// </summary>
+        public bool IsBroadScope(ActiveMissionSummary summary)
+        {
+            if (summary == null) return false;
+            return IsBroadScopeTitle(summary.Title);
+        }
+
+        private static bool IsBroadScopeTitle(string? title)
+        {
             // Inspect only the title. The description routinely embeds project rules
             // and negated guardrails ("Do NOT restructure", "never refactor", etc.)
             // which produced false positives that blocked otherwise-independent
             // concurrent missions on the same vessel. The title is short and
             // intentionally describes the mission's nature -- the right place to
             // look for broad-scope intent.
-            string text = (mission.Title ?? "").ToLowerInvariant();
+            string text = (title ?? "").ToLowerInvariant();
 
             string[] broadIndicators = new[]
             {

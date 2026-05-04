@@ -143,6 +143,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new PreferredModelTierSelectorTests());
             runner.AddSuite(new PreferredModelUserGuidanceTests());
             runner.AddSuite(new MissionServicePreferredModelRoutingTests());
+            runner.AddSuite(new SchedulerHydrationTests());
 
             int exitCode = await runner.RunAllAsync().ConfigureAwait(false);
             return exitCode;
