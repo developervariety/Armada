@@ -231,6 +231,58 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("SelectModel_High_SelectsCaptainWithClaudeOpus47ThinkingMax", () =>
+            {
+                List<Captain> captains = new List<Captain>
+                {
+                    MakeCaptain("claude-opus-4-7-thinking-max")
+                };
+
+                string? selected = PreferredModelTierSelector.SelectModel("high", captains, null, _ => 0);
+                AssertNotNull(selected, "High tier should match Cursor opus thinking-max alias");
+                AssertEqual("claude-opus-4-7-thinking-max", selected, "Exact model string should round-trip");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("SelectModel_High_SelectsCaptainWithClaude46OpusHighThinking", () =>
+            {
+                List<Captain> captains = new List<Captain>
+                {
+                    MakeCaptain("claude-4.6-opus-high-thinking")
+                };
+
+                string? selected = PreferredModelTierSelector.SelectModel("high", captains, null, _ => 0);
+                AssertNotNull(selected, "High tier should match Claude 4.6 opus high-thinking alias");
+                AssertEqual("claude-4.6-opus-high-thinking", selected, "Exact model string should round-trip");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("SelectModel_Mid_SelectsClaude46SonnetMedium", () =>
+            {
+                List<Captain> captains = new List<Captain>
+                {
+                    MakeCaptain("claude-4.6-sonnet-medium")
+                };
+
+                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0);
+                AssertNotNull(selected, "Mid tier should match Cursor sonnet medium alias");
+                AssertEqual("claude-4.6-sonnet-medium", selected, "Exact model string should round-trip");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("SelectModel_Mid_SelectsGemini31Pro", () =>
+            {
+                List<Captain> captains = new List<Captain>
+                {
+                    MakeCaptain("gemini-3.1-pro")
+                };
+
+                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0);
+                AssertNotNull(selected, "Mid tier should match Gemini 3.1 pro alias");
+                AssertEqual("gemini-3.1-pro", selected, "Exact model string should round-trip");
+                return Task.CompletedTask;
+            });
+
             await RunTest("SelectModel_ReturnsNull_WhenNoEligibleCaptains", () =>
             {
                 List<Captain> captains = new List<Captain>();
