@@ -26,5 +26,10 @@ namespace Armada.Core.Models
         /// Check types that can currently be resolved from the profile.
         /// </summary>
         public List<string> AvailableCheckTypes { get; set; } = new List<string>();
+
+        /// <summary>
+        /// Fully resolved command previews for the profile itself.
+        /// </summary>
+        public List<WorkflowProfileCommandPreview> CommandPreviews { get; set; } = new List<WorkflowProfileCommandPreview>();
     }
 }

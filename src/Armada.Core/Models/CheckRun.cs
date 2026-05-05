@@ -53,6 +53,11 @@ namespace Armada.Core.Models
         public string? VoyageId { get; set; } = null;
 
         /// <summary>
+        /// Deployment linked to this run.
+        /// </summary>
+        public string? DeploymentId { get; set; } = null;
+
+        /// <summary>
         /// Optional display label.
         /// </summary>
         public string? Label { get; set; } = null;
@@ -63,9 +68,29 @@ namespace Armada.Core.Models
         public CheckRunTypeEnum Type { get; set; } = CheckRunTypeEnum.Build;
 
         /// <summary>
+        /// Whether this run was executed by Armada or imported from an external system.
+        /// </summary>
+        public CheckRunSourceEnum Source { get; set; } = CheckRunSourceEnum.Armada;
+
+        /// <summary>
         /// Current status.
         /// </summary>
         public CheckRunStatusEnum Status { get; set; } = CheckRunStatusEnum.Pending;
+
+        /// <summary>
+        /// Optional external provider name when the run was imported.
+        /// </summary>
+        public string? ProviderName { get; set; } = null;
+
+        /// <summary>
+        /// Optional provider-specific run identifier.
+        /// </summary>
+        public string? ExternalId { get; set; } = null;
+
+        /// <summary>
+        /// Optional deep link to the imported run.
+        /// </summary>
+        public string? ExternalUrl { get; set; } = null;
 
         /// <summary>
         /// Environment name when applicable.
@@ -114,6 +139,16 @@ namespace Armada.Core.Models
         /// Human-readable summary.
         /// </summary>
         public string? Summary { get; set; } = null;
+
+        /// <summary>
+        /// Parsed test summary when the run output contained recognizable test-result totals.
+        /// </summary>
+        public CheckRunTestSummary? TestSummary { get; set; } = null;
+
+        /// <summary>
+        /// Parsed coverage summary when the run artifacts or output contained recognizable coverage data.
+        /// </summary>
+        public CheckRunCoverageSummary? CoverageSummary { get; set; } = null;
 
         /// <summary>
         /// Discovered artifacts.

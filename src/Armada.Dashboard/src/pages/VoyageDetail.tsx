@@ -256,6 +256,22 @@ export default function VoyageDetail() {
 
       {/* Action buttons */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 20 }}>
+        <button className="btn-sm" onClick={() => nav('/checks', { state: { prefill: { vesselId: missions[0]?.vesselId || '', voyageId: voyage.id, branchName: missions[0]?.branchName || null, label: voyage.title } } })}>{t('Run Check')}</button>
+        <button
+          className="btn-sm"
+          onClick={() => nav('/releases/new', {
+            state: {
+              prefill: {
+                vesselId: missions[0]?.vesselId || null,
+                voyageIds: [voyage.id],
+                missionIds: missions.map((mission) => mission.id),
+                title: voyage.title ? `${voyage.title} Release` : 'Voyage Release',
+              },
+            },
+          })}
+        >
+          {t('Draft Release')}
+        </button>
         {(voyage.status === 'Open' || voyage.status === 'InProgress') && (
           <button className="btn-sm btn-danger" onClick={handleCancel}>{t('Cancel Voyage')}</button>
         )}

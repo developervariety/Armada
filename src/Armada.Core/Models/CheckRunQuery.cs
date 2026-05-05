@@ -39,6 +39,11 @@ namespace Armada.Core.Models
         public string? VoyageId { get; set; } = null;
 
         /// <summary>
+        /// Deployment filter.
+        /// </summary>
+        public string? DeploymentId { get; set; } = null;
+
+        /// <summary>
         /// Type filter.
         /// </summary>
         public CheckRunTypeEnum? Type { get; set; } = null;
@@ -47,6 +52,16 @@ namespace Armada.Core.Models
         /// Status filter.
         /// </summary>
         public CheckRunStatusEnum? Status { get; set; } = null;
+
+        /// <summary>
+        /// Source filter.
+        /// </summary>
+        public CheckRunSourceEnum? Source { get; set; } = null;
+
+        /// <summary>
+        /// Provider-name filter.
+        /// </summary>
+        public string? ProviderName { get; set; } = null;
 
         /// <summary>
         /// Environment-name filter.

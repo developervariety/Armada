@@ -23,6 +23,11 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         public Func<string, string?>? OnGetMissionOutput { get; set; }
 
+        /// <summary>
+        /// Optional callback invoked when a mission enters an approval-required review state.
+        /// </summary>
+        public Action<Mission>? OnReviewRequested { get; set; }
+
         #endregion
 
         #region Private-Members
@@ -86,6 +91,34 @@ namespace Armada.Core.Services
             /// Optional dependency reference emitted by the architect.
             /// </summary>
             public string? DependsOnReference { get; set; } = null;
+        }
+
+        private sealed class WorktreePlaybookLocation
+        {
+            public string ResolvedPath { get; set; } = String.Empty;
+
+            public string RelativePath { get; set; } = String.Empty;
+        }
+
+        private sealed class ArchitectDependencyExtractionResult
+        {
+            public string Description { get; set; } = String.Empty;
+
+            public string? DependsOnReference { get; set; } = null;
+        }
+
+        private sealed class MissionOutcomeSignalDefinition
+        {
+            public SignalTypeEnum Type { get; set; }
+
+            public string Payload { get; set; } = String.Empty;
+        }
+
+        private sealed class MissionOutcomeEventDefinition
+        {
+            public string EventType { get; set; } = String.Empty;
+
+            public string EventMessage { get; set; } = String.Empty;
         }
 
         /// <summary>
@@ -759,6 +792,7 @@ namespace Armada.Core.Services
                 mission.ReviewedUtc = null;
                 mission.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                OnReviewRequested?.Invoke(mission);
                 awaitingManualReview = true;
             }
 
@@ -841,8 +875,8 @@ namespace Armada.Core.Services
                 await CleanupArchitectBranchAsync(mission, dock, token).ConfigureAwait(false);
             }
 
-            (SignalTypeEnum signalType, string signalPayload) = BuildMissionOutcomeSignal(mission);
-            Signal signal = new Signal(signalType, signalPayload);
+            MissionOutcomeSignalDefinition missionOutcomeSignal = BuildMissionOutcomeSignal(mission);
+            Signal signal = new Signal(missionOutcomeSignal.Type, missionOutcomeSignal.Payload);
             signal.FromCaptainId = captain.Id;
             await _Database.Signals.CreateAsync(signal, token).ConfigureAwait(false);
 
@@ -1086,23 +1120,23 @@ namespace Armada.Core.Services
                         break;
 
                     case PlaybookDeliveryModeEnum.AttachIntoWorktree:
-                        (string attachedPath, string relativePath) = await MaterializeWorktreePlaybookAsync(
+                        WorktreePlaybookLocation attachedPlaybook = await MaterializeWorktreePlaybookAsync(
                             worktreePath,
                             snapshot,
                             i,
                             token).ConfigureAwait(false);
-                        if (!String.Equals(snapshot.ResolvedPath, attachedPath, StringComparison.Ordinal) ||
-                            !String.Equals(snapshot.WorktreeRelativePath, relativePath, StringComparison.Ordinal))
+                        if (!String.Equals(snapshot.ResolvedPath, attachedPlaybook.ResolvedPath, StringComparison.Ordinal) ||
+                            !String.Equals(snapshot.WorktreeRelativePath, attachedPlaybook.RelativePath, StringComparison.Ordinal))
                         {
-                            snapshot.ResolvedPath = attachedPath;
-                            snapshot.WorktreeRelativePath = relativePath;
+                            snapshot.ResolvedPath = attachedPlaybook.ResolvedPath;
+                            snapshot.WorktreeRelativePath = attachedPlaybook.RelativePath;
                             snapshotStateChanged = true;
                         }
 
                         sections.Add(
                             header + "\n" +
                             (description != null ? description + "\n" : "") +
-                            "Read and follow this attached playbook at `" + relativePath.Replace("\\", "/") + "`.");
+                            "Read and follow this attached playbook at `" + attachedPlaybook.RelativePath.Replace("\\", "/") + "`.");
                         break;
 
                     default:
@@ -1137,7 +1171,7 @@ namespace Armada.Core.Services
             return resolvedPath;
         }
 
-        private async Task<(string ResolvedPath, string RelativePath)> MaterializeWorktreePlaybookAsync(
+        private async Task<WorktreePlaybookLocation> MaterializeWorktreePlaybookAsync(
             string worktreePath,
             MissionPlaybookSnapshot snapshot,
             int selectionOrder,
@@ -1157,7 +1191,11 @@ namespace Armada.Core.Services
                 await EnsureGitExcludeEntryAsync(excludePath, ".armada/playbooks/", token).ConfigureAwait(false);
             }
 
-            return (absolutePath, Path.Combine(relativeDir, fileName));
+            return new WorktreePlaybookLocation
+            {
+                ResolvedPath = absolutePath,
+                RelativePath = Path.Combine(relativeDir, fileName)
+            };
         }
 
         private async Task EnsureGitExcludeEntryAsync(string excludePath, string entry, CancellationToken token)
@@ -2040,7 +2078,9 @@ namespace Armada.Core.Services
 
             string normalizedTitle = title.Trim();
             string normalizedDescription = NormalizeArchitectDescription(description);
-            (normalizedDescription, string? dependencyReference) = ExtractArchitectDependencyReference(normalizedDescription);
+            ArchitectDependencyExtractionResult dependencyExtraction = ExtractArchitectDependencyReference(normalizedDescription);
+            normalizedDescription = dependencyExtraction.Description;
+            string? dependencyReference = dependencyExtraction.DependsOnReference;
             if (String.IsNullOrWhiteSpace(normalizedDescription))
             {
                 // Title-only architect blocks are still actionable; preserve the title as
@@ -2100,9 +2140,12 @@ namespace Armada.Core.Services
             return String.Join("\n", descriptionLines).Trim();
         }
 
-        private static (string Description, string? DependsOnReference) ExtractArchitectDependencyReference(string description)
+        private static ArchitectDependencyExtractionResult ExtractArchitectDependencyReference(string description)
         {
-            if (String.IsNullOrWhiteSpace(description)) return ("", null);
+            if (String.IsNullOrWhiteSpace(description))
+            {
+                return new ArchitectDependencyExtractionResult();
+            }
 
             List<string> keptLines = new List<string>();
             string? dependencyReference = null;
@@ -2128,7 +2171,11 @@ namespace Armada.Core.Services
                 keptLines.Add(rawLine.TrimEnd('\r'));
             }
 
-            return (String.Join("\n", keptLines).Trim(), String.IsNullOrWhiteSpace(dependencyReference) ? null : dependencyReference);
+            return new ArchitectDependencyExtractionResult
+            {
+                Description = String.Join("\n", keptLines).Trim(),
+                DependsOnReference = String.IsNullOrWhiteSpace(dependencyReference) ? null : dependencyReference
+            };
         }
 
         private static bool TryExtractArchitectDependency(string line, out string? dependencyReference, out string? remainingDescription)
@@ -2708,11 +2755,11 @@ namespace Armada.Core.Services
             if (mission == null) throw new ArgumentNullException(nameof(mission));
             if (captain == null) throw new ArgumentNullException(nameof(captain));
 
-            (string eventType, string eventMessage) = BuildMissionOutcomeEvent(mission);
+            MissionOutcomeEventDefinition missionOutcomeEvent = BuildMissionOutcomeEvent(mission);
 
             try
             {
-                ArmadaEvent outcomeEvent = new ArmadaEvent(eventType, eventMessage);
+                ArmadaEvent outcomeEvent = new ArmadaEvent(missionOutcomeEvent.EventType, missionOutcomeEvent.EventMessage);
                 outcomeEvent.TenantId = mission.TenantId;
                 outcomeEvent.UserId = mission.UserId;
                 outcomeEvent.EntityType = "mission";
@@ -2729,31 +2776,31 @@ namespace Armada.Core.Services
             }
         }
 
-        private static (SignalTypeEnum Type, string Payload) BuildMissionOutcomeSignal(Mission mission)
+        private static MissionOutcomeSignalDefinition BuildMissionOutcomeSignal(Mission mission)
         {
             if (mission == null) throw new ArgumentNullException(nameof(mission));
 
             return mission.Status switch
             {
-                MissionStatusEnum.Complete => (SignalTypeEnum.Completion, "Mission completed: " + mission.Title),
-                MissionStatusEnum.PullRequestOpen => (SignalTypeEnum.Completion, "Pull request open: " + mission.Title),
-                MissionStatusEnum.Failed => (SignalTypeEnum.Error, BuildFailurePayload("Mission failed: ", mission)),
-                MissionStatusEnum.LandingFailed => (SignalTypeEnum.Error, BuildFailurePayload("Landing failed: ", mission)),
-                MissionStatusEnum.Cancelled => (SignalTypeEnum.Error, BuildFailurePayload("Mission cancelled: ", mission)),
-                _ => (SignalTypeEnum.Completion, "Work produced: " + mission.Title)
+                MissionStatusEnum.Complete => new MissionOutcomeSignalDefinition { Type = SignalTypeEnum.Completion, Payload = "Mission completed: " + mission.Title },
+                MissionStatusEnum.PullRequestOpen => new MissionOutcomeSignalDefinition { Type = SignalTypeEnum.Completion, Payload = "Pull request open: " + mission.Title },
+                MissionStatusEnum.Failed => new MissionOutcomeSignalDefinition { Type = SignalTypeEnum.Error, Payload = BuildFailurePayload("Mission failed: ", mission) },
+                MissionStatusEnum.LandingFailed => new MissionOutcomeSignalDefinition { Type = SignalTypeEnum.Error, Payload = BuildFailurePayload("Landing failed: ", mission) },
+                MissionStatusEnum.Cancelled => new MissionOutcomeSignalDefinition { Type = SignalTypeEnum.Error, Payload = BuildFailurePayload("Mission cancelled: ", mission) },
+                _ => new MissionOutcomeSignalDefinition { Type = SignalTypeEnum.Completion, Payload = "Work produced: " + mission.Title }
             };
         }
 
-        private static (string EventType, string EventMessage) BuildMissionOutcomeEvent(Mission mission)
+        private static MissionOutcomeEventDefinition BuildMissionOutcomeEvent(Mission mission)
         {
             if (mission == null) throw new ArgumentNullException(nameof(mission));
 
             return mission.Status switch
             {
-                MissionStatusEnum.Failed => ("mission.failed", BuildFailurePayload("Mission failed: ", mission)),
-                MissionStatusEnum.LandingFailed => ("mission.landing_failed", BuildFailurePayload("Landing failed: ", mission)),
-                MissionStatusEnum.Cancelled => ("mission.cancelled", BuildFailurePayload("Mission cancelled: ", mission)),
-                _ => ("mission.work_produced", "Work produced: " + mission.Title)
+                MissionStatusEnum.Failed => new MissionOutcomeEventDefinition { EventType = "mission.failed", EventMessage = BuildFailurePayload("Mission failed: ", mission) },
+                MissionStatusEnum.LandingFailed => new MissionOutcomeEventDefinition { EventType = "mission.landing_failed", EventMessage = BuildFailurePayload("Landing failed: ", mission) },
+                MissionStatusEnum.Cancelled => new MissionOutcomeEventDefinition { EventType = "mission.cancelled", EventMessage = BuildFailurePayload("Mission cancelled: ", mission) },
+                _ => new MissionOutcomeEventDefinition { EventType = "mission.work_produced", EventMessage = "Work produced: " + mission.Title }
             };
         }
 

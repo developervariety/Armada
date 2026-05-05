@@ -1,6 +1,6 @@
 # End-to-End Workflows Plan
 
-Last updated: 2026-05-02
+Last updated: 2026-05-04
 
 This document tracks the proposed expansion of Armada from a strong agent-orchestration platform into a fuller developer-lifecycle platform. It is intentionally actionable: work is grouped into concrete workflow areas, checklists are explicit, and developers should be able to annotate progress directly in this file.
 
@@ -40,9 +40,16 @@ Armada already ships pieces of this lifecycle:
 - [x] Persona- and pipeline-based orchestration
 - [x] Configurable stage-level review gates with approve and deny flows
 - [x] Workflow profiles for vessel- and fleet-aware build, test, release, deploy, and verification commands
-- [x] Structured check runs with logs, artifacts, retry, and workflow-profile-backed execution
+- [x] Structured check runs with logs, artifacts, retry, parsed test and coverage summaries, and workflow-profile-backed execution
+- [x] Vessel readiness and workflow-input preflight for Workspace, vessel detail, planning, dispatch, and checks
+- [x] First-class release records with versions, tags, linked work, derived notes, and artifact aggregation
+- [x] First-class deployment environments with startup default seeding from workflow profiles or fallback development records
+- [x] First-class deployments with approvals, rollback, verification, request-history evidence, and linked checks
+- [x] First-class incident records with hotfix handoff, rollback linkage, and postmortem fields
+- [x] Playbook-backed executable runbooks with parameters, step tracking, execution history, and delivery-entity linkage
 - [x] Vessel-aware Workspace for browsing and editing repositories
 - [x] Request history and API Explorer
+- [x] Cross-entity `Activity > History` timeline for operational memory across current Armada entities
 - [x] Merge queue
 - [x] Playbooks for reusable guidance
 - [x] Remote-control tunnel and proxy surfaces
@@ -80,15 +87,15 @@ These are candidate first-class Armada concepts that would make the workflows be
 
 A top-level cross-repository change record that can group multiple voyages, releases, environments, and deployments under one initiative.
 
-- [ ] Decide whether the product term should be `Objective`, `Campaign`, or another name
-- [ ] Define a durable data model with title, description, state, owner, tags, links, and acceptance criteria
-- [ ] Allow an objective to reference multiple vessels and fleets
-- [ ] Allow an objective to aggregate planning sessions, voyages, releases, deployments, and incidents
+- [x] Decide whether the product term should be `Objective`, `Campaign`, or another name
+- [x] Define a durable data model with title, description, state, owner, tags, links, and acceptance criteria
+- [x] Allow an objective to reference multiple vessels and fleets
+- [x] Allow an objective to aggregate planning sessions, voyages, releases, deployments, and incidents
 
 Acceptance criteria:
 
-- A user can open one record and understand the full story of a multi-repo change
-- Objective status can be derived from subordinate work without becoming lossy or misleading
+- [x] A user can open one record and understand the full story of a multi-repo change
+- [x] Objective status can be derived from subordinate work without becoming lossy or misleading
 
 ### `WorkflowProfile`
 
@@ -110,47 +117,49 @@ A structured record for any automated validation or execution step.
 
 - [x] Define a `CheckRun` model with type, status, started/completed times, logs, artifacts, summary, and links to the triggering entity
 - [x] Support check categories such as lint, build, unit test, integration test, e2e, package, publish artifact, release versioning, changelog, smoke test, deploy, rollback, health check, and custom-command execution
-- [ ] Support both Armada-executed and externally-ingested checks
+- [x] Support both Armada-executed and externally-ingested checks
 
 Acceptance criteria:
 
 - [x] Builds, tests, and post-deploy validations are represented consistently for Armada-executed runs
-- [ ] A mission, release, or deployment can show all relevant checks in one place
+- [x] A mission, release, or deployment can show all relevant checks in one place
 
 ### `Environment`
 
 A first-class deployment target such as `dev`, `staging`, `prod`, or named customer-hosted instances.
 
-- [ ] Define an environment model with name, kind, configuration source, health endpoint, access notes, and deployment rules
-- [ ] Support multiple environments per vessel or per objective
-- [ ] Support environment-specific deploy and rollback commands through workflow profiles
+- [x] Define an environment model with name, kind, configuration source, health endpoint, access notes, and deployment rules
+- [x] Support multiple environments per vessel or per objective
+- [x] Support environment-specific deploy and rollback commands through workflow profiles
+- [x] Seed default environment records on system startup
 
 Acceptance criteria:
 
-- Armada can tell the difference between shipping to staging and shipping to production
-- Deployments and incidents can be traced to environments explicitly
+- [x] Armada can tell the difference between shipping to staging and shipping to production
+- [x] Deployments and incidents can be traced to environments explicitly
 
 ### `Release`
 
 A named deliverable that groups versioning, notes, approvals, artifacts, and deployable outputs.
 
-- [ ] Define a release model with version, changelog summary, artifact list, related PRs, related missions, and related objectives
-- [ ] Support draft, candidate, shipped, failed, and rolled-back states
+- [x] Define a release model with version, summary/notes, artifact list, related voyages, related missions, and related check runs
+- [x] Support draft, candidate, shipped, failed, and rolled-back states
 
 Acceptance criteria:
 
-- A user can query what went into a release and what happened after it shipped
+- [x] A user can query what went into a release
+- [x] A user can query what happened after it shipped once deployments and environments exist
 
 ### `Deployment`
 
 A first-class record for a single deployment execution.
 
-- [ ] Define a deployment model with target environment, triggered artifacts or refs, status, logs, timings, approvals, and linked checks
-- [ ] Support deploy, verify, rollback, and postmortem linkage
+- [x] Define a deployment model with target environment, triggered artifacts or refs, status, logs, timings, approvals, and linked checks
+- [x] Support deploy, verify, rollback, and postmortem linkage
 
 Acceptance criteria:
 
-- Every rollout has a durable record and is not just buried in shell history or external CI logs
+- [x] Every rollout has a durable record and is not just buried in shell history or external CI logs
 
 ## Workstream A: Work Intake and Scope Definition
 
@@ -158,51 +167,67 @@ Armada should better support the workflow before planning starts: understanding 
 
 ### Capability Target
 
-- [ ] Create intake records manually from the dashboard
+- [x] Create intake records manually from the dashboard
 - [ ] Import work from external systems such as GitHub Issues, GitHub PR comments, Jira, Linear, or service-desk sources
-- [ ] Link intake items to one or more vessels
-- [ ] Capture acceptance criteria, non-goals, rollout constraints, and evidence links
-- [ ] Convert intake items into planning sessions, objectives, or voyages
+- [x] Link intake items to one or more vessels
+- [x] Capture acceptance criteria, non-goals, rollout constraints, and evidence links
+- [x] Convert intake items into planning sessions, objectives, or voyages
 
 ### Recommended Product Surface
 
-- `Operations > Intake` or `Operations > Objectives`
+- `Operations > Objectives`
 - inline links from Workspace, Request History, Events, and API Explorer into new intake/objective creation
 
 ### Concrete Work
 
-- [ ] Define intake/objective data models in `src/Armada.Core/Models`
-- [ ] Add persistence and enumeration support in database drivers
-- [ ] Add REST CRUD routes and query/filter support
-- [ ] Add dashboard pages for list, detail, create, edit, and link management
+- [x] Define intake/objective data models in `src/Armada.Core/Models`
+- [x] Add persistence and enumeration support in database drivers
+- [x] Add REST CRUD routes and query/filter support
+- [x] Add dashboard pages for list, detail, create, edit, and link management
+- [x] Add objective handoff actions into Planning, Dispatch, and Release drafting with prefilled context and server-backed linkage
 - [ ] Add import adapters or import stubs for external systems
 
 Acceptance criteria:
 
-- A user can capture incoming work without immediately dispatching it
-- Scope and acceptance criteria remain queryable after implementation starts
+- [x] A user can capture incoming work without immediately dispatching it
+- [x] Scope and acceptance criteria remain queryable after implementation starts
+- [x] A user can turn an objective into planning sessions, voyages, and draft releases without retyping the core work definition
 
 ## Workstream B: Repository Readiness and Onboarding
 
 Armada should help answer whether a repository is actually ready for work, testing, release, and deployment.
 
+### Already Shipped In This Area
+
+- [x] `VesselReadinessService`, models, and REST inspection route ship for vessel-level and check-specific preflight
+- [x] Readiness detects missing working directories, missing repository context, missing default branch, unresolved workflow profiles, invalid workflow profiles, missing required inputs, and missing command dependencies
+- [x] Vessel detail, Workspace, Planning, Dispatch, and Checks surface readiness warnings before work or execution starts
+- [x] Checks are blocked server-side when blocking readiness issues exist
+- [x] The typed `ArmadaApiClient` now supports vessel readiness inspection
+- [x] Workflow-profile-backed readiness can be evaluated with explicit profile, check type, and environment overrides
+
 ### Capability Target
 
-- [ ] Detect whether a vessel has a valid working directory, clean branch strategy, required toolchains, and deploy metadata
-- [ ] Detect missing workflow profile commands and required secrets/config references
-- [ ] Expose readiness warnings before planning, dispatch, or deployment
-- [ ] Support a vessel setup checklist
+- [x] Detect whether a vessel has a valid working directory, basic branch/default-branch context, and required local command dependencies
+- [x] Detect whether a vessel has a clean branch strategy, richer toolchain probes, and deploy metadata
+- [x] Detect missing workflow profile commands and required secrets/config references
+- [x] Expose readiness warnings before planning, dispatch, or deployment
+- [x] Support a vessel setup checklist
 
 ### Concrete Work
 
-- [ ] Extend vessel metadata and readiness models
-- [ ] Add a vessel/workspace readiness service
-- [ ] Add dashboard setup panels for repo readiness
-- [ ] Add REST endpoints for readiness inspection
+- [x] Extend vessel metadata and readiness models
+- [x] Add a vessel/workspace readiness service
+- [x] Add dashboard readiness panels for current workflow entry points
+- [x] Add REST endpoints for readiness inspection
+- [x] Add vessel setup checklist metadata to readiness results
+- [x] Add branch-policy-aware readiness details, richer toolchain/version probes, and deployment metadata summaries
+- [x] Add a fuller guided vessel setup checklist and onboarding flow
 
 Acceptance criteria:
 
-- Armada can clearly explain why a vessel is or is not ready for build, test, or deploy workflows
+- [x] Armada can clearly explain why a vessel is or is not ready for current build, test, planning, dispatch, or ad-hoc check workflows
+- [x] Armada can fully guide a new vessel from initial registration through deploy-ready onboarding
 
 ## Workstream C: Workflow Profiles for Build, Test, Release, and Deploy
 
@@ -213,11 +238,13 @@ This is the core abstraction that unlocks the rest of the lifecycle.
 - [x] `WorkflowProfile` models, services, and persistence ship across SQLite, PostgreSQL, SQL Server, and MySQL
 - [x] Profiles can be scoped globally, to fleets, or to vessels, with default-selection fallback from vessel to fleet to global
 - [x] Profiles support named commands for lint, build, unit/integration/e2e test, package, publish artifact, release versioning, changelog, and environment-specific deploy/rollback/smoke/health flows
-- [x] Profiles support required secret/config reference lists and expected artifact declarations
+- [x] Profiles support typed, provider-aware, and environment-scoped secret/config reference lists and expected artifact declarations
 - [x] Validation returns errors, warnings, and available check types before execution
+- [x] Validation now returns resolved command previews for base and environment-scoped commands
 - [x] Dashboard list/detail/edit flows ship under `Delivery > Workflow Profiles`
-- [x] REST routes and `ArmadaApiClient` support create, read, update, delete, validate, resolve, and enumerate
+- [x] REST routes and `ArmadaApiClient` support create, read, update, delete, validate, resolve, enumerate, and vessel-targeted preview inspection
 - [x] Workflow profiles are queryable through MCP enumeration
+- [x] `Delivery > Checks` shows the resolved profile source, available check types, and full command preview matrix before a run starts
 
 ### Capability Target
 
@@ -225,7 +252,7 @@ This is the core abstraction that unlocks the rest of the lifecycle.
 - [x] Support multiple named workflow profiles per vessel when needed
 - [x] Allow fleet defaults with vessel overrides
 - [x] Support profile validation and preview inspection
-- [ ] Support richer command-level dry-run inspection across environments and resolved fallbacks
+- [x] Support richer command-level dry-run inspection across environments and resolved fallbacks
 
 ### Suggested Workflow Profile Fields
 
@@ -257,9 +284,12 @@ This is the core abstraction that unlocks the rest of the lifecycle.
 
 ### Follow-Up Remaining In This Area
 
-- [ ] Add richer preview output showing the fully resolved command set per target environment and scope fallback
-- [ ] Replace plain string secret/config references with first-class provider/key references when Workstream M ships
-- [ ] Connect workflow profiles into future release, deployment, and environment records once those entities exist
+- [x] Add richer preview output showing the fully resolved command set per target environment and scope fallback
+- [x] Replace plain string secret/config references with first-class provider/key references for workflow-profile editing and validation
+- [x] Connect workflow profiles into current release records
+- [x] Connect workflow profiles into current deployment and environment records
+
+The current workflow-profile surface now spans build, test, release, deployment, and environment-aware preview flows for the current internal-first lifecycle scope.
 
 Acceptance criteria:
 
@@ -274,22 +304,29 @@ Armada should represent validation as first-class structured work, not just free
 - [x] `CheckRun` and `CheckRunArtifact` models, execution service, and persistence ship across SQLite, PostgreSQL, SQL Server, and MySQL
 - [x] Checks resolve commands from workflow profiles and execute inside the vessel working directory
 - [x] Checks capture status, timings, exit code, combined output, summaries, artifacts, branch metadata, commit metadata, and mission/voyage linkage
+- [x] Checks parse structured test counts and coverage summaries from common runner output and coverage artifacts and surface them in `Delivery > Checks`
 - [x] Check runs support retry by reusing the prior run context
+- [x] Checks support source metadata and REST-backed import of external/provider-originated runs for unified viewing
 - [x] Dashboard list/detail flows ship under `Delivery > Checks`
-- [x] REST routes and `ArmadaApiClient` support execute, read, enumerate, retry, and delete
+- [x] REST routes and `ArmadaApiClient` support execute, import, read, enumerate, retry, and delete
 - [x] Workspace, vessel detail, and mission detail can launch check runs
+- [x] Voyage detail can launch check runs with voyage/vessel prefill
 - [x] Check runs are queryable through MCP enumeration
 
 ### Capability Target
 
 - [x] Run build and test checks from Workspace, vessel detail, and mission detail
-- [ ] Run build and test checks from release detail and deployment detail
+- [x] Run build and test checks from voyage detail
+- [x] Run build and test checks from release detail
+- [x] Run build and test checks from deployment detail
 - [x] Capture logs, durations, exit status, and artifacts
-- [ ] Capture parsed test counts and coverage summaries
+- [x] Capture parsed test counts and coverage summaries
 - [x] Support retry
-- [ ] Support compare-last-run behavior
+- [x] Support compare-last-run behavior
 - [x] Support per-check scope such as branch, commit, mission, or voyage
-- [ ] Support release- and deployment-linked runs
+- [x] Support imported external/provider check runs in the current Checks list/detail experience
+- [x] Support release-linked runs
+- [x] Support deployment-linked runs
 
 ### Check Types Armada Should Support
 
@@ -306,27 +343,34 @@ Armada should represent validation as first-class structured work, not just free
 - [x] rollback
 - [x] smoke test
 - [x] health check
-- [ ] migration check
-- [ ] security scan
-- [ ] performance check
-- [ ] deployment verification
-- [ ] rollback verification
+- [x] migration check
+- [x] security scan
+- [x] performance check
+- [x] deployment verification
+- [x] rollback verification
 
 ### Concrete Work
 
 - [x] Add `CheckRun` and related artifact models
 - [x] Add services to execute and persist check runs
-- [x] Add dashboard views for list, detail, logs, artifacts, and summaries
+- [x] Add dashboard views for list, detail, logs, artifacts, summaries, and parsed test/coverage data
 - [x] Add REST endpoints for execution and retrieval
 - [x] Add hooks from workspace, vessels, and missions
-- [ ] Add hooks from voyages, releases, deployments, and environments
+- [x] Add voyage-level launch hooks and imported-run source visibility
+- [x] Add hooks from releases
+- [x] Add hooks from deployments
+- [x] Add direct check-launch hooks from environments where that UX makes sense
 
 ### Follow-Up Remaining In This Area
 
-- [ ] Parse structured test counts and coverage data from common test runners
-- [ ] Add compare-last-run and regression-focused UX in the dashboard
-- [ ] Support externally-ingested CI/provider check runs alongside Armada-executed runs
-- [ ] Connect checks to future release, deployment, and environment records once those entities exist
+- [x] Expand structured parsing coverage to additional test runners and report formats as needed for current common cases
+- [x] Add compare-last-run and regression-focused UX in the dashboard
+- [x] Support externally-ingested CI/provider check runs alongside Armada-executed runs
+- [x] Connect checks to current release records
+- [x] Connect checks to current deployment records
+- [x] Connect checks to current environment-oriented launch surfaces where that UX makes sense
+
+The remaining unchecked items in this workstream are now limited to future deeper environment-record linkage rather than gaps in the current check-run execution, deployment linkage, release linkage, launch UX, and history surface.
 
 Acceptance criteria:
 
@@ -374,7 +418,6 @@ The remaining work in this section is about expanding beyond stage-level mission
 - [ ] Capture PR status, approvals, review comments, change requests, and required checks
 - [ ] Link review comments back to missions and Workspace files
 - [ ] Support replaying review feedback into planning or follow-up dispatches
-- [ ] Support “ship blocked by review” visibility
 
 ### Concrete Work
 
@@ -391,47 +434,74 @@ Acceptance criteria:
 
 Armada already has merge queue and branch cleanup. The remaining work is to make landing strategy a richer configurable workflow.
 
+### Already Shipped In This Area
+
+- [x] `LandingPreviewService`, models, REST routes, and typed API-client support ship for vessel- and mission-level landing previews
+- [x] Landing preview surfaces ship in vessel detail and mission detail
+- [x] Merge-queue detail now shows landing preview context for the queued branch and target branch
+- [x] Vessel metadata now includes `RequirePassingChecksToLand`
+- [x] Vessel metadata now includes protected-branch patterns, release-branch prefixes, hotfix-branch prefixes, and protected-branch merge requirements
+- [x] Landing previews show source branch, target branch, branch category, landing mode, branch cleanup policy, latest structured check, and pass/fail gating state
+- [x] Landing previews flag current blockers such as missing source branch, source-target collisions, manual landing mode, missing passing checks, protected-branch requirements, and missions not yet in a landing-ready state
+
 ### Capability Target
 
-- [ ] Let a vessel define landing policy by branch or environment
-- [ ] Support protected-branch checks and merge requirements
-- [ ] Support release branches and hotfix branches
-- [ ] Surface “what will happen when this lands?” clearly before landing
+- [x] Let a vessel define landing policy by branch for current Armada-managed landing flows
+- [x] Support protected-branch checks and merge requirements
+- [x] Support release branches and hotfix branches
 
 ### Concrete Work
 
-- [ ] Extend vessel workflow and branch policy metadata
-- [ ] Add landing previews and preflight validation
-- [ ] Add merge-queue detail improvements
-- [ ] Add support for release-branch aware strategies
+- [x] Extend vessel workflow and branch policy metadata
+- [x] Add landing previews and preflight validation
+- [x] Add merge-queue detail improvements
+- [x] Add support for release-branch aware strategies
 
 Acceptance criteria:
 
-- A developer can predict the landing behavior for a change before it is merged
+- [x] A developer can predict the current supported landing behavior and blockers for a change before it is merged
+- [x] A developer can predict Armada-managed release-branch strategy and protected-branch constraints before it is merged
+- [ ] A developer can predict provider-specific merge behavior before it is merged
 
 ## Workstream H: Release Management Workflow
 
-Armada should support the workflow between “code landed” and “software shipped.”
+### Already Shipped In This Area
+
+- [x] `Release`, `ReleaseArtifact`, and `ReleaseQuery` models ship across SQLite, PostgreSQL, SQL Server, and MySQL
+- [x] `ReleaseService`, REST routes, and typed `ArmadaApiClient` support create, read, update, refresh, delete, and enumerate flows
+- [x] Release drafting can infer vessel scope from linked voyages, missions, and check runs
+- [x] Release drafting derives mission scope from linked voyages, aggregates linked check-run artifacts, derives summary/notes from linked work, and auto-defaults tags
+- [x] Release drafting supports semantic version extraction from linked `ReleaseVersioning` checks and patch-version bumping from prior releases when no explicit version is supplied
+- [x] `Delivery > Releases` ships as a first-class dashboard list/detail surface
+- [x] Voyages and checks can draft releases directly from existing work
+- [x] Objectives can now launch draft-release creation with server-backed release linkage
+
 
 ### Capability Target
 
-- [ ] Create draft releases from one or more objectives, voyages, or merged PRs
-- [ ] Generate release notes from linked work and request human editing
-- [ ] Support semantic versioning workflows where relevant
-- [ ] Support changelog drafting and tagging
-- [ ] Track publish/package/image artifacts
+- [x] Create draft releases from one or more objectives
+- [ ] Create draft releases from merged PRs once those entities exist
+- [x] Create draft releases from one or more voyages and linked checks
+- [x] Generate release notes from linked work and request human editing
+- [x] Support semantic versioning workflows where relevant
+- [x] Support tagging and editable changelog-style release notes for current internal release records
+- [x] Track publish/package/image artifacts
 
 ### Concrete Work
 
-- [ ] Define release models and artifact references
-- [ ] Add release drafting UI
-- [ ] Add changelog and note generation services
-- [ ] Add artifact publishing hooks via workflow profiles
-- [ ] Add release detail pages with linked missions, checks, PRs, and deployments
+- [x] Define release models and artifact references
+- [x] Add release drafting UI
+- [x] Add note and summary derivation services
+- [x] Add artifact-linkage hooks via workflow profiles and structured checks
+- [x] Add release detail pages with linked voyages, missions, and checks
+- [x] Add linked deployment views for current internal release records
+- [ ] Add linked PR views once those entities exist
 
 Acceptance criteria:
 
-- A user can see what is shipping in a release and what evidence exists that it is ready
+- [x] A user can see what is shipping in a release and what evidence exists that it is ready for the current internal release-management scope
+- [x] A user can see linked deployment evidence for current internal release records
+- [ ] A user can see linked PR evidence once those entities exist
 
 ## Workstream I: Deployment Workflow
 
@@ -439,23 +509,25 @@ Deployment should be a first-class operational workflow, not just an external st
 
 ### Capability Target
 
-- [ ] Deploy a branch, tag, release, or artifact to a named environment
-- [ ] Require environment-specific approvals when configured
-- [ ] Run pre-deploy validations and post-deploy smoke tests
-- [ ] Record deploy logs, timings, and outcomes
-- [ ] Support manual and automated rollbacks
+- [x] Deploy a branch, tag, release, or artifact to a named environment
+- [x] Require environment-specific approvals when configured
+- [x] Run pre-deploy validations and post-deploy smoke tests
+- [x] Record deploy logs, timings, and outcomes
+- [x] Support manual and automated rollbacks
 
 ### Concrete Work
 
-- [ ] Add environment and deployment models
-- [ ] Add deploy execution services using workflow profiles
-- [ ] Add approval and confirmation surfaces
-- [ ] Add dashboard pages for environment list, environment detail, deployment list, and deployment detail
-- [ ] Add REST APIs for triggering and observing deployments
+- [x] Add environment and deployment models
+- [x] Add deploy execution services using workflow profiles
+- [x] Add approval and confirmation surfaces
+- [x] Add dashboard pages for environment list and environment detail
+- [x] Add dashboard pages for deployment list and deployment detail
+- [x] Add REST APIs for triggering and observing deployments
+- [x] Seed default environment records on system startup so deployments always have a usable default target
 
 Acceptance criteria:
 
-- Armada can answer who deployed what, where, when, how, and whether it worked
+- [x] Armada can answer who deployed what, where, when, how, and whether it worked
 
 ## Workstream J: Post-Deploy Verification and Observability Workflow
 
@@ -463,22 +535,23 @@ Deployment without verification is incomplete. Armada should capture evidence af
 
 ### Capability Target
 
-- [ ] Run smoke tests after deploy
-- [ ] Run targeted API checks through API Explorer or reusable API test definitions
-- [ ] Use request-history and status telemetry as deployment evidence
-- [ ] Track environment health after rollout windows
-- [ ] Allow operator sign-off or automatic pass/fail rules
+- [x] Run smoke tests after deploy
+- [x] Run targeted API checks through reusable API test definitions
+- [x] Use request-history and status telemetry as deployment evidence
+- [x] Track environment health after rollout windows
+- [x] Allow operator sign-off or automatic pass/fail rules
 
 ### Concrete Work
 
-- [ ] Define reusable post-deploy verification definitions
-- [ ] Integrate with request-history summaries and health endpoints
-- [ ] Add deploy verification panels and timelines
-- [ ] Add support for alerting when post-deploy checks regress
+- [x] Define reusable post-deploy verification definitions
+- [x] Integrate with request-history summaries and health endpoints
+- [x] Add deploy verification panels and timelines
+- [x] Add support for alerting when post-deploy checks regress
 
 Acceptance criteria:
 
-- A deployment is not just “done”; it is “verified” or “failed verification” with evidence
+- [x] A deployment is not just "done"; it is "verified" or "failed verification" with evidence
+- [x] Rollout-window health and verification regressions remain queryable after the initial deployment completes
 
 ## Workstream K: Incident, Hotfix, and Rollback Workflow
 
@@ -486,22 +559,22 @@ Software delivery includes failure handling. Armada should support that operatio
 
 ### Capability Target
 
-- [ ] Capture incidents tied to environments, objectives, releases, or deployments
-- [ ] Trigger hotfix planning and dispatch flows from an incident
-- [ ] Support rollback records and rollback verification
-- [ ] Preserve postmortem notes and corrective actions
+- [x] Capture incidents tied to current environments, releases, or deployments
+- [x] Trigger hotfix planning and dispatch flows from an incident
+- [x] Support rollback records and rollback verification
+- [x] Preserve postmortem notes and corrective actions
 
 ### Concrete Work
 
-- [ ] Define incident and rollback models
-- [ ] Add incident list/detail/create flows
-- [ ] Add links from requests, deployments, and environments into incident creation
-- [ ] Add hotfix templates and playbooks
-- [ ] Add postmortem fields and action tracking
+- [x] Define incident and rollback models
+- [x] Add incident list/detail/create flows
+- [x] Add links from deployments and environments into incident creation
+- [x] Add hotfix prompts and runbook handoff from incident context
+- [x] Add postmortem fields and action tracking
 
 Acceptance criteria:
 
-- A team can go from detected issue to hotfix to rollback or recovery without losing context
+- [x] A team can go from detected issue to hotfix to rollback or recovery without losing context
 
 ## Workstream L: Runbooks and Executable Playbooks
 
@@ -509,62 +582,89 @@ Playbooks already exist. They should expand from static guidance into reusable o
 
 ### Capability Target
 
-- [ ] Support parameterized playbooks/runbooks for release, deploy, rollback, migration, and incident response
-- [ ] Allow a runbook to reference workflow profile commands and environment targets
-- [ ] Allow operators to execute a runbook step-by-step inside Armada
+- [x] Support parameterized playbooks/runbooks for release, deploy, rollback, migration, and incident response
+- [x] Allow a runbook to reference workflow profile commands and environment targets
+- [x] Allow operators to execute a runbook step-by-step inside Armada
 
 ### Concrete Work
 
-- [ ] Define runbook metadata and parameter schema
-- [ ] Extend playbook models or add a distinct runbook concept
-- [ ] Add dashboard execution UX for step-by-step runbooks
-- [ ] Add audit trail for who ran what and with what inputs
+- [x] Define runbook metadata and parameter schema
+- [x] Extend playbook models or add a distinct runbook concept
+- [x] Add dashboard execution UX for step-by-step runbooks
+- [x] Add audit trail for who ran what and with what inputs
 
 Acceptance criteria:
 
-- Repeated operational procedures stop living only in markdown and become guided executable workflows
+- [x] Repeated operational procedures stop living only in markdown and become guided executable workflows
 
 ## Workstream M: Secrets, Configuration, and Environment Inputs
 
 Armada should support secure references to operational inputs without becoming the secret store itself.
 
+### Already Shipped In This Area
+
+- [x] Workflow profiles support typed required-input references for environment variables, file paths, and directory paths
+- [x] Workflow profiles support provider-backed and environment-scoped required-input references
+- [x] Dashboard workflow-profile editing stores input references instead of raw secret values
+- [x] Readiness and structured check execution validate that required inputs exist before workflow-profile-backed checks run
+- [x] Readiness results expose missing-input warnings or errors through REST, dashboard, and the typed API client
+
 ### Capability Target
 
-- [ ] Reference secrets/config values by provider and key
-- [ ] Validate that required inputs exist before running build/test/deploy workflows
-- [ ] Support environment-scoped configuration references
+- [x] Reference secrets/config values by provider and key
+- [x] Validate that required inputs exist before running build/test/deploy workflows
+- [x] Support environment-scoped configuration references
 
 ### Concrete Work
 
-- [ ] Add secret/config reference models
-- [ ] Add provider abstractions for external secret stores
-- [ ] Add preflight validation in workflow execution
-- [ ] Add dashboard configuration UX that stores references, not raw secret values
+- [x] Add secret/config reference models
+- [x] Add provider abstractions for external secret stores
+- [x] Add preflight validation in workflow execution
+- [x] Add dashboard configuration UX that stores references, not raw secret values
+- [x] Add environment-scoped and provider-backed secret-store integrations for readiness and workflow preflight
 
 Acceptance criteria:
 
-- Armada can orchestrate delivery workflows that need secrets without inlining sensitive material in its own models
+- [x] Armada can orchestrate workflow-profile-backed delivery checks that need referenced inputs without inlining sensitive material in its own models
+- [x] Armada can integrate with external secret stores and environment-specific configuration sources at the reference and preflight layer without leaking raw secret values
 
 ## Workstream N: Reporting, Audit, and Historical Memory
+
+### Already Shipped In This Area
+
+- [x] `HistoricalTimelineService`, models, REST routes, and typed client support ship for a unified cross-entity timeline
+- [x] `Activity > History` ships as a first-class dashboard page with vessel, actor, text, and source-type filtering
+- [x] Current timeline aggregation spans releases, deployments, environments, incidents, runbook executions, missions, voyages, planning sessions, merge entries, check runs, events, and request history
+- [x] Timeline entries carry route links, metadata inspection, status/severity badges, and workspace shortcuts where vessel context exists
+- [x] `Activity > History` now supports saved views plus JSON, CSV, and Markdown export for backup-friendly summaries
 
 This is the area that best fits Armada’s core identity as a memory layer.
 
 ### Capability Target
 
-- [ ] Show historical timelines that connect intake, planning, dispatch, checks, PRs, releases, deployments, incidents, and postmortems
-- [ ] Allow filtering by vessel, objective, environment, release, user, or time range
-- [ ] Support “show me everything that happened for this launch” and similar questions
+- [x] Show historical timelines that connect current Armada entities such as releases, planning, dispatch, checks, merge queue, requests, and events
+- [x] Allow filtering by vessel, user/actor, source type, free text, and time range
+- [x] Allow filtering by objective and incident for current lifecycle history
+- [ ] Add postmortem-specific timeline filters where incident workflows need them
+- [x] Allow filtering by environment and deployment for current lifecycle history
+- [x] Support "show me everything that happened for this launch" and similar questions for the current release/deployment history surface
 
 ### Concrete Work
 
-- [ ] Add cross-entity timeline aggregation services
-- [ ] Add dashboard reporting pages and saved views
-- [ ] Add REST query surfaces for historical lifecycle views
-- [ ] Add export or backup-friendly summaries where useful
+- [x] Add cross-entity timeline aggregation services
+- [x] Add dashboard reporting/history page for current lifecycle entities
+- [x] Add REST query surfaces for historical lifecycle views
+- [x] Add saved views, export, and backup-friendly summaries where useful
+- [x] Extend the timeline for current deployments and environments
+- [x] Extend the timeline for incidents, runbook executions, and the current deployment lifecycle
+- [x] Extend the timeline once objectives exist
+
+The remaining unchecked items in this workstream are now limited to future postmortem-specific filtering rather than missing objective, incident, deployment, or environment history support.
 
 Acceptance criteria:
 
-- A user can reconstruct the full delivery story of a change from a single place
+- [x] A user can reconstruct the current Armada-side story of a change from a single place
+- [x] A user can reconstruct the current end-to-end Armada-side delivery story of a change, including release and deployment history, from a single place
 
 ## Workstream O: Remote Operations and Multi-Host Delivery
 
@@ -608,10 +708,11 @@ These workflow areas will require rethinking the dashboard layout over time.
 - `Delivery`
   - Workflow Profiles
   - Checks
+  - Environments
   - Releases
   - Deployments
-  - Environments
 - `Activity`
+  - History
   - Requests
   - Signals
   - Events
@@ -621,7 +722,7 @@ These workflow areas will require rethinking the dashboard layout over time.
   - API Explorer
   - Personas
   - Pipelines
-  - Templates
+  - Prompts
   - Playbooks
   - Runbooks
   - Server
@@ -633,31 +734,33 @@ These workflow areas will require rethinking the dashboard layout over time.
 
 Implementation notes:
 
-- [ ] Avoid one-off nested exceptions in the nav
-- [ ] Keep delivery workflows coherent and discoverable
+- [x] Avoid one-off nested exceptions in the nav
+- [x] Keep delivery workflows coherent and discoverable
 - [x] Workflow Profiles and Checks now ship as first-class Delivery surfaces, not admin-only afterthoughts
-- [ ] Ensure future Workflow/Delivery surfaces continue to feel first-class as release/deploy entities arrive
+- [x] Releases now ship as a first-class Delivery surface, not an external afterthought
+- [x] Environments now ship as a first-class Delivery surface for internal-first deployment metadata
+- [x] Ensure future Workflow/Delivery surfaces continue to feel first-class as release/deploy entities arrive
 
 ## API Surface Impact
 
 Armada will likely need new REST route families for:
 
-- [ ] objectives or intake records
+- [x] objectives or intake records
 - [x] workflow profiles
 - [x] check runs
-- [ ] releases
-- [ ] environments
-- [ ] deployments
-- [ ] incidents
-- [ ] runbooks
+- [x] releases
+- [x] environments
+- [x] deployments
+- [x] incidents
+- [x] runbooks
 - [ ] CI/CD provider integrations
 
 General API requirements:
 
-- [ ] OpenAPI metadata should remain complete enough to drive API Explorer well
-- [ ] Request-history capture should continue to record these operational workflows cleanly
-- [ ] Long-running operations should expose status polling and event hooks
-- [ ] Multi-tenant and role-scoped behavior must be explicit
+- [x] OpenAPI metadata now remains complete enough to drive API Explorer well for shipped workflow-profile, check-run, release, environment, deployment, incident, runbook, and history routes
+- [x] Request-history capture now continues to record shipped operational workflows cleanly, including release, deployment, incident, runbook, and history routes
+- [x] Current long-running operational workflows now expose status polling and event hooks through check-run detail routes plus WebSocket change events
+- [x] Multi-tenant and role-scoped behavior is now explicit across shipped workflow-profile, check-run, release, environment, deployment, incident, runbook, and history surfaces
 
 ## MCP and WebSocket Considerations
 
@@ -665,19 +768,20 @@ Not every lifecycle workflow belongs in MCP or WebSocket, but some should.
 
 ### MCP candidates
 
-- [ ] query objectives or intake records
-- [ ] start or inspect checks
-- [ ] create releases
-- [ ] inspect deployments
-- [ ] trigger well-bounded deploy or rollback workflows
-- [ ] run guided runbooks
+- [x] query objectives or intake records
+- [x] start or inspect checks
+- [x] create releases
+- [x] inspect deployments
+- [x] trigger well-bounded deploy or rollback workflows
+- [x] run guided runbooks
 
 ### WebSocket candidates
 
-- [ ] live check-run updates
-- [ ] deployment progress streaming
-- [ ] incident and environment health events
-- [ ] approval-needed notifications
+- [x] live check-run updates
+- [x] deployment progress streaming
+- [x] objective, deployment, and environment health events
+- [ ] add incident lifecycle events if live incident streaming becomes necessary
+- [x] approval-needed notifications
 
 Acceptance criteria:
 
@@ -687,8 +791,8 @@ Acceptance criteria:
 
 The plan adds multiple first-class lifecycle entities. Persistence work should stay backend-neutral.
 
-- [x] Workflow profiles and check runs now ship across SQLite, PostgreSQL, SQL Server, and MySQL
-- [ ] Ensure later lifecycle entities keep the same backend-neutral coverage
+- [x] Workflow profiles, check runs, and releases now ship across SQLite, PostgreSQL, SQL Server, and MySQL
+- [x] Ensure later lifecycle entities keep the same backend-neutral coverage
 - [ ] Add versioned migrations for all new lifecycle concepts
 - [ ] Define retention strategies for noisy entities like check logs and deployment logs
 - [ ] Separate durable metadata from bulky artifacts where appropriate
@@ -703,10 +807,10 @@ Each workstream should ship with both backend and dashboard coverage where appli
 
 ### Required test layers
 
-- [x] Unit tests now cover workflow-profile validation/resolution and check-run execution/retry services
-- [ ] database tests for persistence behavior
-- [x] Automated REST tests now cover workflow-profile CRUD/resolve/validate and check-run execute/read/retry/delete routes
-- [ ] dashboard Vitest coverage for key pages and interactions
+- [x] Unit tests now cover workflow-profile validation/resolution, objective history, deployment execution, and release derivation/refresh flows
+- [x] database tests for persistence behavior
+- [x] Automated REST tests now cover objective, workflow-profile, check-run, release, environment, and deployment routes
+- [x] dashboard Vitest coverage for key pages and interactions
 - [ ] remote/proxy tests for remote lifecycle workflows where implemented
 
 ### Suggested verification themes
@@ -714,20 +818,20 @@ Each workstream should ship with both backend and dashboard coverage where appli
 - [x] build/test flows respect vessel workflow profiles
 - [x] role and tenant scoping works correctly for workflow profiles and check runs
 - [x] artifacts and logs are queryable after execution for workflow-profile-backed check runs
-- [ ] linked timelines remain consistent across entities
+- [x] linked timelines remain consistent across entities
 - [ ] rollback and incident flows do not silently lose context
 
 ## Documentation Work
 
 As these workflows ship, documentation will need to stay synchronized.
 
-- [ ] README lifecycle overview
-- [ ] REST API docs
-- [ ] MCP API docs
-- [ ] WebSocket API docs
-- [ ] testing docs
+- [x] README lifecycle overview
+- [x] REST API docs
+- [x] MCP API docs
+- [x] WebSocket API docs
+- [x] testing docs
 - [ ] deployment and remote-management docs
-- [ ] Postman collection
+- [x] Postman collection
 - [ ] new operator guides for release, deploy, rollback, and incident workflows
 
 Acceptance criteria:
@@ -738,16 +842,16 @@ Acceptance criteria:
 
 This plan should be considered fulfilled only when Armada can reasonably support the complete software-delivery loop across at least one realistic stack:
 
-- [ ] work is captured and scoped
+- [x] work is captured and scoped for the current internal-first objective/intake surface
 - [ ] repositories are prepared with workflow metadata
 - [ ] planning and dispatch produce implementation work
-- [ ] build/test checks are tracked as first-class records
-- [ ] review and landing status are visible
-- [ ] releases are assembled and documented
-- [ ] deployments are executed against named environments
-- [ ] post-deploy verification is captured
-- [ ] rollback and incident handling are supported
-- [ ] the full lifecycle is queryable historically
+- [x] build/test checks are tracked as first-class records
+- [x] review and landing status are visible
+- [x] releases are assembled and documented
+- [x] deployments are executed against named environments
+- [x] post-deploy verification is captured
+- [x] rollback and incident handling are supported
+- [x] the full lifecycle is queryable historically for the current Armada-side objective, release, deployment, incident, and runbook surface
 
 ## Notes for Execution
 

@@ -41,13 +41,13 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 using (NpgsqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = @"INSERT INTO check_runs
-                        (id, tenant_id, user_id, workflow_profile_id, vessel_id, mission_id, voyage_id, label, check_type, status,
-                         environment_name, command, working_directory, branch_name, commit_hash, exit_code, output, summary,
-                         artifacts_json, duration_ms, started_utc, completed_utc, created_utc, last_update_utc)
+                        (id, tenant_id, user_id, workflow_profile_id, vessel_id, mission_id, voyage_id, deployment_id, label, check_type, status,
+                         source, provider_name, external_id, external_url, environment_name, command, working_directory, branch_name, commit_hash, exit_code, output, summary,
+                         test_summary_json, coverage_summary_json, artifacts_json, duration_ms, started_utc, completed_utc, created_utc, last_update_utc)
                         VALUES
-                        (@id, @tenant_id, @user_id, @workflow_profile_id, @vessel_id, @mission_id, @voyage_id, @label, @check_type, @status,
-                         @environment_name, @command, @working_directory, @branch_name, @commit_hash, @exit_code, @output, @summary,
-                         @artifacts_json, @duration_ms, @started_utc, @completed_utc, @created_utc, @last_update_utc);";
+                        (@id, @tenant_id, @user_id, @workflow_profile_id, @vessel_id, @mission_id, @voyage_id, @deployment_id, @label, @check_type, @status,
+                         @source, @provider_name, @external_id, @external_url, @environment_name, @command, @working_directory, @branch_name, @commit_hash, @exit_code, @output, @summary,
+                         @test_summary_json, @coverage_summary_json, @artifacts_json, @duration_ms, @started_utc, @completed_utc, @created_utc, @last_update_utc);";
                     AddParameters(cmd, checkRun);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
@@ -100,9 +100,14 @@ namespace Armada.Core.Database.Postgresql.Implementations
                         vessel_id = @vessel_id,
                         mission_id = @mission_id,
                         voyage_id = @voyage_id,
+                        deployment_id = @deployment_id,
                         label = @label,
                         check_type = @check_type,
                         status = @status,
+                        source = @source,
+                        provider_name = @provider_name,
+                        external_id = @external_id,
+                        external_url = @external_url,
                         environment_name = @environment_name,
                         command = @command,
                         working_directory = @working_directory,
@@ -111,6 +116,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                         exit_code = @exit_code,
                         output = @output,
                         summary = @summary,
+                        test_summary_json = @test_summary_json,
+                        coverage_summary_json = @coverage_summary_json,
                         artifacts_json = @artifacts_json,
                         duration_ms = @duration_ms,
                         started_utc = @started_utc,
@@ -229,6 +236,11 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 conditions.Add("voyage_id = @voyage_id");
                 parameters.Add(new NpgsqlParameter("@voyage_id", query.VoyageId));
             }
+            if (!String.IsNullOrWhiteSpace(query.DeploymentId))
+            {
+                conditions.Add("deployment_id = @deployment_id");
+                parameters.Add(new NpgsqlParameter("@deployment_id", query.DeploymentId));
+            }
             if (query.Type.HasValue)
             {
                 conditions.Add("check_type = @check_type");
@@ -238,6 +250,16 @@ namespace Armada.Core.Database.Postgresql.Implementations
             {
                 conditions.Add("status = @status");
                 parameters.Add(new NpgsqlParameter("@status", query.Status.Value.ToString()));
+            }
+            if (query.Source.HasValue)
+            {
+                conditions.Add("source = @source");
+                parameters.Add(new NpgsqlParameter("@source", query.Source.Value.ToString()));
+            }
+            if (!String.IsNullOrWhiteSpace(query.ProviderName))
+            {
+                conditions.Add("provider_name = @provider_name");
+                parameters.Add(new NpgsqlParameter("@provider_name", query.ProviderName));
             }
             if (!String.IsNullOrWhiteSpace(query.EnvironmentName))
             {
@@ -265,9 +287,14 @@ namespace Armada.Core.Database.Postgresql.Implementations
             cmd.Parameters.AddWithValue("@vessel_id", (object?)checkRun.VesselId ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@mission_id", (object?)checkRun.MissionId ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@voyage_id", (object?)checkRun.VoyageId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@deployment_id", (object?)checkRun.DeploymentId ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@label", (object?)checkRun.Label ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@check_type", checkRun.Type.ToString());
             cmd.Parameters.AddWithValue("@status", checkRun.Status.ToString());
+            cmd.Parameters.AddWithValue("@source", checkRun.Source.ToString());
+            cmd.Parameters.AddWithValue("@provider_name", (object?)checkRun.ProviderName ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@external_id", (object?)checkRun.ExternalId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@external_url", (object?)checkRun.ExternalUrl ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@environment_name", (object?)checkRun.EnvironmentName ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@command", checkRun.Command);
             cmd.Parameters.AddWithValue("@working_directory", (object?)checkRun.WorkingDirectory ?? DBNull.Value);
@@ -276,6 +303,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
             cmd.Parameters.AddWithValue("@exit_code", (object?)checkRun.ExitCode ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@output", (object?)checkRun.Output ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@summary", (object?)checkRun.Summary ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@test_summary_json", checkRun.TestSummary != null ? JsonSerializer.Serialize(checkRun.TestSummary, _Json) : DBNull.Value);
+            cmd.Parameters.AddWithValue("@coverage_summary_json", checkRun.CoverageSummary != null ? JsonSerializer.Serialize(checkRun.CoverageSummary, _Json) : DBNull.Value);
             cmd.Parameters.AddWithValue("@artifacts_json", JsonSerializer.Serialize(checkRun.Artifacts ?? new List<CheckRunArtifact>(), _Json));
             cmd.Parameters.AddWithValue("@duration_ms", (object?)checkRun.DurationMs ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@started_utc", (object?)checkRun.StartedUtc ?? DBNull.Value);
@@ -295,7 +324,11 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 VesselId = NullableString(reader["vessel_id"]),
                 MissionId = NullableString(reader["mission_id"]),
                 VoyageId = NullableString(reader["voyage_id"]),
+                DeploymentId = NullableString(reader["deployment_id"]),
                 Label = NullableString(reader["label"]),
+                ProviderName = NullableString(reader["provider_name"]),
+                ExternalId = NullableString(reader["external_id"]),
+                ExternalUrl = NullableString(reader["external_url"]),
                 EnvironmentName = NullableString(reader["environment_name"]),
                 Command = reader["command"].ToString() ?? String.Empty,
                 WorkingDirectory = NullableString(reader["working_directory"]),
@@ -315,6 +348,34 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 run.Type = type;
             if (Enum.TryParse(reader["status"].ToString(), true, out CheckRunStatusEnum status))
                 run.Status = status;
+            if (Enum.TryParse(reader["source"].ToString(), true, out CheckRunSourceEnum source))
+                run.Source = source;
+
+            string? testSummaryJson = NullableString(reader["test_summary_json"]);
+            if (!String.IsNullOrWhiteSpace(testSummaryJson))
+            {
+                try
+                {
+                    run.TestSummary = JsonSerializer.Deserialize<CheckRunTestSummary>(testSummaryJson, _Json);
+                }
+                catch
+                {
+                    run.TestSummary = null;
+                }
+            }
+
+            string? coverageSummaryJson = NullableString(reader["coverage_summary_json"]);
+            if (!String.IsNullOrWhiteSpace(coverageSummaryJson))
+            {
+                try
+                {
+                    run.CoverageSummary = JsonSerializer.Deserialize<CheckRunCoverageSummary>(coverageSummaryJson, _Json);
+                }
+                catch
+                {
+                    run.CoverageSummary = null;
+                }
+            }
 
             string? artifactsJson = NullableString(reader["artifacts_json"]);
             if (!String.IsNullOrWhiteSpace(artifactsJson))

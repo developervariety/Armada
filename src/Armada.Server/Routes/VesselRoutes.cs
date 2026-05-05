@@ -8,8 +8,10 @@ namespace Armada.Server.Routes
     using WatsonWebserver.Core.OpenApi;
     using Armada.Server;
     using Armada.Core;
+    using Armada.Core.Enums;
     using Armada.Core.Database;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
 
     /// <summary>
@@ -18,6 +20,8 @@ namespace Armada.Server.Routes
     public class VesselRoutes
     {
         private readonly DatabaseDriver _database;
+        private readonly VesselReadinessService _readiness;
+        private readonly LandingPreviewService _landingPreview;
         private readonly Func<string, string, string?, string?, string?, string?, string?, string?, Task> _emitEvent;
         private readonly JsonSerializerOptions _jsonOptions;
         private readonly IDockService? _dockService;
@@ -26,16 +30,22 @@ namespace Armada.Server.Routes
         /// Instantiate.
         /// </summary>
         /// <param name="database">Database driver.</param>
+        /// <param name="readiness">Readiness evaluation service.</param>
+        /// <param name="landingPreview">Landing-preview evaluation service.</param>
         /// <param name="emitEvent">Event broadcast callback.</param>
         /// <param name="jsonOptions">JSON serializer options.</param>
         /// <param name="dockService">Optional dock service for worktree cleanup during vessel deletion.</param>
         public VesselRoutes(
             DatabaseDriver database,
+            VesselReadinessService readiness,
+            LandingPreviewService landingPreview,
             Func<string, string, string?, string?, string?, string?, string?, string?, Task> emitEvent,
             JsonSerializerOptions jsonOptions,
             IDockService? dockService = null)
         {
             _database = database;
+            _readiness = readiness ?? throw new ArgumentNullException(nameof(readiness));
+            _landingPreview = landingPreview ?? throw new ArgumentNullException(nameof(landingPreview));
             _emitEvent = emitEvent;
             _jsonOptions = jsonOptions;
             _dockService = dockService;
@@ -272,6 +282,99 @@ namespace Armada.Server.Routes
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Vessel ID (vsl_ prefix)"))
                 .WithSecurity("ApiKey"));
 
+            app.Get("/api/v1/vessels/{id}/readiness", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                {
+                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
+                    return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
+                }
+
+                string id = req.Parameters["id"];
+                Vessel? vessel = ctx.IsAdmin
+                    ? await _database.Vessels.ReadAsync(id).ConfigureAwait(false)
+                    : ctx.IsTenantAdmin
+                        ? await _database.Vessels.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                        : await _database.Vessels.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
+                if (vessel == null)
+                {
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Vessel not found" };
+                }
+
+                string? explicitProfileId = NormalizeEmpty(req.Query.GetValueOrDefault("workflowProfileId"));
+                string? environmentName = NormalizeEmpty(req.Query.GetValueOrDefault("environmentName"));
+                bool includeWorkflowRequirements = ParseBoolean(req.Query.GetValueOrDefault("includeWorkflowRequirements"), true);
+
+                CheckRunTypeEnum? checkType = null;
+                string? checkTypeRaw = NormalizeEmpty(req.Query.GetValueOrDefault("checkType"));
+                if (!String.IsNullOrWhiteSpace(checkTypeRaw))
+                {
+                    if (!Enum.TryParse(checkTypeRaw, true, out CheckRunTypeEnum parsedCheckType))
+                    {
+                        req.Http.Response.StatusCode = 400;
+                        return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Invalid checkType" };
+                    }
+
+                    checkType = parsedCheckType;
+                }
+
+                return await _readiness.EvaluateAsync(
+                    ctx,
+                    vessel,
+                    explicitProfileId,
+                    checkType,
+                    environmentName,
+                    includeWorkflowRequirements).ConfigureAwait(false);
+            },
+            api => api
+                .WithTag("Vessels")
+                .WithSummary("Get vessel readiness")
+                .WithDescription("Returns readiness warnings and blocking issues for a vessel, optionally scoped to a requested workflow check.")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Vessel ID (vsl_ prefix)"))
+                .WithParameter(OpenApiParameterMetadata.Query("workflowProfileId", "Optional explicit workflow-profile override", false))
+                .WithParameter(OpenApiParameterMetadata.Query("checkType", "Optional check type to evaluate as a preflight", false))
+                .WithParameter(OpenApiParameterMetadata.Query("environmentName", "Optional environment name for deploy, rollback, smoke-test, or health-check readiness", false))
+                .WithParameter(OpenApiParameterMetadata.Query("includeWorkflowRequirements", "When false, only vessel and repository basics are evaluated", false, OpenApiSchemaMetadata.Boolean()))
+                .WithResponse(200, OpenApiJson.For<VesselReadinessResult>("Vessel readiness summary"))
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithSecurity("ApiKey"));
+
+            app.Get("/api/v1/vessels/{id}/landing-preview", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                {
+                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
+                    return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
+                }
+
+                string id = req.Parameters["id"];
+                Vessel? vessel = ctx.IsAdmin
+                    ? await _database.Vessels.ReadAsync(id).ConfigureAwait(false)
+                    : ctx.IsTenantAdmin
+                        ? await _database.Vessels.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                        : await _database.Vessels.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
+                if (vessel == null)
+                {
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Vessel not found" };
+                }
+
+                string? sourceBranch = NormalizeEmpty(req.Query.GetValueOrDefault("sourceBranch"));
+                return await _landingPreview.PreviewForVesselAsync(ctx, vessel, sourceBranch).ConfigureAwait(false);
+            },
+            api => api
+                .WithTag("Vessels")
+                .WithSummary("Preview landing readiness")
+                .WithDescription("Predicts how Armada would land a branch for this vessel, including branch policy, check requirements, and likely blockers.")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Vessel ID (vsl_ prefix)"))
+                .WithParameter(OpenApiParameterMetadata.Query("sourceBranch", "Optional branch name to preview", false))
+                .WithResponse(200, OpenApiJson.For<LandingPreviewResult>("Landing preview"))
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithSecurity("ApiKey"));
+
             app.Delete("/api/v1/vessels/{id}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
@@ -464,6 +567,17 @@ namespace Armada.Server.Routes
                 }
                 return output;
             }
+        }
+
+        private static string? NormalizeEmpty(string? value)
+        {
+            return String.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        }
+
+        private static bool ParseBoolean(string? value, bool defaultValue)
+        {
+            if (String.IsNullOrWhiteSpace(value)) return defaultValue;
+            return Boolean.TryParse(value, out bool parsed) ? parsed : defaultValue;
         }
     }
 }

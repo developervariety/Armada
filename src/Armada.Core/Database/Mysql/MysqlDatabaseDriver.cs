@@ -4,6 +4,7 @@ namespace Armada.Core.Database.Mysql
     using System.Collections.Generic;
     using System.Data;
     using System.Globalization;
+    using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
     using MySqlConnector;
@@ -70,7 +71,10 @@ namespace Armada.Core.Database.Mysql
             Personas = new PersonaMethods(_ConnectionString);
             Pipelines = new PipelineMethods(_ConnectionString);
             WorkflowProfiles = new WorkflowProfileMethods(_ConnectionString);
+            Environments = new DeploymentEnvironmentMethods(_ConnectionString);
             CheckRuns = new CheckRunMethods(_ConnectionString);
+            Releases = new ReleaseMethods(_ConnectionString);
+            Deployments = new DeploymentMethods(_ConnectionString);
         }
 
         #endregion
@@ -459,6 +463,41 @@ namespace Armada.Core.Database.Mysql
                     33,
                     "Add check runs",
                     TableQueries.MigrationV33Statements
+                ),
+                new SchemaMigration(
+                    34,
+                    "Add structured parsing summaries to check runs",
+                    TableQueries.MigrationV34Statements
+                ),
+                new SchemaMigration(
+                    35,
+                    "Add workflow check expansion and landing readiness fields",
+                    TableQueries.MigrationV35Statements
+                ),
+                new SchemaMigration(
+                    36,
+                    "Add external check metadata and landing branch policy fields",
+                    TableQueries.MigrationV36Statements
+                ),
+                new SchemaMigration(
+                    37,
+                    "Add releases",
+                    TableQueries.MigrationV37Statements
+                ),
+                new SchemaMigration(
+                    38,
+                    "Add deployment environments",
+                    TableQueries.MigrationV38Statements
+                ),
+                new SchemaMigration(
+                    39,
+                    "Add deployments",
+                    TableQueries.MigrationV39Statements
+                ),
+                new SchemaMigration(
+                    40,
+                    "Add deployment-linked checks and rollout monitoring",
+                    TableQueries.MigrationV40Statements
                 )
             };
         }
@@ -575,8 +614,25 @@ namespace Armada.Core.Database.Mysql
             string? branchCleanupStr = NullableString(reader["branch_cleanup_policy"]);
             if (!String.IsNullOrEmpty(branchCleanupStr) && Enum.TryParse<BranchCleanupPolicyEnum>(branchCleanupStr, out BranchCleanupPolicyEnum bcp))
                 vessel.BranchCleanupPolicy = bcp;
+            try { vessel.RequirePassingChecksToLand = Convert.ToInt64(reader["require_passing_checks_to_land"]) == 1; }
+            catch { vessel.RequirePassingChecksToLand = false; }
             try { vessel.AllowConcurrentMissions = Convert.ToInt64(reader["allow_concurrent_missions"]) == 1; }
             catch { vessel.AllowConcurrentMissions = false; }
+            try
+            {
+                string? protectedPatternsJson = NullableString(reader["protected_branch_patterns_json"]);
+                if (!String.IsNullOrWhiteSpace(protectedPatternsJson))
+                    vessel.ProtectedBranchPatterns = JsonSerializer.Deserialize<List<string>>(protectedPatternsJson) ?? new List<string>();
+            }
+            catch { }
+            try { vessel.ReleaseBranchPrefix = NullableString(reader["release_branch_prefix"]) ?? "release/"; }
+            catch { vessel.ReleaseBranchPrefix = "release/"; }
+            try { vessel.HotfixBranchPrefix = NullableString(reader["hotfix_branch_prefix"]) ?? "hotfix/"; }
+            catch { vessel.HotfixBranchPrefix = "hotfix/"; }
+            try { vessel.RequirePullRequestForProtectedBranches = Convert.ToInt64(reader["require_pull_request_for_protected_branches"]) == 1; }
+            catch { vessel.RequirePullRequestForProtectedBranches = false; }
+            try { vessel.RequireMergeQueueForReleaseBranches = Convert.ToInt64(reader["require_merge_queue_for_release_branches"]) == 1; }
+            catch { vessel.RequireMergeQueueForReleaseBranches = false; }
             vessel.DefaultBranch = reader["default_branch"].ToString()!;
             vessel.Active = Convert.ToInt64(reader["active"]) == 1;
             vessel.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);

@@ -15,6 +15,15 @@ namespace Armada.Test.Automated.Suites
     /// </summary>
     public class RequestHistoryTests : TestSuite
     {
+        private sealed class UserCredentialResult
+        {
+            public string UserId { get; set; } = String.Empty;
+
+            public string CredentialId { get; set; } = String.Empty;
+
+            public string BearerToken { get; set; } = String.Empty;
+        }
+
         #region Public-Members
 
         /// <summary>
@@ -81,7 +90,7 @@ namespace Armada.Test.Automated.Suites
             return tenant.Id;
         }
 
-        private async Task<(string UserId, string CredentialId, string BearerToken)> CreateUserWithCredentialAsync(
+        private async Task<UserCredentialResult> CreateUserWithCredentialAsync(
             string tenantId,
             string label,
             bool isTenantAdmin)
@@ -110,7 +119,12 @@ namespace Armada.Test.Automated.Suites
 
             Credential credential = await JsonHelper.DeserializeAsync<Credential>(credentialResponse).ConfigureAwait(false);
             AssertNotNull(credential.BearerToken, "Bearer token");
-            return (user.Id, credential.Id, credential.BearerToken);
+            return new UserCredentialResult
+            {
+                UserId = user.Id,
+                CredentialId = credential.Id,
+                BearerToken = credential.BearerToken
+            };
         }
 
         private HttpClient CreateBearerClient(string bearerToken)
@@ -196,34 +210,34 @@ namespace Armada.Test.Automated.Suites
             await RunTest("Setup_CreateTenantAAdmin", async () =>
             {
                 _TenantAId = await CreateTenantAsync("tenant-a").ConfigureAwait(false);
-                (string userId, string credentialId, string bearerToken) =
+                UserCredentialResult tenantAAdmin =
                     await CreateUserWithCredentialAsync(_TenantAId, "tenant-a-admin", true).ConfigureAwait(false);
 
-                _TenantAAdminUserId = userId;
-                _TenantAAdminCredentialId = credentialId;
-                _TenantAAdminClient = CreateBearerClient(bearerToken);
+                _TenantAAdminUserId = tenantAAdmin.UserId;
+                _TenantAAdminCredentialId = tenantAAdmin.CredentialId;
+                _TenantAAdminClient = CreateBearerClient(tenantAAdmin.BearerToken);
             }).ConfigureAwait(false);
 
             await RunTest("Setup_CreateTenantAUser", async () =>
             {
                 AssertNotNull(_TenantAId, "Tenant A ID");
-                (string userId, string credentialId, string bearerToken) =
+                UserCredentialResult tenantAUser =
                     await CreateUserWithCredentialAsync(_TenantAId!, "tenant-a-user", false).ConfigureAwait(false);
 
-                _TenantAUserId = userId;
-                _TenantAUserCredentialId = credentialId;
-                _TenantAUserClient = CreateBearerClient(bearerToken);
+                _TenantAUserId = tenantAUser.UserId;
+                _TenantAUserCredentialId = tenantAUser.CredentialId;
+                _TenantAUserClient = CreateBearerClient(tenantAUser.BearerToken);
             }).ConfigureAwait(false);
 
             await RunTest("Setup_CreateTenantBAdmin", async () =>
             {
                 _TenantBId = await CreateTenantAsync("tenant-b").ConfigureAwait(false);
-                (string userId, string credentialId, string bearerToken) =
+                UserCredentialResult tenantBAdmin =
                     await CreateUserWithCredentialAsync(_TenantBId, "tenant-b-admin", true).ConfigureAwait(false);
 
-                _TenantBAdminUserId = userId;
-                _TenantBAdminCredentialId = credentialId;
-                _TenantBAdminClient = CreateBearerClient(bearerToken);
+                _TenantBAdminUserId = tenantBAdmin.UserId;
+                _TenantBAdminCredentialId = tenantBAdmin.CredentialId;
+                _TenantBAdminClient = CreateBearerClient(tenantBAdmin.BearerToken);
             }).ConfigureAwait(false);
 
             #endregion
@@ -310,6 +324,34 @@ namespace Armada.Test.Automated.Suites
                 AssertEqual(5, summary.BucketMinutes);
                 AssertTrue(summary.Buckets.Count >= 1, "Summary buckets");
                 AssertTrue(summary.Buckets.Any(b => b.TotalCount > 0), "At least one populated bucket");
+            }).ConfigureAwait(false);
+
+            await RunTest("RequestHistory_CapturesReleaseAndHistoryRoutes", async () =>
+            {
+                string releaseTrace = "release-route-" + Guid.NewGuid().ToString("N").Substring(0, 10);
+                string historyTrace = "history-route-" + Guid.NewGuid().ToString("N").Substring(0, 10);
+
+                HttpResponseMessage releaseResponse = await _TenantAAdminClient!.GetAsync(
+                    "/api/v1/releases?trace=" + Uri.EscapeDataString(releaseTrace)).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, releaseResponse.StatusCode);
+
+                HttpResponseMessage historyResponse = await _TenantAAdminClient.GetAsync(
+                    "/api/v1/history?trace=" + Uri.EscapeDataString(historyTrace)).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, historyResponse.StatusCode);
+
+                RequestHistoryEntry? releaseEntry = await FindEntryByTraceAsync(
+                    _TenantAAdminClient,
+                    "/api/v1/releases",
+                    releaseTrace,
+                    "GET").ConfigureAwait(false);
+                RequestHistoryEntry? historyEntry = await FindEntryByTraceAsync(
+                    _TenantAAdminClient,
+                    "/api/v1/history",
+                    historyTrace,
+                    "GET").ConfigureAwait(false);
+
+                AssertNotNull(releaseEntry, "Captured releases route entry");
+                AssertNotNull(historyEntry, "Captured history route entry");
             }).ConfigureAwait(false);
 
             #endregion

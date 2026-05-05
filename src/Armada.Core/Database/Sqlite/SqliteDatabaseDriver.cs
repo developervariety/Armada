@@ -3,6 +3,7 @@ namespace Armada.Core.Database.Sqlite
     using System;
     using System.Collections.Generic;
     using System.Globalization;
+    using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
     using Microsoft.Data.Sqlite;
@@ -77,7 +78,10 @@ namespace Armada.Core.Database.Sqlite
             Personas = new PersonaMethods(this, _Settings, _Logging);
             Pipelines = new PipelineMethods(this, _Settings, _Logging);
             WorkflowProfiles = new WorkflowProfileMethods(this, _Settings, _Logging);
+            Environments = new DeploymentEnvironmentMethods(this, _Settings, _Logging);
             CheckRuns = new CheckRunMethods(this, _Settings, _Logging);
+            Releases = new ReleaseMethods(this, _Settings, _Logging);
+            Deployments = new DeploymentMethods(this, _Settings, _Logging);
         }
 
         /// <summary>
@@ -111,7 +115,10 @@ namespace Armada.Core.Database.Sqlite
             Personas = new PersonaMethods(this, _Settings, _Logging);
             Pipelines = new PipelineMethods(this, _Settings, _Logging);
             WorkflowProfiles = new WorkflowProfileMethods(this, _Settings, _Logging);
+            Environments = new DeploymentEnvironmentMethods(this, _Settings, _Logging);
             CheckRuns = new CheckRunMethods(this, _Settings, _Logging);
+            Releases = new ReleaseMethods(this, _Settings, _Logging);
+            Deployments = new DeploymentMethods(this, _Settings, _Logging);
         }
 
         #endregion
@@ -438,9 +445,24 @@ namespace Armada.Core.Database.Sqlite
             string? branchCleanupStr = NullableString(reader["branch_cleanup_policy"]);
             if (!String.IsNullOrEmpty(branchCleanupStr) && Enum.TryParse<BranchCleanupPolicyEnum>(branchCleanupStr, out BranchCleanupPolicyEnum bcp))
                 vessel.BranchCleanupPolicy = bcp;
+            try { vessel.RequirePassingChecksToLand = Convert.ToInt64(reader["require_passing_checks_to_land"]) == 1; }
+            catch { vessel.RequirePassingChecksToLand = false; }
             try { vessel.AllowConcurrentMissions = Convert.ToInt64(reader["allow_concurrent_missions"]) == 1; }
             catch { vessel.AllowConcurrentMissions = false; }
             try { vessel.DefaultPipelineId = NullableString(reader["default_pipeline_id"]); } catch { }
+            try
+            {
+                string? protectedPatternsJson = NullableString(reader["protected_branch_patterns_json"]);
+                if (!String.IsNullOrWhiteSpace(protectedPatternsJson))
+                    vessel.ProtectedBranchPatterns = JsonSerializer.Deserialize<List<string>>(protectedPatternsJson) ?? new List<string>();
+            }
+            catch { }
+            try { vessel.ReleaseBranchPrefix = NullableString(reader["release_branch_prefix"]) ?? "release/"; } catch { vessel.ReleaseBranchPrefix = "release/"; }
+            try { vessel.HotfixBranchPrefix = NullableString(reader["hotfix_branch_prefix"]) ?? "hotfix/"; } catch { vessel.HotfixBranchPrefix = "hotfix/"; }
+            try { vessel.RequirePullRequestForProtectedBranches = Convert.ToInt64(reader["require_pull_request_for_protected_branches"]) == 1; }
+            catch { vessel.RequirePullRequestForProtectedBranches = false; }
+            try { vessel.RequireMergeQueueForReleaseBranches = Convert.ToInt64(reader["require_merge_queue_for_release_branches"]) == 1; }
+            catch { vessel.RequireMergeQueueForReleaseBranches = false; }
             vessel.DefaultBranch = reader["default_branch"].ToString()!;
             vessel.Active = Convert.ToInt64(reader["active"]) == 1;
             vessel.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);

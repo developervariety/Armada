@@ -40,6 +40,16 @@ namespace Armada.Core.Models
         /// </summary>
         public string? HealthCheckCommand { get; set; } = null;
 
+        /// <summary>
+        /// Deployment-verification command for this environment.
+        /// </summary>
+        public string? DeploymentVerificationCommand { get; set; } = null;
+
+        /// <summary>
+        /// Rollback-verification command for this environment.
+        /// </summary>
+        public string? RollbackVerificationCommand { get; set; } = null;
+
         private string _EnvironmentName = "dev";
     }
 }

@@ -100,6 +100,24 @@ If/when MCP-over-tunnel is added, this document will gain explicit routed-tool s
     - [purge_merge_queue](#purge_merge_queue)
     - [purge_merge_entry](#purge_merge_entry)
     - [purge_merge_entries](#purge_merge_entries)
+  - **Objectives**
+    - [get_objective](#get_objective)
+    - [create_objective](#create_objective)
+  - **Delivery**
+    - [get_check_run](#get_check_run)
+    - [run_check](#run_check)
+    - [retry_check_run](#retry_check_run)
+    - [get_deployment](#get_deployment)
+    - [create_deployment](#create_deployment)
+    - [approve_deployment](#approve_deployment)
+    - [verify_deployment](#verify_deployment)
+    - [rollback_deployment](#rollback_deployment)
+    - [get_release](#get_release)
+    - [create_release](#create_release)
+  - **Runbooks**
+    - [get_runbook](#get_runbook)
+    - [get_runbook_execution](#get_runbook_execution)
+    - [start_runbook_execution](#start_runbook_execution)
   - **Prompt Template Management**
     - [get_prompt_template](#get_prompt_template)
     - [update_prompt_template](#update_prompt_template)
@@ -139,6 +157,11 @@ Armada exposes a full MCP server that allows AI agents and MCP-compatible client
 - Read captain session logs (with pagination)
 - List and inspect docks (worktrees)
 - Manage reusable markdown playbooks and attach them to dispatches
+- Run and inspect structured delivery checks
+- Inspect and create scoped objectives or intake-style records
+- Inspect, create, approve, verify, and roll back deployments
+- Draft and inspect release records linked to voyages, missions, and checks
+- Inspect and execute guided runbooks
 - Send signals to captains
 - Stop individual captains or all captains (emergency stop)
 - Manage the merge queue (enqueue, cancel, process, inspect)
@@ -320,7 +343,7 @@ No parameters required.
 
 ### enumerate
 
-Paginated enumeration of any entity type with filtering and sorting. This is the MCP equivalent of the `POST /api/v1/{entity}/enumerate` REST endpoints. Returns paginated results with total counts, page metadata, and query timing. Supports: fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, playbooks, personas, prompt_templates, pipelines.
+Paginated enumeration of any entity type with filtering and sorting. This is the MCP equivalent of the `POST /api/v1/{entity}/enumerate` REST endpoints. Returns paginated results with total counts, page metadata, and query timing. Supports: fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, playbooks, personas, prompt_templates, pipelines, workflow_profiles, check_runs, releases.
 
 **Input Schema:**
 
@@ -328,7 +351,7 @@ Paginated enumeration of any entity type with filtering and sorting. This is the
 {
   "type": "object",
   "properties": {
-    "entityType": { "type": "string", "description": "Entity type to enumerate (fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, playbooks, personas, prompt_templates, pipelines)" },
+    "entityType": { "type": "string", "description": "Entity type to enumerate (fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, playbooks, personas, prompt_templates, pipelines, workflow_profiles, check_runs, releases)" },
     "pageNumber": { "type": "integer", "description": "Page number (1-based, default 1)" },
     "pageSize": { "type": "integer", "description": "Results per page (default 10, max 1000)" },
     "order": { "type": "string", "description": "Sort order: CreatedAscending, CreatedDescending" },
@@ -369,6 +392,9 @@ Paginated enumeration of any entity type with filtering and sorting. This is the
 | `playbooks` | `createdAfter`, `createdBefore` |
 | `prompt_templates` | `createdAfter`, `createdBefore` |
 | `pipelines` | `createdAfter`, `createdBefore` |
+| `workflow_profiles` | `createdAfter`, `createdBefore` (current MCP enumeration is primarily paginated browse) |
+| `check_runs` | `createdAfter`, `createdBefore` (current MCP enumeration is primarily paginated browse) |
+| `releases` | `status`, `vesselId`, `search`, `createdAfter`, `createdBefore` |
 
 | Include flag | Applies to | Default | Description |
 |---|---|---|---|
@@ -2255,6 +2281,370 @@ Permanently delete multiple terminal merge queue entries from the database by ID
 ```
 
 Returns `{ "Error": "entryIds is required and must not be empty" }` if no IDs are provided.
+
+---
+
+### get_objective
+
+Inspect one scoped objective or intake-style record, including linked vessels, planning sessions, voyages, checks, releases, deployments, incidents, and acceptance criteria.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "objectiveId": { "type": "string", "description": "Objective ID (obj_ prefix)" }
+  },
+  "required": ["objectiveId"]
+}
+```
+
+**Response:** serialized `Objective` object, or `{ "Error": "Objective not found" }`.
+
+---
+
+### create_objective
+
+Create an internal-first objective or intake record that can link repositories, planning, delivery evidence, and incidents.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "title": { "type": "string", "description": "Objective title" },
+    "description": { "type": "string", "description": "Optional long-form description" },
+    "status": { "type": "string", "description": "Optional objective status such as Draft, Scoped, Planned, or InProgress" },
+    "owner": { "type": "string", "description": "Optional owner display label" },
+    "tags": { "type": "array", "items": { "type": "string" }, "description": "Optional tags" },
+    "acceptanceCriteria": { "type": "array", "items": { "type": "string" }, "description": "Acceptance criteria" },
+    "nonGoals": { "type": "array", "items": { "type": "string" }, "description": "Explicit non-goals" },
+    "rolloutConstraints": { "type": "array", "items": { "type": "string" }, "description": "Rollout constraints" },
+    "evidenceLinks": { "type": "array", "items": { "type": "string" }, "description": "Evidence or source links" },
+    "fleetIds": { "type": "array", "items": { "type": "string" }, "description": "Linked fleet IDs" },
+    "vesselIds": { "type": "array", "items": { "type": "string" }, "description": "Linked vessel IDs" },
+    "planningSessionIds": { "type": "array", "items": { "type": "string" }, "description": "Linked planning-session IDs" },
+    "voyageIds": { "type": "array", "items": { "type": "string" }, "description": "Linked voyage IDs" },
+    "missionIds": { "type": "array", "items": { "type": "string" }, "description": "Linked mission IDs" },
+    "checkRunIds": { "type": "array", "items": { "type": "string" }, "description": "Linked check-run IDs" },
+    "releaseIds": { "type": "array", "items": { "type": "string" }, "description": "Linked release IDs" },
+    "deploymentIds": { "type": "array", "items": { "type": "string" }, "description": "Linked deployment IDs" },
+    "incidentIds": { "type": "array", "items": { "type": "string" }, "description": "Linked incident IDs" }
+  },
+  "required": ["title"]
+}
+```
+
+**Response:** serialized `Objective` object.
+
+---
+
+### get_check_run
+
+Inspect one structured check run, including status, logs, parsed test summary, coverage summary, artifacts, and linked mission/voyage/release context when available.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "checkRunId": { "type": "string", "description": "Check run ID (chk_ prefix)" }
+  },
+  "required": ["checkRunId"]
+}
+```
+
+**Response:** serialized `CheckRun` object, or `{ "Error": "Check run not found" }`.
+
+---
+
+### run_check
+
+Start a structured check run for a vessel using the resolved workflow profile or an explicit command override.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "vesselId": { "type": "string", "description": "Target vessel ID (vsl_ prefix)" },
+    "workflowProfileId": { "type": "string", "description": "Optional workflow profile override (wfp_ prefix)" },
+    "missionId": { "type": "string", "description": "Optional linked mission ID (msn_ prefix)" },
+    "voyageId": { "type": "string", "description": "Optional linked voyage ID (vyg_ prefix)" },
+    "type": { "type": "string", "description": "Check type such as Build, UnitTest, IntegrationTest, Deploy, SmokeTest, HealthCheck, or ReleaseVersioning" },
+    "environmentName": { "type": "string", "description": "Optional environment name for deploy/rollback/verification checks" },
+    "label": { "type": "string", "description": "Optional display label" },
+    "branchName": { "type": "string", "description": "Optional branch association" },
+    "commitHash": { "type": "string", "description": "Optional commit-hash association" },
+    "commandOverride": { "type": "string", "description": "Optional raw shell command override" }
+  },
+  "required": ["vesselId", "type"]
+}
+```
+
+**Response:** serialized `CheckRun` object.
+
+**Notes:**
+
+- This uses the default MCP tenant-admin context.
+- Workflow readiness and command validation still apply, so invalid vessel/workflow/input combinations are returned as MCP tool errors.
+
+---
+
+### retry_check_run
+
+Retry a previously completed structured check run using the same resolved scope and command context.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "checkRunId": { "type": "string", "description": "Check run ID (chk_ prefix)" }
+  },
+  "required": ["checkRunId"]
+}
+```
+
+**Response:** serialized `CheckRun` object.
+
+---
+
+### get_deployment
+
+Inspect one deployment including approval status, verification state, rollback state, linked checks, and request-history evidence.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "deploymentId": { "type": "string", "description": "Deployment ID (dpl_ prefix)" }
+  },
+  "required": ["deploymentId"]
+}
+```
+
+**Response:** serialized `Deployment` object, or `{ "Error": "Deployment not found" }`.
+
+---
+
+### create_deployment
+
+Create a bounded deployment record and execute it immediately when approval is not required.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "vesselId": { "type": "string", "description": "Optional vessel ID (vsl_ prefix)" },
+    "workflowProfileId": { "type": "string", "description": "Optional workflow profile override (wfp_ prefix)" },
+    "environmentId": { "type": "string", "description": "Optional environment ID (env_ prefix)" },
+    "environmentName": { "type": "string", "description": "Optional environment name" },
+    "releaseId": { "type": "string", "description": "Optional linked release ID (rel_ prefix)" },
+    "missionId": { "type": "string", "description": "Optional linked mission ID (msn_ prefix)" },
+    "voyageId": { "type": "string", "description": "Optional linked voyage ID (vyg_ prefix)" },
+    "title": { "type": "string", "description": "Optional deployment title" },
+    "sourceRef": { "type": "string", "description": "Optional source ref such as a branch, tag, or commit" },
+    "summary": { "type": "string", "description": "Optional short summary" },
+    "notes": { "type": "string", "description": "Optional operator notes" },
+    "autoExecute": { "type": "boolean", "description": "Whether to execute immediately when approval is not required" }
+  }
+}
+```
+
+**Response:** serialized `Deployment` object.
+
+---
+
+### approve_deployment
+
+Approve a pending deployment and begin execution.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "deploymentId": { "type": "string", "description": "Deployment ID (dpl_ prefix)" },
+    "comment": { "type": "string", "description": "Optional approval comment" }
+  },
+  "required": ["deploymentId"]
+}
+```
+
+**Response:** serialized `Deployment` object.
+
+---
+
+### verify_deployment
+
+Run post-deploy verification for an existing deployment.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "deploymentId": { "type": "string", "description": "Deployment ID (dpl_ prefix)" }
+  },
+  "required": ["deploymentId"]
+}
+```
+
+**Response:** serialized `Deployment` object.
+
+---
+
+### rollback_deployment
+
+Run the configured rollback flow for an existing deployment.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "deploymentId": { "type": "string", "description": "Deployment ID (dpl_ prefix)" }
+  },
+  "required": ["deploymentId"]
+}
+```
+
+**Response:** serialized `Deployment` object.
+
+---
+
+### get_release
+
+Inspect one release record, including linked voyages, missions, checks, versions, tags, notes, and derived artifacts.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "releaseId": { "type": "string", "description": "Release ID (rel_ prefix)" }
+  },
+  "required": ["releaseId"]
+}
+```
+
+**Response:** serialized `Release` object, or `{ "Error": "Release not found" }`.
+
+---
+
+### create_release
+
+Create a first-class release record from linked voyages, missions, and structured checks, with derived version, notes, and artifacts when available.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "vesselId": { "type": "string", "description": "Optional vessel ID (vsl_ prefix)" },
+    "workflowProfileId": { "type": "string", "description": "Optional workflow profile override (wfp_ prefix)" },
+    "title": { "type": "string", "description": "Optional release title override" },
+    "version": { "type": "string", "description": "Optional version label" },
+    "tagName": { "type": "string", "description": "Optional git tag or image tag" },
+    "summary": { "type": "string", "description": "Optional short release summary" },
+    "notes": { "type": "string", "description": "Optional long-form release notes" },
+    "status": { "type": "string", "description": "Optional release status such as Draft, Candidate, or Shipped" },
+    "voyageIds": { "type": "array", "items": { "type": "string" }, "description": "Linked voyage IDs (vyg_ prefix)" },
+    "missionIds": { "type": "array", "items": { "type": "string" }, "description": "Linked mission IDs (msn_ prefix)" },
+    "checkRunIds": { "type": "array", "items": { "type": "string" }, "description": "Linked check-run IDs (chk_ prefix)" }
+  }
+}
+```
+
+**Response:** serialized `Release` object.
+
+---
+
+### get_runbook
+
+Inspect one runbook including parameters, bound workflow profile, environment, and step structure.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "runbookId": { "type": "string", "description": "Runbook ID (same as playbook ID)" }
+  },
+  "required": ["runbookId"]
+}
+```
+
+**Response:** serialized `Runbook` object, or `{ "Error": "Runbook not found" }`.
+
+---
+
+### get_runbook_execution
+
+Inspect one runbook execution including completed steps, notes, and deployment or incident linkage.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "runbookExecutionId": { "type": "string", "description": "Runbook execution ID (rbx_ prefix)" }
+  },
+  "required": ["runbookExecutionId"]
+}
+```
+
+**Response:** serialized `RunbookExecution` object, or `{ "Error": "Runbook execution not found" }`.
+
+---
+
+### start_runbook_execution
+
+Start a guided runbook execution with optional parameter overrides and deployment or incident context.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "runbookId": { "type": "string", "description": "Runbook ID (same as playbook ID)" },
+    "title": { "type": "string", "description": "Optional execution title override" },
+    "workflowProfileId": { "type": "string", "description": "Optional workflow profile override (wfp_ prefix)" },
+    "environmentId": { "type": "string", "description": "Optional environment ID (env_ prefix)" },
+    "environmentName": { "type": "string", "description": "Optional environment name override" },
+    "checkType": { "type": "string", "description": "Optional check type override" },
+    "deploymentId": { "type": "string", "description": "Optional related deployment ID (dpl_ prefix)" },
+    "incidentId": { "type": "string", "description": "Optional related incident ID (inc_ prefix)" },
+    "notes": { "type": "string", "description": "Optional execution notes" },
+    "parameterValues": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "Optional parameter-value map"
+    }
+  },
+  "required": ["runbookId"]
+}
+```
+
+**Response:** serialized `RunbookExecution` object.
 
 ---
 

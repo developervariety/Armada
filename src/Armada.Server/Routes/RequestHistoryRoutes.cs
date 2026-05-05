@@ -11,6 +11,7 @@ namespace Armada.Server.Routes
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
 
     /// <summary>
@@ -82,7 +83,7 @@ namespace Armada.Server.Routes
                 ApplyScope(ctx, query);
 
                 List<RequestHistoryEntry> entries = await _database.RequestHistory.EnumerateForSummaryAsync(query).ConfigureAwait(false);
-                return BuildSummary(entries, query);
+                return RequestHistorySummaryBuilder.Build(entries, query);
             },
             api => api
                 .WithTag("RequestHistory")
@@ -319,79 +320,5 @@ namespace Armada.Server.Routes
             return String.IsNullOrWhiteSpace(value) ? null : value;
         }
 
-        private static RequestHistorySummaryResult BuildSummary(List<RequestHistoryEntry> entries, RequestHistoryQuery query)
-        {
-            query ??= new RequestHistoryQuery();
-            int bucketMinutes = query.BucketMinutes <= 0 ? 15 : query.BucketMinutes;
-            DateTime fromUtc = (query.FromUtc ?? DateTime.UtcNow.AddHours(-24)).ToUniversalTime();
-            DateTime toUtc = (query.ToUtc ?? DateTime.UtcNow).ToUniversalTime();
-
-            RequestHistorySummaryResult result = new RequestHistorySummaryResult
-            {
-                FromUtc = fromUtc,
-                ToUtc = toUtc,
-                BucketMinutes = bucketMinutes,
-                TotalCount = entries.Count,
-                SuccessCount = entries.Count(e => e.IsSuccess),
-                FailureCount = entries.Count(e => !e.IsSuccess),
-                AverageDurationMs = entries.Count > 0 ? entries.Average(e => e.DurationMs) : 0,
-                SuccessRate = entries.Count > 0 ? Math.Round((entries.Count(e => e.IsSuccess) * 100d) / entries.Count, 2) : 0
-            };
-
-            Dictionary<DateTime, RequestHistorySummaryBucket> buckets = new Dictionary<DateTime, RequestHistorySummaryBucket>();
-            foreach (RequestHistoryEntry entry in entries)
-            {
-                DateTime bucketStart = FloorToBucket(entry.CreatedUtc, bucketMinutes);
-                if (!buckets.TryGetValue(bucketStart, out RequestHistorySummaryBucket? bucket))
-                {
-                    bucket = new RequestHistorySummaryBucket
-                    {
-                        BucketStartUtc = bucketStart,
-                        BucketEndUtc = bucketStart.AddMinutes(bucketMinutes)
-                    };
-                    buckets[bucketStart] = bucket;
-                }
-
-                bucket.TotalCount++;
-                bucket.AverageDurationMs += entry.DurationMs;
-                if (entry.IsSuccess) bucket.SuccessCount++;
-                else bucket.FailureCount++;
-            }
-
-            DateTime cursor = FloorToBucket(fromUtc, bucketMinutes);
-            DateTime maxBucket = FloorToBucket(toUtc, bucketMinutes);
-            while (cursor <= maxBucket)
-            {
-                if (!buckets.ContainsKey(cursor))
-                {
-                    buckets[cursor] = new RequestHistorySummaryBucket
-                    {
-                        BucketStartUtc = cursor,
-                        BucketEndUtc = cursor.AddMinutes(bucketMinutes)
-                    };
-                }
-                cursor = cursor.AddMinutes(bucketMinutes);
-            }
-
-            result.Buckets = buckets.Values
-                .OrderBy(bucket => bucket.BucketStartUtc)
-                .Select(bucket =>
-                {
-                    if (bucket.TotalCount > 0)
-                        bucket.AverageDurationMs = Math.Round(bucket.AverageDurationMs / bucket.TotalCount, 2);
-                    return bucket;
-                })
-                .ToList();
-
-            return result;
-        }
-
-        private static DateTime FloorToBucket(DateTime utc, int bucketMinutes)
-        {
-            utc = utc.ToUniversalTime();
-            long bucketTicks = TimeSpan.FromMinutes(bucketMinutes).Ticks;
-            long floored = utc.Ticks - (utc.Ticks % bucketTicks);
-            return new DateTime(floored, DateTimeKind.Utc);
-        }
     }
 }

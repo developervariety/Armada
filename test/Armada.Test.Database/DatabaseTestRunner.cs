@@ -17,6 +17,33 @@ namespace Armada.Test.Database
     /// </summary>
     public class DatabaseTestRunner
     {
+        private sealed class OperationalGraphResult
+        {
+            public TenantMetadata Tenant { get; set; } = null!;
+
+            public UserMaster User { get; set; } = null!;
+
+            public Credential Credential { get; set; } = null!;
+
+            public Fleet Fleet { get; set; } = null!;
+
+            public Vessel Vessel { get; set; } = null!;
+
+            public Captain Captain { get; set; } = null!;
+
+            public Voyage Voyage { get; set; } = null!;
+
+            public Mission Mission { get; set; } = null!;
+
+            public Dock Dock { get; set; } = null!;
+
+            public Signal Signal { get; set; } = null!;
+
+            public ArmadaEvent Event { get; set; } = null!;
+
+            public MergeEntry MergeEntry { get; set; } = null!;
+        }
+
         private readonly DatabaseDriver _Driver;
         private readonly DatabaseSettings _Settings;
         private readonly bool _NoCleanup;
@@ -60,6 +87,11 @@ namespace Armada.Test.Database
             await RunTest("Event_FilteredEnumerations", "Operational", () => TestEventLookupAsync(token), token);
             await RunTest("MergeEntry_Create_Read_Update_Enumerate", "Operational", () => TestMergeEntryCrudAsync(token), token);
             await RunTest("MergeEntry_EnumerateByStatus_Exists", "Operational", () => TestMergeEntryLookupAsync(token), token);
+            await RunTest("WorkflowProfile_Create_Read_Update_Enumerate", "Operational", () => TestWorkflowProfileCrudAsync(token), token);
+            await RunTest("CheckRun_Create_Read_Update_Enumerate", "Operational", () => TestCheckRunCrudAsync(token), token);
+            await RunTest("Environment_Create_Read_Update_Enumerate", "Operational", () => TestEnvironmentCrudAsync(token), token);
+            await RunTest("Release_Create_Read_Update_Enumerate", "Operational", () => TestReleaseCrudAsync(token), token);
+            await RunTest("Deployment_Create_Read_Update_Enumerate", "Operational", () => TestDeploymentCrudAsync(token), token);
 
             Console.WriteLine();
             Console.WriteLine("--- Cascade Verification ---");
@@ -301,7 +333,10 @@ namespace Armada.Test.Database
             DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
             try
             {
-                (TenantMetadata tenant, UserMaster user, _, Fleet fleet, _, _, _, _, _, _, _, _) = await SeedOperationalGraphAsync(fixture, token).ConfigureAwait(false);
+                OperationalGraphResult graph = await SeedOperationalGraphAsync(fixture, token).ConfigureAwait(false);
+                TenantMetadata tenant = graph.Tenant;
+                UserMaster user = graph.User;
+                Fleet fleet = graph.Fleet;
                 Fleet? read = await _Driver.Fleets.ReadAsync(fleet.Id, token).ConfigureAwait(false);
                 read = DatabaseAssert.NotNull(read, "Fleet read returned null");
                 DatabaseAssert.Equal(tenant.Id, read.TenantId, "Fleet.TenantId");
@@ -328,7 +363,8 @@ namespace Armada.Test.Database
             DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
             try
             {
-                (_, _, _, Fleet fleet, _, _, _, _, _, _, _, _) = await SeedOperationalGraphAsync(fixture, token).ConfigureAwait(false);
+                OperationalGraphResult graph = await SeedOperationalGraphAsync(fixture, token).ConfigureAwait(false);
+                Fleet fleet = graph.Fleet;
                 Fleet? byName = await _Driver.Fleets.ReadByNameAsync(fleet.Name, token).ConfigureAwait(false);
                 byName = DatabaseAssert.NotNull(byName, "Fleet ReadByNameAsync returned null");
                 DatabaseAssert.Equal(fleet.Id, byName.Id, "Fleet.ReadByName.Id");
@@ -348,7 +384,10 @@ namespace Armada.Test.Database
             DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
             try
             {
-                (_, UserMaster user, _, Fleet fleet, Vessel vessel, _, _, _, _, _, _, _) = await SeedOperationalGraphAsync(fixture, token).ConfigureAwait(false);
+                OperationalGraphResult graph = await SeedOperationalGraphAsync(fixture, token).ConfigureAwait(false);
+                UserMaster user = graph.User;
+                Fleet fleet = graph.Fleet;
+                Vessel vessel = graph.Vessel;
                 Vessel? read = await _Driver.Vessels.ReadAsync(vessel.Id, token).ConfigureAwait(false);
                 read = DatabaseAssert.NotNull(read, "Vessel read returned null");
                 DatabaseAssert.Equal(fleet.Id, read.FleetId, "Vessel.FleetId");
@@ -370,7 +409,10 @@ namespace Armada.Test.Database
             DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
             try
             {
-                (TenantMetadata tenant, UserMaster user, _, _, _, Captain captain, _, _, _, _, _, _) = await SeedOperationalGraphAsync(fixture, token).ConfigureAwait(false);
+                OperationalGraphResult graph = await SeedOperationalGraphAsync(fixture, token).ConfigureAwait(false);
+                TenantMetadata tenant = graph.Tenant;
+                UserMaster user = graph.User;
+                Captain captain = graph.Captain;
                 Captain? read = await _Driver.Captains.ReadAsync(captain.Id, token).ConfigureAwait(false);
                 read = DatabaseAssert.NotNull(read, "Captain read returned null");
                 DatabaseAssert.Equal(tenant.Id, read.TenantId, "Captain.TenantId");
@@ -402,7 +444,9 @@ namespace Armada.Test.Database
             DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
             try
             {
-                (_, UserMaster user, _, _, _, _, Voyage voyage, _, _, _, _, _) = await SeedOperationalGraphAsync(fixture, token).ConfigureAwait(false);
+                OperationalGraphResult graph = await SeedOperationalGraphAsync(fixture, token).ConfigureAwait(false);
+                UserMaster user = graph.User;
+                Voyage voyage = graph.Voyage;
                 Voyage? read = await _Driver.Voyages.ReadAsync(voyage.Id, token).ConfigureAwait(false);
                 read = DatabaseAssert.NotNull(read, "Voyage read returned null");
                 DatabaseAssert.Equal(user.Id, read.UserId, "Voyage.UserId");
@@ -423,7 +467,11 @@ namespace Armada.Test.Database
             DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
             try
             {
-                (_, _, _, _, Vessel vessel, Captain captain, Voyage voyage, Mission mission, _, _, _, _) = await SeedOperationalGraphAsync(fixture, token).ConfigureAwait(false);
+                OperationalGraphResult graph = await SeedOperationalGraphAsync(fixture, token).ConfigureAwait(false);
+                Vessel vessel = graph.Vessel;
+                Captain captain = graph.Captain;
+                Voyage voyage = graph.Voyage;
+                Mission mission = graph.Mission;
                 Mission? read = await _Driver.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);
                 read = DatabaseAssert.NotNull(read, "Mission read returned null");
                 DatabaseAssert.Equal(vessel.Id, read.VesselId, "Mission.VesselId");
@@ -469,7 +517,10 @@ namespace Armada.Test.Database
             DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
             try
             {
-                (_, _, _, _, Vessel vessel, Captain captain, _, _, Dock dock, _, _, _) = await SeedOperationalGraphAsync(fixture, token).ConfigureAwait(false);
+                OperationalGraphResult graph = await SeedOperationalGraphAsync(fixture, token).ConfigureAwait(false);
+                Vessel vessel = graph.Vessel;
+                Captain captain = graph.Captain;
+                Dock dock = graph.Dock;
                 Dock? read = await _Driver.Docks.ReadAsync(dock.Id, token).ConfigureAwait(false);
                 read = DatabaseAssert.NotNull(read, "Dock read returned null");
                 DatabaseAssert.Equal(vessel.Id, read.VesselId, "Dock.VesselId");
@@ -490,7 +541,10 @@ namespace Armada.Test.Database
             DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
             try
             {
-                (TenantMetadata tenant, _, _, _, _, Captain captain, _, _, _, Signal signal, _, _) = await SeedOperationalGraphAsync(fixture, token).ConfigureAwait(false);
+                OperationalGraphResult graph = await SeedOperationalGraphAsync(fixture, token).ConfigureAwait(false);
+                TenantMetadata tenant = graph.Tenant;
+                Captain captain = graph.Captain;
+                Signal signal = graph.Signal;
                 Signal? read = await _Driver.Signals.ReadAsync(signal.Id, token).ConfigureAwait(false);
                 read = DatabaseAssert.NotNull(read, "Signal read returned null");
                 DatabaseAssert.Equal(tenant.Id, read.TenantId, "Signal.TenantId");
@@ -517,7 +571,9 @@ namespace Armada.Test.Database
             DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
             try
             {
-                (_, _, _, _, _, Captain captain, _, _, _, Signal signalA, _, _) = await SeedOperationalGraphAsync(fixture, token).ConfigureAwait(false);
+                OperationalGraphResult graph = await SeedOperationalGraphAsync(fixture, token).ConfigureAwait(false);
+                Captain captain = graph.Captain;
+                Signal signalA = graph.Signal;
                 Signal signalB = await fixture.CreateSignalAsync(signalA.TenantId!, signalA.UserId!, captain.Id, token).ConfigureAwait(false);
 
                 List<Signal> recent = await _Driver.Signals.EnumerateRecentAsync(10, token).ConfigureAwait(false);
@@ -542,7 +598,13 @@ namespace Armada.Test.Database
             DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
             try
             {
-                (TenantMetadata tenant, _, _, _, Vessel vessel, Captain captain, Voyage voyage, Mission mission, _, _, ArmadaEvent evt, _) = await SeedOperationalGraphAsync(fixture, token).ConfigureAwait(false);
+                OperationalGraphResult graph = await SeedOperationalGraphAsync(fixture, token).ConfigureAwait(false);
+                TenantMetadata tenant = graph.Tenant;
+                Vessel vessel = graph.Vessel;
+                Captain captain = graph.Captain;
+                Voyage voyage = graph.Voyage;
+                Mission mission = graph.Mission;
+                ArmadaEvent evt = graph.Event;
                 ArmadaEvent? read = await _Driver.Events.ReadAsync(evt.Id, token).ConfigureAwait(false);
                 read = DatabaseAssert.NotNull(read, "Event read returned null");
                 DatabaseAssert.Equal(tenant.Id, read.TenantId, "Event.TenantId");
@@ -567,7 +629,12 @@ namespace Armada.Test.Database
             ArmadaEvent? evtB = null;
             try
             {
-                (_, _, _, _, Vessel vessel, Captain captain, Voyage voyage, Mission mission, _, _, ArmadaEvent evtA, _) = await SeedOperationalGraphAsync(fixture, token).ConfigureAwait(false);
+                OperationalGraphResult graph = await SeedOperationalGraphAsync(fixture, token).ConfigureAwait(false);
+                Vessel vessel = graph.Vessel;
+                Captain captain = graph.Captain;
+                Voyage voyage = graph.Voyage;
+                Mission mission = graph.Mission;
+                ArmadaEvent evtA = graph.Event;
                 evtB = new ArmadaEvent("mission.updated", "Mission updated for integration test")
                 {
                     TenantId = evtA.TenantId,
@@ -615,7 +682,12 @@ namespace Armada.Test.Database
             DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
             try
             {
-                (TenantMetadata tenant, UserMaster user, _, _, Vessel vessel, _, _, Mission mission, _, _, _, MergeEntry merge) = await SeedOperationalGraphAsync(fixture, token).ConfigureAwait(false);
+                OperationalGraphResult graph = await SeedOperationalGraphAsync(fixture, token).ConfigureAwait(false);
+                TenantMetadata tenant = graph.Tenant;
+                UserMaster user = graph.User;
+                Vessel vessel = graph.Vessel;
+                Mission mission = graph.Mission;
+                MergeEntry merge = graph.MergeEntry;
                 MergeEntry? read = await _Driver.MergeEntries.ReadAsync(merge.Id, token).ConfigureAwait(false);
                 read = DatabaseAssert.NotNull(read, "Merge entry read returned null");
                 DatabaseAssert.Equal(tenant.Id, read.TenantId, "MergeEntry.TenantId");
@@ -642,7 +714,8 @@ namespace Armada.Test.Database
             DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
             try
             {
-                (_, _, _, _, _, _, _, _, _, _, _, MergeEntry merge) = await SeedOperationalGraphAsync(fixture, token).ConfigureAwait(false);
+                OperationalGraphResult graph = await SeedOperationalGraphAsync(fixture, token).ConfigureAwait(false);
+                MergeEntry merge = graph.MergeEntry;
                 DatabaseAssert.True(await _Driver.MergeEntries.ExistsAsync(merge.Id, token).ConfigureAwait(false), "MergeEntry ExistsAsync should return true");
 
                 List<MergeEntry> queued = await _Driver.MergeEntries.EnumerateByStatusAsync(MergeStatusEnum.Queued, token).ConfigureAwait(false);
@@ -650,6 +723,279 @@ namespace Armada.Test.Database
 
                 List<MergeEntry> all = await _Driver.MergeEntries.EnumerateAsync(token).ConfigureAwait(false);
                 DatabaseAssert.ContainsIds(all, x => x.Id, merge.Id);
+            }
+            finally
+            {
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
+        private async Task TestWorkflowProfileCrudAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            try
+            {
+                TenantMetadata tenant = await fixture.CreateTenantAsync("workflow-profile-tenant", token: token).ConfigureAwait(false);
+                UserMaster user = await fixture.CreateUserAsync(tenant.Id, "workflow-profile-user", token: token).ConfigureAwait(false);
+                Fleet fleet = await fixture.CreateFleetAsync(tenant.Id, user.Id, "workflow-profile-fleet", token).ConfigureAwait(false);
+                Vessel vessel = await fixture.CreateVesselAsync(tenant.Id, user.Id, fleet.Id, "workflow-profile-vessel", token).ConfigureAwait(false);
+                WorkflowProfile profileA = await fixture.CreateWorkflowProfileAsync(tenant.Id, user.Id, "workflow-profile-a", fleet.Id, vessel.Id, token).ConfigureAwait(false);
+                WorkflowProfile profileB = await fixture.CreateWorkflowProfileAsync(tenant.Id, user.Id, "workflow-profile-b", fleet.Id, null, token).ConfigureAwait(false);
+
+                WorkflowProfile? read = await _Driver.WorkflowProfiles.ReadAsync(profileA.Id, null, token).ConfigureAwait(false);
+                read = DatabaseAssert.NotNull(read, "Workflow profile read returned null");
+                DatabaseAssert.Equal(tenant.Id, read.TenantId, "WorkflowProfile.TenantId");
+                DatabaseAssert.Equal(user.Id, read.UserId, "WorkflowProfile.UserId");
+                DatabaseAssert.Equal(vessel.Id, read.VesselId, "WorkflowProfile.VesselId");
+                DatabaseAssert.Equal(WorkflowProfileScopeEnum.Vessel, read.Scope, "WorkflowProfile.Scope");
+                DatabaseAssert.Equal("API_TOKEN", read.RequiredInputs[0].Key, "WorkflowProfile.RequiredInputs[0].Key");
+                DatabaseAssert.Equal("staging", read.Environments[0].EnvironmentName, "WorkflowProfile.Environments[0].EnvironmentName");
+
+                read.Description = "Updated workflow profile description";
+                read.BuildCommand = "dotnet build -c Release";
+                read.ExpectedArtifacts.Add("artifacts/extra.zip");
+                WorkflowProfile updated = await _Driver.WorkflowProfiles.UpdateAsync(read, token).ConfigureAwait(false);
+                DatabaseAssert.Equal("Updated workflow profile description", updated.Description, "Updated WorkflowProfile.Description");
+                DatabaseAssert.Equal("dotnet build -c Release", updated.BuildCommand, "Updated WorkflowProfile.BuildCommand");
+                DatabaseAssert.True(updated.ExpectedArtifacts.Contains("artifacts/extra.zip"), "Updated WorkflowProfile.ExpectedArtifacts");
+
+                EnumerationResult<WorkflowProfile> page = await _Driver.WorkflowProfiles.EnumerateAsync(new WorkflowProfileQuery
+                {
+                    TenantId = tenant.Id,
+                    UserId = user.Id,
+                    PageNumber = 1,
+                    PageSize = 10
+                }, token).ConfigureAwait(false);
+                DatabaseAssert.True(page.TotalRecords >= 2, "Workflow profile enumeration should include created profiles");
+                DatabaseAssert.ContainsIds(page.Objects, item => item.Id, profileA.Id, profileB.Id);
+            }
+            finally
+            {
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
+        private async Task TestCheckRunCrudAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            try
+            {
+                OperationalGraphResult graph = await SeedOperationalGraphAsync(fixture, token).ConfigureAwait(false);
+                WorkflowProfile profile = await fixture.CreateWorkflowProfileAsync(graph.Tenant.Id, graph.User.Id, "checkrun-profile", graph.Fleet.Id, graph.Vessel.Id, token).ConfigureAwait(false);
+                CheckRun runA = await fixture.CreateCheckRunAsync(graph.Tenant.Id, graph.User.Id, graph.Vessel.Id, profile.Id, graph.Mission.Id, graph.Voyage.Id, token).ConfigureAwait(false);
+                CheckRun runB = await fixture.CreateCheckRunAsync(graph.Tenant.Id, graph.User.Id, graph.Vessel.Id, profile.Id, graph.Mission.Id, graph.Voyage.Id, token).ConfigureAwait(false);
+
+                CheckRun? read = await _Driver.CheckRuns.ReadAsync(runA.Id, null, token).ConfigureAwait(false);
+                read = DatabaseAssert.NotNull(read, "Check run read returned null");
+                DatabaseAssert.Equal(graph.Tenant.Id, read.TenantId, "CheckRun.TenantId");
+                DatabaseAssert.Equal(graph.User.Id, read.UserId, "CheckRun.UserId");
+                DatabaseAssert.Equal(graph.Vessel.Id, read.VesselId, "CheckRun.VesselId");
+                DatabaseAssert.Equal(profile.Id, read.WorkflowProfileId, "CheckRun.WorkflowProfileId");
+                DatabaseAssert.Equal(CheckRunStatusEnum.Passed, read.Status, "CheckRun.Status");
+                DatabaseAssert.Equal(1, read.Artifacts.Count, "CheckRun.Artifacts.Count");
+
+                read.Status = CheckRunStatusEnum.Failed;
+                read.ExitCode = 1;
+                read.Summary = "Fixture check failed.";
+                CheckRun updated = await _Driver.CheckRuns.UpdateAsync(read, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(CheckRunStatusEnum.Failed, updated.Status, "Updated CheckRun.Status");
+                DatabaseAssert.Equal(1, updated.ExitCode, "Updated CheckRun.ExitCode");
+                DatabaseAssert.Equal("Fixture check failed.", updated.Summary, "Updated CheckRun.Summary");
+
+                EnumerationResult<CheckRun> page = await _Driver.CheckRuns.EnumerateAsync(new CheckRunQuery
+                {
+                    TenantId = graph.Tenant.Id,
+                    UserId = graph.User.Id,
+                    VesselId = graph.Vessel.Id,
+                    PageNumber = 1,
+                    PageSize = 10
+                }, token).ConfigureAwait(false);
+                DatabaseAssert.True(page.TotalRecords >= 2, "Check run enumeration should include created check runs");
+                DatabaseAssert.ContainsIds(page.Objects, item => item.Id, runA.Id, runB.Id);
+            }
+            finally
+            {
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
+        private async Task TestEnvironmentCrudAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            try
+            {
+                OperationalGraphResult graph = await SeedOperationalGraphAsync(fixture, token).ConfigureAwait(false);
+                DeploymentEnvironment environmentA = await fixture.CreateDeploymentEnvironmentAsync(
+                    graph.Tenant.Id,
+                    graph.User.Id,
+                    graph.Vessel.Id,
+                    "environment-a",
+                    EnvironmentKindEnum.Staging,
+                    true,
+                    token).ConfigureAwait(false);
+                DeploymentEnvironment environmentB = await fixture.CreateDeploymentEnvironmentAsync(
+                    graph.Tenant.Id,
+                    graph.User.Id,
+                    graph.Vessel.Id,
+                    "environment-b",
+                    EnvironmentKindEnum.Production,
+                    false,
+                    token).ConfigureAwait(false);
+
+                DeploymentEnvironment? read = await _Driver.Environments.ReadAsync(environmentA.Id, null, token).ConfigureAwait(false);
+                read = DatabaseAssert.NotNull(read, "Environment read returned null");
+                DatabaseAssert.Equal(graph.Tenant.Id, read.TenantId, "Environment.TenantId");
+                DatabaseAssert.Equal(graph.User.Id, read.UserId, "Environment.UserId");
+                DatabaseAssert.Equal(graph.Vessel.Id, read.VesselId, "Environment.VesselId");
+                DatabaseAssert.Equal(EnvironmentKindEnum.Staging, read.Kind, "Environment.Kind");
+                DatabaseAssert.Equal(true, read.IsDefault, "Environment.IsDefault");
+
+                read.Kind = EnvironmentKindEnum.Production;
+                read.RequiresApproval = true;
+                read.BaseUrl = "https://production.example.test";
+                DeploymentEnvironment updated = await _Driver.Environments.UpdateAsync(read, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(EnvironmentKindEnum.Production, updated.Kind, "Updated Environment.Kind");
+                DatabaseAssert.Equal(true, updated.RequiresApproval, "Updated Environment.RequiresApproval");
+                DatabaseAssert.Equal("https://production.example.test", updated.BaseUrl, "Updated Environment.BaseUrl");
+
+                EnumerationResult<DeploymentEnvironment> page = await _Driver.Environments.EnumerateAsync(new DeploymentEnvironmentQuery
+                {
+                    TenantId = graph.Tenant.Id,
+                    UserId = graph.User.Id,
+                    VesselId = graph.Vessel.Id,
+                    PageNumber = 1,
+                    PageSize = 10
+                }, token).ConfigureAwait(false);
+                DatabaseAssert.True(page.TotalRecords >= 2, "Environment enumeration should include created environments");
+                DatabaseAssert.ContainsIds(page.Objects, item => item.Id, environmentA.Id, environmentB.Id);
+            }
+            finally
+            {
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
+        private async Task TestReleaseCrudAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            try
+            {
+                OperationalGraphResult graph = await SeedOperationalGraphAsync(fixture, token).ConfigureAwait(false);
+                WorkflowProfile profile = await fixture.CreateWorkflowProfileAsync(graph.Tenant.Id, graph.User.Id, "release-profile", graph.Fleet.Id, graph.Vessel.Id, token).ConfigureAwait(false);
+                CheckRun checkRun = await fixture.CreateCheckRunAsync(graph.Tenant.Id, graph.User.Id, graph.Vessel.Id, profile.Id, graph.Mission.Id, graph.Voyage.Id, token).ConfigureAwait(false);
+                Release releaseA = await fixture.CreateReleaseAsync(
+                    graph.Tenant.Id,
+                    graph.User.Id,
+                    graph.Vessel.Id,
+                    profile.Id,
+                    new[] { graph.Voyage.Id },
+                    new[] { graph.Mission.Id },
+                    new[] { checkRun.Id },
+                    token).ConfigureAwait(false);
+                Release releaseB = await fixture.CreateReleaseAsync(graph.Tenant.Id, graph.User.Id, graph.Vessel.Id, profile.Id, null, null, null, token).ConfigureAwait(false);
+
+                Release? read = await _Driver.Releases.ReadAsync(releaseA.Id, null, token).ConfigureAwait(false);
+                read = DatabaseAssert.NotNull(read, "Release read returned null");
+                DatabaseAssert.Equal(graph.Tenant.Id, read.TenantId, "Release.TenantId");
+                DatabaseAssert.Equal(graph.User.Id, read.UserId, "Release.UserId");
+                DatabaseAssert.Equal(graph.Vessel.Id, read.VesselId, "Release.VesselId");
+                DatabaseAssert.Equal(profile.Id, read.WorkflowProfileId, "Release.WorkflowProfileId");
+                DatabaseAssert.Equal(1, read.CheckRunIds.Count, "Release.CheckRunIds.Count");
+                DatabaseAssert.Equal(1, read.Artifacts.Count, "Release.Artifacts.Count");
+
+                read.Status = ReleaseStatusEnum.Shipped;
+                read.PublishedUtc = DateTime.UtcNow;
+                read.Summary = "Updated release summary";
+                Release updated = await _Driver.Releases.UpdateAsync(read, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(ReleaseStatusEnum.Shipped, updated.Status, "Updated Release.Status");
+                DatabaseAssert.Equal("Updated release summary", updated.Summary, "Updated Release.Summary");
+                DatabaseAssert.True(updated.PublishedUtc.HasValue, "Updated Release.PublishedUtc");
+
+                EnumerationResult<Release> page = await _Driver.Releases.EnumerateAsync(new ReleaseQuery
+                {
+                    TenantId = graph.Tenant.Id,
+                    UserId = graph.User.Id,
+                    VesselId = graph.Vessel.Id,
+                    PageNumber = 1,
+                    PageSize = 10
+                }, token).ConfigureAwait(false);
+                DatabaseAssert.True(page.TotalRecords >= 2, "Release enumeration should include created releases");
+                DatabaseAssert.ContainsIds(page.Objects, item => item.Id, releaseA.Id, releaseB.Id);
+            }
+            finally
+            {
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
+        private async Task TestDeploymentCrudAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            try
+            {
+                OperationalGraphResult graph = await SeedOperationalGraphAsync(fixture, token).ConfigureAwait(false);
+                WorkflowProfile profile = await fixture.CreateWorkflowProfileAsync(graph.Tenant.Id, graph.User.Id, "deployment-profile", graph.Fleet.Id, graph.Vessel.Id, token).ConfigureAwait(false);
+                Release release = await fixture.CreateReleaseAsync(graph.Tenant.Id, graph.User.Id, graph.Vessel.Id, profile.Id, null, null, null, token).ConfigureAwait(false);
+                DeploymentEnvironment environment = await fixture.CreateDeploymentEnvironmentAsync(
+                    graph.Tenant.Id,
+                    graph.User.Id,
+                    graph.Vessel.Id,
+                    "deployment-environment",
+                    EnvironmentKindEnum.Staging,
+                    true,
+                    token).ConfigureAwait(false);
+                Deployment deploymentA = await fixture.CreateDeploymentAsync(
+                    graph.Tenant.Id,
+                    graph.User.Id,
+                    graph.Vessel.Id,
+                    environment.Id,
+                    environment.Name,
+                    profile.Id,
+                    release.Id,
+                    graph.Mission.Id,
+                    graph.Voyage.Id,
+                    token).ConfigureAwait(false);
+                Deployment deploymentB = await fixture.CreateDeploymentAsync(
+                    graph.Tenant.Id,
+                    graph.User.Id,
+                    graph.Vessel.Id,
+                    environment.Id,
+                    environment.Name,
+                    profile.Id,
+                    null,
+                    null,
+                    null,
+                    token).ConfigureAwait(false);
+
+                Deployment? read = await _Driver.Deployments.ReadAsync(deploymentA.Id, null, token).ConfigureAwait(false);
+                read = DatabaseAssert.NotNull(read, "Deployment read returned null");
+                DatabaseAssert.Equal(graph.Tenant.Id, read.TenantId, "Deployment.TenantId");
+                DatabaseAssert.Equal(graph.User.Id, read.UserId, "Deployment.UserId");
+                DatabaseAssert.Equal(graph.Vessel.Id, read.VesselId, "Deployment.VesselId");
+                DatabaseAssert.Equal(profile.Id, read.WorkflowProfileId, "Deployment.WorkflowProfileId");
+                DatabaseAssert.Equal(environment.Id, read.EnvironmentId, "Deployment.EnvironmentId");
+                DatabaseAssert.Equal(release.Id, read.ReleaseId, "Deployment.ReleaseId");
+                DatabaseAssert.Equal(DeploymentStatusEnum.Succeeded, read.Status, "Deployment.Status");
+                DatabaseAssert.Equal(DeploymentVerificationStatusEnum.Passed, read.VerificationStatus, "Deployment.VerificationStatus");
+
+                read.Status = DeploymentStatusEnum.RolledBack;
+                read.VerificationStatus = DeploymentVerificationStatusEnum.Skipped;
+                read.Summary = "Rolled back after verification.";
+                Deployment updated = await _Driver.Deployments.UpdateAsync(read, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(DeploymentStatusEnum.RolledBack, updated.Status, "Updated Deployment.Status");
+                DatabaseAssert.Equal(DeploymentVerificationStatusEnum.Skipped, updated.VerificationStatus, "Updated Deployment.VerificationStatus");
+                DatabaseAssert.Equal("Rolled back after verification.", updated.Summary, "Updated Deployment.Summary");
+
+                EnumerationResult<Deployment> page = await _Driver.Deployments.EnumerateAsync(new DeploymentQuery
+                {
+                    TenantId = graph.Tenant.Id,
+                    UserId = graph.User.Id,
+                    VesselId = graph.Vessel.Id,
+                    PageNumber = 1,
+                    PageSize = 10
+                }, token).ConfigureAwait(false);
+                DatabaseAssert.True(page.TotalRecords >= 2, "Deployment enumeration should include created deployments");
+                DatabaseAssert.ContainsIds(page.Objects, item => item.Id, deploymentA.Id, deploymentB.Id);
             }
             finally
             {
@@ -725,7 +1071,7 @@ namespace Armada.Test.Database
             DatabaseAssert.ContainsIds(new[] { page1.Objects[0], page2.Objects[0] }, x => (string)x!.GetType().GetProperty("Id")!.GetValue(x)!, existingId, secondId);
         }
 
-        private async Task<(TenantMetadata tenant, UserMaster user, Credential credential, Fleet fleet, Vessel vessel, Captain captain, Voyage voyage, Mission mission, Dock dock, Signal signal, ArmadaEvent evt, MergeEntry merge)> SeedOperationalGraphAsync(DatabaseFixture fixture, CancellationToken token)
+        private async Task<OperationalGraphResult> SeedOperationalGraphAsync(DatabaseFixture fixture, CancellationToken token)
         {
             TenantMetadata tenant = await fixture.CreateTenantAsync("operational-tenant", token: token).ConfigureAwait(false);
             UserMaster user = await fixture.CreateUserAsync(tenant.Id, "operational-user", token: token).ConfigureAwait(false);
@@ -740,7 +1086,21 @@ namespace Armada.Test.Database
             ArmadaEvent evt = await fixture.CreateEventAsync(tenant.Id, user.Id, mission.Id, voyage.Id, vessel.Id, captain.Id, token).ConfigureAwait(false);
             MergeEntry merge = await fixture.CreateMergeEntryAsync(tenant.Id, user.Id, mission.Id, vessel.Id, token).ConfigureAwait(false);
 
-            return (tenant, user, credential, fleet, vessel, captain, voyage, mission, dock, signal, evt, merge);
+            return new OperationalGraphResult
+            {
+                Tenant = tenant,
+                User = user,
+                Credential = credential,
+                Fleet = fleet,
+                Vessel = vessel,
+                Captain = captain,
+                Voyage = voyage,
+                Mission = mission,
+                Dock = dock,
+                Signal = signal,
+                Event = evt,
+                MergeEntry = merge
+            };
         }
     }
 }

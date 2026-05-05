@@ -159,15 +159,15 @@ namespace Armada.Core.Services
         private Dictionary<string, string?> SanitizeHeaders(Dictionary<string, string?> headers)
         {
             Dictionary<string, string?> results = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
-            foreach ((string key, string? value) in headers)
+            foreach (KeyValuePair<string, string?> header in headers)
             {
-                if (_SensitiveHeaderNames.Contains(key))
+                if (_SensitiveHeaderNames.Contains(header.Key))
                 {
-                    results[key] = "[REDACTED]";
+                    results[header.Key] = "[REDACTED]";
                 }
                 else
                 {
-                    results[key] = value;
+                    results[header.Key] = header.Value;
                 }
             }
             return results;
@@ -176,9 +176,9 @@ namespace Armada.Core.Services
         private Dictionary<string, string?> SanitizeParameters(Dictionary<string, string?> values)
         {
             Dictionary<string, string?> results = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
-            foreach ((string key, string? value) in values)
+            foreach (KeyValuePair<string, string?> value in values)
             {
-                results[key] = _SensitiveBodyKeys.Contains(key) ? "[REDACTED]" : value;
+                results[value.Key] = _SensitiveBodyKeys.Contains(value.Key) ? "[REDACTED]" : value.Value;
             }
             return results;
         }

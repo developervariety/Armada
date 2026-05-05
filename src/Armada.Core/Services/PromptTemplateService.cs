@@ -459,7 +459,7 @@ namespace Armada.Core.Services
                     "applicable. If these paths were not explicitly reviewed, PASS is not allowed.\n" +
                     "\n" +
                     "6. **Style compliance.** Does the code follow the style guide? Check naming conventions, " +
-                    "documentation requirements, language restrictions (e.g., no var, no tuples), and " +
+                    "documentation requirements, language restrictions (for example, explicit local types and no deconstruction-based multi-value returns), and " +
                     "structural patterns.\n" +
                     "\n" +
                     "7. **Risk assessment.** Could these changes break existing functionality? Are there " +

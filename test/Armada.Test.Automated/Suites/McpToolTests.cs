@@ -89,6 +89,9 @@ namespace Armada.Test.Automated.Suites
                     "status",
                     "stop_server",
                     "enumerate",
+                    "get_check_run",
+                    "run_check",
+                    "retry_check_run",
                     "get_fleet",
                     "create_fleet",
                     "update_fleet",
@@ -119,7 +122,9 @@ namespace Armada.Test.Automated.Suites
                     "get_merge_entry",
                     "enqueue_merge",
                     "cancel_merge",
-                    "process_merge_queue"
+                    "process_merge_queue",
+                    "get_release",
+                    "create_release"
                 };
 
                 foreach (string name in expected)
@@ -163,6 +168,90 @@ namespace Armada.Test.Automated.Suites
                     toolNames.Add(name);
                 }
                 AssertEqual(toolNames.Count, toolNames.Distinct().Count());
+            }).ConfigureAwait(false);
+
+            await RunTest("CheckRunTools_RunInspectAndRetry", async () =>
+            {
+                string fleetId = await RestCreateFleetAsync("McpCheckFleet").ConfigureAwait(false);
+                string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-mcp-check-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(workingDirectory);
+                string vesselId = await RestCreateVesselAsync(fleetId, "McpCheckVessel", workingDirectory).ConfigureAwait(false);
+
+                JsonElement runResult = await CallToolAsync("run_check", new
+                {
+                    vesselId = vesselId,
+                    type = "Build",
+                    label = "MCP Build Check",
+                    commandOverride = "echo mcp-check"
+                }).ConfigureAwait(false);
+                AssertToolResultValid(runResult);
+                CheckRun run = JsonHelper.Deserialize<CheckRun>(GetToolResultText(runResult));
+                AssertStartsWith("chk_", run.Id);
+
+                JsonElement getResult = await CallToolAsync("get_check_run", new
+                {
+                    checkRunId = run.Id
+                }).ConfigureAwait(false);
+                AssertToolResultValid(getResult);
+                CheckRun fetched = JsonHelper.Deserialize<CheckRun>(GetToolResultText(getResult));
+                AssertEqual(run.Id, fetched.Id);
+                AssertEqual("MCP Build Check", fetched.Label);
+
+                JsonElement retryResult = await CallToolAsync("retry_check_run", new
+                {
+                    checkRunId = run.Id
+                }).ConfigureAwait(false);
+                AssertToolResultValid(retryResult);
+                CheckRun retried = JsonHelper.Deserialize<CheckRun>(GetToolResultText(retryResult));
+                AssertStartsWith("chk_", retried.Id);
+                AssertFalse(String.Equals(run.Id, retried.Id, StringComparison.Ordinal), "Retry should create a distinct check run ID");
+            }).ConfigureAwait(false);
+
+            await RunTest("ReleaseTools_CreateReadAndEnumerate", async () =>
+            {
+                string fleetId = await RestCreateFleetAsync("McpReleaseFleet").ConfigureAwait(false);
+                string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-mcp-release-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(workingDirectory);
+                string vesselId = await RestCreateVesselAsync(fleetId, "McpReleaseVessel", workingDirectory).ConfigureAwait(false);
+
+                JsonElement runResult = await CallToolAsync("run_check", new
+                {
+                    vesselId = vesselId,
+                    type = "ReleaseVersioning",
+                    label = "Version Check",
+                    commandOverride = "echo 2.3.4"
+                }).ConfigureAwait(false);
+                AssertToolResultValid(runResult);
+                CheckRun run = JsonHelper.Deserialize<CheckRun>(GetToolResultText(runResult));
+
+                JsonElement createResult = await CallToolAsync("create_release", new
+                {
+                    vesselId = vesselId,
+                    title = "MCP Draft Release",
+                    checkRunIds = new[] { run.Id }
+                }).ConfigureAwait(false);
+                AssertToolResultValid(createResult);
+                Release release = JsonHelper.Deserialize<Release>(GetToolResultText(createResult));
+                AssertStartsWith("rel_", release.Id);
+
+                JsonElement getResult = await CallToolAsync("get_release", new
+                {
+                    releaseId = release.Id
+                }).ConfigureAwait(false);
+                AssertToolResultValid(getResult);
+                Release fetched = JsonHelper.Deserialize<Release>(GetToolResultText(getResult));
+                AssertEqual(release.Id, fetched.Id);
+                AssertEqual("MCP Draft Release", fetched.Title);
+
+                JsonElement enumerateResult = await CallToolAsync("enumerate", new
+                {
+                    entityType = "releases",
+                    pageSize = 50,
+                    search = "MCP Draft Release"
+                }).ConfigureAwait(false);
+                AssertToolResultValid(enumerateResult);
+                string enumerateText = GetToolResultText(enumerateResult);
+                AssertContains(release.Id, enumerateText);
             }).ConfigureAwait(false);
 
             // ArmadaStatus
@@ -1894,14 +1983,15 @@ namespace Armada.Test.Automated.Suites
             return fleet.Id;
         }
 
-        private async Task<string> RestCreateVesselAsync(string fleetId, string name = "McpTestVessel")
+        private async Task<string> RestCreateVesselAsync(string fleetId, string name = "McpTestVessel", string? workingDirectory = null)
         {
             string uniqueName = name + "-" + Guid.NewGuid().ToString("N").Substring(0, 8);
             JsonElement result = await CallToolAsync("add_vessel", new
             {
                 name = uniqueName,
                 repoUrl = TestRepoHelper.GetLocalBareRepoUrl(),
-                fleetId = fleetId
+                fleetId = fleetId,
+                workingDirectory = workingDirectory
             }).ConfigureAwait(false);
             string text = GetToolResultText(result);
             Vessel vessel = JsonHelper.Deserialize<Vessel>(text);

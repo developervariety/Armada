@@ -28,6 +28,11 @@ namespace Armada.Core.Models
         public string? VoyageId { get; set; } = null;
 
         /// <summary>
+        /// Optional deployment link.
+        /// </summary>
+        public string? DeploymentId { get; set; } = null;
+
+        /// <summary>
         /// Check type to execute.
         /// </summary>
         public CheckRunTypeEnum Type { get; set; } = CheckRunTypeEnum.Build;

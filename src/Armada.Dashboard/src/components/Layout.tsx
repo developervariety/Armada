@@ -5,7 +5,7 @@ import { useLocale } from '../context/LocaleContext';
 import { useTheme } from '../context/ThemeContext';
 import { useWebSocket } from '../context/WebSocketContext';
 import { useNotifications } from '../context/NotificationContext';
-import { getHealth } from '../api/client';
+import { getHealth, listCaptains, listFleets, listVessels } from '../api/client';
 import SetupWizard, { isSetupComplete } from './SetupWizard';
 import LanguageSelector from './shared/LanguageSelector';
 
@@ -43,7 +43,7 @@ const navSections: NavSection[] = [
   {
     key: 'operations',
     label: 'OPERATIONS',
-    matchers: ['/dispatch', '/planning', '/voyages', '/missions', '/merge-queue'],
+    matchers: ['/dispatch', '/planning', '/objectives', '/voyages', '/missions', '/merge-queue'],
     items: [
       {
         to: '/planning',
@@ -65,6 +65,19 @@ const navSections: NavSection[] = [
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M22 2 11 13" />
             <polygon points="22 2 15 22 11 13 2 9 22 2" />
+          </svg>
+        ),
+      },
+      {
+        to: '/objectives',
+        label: 'Objectives',
+        tooltip: 'Capture scoped work, acceptance criteria, constraints, and linked delivery evidence before or alongside execution',
+        icon: (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 4h16v16H4z" />
+            <path d="M8 8h8" />
+            <path d="M8 12h8" />
+            <path d="M8 16h5" />
           </svg>
         ),
       },
@@ -109,7 +122,7 @@ const navSections: NavSection[] = [
   {
     key: 'delivery',
     label: 'DELIVERY',
-    matchers: ['/workflow-profiles', '/checks'],
+    matchers: ['/workflow-profiles', '/checks', '/environments', '/deployments', '/releases', '/incidents', '/runbooks'],
     items: [
       {
         to: '/workflow-profiles',
@@ -131,6 +144,70 @@ const navSections: NavSection[] = [
         icon: (
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M20 6 9 17l-5-5" />
+          </svg>
+        ),
+      },
+      {
+        to: '/environments',
+        label: 'Environments',
+        tooltip: 'Named deployment targets with environment metadata, URLs, approval rules, and access notes',
+        icon: (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 11h18" />
+            <path d="M6 7h12" />
+            <path d="M8 15h8" />
+            <path d="M10 19h4" />
+            <path d="M12 3v4" />
+          </svg>
+        ),
+      },
+      {
+        to: '/deployments',
+        label: 'Deployments',
+        tooltip: 'Approve, execute, verify, and roll back deployments into named environments',
+        icon: (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 3v12" />
+            <path d="m7 10 5 5 5-5" />
+            <path d="M5 21h14" />
+          </svg>
+        ),
+      },
+      {
+        to: '/releases',
+        label: 'Releases',
+        tooltip: 'Draft, candidate, shipped, failed, and rolled-back release records tied to work, checks, notes, and artifacts',
+        icon: (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M7 3h10l4 4v14H3V3h4" />
+            <path d="M7 3v6h10" />
+            <path d="M9 13h6" />
+            <path d="M9 17h6" />
+          </svg>
+        ),
+      },
+      {
+        to: '/incidents',
+        label: 'Incidents',
+        tooltip: 'Operational incidents tied to deployments, environments, rollback, hotfix planning, and postmortems',
+        icon: (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 9v4" />
+            <path d="M12 17h.01" />
+            <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+          </svg>
+        ),
+      },
+      {
+        to: '/runbooks',
+        label: 'Runbooks',
+        tooltip: 'Playbook-backed operational runbooks with parameters, step tracking, and execution history',
+        icon: (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+            <path d="M8 7h8" />
+            <path d="M8 11h8" />
           </svg>
         ),
       },
@@ -207,8 +284,20 @@ const navSections: NavSection[] = [
   {
     key: 'activity',
     label: 'ACTIVITY',
-    matchers: ['/signals', '/events', '/notifications'],
+    matchers: ['/history', '/signals', '/events', '/notifications'],
     items: [
+      {
+        to: '/history',
+        label: 'History',
+        tooltip: 'Cross-entity timeline spanning missions, checks, requests, planning, merge queue, and events',
+        icon: (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 12h18" />
+            <path d="M12 3v18" />
+            <circle cx="12" cy="12" r="9" />
+          </svg>
+        ),
+      },
       {
         to: '/signals',
         label: 'Signals',
@@ -275,7 +364,7 @@ const navSections: NavSection[] = [
       },
       {
         to: '/prompt-templates',
-        label: 'Templates',
+        label: 'Prompts',
         tooltip: 'Customizable prompt templates injected into agent instructions',
         icon: (
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -407,7 +496,7 @@ export default function Layout() {
   const { darkMode, toggleTheme } = useTheme();
   const { connected } = useWebSocket();
   const { unreadCount, toasts, dismissToast } = useNotifications();
-  const [showWizard, setShowWizard] = useState(() => !isSetupComplete());
+  const [showWizard, setShowWizard] = useState(false);
   const [wizardHighlights, setWizardHighlights] = useState<string[]>([]);
   const [collapsed, setCollapsed] = useState(() => {
     try {
@@ -416,20 +505,13 @@ export default function Layout() {
       return false;
     }
   });
-  const [sections, setSections] = useState<Record<string, boolean>>(() => {
-    try {
-      const stored = localStorage.getItem('armada_sidebar_sections');
-      if (stored) return JSON.parse(stored) as Record<string, boolean>;
-    } catch {
-      // ignore
-    }
-    return {
-      operations: true,
-      fleet: true,
-      activity: true,
-      system: true,
-      security: true,
-    };
+  const [sections, setSections] = useState<Record<string, boolean>>({
+    operations: true,
+    delivery: true,
+    fleet: true,
+    activity: true,
+    system: true,
+    security: true,
   });
   const [healthStatus, setHealthStatus] = useState<HealthStatus>('unknown');
 
@@ -440,14 +522,6 @@ export default function Layout() {
       // ignore
     }
   }, [collapsed]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('armada_sidebar_sections', JSON.stringify(sections));
-    } catch {
-      // ignore
-    }
-  }, [sections]);
 
   const toggleSection = useCallback((key: string) => {
     setSections((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -475,6 +549,51 @@ export default function Layout() {
     return () => {
       mounted = false;
       clearInterval(timer);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (isSetupComplete()) {
+      setShowWizard(false);
+      return;
+    }
+
+    let mounted = true;
+    async function evaluateWizardVisibility() {
+      try {
+        const [fleetResult, vesselResult, captainResult] = await Promise.all([
+          listFleets({ pageSize: 1 }),
+          listVessels({ pageSize: 1 }),
+          listCaptains({ pageSize: 1 }),
+        ]);
+
+        if (!mounted) return;
+
+        const hasFleet = (fleetResult.objects || []).length > 0;
+        const hasVessel = (vesselResult.objects || []).length > 0;
+        const hasCaptain = (captainResult.objects || []).length > 0;
+        setShowWizard(!hasFleet || !hasVessel || !hasCaptain);
+      } catch {
+        if (mounted) {
+          setShowWizard(true);
+        }
+      }
+    }
+
+    evaluateWizardVisibility();
+    return () => {
+      mounted = false;
+    };
+  }, [user?.user?.id]);
+
+  useEffect(() => {
+    function handleOpenSetupWizard() {
+      setShowWizard(true);
+    }
+
+    window.addEventListener('armada:open-setup-wizard', handleOpenSetupWizard);
+    return () => {
+      window.removeEventListener('armada:open-setup-wizard', handleOpenSetupWizard);
     };
   }, []);
 

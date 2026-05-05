@@ -3,6 +3,7 @@ namespace Armada.Core.Database.SqlServer
     using System;
     using System.Collections.Generic;
     using System.Globalization;
+    using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
     using Microsoft.Data.SqlClient;
@@ -76,7 +77,10 @@ namespace Armada.Core.Database.SqlServer
             Personas = new PersonaMethods(this, _Settings, _Logging);
             Pipelines = new PipelineMethods(this, _Settings, _Logging);
             WorkflowProfiles = new WorkflowProfileMethods(this);
+            Environments = new DeploymentEnvironmentMethods(this);
             CheckRuns = new CheckRunMethods(this);
+            Releases = new ReleaseMethods(this);
+            Deployments = new DeploymentMethods(this);
         }
 
         #endregion
@@ -366,9 +370,24 @@ namespace Armada.Core.Database.SqlServer
             string? branchCleanupStr = NullableString(reader["branch_cleanup_policy"]);
             if (!String.IsNullOrEmpty(branchCleanupStr) && Enum.TryParse<BranchCleanupPolicyEnum>(branchCleanupStr, out BranchCleanupPolicyEnum bcp))
                 vessel.BranchCleanupPolicy = bcp;
+            try { vessel.RequirePassingChecksToLand = Convert.ToBoolean(reader["require_passing_checks_to_land"]); }
+            catch { vessel.RequirePassingChecksToLand = false; }
             try { vessel.AllowConcurrentMissions = Convert.ToBoolean(reader["allow_concurrent_missions"]); }
             catch { vessel.AllowConcurrentMissions = false; }
             try { vessel.DefaultPipelineId = NullableString(reader["default_pipeline_id"]); } catch { }
+            try
+            {
+                string? protectedPatternsJson = NullableString(reader["protected_branch_patterns_json"]);
+                if (!String.IsNullOrWhiteSpace(protectedPatternsJson))
+                    vessel.ProtectedBranchPatterns = JsonSerializer.Deserialize<List<string>>(protectedPatternsJson) ?? new List<string>();
+            }
+            catch { }
+            try { vessel.ReleaseBranchPrefix = NullableString(reader["release_branch_prefix"]) ?? "release/"; } catch { vessel.ReleaseBranchPrefix = "release/"; }
+            try { vessel.HotfixBranchPrefix = NullableString(reader["hotfix_branch_prefix"]) ?? "hotfix/"; } catch { vessel.HotfixBranchPrefix = "hotfix/"; }
+            try { vessel.RequirePullRequestForProtectedBranches = Convert.ToBoolean(reader["require_pull_request_for_protected_branches"]); }
+            catch { vessel.RequirePullRequestForProtectedBranches = false; }
+            try { vessel.RequireMergeQueueForReleaseBranches = Convert.ToBoolean(reader["require_merge_queue_for_release_branches"]); }
+            catch { vessel.RequireMergeQueueForReleaseBranches = false; }
             vessel.DefaultBranch = reader["default_branch"].ToString()!;
             vessel.Active = Convert.ToBoolean(reader["active"]);
             vessel.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);

@@ -7,7 +7,9 @@ namespace Armada.Server.Mcp.Tools
     using System.Threading.Tasks;
     using Armada.Core;
     using Armada.Core.Database;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
 
     /// <summary>
@@ -33,19 +35,20 @@ namespace Armada.Server.Mcp.Tools
         {
             register(
                 "enumerate",
-                "Find and browse entities with paginated, filtered, sorted access to: fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, personas, prompt_templates, pipelines, playbooks, workflow_profiles, check_runs. Returns paginated results with total counts. Filter by vesselId, fleetId, captainId, voyageId, status, date range, and more.",
+                "Find and browse entities with paginated, filtered, sorted access to: objectives, fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, personas, prompt_templates, pipelines, playbooks, workflow_profiles, check_runs, releases, deployments, incidents, runbooks, and runbook_executions. Returns paginated results with total counts. Filter by vesselId, fleetId, captainId, voyageId, status, date range, and more.",
                 new
                 {
                     type = "object",
                     properties = new
                     {
-                        entityType = new { type = "string", description = "Entity type to enumerate: fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, personas, prompt_templates, pipelines, playbooks, workflow_profiles, check_runs" },
+                        entityType = new { type = "string", description = "Entity type to enumerate: objectives, fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, personas, prompt_templates, pipelines, playbooks, workflow_profiles, check_runs, releases, deployments, incidents, runbooks, runbook_executions" },
                         pageNumber = new { type = "integer", description = "Page number (1-based, default 1)" },
                         pageSize = new { type = "integer", description = "Results per page (default 10, max 1000)" },
                         order = new { type = "string", description = "Sort order: CreatedAscending, CreatedDescending (default)" },
                         createdAfter = new { type = "string", description = "ISO 8601 timestamp — only return entities created after this time" },
                         createdBefore = new { type = "string", description = "ISO 8601 timestamp — only return entities created before this time" },
                         status = new { type = "string", description = "Filter by status (entity-specific: Pending/InProgress/Complete/Failed/Cancelled for missions, Active/Complete/Cancelled for voyages, Idle/Working/Stalled for captains, Queued/Testing/Passed/Failed/Landed/Cancelled for merge queue)" },
+                        search = new { type = "string", description = "Optional free-text search where supported (currently releases)" },
                         fleetId = new { type = "string", description = "Filter by fleet ID (vessels)" },
                         vesselId = new { type = "string", description = "Filter by vessel ID (missions, docks)" },
                         captainId = new { type = "string", description = "Filter by captain ID (missions, events, signals)" },
@@ -71,6 +74,24 @@ namespace Armada.Server.Mcp.Tools
 
                     switch (entityType)
                     {
+                        case "objectives":
+                        case "objective":
+                            ObjectiveService objectives = new ObjectiveService(database);
+                            EnumerationResult<Objective> objectiveResult = await objectives.EnumerateAsync(
+                                McpToolHelpers.CreateDefaultTenantAdminContext(),
+                                new ObjectiveQuery
+                                {
+                                    PageNumber = query.PageNumber,
+                                    PageSize = query.PageSize,
+                                    VesselId = query.VesselId,
+                                    VoyageId = query.VoyageId,
+                                    MissionId = query.MissionId,
+                                    Search = request.Search,
+                                    Status = !String.IsNullOrWhiteSpace(query.Status) && Enum.TryParse(query.Status, true, out ObjectiveStatusEnum objectiveStatus)
+                                        ? objectiveStatus
+                                        : null
+                                }).ConfigureAwait(false);
+                            return (object)objectiveResult;
                         case "fleets":
                         case "fleet":
                             EnumerationResult<Fleet> fleets = await database.Fleets.EnumerateAsync(query).ConfigureAwait(false);
@@ -221,6 +242,79 @@ namespace Armada.Server.Mcp.Tools
                                 return (object)projectedEvents;
                             }
                             return (object)events;
+                        case "releases":
+                        case "release":
+                            ReleaseQuery releaseQuery = new ReleaseQuery
+                            {
+                                PageNumber = query.PageNumber,
+                                PageSize = query.PageSize,
+                                FromUtc = query.CreatedAfter,
+                                ToUtc = query.CreatedBefore,
+                                Search = request.Search
+                            };
+                            if (!String.IsNullOrWhiteSpace(query.VesselId))
+                                releaseQuery.VesselId = query.VesselId;
+                            if (!String.IsNullOrWhiteSpace(query.Status) && Enum.TryParse(query.Status, true, out ReleaseStatusEnum releaseStatus))
+                                releaseQuery.Status = releaseStatus;
+                            EnumerationResult<Release> releases = await database.Releases.EnumerateAsync(releaseQuery).ConfigureAwait(false);
+                            return (object)releases;
+                        case "deployments":
+                        case "deployment":
+                            DeploymentQuery deploymentQuery = new DeploymentQuery
+                            {
+                                PageNumber = query.PageNumber,
+                                PageSize = query.PageSize,
+                                VesselId = query.VesselId,
+                                MissionId = query.MissionId,
+                                VoyageId = query.VoyageId,
+                                FromUtc = query.CreatedAfter,
+                                ToUtc = query.CreatedBefore,
+                                Search = request.Search
+                            };
+                            if (!String.IsNullOrWhiteSpace(query.Status) && Enum.TryParse(query.Status, true, out DeploymentStatusEnum deploymentStatus))
+                                deploymentQuery.Status = deploymentStatus;
+                            EnumerationResult<Deployment> deployments = await database.Deployments.EnumerateAsync(deploymentQuery).ConfigureAwait(false);
+                            return (object)deployments;
+                        case "incidents":
+                        case "incident":
+                            IncidentService incidents = new IncidentService(database);
+                            EnumerationResult<Incident> incidentResult = await incidents.EnumerateAsync(
+                                McpToolHelpers.CreateDefaultTenantAdminContext(),
+                                new IncidentQuery
+                                {
+                                    PageNumber = query.PageNumber,
+                                    PageSize = query.PageSize,
+                                    VesselId = query.VesselId,
+                                    MissionId = query.MissionId,
+                                    VoyageId = query.VoyageId,
+                                    Search = request.Search
+                                }).ConfigureAwait(false);
+                            return (object)incidentResult;
+                        case "runbooks":
+                        case "runbook":
+                            RunbookService runbooks = new RunbookService(database, new SyslogLogging.LoggingModule());
+                            EnumerationResult<Runbook> runbookResult = await runbooks.EnumerateAsync(
+                                McpToolHelpers.CreateDefaultTenantAdminContext(),
+                                new RunbookQuery
+                                {
+                                    PageNumber = query.PageNumber,
+                                    PageSize = query.PageSize,
+                                    Search = request.Search
+                                }).ConfigureAwait(false);
+                            return (object)runbookResult;
+                        case "runbook_executions":
+                        case "runbook-executions":
+                        case "runbookexecution":
+                            RunbookService executionService = new RunbookService(database, new SyslogLogging.LoggingModule());
+                            EnumerationResult<RunbookExecution> runbookExecutions = await executionService.EnumerateExecutionsAsync(
+                                McpToolHelpers.CreateDefaultTenantAdminContext(),
+                                new RunbookExecutionQuery
+                                {
+                                    PageNumber = query.PageNumber,
+                                    PageSize = query.PageSize,
+                                    Search = request.Search
+                                }).ConfigureAwait(false);
+                            return (object)runbookExecutions;
                         case "merge_queue":
                         case "merge-queue":
                         case "mergequeue":
@@ -322,7 +416,7 @@ namespace Armada.Server.Mcp.Tools
                             }).ConfigureAwait(false);
                             return (object)checkRuns;
                         default:
-                            return (object)new { Error = "Unknown entity type: " + entityType + ". Valid types: fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, personas, prompt_templates, pipelines, playbooks, workflow_profiles, check_runs" };
+                            return (object)new { Error = "Unknown entity type: " + entityType + ". Valid types: fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, personas, prompt_templates, pipelines, playbooks, workflow_profiles, check_runs, releases" };
                     }
                 });
         }

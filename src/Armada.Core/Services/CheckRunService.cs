@@ -15,19 +15,30 @@ namespace Armada.Core.Services
     /// </summary>
     public class CheckRunService
     {
+        /// <summary>
+        /// Optional callback invoked whenever a check run is created or updated.
+        /// </summary>
+        public Action<CheckRun>? OnCheckRunChanged { get; set; }
+
         private readonly string _Header = "[CheckRunService] ";
         private readonly DatabaseDriver _Database;
         private readonly WorkflowProfileService _WorkflowProfiles;
+        private readonly VesselReadinessService _Readiness;
         private readonly LoggingModule _Logging;
         private readonly TimeSpan _DefaultTimeout = TimeSpan.FromMinutes(30);
 
         /// <summary>
         /// Instantiate.
         /// </summary>
-        public CheckRunService(DatabaseDriver database, WorkflowProfileService workflowProfiles, LoggingModule logging)
+        public CheckRunService(
+            DatabaseDriver database,
+            WorkflowProfileService workflowProfiles,
+            VesselReadinessService readiness,
+            LoggingModule logging)
         {
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _WorkflowProfiles = workflowProfiles ?? throw new ArgumentNullException(nameof(workflowProfiles));
+            _Readiness = readiness ?? throw new ArgumentNullException(nameof(readiness));
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
         }
 
@@ -42,6 +53,25 @@ namespace Armada.Core.Services
 
             Vessel vessel = await ReadAccessibleVesselAsync(auth, request.VesselId, token).ConfigureAwait(false)
                 ?? throw new InvalidOperationException("Vessel not found or not accessible.");
+
+            VesselReadinessResult readiness = await _Readiness.EvaluateAsync(
+                auth,
+                vessel,
+                request.WorkflowProfileId,
+                String.IsNullOrWhiteSpace(request.CommandOverride) ? request.Type : null,
+                request.EnvironmentName,
+                includeWorkflowRequirements: String.IsNullOrWhiteSpace(request.CommandOverride),
+                token: token).ConfigureAwait(false);
+            if (!readiness.IsReady)
+            {
+                string message = String.Join(" ", readiness.Issues
+                    .Where(issue => issue.Severity == ReadinessSeverityEnum.Error)
+                    .Select(issue => issue.Message)
+                    .Distinct(StringComparer.Ordinal));
+                throw new InvalidOperationException(String.IsNullOrWhiteSpace(message)
+                    ? "This vessel is not ready for the requested check run."
+                    : message);
+            }
 
             if (String.IsNullOrWhiteSpace(vessel.WorkingDirectory) || !Directory.Exists(vessel.WorkingDirectory))
                 throw new InvalidOperationException("This vessel does not have a usable working directory.");
@@ -63,8 +93,10 @@ namespace Armada.Core.Services
                 VesselId = vessel.Id,
                 MissionId = request.MissionId,
                 VoyageId = request.VoyageId,
+                DeploymentId = request.DeploymentId,
                 Label = request.Label,
                 Type = request.Type,
+                Source = CheckRunSourceEnum.Armada,
                 Status = CheckRunStatusEnum.Running,
                 EnvironmentName = request.EnvironmentName,
                 Command = command,
@@ -77,6 +109,7 @@ namespace Armada.Core.Services
             };
 
             run = await _Database.CheckRuns.CreateAsync(run, token).ConfigureAwait(false);
+            OnCheckRunChanged?.Invoke(run);
 
             Stopwatch sw = Stopwatch.StartNew();
             CommandExecutionResult execution;
@@ -103,10 +136,110 @@ namespace Armada.Core.Services
             run.LastUpdateUtc = DateTime.UtcNow;
             run.Status = execution.ExitCode == 0 ? CheckRunStatusEnum.Passed : CheckRunStatusEnum.Failed;
             run.Artifacts = CollectArtifacts(run.WorkingDirectory!, profile?.ExpectedArtifacts);
+            run.TestSummary = CheckRunParsingService.ParseTestSummary(run.Output, run.WorkingDirectory, run.Artifacts);
+            run.CoverageSummary = CheckRunParsingService.ParseCoverageSummary(run.WorkingDirectory, run.Artifacts);
             run.Summary = BuildSummary(run, profile);
 
             run = await _Database.CheckRuns.UpdateAsync(run, token).ConfigureAwait(false);
+            OnCheckRunChanged?.Invoke(run);
             return run;
+        }
+
+        /// <summary>
+        /// Import an externally-executed check run into Armada history.
+        /// </summary>
+        public async Task<CheckRun> ImportAsync(AuthContext auth, CheckRunImportRequest request, CancellationToken token = default)
+        {
+            if (auth == null) throw new ArgumentNullException(nameof(auth));
+            if (request == null) throw new ArgumentNullException(nameof(request));
+            if (String.IsNullOrWhiteSpace(request.VesselId)) throw new ArgumentNullException(nameof(request.VesselId));
+
+            Vessel vessel = await ReadAccessibleVesselAsync(auth, request.VesselId, token).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("Vessel not found or not accessible.");
+
+            WorkflowProfile? profile = null;
+            if (!String.IsNullOrWhiteSpace(request.WorkflowProfileId))
+            {
+                profile = await _WorkflowProfiles.ResolveForVesselAsync(auth, vessel, request.WorkflowProfileId, token).ConfigureAwait(false);
+                if (profile == null)
+                    throw new InvalidOperationException("The supplied workflow profile is not accessible for this vessel.");
+            }
+
+            DateTime timestamp = request.CompletedUtc?.ToUniversalTime()
+                ?? request.StartedUtc?.ToUniversalTime()
+                ?? DateTime.UtcNow;
+            string command = !String.IsNullOrWhiteSpace(request.Command)
+                ? request.Command.Trim()
+                : request.Type + " (external)";
+
+            CheckRun run = new CheckRun
+            {
+                TenantId = vessel.TenantId,
+                UserId = auth.UserId,
+                WorkflowProfileId = profile?.Id,
+                VesselId = vessel.Id,
+                MissionId = request.MissionId,
+                VoyageId = request.VoyageId,
+                DeploymentId = request.DeploymentId,
+                Label = request.Label,
+                Type = request.Type,
+                Source = CheckRunSourceEnum.External,
+                Status = request.Status,
+                ProviderName = NormalizeValue(request.ProviderName),
+                ExternalId = NormalizeValue(request.ExternalId),
+                ExternalUrl = NormalizeValue(request.ExternalUrl),
+                EnvironmentName = NormalizeValue(request.EnvironmentName),
+                Command = command,
+                WorkingDirectory = vessel.WorkingDirectory,
+                BranchName = NormalizeValue(request.BranchName),
+                CommitHash = NormalizeValue(request.CommitHash),
+                ExitCode = request.ExitCode,
+                Output = request.Output,
+                Summary = NormalizeValue(request.Summary),
+                TestSummary = request.TestSummary ?? CheckRunParsingService.ParseTestSummary(request.Output),
+                CoverageSummary = request.CoverageSummary,
+                Artifacts = request.Artifacts ?? new List<CheckRunArtifact>(),
+                DurationMs = request.DurationMs,
+                StartedUtc = request.StartedUtc?.ToUniversalTime(),
+                CompletedUtc = request.CompletedUtc?.ToUniversalTime(),
+                CreatedUtc = timestamp,
+                LastUpdateUtc = DateTime.UtcNow
+            };
+
+            if (String.IsNullOrWhiteSpace(run.Summary))
+                run.Summary = BuildSummary(run, profile);
+
+            run = await _Database.CheckRuns.CreateAsync(run, token).ConfigureAwait(false);
+            OnCheckRunChanged?.Invoke(run);
+            return run;
+        }
+
+        /// <summary>
+        /// Persist a completed Armada-generated check run without executing a shell command.
+        /// </summary>
+        public async Task<CheckRun> RecordCompletedAsync(CheckRun run, CancellationToken token = default)
+        {
+            if (run == null) throw new ArgumentNullException(nameof(run));
+            if (String.IsNullOrWhiteSpace(run.VesselId))
+                throw new ArgumentNullException(nameof(run.VesselId));
+
+            if (run.StartedUtc == null)
+                run.StartedUtc = DateTime.UtcNow;
+            if (run.CompletedUtc == null)
+                run.CompletedUtc = DateTime.UtcNow;
+            if (!run.DurationMs.HasValue && run.CompletedUtc.HasValue && run.StartedUtc.HasValue)
+            {
+                run.DurationMs = Convert.ToInt64(Math.Round((run.CompletedUtc.Value - run.StartedUtc.Value).TotalMilliseconds));
+            }
+
+            run.CreatedUtc = run.CreatedUtc == default ? DateTime.UtcNow : run.CreatedUtc;
+            run.LastUpdateUtc = DateTime.UtcNow;
+            if (String.IsNullOrWhiteSpace(run.Summary))
+                run.Summary = BuildSummary(run, null);
+
+            CheckRun created = await _Database.CheckRuns.CreateAsync(run, token).ConfigureAwait(false);
+            OnCheckRunChanged?.Invoke(created);
+            return created;
         }
 
         /// <summary>
@@ -127,6 +260,7 @@ namespace Armada.Core.Services
                 WorkflowProfileId = prior.WorkflowProfileId,
                 MissionId = prior.MissionId,
                 VoyageId = prior.VoyageId,
+                DeploymentId = prior.DeploymentId,
                 Type = prior.Type,
                 EnvironmentName = prior.EnvironmentName,
                 Label = prior.Label,
@@ -285,11 +419,29 @@ namespace Armada.Core.Services
                 ? run.Label!
                 : run.Type.ToString();
 
+            string? testDetails = BuildTestSummaryText(run.TestSummary);
+            string? coverageDetails = BuildCoverageSummaryText(run.CoverageSummary);
+
             if (run.Status == CheckRunStatusEnum.Passed)
             {
+                List<string> parts = new List<string>();
+                if (!String.IsNullOrWhiteSpace(testDetails))
+                    parts.Add(testDetails);
                 if (run.Artifacts.Count > 0)
-                    return label + " passed and collected " + run.Artifacts.Count + " artifact(s).";
+                    parts.Add("collected " + run.Artifacts.Count + " artifact(s)");
+                if (!String.IsNullOrWhiteSpace(coverageDetails))
+                    parts.Add(coverageDetails);
+
+                if (parts.Count > 0)
+                    return label + " passed. " + String.Join("; ", parts) + ".";
                 return label + " passed.";
+            }
+
+            if (!String.IsNullOrWhiteSpace(testDetails))
+            {
+                if (!String.IsNullOrWhiteSpace(coverageDetails))
+                    return label + " failed. " + testDetails + "; " + coverageDetails + ".";
+                return label + " failed. " + testDetails + ".";
             }
 
             string details = FirstNonEmptyLine(run.Output, null);
@@ -297,6 +449,59 @@ namespace Armada.Core.Services
                 details = "Exit code " + (run.ExitCode?.ToString() ?? "unknown");
 
             return label + " failed. " + details;
+        }
+
+        private static string? BuildTestSummaryText(CheckRunTestSummary? summary)
+        {
+            if (summary == null)
+                return null;
+
+            List<string> parts = new List<string>();
+            if (summary.Passed.HasValue)
+                parts.Add(summary.Passed.Value + " passed");
+            if (summary.Failed.HasValue)
+                parts.Add(summary.Failed.Value + " failed");
+            if (summary.Skipped.HasValue && summary.Skipped.Value > 0)
+                parts.Add(summary.Skipped.Value + " skipped");
+            if (summary.Total.HasValue)
+                parts.Add(summary.Total.Value + " total");
+            if (summary.DurationMs.HasValue)
+                parts.Add("in " + FormatDuration(summary.DurationMs.Value));
+
+            return parts.Count > 0 ? String.Join(", ", parts) : null;
+        }
+
+        private static string? BuildCoverageSummaryText(CheckRunCoverageSummary? summary)
+        {
+            if (summary == null)
+                return null;
+
+            if (summary.Lines?.Percentage.HasValue == true)
+                return "line coverage " + summary.Lines.Percentage.Value.ToString("0.##") + "%";
+            if (summary.Statements?.Percentage.HasValue == true)
+                return "statement coverage " + summary.Statements.Percentage.Value.ToString("0.##") + "%";
+            if (summary.Functions?.Percentage.HasValue == true)
+                return "function coverage " + summary.Functions.Percentage.Value.ToString("0.##") + "%";
+            if (summary.Branches?.Percentage.HasValue == true)
+                return "branch coverage " + summary.Branches.Percentage.Value.ToString("0.##") + "%";
+            return null;
+        }
+
+        private static string FormatDuration(long durationMs)
+        {
+            if (durationMs < 1000)
+                return durationMs + " ms";
+
+            TimeSpan duration = TimeSpan.FromMilliseconds(durationMs);
+            if (duration.TotalMinutes >= 1)
+                return duration.TotalMinutes.ToString("0.##") + " min";
+
+            return duration.TotalSeconds.ToString("0.##") + " s";
+        }
+
+        private static string? NormalizeValue(string? value)
+        {
+            return String.IsNullOrWhiteSpace(value) ? null : value.Trim();
         }
 
         private sealed class CommandExecutionResult

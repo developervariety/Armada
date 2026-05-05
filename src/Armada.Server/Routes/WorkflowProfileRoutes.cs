@@ -117,9 +117,42 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("WorkflowProfiles")
                 .WithSummary("Validate a workflow profile")
-                .WithDescription("Validates a workflow-profile definition and previews available check types.")
+                .WithDescription("Validates a workflow-profile definition and previews the resolved command set and available check types.")
                 .WithRequestBody(OpenApiJson.BodyFor<WorkflowProfile>("Workflow profile", true))
                 .WithResponse(200, OpenApiJson.For<WorkflowProfileValidationResult>("Validation result"))
+                .WithSecurity("ApiKey"));
+
+            app.Get("/api/v1/workflow-profiles/preview/vessels/{vesselId}", async (ApiRequest req) =>
+            {
+                AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
+                if (ctx == null) return BuildAuthError(req);
+
+                string vesselId = req.Parameters["vesselId"];
+                Vessel? vessel = await ReadAccessibleVesselAsync(ctx, vesselId).ConfigureAwait(false);
+                if (vessel == null)
+                {
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Vessel not found" };
+                }
+
+                string? explicitProfileId = NormalizeEmpty(req.Query.GetValueOrDefault("workflowProfileId"));
+                WorkflowProfileResolutionPreviewResult? preview = await _workflowProfiles.PreviewForVesselAsync(ctx, vessel, explicitProfileId).ConfigureAwait(false);
+                if (preview == null || preview.ResolvedProfile == null)
+                {
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "No workflow profile could be resolved for this vessel" };
+                }
+
+                return preview;
+            },
+            api => api
+                .WithTag("WorkflowProfiles")
+                .WithSummary("Preview resolved workflow commands for a vessel")
+                .WithDescription("Resolves the active workflow profile for a vessel and returns the fully resolved command set, available check types, and resolution mode.")
+                .WithParameter(OpenApiParameterMetadata.Path("vesselId", "Vessel ID"))
+                .WithParameter(OpenApiParameterMetadata.Query("workflowProfileId", "Optional explicit workflow-profile override", false))
+                .WithResponse(200, OpenApiJson.For<WorkflowProfileResolutionPreviewResult>("Resolved workflow preview"))
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
             app.Get("/api/v1/workflow-profiles/resolve/vessels/{vesselId}", async (ApiRequest req) =>
@@ -255,11 +288,16 @@ namespace Armada.Server.Routes
                 existing.UnitTestCommand = NormalizeEmpty(incoming.UnitTestCommand);
                 existing.IntegrationTestCommand = NormalizeEmpty(incoming.IntegrationTestCommand);
                 existing.E2ETestCommand = NormalizeEmpty(incoming.E2ETestCommand);
+                existing.MigrationCommand = NormalizeEmpty(incoming.MigrationCommand);
+                existing.SecurityScanCommand = NormalizeEmpty(incoming.SecurityScanCommand);
+                existing.PerformanceCommand = NormalizeEmpty(incoming.PerformanceCommand);
                 existing.PackageCommand = NormalizeEmpty(incoming.PackageCommand);
+                existing.DeploymentVerificationCommand = NormalizeEmpty(incoming.DeploymentVerificationCommand);
+                existing.RollbackVerificationCommand = NormalizeEmpty(incoming.RollbackVerificationCommand);
                 existing.PublishArtifactCommand = NormalizeEmpty(incoming.PublishArtifactCommand);
                 existing.ReleaseVersioningCommand = NormalizeEmpty(incoming.ReleaseVersioningCommand);
                 existing.ChangelogGenerationCommand = NormalizeEmpty(incoming.ChangelogGenerationCommand);
-                existing.RequiredSecrets = incoming.RequiredSecrets ?? new List<string>();
+                existing.RequiredInputs = incoming.RequiredInputs ?? new List<WorkflowInputReference>();
                 existing.ExpectedArtifacts = incoming.ExpectedArtifacts ?? new List<string>();
                 existing.Environments = incoming.Environments ?? new List<WorkflowEnvironmentProfile>();
                 existing.LastUpdateUtc = DateTime.UtcNow;

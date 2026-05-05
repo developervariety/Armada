@@ -32,11 +32,11 @@ dotnet run --project test/Armada.Test.Database --framework net10.0 -- --type mys
 
 | Project | Tests | What It Covers |
 |---------|-------|----------------|
-| `Armada.Test.Automated` | ~781 | REST API, MCP tools, WebSocket, authentication, end-to-end workflows |
-| `Armada.Test.Unit` | ~377 | Database operations, model serialization, service logic |
+| `Armada.Test.Automated` | ~780+ | REST API, MCP tools, WebSocket, authentication, and end-to-end lifecycle workflows including objectives, releases, environments, deployments, and history |
+| `Armada.Test.Unit` | ~970+ | Database operations, model serialization, service logic, readiness, objectives, releases, deployments, and timeline aggregation |
 | `Armada.Test.Runtimes` | ~35 | Agent runtime adapters (Claude Code, Codex, Gemini, Cursor, Mux) |
-| `Armada.Test.Database` | ~100+ | Database driver CRUD operations across all 4 backends (SQLite, PostgreSQL, SQL Server, MySQL) |
-| `Armada.Dashboard` Vitest suite | 16 | React component and page smoke tests, including Workspace, Planning, Request History, and API Explorer |
+| `Armada.Test.Database` | 35+ per backend | Database driver CRUD operations across all 4 backends, including workflow profiles, check runs, objectives, environments, deployments, and releases |
+| `Armada.Dashboard` Vitest suite | 23 | React component and page smoke tests, including Workspace, Planning, History, Request History, API Explorer, Checks, Objectives, and Releases |
 | `Armada.Test.Common` | — | Shared test infrastructure (TestRunner, TestSuite, TestResult) |
 
 ## How It Works
@@ -89,6 +89,15 @@ dotnet run --project test/Armada.Test.Automated --framework net10.0 -- --no-clea
 # Run only one automated suite by name fragment
 dotnet run --project test/Armada.Test.Automated --framework net10.0 -- --suite "Request History"
 
+# Focus on delivery and real-time surfaces
+dotnet run --project test/Armada.Test.Automated --framework net10.0 -- --suite "MCP"
+dotnet run --project test/Armada.Test.Automated --framework net10.0 -- --suite "WebSocket"
+dotnet run --project test/Armada.Test.Automated --framework net10.0 -- --suite "Release"
+dotnet run --project test/Armada.Test.Automated --framework net10.0 -- --suite "Objectives"
+dotnet run --project test/Armada.Test.Automated --framework net10.0 -- --suite "Environment"
+dotnet run --project test/Armada.Test.Automated --framework net10.0 -- --suite "Deployment"
+dotnet run --project test/Armada.Test.Automated --framework net10.0 -- --suite "Checks"
+
 # Test against PostgreSQL instead of default temp SQLite
 dotnet run --project test/Armada.Test.Automated --framework net10.0 -- --type postgresql -h localhost -u postgres -w secret -d armada_test
 
@@ -120,8 +129,9 @@ If no `--type` is provided, both Test.Automated and Test.Database default to a t
 
 Armada supports four database backends: SQLite, PostgreSQL, SQL Server, and MySQL. The testing strategy covers databases at two layers:
 
-- **Test.Database** exhaustively tests the database driver layer directly, running CRUD operations for all 9 entity types (fleets, vessels, captains, missions, voyages, docks, signals, artifacts, merge queue entries) against each backend.
+- **Test.Database** exhaustively tests the database driver layer directly, running CRUD operations for core orchestration entities plus newer delivery entities such as workflow profiles, check runs, objectives, environments, deployments, and releases against each backend.
 - **Test.Automated** tests the full stack (REST API, MCP tools, WebSocket) and can now target any database backend via the `--type` argument.
+- **Dashboard Vitest** now includes first-class delivery/tooling smoke coverage for Workspace, Planning, History, Request History, API Explorer, Checks, Objectives, and Releases.
 
 ### CI Recommendations
 

@@ -31,10 +31,19 @@ Machine-readable OpenAPI is available at `/openapi.json`, and the interactive Sw
   - [Missions](#missions)
   - [Captains](#captains)
   - [Planning Sessions](#planning-sessions)
+  - [Objectives](#objectives)
   - [Signals](#signals)
   - [Events](#events)
   - [Docks](#docks)
   - [Merge Queue](#merge-queue)
+  - [Workflow Profiles](#workflow-profiles)
+  - [Check Runs](#check-runs)
+  - [Environments](#environments)
+  - [Deployments](#deployments)
+  - [Releases](#releases)
+  - [Incidents](#incidents)
+  - [Runbooks](#runbooks)
+  - [History](#history)
   - [Runtime Helpers](#runtime-helpers)
   - [Request History](#request-history)
   - [Playbooks](#playbooks)
@@ -127,9 +136,49 @@ Operational entities persist both `TenantId` and `UserId`. Those ownership colum
 | `/api/v1/planning-sessions/{id}/summarize` | POST | Authenticated | Generate a dispatch draft without launching |
 | `/api/v1/planning-sessions/{id}/dispatch` | POST | Authenticated | Launch a voyage from planning output |
 | `/api/v1/planning-sessions/{id}/stop` | POST | Authenticated | Stop an active planning session |
+| `/api/v1/objectives` | GET | Authenticated | List scoped objective/intake records |
+| `/api/v1/objectives` | POST | Authenticated | Create one scoped objective/intake record |
+| `/api/v1/objectives/enumerate` | POST | Authenticated | Body/query-driven objective enumeration |
+| `/api/v1/objectives/{id}` | GET/PUT/DELETE | Authenticated | Read, update, or delete one objective in scope |
 | `/api/v1/signals` | ALL | Authenticated | Tenant-scoped |
 | `/api/v1/events` | ALL | Authenticated | Tenant-scoped |
 | `/api/v1/merge-queue` | ALL | Authenticated | Tenant-scoped |
+| `/api/v1/workflow-profiles` | GET/POST/PUT/DELETE | Authenticated / TenantAdmin | Reads are tenant-scoped for any authenticated user. Mutations require tenant admin. |
+| `/api/v1/workflow-profiles/validate` | POST | Authenticated | Validate a workflow profile without saving it |
+| `/api/v1/workflow-profiles/resolve/vessels/{vesselId}` | GET | Authenticated | Resolve the active workflow profile for one vessel |
+| `/api/v1/workflow-profiles/preview/vessels/{vesselId}` | GET | Authenticated | Preview the resolved workflow commands for one vessel |
+| `/api/v1/check-runs` | GET/POST | Authenticated | List or execute structured checks within caller scope |
+| `/api/v1/check-runs/import` | POST | Authenticated | Import an externally executed/provider check into Armada history |
+| `/api/v1/check-runs/{id}` | GET/DELETE | Authenticated | Read or delete one structured check run within scope |
+| `/api/v1/check-runs/{id}/retry` | POST | Authenticated | Re-run a prior structured check |
+| `/api/v1/environments` | GET | Authenticated | List deployment environments in caller scope |
+| `/api/v1/environments` | POST | Authenticated | Create one deployment environment |
+| `/api/v1/environments/enumerate` | POST | Authenticated | Body/query-driven environment enumeration |
+| `/api/v1/environments/{id}` | GET/PUT/DELETE | Authenticated | Read, update, or delete one environment in scope |
+| `/api/v1/deployments` | GET/POST | Authenticated | List or create deployment records in caller scope |
+| `/api/v1/deployments/enumerate` | POST | Authenticated | Body/query-driven deployment enumeration |
+| `/api/v1/deployments/{id}` | GET/PUT/DELETE | Authenticated | Read, update, or delete one deployment in scope |
+| `/api/v1/deployments/{id}/approve` | POST | Authenticated | Approve a pending deployment |
+| `/api/v1/deployments/{id}/deny` | POST | Authenticated | Deny a pending deployment |
+| `/api/v1/deployments/{id}/verify` | POST | Authenticated | Re-run deployment verification |
+| `/api/v1/deployments/{id}/rollback` | POST | Authenticated | Run the configured rollback flow |
+| `/api/v1/releases` | GET | Authenticated | List release records in caller scope |
+| `/api/v1/releases` | POST | AdminOnly | Tenant admin or global admin only |
+| `/api/v1/releases/{id}` | GET | Authenticated | Read one release in scope |
+| `/api/v1/releases/{id}` | PUT/DELETE | AdminOnly | Tenant admin or global admin only |
+| `/api/v1/releases/{id}/refresh` | POST | AdminOnly | Tenant admin or global admin only |
+| `/api/v1/incidents` | GET/POST | Authenticated | List or create incident records in caller scope |
+| `/api/v1/incidents/enumerate` | POST | Authenticated | Body/query-driven incident enumeration |
+| `/api/v1/incidents/{id}` | GET/PUT/DELETE | Authenticated | Read, update, or delete one incident in scope |
+| `/api/v1/runbooks` | GET/POST | Authenticated | List or create playbook-backed runbooks in caller scope |
+| `/api/v1/runbooks/enumerate` | POST | Authenticated | Body/query-driven runbook enumeration |
+| `/api/v1/runbooks/{id}` | GET/PUT/DELETE | Authenticated | Read, update, or delete one runbook in scope |
+| `/api/v1/runbook-executions` | GET | Authenticated | List runbook executions in caller scope |
+| `/api/v1/runbook-executions/enumerate` | POST | Authenticated | Body/query-driven runbook-execution enumeration |
+| `/api/v1/runbook-executions/{id}` | GET/PUT/DELETE | Authenticated | Read, update, or delete one runbook execution in scope |
+| `/api/v1/runbooks/{id}/executions` | POST | Authenticated | Start one runbook execution |
+| `/api/v1/history` | GET | Authenticated | Cross-entity timeline of current Armada lifecycle entities |
+| `/api/v1/history/enumerate` | POST | Authenticated | Body/query-driven timeline enumeration |
 | `/api/v1/request-history` | GET | Authenticated | Regular user: own entries. Tenant admin: tenant entries. Global admin: all entries |
 | `/api/v1/request-history/{id}` | GET | Authenticated | Read one captured request within scope |
 | `/api/v1/request-history/{id}` | DELETE | AdminOnly | Tenant admin or global admin only |
@@ -2877,6 +2926,598 @@ Stop an active planning session and release its resources.
 Delete a planning session and its transcript. Active sessions are stopped first.
 
 - Response: `204 No Content`
+
+---
+
+### Objectives
+
+Objective records provide an internal-first intake and scoping surface so acceptance criteria, non-goals, linked repositories, and evidence remain queryable before and during execution.
+
+#### GET /api/v1/objectives
+
+List objective records in the caller scope.
+
+- Query: `pageNumber`, `pageSize`, `owner`, `vesselId`, `fleetId`, `planningSessionId`, `voyageId`, `missionId`, `checkRunId`, `releaseId`, `deploymentId`, `incidentId`, `tag`, `status`, `search`, `fromUtc`, `toUtc`
+- Response: `200 OK` - `EnumerationResult<Objective>`
+
+#### POST /api/v1/objectives/enumerate
+
+Enumerate objectives using a JSON body and optional querystring overrides.
+
+- Request body: `ObjectiveQuery`
+- Response: `200 OK` - `EnumerationResult<Objective>`
+
+#### POST /api/v1/objectives
+
+Create one scoped objective or intake-style record.
+
+```json
+{
+  "Title": "Stabilize May rollout",
+  "Description": "Track the full rollout objective across the API and dashboard vessels.",
+  "Status": "Scoped",
+  "Owner": "Delivery",
+  "AcceptanceCriteria": ["Deployment verified in staging", "Incident rollback documented"],
+  "VesselIds": ["vsl_abc123"],
+  "ReleaseIds": ["rel_def456"]
+}
+```
+
+- Response: `201 Created` - `Objective`
+
+#### GET /api/v1/objectives/{id}
+
+Read one objective.
+
+- Response: `200 OK` - `Objective`
+- Errors: `404 Not Found`
+
+#### PUT /api/v1/objectives/{id}
+
+Update one objective and its linked lifecycle scope.
+
+- Request body: `ObjectiveUpsertRequest`
+- Response: `200 OK` - `Objective`
+- Errors: `400 Bad Request`, `404 Not Found`
+
+#### DELETE /api/v1/objectives/{id}
+
+Delete one objective.
+
+- Response: `204 No Content`
+- Errors: `404 Not Found`
+
+---
+
+### Workflow Profiles
+
+Workflow profiles define how a vessel or fleet builds, tests, versions, deploys, rolls back, and verifies itself. These routes back `Delivery > Workflow Profiles` and the preflight/resolution logic used by structured checks.
+
+#### GET /api/v1/workflow-profiles
+
+List workflow profiles in the caller scope.
+
+- Query: `pageNumber`, `pageSize`, `scope`, `fleetId`, `vesselId`, `search`, `active`
+- Response: `200 OK` - `EnumerationResult<WorkflowProfile>`
+
+#### POST /api/v1/workflow-profiles/enumerate
+
+Enumerate workflow profiles using a JSON body and optional querystring overrides.
+
+- Request body: `WorkflowProfileQuery`
+- Response: `200 OK` - `EnumerationResult<WorkflowProfile>`
+
+#### POST /api/v1/workflow-profiles/validate
+
+Validate a workflow profile without saving it.
+
+- Request body: `WorkflowProfile`
+- Response: `200 OK` - `WorkflowProfileValidationResult`
+- Notes: validation returns errors, warnings, resolved command previews, available check types, and required input issues
+
+#### GET /api/v1/workflow-profiles/preview/vessels/{vesselId}
+
+Preview the resolved workflow commands for one vessel.
+
+- Query: optional `workflowProfileId`
+- Response: `200 OK` - `WorkflowProfileResolutionPreviewResult`
+- Errors: `404 Not Found` when the vessel does not exist or no workflow profile can be resolved
+
+#### GET /api/v1/workflow-profiles/resolve/vessels/{vesselId}
+
+Resolve the active workflow profile for one vessel.
+
+- Query: optional `workflowProfileId`
+- Response: `200 OK` - `WorkflowProfile`
+- Errors: `404 Not Found`
+
+#### POST /api/v1/workflow-profiles
+
+Create a workflow profile.
+
+- Request body: `WorkflowProfile`
+- Response: `201 Created` - `WorkflowProfile`
+- Notes: reads are available to any authenticated caller in scope; create/update/delete require tenant admin or global admin
+
+#### GET /api/v1/workflow-profiles/{id}
+
+Read one workflow profile by ID.
+
+- Response: `200 OK` - `WorkflowProfile`
+- Errors: `404 Not Found`
+
+#### PUT /api/v1/workflow-profiles/{id}
+
+Update one workflow profile.
+
+- Request body: `WorkflowProfile`
+- Response: `200 OK` - `WorkflowProfile`
+- Errors: `400 Bad Request`, `404 Not Found`
+
+#### DELETE /api/v1/workflow-profiles/{id}
+
+Delete one workflow profile.
+
+- Response: `204 No Content`
+- Errors: `404 Not Found`
+
+---
+
+### Check Runs
+
+Structured check runs are the delivery-memory record for build, test, packaging, publish, deploy, rollback, smoke-test, health-check, release-versioning, and other workflow-profile-backed commands.
+
+#### GET /api/v1/check-runs
+
+List structured check runs in the caller scope.
+
+- Query: `pageNumber`, `pageSize`, `workflowProfileId`, `vesselId`, `missionId`, `voyageId`, `type`, `status`, `source`, `providerName`, `environmentName`
+- Response: `200 OK` - `EnumerationResult<CheckRun>`
+
+#### POST /api/v1/check-runs/enumerate
+
+Enumerate structured check runs using a JSON body and optional querystring overrides.
+
+- Request body: `CheckRunQuery`
+- Response: `200 OK` - `EnumerationResult<CheckRun>`
+
+#### POST /api/v1/check-runs
+
+Execute one structured check run.
+
+```json
+{
+  "VesselId": "vsl_abc123",
+  "WorkflowProfileId": "wfp_def456",
+  "Type": "UnitTest",
+  "Label": "Unit tests",
+  "EnvironmentName": null
+}
+```
+
+- Response: `201 Created` - `CheckRun`
+- Errors: `400 Bad Request` when readiness, workflow resolution, or command validation fails
+
+#### POST /api/v1/check-runs/import
+
+Import an externally executed or provider-hosted check run into Armada history.
+
+```json
+{
+  "VesselId": "vsl_abc123",
+  "Type": "Build",
+  "Status": "Passed",
+  "Source": "External",
+  "ProviderName": "GitHub Actions",
+  "Label": "CI build",
+  "StartedUtc": "2026-05-04T16:00:00Z",
+  "CompletedUtc": "2026-05-04T16:02:15Z"
+}
+```
+
+- Response: `201 Created` - `CheckRun`
+
+#### GET /api/v1/check-runs/{id}
+
+Read one structured check run.
+
+- Response: `200 OK` - `CheckRun`
+- Errors: `404 Not Found`
+
+#### POST /api/v1/check-runs/{id}/retry
+
+Retry a prior check run using the same resolved scope and command context.
+
+- Response: `201 Created` - `CheckRun`
+- Errors: `404 Not Found`
+
+#### DELETE /api/v1/check-runs/{id}
+
+Delete one structured check run.
+
+- Response: `204 No Content`
+- Errors: `404 Not Found`
+
+---
+
+### Environments
+
+Environment records define named rollout targets such as `Development`, `Staging`, or `Production`, including verification definitions, approval requirements, and rollout monitoring settings.
+
+#### GET /api/v1/environments
+
+List environments in the caller scope.
+
+- Query: `pageNumber`, `pageSize`, `vesselId`, `kind`, `isDefault`, `active`, `search`
+- Response: `200 OK` - `EnumerationResult<DeploymentEnvironment>`
+
+#### POST /api/v1/environments/enumerate
+
+Enumerate environments using a JSON body and optional querystring overrides.
+
+- Request body: `DeploymentEnvironmentQuery`
+- Response: `200 OK` - `EnumerationResult<DeploymentEnvironment>`
+
+#### POST /api/v1/environments
+
+Create one environment.
+
+```json
+{
+  "VesselId": "vsl_abc123",
+  "Name": "Staging",
+  "Kind": "Staging",
+  "BaseUrl": "https://staging.example.com",
+  "HealthEndpoint": "/api/v1/status/health",
+  "RequiresApproval": true,
+  "IsDefault": false
+}
+```
+
+- Response: `201 Created` - `DeploymentEnvironment`
+
+#### GET /api/v1/environments/{id}
+
+Read one environment.
+
+- Response: `200 OK` - `DeploymentEnvironment`
+- Errors: `404 Not Found`
+
+#### PUT /api/v1/environments/{id}
+
+Update one environment.
+
+- Request body: `DeploymentEnvironmentUpsertRequest`
+- Response: `200 OK` - `DeploymentEnvironment`
+- Errors: `400 Bad Request`, `404 Not Found`
+
+#### DELETE /api/v1/environments/{id}
+
+Delete one environment.
+
+- Response: `204 No Content`
+- Errors: `404 Not Found`
+
+---
+
+### Deployments
+
+Deployment records track rollout approval, execution, verification, rollback, linked checks, and request-history evidence for a named environment.
+
+#### GET /api/v1/deployments
+
+List deployments in the caller scope.
+
+- Query: `pageNumber`, `pageSize`, `vesselId`, `workflowProfileId`, `environmentId`, `environmentName`, `releaseId`, `missionId`, `voyageId`, `checkRunId`, `status`, `verificationStatus`, `search`, `fromUtc`, `toUtc`
+- Response: `200 OK` - `EnumerationResult<Deployment>`
+
+#### POST /api/v1/deployments/enumerate
+
+Enumerate deployments using a JSON body and optional querystring overrides.
+
+- Request body: `DeploymentQuery`
+- Response: `200 OK` - `EnumerationResult<Deployment>`
+
+#### POST /api/v1/deployments
+
+Create one deployment. When approval is not required and `AutoExecute` is `true`, the deployment begins immediately.
+
+```json
+{
+  "VesselId": "vsl_abc123",
+  "EnvironmentId": "env_def456",
+  "ReleaseId": "rel_ghi789",
+  "Title": "Deploy May release to staging",
+  "SourceRef": "refs/tags/v1.4.2",
+  "AutoExecute": true
+}
+```
+
+- Response: `201 Created` - `Deployment`
+
+#### GET /api/v1/deployments/{id}
+
+Read one deployment.
+
+- Response: `200 OK` - `Deployment`
+- Errors: `404 Not Found`
+
+#### PUT /api/v1/deployments/{id}
+
+Update one deployment and its mutable metadata.
+
+- Request body: `DeploymentUpsertRequest`
+- Response: `200 OK` - `Deployment`
+- Errors: `400 Bad Request`, `404 Not Found`
+
+#### POST /api/v1/deployments/{id}/approve
+
+Approve one pending deployment and begin execution.
+
+- Request body: optional `{ "Comment": "Ship it" }`
+- Response: `200 OK` - `Deployment`
+- Errors: `400 Bad Request`, `404 Not Found`
+
+#### POST /api/v1/deployments/{id}/deny
+
+Deny one pending deployment without executing it.
+
+- Request body: optional `{ "Comment": "Need one more verification run" }`
+- Response: `200 OK` - `Deployment`
+- Errors: `400 Bad Request`, `404 Not Found`
+
+#### POST /api/v1/deployments/{id}/verify
+
+Re-run the configured post-deploy verification for an existing deployment.
+
+- Response: `200 OK` - `Deployment`
+- Errors: `400 Bad Request`, `404 Not Found`
+
+#### POST /api/v1/deployments/{id}/rollback
+
+Run the configured rollback flow for an existing deployment.
+
+- Response: `200 OK` - `Deployment`
+- Errors: `400 Bad Request`, `404 Not Found`
+
+#### DELETE /api/v1/deployments/{id}
+
+Delete one deployment record.
+
+- Response: `204 No Content`
+- Errors: `404 Not Found`
+
+---
+
+### Releases
+
+Release records group versions, notes, artifacts, and linked work so a user can inspect what is shipping and what evidence exists that it is ready.
+
+#### GET /api/v1/releases
+
+List release records in the caller scope.
+
+- Query: `pageNumber`, `pageSize`, `vesselId`, `workflowProfileId`, `voyageId`, `missionId`, `checkRunId`, `status`, `search`, `fromUtc`, `toUtc`
+- Response: `200 OK` - `EnumerationResult<Release>`
+
+#### POST /api/v1/releases/enumerate
+
+Enumerate releases using a JSON body and optional querystring overrides.
+
+- Request body: `ReleaseQuery`
+- Response: `200 OK` - `EnumerationResult<Release>`
+
+#### POST /api/v1/releases
+
+Create a release from linked voyages, missions, and check runs.
+
+```json
+{
+  "VesselId": "vsl_abc123",
+  "Title": "May release",
+  "Version": "1.4.2",
+  "Status": "Candidate",
+  "VoyageIds": ["vyg_abc123"],
+  "MissionIds": ["msn_def456"],
+  "CheckRunIds": ["chk_ghi789"]
+}
+```
+
+- Response: `201 Created` - `Release`
+- Notes: draft/candidate/shipped state, derived artifacts, notes, and version inference are all supported by the current internal release surface
+
+#### GET /api/v1/releases/{id}
+
+Read one release.
+
+- Response: `200 OK` - `Release`
+- Errors: `404 Not Found`
+
+#### PUT /api/v1/releases/{id}
+
+Update one release and revalidate its linked work.
+
+- Request body: `ReleaseUpsertRequest`
+- Response: `200 OK` - `Release`
+- Errors: `400 Bad Request`, `404 Not Found`
+
+#### POST /api/v1/releases/{id}/refresh
+
+Refresh one release from its current linked work.
+
+- Response: `200 OK` - `Release`
+- Errors: `400 Bad Request`, `404 Not Found`
+
+#### DELETE /api/v1/releases/{id}
+
+Delete one release.
+
+- Response: `204 No Content`
+- Errors: `404 Not Found`
+
+---
+
+### Incidents
+
+Incident records capture operational failures, hotfix handoff, rollback linkage, and postmortem context tied to current deployment entities.
+
+#### GET /api/v1/incidents
+
+List incidents in the caller scope.
+
+- Query: `pageNumber`, `pageSize`, `vesselId`, `environmentId`, `deploymentId`, `releaseId`, `missionId`, `voyageId`, `status`, `severity`, `search`
+- Response: `200 OK` - `EnumerationResult<Incident>`
+
+#### POST /api/v1/incidents/enumerate
+
+Enumerate incidents using a JSON body and optional querystring overrides.
+
+- Request body: `IncidentQuery`
+- Response: `200 OK` - `EnumerationResult<Incident>`
+
+#### POST /api/v1/incidents
+
+Create one incident.
+
+- Request body: `IncidentUpsertRequest`
+- Response: `201 Created` - `Incident`
+- Errors: `400 Bad Request`
+
+#### GET /api/v1/incidents/{id}
+
+Read one incident.
+
+- Response: `200 OK` - `Incident`
+- Errors: `404 Not Found`
+
+#### PUT /api/v1/incidents/{id}
+
+Update one incident, including status, impact, recovery, and postmortem details.
+
+- Request body: `IncidentUpsertRequest`
+- Response: `200 OK` - `Incident`
+- Errors: `400 Bad Request`, `404 Not Found`
+
+#### DELETE /api/v1/incidents/{id}
+
+Delete one incident.
+
+- Response: `204 No Content`
+- Errors: `404 Not Found`
+
+---
+
+### Runbooks
+
+Runbooks extend playbooks into parameterized operational procedures with step tracking, deployment and incident linkage, and event-backed execution history.
+
+#### GET /api/v1/runbooks
+
+List runbooks in the caller scope.
+
+- Query: `pageNumber`, `pageSize`, `workflowProfileId`, `environmentId`, `defaultCheckType`, `active`, `search`
+- Response: `200 OK` - `EnumerationResult<Runbook>`
+
+#### POST /api/v1/runbooks/enumerate
+
+Enumerate runbooks using a JSON body and optional querystring overrides.
+
+- Request body: `RunbookQuery`
+- Response: `200 OK` - `EnumerationResult<Runbook>`
+
+#### POST /api/v1/runbooks
+
+Create one runbook backed by a playbook and optional explicit steps/parameters.
+
+- Request body: `RunbookUpsertRequest`
+- Response: `201 Created` - `Runbook`
+- Errors: `400 Bad Request`
+
+#### GET /api/v1/runbooks/{id}
+
+Read one runbook.
+
+- Response: `200 OK` - `Runbook`
+- Errors: `404 Not Found`
+
+#### PUT /api/v1/runbooks/{id}
+
+Update one runbook.
+
+- Request body: `RunbookUpsertRequest`
+- Response: `200 OK` - `Runbook`
+- Errors: `400 Bad Request`, `404 Not Found`
+
+#### DELETE /api/v1/runbooks/{id}
+
+Delete one runbook.
+
+- Response: `204 No Content`
+- Errors: `404 Not Found`
+
+#### GET /api/v1/runbook-executions
+
+List runbook executions in the caller scope.
+
+- Query: `pageNumber`, `pageSize`, `runbookId`, `deploymentId`, `incidentId`, `status`, `search`
+- Response: `200 OK` - `EnumerationResult<RunbookExecution>`
+
+#### POST /api/v1/runbook-executions/enumerate
+
+Enumerate runbook executions using a JSON body and optional querystring overrides.
+
+- Request body: `RunbookExecutionQuery`
+- Response: `200 OK` - `EnumerationResult<RunbookExecution>`
+
+#### POST /api/v1/runbooks/{id}/executions
+
+Start one runbook execution.
+
+- Request body: `RunbookExecutionStartRequest`
+- Response: `201 Created` - `RunbookExecution`
+- Errors: `400 Bad Request`, `404 Not Found`
+
+#### GET /api/v1/runbook-executions/{id}
+
+Read one runbook execution.
+
+- Response: `200 OK` - `RunbookExecution`
+- Errors: `404 Not Found`
+
+#### PUT /api/v1/runbook-executions/{id}
+
+Update one runbook execution, including step completion and notes.
+
+- Request body: `RunbookExecutionUpdateRequest`
+- Response: `200 OK` - `RunbookExecution`
+- Errors: `400 Bad Request`, `404 Not Found`
+
+#### DELETE /api/v1/runbook-executions/{id}
+
+Delete one runbook execution.
+
+- Response: `204 No Content`
+- Errors: `404 Not Found`
+
+---
+
+### History
+
+`Activity > History` is backed by a cross-entity timeline that spans current Armada lifecycle entities such as objectives, releases, deployments, incidents, runbook executions, missions, voyages, planning sessions, merge entries, check runs, events, and request history.
+
+#### GET /api/v1/history
+
+List historical timeline entries in the caller scope.
+
+- Query: `pageNumber`, `pageSize`, `vesselId`, `missionId`, `voyageId`, `objectiveId`, `environmentId`, `deploymentId`, `incidentId`, `actor`, `text`, `sourceType`, `fromUtc`, `toUtc`
+- Response: `200 OK` - `EnumerationResult<HistoricalTimelineEntry>`
+
+#### POST /api/v1/history/enumerate
+
+Enumerate historical timeline entries using a JSON body and optional querystring overrides.
+
+- Request body: `HistoricalTimelineQuery`
+- Response: `200 OK` - `EnumerationResult<HistoricalTimelineEntry>`
 
 ---
 

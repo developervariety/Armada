@@ -115,6 +115,12 @@ export interface Vessel {
   modelContext: string | null;
   landingMode: string | null;
   branchCleanupPolicy: string | null;
+  requirePassingChecksToLand: boolean;
+  protectedBranchPatterns: string[];
+  releaseBranchPrefix: string;
+  hotfixBranchPrefix: string;
+  requirePullRequestForProtectedBranches: boolean;
+  requireMergeQueueForReleaseBranches: boolean;
   allowConcurrentMissions: boolean;
   defaultPipelineId: string | null;
   active: boolean;
@@ -195,6 +201,87 @@ export interface Voyage {
   sourcePlanningSessionId?: string | null;
   sourcePlanningMessageId?: string | null;
   selectedPlaybooks?: SelectedPlaybook[];
+}
+
+export type ObjectiveStatus =
+  | 'Draft'
+  | 'Scoped'
+  | 'Planned'
+  | 'InProgress'
+  | 'Released'
+  | 'Deployed'
+  | 'Completed'
+  | 'Blocked'
+  | 'Cancelled';
+
+export interface Objective {
+  id: string;
+  tenantId: string | null;
+  userId: string | null;
+  title: string;
+  description: string | null;
+  status: ObjectiveStatus;
+  owner: string | null;
+  tags: string[];
+  acceptanceCriteria: string[];
+  nonGoals: string[];
+  rolloutConstraints: string[];
+  evidenceLinks: string[];
+  fleetIds: string[];
+  vesselIds: string[];
+  planningSessionIds: string[];
+  voyageIds: string[];
+  missionIds: string[];
+  checkRunIds: string[];
+  releaseIds: string[];
+  deploymentIds: string[];
+  incidentIds: string[];
+  createdUtc: string;
+  lastUpdateUtc: string;
+  completedUtc: string | null;
+}
+
+export interface ObjectiveQuery {
+  tenantId?: string | null;
+  userId?: string | null;
+  owner?: string | null;
+  vesselId?: string | null;
+  fleetId?: string | null;
+  planningSessionId?: string | null;
+  voyageId?: string | null;
+  missionId?: string | null;
+  checkRunId?: string | null;
+  releaseId?: string | null;
+  deploymentId?: string | null;
+  incidentId?: string | null;
+  tag?: string | null;
+  status?: ObjectiveStatus | null;
+  search?: string | null;
+  fromUtc?: string | null;
+  toUtc?: string | null;
+  pageNumber?: number;
+  pageSize?: number;
+}
+
+export interface ObjectiveUpsertRequest {
+  title?: string | null;
+  description?: string | null;
+  status?: ObjectiveStatus | null;
+  owner?: string | null;
+  tags?: string[] | null;
+  acceptanceCriteria?: string[] | null;
+  nonGoals?: string[] | null;
+  rolloutConstraints?: string[] | null;
+  evidenceLinks?: string[] | null;
+  fleetIds?: string[] | null;
+  vesselIds?: string[] | null;
+  planningSessionIds?: string[] | null;
+  voyageIds?: string[] | null;
+  missionIds?: string[] | null;
+  checkRunIds?: string[] | null;
+  releaseIds?: string[] | null;
+  deploymentIds?: string[] | null;
+  incidentIds?: string[] | null;
 }
 
 export interface PlanningSession {
@@ -285,6 +372,21 @@ export interface Playbook {
 }
 
 export type WorkflowProfileScope = 'Global' | 'Fleet' | 'Vessel';
+export type WorkflowInputReferenceProvider =
+  | 'EnvironmentVariable'
+  | 'FilePath'
+  | 'DirectoryPath'
+  | 'AwsSecretsManager'
+  | 'AzureKeyVaultSecret'
+  | 'HashiCorpVault'
+  | 'OnePassword';
+
+export interface WorkflowInputReference {
+  provider: WorkflowInputReferenceProvider;
+  key: string;
+  environmentName?: string | null;
+  description?: string | null;
+}
 
 export interface WorkflowEnvironmentProfile {
   environmentName: string;
@@ -292,6 +394,8 @@ export interface WorkflowEnvironmentProfile {
   rollbackCommand: string | null;
   smokeTestCommand: string | null;
   healthCheckCommand: string | null;
+  deploymentVerificationCommand: string | null;
+  rollbackVerificationCommand: string | null;
 }
 
 export interface WorkflowProfile {
@@ -311,11 +415,17 @@ export interface WorkflowProfile {
   unitTestCommand: string | null;
   integrationTestCommand: string | null;
   e2eTestCommand: string | null;
+  migrationCommand: string | null;
+  securityScanCommand: string | null;
+  performanceCommand: string | null;
   packageCommand: string | null;
+  deploymentVerificationCommand: string | null;
+  rollbackVerificationCommand: string | null;
   publishArtifactCommand: string | null;
   releaseVersioningCommand: string | null;
   changelogGenerationCommand: string | null;
   requiredSecrets: string[];
+  requiredInputs: WorkflowInputReference[];
   expectedArtifacts: string[];
   environments: WorkflowEnvironmentProfile[];
   createdUtc: string;
@@ -327,6 +437,22 @@ export interface WorkflowProfileValidationResult {
   errors: string[];
   warnings: string[];
   availableCheckTypes: string[];
+  commandPreviews: WorkflowProfileCommandPreview[];
+}
+
+export type WorkflowProfileResolutionMode = 'Explicit' | 'Vessel' | 'Fleet' | 'Global';
+
+export interface WorkflowProfileCommandPreview {
+  checkType: CheckRunType;
+  environmentName: string | null;
+  command: string;
+}
+
+export interface WorkflowProfileResolutionPreviewResult {
+  resolvedProfile: WorkflowProfile | null;
+  resolutionMode: WorkflowProfileResolutionMode;
+  availableCheckTypes: string[];
+  commandPreviews: WorkflowProfileCommandPreview[];
 }
 
 export type CheckRunType =
@@ -335,7 +461,12 @@ export type CheckRunType =
   | 'UnitTest'
   | 'IntegrationTest'
   | 'E2ETest'
+  | 'Migration'
+  | 'SecurityScan'
+  | 'Performance'
   | 'Package'
+  | 'DeploymentVerification'
+  | 'RollbackVerification'
   | 'PublishArtifact'
   | 'ReleaseVersioning'
   | 'Changelog'
@@ -346,11 +477,36 @@ export type CheckRunType =
   | 'Custom';
 
 export type CheckRunStatus = 'Pending' | 'Running' | 'Passed' | 'Failed' | 'Canceled';
+export type CheckRunSource = 'Armada' | 'External';
 
 export interface CheckRunArtifact {
   path: string;
   sizeBytes: number;
   lastWriteUtc: string;
+}
+
+export interface CheckRunTestSummary {
+  format: string | null;
+  total: number | null;
+  passed: number | null;
+  failed: number | null;
+  skipped: number | null;
+  durationMs: number | null;
+}
+
+export interface CheckRunCoverageMetric {
+  covered: number | null;
+  total: number | null;
+  percentage: number | null;
+}
+
+export interface CheckRunCoverageSummary {
+  format: string | null;
+  sourcePath: string | null;
+  lines: CheckRunCoverageMetric | null;
+  branches: CheckRunCoverageMetric | null;
+  functions: CheckRunCoverageMetric | null;
+  statements: CheckRunCoverageMetric | null;
 }
 
 export interface CheckRun {
@@ -361,9 +517,14 @@ export interface CheckRun {
   vesselId: string | null;
   missionId: string | null;
   voyageId: string | null;
+  deploymentId: string | null;
   label: string | null;
   type: CheckRunType;
+  source: CheckRunSource;
   status: CheckRunStatus;
+  providerName: string | null;
+  externalId: string | null;
+  externalUrl: string | null;
   environmentName: string | null;
   command: string;
   workingDirectory: string | null;
@@ -372,6 +533,8 @@ export interface CheckRun {
   exitCode: number | null;
   output: string | null;
   summary: string | null;
+  testSummary: CheckRunTestSummary | null;
+  coverageSummary: CheckRunCoverageSummary | null;
   artifacts: CheckRunArtifact[];
   durationMs: number | null;
   startedUtc: string | null;
@@ -385,12 +548,541 @@ export interface CheckRunRequest {
   workflowProfileId?: string | null;
   missionId?: string | null;
   voyageId?: string | null;
+  deploymentId?: string | null;
   type: CheckRunType;
   environmentName?: string | null;
   label?: string | null;
   branchName?: string | null;
   commitHash?: string | null;
   commandOverride?: string | null;
+}
+
+export interface CheckRunImportRequest {
+  vesselId: string;
+  workflowProfileId?: string | null;
+  missionId?: string | null;
+  voyageId?: string | null;
+  deploymentId?: string | null;
+  type: CheckRunType;
+  status: CheckRunStatus;
+  providerName?: string | null;
+  externalId?: string | null;
+  externalUrl?: string | null;
+  environmentName?: string | null;
+  label?: string | null;
+  branchName?: string | null;
+  commitHash?: string | null;
+  command?: string | null;
+  summary?: string | null;
+  output?: string | null;
+  exitCode?: number | null;
+  testSummary?: CheckRunTestSummary | null;
+  coverageSummary?: CheckRunCoverageSummary | null;
+  artifacts?: CheckRunArtifact[];
+  durationMs?: number | null;
+  startedUtc?: string | null;
+  completedUtc?: string | null;
+}
+
+export type ReleaseStatus = 'Draft' | 'Candidate' | 'Shipped' | 'Failed' | 'RolledBack';
+
+export type EnvironmentKind = 'Development' | 'Test' | 'Staging' | 'Production' | 'CustomerHosted' | 'Custom';
+
+export interface DeploymentVerificationDefinition {
+  id: string;
+  name: string;
+  method: string;
+  path: string;
+  requestBody: string | null;
+  headers: Record<string, string>;
+  expectedStatusCode: number | null;
+  mustContainText: string | null;
+  active: boolean;
+}
+
+export interface DeploymentEnvironment {
+  id: string;
+  tenantId: string | null;
+  userId: string | null;
+  vesselId: string | null;
+  name: string;
+  description: string | null;
+  kind: EnvironmentKind;
+  configurationSource: string | null;
+  baseUrl: string | null;
+  healthEndpoint: string | null;
+  accessNotes: string | null;
+  deploymentRules: string | null;
+  verificationDefinitions: DeploymentVerificationDefinition[];
+  rolloutMonitoringWindowMinutes: number;
+  rolloutMonitoringIntervalSeconds: number;
+  alertOnRegression: boolean;
+  requiresApproval: boolean;
+  isDefault: boolean;
+  active: boolean;
+  createdUtc: string;
+  lastUpdateUtc: string;
+}
+
+export interface DeploymentEnvironmentQuery {
+  tenantId?: string | null;
+  userId?: string | null;
+  vesselId?: string | null;
+  kind?: EnvironmentKind | null;
+  isDefault?: boolean | null;
+  active?: boolean | null;
+  search?: string | null;
+  pageNumber?: number;
+  pageSize?: number;
+}
+
+export interface DeploymentEnvironmentUpsertRequest {
+  vesselId?: string | null;
+  name?: string | null;
+  description?: string | null;
+  kind?: EnvironmentKind | null;
+  configurationSource?: string | null;
+  baseUrl?: string | null;
+  healthEndpoint?: string | null;
+  accessNotes?: string | null;
+  deploymentRules?: string | null;
+  verificationDefinitions?: DeploymentVerificationDefinition[] | null;
+  rolloutMonitoringWindowMinutes?: number | null;
+  rolloutMonitoringIntervalSeconds?: number | null;
+  alertOnRegression?: boolean | null;
+  requiresApproval?: boolean | null;
+  isDefault?: boolean | null;
+  active?: boolean | null;
+}
+
+export type DeploymentStatus =
+  | 'PendingApproval'
+  | 'Running'
+  | 'Succeeded'
+  | 'VerificationFailed'
+  | 'Failed'
+  | 'Denied'
+  | 'RollingBack'
+  | 'RolledBack';
+
+export type DeploymentVerificationStatus =
+  | 'NotRun'
+  | 'Running'
+  | 'Passed'
+  | 'Failed'
+  | 'Partial'
+  | 'Skipped';
+
+export interface Deployment {
+  id: string;
+  tenantId: string | null;
+  userId: string | null;
+  vesselId: string | null;
+  workflowProfileId: string | null;
+  environmentId: string | null;
+  environmentName: string | null;
+  releaseId: string | null;
+  missionId: string | null;
+  voyageId: string | null;
+  title: string;
+  sourceRef: string | null;
+  summary: string | null;
+  notes: string | null;
+  status: DeploymentStatus;
+  verificationStatus: DeploymentVerificationStatus;
+  approvalRequired: boolean;
+  approvedByUserId: string | null;
+  approvedUtc: string | null;
+  approvalComment: string | null;
+  deployCheckRunId: string | null;
+  smokeTestCheckRunId: string | null;
+  healthCheckRunId: string | null;
+  deploymentVerificationCheckRunId: string | null;
+  rollbackCheckRunId: string | null;
+  rollbackVerificationCheckRunId: string | null;
+  checkRunIds: string[];
+  requestHistorySummary: RequestHistorySummaryResult | null;
+  createdUtc: string;
+  startedUtc: string | null;
+  completedUtc: string | null;
+  verifiedUtc: string | null;
+  rolledBackUtc: string | null;
+  monitoringWindowEndsUtc: string | null;
+  lastMonitoredUtc: string | null;
+  lastRegressionAlertUtc: string | null;
+  latestMonitoringSummary: string | null;
+  monitoringFailureCount: number;
+  lastUpdateUtc: string;
+}
+
+export interface DeploymentQuery {
+  tenantId?: string | null;
+  userId?: string | null;
+  vesselId?: string | null;
+  workflowProfileId?: string | null;
+  environmentId?: string | null;
+  environmentName?: string | null;
+  releaseId?: string | null;
+  missionId?: string | null;
+  voyageId?: string | null;
+  checkRunId?: string | null;
+  status?: DeploymentStatus | null;
+  verificationStatus?: DeploymentVerificationStatus | null;
+  search?: string | null;
+  fromUtc?: string | null;
+  toUtc?: string | null;
+  pageNumber?: number;
+  pageSize?: number;
+}
+
+export interface DeploymentUpsertRequest {
+  vesselId?: string | null;
+  workflowProfileId?: string | null;
+  environmentId?: string | null;
+  environmentName?: string | null;
+  releaseId?: string | null;
+  missionId?: string | null;
+  voyageId?: string | null;
+  title?: string | null;
+  sourceRef?: string | null;
+  summary?: string | null;
+  notes?: string | null;
+  autoExecute?: boolean | null;
+}
+
+export interface ReleaseArtifact {
+  sourceType: string;
+  sourceId: string | null;
+  path: string;
+  sizeBytes: number;
+  lastWriteUtc: string | null;
+}
+
+export interface Release {
+  id: string;
+  tenantId: string | null;
+  userId: string | null;
+  vesselId: string | null;
+  workflowProfileId: string | null;
+  title: string;
+  version: string | null;
+  tagName: string | null;
+  summary: string | null;
+  notes: string | null;
+  status: ReleaseStatus;
+  voyageIds: string[];
+  missionIds: string[];
+  checkRunIds: string[];
+  artifacts: ReleaseArtifact[];
+  createdUtc: string;
+  lastUpdateUtc: string;
+  publishedUtc: string | null;
+}
+
+export interface ReleaseQuery {
+  tenantId?: string | null;
+  userId?: string | null;
+  vesselId?: string | null;
+  workflowProfileId?: string | null;
+  voyageId?: string | null;
+  missionId?: string | null;
+  checkRunId?: string | null;
+  status?: ReleaseStatus | null;
+  search?: string | null;
+  fromUtc?: string | null;
+  toUtc?: string | null;
+  pageNumber?: number;
+  pageSize?: number;
+}
+
+export interface ReleaseUpsertRequest {
+  vesselId?: string | null;
+  workflowProfileId?: string | null;
+  title?: string | null;
+  version?: string | null;
+  tagName?: string | null;
+  summary?: string | null;
+  notes?: string | null;
+  status?: ReleaseStatus | null;
+  voyageIds?: string[];
+  missionIds?: string[];
+  checkRunIds?: string[];
+  objectiveIds?: string[];
+}
+
+export type IncidentStatus = 'Open' | 'Monitoring' | 'Mitigated' | 'RolledBack' | 'Closed';
+export type IncidentSeverity = 'Critical' | 'High' | 'Medium' | 'Low';
+
+export interface Incident {
+  id: string;
+  tenantId: string | null;
+  userId: string | null;
+  title: string;
+  summary: string | null;
+  status: IncidentStatus;
+  severity: IncidentSeverity;
+  environmentId: string | null;
+  environmentName: string | null;
+  deploymentId: string | null;
+  releaseId: string | null;
+  vesselId: string | null;
+  missionId: string | null;
+  voyageId: string | null;
+  rollbackDeploymentId: string | null;
+  impact: string | null;
+  rootCause: string | null;
+  recoveryNotes: string | null;
+  postmortem: string | null;
+  detectedUtc: string;
+  mitigatedUtc: string | null;
+  closedUtc: string | null;
+  lastUpdateUtc: string;
+}
+
+export interface IncidentQuery {
+  tenantId?: string | null;
+  userId?: string | null;
+  vesselId?: string | null;
+  environmentId?: string | null;
+  deploymentId?: string | null;
+  releaseId?: string | null;
+  missionId?: string | null;
+  voyageId?: string | null;
+  status?: IncidentStatus | null;
+  severity?: IncidentSeverity | null;
+  search?: string | null;
+  pageNumber?: number;
+  pageSize?: number;
+}
+
+export interface IncidentUpsertRequest {
+  title?: string | null;
+  summary?: string | null;
+  status?: IncidentStatus | null;
+  severity?: IncidentSeverity | null;
+  environmentId?: string | null;
+  environmentName?: string | null;
+  deploymentId?: string | null;
+  releaseId?: string | null;
+  vesselId?: string | null;
+  missionId?: string | null;
+  voyageId?: string | null;
+  rollbackDeploymentId?: string | null;
+  impact?: string | null;
+  rootCause?: string | null;
+  recoveryNotes?: string | null;
+  postmortem?: string | null;
+  detectedUtc?: string | null;
+  mitigatedUtc?: string | null;
+  closedUtc?: string | null;
+}
+
+export type RunbookExecutionStatus = 'Running' | 'Completed' | 'Cancelled';
+
+export interface RunbookParameter {
+  name: string;
+  label: string | null;
+  description: string | null;
+  defaultValue: string | null;
+  required: boolean;
+}
+
+export interface RunbookStep {
+  id: string;
+  title: string;
+  instructions: string;
+}
+
+export interface Runbook {
+  id: string;
+  playbookId: string;
+  tenantId: string | null;
+  userId: string | null;
+  fileName: string;
+  title: string;
+  description: string | null;
+  workflowProfileId: string | null;
+  environmentId: string | null;
+  environmentName: string | null;
+  defaultCheckType: CheckRunType | null;
+  parameters: RunbookParameter[];
+  steps: RunbookStep[];
+  overviewMarkdown: string;
+  active: boolean;
+  createdUtc: string;
+  lastUpdateUtc: string;
+}
+
+export interface RunbookQuery {
+  workflowProfileId?: string | null;
+  environmentId?: string | null;
+  defaultCheckType?: CheckRunType | null;
+  active?: boolean | null;
+  search?: string | null;
+  pageNumber?: number;
+  pageSize?: number;
+}
+
+export interface RunbookUpsertRequest {
+  fileName?: string | null;
+  title?: string | null;
+  description?: string | null;
+  workflowProfileId?: string | null;
+  environmentId?: string | null;
+  environmentName?: string | null;
+  defaultCheckType?: CheckRunType | null;
+  parameters?: RunbookParameter[] | null;
+  steps?: RunbookStep[] | null;
+  overviewMarkdown?: string | null;
+  active?: boolean | null;
+}
+
+export interface RunbookExecution {
+  id: string;
+  runbookId: string;
+  playbookId: string;
+  tenantId: string | null;
+  userId: string | null;
+  title: string;
+  status: RunbookExecutionStatus;
+  workflowProfileId: string | null;
+  environmentId: string | null;
+  environmentName: string | null;
+  checkType: CheckRunType | null;
+  deploymentId: string | null;
+  incidentId: string | null;
+  parameterValues: Record<string, string>;
+  completedStepIds: string[];
+  stepNotes: Record<string, string>;
+  notes: string | null;
+  startedUtc: string;
+  completedUtc: string | null;
+  lastUpdateUtc: string;
+}
+
+export interface RunbookExecutionQuery {
+  runbookId?: string | null;
+  deploymentId?: string | null;
+  incidentId?: string | null;
+  status?: RunbookExecutionStatus | null;
+  search?: string | null;
+  pageNumber?: number;
+  pageSize?: number;
+}
+
+export interface RunbookExecutionStartRequest {
+  title?: string | null;
+  workflowProfileId?: string | null;
+  environmentId?: string | null;
+  environmentName?: string | null;
+  checkType?: CheckRunType | null;
+  parameterValues?: Record<string, string> | null;
+  deploymentId?: string | null;
+  incidentId?: string | null;
+  notes?: string | null;
+}
+
+export interface RunbookExecutionUpdateRequest {
+  status?: RunbookExecutionStatus | null;
+  completedStepIds?: string[] | null;
+  stepNotes?: Record<string, string> | null;
+  notes?: string | null;
+}
+
+export type ReadinessSeverity = 'Info' | 'Warning' | 'Error';
+
+export interface VesselReadinessIssue {
+  code: string;
+  severity: ReadinessSeverity;
+  title: string;
+  message: string;
+  relatedValue: string | null;
+}
+
+export interface VesselToolchainProbe {
+  name: string;
+  command: string;
+  version: string | null;
+  available: boolean;
+  expected: boolean;
+  evidence: string | null;
+}
+
+export interface VesselDeploymentMetadata {
+  environmentCount: number;
+  hasDeployCommand: boolean;
+  hasRollbackCommand: boolean;
+  hasSmokeTestCommand: boolean;
+  hasHealthCheckCommand: boolean;
+  hasDeploymentVerificationCommand: boolean;
+  hasRollbackVerificationCommand: boolean;
+}
+
+export interface VesselReadinessResult {
+  vesselId: string;
+  hasWorkingDirectory: boolean;
+  hasRepositoryContext: boolean;
+  workflowProfileId: string | null;
+  workflowProfileName: string | null;
+  workflowProfileScope: WorkflowProfileScope | null;
+  requestedCheckType: CheckRunType | null;
+  requestedEnvironmentName: string | null;
+  availableCheckTypes: string[];
+  currentBranch: string | null;
+  hasUncommittedChanges: boolean | null;
+  isDetachedHead: boolean | null;
+  commitsAhead: number | null;
+  commitsBehind: number | null;
+  detectedToolchains: string[];
+  toolchainProbes: VesselToolchainProbe[];
+  deploymentEnvironments: string[];
+  deploymentMetadata: VesselDeploymentMetadata | null;
+  setupChecklist: VesselSetupChecklistItem[];
+  issues: VesselReadinessIssue[];
+  setupChecklistSatisfiedCount: number;
+  setupChecklistTotalCount: number;
+  errorCount: number;
+  warningCount: number;
+  isReady: boolean;
+}
+
+export interface VesselSetupChecklistItem {
+  code: string;
+  severity: ReadinessSeverity;
+  title: string;
+  message: string;
+  isSatisfied: boolean;
+  actionLabel: string | null;
+  actionRoute: string | null;
+}
+
+export interface LandingPreviewIssue {
+  code: string;
+  severity: ReadinessSeverity;
+  title: string;
+  message: string;
+}
+
+export interface LandingPreviewResult {
+  vesselId: string;
+  missionId: string | null;
+  sourceBranch: string | null;
+  targetBranch: string;
+  branchCategory: string;
+  targetBranchProtected: boolean;
+  protectedBranchMatch: string | null;
+  landingMode: string | null;
+  branchCleanupPolicy: string | null;
+  requirePassingChecksToLand: boolean;
+  requirePullRequestForProtectedBranches: boolean;
+  requireMergeQueueForReleaseBranches: boolean;
+  expectedLandingAction: string | null;
+  hasPassingChecks: boolean;
+  latestCheckRunId: string | null;
+  latestCheckStatus: CheckRunStatus | null;
+  latestCheckSummary: string | null;
+  isReadyToLand: boolean;
+  issues: LandingPreviewIssue[];
 }
 
 export interface ArmadaEvent {
@@ -715,6 +1407,49 @@ export interface RequestHistoryQuery {
   bucketMinutes?: number;
 }
 
+export interface HistoricalTimelineEntry {
+  id: string;
+  sourceType: string;
+  sourceId: string;
+  entityType: string | null;
+  entityId: string | null;
+  objectiveId: string | null;
+  vesselId: string | null;
+  environmentId: string | null;
+  deploymentId: string | null;
+  incidentId: string | null;
+  missionId: string | null;
+  voyageId: string | null;
+  actorId: string | null;
+  actorDisplay: string | null;
+  title: string;
+  description: string | null;
+  status: string | null;
+  severity: string | null;
+  route: string | null;
+  occurredUtc: string;
+  metadataJson: string | null;
+}
+
+export interface HistoricalTimelineQuery {
+  tenantId?: string | null;
+  userId?: string | null;
+  objectiveId?: string | null;
+  vesselId?: string | null;
+  environmentId?: string | null;
+  deploymentId?: string | null;
+  incidentId?: string | null;
+  missionId?: string | null;
+  voyageId?: string | null;
+  actor?: string | null;
+  text?: string | null;
+  sourceTypes?: string[];
+  fromUtc?: string | null;
+  toUtc?: string | null;
+  pageNumber?: number;
+  pageSize?: number;
+}
+
 export interface DispatchRequest {
   vesselId: string;
   title: string;
@@ -729,6 +1464,7 @@ export interface PlanningSessionCreateRequest {
   fleetId?: string;
   pipelineId?: string;
   selectedPlaybooks?: SelectedPlaybook[];
+  objectiveId?: string;
 }
 
 export interface PlanningSessionMessageRequest {
@@ -749,6 +1485,7 @@ export interface VoyageCreateRequest {
   pipeline?: string;
   missions: DispatchRequest[];
   selectedPlaybooks?: SelectedPlaybook[];
+  objectiveId?: string;
 }
 
 export interface TransitionRequest {
@@ -836,4 +1573,4 @@ export interface PipelineStage {
   reviewDenyAction: 'RetryStage' | 'FailPipeline';
 }
 
-export type EntityType = 'fleets' | 'vessels' | 'captains' | 'missions' | 'voyages' | 'signals' | 'events' | 'docks' | 'merge-queue' | 'personas' | 'prompt-templates' | 'pipelines' | 'playbooks';
+export type EntityType = 'fleets' | 'vessels' | 'captains' | 'missions' | 'voyages' | 'signals' | 'events' | 'docks' | 'merge-queue' | 'personas' | 'prompt-templates' | 'pipelines' | 'playbooks' | 'releases' | 'environments' | 'deployments' | 'incidents' | 'runbooks';

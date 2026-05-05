@@ -2,6 +2,7 @@ namespace Armada.Core.Models
 {
     using System;
     using System.Collections.Generic;
+    using System.Linq;
     using Armada.Core.Enums;
 
     /// <summary>
@@ -106,9 +107,34 @@ namespace Armada.Core.Models
         public string? E2ETestCommand { get; set; } = null;
 
         /// <summary>
+        /// Migration command.
+        /// </summary>
+        public string? MigrationCommand { get; set; } = null;
+
+        /// <summary>
+        /// Security-scan command.
+        /// </summary>
+        public string? SecurityScanCommand { get; set; } = null;
+
+        /// <summary>
+        /// Performance-check command.
+        /// </summary>
+        public string? PerformanceCommand { get; set; } = null;
+
+        /// <summary>
         /// Package command.
         /// </summary>
         public string? PackageCommand { get; set; } = null;
+
+        /// <summary>
+        /// Deployment-verification command.
+        /// </summary>
+        public string? DeploymentVerificationCommand { get; set; } = null;
+
+        /// <summary>
+        /// Rollback-verification command.
+        /// </summary>
+        public string? RollbackVerificationCommand { get; set; } = null;
 
         /// <summary>
         /// Publish-artifact command.
@@ -129,6 +155,17 @@ namespace Armada.Core.Models
         /// Required secret or configuration references.
         /// </summary>
         public List<string> RequiredSecrets { get; set; } = new List<string>();
+
+        /// <summary>
+        /// Structured workflow input references exposed over the API and dashboard.
+        /// These are persisted through the legacy RequiredSecrets backing list to avoid
+        /// a dedicated schema migration for readiness/preflight support.
+        /// </summary>
+        public List<WorkflowInputReference> RequiredInputs
+        {
+            get => WorkflowInputReference.ParseMany(RequiredSecrets);
+            set => RequiredSecrets = WorkflowInputReference.SerializeMany(value?.Where(item => item != null) ?? Enumerable.Empty<WorkflowInputReference>());
+        }
 
         /// <summary>
         /// Expected build or release artifacts.

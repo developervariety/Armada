@@ -28,11 +28,18 @@ namespace Armada.Server.Routes
         private readonly ArmadaSettings _settings;
         private readonly IGitService _git;
         private readonly ILandingService _landingService;
+        private readonly LandingPreviewService _landingPreview;
         private readonly Func<string, string, string?, string?, string?, string?, string?, string?, Task> _emitEvent;
         private readonly Func<Mission, Dock, Task> _handleMissionComplete;
         private readonly ArmadaWebSocketHub? _webSocketHub;
         private readonly LoggingModule _logging;
         private readonly JsonSerializerOptions _jsonOptions;
+
+        private sealed class MissionInstructionsPath
+        {
+            public string FileName { get; set; } = String.Empty;
+            public string Path { get; set; } = String.Empty;
+        }
 
         /// <summary>
         /// Instantiate.
@@ -43,6 +50,7 @@ namespace Armada.Server.Routes
         /// <param name="settings">Application settings.</param>
         /// <param name="git">Git operations service.</param>
         /// <param name="landingService">Mission landing service.</param>
+        /// <param name="landingPreview">Mission landing-preview service.</param>
         /// <param name="emitEvent">Event broadcast callback.</param>
         /// <param name="handleMissionComplete">Mission completion callback.</param>
         /// <param name="webSocketHub">WebSocket hub for real-time notifications.</param>
@@ -55,6 +63,7 @@ namespace Armada.Server.Routes
             ArmadaSettings settings,
             IGitService git,
             ILandingService landingService,
+            LandingPreviewService landingPreview,
             Func<string, string, string?, string?, string?, string?, string?, string?, Task> emitEvent,
             Func<Mission, Dock, Task> handleMissionComplete,
             ArmadaWebSocketHub? webSocketHub,
@@ -67,6 +76,7 @@ namespace Armada.Server.Routes
             _settings = settings;
             _git = git;
             _landingService = landingService;
+            _landingPreview = landingPreview ?? throw new ArgumentNullException(nameof(landingPreview));
             _emitEvent = emitEvent;
             _handleMissionComplete = handleMissionComplete;
             _webSocketHub = webSocketHub;
@@ -94,7 +104,7 @@ namespace Armada.Server.Routes
             return lines.ToArray();
         }
 
-        private async Task<(string FileName, string Path)?> ResolveMissionInstructionsPathAsync(AuthContext ctx, Mission mission)
+        private async Task<MissionInstructionsPath?> ResolveMissionInstructionsPathAsync(AuthContext ctx, Mission mission)
         {
             Captain? captain = null;
             if (!String.IsNullOrEmpty(mission.CaptainId))
@@ -123,52 +133,75 @@ namespace Armada.Server.Routes
             string fileName = MissionPromptBuilder.GetInstructionsFileName(captain != null ? captain.Runtime.ToString() : null);
             string path = Path.Combine(dock.WorktreePath, fileName);
             if (File.Exists(path))
-                return (fileName, path);
+            {
+                return new MissionInstructionsPath
+                {
+                    FileName = fileName,
+                    Path = path
+                };
+            }
 
             string[] fallbackNames = { "CLAUDE.md", "CODEX.md", "CURSOR.md", "AGENTS.md", "GEMINI.md", "MUX.md" };
             foreach (string fallbackName in fallbackNames)
             {
                 string fallbackPath = Path.Combine(dock.WorktreePath, fallbackName);
                 if (File.Exists(fallbackPath))
-                    return (fallbackName, fallbackPath);
+                {
+                    return new MissionInstructionsPath
+                    {
+                        FileName = fallbackName,
+                        Path = fallbackPath
+                    };
+                }
             }
 
-            return (fileName, path);
+            return new MissionInstructionsPath
+            {
+                FileName = fileName,
+                Path = path
+            };
         }
 
         private bool IsValidTransition(MissionStatusEnum current, MissionStatusEnum target)
         {
-            return (current, target) switch
+            if (current == MissionStatusEnum.Pending)
+                return target == MissionStatusEnum.Assigned || target == MissionStatusEnum.Cancelled;
+            if (current == MissionStatusEnum.Assigned)
+                return target == MissionStatusEnum.InProgress || target == MissionStatusEnum.Cancelled;
+            if (current == MissionStatusEnum.InProgress)
             {
-                (MissionStatusEnum.Pending, MissionStatusEnum.Assigned) => true,
-                (MissionStatusEnum.Pending, MissionStatusEnum.Cancelled) => true,
-                (MissionStatusEnum.Assigned, MissionStatusEnum.InProgress) => true,
-                (MissionStatusEnum.Assigned, MissionStatusEnum.Cancelled) => true,
-                (MissionStatusEnum.InProgress, MissionStatusEnum.WorkProduced) => true,
-                (MissionStatusEnum.InProgress, MissionStatusEnum.Testing) => true,
-                (MissionStatusEnum.InProgress, MissionStatusEnum.Review) => true,
-                (MissionStatusEnum.InProgress, MissionStatusEnum.Complete) => true,
-                (MissionStatusEnum.InProgress, MissionStatusEnum.Failed) => true,
-                (MissionStatusEnum.InProgress, MissionStatusEnum.Cancelled) => true,
-                (MissionStatusEnum.WorkProduced, MissionStatusEnum.PullRequestOpen) => true,
-                (MissionStatusEnum.WorkProduced, MissionStatusEnum.Complete) => true,
-                (MissionStatusEnum.WorkProduced, MissionStatusEnum.LandingFailed) => true,
-                (MissionStatusEnum.WorkProduced, MissionStatusEnum.Cancelled) => true,
-                (MissionStatusEnum.PullRequestOpen, MissionStatusEnum.Complete) => true,
-                (MissionStatusEnum.PullRequestOpen, MissionStatusEnum.LandingFailed) => true,
-                (MissionStatusEnum.PullRequestOpen, MissionStatusEnum.Cancelled) => true,
-                (MissionStatusEnum.Testing, MissionStatusEnum.Review) => true,
-                (MissionStatusEnum.Testing, MissionStatusEnum.InProgress) => true,
-                (MissionStatusEnum.Testing, MissionStatusEnum.Complete) => true,
-                (MissionStatusEnum.Testing, MissionStatusEnum.Failed) => true,
-                (MissionStatusEnum.Review, MissionStatusEnum.Complete) => true,
-                (MissionStatusEnum.Review, MissionStatusEnum.InProgress) => true,
-                (MissionStatusEnum.Review, MissionStatusEnum.Failed) => true,
-                (MissionStatusEnum.LandingFailed, MissionStatusEnum.WorkProduced) => true,
-                (MissionStatusEnum.LandingFailed, MissionStatusEnum.Failed) => true,
-                (MissionStatusEnum.LandingFailed, MissionStatusEnum.Cancelled) => true,
-                _ => false
-            };
+                return target == MissionStatusEnum.WorkProduced
+                    || target == MissionStatusEnum.Testing
+                    || target == MissionStatusEnum.Review
+                    || target == MissionStatusEnum.Complete
+                    || target == MissionStatusEnum.Failed
+                    || target == MissionStatusEnum.Cancelled;
+            }
+            if (current == MissionStatusEnum.WorkProduced)
+            {
+                return target == MissionStatusEnum.PullRequestOpen
+                    || target == MissionStatusEnum.Complete
+                    || target == MissionStatusEnum.LandingFailed
+                    || target == MissionStatusEnum.Cancelled;
+            }
+            if (current == MissionStatusEnum.PullRequestOpen)
+            {
+                return target == MissionStatusEnum.Complete
+                    || target == MissionStatusEnum.LandingFailed
+                    || target == MissionStatusEnum.Cancelled;
+            }
+            if (current == MissionStatusEnum.Testing)
+            {
+                return target == MissionStatusEnum.Review
+                    || target == MissionStatusEnum.InProgress
+                    || target == MissionStatusEnum.Complete
+                    || target == MissionStatusEnum.Failed;
+            }
+            if (current == MissionStatusEnum.Review)
+                return target == MissionStatusEnum.Complete || target == MissionStatusEnum.InProgress || target == MissionStatusEnum.Failed;
+            if (current == MissionStatusEnum.LandingFailed)
+                return target == MissionStatusEnum.WorkProduced || target == MissionStatusEnum.Failed || target == MissionStatusEnum.Cancelled;
+            return false;
         }
 
         /// <summary>
@@ -300,6 +333,56 @@ namespace Armada.Server.Routes
                 .WithDescription("Returns a single mission by ID.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Mission ID (msn_ prefix)"))
                 .WithResponse(200, OpenApiJson.For<Mission>("Mission details"))
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithSecurity("ApiKey"));
+
+            app.Get("/api/v1/missions/{id}/landing-preview", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                {
+                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
+                    return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
+                }
+
+                string id = req.Parameters["id"];
+                Mission? mission = ctx.IsAdmin
+                    ? await _database.Missions.ReadAsync(id).ConfigureAwait(false)
+                    : ctx.IsTenantAdmin
+                        ? await _database.Missions.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                        : await _database.Missions.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
+                if (mission == null)
+                {
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found" };
+                }
+
+                if (String.IsNullOrWhiteSpace(mission.VesselId))
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Mission does not have an associated vessel" };
+                }
+
+                Vessel? vessel = ctx.IsAdmin
+                    ? await _database.Vessels.ReadAsync(mission.VesselId).ConfigureAwait(false)
+                    : ctx.IsTenantAdmin
+                        ? await _database.Vessels.ReadAsync(ctx.TenantId!, mission.VesselId).ConfigureAwait(false)
+                        : await _database.Vessels.ReadAsync(ctx.TenantId!, ctx.UserId!, mission.VesselId).ConfigureAwait(false);
+                if (vessel == null)
+                {
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission vessel not found" };
+                }
+
+                return await _landingPreview.PreviewForMissionAsync(ctx, vessel, mission).ConfigureAwait(false);
+            },
+            api => api
+                .WithTag("Missions")
+                .WithSummary("Preview mission landing readiness")
+                .WithDescription("Predicts how Armada would land this mission, including branch policy, check requirements, and likely blockers.")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Mission ID (msn_ prefix)"))
+                .WithResponse(200, OpenApiJson.For<LandingPreviewResult>("Mission landing preview"))
+                .WithResponse(400, OpenApiResponseMetadata.BadRequest())
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
@@ -470,6 +553,8 @@ namespace Armada.Server.Routes
                 if (_webSocketHub != null)
                 {
                     _webSocketHub.BroadcastMissionChange(id, newStatus.ToString(), mission.Title);
+                    if (newStatus == MissionStatusEnum.Review)
+                        _webSocketHub.BroadcastApprovalNeeded(mission);
                 }
 
                 return (object)mission;
@@ -970,7 +1055,7 @@ namespace Armada.Server.Routes
                         : await _database.Missions.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (mission == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found" }; }
 
-                (string FileName, string Path)? resolved = await ResolveMissionInstructionsPathAsync(ctx, mission).ConfigureAwait(false);
+                MissionInstructionsPath? resolved = await ResolveMissionInstructionsPathAsync(ctx, mission).ConfigureAwait(false);
                 if (resolved == null)
                 {
                     string instructionsDir = Path.Combine(_settings.LogDirectory, "instructions");
@@ -999,14 +1084,14 @@ namespace Armada.Server.Routes
 
                 try
                 {
-                    string content = File.Exists(resolved.Value.Path)
-                        ? await ReadFileSharedAsync(resolved.Value.Path).ConfigureAwait(false)
+                    string content = File.Exists(resolved.Path)
+                        ? await ReadFileSharedAsync(resolved.Path).ConfigureAwait(false)
                         : "";
-                    return (object)new { MissionId = id, FileName = resolved.Value.FileName, Content = content };
+                    return (object)new { MissionId = id, FileName = resolved.FileName, Content = content };
                 }
                 catch (IOException)
                 {
-                    return (object)new { MissionId = id, FileName = resolved.Value.FileName, Content = "" };
+                    return (object)new { MissionId = id, FileName = resolved.FileName, Content = "" };
                 }
             },
             api => api

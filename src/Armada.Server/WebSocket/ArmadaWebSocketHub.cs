@@ -5,6 +5,7 @@ namespace Armada.Server.WebSocket
     using System.Collections.Generic;
     using System.Net.WebSockets;
     using System.Text.Json;
+    using System.Text.Json.Serialization;
     using System.Threading;
     using System.Threading.Tasks;
     using SyslogLogging;
@@ -35,7 +36,8 @@ namespace Armada.Server.WebSocket
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
             PropertyNameCaseInsensitive = true,
-            WriteIndented = false
+            WriteIndented = false,
+            Converters = { new JsonStringEnumConverter() }
         };
 
         #endregion
@@ -169,6 +171,156 @@ namespace Armada.Server.WebSocket
                     id = captainId,
                     name = name,
                     state = state
+                },
+                timestamp = DateTime.UtcNow
+            };
+
+            BroadcastEvent(payload);
+        }
+
+        /// <summary>
+        /// Broadcast a structured check-run change to all connected clients.
+        /// </summary>
+        /// <param name="run">Changed check run.</param>
+        public void BroadcastCheckRunChange(CheckRun run)
+        {
+            object payload = new
+            {
+                type = "check-run.changed",
+                data = run,
+                timestamp = DateTime.UtcNow
+            };
+
+            BroadcastEvent(payload);
+        }
+
+        /// <summary>
+        /// Broadcast an objective change to all connected clients.
+        /// </summary>
+        /// <param name="objective">Changed objective.</param>
+        public void BroadcastObjectiveChange(Objective objective)
+        {
+            object payload = new
+            {
+                type = "objective.changed",
+                data = objective,
+                timestamp = DateTime.UtcNow
+            };
+
+            BroadcastEvent(payload);
+        }
+
+        /// <summary>
+        /// Broadcast a deployment change to all connected clients.
+        /// </summary>
+        /// <param name="deployment">Changed deployment.</param>
+        public void BroadcastDeploymentChange(Deployment deployment)
+        {
+            object changedPayload = new
+            {
+                type = "deployment.changed",
+                data = deployment,
+                timestamp = DateTime.UtcNow
+            };
+
+            BroadcastEvent(changedPayload);
+
+            object progressPayload = new
+            {
+                type = "deployment.progress",
+                data = new
+                {
+                    deployment.Id,
+                    deployment.Title,
+                    deployment.Status,
+                    deployment.VerificationStatus,
+                    deployment.EnvironmentId,
+                    deployment.EnvironmentName,
+                    deployment.StartedUtc,
+                    deployment.CompletedUtc,
+                    deployment.LastUpdateUtc
+                },
+                timestamp = DateTime.UtcNow
+            };
+
+            BroadcastEvent(progressPayload);
+
+            if (!String.IsNullOrWhiteSpace(deployment.EnvironmentId) || !String.IsNullOrWhiteSpace(deployment.EnvironmentName))
+            {
+                object environmentPayload = new
+                {
+                    type = "environment.health",
+                    data = new
+                    {
+                        deployment.EnvironmentId,
+                        deployment.EnvironmentName,
+                        deployment.Id,
+                        deployment.Title,
+                        deployment.Status,
+                        deployment.VerificationStatus,
+                        deployment.LastMonitoredUtc,
+                        deployment.LastRegressionAlertUtc,
+                        deployment.LatestMonitoringSummary,
+                        deployment.MonitoringFailureCount
+                    },
+                    timestamp = DateTime.UtcNow
+                };
+
+                BroadcastEvent(environmentPayload);
+            }
+        }
+
+        /// <summary>
+        /// Broadcast an incident change to all connected clients.
+        /// </summary>
+        /// <param name="incident">Changed incident.</param>
+        public void BroadcastIncidentChange(Incident incident)
+        {
+            object payload = new
+            {
+                type = "incident.changed",
+                data = incident,
+                timestamp = DateTime.UtcNow
+            };
+
+            BroadcastEvent(payload);
+        }
+
+        /// <summary>
+        /// Broadcast a runbook execution change to all connected clients.
+        /// </summary>
+        /// <param name="execution">Changed runbook execution.</param>
+        public void BroadcastRunbookExecutionChange(RunbookExecution execution)
+        {
+            object payload = new
+            {
+                type = "runbook-execution.changed",
+                data = execution,
+                timestamp = DateTime.UtcNow
+            };
+
+            BroadcastEvent(payload);
+        }
+
+        /// <summary>
+        /// Broadcast an approval-needed notification when a mission enters review.
+        /// </summary>
+        /// <param name="mission">Mission awaiting approval.</param>
+        public void BroadcastApprovalNeeded(Mission mission)
+        {
+            object payload = new
+            {
+                type = "approval-needed",
+                data = new
+                {
+                    entityType = "mission",
+                    entityId = mission.Id,
+                    missionId = mission.Id,
+                    title = mission.Title,
+                    status = mission.Status.ToString(),
+                    vesselId = mission.VesselId,
+                    voyageId = mission.VoyageId,
+                    reviewRequestedUtc = mission.ReviewRequestedUtc
                 },
                 timestamp = DateTime.UtcNow
             };

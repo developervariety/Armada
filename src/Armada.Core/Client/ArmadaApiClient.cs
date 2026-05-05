@@ -4,6 +4,7 @@ namespace Armada.Core.Client
     using System.Net.Http.Json;
     using System.Text.Json;
     using System.Text.Json.Serialization;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
 
     /// <summary>
@@ -199,6 +200,254 @@ namespace Armada.Core.Client
             await DeleteAsync("/api/v1/vessels/" + id, token).ConfigureAwait(false);
         }
 
+        /// <summary>
+        /// Get vessel readiness, optionally scoped to a workflow profile or check type.
+        /// </summary>
+        public async Task<VesselReadinessResult?> GetVesselReadinessAsync(
+            string id,
+            string? workflowProfileId = null,
+            CheckRunTypeEnum? checkType = null,
+            string? environmentName = null,
+            bool includeWorkflowRequirements = true,
+            CancellationToken token = default)
+        {
+            List<string> query = new List<string>();
+            if (!String.IsNullOrWhiteSpace(workflowProfileId))
+                query.Add("workflowProfileId=" + Uri.EscapeDataString(workflowProfileId));
+            if (checkType.HasValue)
+                query.Add("checkType=" + Uri.EscapeDataString(checkType.Value.ToString()));
+            if (!String.IsNullOrWhiteSpace(environmentName))
+                query.Add("environmentName=" + Uri.EscapeDataString(environmentName));
+            if (!includeWorkflowRequirements)
+                query.Add("includeWorkflowRequirements=false");
+
+            string path = "/api/v1/vessels/" + id + "/readiness";
+            if (query.Count > 0)
+                path += "?" + String.Join("&", query);
+
+            return await GetAsync<VesselReadinessResult>(path, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Preview landing readiness for a vessel and optional source branch.
+        /// </summary>
+        public async Task<LandingPreviewResult?> GetVesselLandingPreviewAsync(
+            string id,
+            string? sourceBranch = null,
+            CancellationToken token = default)
+        {
+            string path = "/api/v1/vessels/" + id + "/landing-preview";
+            if (!String.IsNullOrWhiteSpace(sourceBranch))
+                path += "?sourceBranch=" + Uri.EscapeDataString(sourceBranch);
+            return await GetAsync<LandingPreviewResult>(path, token).ConfigureAwait(false);
+        }
+
+        #endregion
+
+        #region Public-Methods-Environments
+
+        /// <summary>
+        /// List environments with optional filtering.
+        /// </summary>
+        public async Task<EnumerationResult<DeploymentEnvironment>?> ListEnvironmentsAsync(
+            string? vesselId = null,
+            EnvironmentKindEnum? kind = null,
+            bool? active = null,
+            CancellationToken token = default)
+        {
+            List<string> queryParts = new List<string>();
+            if (!String.IsNullOrWhiteSpace(vesselId)) queryParts.Add("vesselId=" + Uri.EscapeDataString(vesselId));
+            if (kind.HasValue) queryParts.Add("kind=" + Uri.EscapeDataString(kind.Value.ToString()));
+            if (active.HasValue) queryParts.Add("active=" + (active.Value ? "true" : "false"));
+
+            string path = "/api/v1/environments";
+            if (queryParts.Count > 0) path += "?" + String.Join("&", queryParts);
+            return await GetAsync<EnumerationResult<DeploymentEnvironment>>(path, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Enumerate environments with pagination and filtering.
+        /// </summary>
+        public async Task<EnumerationResult<DeploymentEnvironment>?> EnumerateEnvironmentsAsync(
+            DeploymentEnvironmentQuery? query = null,
+            CancellationToken token = default)
+        {
+            return await PostAsync<EnumerationResult<DeploymentEnvironment>, DeploymentEnvironmentQuery>(
+                "/api/v1/environments/enumerate",
+                query ?? new DeploymentEnvironmentQuery(),
+                token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Get an environment by ID.
+        /// </summary>
+        public async Task<DeploymentEnvironment?> GetEnvironmentAsync(string id, CancellationToken token = default)
+        {
+            return await GetAsync<DeploymentEnvironment>("/api/v1/environments/" + id, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Create an environment.
+        /// </summary>
+        public async Task<DeploymentEnvironment?> CreateEnvironmentAsync(
+            DeploymentEnvironmentUpsertRequest request,
+            CancellationToken token = default)
+        {
+            return await PostAsync<DeploymentEnvironment, DeploymentEnvironmentUpsertRequest>(
+                "/api/v1/environments",
+                request,
+                token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Update an environment.
+        /// </summary>
+        public async Task<DeploymentEnvironment?> UpdateEnvironmentAsync(
+            string id,
+            DeploymentEnvironmentUpsertRequest request,
+            CancellationToken token = default)
+        {
+            return await PutAsync<DeploymentEnvironment, DeploymentEnvironmentUpsertRequest>(
+                "/api/v1/environments/" + id,
+                request,
+                token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Delete an environment.
+        /// </summary>
+        public async Task DeleteEnvironmentAsync(string id, CancellationToken token = default)
+        {
+            await DeleteAsync("/api/v1/environments/" + id, token).ConfigureAwait(false);
+        }
+
+        #endregion
+
+        #region Public-Methods-Deployments
+
+        /// <summary>
+        /// List deployments with optional filtering.
+        /// </summary>
+        public async Task<EnumerationResult<Deployment>?> ListDeploymentsAsync(
+            string? vesselId = null,
+            string? environmentId = null,
+            string? releaseId = null,
+            DeploymentStatusEnum? status = null,
+            DeploymentVerificationStatusEnum? verificationStatus = null,
+            CancellationToken token = default)
+        {
+            List<string> queryParts = new List<string>();
+            if (!String.IsNullOrWhiteSpace(vesselId)) queryParts.Add("vesselId=" + Uri.EscapeDataString(vesselId));
+            if (!String.IsNullOrWhiteSpace(environmentId)) queryParts.Add("environmentId=" + Uri.EscapeDataString(environmentId));
+            if (!String.IsNullOrWhiteSpace(releaseId)) queryParts.Add("releaseId=" + Uri.EscapeDataString(releaseId));
+            if (status.HasValue) queryParts.Add("status=" + Uri.EscapeDataString(status.Value.ToString()));
+            if (verificationStatus.HasValue) queryParts.Add("verificationStatus=" + Uri.EscapeDataString(verificationStatus.Value.ToString()));
+
+            string path = "/api/v1/deployments";
+            if (queryParts.Count > 0) path += "?" + String.Join("&", queryParts);
+            return await GetAsync<EnumerationResult<Deployment>>(path, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Enumerate deployments with pagination and filtering.
+        /// </summary>
+        public async Task<EnumerationResult<Deployment>?> EnumerateDeploymentsAsync(
+            DeploymentQuery? query = null,
+            CancellationToken token = default)
+        {
+            return await PostAsync<EnumerationResult<Deployment>, DeploymentQuery>(
+                "/api/v1/deployments/enumerate",
+                query ?? new DeploymentQuery(),
+                token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Get a deployment by ID.
+        /// </summary>
+        public async Task<Deployment?> GetDeploymentAsync(string id, CancellationToken token = default)
+        {
+            return await GetAsync<Deployment>("/api/v1/deployments/" + id, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Create a deployment.
+        /// </summary>
+        public async Task<Deployment?> CreateDeploymentAsync(
+            DeploymentUpsertRequest request,
+            CancellationToken token = default)
+        {
+            return await PostAsync<Deployment, DeploymentUpsertRequest>(
+                "/api/v1/deployments",
+                request,
+                token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Update a deployment.
+        /// </summary>
+        public async Task<Deployment?> UpdateDeploymentAsync(
+            string id,
+            DeploymentUpsertRequest request,
+            CancellationToken token = default)
+        {
+            return await PutAsync<Deployment, DeploymentUpsertRequest>(
+                "/api/v1/deployments/" + id,
+                request,
+                token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Approve a deployment.
+        /// </summary>
+        public async Task<Deployment?> ApproveDeploymentAsync(
+            string id,
+            string? comment = null,
+            CancellationToken token = default)
+        {
+            object body = String.IsNullOrWhiteSpace(comment)
+                ? new { }
+                : new { Comment = comment };
+            return await PostAsync<Deployment>("/api/v1/deployments/" + id + "/approve", body, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Deny a deployment.
+        /// </summary>
+        public async Task<Deployment?> DenyDeploymentAsync(
+            string id,
+            string? comment = null,
+            CancellationToken token = default)
+        {
+            object body = String.IsNullOrWhiteSpace(comment)
+                ? new { }
+                : new { Comment = comment };
+            return await PostAsync<Deployment>("/api/v1/deployments/" + id + "/deny", body, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Re-run post-deploy verification for a deployment.
+        /// </summary>
+        public async Task<Deployment?> VerifyDeploymentAsync(string id, CancellationToken token = default)
+        {
+            return await PostAsync<Deployment>("/api/v1/deployments/" + id + "/verify", new { }, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Roll back a deployment.
+        /// </summary>
+        public async Task<Deployment?> RollbackDeploymentAsync(string id, CancellationToken token = default)
+        {
+            return await PostAsync<Deployment>("/api/v1/deployments/" + id + "/rollback", new { }, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Delete a deployment.
+        /// </summary>
+        public async Task DeleteDeploymentAsync(string id, CancellationToken token = default)
+        {
+            await DeleteAsync("/api/v1/deployments/" + id, token).ConfigureAwait(false);
+        }
+
         #endregion
 
         #region Public-Methods-Captains
@@ -297,6 +546,14 @@ namespace Armada.Core.Client
         public async Task<Mission?> GetMissionAsync(string id, CancellationToken token = default)
         {
             return await GetAsync<Mission>("/api/v1/missions/" + id, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Preview landing readiness for a mission.
+        /// </summary>
+        public async Task<LandingPreviewResult?> GetMissionLandingPreviewAsync(string id, CancellationToken token = default)
+        {
+            return await GetAsync<LandingPreviewResult>("/api/v1/missions/" + id + "/landing-preview", token).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -643,6 +900,17 @@ namespace Armada.Core.Client
         }
 
         /// <summary>
+        /// Preview the fully resolved workflow profile and commands for a vessel.
+        /// </summary>
+        public async Task<WorkflowProfileResolutionPreviewResult?> PreviewWorkflowProfileForVesselAsync(string vesselId, string? workflowProfileId = null, CancellationToken token = default)
+        {
+            string path = "/api/v1/workflow-profiles/preview/vessels/" + vesselId;
+            if (!String.IsNullOrWhiteSpace(workflowProfileId))
+                path += "?workflowProfileId=" + Uri.EscapeDataString(workflowProfileId);
+            return await GetAsync<WorkflowProfileResolutionPreviewResult>(path, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
         /// Resolve the active workflow profile for a vessel.
         /// </summary>
         public async Task<WorkflowProfile?> ResolveWorkflowProfileAsync(string vesselId, string? workflowProfileId = null, CancellationToken token = default)
@@ -675,6 +943,68 @@ namespace Armada.Core.Client
         public async Task DeleteWorkflowProfileAsync(string id, CancellationToken token = default)
         {
             await DeleteAsync("/api/v1/workflow-profiles/" + id, token).ConfigureAwait(false);
+        }
+
+        #endregion
+
+        #region Public-Methods-Releases
+
+        /// <summary>
+        /// List releases.
+        /// </summary>
+        public async Task<EnumerationResult<Release>?> ListReleasesAsync(CancellationToken token = default)
+        {
+            return await GetAsync<EnumerationResult<Release>>("/api/v1/releases", token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Enumerate releases with paging and filtering.
+        /// </summary>
+        public async Task<EnumerationResult<Release>?> EnumerateReleasesAsync(ReleaseQuery? query = null, CancellationToken token = default)
+        {
+            return await PostAsync<EnumerationResult<Release>, ReleaseQuery>("/api/v1/releases/enumerate", query ?? new ReleaseQuery(), token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Get a release by ID.
+        /// </summary>
+        public async Task<Release?> GetReleaseAsync(string id, CancellationToken token = default)
+        {
+            return await GetAsync<Release>("/api/v1/releases/" + id, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Create a release.
+        /// </summary>
+        public async Task<Release?> CreateReleaseAsync(ReleaseUpsertRequest request, CancellationToken token = default)
+        {
+            if (request == null) throw new ArgumentNullException(nameof(request));
+            return await PostAsync<Release, ReleaseUpsertRequest>("/api/v1/releases", request, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Update a release.
+        /// </summary>
+        public async Task<Release?> UpdateReleaseAsync(string id, ReleaseUpsertRequest request, CancellationToken token = default)
+        {
+            if (request == null) throw new ArgumentNullException(nameof(request));
+            return await PutAsync<Release, ReleaseUpsertRequest>("/api/v1/releases/" + id, request, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Refresh derived release fields.
+        /// </summary>
+        public async Task<Release?> RefreshReleaseAsync(string id, CancellationToken token = default)
+        {
+            return await PostAsync<Release>("/api/v1/releases/" + id + "/refresh", new { }, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Delete a release.
+        /// </summary>
+        public async Task DeleteReleaseAsync(string id, CancellationToken token = default)
+        {
+            await DeleteAsync("/api/v1/releases/" + id, token).ConfigureAwait(false);
         }
 
         #endregion

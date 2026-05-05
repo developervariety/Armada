@@ -183,6 +183,30 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(PermissionLevel.TenantAdmin, level);
             });
 
+            await RunTest("Releases GET IsAuthenticated", () =>
+            {
+                PermissionLevel level = AuthorizationConfig.GetPermissionLevel("GET", "/api/v1/releases");
+                AssertEqual(PermissionLevel.Authenticated, level);
+            });
+
+            await RunTest("Releases POST IsTenantAdmin", () =>
+            {
+                PermissionLevel level = AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/releases");
+                AssertEqual(PermissionLevel.TenantAdmin, level);
+            });
+
+            await RunTest("Environments GET IsAuthenticated", () =>
+            {
+                PermissionLevel level = AuthorizationConfig.GetPermissionLevel("GET", "/api/v1/environments");
+                AssertEqual(PermissionLevel.Authenticated, level);
+            });
+
+            await RunTest("Environments POST IsTenantAdmin", () =>
+            {
+                PermissionLevel level = AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/environments");
+                AssertEqual(PermissionLevel.TenantAdmin, level);
+            });
+
             await RunTest("Server POST IsAdminOnly", () =>
             {
                 PermissionLevel level = AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/server/stop");

@@ -110,9 +110,24 @@ namespace Armada.Core.Database
         public IWorkflowProfileMethods WorkflowProfiles { get; protected set; } = null!;
 
         /// <summary>
+        /// Deployment environment operations.
+        /// </summary>
+        public IDeploymentEnvironmentMethods Environments { get; protected set; } = null!;
+
+        /// <summary>
         /// Structured check-run operations.
         /// </summary>
         public ICheckRunMethods CheckRuns { get; protected set; } = null!;
+
+        /// <summary>
+        /// Release operations.
+        /// </summary>
+        public IReleaseMethods Releases { get; protected set; } = null!;
+
+        /// <summary>
+        /// Deployment operations.
+        /// </summary>
+        public IDeploymentMethods Deployments { get; protected set; } = null!;
 
         #endregion
 

@@ -45,6 +45,11 @@ namespace Armada.Server.Mcp
         public string? Status { get; set; }
 
         /// <summary>
+        /// Optional free-text search filter for entities that support it.
+        /// </summary>
+        public string? Search { get; set; }
+
+        /// <summary>
         /// Filter by fleet ID.
         /// </summary>
         public string? FleetId { get; set; }

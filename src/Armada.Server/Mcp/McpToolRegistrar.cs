@@ -7,6 +7,7 @@ namespace Armada.Server.Mcp
     using System.Threading.Tasks;
     using Armada.Server;
     using Armada.Core.Database;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
     using Armada.Server.Mcp.Tools;
@@ -44,6 +45,11 @@ namespace Armada.Server.Mcp
         /// <param name="mergeQueue">Merge queue service.</param>
         /// <param name="dockService">Dock service for dock management.</param>
         /// <param name="landingService">Landing service for retry landing operations.</param>
+        /// <param name="checkRunService">Optional structured check-run service for Delivery checks.</param>
+        /// <param name="objectiveService">Optional objective service for scope capture workflows.</param>
+        /// <param name="releaseService">Optional release service for Delivery release workflows.</param>
+        /// <param name="deploymentService">Optional deployment service for Delivery deployment workflows.</param>
+        /// <param name="runbookService">Optional runbook service for guided operational workflows.</param>
         /// <param name="onStop">Callback to stop the server.</param>
         /// <param name="onStopCaptain">Callback to kill a captain's agent process by captain ID. Called before RecallCaptainAsync.</param>
         /// <param name="agentLifecycle">Agent lifecycle handler used for captain model validation.</param>
@@ -58,6 +64,11 @@ namespace Armada.Server.Mcp
             IMergeQueueService? mergeQueue = null,
             IDockService? dockService = null,
             ILandingService? landingService = null,
+            CheckRunService? checkRunService = null,
+            ObjectiveService? objectiveService = null,
+            ReleaseService? releaseService = null,
+            DeploymentService? deploymentService = null,
+            RunbookService? runbookService = null,
             Action? onStop = null,
             Func<string, Task>? onStopCaptain = null,
             AgentLifecycleHandler? agentLifecycle = null,
@@ -76,6 +87,11 @@ namespace Armada.Server.Mcp
             McpDockTools.Register(register, database, dockService);
             if (logging != null) McpPlaybookTools.Register(register, database, logging);
             if (mergeQueue != null) McpMergeQueueTools.Register(register, mergeQueue);
+            if (checkRunService != null) McpCheckRunTools.Register(register, database, checkRunService);
+            if (objectiveService != null) McpObjectiveTools.Register(register, objectiveService);
+            if (releaseService != null) McpReleaseTools.Register(register, releaseService);
+            if (deploymentService != null) McpDeploymentTools.Register(register, deploymentService);
+            if (runbookService != null) McpRunbookTools.Register(register, runbookService);
             if (templateService != null) McpPromptTemplateTools.Register(register, database, templateService);
             McpPersonaTools.Register(register, database);
             McpPipelineTools.Register(register, database);

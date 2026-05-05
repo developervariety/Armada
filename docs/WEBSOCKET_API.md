@@ -26,7 +26,14 @@ The new remote-control tunnel forwards Armada server events to the proxy for ins
 - [Server-Pushed Events](#server-pushed-events)
   - [status.snapshot](#statussnapshot)
   - [mission.changed](#missionchanged)
+  - [voyage.changed](#voyagechanged)
   - [captain.changed](#captainchanged)
+  - [objective.changed](#objectivechanged)
+  - [check-run.changed](#check-runchanged)
+  - [deployment.changed](#deploymentchanged)
+  - [deployment.progress](#deploymentprogress)
+  - [environment.health](#environmenthealth)
+  - [approval-needed](#approval-needed)
   - [Generic Events](#generic-events)
 - [Command Actions](#command-actions)
   - [Status & Control](#status--control)
@@ -116,9 +123,11 @@ All server messages include a `type` field indicating the event kind, and a `tim
 ```json
 {
   "type": "mission.changed",
-  "missionId": "msn_abc123",
-  "status": "Complete",
-  "title": "Implement feature X",
+  "data": {
+    "id": "msn_abc123",
+    "status": "Complete",
+    "title": "Implement feature X"
+  },
   "timestamp": "2026-03-07T12:34:56.789Z"
 }
 ```
@@ -141,7 +150,7 @@ Subscribe to real-time event broadcasts. Upon connection with this route, the se
 
 **Server responds with:** a [`status.snapshot`](#statussnapshot) message.
 
-After the initial snapshot, the client will receive all broadcast events ([`mission.changed`](#missionchanged), [`captain.changed`](#captainchanged), and [generic events](#generic-events)) as they occur.
+After the initial snapshot, the client will receive all broadcast events ([`mission.changed`](#missionchanged), [`voyage.changed`](#voyagechanged), [`captain.changed`](#captainchanged), [`objective.changed`](#objectivechanged), [`check-run.changed`](#check-runchanged), [`deployment.changed`](#deploymentchanged), [`deployment.progress`](#deploymentprogress), [`environment.health`](#environmenthealth), [`approval-needed`](#approval-needed), and [generic events](#generic-events)) as they occur.
 
 ---
 
@@ -224,9 +233,11 @@ Broadcast when a mission's status changes (e.g., assigned, started, completed, f
 ```json
 {
   "type": "mission.changed",
-  "missionId": "msn_abc123def456ghi789jk",
-  "status": "InProgress",
-  "title": "Add input validation to signup form",
+  "data": {
+    "id": "msn_abc123def456ghi789jk",
+    "status": "InProgress",
+    "title": "Add input validation to signup form"
+  },
   "timestamp": "2026-03-07T12:35:00.000Z"
 }
 ```
@@ -234,9 +245,35 @@ Broadcast when a mission's status changes (e.g., assigned, started, completed, f
 | Field | Type | Description |
 |---|---|---|
 | `type` | string | Always `"mission.changed"` |
-| `missionId` | string | Mission ID (prefix `msn_`) |
-| `status` | string | New [MissionStatusEnum](#missionstatusenum) value |
-| `title` | string \| null | Mission title |
+| `data.id` | string | Mission ID (prefix `msn_`) |
+| `data.status` | string | New [MissionStatusEnum](#missionstatusenum) value |
+| `data.title` | string \| null | Mission title |
+| `timestamp` | string | ISO 8601 UTC timestamp |
+
+---
+
+### voyage.changed
+
+Broadcast when a voyage state changes.
+
+```json
+{
+  "type": "voyage.changed",
+  "data": {
+    "id": "vyg_abc123def456ghi789jk",
+    "status": "Complete",
+    "title": "API Hardening"
+  },
+  "timestamp": "2026-03-07T12:35:00.000Z"
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `type` | string | Always `"voyage.changed"` |
+| `data.id` | string | Voyage ID (prefix `vyg_`) |
+| `data.status` | string | Voyage status value |
+| `data.title` | string \| null | Voyage title |
 | `timestamp` | string | ISO 8601 UTC timestamp |
 
 ---
@@ -248,9 +285,11 @@ Broadcast when a captain's state changes (e.g., idle to working, working to stal
 ```json
 {
   "type": "captain.changed",
-  "captainId": "cpt_abc123def456ghi789jk",
-  "state": "Working",
-  "name": "captain-1",
+  "data": {
+    "id": "cpt_abc123def456ghi789jk",
+    "state": "Working",
+    "name": "captain-1"
+  },
   "timestamp": "2026-03-07T12:35:00.000Z"
 }
 ```
@@ -258,9 +297,176 @@ Broadcast when a captain's state changes (e.g., idle to working, working to stal
 | Field | Type | Description |
 |---|---|---|
 | `type` | string | Always `"captain.changed"` |
-| `captainId` | string | Captain ID (prefix `cpt_`) |
-| `state` | string | New [CaptainStateEnum](#captainstateenum) value |
-| `name` | string \| null | Captain display name |
+| `data.id` | string | Captain ID (prefix `cpt_`) |
+| `data.state` | string | New [CaptainStateEnum](#captainstateenum) value |
+| `data.name` | string \| null | Captain display name |
+| `timestamp` | string | ISO 8601 UTC timestamp |
+
+---
+
+### check-run.changed
+
+Broadcast when a structured check run is created, imported, updated, or retried.
+
+```json
+{
+  "type": "check-run.changed",
+  "data": {
+    "id": "chk_abc123def456ghi789jk",
+    "status": "Passed",
+    "type": "UnitTest",
+    "vesselId": "vsl_abc123def456ghi789jk",
+    "label": "Unit tests"
+  },
+  "timestamp": "2026-03-07T12:35:00.000Z"
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `type` | string | Always `"check-run.changed"` |
+| `data` | object | Full serialized `CheckRun` payload with enum values emitted as strings |
+| `timestamp` | string | ISO 8601 UTC timestamp |
+
+---
+
+### objective.changed
+
+Broadcast when an objective or intake-style record is created or updated.
+
+```json
+{
+  "type": "objective.changed",
+  "data": {
+    "id": "obj_abc123def456ghi789jk",
+    "status": "Scoped",
+    "title": "Stabilize May rollout"
+  },
+  "timestamp": "2026-03-07T12:35:00.000Z"
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `type` | string | Always `"objective.changed"` |
+| `data` | object | Full serialized `Objective` payload with enum values emitted as strings |
+| `timestamp` | string | ISO 8601 UTC timestamp |
+
+---
+
+### deployment.changed
+
+Broadcast when a deployment record changes, including approval, execution, verification, and rollback state.
+
+```json
+{
+  "type": "deployment.changed",
+  "data": {
+    "id": "dpl_abc123def456ghi789jk",
+    "status": "Running",
+    "environmentName": "Staging",
+    "verificationStatus": "Pending"
+  },
+  "timestamp": "2026-03-07T12:35:00.000Z"
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `type` | string | Always `"deployment.changed"` |
+| `data` | object | Full serialized `Deployment` payload with enum values emitted as strings |
+| `timestamp` | string | ISO 8601 UTC timestamp |
+
+---
+
+### deployment.progress
+
+Broadcast when deployment progress or operator-facing execution messaging changes.
+
+```json
+{
+  "type": "deployment.progress",
+  "data": {
+    "id": "dpl_abc123def456ghi789jk",
+    "status": "Running",
+    "message": "Running deploy command for Staging"
+  },
+  "timestamp": "2026-03-07T12:35:00.000Z"
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `type` | string | Always `"deployment.progress"` |
+| `data.id` | string | Deployment ID (prefix `dpl_`) |
+| `data.status` | string | Current deployment status |
+| `data.message` | string | Human-readable progress message |
+| `timestamp` | string | ISO 8601 UTC timestamp |
+
+---
+
+### environment.health
+
+Broadcast when rollout monitoring or verification updates health-related evidence for an environment deployment.
+
+```json
+{
+  "type": "environment.health",
+  "data": {
+    "deploymentId": "dpl_abc123def456ghi789jk",
+    "environmentId": "env_abc123def456ghi789jk",
+    "environmentName": "Staging",
+    "verificationStatus": "Passed",
+    "message": "Health endpoint returned 200 OK"
+  },
+  "timestamp": "2026-03-07T12:35:00.000Z"
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `type` | string | Always `"environment.health"` |
+| `data.deploymentId` | string \| null | Deployment ID tied to the health update |
+| `data.environmentId` | string \| null | Environment ID tied to the health update |
+| `data.environmentName` | string \| null | Environment name |
+| `data.verificationStatus` | string \| null | Current deployment verification status |
+| `data.message` | string \| null | Human-readable health/verification message |
+| `timestamp` | string | ISO 8601 UTC timestamp |
+
+---
+
+### approval-needed
+
+Broadcast when a mission enters review and awaits an explicit approve or deny decision.
+
+```json
+{
+  "type": "approval-needed",
+  "data": {
+    "entityType": "mission",
+    "entityId": "msn_abc123def456ghi789jk",
+    "missionId": "msn_abc123def456ghi789jk",
+    "title": "Review login rate limiting",
+    "status": "Review",
+    "vesselId": "vsl_abc123def456ghi789jk",
+    "voyageId": "vyg_abc123def456ghi789jk",
+    "reviewRequestedUtc": "2026-03-07T12:35:00.000Z"
+  },
+  "timestamp": "2026-03-07T12:35:00.000Z"
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `type` | string | Always `"approval-needed"` |
+| `data.entityType` | string | Currently `"mission"` |
+| `data.entityId` | string | Entity identifier requiring approval |
+| `data.missionId` | string | Mission identifier |
+| `data.title` | string \| null | Mission title |
+| `data.status` | string | Current mission status, normally `Review` |
+| `data.vesselId` | string \| null | Linked vessel ID |
+| `data.voyageId` | string \| null | Linked voyage ID |
+| `data.reviewRequestedUtc` | string \| null | Review request timestamp |
 | `timestamp` | string | ISO 8601 UTC timestamp |
 
 ---

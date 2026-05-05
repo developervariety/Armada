@@ -21,13 +21,17 @@ namespace Armada.Test.Unit.Suites.Database
 
         private static DateTime BaseTime => new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
-        private async Task<(string t1, string t2)> CreateTwoTenantsAsync(SqliteDatabaseDriver db)
+        private async Task<TenantPairResult> CreateTwoTenantsAsync(SqliteDatabaseDriver db)
         {
             TenantMetadata tA = new TenantMetadata("TenantA " + Guid.NewGuid().ToString("N").Substring(0, 6));
             TenantMetadata tB = new TenantMetadata("TenantB " + Guid.NewGuid().ToString("N").Substring(0, 6));
             await db.Tenants.CreateAsync(tA);
             await db.Tenants.CreateAsync(tB);
-            return (tA.Id, tB.Id);
+            return new TenantPairResult
+            {
+                TenantA = tA.Id,
+                TenantB = tB.Id
+            };
         }
 
         private async Task<string> CreateCaptainAsync(SqliteDatabaseDriver db, string tenantId, string name)
@@ -50,7 +54,9 @@ namespace Armada.Test.Unit.Suites.Database
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
                     SqliteDatabaseDriver db = testDb.Driver;
-                    (string t1, string t2) = await CreateTwoTenantsAsync(db);
+                    TenantPairResult tenants = await CreateTwoTenantsAsync(db);
+                    string t1 = tenants.TenantA;
+                    string t2 = tenants.TenantB;
                     List<string> captainIds = new List<string>();
 
                     for (int i = 0; i < 4; i++)
@@ -88,7 +94,9 @@ namespace Armada.Test.Unit.Suites.Database
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
                     SqliteDatabaseDriver db = testDb.Driver;
-                    (string t1, string t2) = await CreateTwoTenantsAsync(db);
+                    TenantPairResult tenants = await CreateTwoTenantsAsync(db);
+                    string t1 = tenants.TenantA;
+                    string t2 = tenants.TenantB;
 
                     for (int i = 0; i < 4; i++)
                     {
@@ -121,7 +129,9 @@ namespace Armada.Test.Unit.Suites.Database
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
                     SqliteDatabaseDriver db = testDb.Driver;
-                    (string t1, string t2) = await CreateTwoTenantsAsync(db);
+                    TenantPairResult tenants = await CreateTwoTenantsAsync(db);
+                    string t1 = tenants.TenantA;
+                    string t2 = tenants.TenantB;
 
                     for (int i = 0; i < 4; i++)
                     {
@@ -155,7 +165,9 @@ namespace Armada.Test.Unit.Suites.Database
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
                     SqliteDatabaseDriver db = testDb.Driver;
-                    (string t1, string t2) = await CreateTwoTenantsAsync(db);
+                    TenantPairResult tenants = await CreateTwoTenantsAsync(db);
+                    string t1 = tenants.TenantA;
+                    string t2 = tenants.TenantB;
                     string validateCaptainId = await CreateCaptainAsync(db, t1, "capt_validate");
 
                     Signal original = new Signal(SignalTypeEnum.Assignment, "{\"task\":\"validate\"}");
@@ -187,7 +199,9 @@ namespace Armada.Test.Unit.Suites.Database
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
                     SqliteDatabaseDriver db = testDb.Driver;
-                    (string t1, string t2) = await CreateTwoTenantsAsync(db);
+                    TenantPairResult tenants = await CreateTwoTenantsAsync(db);
+                    string t1 = tenants.TenantA;
+                    string t2 = tenants.TenantB;
 
                     for (int i = 0; i < 4; i++)
                     {
@@ -223,7 +237,9 @@ namespace Armada.Test.Unit.Suites.Database
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
                     SqliteDatabaseDriver db = testDb.Driver;
-                    (string t1, string t2) = await CreateTwoTenantsAsync(db);
+                    TenantPairResult tenants = await CreateTwoTenantsAsync(db);
+                    string t1 = tenants.TenantA;
+                    string t2 = tenants.TenantB;
 
                     for (int i = 0; i < 4; i++)
                     {
@@ -254,7 +270,9 @@ namespace Armada.Test.Unit.Suites.Database
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
                     SqliteDatabaseDriver db = testDb.Driver;
-                    (string t1, string t2) = await CreateTwoTenantsAsync(db);
+                    TenantPairResult tenants = await CreateTwoTenantsAsync(db);
+                    string t1 = tenants.TenantA;
+                    string t2 = tenants.TenantB;
 
                     for (int i = 0; i < 4; i++)
                     {
@@ -286,7 +304,9 @@ namespace Armada.Test.Unit.Suites.Database
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
                     SqliteDatabaseDriver db = testDb.Driver;
-                    (string t1, string t2) = await CreateTwoTenantsAsync(db);
+                    TenantPairResult tenants = await CreateTwoTenantsAsync(db);
+                    string t1 = tenants.TenantA;
+                    string t2 = tenants.TenantB;
 
                     ArmadaEvent original = new ArmadaEvent("voyage.completed", "Voyage completed successfully");
                     original.TenantId = t1;
@@ -318,7 +338,9 @@ namespace Armada.Test.Unit.Suites.Database
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
                     SqliteDatabaseDriver db = testDb.Driver;
-                    (string t1, string t2) = await CreateTwoTenantsAsync(db);
+                    TenantPairResult tenants = await CreateTwoTenantsAsync(db);
+                    string t1 = tenants.TenantA;
+                    string t2 = tenants.TenantB;
 
                     ArmadaEvent matching = new ArmadaEvent("mission.status_changed", "Matching event");
                     matching.TenantId = t1;
@@ -366,7 +388,9 @@ namespace Armada.Test.Unit.Suites.Database
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
                     SqliteDatabaseDriver db = testDb.Driver;
-                    (string t1, string t2) = await CreateTwoTenantsAsync(db);
+                    TenantPairResult tenants = await CreateTwoTenantsAsync(db);
+                    string t1 = tenants.TenantA;
+                    string t2 = tenants.TenantB;
 
                     for (int i = 0; i < 3; i++)
                     {
@@ -399,7 +423,9 @@ namespace Armada.Test.Unit.Suites.Database
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
                     SqliteDatabaseDriver db = testDb.Driver;
-                    (string t1, string t2) = await CreateTwoTenantsAsync(db);
+                    TenantPairResult tenants = await CreateTwoTenantsAsync(db);
+                    string t1 = tenants.TenantA;
+                    string t2 = tenants.TenantB;
 
                     for (int i = 0; i < 3; i++)
                     {
@@ -429,7 +455,9 @@ namespace Armada.Test.Unit.Suites.Database
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
                     SqliteDatabaseDriver db = testDb.Driver;
-                    (string t1, string t2) = await CreateTwoTenantsAsync(db);
+                    TenantPairResult tenants = await CreateTwoTenantsAsync(db);
+                    string t1 = tenants.TenantA;
+                    string t2 = tenants.TenantB;
 
                     Voyage original = new Voyage("Voyage-Validate", "Validate description");
                     original.TenantId = t1;
@@ -460,7 +488,9 @@ namespace Armada.Test.Unit.Suites.Database
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
                     SqliteDatabaseDriver db = testDb.Driver;
-                    (string t1, string t2) = await CreateTwoTenantsAsync(db);
+                    TenantPairResult tenants = await CreateTwoTenantsAsync(db);
+                    string t1 = tenants.TenantA;
+                    string t2 = tenants.TenantB;
 
                     // Create fleet and vessel prerequisites for t1
                     Fleet fleet1 = new Fleet("Dock-Fleet-T1") { TenantId = t1 };
@@ -508,7 +538,9 @@ namespace Armada.Test.Unit.Suites.Database
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
                     SqliteDatabaseDriver db = testDb.Driver;
-                    (string t1, string t2) = await CreateTwoTenantsAsync(db);
+                    TenantPairResult tenants = await CreateTwoTenantsAsync(db);
+                    string t1 = tenants.TenantA;
+                    string t2 = tenants.TenantB;
 
                     Fleet fleet1 = new Fleet("Dock-Fleet-T1") { TenantId = t1 };
                     await db.Fleets.CreateAsync(fleet1);
@@ -540,7 +572,9 @@ namespace Armada.Test.Unit.Suites.Database
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
                     SqliteDatabaseDriver db = testDb.Driver;
-                    (string t1, string t2) = await CreateTwoTenantsAsync(db);
+                    TenantPairResult tenants = await CreateTwoTenantsAsync(db);
+                    string t1 = tenants.TenantA;
+                    string t2 = tenants.TenantB;
 
                     Fleet fleet1 = new Fleet("Dock-Fleet-T1") { TenantId = t1 };
                     await db.Fleets.CreateAsync(fleet1);
@@ -573,7 +607,9 @@ namespace Armada.Test.Unit.Suites.Database
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
                     SqliteDatabaseDriver db = testDb.Driver;
-                    (string t1, string t2) = await CreateTwoTenantsAsync(db);
+                    TenantPairResult tenants = await CreateTwoTenantsAsync(db);
+                    string t1 = tenants.TenantA;
+                    string t2 = tenants.TenantB;
 
                     Fleet fleet1 = new Fleet("Dock-Fleet-Validate") { TenantId = t1 };
                     await db.Fleets.CreateAsync(fleet1);

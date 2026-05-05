@@ -77,6 +77,71 @@ namespace Armada.Test.Automated.Suites
                 Assert(root.TryGetProperty("timestamp", out _), "Should contain timestamp");
             }).ConfigureAwait(false);
 
+            await RunTest("Subscribe_CheckRunImport_BroadcastsCheckRunChanged", async () =>
+            {
+                using ClientWebSocket ws = await ConnectAsync().ConfigureAwait(false);
+                await SubscribeAsync(ws).ConfigureAwait(false);
+
+                string vesselId = await CreateVesselViaRestAsync("ws-checkrun-broadcast").ConfigureAwait(false);
+                HttpResponseMessage response = await _AuthClient.PostAsync("/api/v1/check-runs/import",
+                    JsonHelper.ToJsonContent(new
+                    {
+                        VesselId = vesselId,
+                        Type = "Build",
+                        Status = "Passed",
+                        Label = "WebSocket Imported Check",
+                        Command = "echo imported",
+                        Output = "Build succeeded.",
+                        Summary = "Imported check passed."
+                    })).ConfigureAwait(false);
+                response.EnsureSuccessStatusCode();
+                CheckRun created = await JsonHelper.DeserializeAsync<CheckRun>(response).ConfigureAwait(false);
+
+                JsonElement evt = await WaitForEventAsync(ws, root =>
+                {
+                    return root.GetProperty("type").GetString() == "check-run.changed"
+                        && root.GetProperty("data").GetProperty("id").GetString() == created.Id;
+                }).ConfigureAwait(false);
+
+                AssertEqual("check-run.changed", evt.GetProperty("type").GetString());
+                AssertEqual(created.Id, evt.GetProperty("data").GetProperty("id").GetString());
+                AssertEqual("Passed", evt.GetProperty("data").GetProperty("status").GetString());
+            }).ConfigureAwait(false);
+
+            await RunTest("Subscribe_MissionReviewTransition_BroadcastsApprovalNeeded", async () =>
+            {
+                using ClientWebSocket ws = await ConnectAsync().ConfigureAwait(false);
+                await SubscribeAsync(ws).ConfigureAwait(false);
+
+                string missionId = await CreateMissionViaRestAsync("ws-approval-needed").ConfigureAwait(false);
+
+                HttpResponseMessage assignedResponse = await _AuthClient.PutAsync(
+                    "/api/v1/missions/" + missionId + "/status",
+                    JsonHelper.ToJsonContent(new { Status = "Assigned" })).ConfigureAwait(false);
+                assignedResponse.EnsureSuccessStatusCode();
+
+                HttpResponseMessage inProgressResponse = await _AuthClient.PutAsync(
+                    "/api/v1/missions/" + missionId + "/status",
+                    JsonHelper.ToJsonContent(new { Status = "InProgress" })).ConfigureAwait(false);
+                inProgressResponse.EnsureSuccessStatusCode();
+
+                HttpResponseMessage reviewResponse = await _AuthClient.PutAsync(
+                    "/api/v1/missions/" + missionId + "/status",
+                    JsonHelper.ToJsonContent(new { Status = "Review" })).ConfigureAwait(false);
+                reviewResponse.EnsureSuccessStatusCode();
+
+                JsonElement evt = await WaitForEventAsync(ws, root =>
+                {
+                    return root.GetProperty("type").GetString() == "approval-needed"
+                        && root.GetProperty("data").GetProperty("missionId").GetString() == missionId;
+                }).ConfigureAwait(false);
+
+                AssertEqual("approval-needed", evt.GetProperty("type").GetString());
+                AssertEqual(missionId, evt.GetProperty("data").GetProperty("missionId").GetString());
+                AssertEqual("mission", evt.GetProperty("data").GetProperty("entityType").GetString());
+                AssertEqual("Review", evt.GetProperty("data").GetProperty("status").GetString());
+            }).ConfigureAwait(false);
+
             // Status Tests
             await RunTest("Status_ReturnsArmadaStatus", async () =>
             {
@@ -935,6 +1000,31 @@ namespace Armada.Test.Automated.Suites
             Uri uri = new Uri("ws://localhost:" + _RestPort + "/ws");
             await ws.ConnectAsync(uri, CancellationToken.None).ConfigureAwait(false);
             return ws;
+        }
+
+        private async Task SubscribeAsync(ClientWebSocket ws)
+        {
+            string payload = JsonHelper.Serialize(new { Route = "subscribe" });
+            byte[] bytes = Encoding.UTF8.GetBytes(payload);
+            await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None).ConfigureAwait(false);
+            await WaitForEventAsync(ws, root => root.GetProperty("type").GetString() == "status.snapshot").ConfigureAwait(false);
+        }
+
+        private async Task<JsonElement> WaitForEventAsync(ClientWebSocket ws, Func<JsonElement, bool> predicate, int timeoutMs = 15000)
+        {
+            byte[] buffer = new byte[1048576];
+            using CancellationTokenSource cts = new CancellationTokenSource(timeoutMs);
+
+            while (true)
+            {
+                WebSocketReceiveResult result = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), cts.Token).ConfigureAwait(false);
+                string json = Encoding.UTF8.GetString(buffer, 0, result.Count);
+                using JsonDocument doc = JsonDocument.Parse(json);
+                JsonElement root = doc.RootElement.Clone();
+
+                if (predicate(root))
+                    return root;
+            }
         }
 
         /// <summary>

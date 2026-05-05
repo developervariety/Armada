@@ -44,14 +44,16 @@ namespace Armada.Core.Database.Mysql.Implementations
                         (id, tenant_id, user_id, name, description, scope, fleet_id, vessel_id, is_default, active,
                          language_hints_json, lint_command, build_command, unit_test_command, integration_test_command,
                          e2e_test_command, package_command, publish_artifact_command, release_versioning_command,
-                         changelog_generation_command, required_secrets_json, expected_artifacts_json, environments_json,
-                         created_utc, last_update_utc)
+                         changelog_generation_command, migration_command, security_scan_command, performance_command,
+                         deployment_verification_command, rollback_verification_command, required_secrets_json,
+                         expected_artifacts_json, environments_json, created_utc, last_update_utc)
                         VALUES
                         (@id, @tenant_id, @user_id, @name, @description, @scope, @fleet_id, @vessel_id, @is_default, @active,
                          @language_hints_json, @lint_command, @build_command, @unit_test_command, @integration_test_command,
                          @e2e_test_command, @package_command, @publish_artifact_command, @release_versioning_command,
-                         @changelog_generation_command, @required_secrets_json, @expected_artifacts_json, @environments_json,
-                         @created_utc, @last_update_utc);";
+                         @changelog_generation_command, @migration_command, @security_scan_command, @performance_command,
+                         @deployment_verification_command, @rollback_verification_command, @required_secrets_json,
+                         @expected_artifacts_json, @environments_json, @created_utc, @last_update_utc);";
                     AddParameters(cmd, profile);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
@@ -117,6 +119,11 @@ namespace Armada.Core.Database.Mysql.Implementations
                         publish_artifact_command = @publish_artifact_command,
                         release_versioning_command = @release_versioning_command,
                         changelog_generation_command = @changelog_generation_command,
+                        migration_command = @migration_command,
+                        security_scan_command = @security_scan_command,
+                        performance_command = @performance_command,
+                        deployment_verification_command = @deployment_verification_command,
+                        rollback_verification_command = @rollback_verification_command,
                         required_secrets_json = @required_secrets_json,
                         expected_artifacts_json = @expected_artifacts_json,
                         environments_json = @environments_json,
@@ -300,6 +307,11 @@ namespace Armada.Core.Database.Mysql.Implementations
             cmd.Parameters.AddWithValue("@publish_artifact_command", (object?)profile.PublishArtifactCommand ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@release_versioning_command", (object?)profile.ReleaseVersioningCommand ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@changelog_generation_command", (object?)profile.ChangelogGenerationCommand ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@migration_command", (object?)profile.MigrationCommand ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@security_scan_command", (object?)profile.SecurityScanCommand ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@performance_command", (object?)profile.PerformanceCommand ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@deployment_verification_command", (object?)profile.DeploymentVerificationCommand ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@rollback_verification_command", (object?)profile.RollbackVerificationCommand ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@required_secrets_json", Serialize(profile.RequiredSecrets));
             cmd.Parameters.AddWithValue("@expected_artifacts_json", Serialize(profile.ExpectedArtifacts));
             cmd.Parameters.AddWithValue("@environments_json", Serialize(profile.Environments));
@@ -329,6 +341,11 @@ namespace Armada.Core.Database.Mysql.Implementations
                 PublishArtifactCommand = MysqlDatabaseDriver.NullableString(reader["publish_artifact_command"]),
                 ReleaseVersioningCommand = MysqlDatabaseDriver.NullableString(reader["release_versioning_command"]),
                 ChangelogGenerationCommand = MysqlDatabaseDriver.NullableString(reader["changelog_generation_command"]),
+                MigrationCommand = MysqlDatabaseDriver.NullableString(reader["migration_command"]),
+                SecurityScanCommand = MysqlDatabaseDriver.NullableString(reader["security_scan_command"]),
+                PerformanceCommand = MysqlDatabaseDriver.NullableString(reader["performance_command"]),
+                DeploymentVerificationCommand = MysqlDatabaseDriver.NullableString(reader["deployment_verification_command"]),
+                RollbackVerificationCommand = MysqlDatabaseDriver.NullableString(reader["rollback_verification_command"]),
                 CreatedUtc = Convert.ToDateTime(reader["created_utc"]).ToUniversalTime(),
                 LastUpdateUtc = Convert.ToDateTime(reader["last_update_utc"]).ToUniversalTime()
             };

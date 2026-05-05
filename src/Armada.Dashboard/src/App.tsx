@@ -26,11 +26,14 @@ import './App.css';
 
 import Dispatch from './pages/Dispatch';
 import Planning from './pages/Planning';
+import Objectives from './pages/Objectives';
+import ObjectiveDetail from './pages/ObjectiveDetail';
 import Signals from './pages/Signals';
 import Notifications from './pages/Notifications';
 import Server from './pages/Server';
 import FleetDetail from './pages/FleetDetail';
 import VesselDetail from './pages/VesselDetail';
+import VesselOnboarding from './pages/VesselOnboarding';
 import CaptainDetail from './pages/CaptainDetail';
 import MissionDetail from './pages/MissionDetail';
 import VoyageDetail from './pages/VoyageDetail';
@@ -51,9 +54,20 @@ import WorkflowProfiles from './pages/WorkflowProfiles';
 import WorkflowProfileDetail from './pages/WorkflowProfileDetail';
 import CheckRuns from './pages/CheckRuns';
 import CheckRunDetail from './pages/CheckRunDetail';
+import Environments from './pages/Environments';
+import EnvironmentDetail from './pages/EnvironmentDetail';
+import Deployments from './pages/Deployments';
+import DeploymentDetail from './pages/DeploymentDetail';
+import Releases from './pages/Releases';
+import ReleaseDetail from './pages/ReleaseDetail';
+import Incidents from './pages/Incidents';
+import IncidentDetail from './pages/IncidentDetail';
+import Runbooks from './pages/Runbooks';
+import RunbookDetail from './pages/RunbookDetail';
 import Workspace from './pages/Workspace';
 import RequestHistory from './pages/RequestHistory';
 import ApiExplorer from './pages/ApiExplorer';
+import History from './pages/History';
 
 export default function App() {
   return (
@@ -73,6 +87,8 @@ export default function App() {
                   <Route path="planning" element={<Planning />} />
                   <Route path="planning/:id" element={<Planning />} />
                   <Route path="dispatch" element={<Dispatch />} />
+                  <Route path="objectives" element={<Objectives />} />
+                  <Route path="objectives/:id" element={<ObjectiveDetail />} />
 
                   {/* Entities - List and Detail */}
                   <Route path="fleets" element={<Fleets />} />
@@ -80,6 +96,7 @@ export default function App() {
 
                   <Route path="vessels" element={<Vessels />} />
                   <Route path="vessels/:id" element={<VesselDetail />} />
+                  <Route path="vessels/:id/onboarding" element={<VesselOnboarding />} />
                   <Route path="workspace" element={<Workspace />} />
                   <Route path="workspace/:vesselId" element={<Workspace />} />
                   <Route path="workspace/:vesselId/:panel" element={<Workspace />} />
@@ -96,6 +113,7 @@ export default function App() {
 
                   {/* System */}
                   <Route path="signals" element={<Signals />} />
+                  <Route path="history" element={<History />} />
                   <Route path="signals/:id" element={<SignalDetail />} />
 
                   <Route path="events" element={<Events />} />
@@ -119,6 +137,16 @@ export default function App() {
                   <Route path="workflow-profiles/:id" element={<WorkflowProfileDetail />} />
                   <Route path="checks" element={<CheckRuns />} />
                   <Route path="checks/:id" element={<CheckRunDetail />} />
+                  <Route path="environments" element={<Environments />} />
+                  <Route path="environments/:id" element={<EnvironmentDetail />} />
+                  <Route path="deployments" element={<Deployments />} />
+                  <Route path="deployments/:id" element={<DeploymentDetail />} />
+                  <Route path="releases" element={<Releases />} />
+                  <Route path="releases/:id" element={<ReleaseDetail />} />
+                  <Route path="incidents" element={<Incidents />} />
+                  <Route path="incidents/:id" element={<IncidentDetail />} />
+                  <Route path="runbooks" element={<Runbooks />} />
+                  <Route path="runbooks/:id" element={<RunbookDetail />} />
                   <Route path="requests" element={<RequestHistory />} />
                   <Route path="requests/:id" element={<RequestHistory />} />
                   <Route path="api-explorer" element={<ApiExplorer />} />

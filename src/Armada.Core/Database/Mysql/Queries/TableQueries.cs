@@ -789,6 +789,198 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
+        /// Migration v34 statements for adding structured parsing summaries to check runs.
+        /// </summary>
+        public static readonly string[] MigrationV34Statements = new string[]
+        {
+            @"ALTER TABLE check_runs
+                ADD COLUMN test_summary_json LONGTEXT NULL,
+                ADD COLUMN coverage_summary_json LONGTEXT NULL;"
+        };
+
+        /// <summary>
+        /// Migration v35 statements for workflow check expansion and landing readiness fields.
+        /// </summary>
+        public static readonly string[] MigrationV35Statements = new string[]
+        {
+            @"ALTER TABLE workflow_profiles
+                ADD COLUMN migration_command LONGTEXT NULL,
+                ADD COLUMN security_scan_command LONGTEXT NULL,
+                ADD COLUMN performance_command LONGTEXT NULL,
+                ADD COLUMN deployment_verification_command LONGTEXT NULL,
+                ADD COLUMN rollback_verification_command LONGTEXT NULL;",
+            @"ALTER TABLE vessels
+                ADD COLUMN require_passing_checks_to_land TINYINT(1) NOT NULL DEFAULT 0;"
+        };
+
+        /// <summary>
+        /// Migration v36 statements for external check metadata and landing branch policy fields.
+        /// </summary>
+        public static readonly string[] MigrationV36Statements = new string[]
+        {
+            @"ALTER TABLE check_runs
+                ADD COLUMN source VARCHAR(64) NOT NULL DEFAULT 'Armada',
+                ADD COLUMN provider_name VARCHAR(450) NULL,
+                ADD COLUMN external_id VARCHAR(450) NULL,
+                ADD COLUMN external_url LONGTEXT NULL;",
+            @"ALTER TABLE vessels
+                ADD COLUMN protected_branch_patterns_json LONGTEXT NULL,
+                ADD COLUMN release_branch_prefix VARCHAR(450) NOT NULL DEFAULT 'release/',
+                ADD COLUMN hotfix_branch_prefix VARCHAR(450) NOT NULL DEFAULT 'hotfix/',
+                ADD COLUMN require_pull_request_for_protected_branches TINYINT(1) NOT NULL DEFAULT 0,
+                ADD COLUMN require_merge_queue_for_release_branches TINYINT(1) NOT NULL DEFAULT 0;"
+        };
+
+        /// <summary>
+        /// Migration v37 statements for adding releases.
+        /// </summary>
+        public static readonly string[] MigrationV37Statements = new string[]
+        {
+            @"CREATE TABLE IF NOT EXISTS releases (
+                id VARCHAR(450) NOT NULL PRIMARY KEY,
+                tenant_id VARCHAR(450),
+                user_id VARCHAR(450),
+                vessel_id VARCHAR(450),
+                workflow_profile_id VARCHAR(450),
+                title VARCHAR(450) NOT NULL,
+                version VARCHAR(450) NULL,
+                tag_name VARCHAR(450) NULL,
+                summary LONGTEXT,
+                notes LONGTEXT,
+                status VARCHAR(64) NOT NULL DEFAULT 'Draft',
+                voyage_ids_json LONGTEXT,
+                mission_ids_json LONGTEXT,
+                check_run_ids_json LONGTEXT,
+                artifacts_json LONGTEXT,
+                created_utc DATETIME(6) NOT NULL,
+                last_update_utc DATETIME(6) NOT NULL,
+                published_utc DATETIME(6) NULL,
+                FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
+                FOREIGN KEY (vessel_id) REFERENCES vessels(id) ON DELETE SET NULL,
+                FOREIGN KEY (workflow_profile_id) REFERENCES workflow_profiles(id) ON DELETE SET NULL
+            );",
+            @"CREATE INDEX idx_releases_tenant_created ON releases(tenant_id, created_utc DESC);",
+            @"CREATE INDEX idx_releases_user_created ON releases(user_id, created_utc DESC);",
+            @"CREATE INDEX idx_releases_vessel_created ON releases(vessel_id, created_utc DESC);",
+            @"CREATE INDEX idx_releases_profile_created ON releases(workflow_profile_id, created_utc DESC);",
+            @"CREATE INDEX idx_releases_status_created ON releases(status, created_utc DESC);",
+            @"CREATE INDEX idx_releases_published ON releases(published_utc DESC);"
+        };
+
+        /// <summary>
+        /// Migration v38 statements for adding deployment environments.
+        /// </summary>
+        public static readonly string[] MigrationV38Statements = new string[]
+        {
+            @"CREATE TABLE IF NOT EXISTS environments (
+                id VARCHAR(450) NOT NULL PRIMARY KEY,
+                tenant_id VARCHAR(450),
+                user_id VARCHAR(450),
+                vessel_id VARCHAR(450),
+                name VARCHAR(450) NOT NULL,
+                description LONGTEXT,
+                kind VARCHAR(64) NOT NULL DEFAULT 'Development',
+                configuration_source LONGTEXT,
+                base_url LONGTEXT,
+                health_endpoint LONGTEXT,
+                access_notes LONGTEXT,
+                deployment_rules LONGTEXT,
+                requires_approval TINYINT(1) NOT NULL DEFAULT 0,
+                is_default TINYINT(1) NOT NULL DEFAULT 0,
+                active TINYINT(1) NOT NULL DEFAULT 1,
+                created_utc DATETIME(6) NOT NULL,
+                last_update_utc DATETIME(6) NOT NULL,
+                FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
+                FOREIGN KEY (vessel_id) REFERENCES vessels(id) ON DELETE CASCADE
+            );",
+            @"CREATE INDEX idx_environments_tenant_created ON environments(tenant_id, created_utc DESC);",
+            @"CREATE INDEX idx_environments_user_created ON environments(user_id, created_utc DESC);",
+            @"CREATE INDEX idx_environments_vessel_name ON environments(vessel_id, name);",
+            @"CREATE INDEX idx_environments_kind ON environments(kind);",
+            @"CREATE INDEX idx_environments_default ON environments(is_default);",
+            @"CREATE INDEX idx_environments_active ON environments(active);"
+        };
+
+        /// <summary>
+        /// Migration v39 statements for adding deployments.
+        /// </summary>
+        public static readonly string[] MigrationV39Statements = new string[]
+        {
+            @"CREATE TABLE IF NOT EXISTS deployments (
+                id VARCHAR(450) NOT NULL PRIMARY KEY,
+                tenant_id VARCHAR(450),
+                user_id VARCHAR(450),
+                vessel_id VARCHAR(450),
+                workflow_profile_id VARCHAR(450),
+                environment_id VARCHAR(450),
+                environment_name VARCHAR(450),
+                release_id VARCHAR(450),
+                mission_id VARCHAR(450),
+                voyage_id VARCHAR(450),
+                title VARCHAR(450) NOT NULL,
+                source_ref LONGTEXT,
+                summary LONGTEXT,
+                notes LONGTEXT,
+                status VARCHAR(64) NOT NULL DEFAULT 'PendingApproval',
+                verification_status VARCHAR(64) NOT NULL DEFAULT 'NotRun',
+                approval_required TINYINT(1) NOT NULL DEFAULT 0,
+                approved_by_user_id VARCHAR(450),
+                approved_utc DATETIME(6),
+                approval_comment LONGTEXT,
+                deploy_check_run_id VARCHAR(450),
+                smoke_test_check_run_id VARCHAR(450),
+                health_check_run_id VARCHAR(450),
+                deployment_verification_check_run_id VARCHAR(450),
+                rollback_check_run_id VARCHAR(450),
+                rollback_verification_check_run_id VARCHAR(450),
+                check_run_ids_json LONGTEXT,
+                request_history_summary_json LONGTEXT,
+                created_utc DATETIME(6) NOT NULL,
+                started_utc DATETIME(6),
+                completed_utc DATETIME(6),
+                verified_utc DATETIME(6),
+                rolled_back_utc DATETIME(6),
+                last_update_utc DATETIME(6) NOT NULL,
+                FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
+                FOREIGN KEY (vessel_id) REFERENCES vessels(id) ON DELETE SET NULL,
+                FOREIGN KEY (workflow_profile_id) REFERENCES workflow_profiles(id) ON DELETE SET NULL,
+                FOREIGN KEY (environment_id) REFERENCES environments(id) ON DELETE SET NULL,
+                FOREIGN KEY (release_id) REFERENCES releases(id) ON DELETE SET NULL,
+                FOREIGN KEY (mission_id) REFERENCES missions(id) ON DELETE SET NULL,
+                FOREIGN KEY (voyage_id) REFERENCES voyages(id) ON DELETE SET NULL
+            );",
+            @"CREATE INDEX idx_deployments_tenant_created ON deployments(tenant_id, created_utc DESC);",
+            @"CREATE INDEX idx_deployments_user_created ON deployments(user_id, created_utc DESC);",
+            @"CREATE INDEX idx_deployments_vessel_created ON deployments(vessel_id, created_utc DESC);",
+            @"CREATE INDEX idx_deployments_profile_created ON deployments(workflow_profile_id, created_utc DESC);",
+            @"CREATE INDEX idx_deployments_environment_created ON deployments(environment_id, created_utc DESC);",
+            @"CREATE INDEX idx_deployments_release_created ON deployments(release_id, created_utc DESC);",
+            @"CREATE INDEX idx_deployments_status_created ON deployments(status, created_utc DESC);",
+            @"CREATE INDEX idx_deployments_verification_created ON deployments(verification_status, created_utc DESC);"
+        };
+
+        /// <summary>
+        /// Migration v40 statements for deployment-linked checks and rollout monitoring.
+        /// </summary>
+        public static readonly string[] MigrationV40Statements = new string[]
+        {
+            @"ALTER TABLE check_runs ADD COLUMN deployment_id VARCHAR(450) NULL;",
+            @"CREATE INDEX idx_check_runs_deployment_created ON check_runs(deployment_id, created_utc DESC);",
+            @"ALTER TABLE environments ADD COLUMN verification_definitions_json LONGTEXT NULL;",
+            @"ALTER TABLE environments ADD COLUMN rollout_monitoring_window_minutes INT NOT NULL DEFAULT 0;",
+            @"ALTER TABLE environments ADD COLUMN rollout_monitoring_interval_seconds INT NOT NULL DEFAULT 300;",
+            @"ALTER TABLE environments ADD COLUMN alert_on_regression TINYINT(1) NOT NULL DEFAULT 1;",
+            @"ALTER TABLE deployments ADD COLUMN monitoring_window_ends_utc DATETIME(6) NULL;",
+            @"ALTER TABLE deployments ADD COLUMN last_monitored_utc DATETIME(6) NULL;",
+            @"ALTER TABLE deployments ADD COLUMN last_regression_alert_utc DATETIME(6) NULL;",
+            @"ALTER TABLE deployments ADD COLUMN latest_monitoring_summary LONGTEXT NULL;",
+            @"ALTER TABLE deployments ADD COLUMN monitoring_failure_count INT NOT NULL DEFAULT 0;"
+        };
+
+        /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
         public static readonly string[] Indexes = new string[]

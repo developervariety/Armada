@@ -34,5 +34,10 @@ namespace Armada.Core.Models
         /// Optional ordered playbook selections.
         /// </summary>
         public List<SelectedPlaybook> SelectedPlaybooks { get; set; } = new List<SelectedPlaybook>();
+
+        /// <summary>
+        /// Optional objective identifier to link when the session is created from scoped intake work.
+        /// </summary>
+        public string? ObjectiveId { get; set; } = null;
     }
 }

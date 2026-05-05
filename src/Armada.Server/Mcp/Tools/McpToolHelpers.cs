@@ -13,6 +13,7 @@ namespace Armada.Server.Mcp.Tools
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Settings;
+    using Armada.Core.Models;
 
     /// <summary>
     /// Shared helper methods used by MCP tool registration classes.
@@ -27,33 +28,73 @@ namespace Armada.Server.Mcp.Tools
         /// <returns>True if the transition is allowed; otherwise, false.</returns>
         public static bool IsValidTransition(MissionStatusEnum current, MissionStatusEnum target)
         {
-            return (current, target) switch
+            if (current == MissionStatusEnum.Pending)
             {
-                (MissionStatusEnum.Pending, MissionStatusEnum.Assigned) => true,
-                (MissionStatusEnum.Pending, MissionStatusEnum.Cancelled) => true,
-                (MissionStatusEnum.Assigned, MissionStatusEnum.InProgress) => true,
-                (MissionStatusEnum.Assigned, MissionStatusEnum.Cancelled) => true,
-                (MissionStatusEnum.InProgress, MissionStatusEnum.WorkProduced) => true,
-                (MissionStatusEnum.InProgress, MissionStatusEnum.Testing) => true,
-                (MissionStatusEnum.InProgress, MissionStatusEnum.Review) => true,
-                (MissionStatusEnum.InProgress, MissionStatusEnum.Complete) => true,
-                (MissionStatusEnum.InProgress, MissionStatusEnum.Failed) => true,
-                (MissionStatusEnum.InProgress, MissionStatusEnum.Cancelled) => true,
-                (MissionStatusEnum.WorkProduced, MissionStatusEnum.Complete) => true,
-                (MissionStatusEnum.WorkProduced, MissionStatusEnum.LandingFailed) => true,
-                (MissionStatusEnum.WorkProduced, MissionStatusEnum.Cancelled) => true,
-                (MissionStatusEnum.Testing, MissionStatusEnum.Review) => true,
-                (MissionStatusEnum.Testing, MissionStatusEnum.InProgress) => true,
-                (MissionStatusEnum.Testing, MissionStatusEnum.Complete) => true,
-                (MissionStatusEnum.Testing, MissionStatusEnum.Failed) => true,
-                (MissionStatusEnum.Review, MissionStatusEnum.Complete) => true,
-                (MissionStatusEnum.Review, MissionStatusEnum.InProgress) => true,
-                (MissionStatusEnum.Review, MissionStatusEnum.Failed) => true,
-                (MissionStatusEnum.LandingFailed, MissionStatusEnum.WorkProduced) => true,
-                (MissionStatusEnum.LandingFailed, MissionStatusEnum.Failed) => true,
-                (MissionStatusEnum.LandingFailed, MissionStatusEnum.Cancelled) => true,
-                _ => false
-            };
+                return target == MissionStatusEnum.Assigned
+                    || target == MissionStatusEnum.Cancelled;
+            }
+
+            if (current == MissionStatusEnum.Assigned)
+            {
+                return target == MissionStatusEnum.InProgress
+                    || target == MissionStatusEnum.Cancelled;
+            }
+
+            if (current == MissionStatusEnum.InProgress)
+            {
+                return target == MissionStatusEnum.WorkProduced
+                    || target == MissionStatusEnum.Testing
+                    || target == MissionStatusEnum.Review
+                    || target == MissionStatusEnum.Complete
+                    || target == MissionStatusEnum.Failed
+                    || target == MissionStatusEnum.Cancelled;
+            }
+
+            if (current == MissionStatusEnum.WorkProduced)
+            {
+                return target == MissionStatusEnum.Complete
+                    || target == MissionStatusEnum.LandingFailed
+                    || target == MissionStatusEnum.Cancelled;
+            }
+
+            if (current == MissionStatusEnum.Testing)
+            {
+                return target == MissionStatusEnum.Review
+                    || target == MissionStatusEnum.InProgress
+                    || target == MissionStatusEnum.Complete
+                    || target == MissionStatusEnum.Failed;
+            }
+
+            if (current == MissionStatusEnum.Review)
+            {
+                return target == MissionStatusEnum.Complete
+                    || target == MissionStatusEnum.InProgress
+                    || target == MissionStatusEnum.Failed;
+            }
+
+            if (current == MissionStatusEnum.LandingFailed)
+            {
+                return target == MissionStatusEnum.WorkProduced
+                    || target == MissionStatusEnum.Failed
+                    || target == MissionStatusEnum.Cancelled;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Build the default tenant-admin auth context used by MCP service-backed workflows.
+        /// </summary>
+        public static AuthContext CreateDefaultTenantAdminContext()
+        {
+            return AuthContext.Authenticated(
+                Constants.DefaultTenantId,
+                Constants.DefaultUserId,
+                false,
+                true,
+                "Mcp",
+                null,
+                "MCP Default Tenant");
         }
 
         /// <summary>

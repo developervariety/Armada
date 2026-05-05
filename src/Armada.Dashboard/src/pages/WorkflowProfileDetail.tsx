@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   createWorkflowProfile,
   deleteWorkflowProfile,
@@ -9,7 +9,7 @@ import {
   updateWorkflowProfile,
   validateWorkflowProfile,
 } from '../api/client';
-import type { Fleet, Vessel, WorkflowEnvironmentProfile, WorkflowProfile, WorkflowProfileValidationResult } from '../types/models';
+import type { Fleet, Vessel, WorkflowEnvironmentProfile, WorkflowInputReference, WorkflowProfile, WorkflowProfileValidationResult } from '../types/models';
 import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -18,6 +18,7 @@ import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
 import StatusBadge from '../components/shared/StatusBadge';
+import WorkflowCommandPreview from '../components/shared/WorkflowCommandPreview';
 
 function splitList(value: string): string[] {
   return value
@@ -37,11 +38,44 @@ function blankEnvironment(): WorkflowEnvironmentProfile {
     rollbackCommand: null,
     smokeTestCommand: null,
     healthCheckCommand: null,
+    deploymentVerificationCommand: null,
+    rollbackVerificationCommand: null,
   };
+}
+
+function blankInputReference(): WorkflowInputReference {
+  return {
+    provider: 'EnvironmentVariable',
+    key: '',
+    environmentName: null,
+    description: null,
+  };
+}
+
+function inputReferencePlaceholder(input: WorkflowInputReference): string {
+  switch (input.provider) {
+    case 'EnvironmentVariable':
+      return 'AWS_PROFILE';
+    case 'FilePath':
+      return '/path/to/config.json';
+    case 'DirectoryPath':
+      return '/path/to/config-directory';
+    case 'AwsSecretsManager':
+      return 'prod/app/database-password';
+    case 'AzureKeyVaultSecret':
+      return 'kv://armada-prod/database-password';
+    case 'HashiCorpVault':
+      return 'secret/data/armada/prod/database';
+    case 'OnePassword':
+      return 'op://Engineering/Armada Prod/database-password';
+    default:
+      return 'Input reference';
+  }
 }
 
 export default function WorkflowProfileDetail() {
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { isAdmin, isTenantAdmin } = useAuth();
   const { t, formatDateTime } = useLocale();
@@ -61,14 +95,19 @@ export default function WorkflowProfileDetail() {
   const [isDefault, setIsDefault] = useState(false);
   const [active, setActive] = useState(true);
   const [languageHints, setLanguageHints] = useState('');
-  const [requiredSecrets, setRequiredSecrets] = useState('');
+  const [requiredInputs, setRequiredInputs] = useState<WorkflowInputReference[]>([]);
   const [expectedArtifacts, setExpectedArtifacts] = useState('');
   const [lintCommand, setLintCommand] = useState('');
   const [buildCommand, setBuildCommand] = useState('');
   const [unitTestCommand, setUnitTestCommand] = useState('');
   const [integrationTestCommand, setIntegrationTestCommand] = useState('');
   const [e2eTestCommand, setE2ETestCommand] = useState('');
+  const [migrationCommand, setMigrationCommand] = useState('');
+  const [securityScanCommand, setSecurityScanCommand] = useState('');
+  const [performanceCommand, setPerformanceCommand] = useState('');
   const [packageCommand, setPackageCommand] = useState('');
+  const [deploymentVerificationCommand, setDeploymentVerificationCommand] = useState('');
+  const [rollbackVerificationCommand, setRollbackVerificationCommand] = useState('');
   const [publishArtifactCommand, setPublishArtifactCommand] = useState('');
   const [releaseVersioningCommand, setReleaseVersioningCommand] = useState('');
   const [changelogGenerationCommand, setChangelogGenerationCommand] = useState('');
@@ -120,14 +159,19 @@ export default function WorkflowProfileDetail() {
         setIsDefault(result.isDefault);
         setActive(result.active);
         setLanguageHints(joinList(result.languageHints));
-        setRequiredSecrets(joinList(result.requiredSecrets));
+        setRequiredInputs(result.requiredInputs || []);
         setExpectedArtifacts(joinList(result.expectedArtifacts));
         setLintCommand(result.lintCommand || '');
         setBuildCommand(result.buildCommand || '');
         setUnitTestCommand(result.unitTestCommand || '');
         setIntegrationTestCommand(result.integrationTestCommand || '');
         setE2ETestCommand(result.e2eTestCommand || '');
+        setMigrationCommand(result.migrationCommand || '');
+        setSecurityScanCommand(result.securityScanCommand || '');
+        setPerformanceCommand(result.performanceCommand || '');
         setPackageCommand(result.packageCommand || '');
+        setDeploymentVerificationCommand(result.deploymentVerificationCommand || '');
+        setRollbackVerificationCommand(result.rollbackVerificationCommand || '');
         setPublishArtifactCommand(result.publishArtifactCommand || '');
         setReleaseVersioningCommand(result.releaseVersioningCommand || '');
         setChangelogGenerationCommand(result.changelogGenerationCommand || '');
@@ -143,6 +187,20 @@ export default function WorkflowProfileDetail() {
     load();
     return () => { mounted = false; };
   }, [createMode, id, t]);
+
+  useEffect(() => {
+    if (!createMode) return;
+
+    const requestedScope = searchParams.get('scope');
+    if (requestedScope === 'Global' || requestedScope === 'Fleet' || requestedScope === 'Vessel') {
+      setScope(requestedScope);
+    }
+
+    const requestedFleetId = searchParams.get('fleetId');
+    const requestedVesselId = searchParams.get('vesselId');
+    if (requestedFleetId) setFleetId(requestedFleetId);
+    if (requestedVesselId) setVesselId(requestedVesselId);
+  }, [createMode, searchParams]);
 
   const fleetOptions = useMemo(() => fleets.filter((fleet) => fleet.active !== false), [fleets]);
   const vesselOptions = useMemo(() => vessels.filter((vessel) => vessel.active !== false), [vessels]);
@@ -162,11 +220,23 @@ export default function WorkflowProfileDetail() {
       unitTestCommand: unitTestCommand.trim() || null,
       integrationTestCommand: integrationTestCommand.trim() || null,
       e2eTestCommand: e2eTestCommand.trim() || null,
+      migrationCommand: migrationCommand.trim() || null,
+      securityScanCommand: securityScanCommand.trim() || null,
+      performanceCommand: performanceCommand.trim() || null,
       packageCommand: packageCommand.trim() || null,
+      deploymentVerificationCommand: deploymentVerificationCommand.trim() || null,
+      rollbackVerificationCommand: rollbackVerificationCommand.trim() || null,
       publishArtifactCommand: publishArtifactCommand.trim() || null,
       releaseVersioningCommand: releaseVersioningCommand.trim() || null,
       changelogGenerationCommand: changelogGenerationCommand.trim() || null,
-      requiredSecrets: splitList(requiredSecrets),
+      requiredInputs: requiredInputs
+        .map((item) => ({
+          provider: item.provider,
+          key: item.key.trim(),
+          environmentName: item.environmentName?.trim() || null,
+          description: item.description?.trim() || null,
+        }))
+        .filter((item) => item.key.length > 0),
       expectedArtifacts: splitList(expectedArtifacts),
       environments: environments.map((environment) => ({
         environmentName: environment.environmentName.trim(),
@@ -174,6 +244,8 @@ export default function WorkflowProfileDetail() {
         rollbackCommand: environment.rollbackCommand?.trim() || null,
         smokeTestCommand: environment.smokeTestCommand?.trim() || null,
         healthCheckCommand: environment.healthCheckCommand?.trim() || null,
+        deploymentVerificationCommand: environment.deploymentVerificationCommand?.trim() || null,
+        rollbackVerificationCommand: environment.rollbackVerificationCommand?.trim() || null,
       })).filter((environment) => environment.environmentName),
     };
   }
@@ -240,6 +312,12 @@ export default function WorkflowProfileDetail() {
   function updateEnvironment(index: number, key: keyof WorkflowEnvironmentProfile, value: string) {
     setEnvironments((current) => current.map((environment, currentIndex) => (
       currentIndex === index ? { ...environment, [key]: value || null } : environment
+    )));
+  }
+
+  function updateInputReference(index: number, patch: Partial<WorkflowInputReference>) {
+    setRequiredInputs((current) => current.map((item, currentIndex) => (
+      currentIndex === index ? { ...item, ...patch } : item
     )));
   }
 
@@ -318,6 +396,15 @@ export default function WorkflowProfileDetail() {
             <div className="detail-field">
               <span className="detail-label">{t('Available Check Types')}</span>
               <span>{validation.availableCheckTypes.length > 0 ? validation.availableCheckTypes.join(', ') : t('None')}</span>
+            </div>
+          </div>
+          <div style={{ marginTop: '0.9rem' }}>
+            <strong>{t('Resolved Commands')}</strong>
+            <div style={{ marginTop: '0.5rem' }}>
+              <WorkflowCommandPreview
+                commands={validation.commandPreviews}
+                emptyMessage={t('No resolved commands are available for this workflow profile.')}
+              />
             </div>
           </div>
           {validation.errors.length > 0 && (
@@ -399,13 +486,84 @@ export default function WorkflowProfileDetail() {
             <textarea value={languageHints} disabled={!canManage} onChange={(event) => setLanguageHints(event.target.value)} rows={3} placeholder={t('dotnet\nreact\npostgres')} />
           </label>
           <label className="playbook-editor-field">
-            <span>{t('Required Secrets / Config References')}</span>
-            <textarea value={requiredSecrets} disabled={!canManage} onChange={(event) => setRequiredSecrets(event.target.value)} rows={3} placeholder={t('AWS_PROFILE\nKUBECONFIG')} />
-          </label>
-          <label className="playbook-editor-field">
             <span>{t('Expected Artifacts')}</span>
             <textarea value={expectedArtifacts} disabled={!canManage} onChange={(event) => setExpectedArtifacts(event.target.value)} rows={3} placeholder={t('bin/Release/app.zip\ncoverage/summary.xml')} />
           </label>
+        </div>
+
+        <div className="card" style={{ marginBottom: '1rem', padding: '1rem' }}>
+          <div className="detail-header" style={{ marginBottom: '0.75rem' }}>
+            <h3>{t('Required Inputs')}</h3>
+            {canManage && (
+              <button type="button" className="btn btn-sm" onClick={() => setRequiredInputs((current) => [...current, blankInputReference()])}>
+                + {t('Input')}
+              </button>
+            )}
+          </div>
+          <p className="text-dim" style={{ marginBottom: '0.85rem' }}>
+            {t('Store provider/key references here so Armada can warn before checks run. No secret values are stored in the workflow profile itself.')}
+          </p>
+          {requiredInputs.length === 0 ? (
+            <div className="text-dim">{t('No required inputs configured.')}</div>
+          ) : (
+            <div style={{ display: 'grid', gap: '0.75rem' }}>
+              {requiredInputs.map((item, index) => (
+                <div key={`input-${index}`} className="detail-grid">
+                  <label className="playbook-editor-field">
+                    <span>{t('Provider')}</span>
+                    <select value={item.provider} disabled={!canManage} onChange={(event) => updateInputReference(index, { provider: event.target.value as WorkflowInputReference['provider'] })}>
+                      <option value="EnvironmentVariable">{t('Environment Variable')}</option>
+                      <option value="FilePath">{t('File Path')}</option>
+                      <option value="DirectoryPath">{t('Directory Path')}</option>
+                      <option value="AwsSecretsManager">{t('AWS Secrets Manager')}</option>
+                      <option value="AzureKeyVaultSecret">{t('Azure Key Vault')}</option>
+                      <option value="HashiCorpVault">{t('HashiCorp Vault')}</option>
+                      <option value="OnePassword">{t('1Password')}</option>
+                    </select>
+                  </label>
+                  <label className="playbook-editor-field">
+                    <span>{t('Environment Scope')}</span>
+                    <select value={item.environmentName || ''} disabled={!canManage} onChange={(event) => updateInputReference(index, { environmentName: event.target.value || null })}>
+                      <option value="">{t('All Environments')}</option>
+                      {environments.map((environment) => (
+                        <option key={`input-env-${environment.environmentName}-${index}`} value={environment.environmentName}>
+                          {environment.environmentName}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="playbook-editor-field">
+                    <span>{t('Key / Path')}</span>
+                    <input
+                      type="text"
+                      value={item.key}
+                      disabled={!canManage}
+                      onChange={(event) => updateInputReference(index, { key: event.target.value })}
+                      placeholder={t(inputReferencePlaceholder(item))}
+                    />
+                  </label>
+                  <label className="playbook-editor-field">
+                    <span>{t('Description')}</span>
+                    <input
+                      type="text"
+                      value={item.description || ''}
+                      disabled={!canManage}
+                      onChange={(event) => updateInputReference(index, { description: event.target.value || null })}
+                      placeholder={t('Optional operator note or secret purpose')}
+                    />
+                  </label>
+                  {canManage && (
+                    <div className="playbook-editor-field">
+                      <span>{t('Actions')}</span>
+                      <button type="button" className="btn btn-sm btn-danger" onClick={() => setRequiredInputs((current) => current.filter((_, currentIndex) => currentIndex !== index))}>
+                        {t('Remove')}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="detail-grid" style={{ marginBottom: '1rem' }}>
@@ -430,8 +588,28 @@ export default function WorkflowProfileDetail() {
             <textarea value={e2eTestCommand} disabled={!canManage} onChange={(event) => setE2ETestCommand(event.target.value)} rows={3} />
           </label>
           <label className="playbook-editor-field">
+            <span>{t('Migration Command')}</span>
+            <textarea value={migrationCommand} disabled={!canManage} onChange={(event) => setMigrationCommand(event.target.value)} rows={3} />
+          </label>
+          <label className="playbook-editor-field">
+            <span>{t('Security Scan Command')}</span>
+            <textarea value={securityScanCommand} disabled={!canManage} onChange={(event) => setSecurityScanCommand(event.target.value)} rows={3} />
+          </label>
+          <label className="playbook-editor-field">
+            <span>{t('Performance Command')}</span>
+            <textarea value={performanceCommand} disabled={!canManage} onChange={(event) => setPerformanceCommand(event.target.value)} rows={3} />
+          </label>
+          <label className="playbook-editor-field">
             <span>{t('Package Command')}</span>
             <textarea value={packageCommand} disabled={!canManage} onChange={(event) => setPackageCommand(event.target.value)} rows={3} />
+          </label>
+          <label className="playbook-editor-field">
+            <span>{t('Deployment Verification Command')}</span>
+            <textarea value={deploymentVerificationCommand} disabled={!canManage} onChange={(event) => setDeploymentVerificationCommand(event.target.value)} rows={3} />
+          </label>
+          <label className="playbook-editor-field">
+            <span>{t('Rollback Verification Command')}</span>
+            <textarea value={rollbackVerificationCommand} disabled={!canManage} onChange={(event) => setRollbackVerificationCommand(event.target.value)} rows={3} />
           </label>
           <label className="playbook-editor-field">
             <span>{t('Publish Artifact Command')}</span>
@@ -491,6 +669,14 @@ export default function WorkflowProfileDetail() {
                     <label className="playbook-editor-field">
                       <span>{t('Health Check Command')}</span>
                       <textarea value={environment.healthCheckCommand || ''} disabled={!canManage} onChange={(event) => updateEnvironment(index, 'healthCheckCommand', event.target.value)} rows={3} />
+                    </label>
+                    <label className="playbook-editor-field">
+                      <span>{t('Deployment Verification Command')}</span>
+                      <textarea value={environment.deploymentVerificationCommand || ''} disabled={!canManage} onChange={(event) => updateEnvironment(index, 'deploymentVerificationCommand', event.target.value)} rows={3} />
+                    </label>
+                    <label className="playbook-editor-field">
+                      <span>{t('Rollback Verification Command')}</span>
+                      <textarea value={environment.rollbackVerificationCommand || ''} disabled={!canManage} onChange={(event) => updateEnvironment(index, 'rollbackVerificationCommand', event.target.value)} rows={3} />
                     </label>
                   </div>
                 </div>

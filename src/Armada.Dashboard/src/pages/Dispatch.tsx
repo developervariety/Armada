@@ -1,15 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Link } from 'react-router-dom';
-import { listVessels, listPipelines, createVoyage } from '../api/client';
-import type { Vessel, Pipeline, SelectedPlaybook } from '../types/models';
+import { listVessels, listPipelines, createVoyage, getVesselReadiness } from '../api/client';
+import type { Vessel, Pipeline, SelectedPlaybook, VesselReadinessResult } from '../types/models';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import PlaybookSelector from '../components/shared/PlaybookSelector';
+import ReadinessPanel from '../components/shared/ReadinessPanel';
 
 interface DispatchPrefillState {
   fromPlanning?: boolean;
   fromWorkspace?: boolean;
+  fromIncident?: boolean;
+  fromObjective?: boolean;
+  objectiveId?: string;
   vesselId?: string;
   pipelineName?: string;
   prompt?: string;
@@ -29,11 +33,14 @@ export default function Dispatch() {
   const [voyageTitle, setVoyageTitle] = useState('');
 
   const [vesselId, setVesselId] = useState('');
+  const [objectiveId, setObjectiveId] = useState('');
   const [prompt, setPrompt] = useState('');
   const [priority, setPriority] = useState(100);
   const [selectedPlaybooks, setSelectedPlaybooks] = useState<SelectedPlaybook[]>([]);
   const [dispatching, setDispatching] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [readiness, setReadiness] = useState<VesselReadinessResult | null>(null);
+  const [loadingReadiness, setLoadingReadiness] = useState(false);
   const prefillAppliedRef = useRef(false);
 
   useEffect(() => {
@@ -50,16 +57,42 @@ export default function Dispatch() {
     if (prefillAppliedRef.current) return;
 
     const prefill = location.state as DispatchPrefillState | null;
-    if (!prefill?.fromPlanning && !prefill?.fromWorkspace) return;
+    if (!prefill?.fromPlanning && !prefill?.fromWorkspace && !prefill?.fromIncident && !prefill?.fromObjective) return;
 
     if (prefill.vesselId) setVesselId(prefill.vesselId);
     if (prefill.pipelineName) setSelectedPipeline(prefill.pipelineName);
     if (prefill.prompt) setPrompt(prefill.prompt);
     if (prefill.selectedPlaybooks?.length) setSelectedPlaybooks(prefill.selectedPlaybooks);
     if (prefill.voyageTitle) setVoyageTitle(prefill.voyageTitle);
+    if (prefill.objectiveId) setObjectiveId(prefill.objectiveId);
 
     prefillAppliedRef.current = true;
   }, [location.state]);
+
+  useEffect(() => {
+    if (!vesselId) {
+      setReadiness(null);
+      setLoadingReadiness(false);
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingReadiness(true);
+    getVesselReadiness(vesselId)
+      .then((value) => {
+        if (!cancelled) setReadiness(value);
+      })
+      .catch(() => {
+        if (!cancelled) setReadiness(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingReadiness(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [vesselId]);
 
   const handleDispatch = async () => {
     if (!prompt.trim()) return;
@@ -88,6 +121,7 @@ export default function Dispatch() {
         title: resolvedVoyageTitle,
         vesselId,
         missions,
+        ...(objectiveId ? { objectiveId } : {}),
         ...(selectedPipeline ? { pipeline: selectedPipeline } : {}),
         ...(selectedPlaybooks.length > 0 ? { selectedPlaybooks } : {}),
       });
@@ -123,12 +157,34 @@ export default function Dispatch() {
 
       <div className="card" style={{ marginBottom: '1rem' }}>
         <div className="dispatch-form">
-          {((location.state as DispatchPrefillState | null)?.fromPlanning || (location.state as DispatchPrefillState | null)?.fromWorkspace) && (
+          {((location.state as DispatchPrefillState | null)?.fromPlanning
+            || (location.state as DispatchPrefillState | null)?.fromWorkspace
+            || (location.state as DispatchPrefillState | null)?.fromIncident
+            || (location.state as DispatchPrefillState | null)?.fromObjective) && (
             <div className="alert" style={{ marginBottom: '1rem' }}>
-              {(location.state as DispatchPrefillState | null)?.fromPlanning
+              {(location.state as DispatchPrefillState | null)?.fromObjective
+                ? t('Prefilled from an objective. Review the scoped draft below and dispatch when ready.')
+                : (location.state as DispatchPrefillState | null)?.fromPlanning
                 ? t('Prefilled from a planning session. Review the draft below and dispatch when ready.')
-                : t('Prefilled from Workspace selection. Review the scoped draft below and dispatch when ready.')}
+                : (location.state as DispatchPrefillState | null)?.fromIncident
+                  ? t('Prefilled from an incident. Review the hotfix draft below and dispatch when ready.')
+                  : t('Prefilled from Workspace selection. Review the scoped draft below and dispatch when ready.')}
+              {objectiveId && (
+                <button type="button" className="btn btn-sm" style={{ marginLeft: '0.75rem' }} onClick={() => navigate(`/objectives/${objectiveId}`)}>
+                  {t('Open Objective')}
+                </button>
+              )}
             </div>
+          )}
+
+          {vesselId && (
+            <ReadinessPanel
+              title={t('Vessel Readiness')}
+              readiness={readiness}
+              loading={loadingReadiness}
+              emptyMessage={t('Select a vessel to inspect readiness.')}
+              compact
+            />
           )}
 
           {/* Row 1: Vessel + Pipeline + Priority + Optional Voyage Title */}

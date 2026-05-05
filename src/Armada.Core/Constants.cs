@@ -80,6 +80,11 @@ namespace Armada.Core
         public static readonly int DefaultMaxLogFileCount = 5;
 
         /// <summary>
+        /// Objective ID prefix.
+        /// </summary>
+        public static readonly string ObjectiveIdPrefix = "obj_";
+
+        /// <summary>
         /// Fleet ID prefix.
         /// </summary>
         public static readonly string FleetIdPrefix = "flt_";
@@ -120,6 +125,11 @@ namespace Armada.Core
         public static readonly string PlaybookIdPrefix = "pbk_";
 
         /// <summary>
+        /// Environment ID prefix.
+        /// </summary>
+        public static readonly string EnvironmentIdPrefix = "env_";
+
+        /// <summary>
         /// Request history ID prefix.
         /// </summary>
         public static readonly string RequestHistoryIdPrefix = "req_";
@@ -133,6 +143,26 @@ namespace Armada.Core
         /// Check run ID prefix.
         /// </summary>
         public static readonly string CheckRunIdPrefix = "chk_";
+
+        /// <summary>
+        /// Release ID prefix.
+        /// </summary>
+        public static readonly string ReleaseIdPrefix = "rel_";
+
+        /// <summary>
+        /// Deployment ID prefix.
+        /// </summary>
+        public static readonly string DeploymentIdPrefix = "dpl_";
+
+        /// <summary>
+        /// Incident ID prefix.
+        /// </summary>
+        public static readonly string IncidentIdPrefix = "inc_";
+
+        /// <summary>
+        /// Runbook execution ID prefix.
+        /// </summary>
+        public static readonly string RunbookExecutionIdPrefix = "rbx_";
 
         /// <summary>
         /// Dock ID prefix.

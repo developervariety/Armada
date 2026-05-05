@@ -1,20 +1,28 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
+  getVesselReadiness,
   listCheckRuns,
   listVessels,
   listWorkflowProfiles,
-  resolveWorkflowProfile,
+  previewWorkflowProfileForVessel,
   runCheck,
 } from '../api/client';
-import type { CheckRun, CheckRunRequest, CheckRunType, Vessel, WorkflowProfile } from '../types/models';
+import type { CheckRun, CheckRunRequest, CheckRunType, Vessel, VesselReadinessResult, WorkflowProfile, WorkflowProfileResolutionPreviewResult } from '../types/models';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import ActionMenu from '../components/shared/ActionMenu';
 import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
+import ReadinessPanel from '../components/shared/ReadinessPanel';
 import RefreshButton from '../components/shared/RefreshButton';
 import StatusBadge from '../components/shared/StatusBadge';
+import WorkflowCommandPreview from '../components/shared/WorkflowCommandPreview';
+import {
+  buildCheckRunComparisonMap,
+  formatCheckRunComparisonScope,
+  formatCheckRunComparisonSummary,
+} from './checkRunComparison';
 
 const ALL_CHECK_TYPES: CheckRunType[] = [
   'Lint',
@@ -22,7 +30,12 @@ const ALL_CHECK_TYPES: CheckRunType[] = [
   'UnitTest',
   'IntegrationTest',
   'E2ETest',
+  'Migration',
+  'SecurityScan',
+  'Performance',
   'Package',
+  'DeploymentVerification',
+  'RollbackVerification',
   'PublishArtifact',
   'ReleaseVersioning',
   'Changelog',
@@ -46,7 +59,12 @@ function getAvailableCheckTypes(profile: WorkflowProfile | null): CheckRunType[]
   if (profile.unitTestCommand) types.push('UnitTest');
   if (profile.integrationTestCommand) types.push('IntegrationTest');
   if (profile.e2eTestCommand) types.push('E2ETest');
+  if (profile.migrationCommand) types.push('Migration');
+  if (profile.securityScanCommand) types.push('SecurityScan');
+  if (profile.performanceCommand) types.push('Performance');
   if (profile.packageCommand) types.push('Package');
+  if (profile.deploymentVerificationCommand) types.push('DeploymentVerification');
+  if (profile.rollbackVerificationCommand) types.push('RollbackVerification');
   if (profile.publishArtifactCommand) types.push('PublishArtifact');
   if (profile.releaseVersioningCommand) types.push('ReleaseVersioning');
   if (profile.changelogGenerationCommand) types.push('Changelog');
@@ -54,11 +72,36 @@ function getAvailableCheckTypes(profile: WorkflowProfile | null): CheckRunType[]
   if (profile.environments.some((environment) => environment.rollbackCommand)) types.push('Rollback');
   if (profile.environments.some((environment) => environment.smokeTestCommand)) types.push('SmokeTest');
   if (profile.environments.some((environment) => environment.healthCheckCommand)) types.push('HealthCheck');
+  if (profile.environments.some((environment) => environment.deploymentVerificationCommand)) types.push('DeploymentVerification');
+  if (profile.environments.some((environment) => environment.rollbackVerificationCommand)) types.push('RollbackVerification');
   return types.length > 0 ? types : ALL_CHECK_TYPES;
 }
 
 function requiresEnvironment(type: CheckRunType): boolean {
-  return type === 'Deploy' || type === 'Rollback' || type === 'SmokeTest' || type === 'HealthCheck';
+  return type === 'Deploy'
+    || type === 'Rollback'
+    || type === 'SmokeTest'
+    || type === 'HealthCheck'
+    || type === 'DeploymentVerification'
+    || type === 'RollbackVerification';
+}
+
+function summarizeRunParsing(run: CheckRun) {
+  const parts: string[] = [];
+  if (run.testSummary) {
+    const testParts: string[] = [];
+    if (run.testSummary.passed != null) testParts.push(`${run.testSummary.passed} passed`);
+    if (run.testSummary.failed != null) testParts.push(`${run.testSummary.failed} failed`);
+    if (run.testSummary.skipped != null && run.testSummary.skipped > 0) testParts.push(`${run.testSummary.skipped} skipped`);
+    if (testParts.length > 0) parts.push(testParts.join(', '));
+  }
+
+  const lineCoverage = run.coverageSummary?.lines?.percentage;
+  const statementCoverage = run.coverageSummary?.statements?.percentage;
+  const coverage = lineCoverage ?? statementCoverage ?? null;
+  if (coverage != null) parts.push(`${coverage.toFixed(coverage % 1 === 0 ? 0 : 2)}% coverage`);
+
+  return parts.join(' | ');
 }
 
 export default function CheckRuns() {
@@ -74,6 +117,7 @@ export default function CheckRuns() {
   const [error, setError] = useState('');
   const [vesselFilter, setVesselFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'Passed' | 'Failed' | 'Running' | 'Pending' | 'Canceled'>('all');
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'Armada' | 'External'>('all');
   const [typeFilter, setTypeFilter] = useState<'all' | CheckRunType>('all');
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
 
@@ -86,11 +130,14 @@ export default function CheckRuns() {
   const [label, setLabel] = useState('');
   const [missionId, setMissionId] = useState('');
   const [voyageId, setVoyageId] = useState('');
+  const [deploymentId, setDeploymentId] = useState('');
   const [branchName, setBranchName] = useState('');
   const [commitHash, setCommitHash] = useState('');
   const [commandOverride, setCommandOverride] = useState('');
-  const [resolvedProfile, setResolvedProfile] = useState<WorkflowProfile | null>(null);
+  const [resolvedPreview, setResolvedPreview] = useState<WorkflowProfileResolutionPreviewResult | null>(null);
   const [resolvingProfile, setResolvingProfile] = useState(false);
+  const [readiness, setReadiness] = useState<VesselReadinessResult | null>(null);
+  const [loadingReadiness, setLoadingReadiness] = useState(false);
 
   async function load() {
     try {
@@ -125,19 +172,19 @@ export default function CheckRuns() {
 
   useEffect(() => {
     if (!selectedVesselId) {
-      setResolvedProfile(null);
+      setResolvedPreview(null);
       return;
     }
 
     let cancelled = false;
     setResolvingProfile(true);
-    resolveWorkflowProfile(selectedVesselId, selectedWorkflowProfileId || undefined)
-      .then((profile) => {
+    previewWorkflowProfileForVessel(selectedVesselId, selectedWorkflowProfileId || undefined)
+      .then((preview) => {
         if (cancelled) return;
-        setResolvedProfile(profile);
+        setResolvedPreview(preview);
       })
       .catch(() => {
-        if (!cancelled) setResolvedProfile(null);
+        if (!cancelled) setResolvedPreview(null);
       })
       .finally(() => {
         if (!cancelled) setResolvingProfile(false);
@@ -146,8 +193,43 @@ export default function CheckRuns() {
     return () => { cancelled = true; };
   }, [selectedVesselId, selectedWorkflowProfileId]);
 
-  const availableTypes = useMemo(() => getAvailableCheckTypes(resolvedProfile), [resolvedProfile]);
+  useEffect(() => {
+    if (!selectedVesselId) {
+      setReadiness(null);
+      setLoadingReadiness(false);
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingReadiness(true);
+    getVesselReadiness(selectedVesselId, {
+      workflowProfileId: selectedWorkflowProfileId || null,
+      checkType: selectedType,
+      environmentName: environmentName || null,
+      includeWorkflowRequirements: commandOverride.trim().length === 0,
+    })
+      .then((value) => {
+        if (!cancelled) setReadiness(value);
+      })
+      .catch(() => {
+        if (!cancelled) setReadiness(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingReadiness(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [commandOverride, environmentName, selectedType, selectedVesselId, selectedWorkflowProfileId]);
+
+  const resolvedProfile = useMemo(() => resolvedPreview?.resolvedProfile || null, [resolvedPreview]);
+  const availableTypes = useMemo(
+    () => (resolvedPreview?.availableCheckTypes?.length ? resolvedPreview.availableCheckTypes as CheckRunType[] : getAvailableCheckTypes(resolvedProfile)),
+    [resolvedPreview, resolvedProfile],
+  );
   const environmentOptions = useMemo(() => resolvedProfile?.environments || [], [resolvedProfile]);
+  const runBlocked = (readiness?.errorCount || 0) > 0;
 
   useEffect(() => {
     if (commandOverride.trim()) return;
@@ -169,9 +251,11 @@ export default function CheckRuns() {
   const filtered = useMemo(() => runs.filter((run) => {
     const matchesVessel = vesselFilter === 'all' || run.vesselId === vesselFilter;
     const matchesStatus = statusFilter === 'all' || run.status === statusFilter;
+    const matchesSource = sourceFilter === 'all' || run.source === sourceFilter;
     const matchesType = typeFilter === 'all' || run.type === typeFilter;
-    return matchesVessel && matchesStatus && matchesType;
-  }), [runs, statusFilter, typeFilter, vesselFilter]);
+    return matchesVessel && matchesStatus && matchesSource && matchesType;
+  }), [runs, sourceFilter, statusFilter, typeFilter, vesselFilter]);
+  const comparisonMap = useMemo(() => buildCheckRunComparisonMap(runs), [runs]);
 
   const vesselMap = useMemo(() => new Map(vessels.map((vessel) => [vessel.id, vessel.name])), [vessels]);
   const passedCount = runs.filter((run) => run.status === 'Passed').length;
@@ -186,6 +270,7 @@ export default function CheckRuns() {
     setLabel(prefill?.label || '');
     setMissionId(prefill?.missionId || '');
     setVoyageId(prefill?.voyageId || '');
+    setDeploymentId(prefill?.deploymentId || '');
     setBranchName(prefill?.branchName || '');
     setCommitHash(prefill?.commitHash || '');
     setCommandOverride(prefill?.commandOverride || '');
@@ -217,6 +302,7 @@ export default function CheckRuns() {
         label: label || null,
         missionId: missionId || null,
         voyageId: voyageId || null,
+        deploymentId: deploymentId || null,
         branchName: branchName || null,
         commitHash: commitHash || null,
         commandOverride: commandOverride || null,
@@ -310,6 +396,10 @@ export default function CheckRuns() {
                 <input type="text" value={voyageId} onChange={(event) => setVoyageId(event.target.value)} placeholder="voy_..." />
               </label>
               <label className="playbook-editor-field">
+                <span>{t('Deployment ID')}</span>
+                <input type="text" value={deploymentId} onChange={(event) => setDeploymentId(event.target.value)} placeholder="dpl_..." />
+              </label>
+              <label className="playbook-editor-field">
                 <span>{t('Branch')}</span>
                 <input type="text" value={branchName} onChange={(event) => setBranchName(event.target.value)} />
               </label>
@@ -338,10 +428,34 @@ export default function CheckRuns() {
                     ? `${resolvedProfile.name} (${resolvedProfile.scope})`
                     : t('No workflow profile resolved. Provide a command override or select a profile.')}
               </div>
+              {!resolvingProfile && resolvedPreview?.resolvedProfile && (
+                <>
+                  <div className="text-dim" style={{ marginTop: '0.35rem', fontSize: '0.85rem' }}>
+                    {t('Resolution mode')}: {resolvedPreview.resolutionMode}
+                  </div>
+                  <div className="text-dim" style={{ marginTop: '0.25rem', fontSize: '0.85rem' }}>
+                    {t('Available check types')}: {resolvedPreview.availableCheckTypes.length > 0 ? resolvedPreview.availableCheckTypes.join(', ') : t('None')}
+                  </div>
+                  <div style={{ marginTop: '0.75rem' }}>
+                    <WorkflowCommandPreview
+                      commands={resolvedPreview.commandPreviews}
+                      emptyMessage={t('No resolved commands are available for this vessel/profile combination.')}
+                    />
+                  </div>
+                </>
+              )}
             </div>
 
+            <ReadinessPanel
+              title={t('Preflight')}
+              readiness={readiness}
+              loading={loadingReadiness}
+              emptyMessage={t('Select a vessel to evaluate readiness.')}
+              compact
+            />
+
             <div className="modal-actions">
-              <button className="btn btn-primary" disabled={running} onClick={handleRunCheck}>
+              <button className="btn btn-primary" disabled={running || runBlocked} onClick={handleRunCheck}>
                 {running ? t('Running...') : t('Run Check')}
               </button>
               <button className="btn" disabled={running} onClick={() => setShowRunModal(false)}>
@@ -387,6 +501,11 @@ export default function CheckRuns() {
             <option value="Pending">{t('Pending')}</option>
             <option value="Canceled">{t('Canceled')}</option>
           </select>
+          <select value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value as typeof sourceFilter)}>
+            <option value="all">{t('All sources')}</option>
+            <option value="Armada">{t('Armada')}</option>
+            <option value="External">{t('External')}</option>
+          </select>
           <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value as typeof typeFilter)}>
             <option value="all">{t('All check types')}</option>
             {ALL_CHECK_TYPES.map((type) => (
@@ -411,6 +530,7 @@ export default function CheckRuns() {
                 <th>{t('Check')}</th>
                 <th>{t('Vessel')}</th>
                 <th>{t('Status')}</th>
+                <th>{t('Source')}</th>
                 <th>{t('Environment')}</th>
                 <th>{t('Duration')}</th>
                 <th>{t('Created')}</th>
@@ -421,12 +541,30 @@ export default function CheckRuns() {
               {filtered.map((run) => (
                 <tr key={run.id} className="clickable" onClick={() => navigate(`/checks/${run.id}`)}>
                   <td>
-                    <strong>{run.label || run.type}</strong>
-                    <div className="text-dim" style={{ marginTop: '0.2rem' }}>{run.type}</div>
-                    <div className="mono text-dim" style={{ fontSize: '0.78rem' }}>{run.id}</div>
+                    {(() => {
+                      const parsingSummary = summarizeRunParsing(run);
+                      const comparison = comparisonMap.get(run.id);
+                      return (
+                        <>
+                          <strong>{run.label || run.type}</strong>
+                          <div className="text-dim" style={{ marginTop: '0.2rem' }}>{run.type}</div>
+                          {parsingSummary && (
+                            <div className="text-dim" style={{ marginTop: '0.2rem', fontSize: '0.82rem' }}>{parsingSummary}</div>
+                          )}
+                          {comparison && (
+                            <div className={`check-run-comparison-line${comparison.hasRegression ? ' regression' : comparison.hasImprovement ? ' improvement' : ''}`}>
+                              <span className="check-run-comparison-context">{`vs ${formatCheckRunComparisonScope(comparison.scope)}`}</span>
+                              <span>{formatCheckRunComparisonSummary(comparison)}</span>
+                            </div>
+                          )}
+                          <div className="mono text-dim" style={{ fontSize: '0.78rem' }}>{run.id}</div>
+                        </>
+                      );
+                    })()}
                   </td>
                   <td>{run.vesselId ? (vesselMap.get(run.vesselId) || run.vesselId) : '-'}</td>
                   <td><StatusBadge status={run.status} /></td>
+                  <td className="text-dim">{run.source === 'External' ? `${run.source}${run.providerName ? ` / ${run.providerName}` : ''}` : run.source}</td>
                   <td className="text-dim">{run.environmentName || '-'}</td>
                   <td className="text-dim">{run.durationMs != null ? `${Math.round(run.durationMs)} ms` : '-'}</td>
                   <td className="text-dim" title={formatDateTime(run.createdUtc)}>{formatRelativeTime(run.createdUtc)}</td>
@@ -435,6 +573,20 @@ export default function CheckRuns() {
                       id={`check-run-${run.id}`}
                       items={[
                         { label: 'Open', onClick: () => navigate(`/checks/${run.id}`) },
+                        {
+                          label: 'Draft Release',
+                          onClick: () => navigate('/releases/new', {
+                            state: {
+                              prefill: {
+                                vesselId: run.vesselId || null,
+                                voyageIds: run.voyageId ? [run.voyageId] : [],
+                                missionIds: run.missionId ? [run.missionId] : [],
+                                checkRunIds: [run.id],
+                                title: run.label ? `${run.label} Release` : `${run.type} Release`,
+                              },
+                            },
+                          }),
+                        },
                         { label: 'View JSON', onClick: () => setJsonData({ open: true, title: run.label || run.id, data: run }) },
                       ]}
                     />

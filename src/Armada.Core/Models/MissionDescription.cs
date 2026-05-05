@@ -2,7 +2,7 @@ namespace Armada.Core.Models
 {
     /// <summary>
     /// Describes a mission's title and description for voyage dispatch.
-    /// Replaces tuple (string Title, string Description) throughout the codebase.
+    /// Carries a mission title and description as a dedicated model.
     /// </summary>
     public class MissionDescription
     {

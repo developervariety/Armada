@@ -49,6 +49,9 @@ Everything else in Armada exists to support that: isolated worktrees, parallel d
 - **A first-class repository workspace.** `Workspace` gives you a vessel-aware file tree, in-browser editing, search, git-aware status, and direct handoff into planning, dispatch, and context curation.
 - **Project-specific delivery profiles.** `Delivery > Workflow Profiles` lets each vessel or fleet declare how it lints, builds, tests, packages, versions, deploys, rolls back, and verifies itself.
 - **Structured check execution.** `Delivery > Checks` turns build, test, deploy, and verification runs into queryable records with logs, artifacts, retry, branch/commit metadata, and links back to missions and voyages.
+- **Scoped objectives and delivery memory.** `Operations > Objectives` captures acceptance criteria, non-goals, linked vessels, and evidence so work can be scoped before dispatch without falling back to external notes.
+- **First-class delivery records and timeline history.** `Delivery > Environments`, `Deployments`, and `Releases` group rollout targets, approvals, verification evidence, linked voyages, missions, checks, versions, notes, and artifacts, while `Activity > History` lets you reconstruct the current cross-entity delivery story from one place.
+- **Operational incident and runbook support.** `Activity > Incidents` and `System > Runbooks` carry rollback context, hotfix handoff, step-by-step execution, and deployment-linked operational guidance inside Armada itself.
 - **Persistent vessel context.** Models can maintain repository-specific context, hints, and working notes on each vessel to speed up future dispatches.
 - **Interactive planning before dispatch.** Chat with a captain in the dashboard, keep the transcript, then open the result in Dispatch or launch the work directly from the planning screen.
 - **Parallel execution across repos.** Dispatch work to multiple agents across multiple repositories at once.
@@ -697,6 +700,10 @@ Armada also ships first-class REST surfaces for:
 - `Workspace` browsing, editing, search, change inspection, and vessel status under `/api/v1/workspace/vessels/{vesselId}/...`
 - workflow-profile CRUD, validation, resolution, and enumeration under `/api/v1/workflow-profiles/...`
 - structured check-run execution, retry, detail, and enumeration under `/api/v1/check-runs/...`
+- release drafting, refresh, detail, delete, and enumeration under `/api/v1/releases/...`
+- objective list/detail/create/update/delete and cross-entity scoping under `/api/v1/objectives/...`
+- environment, deployment, incident, and runbook workflow routes under `/api/v1/environments/...`, `/api/v1/deployments/...`, `/api/v1/incidents/...`, and `/api/v1/runbooks/...`
+- cross-entity historical timeline enumeration under `/api/v1/history...`
 - planning-session lifecycle and transcript-to-dispatch flow under `/api/v1/planning-sessions/...`
 - persisted request-history capture, summaries, and replay metadata under `/api/v1/request-history/...`
 - Mux runtime endpoint discovery helpers under `/api/v1/runtimes/mux/endpoints...`
@@ -704,11 +711,16 @@ Armada also ships first-class REST surfaces for:
 
 The React dashboard exposes that API surface through first-class `Delivery` and `System` tools:
 
+- `Operations > Objectives` for internal-first intake, acceptance criteria, scope capture, and lifecycle linkage before dispatch.
 - `Delivery > Workflow Profiles` for project-specific build/test/release/deploy command definitions and validation.
 - `Delivery > Checks` for running, retrying, and inspecting structured validation and delivery commands.
-
+- `Delivery > Environments` and `Delivery > Deployments` for named rollout targets, approvals, verification, rollback, and linked evidence.
+- `Delivery > Releases` for drafting, curating, and inspecting release records linked to voyages, missions, checks, versions, notes, and artifacts.
+- `Activity > Incidents` for operational incident records, hotfix handoff, and rollback/postmortem context.
+- `Activity > History` for a cross-entity operational timeline spanning objectives, planning, dispatch, checks, releases, deployments, incidents, merge activity, events, and request history.
 - `System > Requests` for persisted request history, filtering, payload inspection, and replay.
 - `System > API Explorer` for live OpenAPI browsing, authenticated execution, response inspection, and code snippets.
+- `System > Runbooks` for playbook-backed operational runbooks with parameters, step tracking, and deployment/incident linkage.
 
 Start the Admiral as a standalone server:
 
@@ -727,7 +739,7 @@ armada mcp remove     # Remove those Armada MCP entries again
 
 If you are working from source, MCP helper entrypoints are available under `scripts/windows/`, `scripts/linux/`, and `scripts/macos/`.
 
-Once installed, your MCP client can call tools like `status`, `dispatch`, `enumerate`, `voyage_status`, and `cancel_voyage`. There are also tool groups for playbook, persona, pipeline, and prompt-template management.
+Once installed, your MCP client can call tools like `status`, `dispatch`, `enumerate`, `voyage_status`, and `cancel_voyage`. There are also MCP tools for structured delivery and operations such as `run_check`, `get_check_run`, `retry_check_run`, `create_release`, `get_release`, `create_objective`, `get_objective`, `create_deployment`, `get_deployment`, `approve_deployment`, `verify_deployment`, `rollback_deployment`, `get_runbook`, `get_runbook_execution`, and `start_runbook_execution`, plus tool groups for playbook, persona, pipeline, and prompt-template management.
 
 ### AI-Powered Orchestration
 

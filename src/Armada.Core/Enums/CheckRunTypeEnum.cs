@@ -31,48 +31,73 @@ namespace Armada.Core.Enums
         E2ETest = 4,
 
         /// <summary>
+        /// Migration readiness or schema-validation execution.
+        /// </summary>
+        Migration = 5,
+
+        /// <summary>
+        /// Security-scan execution.
+        /// </summary>
+        SecurityScan = 6,
+
+        /// <summary>
+        /// Performance-check execution.
+        /// </summary>
+        Performance = 7,
+
+        /// <summary>
         /// Package creation or assembly.
         /// </summary>
-        Package = 5,
+        Package = 8,
+
+        /// <summary>
+        /// Deployment-verification execution.
+        /// </summary>
+        DeploymentVerification = 9,
+
+        /// <summary>
+        /// Rollback-verification execution.
+        /// </summary>
+        RollbackVerification = 10,
 
         /// <summary>
         /// Artifact publication.
         /// </summary>
-        PublishArtifact = 6,
+        PublishArtifact = 11,
 
         /// <summary>
         /// Release versioning step.
         /// </summary>
-        ReleaseVersioning = 7,
+        ReleaseVersioning = 12,
 
         /// <summary>
         /// Changelog generation step.
         /// </summary>
-        Changelog = 8,
+        Changelog = 13,
 
         /// <summary>
         /// Deployment execution.
         /// </summary>
-        Deploy = 9,
+        Deploy = 14,
 
         /// <summary>
         /// Rollback execution.
         /// </summary>
-        Rollback = 10,
+        Rollback = 15,
 
         /// <summary>
         /// Smoke-test verification.
         /// </summary>
-        SmokeTest = 11,
+        SmokeTest = 16,
 
         /// <summary>
         /// Health-check verification.
         /// </summary>
-        HealthCheck = 12,
+        HealthCheck = 17,
 
         /// <summary>
         /// Caller-specified custom command.
         /// </summary>
-        Custom = 13
+        Custom = 18
     }
 }

@@ -89,12 +89,34 @@ namespace Armada.Core.Services
 
             List<string> availableTypes = GetAvailableCheckTypeNames(profile);
             result.AvailableCheckTypes = availableTypes;
+            result.CommandPreviews = BuildCommandPreviews(profile);
 
             if (availableTypes.Count == 0)
-                result.Errors.Add("At least one build, test, release, deploy, or verification command is required.");
+                result.Errors.Add("At least one build, test, release, deploy, verification, migration, security, or performance command is required.");
 
             if (profile.Environments.GroupBy(env => env.EnvironmentName, StringComparer.OrdinalIgnoreCase).Any(group => group.Count() > 1))
                 result.Errors.Add("Environment names must be unique within a workflow profile.");
+
+            List<WorkflowInputReference> inputs = profile.RequiredInputs ?? new List<WorkflowInputReference>();
+            if (inputs.Any(input => String.IsNullOrWhiteSpace(input.Key)))
+                result.Errors.Add("Required input references must include a key or path.");
+            if (inputs.GroupBy(input => WorkflowInputReference.Serialize(input), StringComparer.OrdinalIgnoreCase).Any(group => group.Count() > 1))
+                result.Errors.Add("Required input references must be unique within a workflow profile.");
+            List<string> knownEnvironmentNames = profile.Environments
+                .Where(environment => !String.IsNullOrWhiteSpace(environment.EnvironmentName))
+                .Select(environment => environment.EnvironmentName.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            List<string> unknownInputEnvironments = inputs
+                .Where(input => !String.IsNullOrWhiteSpace(input.EnvironmentName))
+                .Select(input => input.EnvironmentName!.Trim())
+                .Where(environmentName => !knownEnvironmentNames.Contains(environmentName, StringComparer.OrdinalIgnoreCase))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (unknownInputEnvironments.Count > 0)
+            {
+                result.Errors.Add("Required input references are scoped to unknown environments: " + String.Join(", ", unknownInputEnvironments) + ".");
+            }
 
             result.IsValid = result.Errors.Count == 0;
             return result;
@@ -109,44 +131,70 @@ namespace Armada.Core.Services
             string? explicitProfileId = null,
             CancellationToken token = default)
         {
+            WorkflowProfileResolutionResult result = await ResolveWithModeForVesselAsync(auth, vessel, explicitProfileId, token).ConfigureAwait(false);
+            return result.Profile;
+        }
+
+        /// <summary>
+        /// Build a fully resolved preview for a target vessel.
+        /// </summary>
+        public async Task<WorkflowProfileResolutionPreviewResult?> PreviewForVesselAsync(
+            AuthContext auth,
+            Vessel vessel,
+            string? explicitProfileId = null,
+            CancellationToken token = default)
+        {
             if (auth == null) throw new ArgumentNullException(nameof(auth));
             if (vessel == null) throw new ArgumentNullException(nameof(vessel));
 
-            WorkflowProfileQuery query = new WorkflowProfileQuery
-            {
-                TenantId = auth.IsAdmin ? vessel.TenantId : auth.TenantId,
-                UserId = null,
-                Active = true,
-                PageNumber = 1,
-                PageSize = 1000
-            };
-
-            if (!String.IsNullOrWhiteSpace(explicitProfileId))
-            {
-                WorkflowProfile? explicitProfile = await _Database.WorkflowProfiles.ReadAsync(explicitProfileId, query, token).ConfigureAwait(false);
-                if (explicitProfile != null && explicitProfile.Active)
-                    return explicitProfile;
+            WorkflowProfileResolutionResult resolved = await ResolveWithModeForVesselAsync(auth, vessel, explicitProfileId, token).ConfigureAwait(false);
+            if (resolved.Profile == null)
                 return null;
-            }
 
-            List<WorkflowProfile> candidates = await _Database.WorkflowProfiles.EnumerateAllAsync(query, token).ConfigureAwait(false);
-            if (candidates.Count == 0) return null;
-
-            WorkflowProfile? match = ChooseBestMatch(
-                candidates.Where(profile => profile.Scope == WorkflowProfileScopeEnum.Vessel
-                    && String.Equals(profile.VesselId, vessel.Id, StringComparison.Ordinal)).ToList());
-            if (match != null) return match;
-
-            if (!String.IsNullOrWhiteSpace(vessel.FleetId))
+            return new WorkflowProfileResolutionPreviewResult
             {
-                match = ChooseBestMatch(
-                    candidates.Where(profile => profile.Scope == WorkflowProfileScopeEnum.Fleet
-                        && String.Equals(profile.FleetId, vessel.FleetId, StringComparison.Ordinal)).ToList());
-                if (match != null) return match;
+                ResolvedProfile = resolved.Profile,
+                ResolutionMode = resolved.Mode,
+                AvailableCheckTypes = GetAvailableCheckTypeNames(resolved.Profile),
+                CommandPreviews = BuildCommandPreviews(resolved.Profile)
+            };
+        }
+
+        /// <summary>
+        /// Build fully resolved command previews for a workflow profile.
+        /// </summary>
+        public static List<WorkflowProfileCommandPreview> BuildCommandPreviews(WorkflowProfile profile)
+        {
+            if (profile == null) throw new ArgumentNullException(nameof(profile));
+
+            List<WorkflowProfileCommandPreview> results = new List<WorkflowProfileCommandPreview>();
+            AddPreview(results, CheckRunTypeEnum.Lint, profile.LintCommand);
+            AddPreview(results, CheckRunTypeEnum.Build, profile.BuildCommand);
+            AddPreview(results, CheckRunTypeEnum.UnitTest, profile.UnitTestCommand);
+            AddPreview(results, CheckRunTypeEnum.IntegrationTest, profile.IntegrationTestCommand);
+            AddPreview(results, CheckRunTypeEnum.E2ETest, profile.E2ETestCommand);
+            AddPreview(results, CheckRunTypeEnum.Migration, profile.MigrationCommand);
+            AddPreview(results, CheckRunTypeEnum.SecurityScan, profile.SecurityScanCommand);
+            AddPreview(results, CheckRunTypeEnum.Performance, profile.PerformanceCommand);
+            AddPreview(results, CheckRunTypeEnum.Package, profile.PackageCommand);
+            AddPreview(results, CheckRunTypeEnum.DeploymentVerification, profile.DeploymentVerificationCommand);
+            AddPreview(results, CheckRunTypeEnum.RollbackVerification, profile.RollbackVerificationCommand);
+            AddPreview(results, CheckRunTypeEnum.PublishArtifact, profile.PublishArtifactCommand);
+            AddPreview(results, CheckRunTypeEnum.ReleaseVersioning, profile.ReleaseVersioningCommand);
+            AddPreview(results, CheckRunTypeEnum.Changelog, profile.ChangelogGenerationCommand);
+
+            foreach (WorkflowEnvironmentProfile environment in profile.Environments ?? new List<WorkflowEnvironmentProfile>())
+            {
+                string? environmentName = NullIfWhiteSpace(environment.EnvironmentName);
+                AddPreview(results, CheckRunTypeEnum.Deploy, environment.DeployCommand, environmentName);
+                AddPreview(results, CheckRunTypeEnum.Rollback, environment.RollbackCommand, environmentName);
+                AddPreview(results, CheckRunTypeEnum.SmokeTest, environment.SmokeTestCommand, environmentName);
+                AddPreview(results, CheckRunTypeEnum.HealthCheck, environment.HealthCheckCommand, environmentName);
+                AddPreview(results, CheckRunTypeEnum.DeploymentVerification, environment.DeploymentVerificationCommand, environmentName);
+                AddPreview(results, CheckRunTypeEnum.RollbackVerification, environment.RollbackVerificationCommand, environmentName);
             }
 
-            match = ChooseBestMatch(candidates.Where(profile => profile.Scope == WorkflowProfileScopeEnum.Global).ToList());
-            return match;
+            return results;
         }
 
         /// <summary>
@@ -168,8 +216,20 @@ namespace Armada.Core.Services
                     return NullIfWhiteSpace(profile.IntegrationTestCommand);
                 case CheckRunTypeEnum.E2ETest:
                     return NullIfWhiteSpace(profile.E2ETestCommand);
+                case CheckRunTypeEnum.Migration:
+                    return NullIfWhiteSpace(profile.MigrationCommand);
+                case CheckRunTypeEnum.SecurityScan:
+                    return NullIfWhiteSpace(profile.SecurityScanCommand);
+                case CheckRunTypeEnum.Performance:
+                    return NullIfWhiteSpace(profile.PerformanceCommand);
                 case CheckRunTypeEnum.Package:
                     return NullIfWhiteSpace(profile.PackageCommand);
+                case CheckRunTypeEnum.DeploymentVerification:
+                    return ResolveEnvironmentCommand(profile, environmentName, env => env.DeploymentVerificationCommand)
+                        ?? NullIfWhiteSpace(profile.DeploymentVerificationCommand);
+                case CheckRunTypeEnum.RollbackVerification:
+                    return ResolveEnvironmentCommand(profile, environmentName, env => env.RollbackVerificationCommand)
+                        ?? NullIfWhiteSpace(profile.RollbackVerificationCommand);
                 case CheckRunTypeEnum.PublishArtifact:
                     return NullIfWhiteSpace(profile.PublishArtifactCommand);
                 case CheckRunTypeEnum.ReleaseVersioning:
@@ -202,7 +262,12 @@ namespace Armada.Core.Services
             AddIfPresent(results, CheckRunTypeEnum.UnitTest, profile.UnitTestCommand);
             AddIfPresent(results, CheckRunTypeEnum.IntegrationTest, profile.IntegrationTestCommand);
             AddIfPresent(results, CheckRunTypeEnum.E2ETest, profile.E2ETestCommand);
+            AddIfPresent(results, CheckRunTypeEnum.Migration, profile.MigrationCommand);
+            AddIfPresent(results, CheckRunTypeEnum.SecurityScan, profile.SecurityScanCommand);
+            AddIfPresent(results, CheckRunTypeEnum.Performance, profile.PerformanceCommand);
             AddIfPresent(results, CheckRunTypeEnum.Package, profile.PackageCommand);
+            AddIfPresent(results, CheckRunTypeEnum.DeploymentVerification, profile.DeploymentVerificationCommand);
+            AddIfPresent(results, CheckRunTypeEnum.RollbackVerification, profile.RollbackVerificationCommand);
             AddIfPresent(results, CheckRunTypeEnum.PublishArtifact, profile.PublishArtifactCommand);
             AddIfPresent(results, CheckRunTypeEnum.ReleaseVersioning, profile.ReleaseVersioningCommand);
             AddIfPresent(results, CheckRunTypeEnum.Changelog, profile.ChangelogGenerationCommand);
@@ -215,6 +280,10 @@ namespace Armada.Core.Services
                 results.Add(CheckRunTypeEnum.SmokeTest.ToString());
             if (profile.Environments.Any(env => !String.IsNullOrWhiteSpace(env.HealthCheckCommand)))
                 results.Add(CheckRunTypeEnum.HealthCheck.ToString());
+            if (profile.Environments.Any(env => !String.IsNullOrWhiteSpace(env.DeploymentVerificationCommand)))
+                results.Add(CheckRunTypeEnum.DeploymentVerification.ToString());
+            if (profile.Environments.Any(env => !String.IsNullOrWhiteSpace(env.RollbackVerificationCommand)))
+                results.Add(CheckRunTypeEnum.RollbackVerification.ToString());
 
             return results.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         }
@@ -223,6 +292,102 @@ namespace Armada.Core.Services
         {
             if (!String.IsNullOrWhiteSpace(command))
                 values.Add(type.ToString());
+        }
+
+        private async Task<WorkflowProfileResolutionResult> ResolveWithModeForVesselAsync(
+            AuthContext auth,
+            Vessel vessel,
+            string? explicitProfileId,
+            CancellationToken token)
+        {
+            if (auth == null) throw new ArgumentNullException(nameof(auth));
+            if (vessel == null) throw new ArgumentNullException(nameof(vessel));
+
+            WorkflowProfileQuery query = new WorkflowProfileQuery
+            {
+                TenantId = auth.IsAdmin ? vessel.TenantId : auth.TenantId,
+                UserId = null,
+                Active = true,
+                PageNumber = 1,
+                PageSize = 1000
+            };
+
+            if (!String.IsNullOrWhiteSpace(explicitProfileId))
+            {
+                WorkflowProfile? explicitProfile = await _Database.WorkflowProfiles.ReadAsync(explicitProfileId, query, token).ConfigureAwait(false);
+                if (explicitProfile != null && explicitProfile.Active)
+                {
+                    return new WorkflowProfileResolutionResult
+                    {
+                        Profile = explicitProfile,
+                        Mode = WorkflowProfileResolutionModeEnum.Explicit
+                    };
+                }
+
+                return new WorkflowProfileResolutionResult
+                {
+                    Profile = null,
+                    Mode = WorkflowProfileResolutionModeEnum.Explicit
+                };
+            }
+
+            List<WorkflowProfile> candidates = await _Database.WorkflowProfiles.EnumerateAllAsync(query, token).ConfigureAwait(false);
+            if (candidates.Count == 0)
+            {
+                return new WorkflowProfileResolutionResult
+                {
+                    Profile = null,
+                    Mode = WorkflowProfileResolutionModeEnum.Global
+                };
+            }
+
+            WorkflowProfile? match = ChooseBestMatch(
+                candidates.Where(profile => profile.Scope == WorkflowProfileScopeEnum.Vessel
+                    && String.Equals(profile.VesselId, vessel.Id, StringComparison.Ordinal)).ToList());
+            if (match != null)
+            {
+                return new WorkflowProfileResolutionResult
+                {
+                    Profile = match,
+                    Mode = WorkflowProfileResolutionModeEnum.Vessel
+                };
+            }
+
+            if (!String.IsNullOrWhiteSpace(vessel.FleetId))
+            {
+                match = ChooseBestMatch(
+                    candidates.Where(profile => profile.Scope == WorkflowProfileScopeEnum.Fleet
+                        && String.Equals(profile.FleetId, vessel.FleetId, StringComparison.Ordinal)).ToList());
+                if (match != null)
+                {
+                    return new WorkflowProfileResolutionResult
+                    {
+                        Profile = match,
+                        Mode = WorkflowProfileResolutionModeEnum.Fleet
+                    };
+                }
+            }
+
+            match = ChooseBestMatch(candidates.Where(profile => profile.Scope == WorkflowProfileScopeEnum.Global).ToList());
+            return new WorkflowProfileResolutionResult
+            {
+                Profile = match,
+                Mode = WorkflowProfileResolutionModeEnum.Global
+            };
+        }
+
+        private static void AddPreview(List<WorkflowProfileCommandPreview> values, CheckRunTypeEnum type, string? command, string? environmentName = null)
+        {
+            string? normalized = NullIfWhiteSpace(command);
+            if (normalized == null)
+                return;
+
+            values.Add(new WorkflowProfileCommandPreview
+            {
+                CheckType = type,
+                EnvironmentName = NullIfWhiteSpace(environmentName),
+                Command = normalized
+            });
         }
 
         private static WorkflowProfile? ChooseBestMatch(List<WorkflowProfile> profiles)

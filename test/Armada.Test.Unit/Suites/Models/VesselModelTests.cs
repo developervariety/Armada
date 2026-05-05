@@ -118,7 +118,7 @@ namespace Armada.Test.Unit.Suites.Models
             {
                 Vessel vessel = new Vessel("ContextVessel", "https://github.com/test/repo");
                 vessel.ProjectContext = "Multi-line\nproject context\nwith details.";
-                vessel.StyleGuide = "Follow C# coding conventions.\nUse var when type is obvious.";
+                vessel.StyleGuide = "Follow C# coding conventions.\nUse explicit local types when type is obvious.";
 
                 string json = JsonSerializer.Serialize(vessel);
                 Vessel deserialized = JsonSerializer.Deserialize<Vessel>(json)!;

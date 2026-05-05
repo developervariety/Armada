@@ -72,8 +72,11 @@ namespace Armada.Server.Routes
                 .WithParameter(OpenApiParameterMetadata.Query("vesselId", "Optional vessel filter", false))
                 .WithParameter(OpenApiParameterMetadata.Query("missionId", "Optional mission filter", false))
                 .WithParameter(OpenApiParameterMetadata.Query("voyageId", "Optional voyage filter", false))
+                .WithParameter(OpenApiParameterMetadata.Query("deploymentId", "Optional deployment filter", false))
                 .WithParameter(OpenApiParameterMetadata.Query("type", "Optional check-type filter", false))
                 .WithParameter(OpenApiParameterMetadata.Query("status", "Optional check status filter", false))
+                .WithParameter(OpenApiParameterMetadata.Query("source", "Optional check source filter", false))
+                .WithParameter(OpenApiParameterMetadata.Query("providerName", "Optional provider-name filter", false))
                 .WithParameter(OpenApiParameterMetadata.Query("environmentName", "Optional environment-name filter", false))
                 .WithResponse(200, OpenApiJson.For<EnumerationResult<CheckRun>>("Paginated check runs"))
                 .WithSecurity("ApiKey"));
@@ -127,6 +130,34 @@ namespace Armada.Server.Routes
                 .WithDescription("Executes a structured build, test, deploy, or verification check and persists the result.")
                 .WithRequestBody(OpenApiJson.BodyFor<CheckRunRequest>("Check-run request", true))
                 .WithResponse(201, OpenApiJson.For<CheckRun>("Created check run"))
+                .WithSecurity("ApiKey"));
+
+            app.Post("/api/v1/check-runs/import", async (ApiRequest req) =>
+            {
+                AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
+                if (ctx == null) return BuildAuthError(req);
+
+                CheckRunImportRequest request = JsonSerializer.Deserialize<CheckRunImportRequest>(req.Http.Request.DataAsString, _bodyJsonOptions)
+                    ?? throw new InvalidOperationException("Request body could not be deserialized as CheckRunImportRequest.");
+
+                try
+                {
+                    CheckRun run = await _checkRuns.ImportAsync(ctx, request).ConfigureAwait(false);
+                    req.Http.Response.StatusCode = 201;
+                    return run;
+                }
+                catch (InvalidOperationException ex)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message };
+                }
+            },
+            api => api
+                .WithTag("CheckRuns")
+                .WithSummary("Import an external check")
+                .WithDescription("Persists a structured check run that was executed outside Armada, such as CI or provider-hosted validation.")
+                .WithRequestBody(OpenApiJson.BodyFor<CheckRunImportRequest>("Imported check-run payload", true))
+                .WithResponse(201, OpenApiJson.For<CheckRun>("Created imported check run"))
                 .WithSecurity("ApiKey"));
 
             app.Get("/api/v1/check-runs/{id}", async (ApiRequest req) =>
@@ -248,6 +279,8 @@ namespace Armada.Server.Routes
                 query.Type = type;
             if (Enum.TryParse(req.Query.GetValueOrDefault("status"), true, out CheckRunStatusEnum status))
                 query.Status = status;
+            if (Enum.TryParse(req.Query.GetValueOrDefault("source"), true, out CheckRunSourceEnum source))
+                query.Source = source;
             if (DateTime.TryParse(req.Query.GetValueOrDefault("fromUtc"), out DateTime fromUtc))
                 query.FromUtc = fromUtc.ToUniversalTime();
             if (DateTime.TryParse(req.Query.GetValueOrDefault("toUtc"), out DateTime toUtc))
@@ -257,7 +290,9 @@ namespace Armada.Server.Routes
             query.VesselId = NormalizeEmpty(req.Query.GetValueOrDefault("vesselId")) ?? query.VesselId;
             query.MissionId = NormalizeEmpty(req.Query.GetValueOrDefault("missionId")) ?? query.MissionId;
             query.VoyageId = NormalizeEmpty(req.Query.GetValueOrDefault("voyageId")) ?? query.VoyageId;
+            query.DeploymentId = NormalizeEmpty(req.Query.GetValueOrDefault("deploymentId")) ?? query.DeploymentId;
             query.EnvironmentName = NormalizeEmpty(req.Query.GetValueOrDefault("environmentName")) ?? query.EnvironmentName;
+            query.ProviderName = NormalizeEmpty(req.Query.GetValueOrDefault("providerName")) ?? query.ProviderName;
         }
 
         private static void ApplyScope(AuthContext ctx, CheckRunQuery query)

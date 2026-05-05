@@ -1,5 +1,6 @@
 namespace Armada.Core.Models
 {
+    using System.Collections.Generic;
     using System.Text.Json.Serialization;
     using Armada.Core.Enums;
 
@@ -119,6 +120,37 @@ namespace Armada.Core.Models
         /// (Assigned, InProgress, WorkProduced, PullRequestOpen) at a time.
         /// </summary>
         public bool AllowConcurrentMissions { get; set; } = false;
+
+        /// <summary>
+        /// Whether successful landing requires at least one passing structured check
+        /// for the current branch or mission context.
+        /// </summary>
+        public bool RequirePassingChecksToLand { get; set; } = false;
+
+        /// <summary>
+        /// Optional protected-branch glob or exact-match patterns.
+        /// </summary>
+        public List<string> ProtectedBranchPatterns { get; set; } = new List<string>();
+
+        /// <summary>
+        /// Prefix used to classify release branches.
+        /// </summary>
+        public string ReleaseBranchPrefix { get; set; } = "release/";
+
+        /// <summary>
+        /// Prefix used to classify hotfix branches.
+        /// </summary>
+        public string HotfixBranchPrefix { get; set; } = "hotfix/";
+
+        /// <summary>
+        /// Whether protected branches must land via PR-oriented flow.
+        /// </summary>
+        public bool RequirePullRequestForProtectedBranches { get; set; } = false;
+
+        /// <summary>
+        /// Whether release branches must land via merge queue.
+        /// </summary>
+        public bool RequireMergeQueueForReleaseBranches { get; set; } = false;
 
         /// <summary>
         /// Default pipeline to use for dispatches to this vessel.

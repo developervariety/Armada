@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   createWorkspaceDirectory,
   deleteWorkspaceEntry,
+  getVesselReadiness,
   getWorkspaceFile,
   getWorkspaceStatus,
   getWorkspaceTree,
@@ -17,9 +18,11 @@ import type {
   WorkspaceSaveResult,
   WorkspaceStatusResult,
   WorkspaceTreeEntry,
+  VesselReadinessResult,
 } from '../types/models';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
+import ReadinessPanel from '../components/shared/ReadinessPanel';
 import WorkspaceTree from '../components/workspace/WorkspaceTree';
 import WorkspaceVesselPicker from '../components/workspace/WorkspaceVesselPicker';
 import {
@@ -93,6 +96,7 @@ export default function Workspace() {
   const [statusByVesselId, setStatusByVesselId] = useState<Record<string, WorkspaceStatusResult | undefined>>({});
 
   const [status, setStatus] = useState<WorkspaceStatusResult | null>(null);
+  const [readiness, setReadiness] = useState<VesselReadinessResult | null>(null);
   const [entriesByDirectory, setEntriesByDirectory] = useState<Record<string, WorkspaceTreeEntry[]>>({});
   const [expandedPaths, setExpandedPaths] = useState<Record<string, boolean>>({ '': true });
   const [loadingDirectories, setLoadingDirectories] = useState<string[]>([]);
@@ -103,6 +107,7 @@ export default function Workspace() {
   const [recentFiles, setRecentFiles] = useState<string[]>([]);
   const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
   const [loadingWorkspace, setLoadingWorkspace] = useState(false);
+  const [loadingReadiness, setLoadingReadiness] = useState(false);
   const [workspaceError, setWorkspaceError] = useState('');
   const [showContextModal, setShowContextModal] = useState(false);
   const [metadataEntry, setMetadataEntry] = useState<WorkspaceTreeEntry | null>(null);
@@ -198,6 +203,7 @@ export default function Workspace() {
   useEffect(() => {
     if (!vesselId) {
       setStatus(null);
+      setReadiness(null);
       setEntriesByDirectory({});
       setTabs([]);
       setActivePath(null);
@@ -226,6 +232,31 @@ export default function Workspace() {
     setEntriesByDirectory({});
     setLoadingDirectories([]);
     setWorkspaceError('');
+  }, [vesselId]);
+
+  useEffect(() => {
+    if (!vesselId) {
+      setReadiness(null);
+      setLoadingReadiness(false);
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingReadiness(true);
+    getVesselReadiness(vesselId)
+      .then((value) => {
+        if (!cancelled) setReadiness(value);
+      })
+      .catch(() => {
+        if (!cancelled) setReadiness(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingReadiness(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [vesselId]);
 
   useEffect(() => {
@@ -782,6 +813,14 @@ export default function Workspace() {
           {status?.error || t('This vessel does not have a usable working directory.')}
         </div>
       )}
+
+      <ReadinessPanel
+        title={t('Readiness')}
+        readiness={readiness}
+        loading={loadingReadiness}
+        emptyMessage={t('Readiness data is not available for this vessel yet.')}
+        compact
+      />
 
       <div className={`workspace-shell${showSelectionPane ? ' has-selection-pane' : ''}`}>
         <aside className="workspace-pane workspace-pane-left">

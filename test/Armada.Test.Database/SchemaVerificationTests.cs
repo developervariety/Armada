@@ -27,7 +27,11 @@ namespace Armada.Test.Database
             await conn.OpenAsync(token).ConfigureAwait(false);
 
             DatabaseAssert.True(await TableExistsAsync(conn, "schema_migrations", token).ConfigureAwait(false), "schema_migrations table missing");
-            DatabaseAssert.True(await GetMaxSchemaVersionAsync(conn, token).ConfigureAwait(false) >= 27, "Expected schema version >= 27");
+            DatabaseAssert.True(await GetMaxSchemaVersionAsync(conn, token).ConfigureAwait(false) >= 39, "Expected schema version >= 39");
+
+            DatabaseAssert.True(await TableExistsAsync(conn, "releases", token).ConfigureAwait(false), "releases table missing");
+            DatabaseAssert.True(await TableExistsAsync(conn, "environments", token).ConfigureAwait(false), "environments table missing");
+            DatabaseAssert.True(await TableExistsAsync(conn, "deployments", token).ConfigureAwait(false), "deployments table missing");
 
             await AssertColumnAsync(conn, "tenants", "is_protected", token).ConfigureAwait(false);
             await AssertColumnAsync(conn, "users", "is_protected", token).ConfigureAwait(false);
@@ -35,6 +39,24 @@ namespace Armada.Test.Database
             await AssertColumnAsync(conn, "credentials", "is_protected", token).ConfigureAwait(false);
             await AssertColumnAsync(conn, "captains", "model", token).ConfigureAwait(false);
             await AssertColumnAsync(conn, "missions", "total_runtime_ms", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "releases", "tenant_id", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "releases", "user_id", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "releases", "vessel_id", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "releases", "workflow_profile_id", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "releases", "status", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "environments", "tenant_id", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "environments", "user_id", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "environments", "vessel_id", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "environments", "kind", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "environments", "name", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "deployments", "tenant_id", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "deployments", "user_id", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "deployments", "vessel_id", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "deployments", "workflow_profile_id", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "deployments", "environment_id", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "deployments", "environment_name", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "deployments", "status", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "deployments", "verification_status", token).ConfigureAwait(false);
 
             foreach (string table in new[] { "fleets", "vessels", "captains", "voyages", "missions", "docks", "signals", "events", "merge_entries" })
             {
@@ -50,7 +72,9 @@ namespace Armada.Test.Database
                 "idx_missions_tenant_user",
                 "idx_signals_tenant_user",
                 "idx_events_tenant_user",
-                "idx_merge_entries_tenant_user"
+                "idx_merge_entries_tenant_user",
+                "idx_deployments_tenant_created",
+                "idx_deployments_status_created"
             })
             {
                 DatabaseAssert.True(await IndexExistsAsync(conn, indexName, token).ConfigureAwait(false), "Missing index " + indexName);
@@ -84,13 +108,13 @@ namespace Armada.Test.Database
             switch (_Settings.Type)
             {
                 case DatabaseTypeEnum.Sqlite:
-                    return await ScalarCountAsync(conn, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = @name;", ("@name", tableName), token).ConfigureAwait(false) > 0;
+                    return await ScalarCountAsync(conn, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = @name;", new KeyValuePair<string, object>("@name", tableName), token).ConfigureAwait(false) > 0;
                 case DatabaseTypeEnum.Postgresql:
-                    return await ScalarCountAsync(conn, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = CURRENT_SCHEMA() AND table_name = @name;", ("@name", tableName), token).ConfigureAwait(false) > 0;
+                    return await ScalarCountAsync(conn, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = CURRENT_SCHEMA() AND table_name = @name;", new KeyValuePair<string, object>("@name", tableName), token).ConfigureAwait(false) > 0;
                 case DatabaseTypeEnum.Mysql:
-                    return await ScalarCountAsync(conn, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = @name;", ("@name", tableName), token).ConfigureAwait(false) > 0;
+                    return await ScalarCountAsync(conn, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = @name;", new KeyValuePair<string, object>("@name", tableName), token).ConfigureAwait(false) > 0;
                 case DatabaseTypeEnum.SqlServer:
-                    return await ScalarCountAsync(conn, "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = @name;", ("@name", tableName), token).ConfigureAwait(false) > 0;
+                    return await ScalarCountAsync(conn, "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = @name;", new KeyValuePair<string, object>("@name", tableName), token).ConfigureAwait(false) > 0;
                 default:
                     return false;
             }
@@ -115,11 +139,11 @@ namespace Armada.Test.Database
                     }
                     return false;
                 case DatabaseTypeEnum.Postgresql:
-                    return await ScalarCountAsync(conn, "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = CURRENT_SCHEMA() AND table_name = @table AND column_name = @column;", ("@table", tableName), ("@column", columnName), token).ConfigureAwait(false) > 0;
+                    return await ScalarCountAsync(conn, "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = CURRENT_SCHEMA() AND table_name = @table AND column_name = @column;", new KeyValuePair<string, object>("@table", tableName), new KeyValuePair<string, object>("@column", columnName), token).ConfigureAwait(false) > 0;
                 case DatabaseTypeEnum.Mysql:
-                    return await ScalarCountAsync(conn, "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = @table AND column_name = @column;", ("@table", tableName), ("@column", columnName), token).ConfigureAwait(false) > 0;
+                    return await ScalarCountAsync(conn, "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = @table AND column_name = @column;", new KeyValuePair<string, object>("@table", tableName), new KeyValuePair<string, object>("@column", columnName), token).ConfigureAwait(false) > 0;
                 case DatabaseTypeEnum.SqlServer:
-                    return await ScalarCountAsync(conn, "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = @table AND COLUMN_NAME = @column;", ("@table", tableName), ("@column", columnName), token).ConfigureAwait(false) > 0;
+                    return await ScalarCountAsync(conn, "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = @table AND COLUMN_NAME = @column;", new KeyValuePair<string, object>("@table", tableName), new KeyValuePair<string, object>("@column", columnName), token).ConfigureAwait(false) > 0;
                 default:
                     return false;
             }
@@ -130,13 +154,13 @@ namespace Armada.Test.Database
             switch (_Settings.Type)
             {
                 case DatabaseTypeEnum.Sqlite:
-                    return await ScalarCountAsync(conn, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = @name;", ("@name", indexName), token).ConfigureAwait(false) > 0;
+                    return await ScalarCountAsync(conn, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = @name;", new KeyValuePair<string, object>("@name", indexName), token).ConfigureAwait(false) > 0;
                 case DatabaseTypeEnum.Postgresql:
-                    return await ScalarCountAsync(conn, "SELECT COUNT(*) FROM pg_indexes WHERE schemaname = CURRENT_SCHEMA() AND indexname = @name;", ("@name", indexName), token).ConfigureAwait(false) > 0;
+                    return await ScalarCountAsync(conn, "SELECT COUNT(*) FROM pg_indexes WHERE schemaname = CURRENT_SCHEMA() AND indexname = @name;", new KeyValuePair<string, object>("@name", indexName), token).ConfigureAwait(false) > 0;
                 case DatabaseTypeEnum.Mysql:
-                    return await ScalarCountAsync(conn, "SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND index_name = @name;", ("@name", indexName), token).ConfigureAwait(false) > 0;
+                    return await ScalarCountAsync(conn, "SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND index_name = @name;", new KeyValuePair<string, object>("@name", indexName), token).ConfigureAwait(false) > 0;
                 case DatabaseTypeEnum.SqlServer:
-                    return await ScalarCountAsync(conn, "SELECT COUNT(*) FROM sys.indexes WHERE name = @name;", ("@name", indexName), token).ConfigureAwait(false) > 0;
+                    return await ScalarCountAsync(conn, "SELECT COUNT(*) FROM sys.indexes WHERE name = @name;", new KeyValuePair<string, object>("@name", indexName), token).ConfigureAwait(false) > 0;
                 default:
                     return false;
             }
@@ -152,26 +176,26 @@ namespace Armada.Test.Database
             }
         }
 
-        private async Task<long> ScalarCountAsync(DbConnection conn, string sql, (string name, object value) parameter, CancellationToken token)
+        private async Task<long> ScalarCountAsync(DbConnection conn, string sql, KeyValuePair<string, object> parameter, CancellationToken token)
         {
             return await ScalarCountAsync(conn, sql, new[] { parameter }, token).ConfigureAwait(false);
         }
 
-        private async Task<long> ScalarCountAsync(DbConnection conn, string sql, (string name, object value) parameter1, (string name, object value) parameter2, CancellationToken token)
+        private async Task<long> ScalarCountAsync(DbConnection conn, string sql, KeyValuePair<string, object> parameter1, KeyValuePair<string, object> parameter2, CancellationToken token)
         {
             return await ScalarCountAsync(conn, sql, new[] { parameter1, parameter2 }, token).ConfigureAwait(false);
         }
 
-        private async Task<long> ScalarCountAsync(DbConnection conn, string sql, IEnumerable<(string name, object value)> parameters, CancellationToken token)
+        private async Task<long> ScalarCountAsync(DbConnection conn, string sql, IEnumerable<KeyValuePair<string, object>> parameters, CancellationToken token)
         {
             using (DbCommand cmd = conn.CreateCommand())
             {
                 cmd.CommandText = sql;
-                foreach ((string name, object value) parameter in parameters)
+                foreach (KeyValuePair<string, object> parameter in parameters)
                 {
                     DbParameter dbParameter = cmd.CreateParameter();
-                    dbParameter.ParameterName = parameter.name;
-                    dbParameter.Value = parameter.value;
+                    dbParameter.ParameterName = parameter.Key;
+                    dbParameter.Value = parameter.Value;
                     cmd.Parameters.Add(dbParameter);
                 }
 

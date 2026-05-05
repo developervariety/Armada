@@ -7,6 +7,7 @@ namespace Armada.Server.Routes
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
 
     /// <summary>
@@ -16,6 +17,7 @@ namespace Armada.Server.Routes
     {
         private readonly DatabaseDriver _database;
         private readonly PlanningSessionCoordinator _planningSessions;
+        private readonly ObjectiveService _objectives;
         private readonly JsonSerializerOptions _jsonOptions;
 
         /// <summary>
@@ -24,10 +26,12 @@ namespace Armada.Server.Routes
         public PlanningSessionRoutes(
             DatabaseDriver database,
             PlanningSessionCoordinator planningSessions,
+            ObjectiveService objectives,
             JsonSerializerOptions jsonOptions)
         {
             _database = database ?? throw new ArgumentNullException(nameof(database));
             _planningSessions = planningSessions ?? throw new ArgumentNullException(nameof(planningSessions));
+            _objectives = objectives ?? throw new ArgumentNullException(nameof(objectives));
             _jsonOptions = jsonOptions ?? throw new ArgumentNullException(nameof(jsonOptions));
         }
 
@@ -108,9 +112,23 @@ namespace Armada.Server.Routes
                         return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Vessel not found" };
                     }
 
+                    if (!String.IsNullOrWhiteSpace(request.ObjectiveId))
+                    {
+                        Objective? objective = await _objectives.ReadAsync(ctx, request.ObjectiveId).ConfigureAwait(false);
+                        if (objective == null)
+                        {
+                            req.Http.Response.StatusCode = 404;
+                            return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Objective not found" };
+                        }
+                    }
+
                     PlanningSession session = await _planningSessions
                         .CreateAsync(ctx.TenantId, ctx.UserId, captain, vessel, request)
                         .ConfigureAwait(false);
+                    if (!String.IsNullOrWhiteSpace(request.ObjectiveId))
+                    {
+                        await _objectives.LinkPlanningSessionAsync(ctx, request.ObjectiveId, session.Id).ConfigureAwait(false);
+                    }
 
                     req.Http.Response.StatusCode = 201;
                     return await BuildDetailResponseAsync(session, ctx).ConfigureAwait(false);
@@ -248,6 +266,11 @@ namespace Armada.Server.Routes
                     }
 
                     Voyage voyage = await _planningSessions.DispatchAsync(session, request).ConfigureAwait(false);
+                    List<Objective> linkedObjectives = await _objectives.EnumerateByPlanningSessionAsync(ctx, session.Id).ConfigureAwait(false);
+                    foreach (Objective objective in linkedObjectives)
+                    {
+                        await _objectives.LinkVoyageAsync(ctx, objective.Id, voyage.Id).ConfigureAwait(false);
+                    }
                     return voyage;
                 }
                 catch (NotSupportedException ex)

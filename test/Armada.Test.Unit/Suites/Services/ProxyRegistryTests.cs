@@ -1,6 +1,8 @@
 namespace Armada.Test.Unit.Suites.Services
 {
+    using System.Collections.Generic;
     using Armada.Proxy.Services;
+    using Armada.Proxy.Models;
     using Armada.Proxy.Settings;
     using Armada.Core;
     using Armada.Core.Models;
@@ -66,17 +68,17 @@ namespace Armada.Test.Unit.Suites.Services
                     "127.0.0.1",
                     session);
 
-                var connected = registry.ListSummaries().Single();
+                RemoteInstanceSummary connected = registry.ListSummaries().Single();
                 AssertEqual("connected", connected.State);
                 AssertEqual("armada-123", connected.InstanceId);
                 AssertEqual(Constants.ProductVersion, connected.ArmadaVersion);
 
                 nowUtc = nowUtc.AddSeconds(45);
-                var stale = registry.ListSummaries().Single();
+                RemoteInstanceSummary stale = registry.ListSummaries().Single();
                 AssertEqual("stale", stale.State);
 
                 registry.MarkDisconnected("armada-123");
-                var offline = registry.ListSummaries().Single();
+                RemoteInstanceSummary offline = registry.ListSummaries().Single();
                 AssertEqual("offline", offline.State);
             });
 
@@ -178,9 +180,9 @@ namespace Armada.Test.Unit.Suites.Services
                 registry.RecordEvent("armada-events", RemoteTunnelProtocol.CreateEvent("mission.progress", new { title = "Two" }));
                 registry.RecordEvent("armada-events", RemoteTunnelProtocol.CreateEvent("mission.completed", new { title = "Three" }));
 
-                var record = registry.GetRecord("armada-events");
+                RemoteInstanceRecord? record = registry.GetRecord("armada-events");
                 AssertNotNull(record);
-                var recentEvents = record!.GetRecentEvents();
+                IReadOnlyList<RemoteInstanceEventRecord> recentEvents = record!.GetRecentEvents();
                 AssertEqual(2, recentEvents.Count);
                 AssertEqual("mission.progress", recentEvents[0].Method);
                 AssertEqual("mission.completed", recentEvents[1].Method);

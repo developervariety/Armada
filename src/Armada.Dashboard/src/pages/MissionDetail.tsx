@@ -9,15 +9,18 @@ import {
   getMissionDiff,
   getMissionLog,
   getMissionInstructions,
+  getMissionLandingPreview,
   restartMission,
   retryMissionLanding,
   transitionMission,
   approveMissionReview,
   denyMissionReview,
+  listCheckRuns,
   listVessels,
   listCaptains,
+  listDeployments,
 } from '../api/client';
-import type { Mission, Vessel, Captain } from '../types/models';
+import type { Captain, CheckRun, Deployment, LandingPreviewResult, Mission, Vessel } from '../types/models';
 import ErrorModal from '../components/shared/ErrorModal';
 import StatusBadge from '../components/shared/StatusBadge';
 import ActionMenu from '../components/shared/ActionMenu';
@@ -40,6 +43,10 @@ export default function MissionDetail() {
   const [mission, setMission] = useState<Mission | null>(null);
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [captains, setCaptains] = useState<Captain[]>([]);
+  const [landingPreview, setLandingPreview] = useState<LandingPreviewResult | null>(null);
+  const [linkedCheckRuns, setLinkedCheckRuns] = useState<CheckRun[]>([]);
+  const [linkedDeployments, setLinkedDeployments] = useState<Deployment[]>([]);
+  const [loadingLandingPreview, setLoadingLandingPreview] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const { pushToast } = useNotifications();
@@ -105,6 +112,11 @@ export default function MissionDetail() {
     try {
       const m = await getMission(id);
       setMission(m);
+      setLoadingLandingPreview(true);
+      getMissionLandingPreview(id)
+        .then((result) => setLandingPreview(result))
+        .catch(() => setLandingPreview(null))
+        .finally(() => setLoadingLandingPreview(false));
       missionLoadedRef.current = true;
       // Only clear error on initial load -- don't dismiss user-facing errors from actions
       if (isInitialLoad) setError('');
@@ -123,6 +135,33 @@ export default function MissionDetail() {
     listVessels({ pageSize: 1000 }).then(r => setVessels(r.objects || [])).catch(() => {});
     listCaptains({ pageSize: 1000 }).then(r => setCaptains(r.objects || [])).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (!id) {
+      setLinkedCheckRuns([]);
+      setLinkedDeployments([]);
+      return;
+    }
+
+    let cancelled = false;
+    Promise.all([
+      listCheckRuns({ pageSize: 1000, filters: { missionId: id } }).catch(() => null),
+      listDeployments({ pageSize: 1000, missionId: id }).catch(() => null),
+    ]).then(([checkResult, deploymentResult]) => {
+      if (cancelled) return;
+      setLinkedCheckRuns(checkResult?.objects || []);
+      setLinkedDeployments(deploymentResult?.objects || []);
+    }).catch(() => {
+      if (!cancelled) {
+        setLinkedCheckRuns([]);
+        setLinkedDeployments([]);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
 
   async function handleViewDiff() {
     if (!id) return;
@@ -360,6 +399,63 @@ export default function MissionDetail() {
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
+
+      <div className="card landing-preview-card">
+        <div className="readiness-panel-header">
+          <div>
+            <h3>{t('Landing Preview')}</h3>
+            <div className="readiness-panel-meta">
+              {landingPreview?.sourceBranch ? `${landingPreview.sourceBranch} -> ${landingPreview.targetBranch}` : mission.branchName || t('No branch selected')}
+            </div>
+          </div>
+          <span className={`readiness-pill ${landingPreview?.isReadyToLand ? 'ready' : 'warning'}`}>
+            {landingPreview?.isReadyToLand ? t('Ready To Land') : t('Needs Review')}
+          </span>
+        </div>
+        {loadingLandingPreview ? (
+          <div className="text-dim">{t('Calculating landing preview...')}</div>
+        ) : !landingPreview ? (
+          <div className="text-dim">{t('Landing preview is not available for this mission yet.')}</div>
+        ) : (
+          <>
+            <div className="readiness-summary-row">
+              <span>{t('Branch category')}: {landingPreview.branchCategory}</span>
+              <span>{t('Landing mode')}: {landingPreview.landingMode || t('Inherited')}</span>
+              <span>{t('Cleanup')}: {landingPreview.branchCleanupPolicy || t('Inherited')}</span>
+              {landingPreview.expectedLandingAction && <span>{t('Action')}: {landingPreview.expectedLandingAction}</span>}
+              <span>{landingPreview.requirePassingChecksToLand ? t('Passing checks required') : t('Passing checks optional')}</span>
+            </div>
+            <div className="readiness-summary-row">
+              <span>{landingPreview.targetBranchProtected ? t('Protected target branch') : t('Target branch not protected')}</span>
+              {landingPreview.protectedBranchMatch && <span>{t('Policy')}: <span className="mono">{landingPreview.protectedBranchMatch}</span></span>}
+              {landingPreview.requirePullRequestForProtectedBranches && <span>{t('PR required for protected branches')}</span>}
+              {landingPreview.requireMergeQueueForReleaseBranches && <span>{t('Merge queue required for release branches')}</span>}
+            </div>
+            {landingPreview.latestCheckSummary && (
+              <div className="landing-preview-latest-check">
+                <strong>{t('Latest check')}</strong>
+                <div className="text-dim">{landingPreview.latestCheckSummary}</div>
+              </div>
+            )}
+            {landingPreview.issues.length > 0 ? (
+              <div className="readiness-issues">
+                {landingPreview.issues.map((issue, index) => (
+                  <div key={`${issue.code}-${index}`} className={`readiness-issue ${issue.severity.toLowerCase()}`}>
+                    <div className="readiness-issue-title-row">
+                      <strong>{issue.title}</strong>
+                      <span className={`readiness-issue-severity ${issue.severity.toLowerCase()}`}>{issue.severity}</span>
+                    </div>
+                    <div className="text-dim">{issue.message}</div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="readiness-success-copy">{t('No landing blockers are currently predicted for this mission.')}</div>
+            )}
+          </>
+        )}
+      </div>
+
       <DiffViewer
         open={diffModal.open}
         title={diffModal.title}
@@ -615,7 +711,52 @@ export default function MissionDetail() {
             <span className="text-dim"> ({formatDateTime(mission.lastUpdateUtc)})</span>
           </span>
         </div>
+        <div className="detail-field">
+          <span className="detail-label">{t('Linked Checks')}</span>
+          <span>{linkedCheckRuns.length}</span>
+        </div>
+        <div className="detail-field">
+          <span className="detail-label">{t('Linked Deployments')}</span>
+          <span>{linkedDeployments.length}</span>
+        </div>
       </div>
+
+      {(linkedCheckRuns.length > 0 || linkedDeployments.length > 0) && (
+        <div className="detail-grid" style={{ marginTop: '1rem' }}>
+          <div className="card">
+            <h3>{t('Linked Checks')}</h3>
+            {linkedCheckRuns.length === 0 ? (
+              <p className="text-dim">{t('No checks are linked to this mission yet.')}</p>
+            ) : (
+              <div style={{ display: 'grid', gap: '0.65rem' }}>
+                {linkedCheckRuns.map((checkRun) => (
+                  <div key={checkRun.id}>
+                    <Link to={`/checks/${checkRun.id}`}>{checkRun.label || checkRun.type}</Link>
+                    <span className="mono text-dim" style={{ marginLeft: '0.45rem', fontSize: '0.78rem' }}>{checkRun.id}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="card">
+            <h3>{t('Linked Deployments')}</h3>
+            {linkedDeployments.length === 0 ? (
+              <p className="text-dim">{t('No deployments are linked to this mission yet.')}</p>
+            ) : (
+              <div style={{ display: 'grid', gap: '0.75rem' }}>
+                {linkedDeployments.map((deployment) => (
+                  <div key={deployment.id}>
+                    <Link to={`/deployments/${deployment.id}`}>{deployment.title}</Link>
+                    <div className="text-dim" style={{ marginTop: '0.2rem' }}>
+                      {deployment.environmentName || t('No environment')} • {deployment.status} • {deployment.verificationStatus}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Description */}
       {mission.description && (

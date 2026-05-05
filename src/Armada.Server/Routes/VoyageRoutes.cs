@@ -25,6 +25,7 @@ namespace Armada.Server.Routes
         private readonly Func<string, string, string?, string?, string?, string?, string?, string?, Task> _emitEvent;
         private readonly ArmadaWebSocketHub? _webSocketHub;
         private readonly LoggingModule _logging;
+        private readonly ObjectiveService _objectives;
         private readonly JsonSerializerOptions _jsonOptions;
 
         /// <summary>
@@ -35,6 +36,7 @@ namespace Armada.Server.Routes
         /// <param name="emitEvent">Event broadcast callback.</param>
         /// <param name="webSocketHub">WebSocket hub for real-time notifications.</param>
         /// <param name="logging">Logging module.</param>
+        /// <param name="objectives">Objective linkage service.</param>
         /// <param name="jsonOptions">JSON serializer options.</param>
         public VoyageRoutes(
             DatabaseDriver database,
@@ -42,6 +44,7 @@ namespace Armada.Server.Routes
             Func<string, string, string?, string?, string?, string?, string?, string?, Task> emitEvent,
             ArmadaWebSocketHub? webSocketHub,
             LoggingModule logging,
+            ObjectiveService objectives,
             JsonSerializerOptions jsonOptions)
         {
             _database = database;
@@ -49,6 +52,7 @@ namespace Armada.Server.Routes
             _emitEvent = emitEvent;
             _webSocketHub = webSocketHub;
             _logging = logging;
+            _objectives = objectives;
             _jsonOptions = jsonOptions;
         }
 
@@ -129,6 +133,15 @@ namespace Armada.Server.Routes
                 }
                 VoyageRequest voyageReq = JsonSerializer.Deserialize<VoyageRequest>(req.Http.Request.DataAsString, _jsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as VoyageRequest.");
+                if (!String.IsNullOrWhiteSpace(voyageReq.ObjectiveId))
+                {
+                    Objective? objective = await _objectives.ReadAsync(ctx, voyageReq.ObjectiveId).ConfigureAwait(false);
+                    if (objective == null)
+                    {
+                        req.Http.Response.StatusCode = 404;
+                        return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Objective not found" };
+                    }
+                }
                 List<MissionDescription> missions = new List<MissionDescription>();
                 if (voyageReq.Missions != null)
                 {
@@ -173,6 +186,11 @@ namespace Armada.Server.Routes
                         missions,
                         pipelineId,
                         voyageReq.SelectedPlaybooks).ConfigureAwait(false);
+                }
+
+                if (!String.IsNullOrWhiteSpace(voyageReq.ObjectiveId))
+                {
+                    await _objectives.LinkVoyageAsync(ctx, voyageReq.ObjectiveId, voyage.Id).ConfigureAwait(false);
                 }
 
                 req.Http.Response.StatusCode = 201;

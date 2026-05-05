@@ -53,7 +53,14 @@ namespace Armada.Server
         /// Tracks launches that have started but have not yet completed HandleLaunchAgentAsync registration.
         /// This closes the race where a fast process can emit output or exit before the PID mapping is written.
         /// </summary>
-        private System.Collections.Concurrent.ConcurrentDictionary<string, (string CaptainId, string MissionId)> _PendingLaunches = new System.Collections.Concurrent.ConcurrentDictionary<string, (string CaptainId, string MissionId)>();
+        private sealed class PendingLaunchInfo
+        {
+            public string CaptainId { get; set; } = String.Empty;
+
+            public string MissionId { get; set; } = String.Empty;
+        }
+
+        private System.Collections.Concurrent.ConcurrentDictionary<string, PendingLaunchInfo> _PendingLaunches = new System.Collections.Concurrent.ConcurrentDictionary<string, PendingLaunchInfo>();
 
         /// <summary>
         /// Maps process IDs to captain IDs for progress tracking.
@@ -335,7 +342,11 @@ namespace Armada.Server
             _Logging.Info(_Header + "launching " + captain.Runtime + " agent for captain " + captain.Id);
             Armada.Runtimes.Interfaces.IAgentRuntime runtime = _RuntimeFactory.Create(captain.Runtime);
             string launchKey = captain.Id + ":" + mission.Id;
-            _PendingLaunches[launchKey] = (captain.Id, mission.Id);
+            _PendingLaunches[launchKey] = new PendingLaunchInfo
+            {
+                CaptainId = captain.Id,
+                MissionId = mission.Id
+            };
             runtime.OnProcessStarted += processId => HandleProcessStarted(processId, launchKey);
             runtime.OnOutputReceived += HandleAgentOutput;
             runtime.OnOutputReceived += HandleAgentHeartbeat;
@@ -516,7 +527,7 @@ namespace Armada.Server
         /// </summary>
         private void HandleProcessStarted(int processId, string launchKey)
         {
-            if (!_PendingLaunches.TryGetValue(launchKey, out (string CaptainId, string MissionId) launch))
+            if (!_PendingLaunches.TryGetValue(launchKey, out PendingLaunchInfo? launch) || launch == null)
                 return;
 
             lock (_ProcessToCaptain)
@@ -755,37 +766,66 @@ namespace Armada.Server
 
         private static bool IsValidTransition(MissionStatusEnum current, MissionStatusEnum target)
         {
-            return (current, target) switch
+            if (current == MissionStatusEnum.Pending)
             {
-                (MissionStatusEnum.Pending, MissionStatusEnum.Assigned) => true,
-                (MissionStatusEnum.Pending, MissionStatusEnum.Cancelled) => true,
-                (MissionStatusEnum.Assigned, MissionStatusEnum.InProgress) => true,
-                (MissionStatusEnum.Assigned, MissionStatusEnum.Cancelled) => true,
-                (MissionStatusEnum.InProgress, MissionStatusEnum.WorkProduced) => true,
-                (MissionStatusEnum.InProgress, MissionStatusEnum.Testing) => true,
-                (MissionStatusEnum.InProgress, MissionStatusEnum.Review) => true,
-                (MissionStatusEnum.InProgress, MissionStatusEnum.Complete) => true,
-                (MissionStatusEnum.InProgress, MissionStatusEnum.Failed) => true,
-                (MissionStatusEnum.InProgress, MissionStatusEnum.Cancelled) => true,
-                (MissionStatusEnum.WorkProduced, MissionStatusEnum.PullRequestOpen) => true,
-                (MissionStatusEnum.WorkProduced, MissionStatusEnum.Complete) => true,
-                (MissionStatusEnum.WorkProduced, MissionStatusEnum.LandingFailed) => true,
-                (MissionStatusEnum.WorkProduced, MissionStatusEnum.Cancelled) => true,
-                (MissionStatusEnum.PullRequestOpen, MissionStatusEnum.Complete) => true,
-                (MissionStatusEnum.PullRequestOpen, MissionStatusEnum.LandingFailed) => true,
-                (MissionStatusEnum.PullRequestOpen, MissionStatusEnum.Cancelled) => true,
-                (MissionStatusEnum.Testing, MissionStatusEnum.Review) => true,
-                (MissionStatusEnum.Testing, MissionStatusEnum.InProgress) => true,
-                (MissionStatusEnum.Testing, MissionStatusEnum.Complete) => true,
-                (MissionStatusEnum.Testing, MissionStatusEnum.Failed) => true,
-                (MissionStatusEnum.Review, MissionStatusEnum.Complete) => true,
-                (MissionStatusEnum.Review, MissionStatusEnum.InProgress) => true,
-                (MissionStatusEnum.Review, MissionStatusEnum.Failed) => true,
-                (MissionStatusEnum.LandingFailed, MissionStatusEnum.WorkProduced) => true,
-                (MissionStatusEnum.LandingFailed, MissionStatusEnum.Failed) => true,
-                (MissionStatusEnum.LandingFailed, MissionStatusEnum.Cancelled) => true,
-                _ => false
-            };
+                return target == MissionStatusEnum.Assigned
+                    || target == MissionStatusEnum.Cancelled;
+            }
+
+            if (current == MissionStatusEnum.Assigned)
+            {
+                return target == MissionStatusEnum.InProgress
+                    || target == MissionStatusEnum.Cancelled;
+            }
+
+            if (current == MissionStatusEnum.InProgress)
+            {
+                return target == MissionStatusEnum.WorkProduced
+                    || target == MissionStatusEnum.Testing
+                    || target == MissionStatusEnum.Review
+                    || target == MissionStatusEnum.Complete
+                    || target == MissionStatusEnum.Failed
+                    || target == MissionStatusEnum.Cancelled;
+            }
+
+            if (current == MissionStatusEnum.WorkProduced)
+            {
+                return target == MissionStatusEnum.PullRequestOpen
+                    || target == MissionStatusEnum.Complete
+                    || target == MissionStatusEnum.LandingFailed
+                    || target == MissionStatusEnum.Cancelled;
+            }
+
+            if (current == MissionStatusEnum.PullRequestOpen)
+            {
+                return target == MissionStatusEnum.Complete
+                    || target == MissionStatusEnum.LandingFailed
+                    || target == MissionStatusEnum.Cancelled;
+            }
+
+            if (current == MissionStatusEnum.Testing)
+            {
+                return target == MissionStatusEnum.Review
+                    || target == MissionStatusEnum.InProgress
+                    || target == MissionStatusEnum.Complete
+                    || target == MissionStatusEnum.Failed;
+            }
+
+            if (current == MissionStatusEnum.Review)
+            {
+                return target == MissionStatusEnum.Complete
+                    || target == MissionStatusEnum.InProgress
+                    || target == MissionStatusEnum.Failed;
+            }
+
+            if (current == MissionStatusEnum.LandingFailed)
+            {
+                return target == MissionStatusEnum.WorkProduced
+                    || target == MissionStatusEnum.Failed
+                    || target == MissionStatusEnum.Cancelled;
+            }
+
+            return false;
         }
 
         private async Task<string?> ValidateMuxCaptainAsync(Captain captain, CancellationToken token)

@@ -97,7 +97,12 @@ namespace Armada.Test.Unit
             runner.AddSuite(new ReviewGateTests());
             runner.AddSuite(new WorkspaceServiceTests());
             runner.AddSuite(new RequestHistoryCaptureServiceTests());
+            runner.AddSuite(new HistoricalTimelineServiceTests());
+            runner.AddSuite(new ObjectiveServiceTests());
             runner.AddSuite(new WorkflowProfileCheckRunServiceTests());
+            runner.AddSuite(new DeploymentEnvironmentServiceTests());
+            runner.AddSuite(new DeploymentServiceTests());
+            runner.AddSuite(new ReleaseServiceTests());
 
             int exitCode = await runner.RunAllAsync().ConfigureAwait(false);
             return exitCode;

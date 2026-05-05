@@ -16,6 +16,17 @@ namespace Armada.Test.Automated.Suites
     /// </summary>
     public class CrossTenantApiTests : TestSuite
     {
+        private sealed class TenantUserCredentialResult
+        {
+            public string TenantId { get; set; } = String.Empty;
+
+            public string UserId { get; set; } = String.Empty;
+
+            public string CredentialId { get; set; } = String.Empty;
+
+            public string BearerToken { get; set; } = String.Empty;
+        }
+
         #region Public-Members
 
         /// <summary>
@@ -65,7 +76,7 @@ namespace Armada.Test.Automated.Suites
 
         #region Private-Methods
 
-        private async Task<(string TenantId, string UserId, string CredentialId, string BearerToken)> CreateTenantWithUserAsync(string label)
+        private async Task<TenantUserCredentialResult> CreateTenantWithUserAsync(string label)
         {
             // Create tenant via admin
             string tenantName = "xt-" + label + "-" + Guid.NewGuid().ToString("N").Substring(0, 8);
@@ -95,7 +106,13 @@ namespace Armada.Test.Automated.Suites
                 })).ConfigureAwait(false);
             Credential cred = await JsonHelper.DeserializeAsync<Credential>(credResp).ConfigureAwait(false);
 
-            return (tenant.Id, user.Id, cred.Id, cred.BearerToken);
+            return new TenantUserCredentialResult
+            {
+                TenantId = tenant.Id,
+                UserId = user.Id,
+                CredentialId = cred.Id,
+                BearerToken = cred.BearerToken
+            };
         }
 
         private HttpClient CreateBearerClient(string bearerToken)
@@ -117,7 +134,7 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("Setup_CreateTenantA", async () =>
             {
-                var result = await CreateTenantWithUserAsync("tenantA").ConfigureAwait(false);
+                TenantUserCredentialResult result = await CreateTenantWithUserAsync("tenantA").ConfigureAwait(false);
                 _TenantAId = result.TenantId;
                 _UserAId = result.UserId;
                 _CredentialAId = result.CredentialId;
@@ -130,7 +147,7 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("Setup_CreateTenantB", async () =>
             {
-                var result = await CreateTenantWithUserAsync("tenantB").ConfigureAwait(false);
+                TenantUserCredentialResult result = await CreateTenantWithUserAsync("tenantB").ConfigureAwait(false);
                 _TenantBId = result.TenantId;
                 _UserBId = result.UserId;
                 _CredentialBId = result.CredentialId;
