@@ -283,6 +283,32 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("SelectModel_High_DoesNotFuzzyMatchCursorOpusAliases", () =>
+            {
+                List<Captain> captains = new List<Captain>
+                {
+                    MakeCaptain("claude-opus-4-7-thinking-max-preview"),
+                    MakeCaptain("claude-4.6-opus-high-thinking-preview")
+                };
+
+                string? selected = PreferredModelTierSelector.SelectModel("high", captains, null, _ => 0);
+                AssertNull(selected, "High tier should not select Cursor opus alias-like names that are not exact matches");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("SelectModel_Mid_DoesNotFuzzyMatchCursorSonnetGeminiAliases", () =>
+            {
+                List<Captain> captains = new List<Captain>
+                {
+                    MakeCaptain("claude-4.6-sonnet-medium-preview"),
+                    MakeCaptain("gemini-3.1-pro-preview")
+                };
+
+                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0);
+                AssertNull(selected, "Mid tier should not select Cursor sonnet or Gemini alias-like names that are not exact matches");
+                return Task.CompletedTask;
+            });
+
             await RunTest("SelectModel_ReturnsNull_WhenNoEligibleCaptains", () =>
             {
                 List<Captain> captains = new List<Captain>();
