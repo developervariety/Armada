@@ -29,9 +29,30 @@ namespace Armada.Core.Services
 
         private static readonly string[] _LowModels = new string[] { "kimi-k2.5" };
 
-        private static readonly string[] _MidModels = new string[] { "composer-2-fast", "claude-sonnet-4-6", "gemini-3.5-pro" };
+        private static readonly string[] _MidModels = new string[]
+        {
+            "composer-2-fast",
+            "claude-sonnet-4-6",
+            "gemini-3.5-pro",
+            "claude-4.6-sonnet-medium",
+            "claude-4.6-sonnet-medium-thinking",
+            "gemini-3.1-pro",
+        };
 
-        private static readonly string[] _HighModels = new string[] { "claude-opus-4-7", "gpt-5.5" };
+        private static readonly string[] _HighModels = new string[]
+        {
+            "claude-opus-4-7",
+            "gpt-5.5",
+            "claude-opus-4-7-high",
+            "claude-opus-4-7-max",
+            "claude-opus-4-7-thinking-high",
+            "claude-opus-4-7-thinking-xhigh",
+            "claude-opus-4-7-thinking-max",
+            "claude-4.6-opus-high",
+            "claude-4.6-opus-max",
+            "claude-4.6-opus-high-thinking",
+            "claude-4.6-opus-max-thinking",
+        };
 
         private static readonly Dictionary<string, string> _Aliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
