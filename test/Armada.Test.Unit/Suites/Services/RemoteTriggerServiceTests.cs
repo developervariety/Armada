@@ -429,6 +429,24 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(20, host.StartCallCount, "21st fire should be suppressed by throttle");
             });
 
+            await RunTest("FireDrainer_AgentWake_CustomThrottleCap_SixthWakeSuppressed", async () =>
+            {
+                RecordingAgentWakeProcessHost host = new RecordingAgentWakeProcessHost();
+                RecordingRemoteTriggerHttpClient http = new RecordingRemoteTriggerHttpClient();
+                RemoteTriggerSettings settings = MakeAgentWakeSettings();
+                settings.ThrottleCapPerHour = 5;
+                RemoteTriggerService service = new RemoteTriggerService(settings, http, host, new LoggingModule(), TimeSpan.Zero);
+
+                for (int i = 0; i < 5; i++)
+                    await service.FireDrainerAsync("vessel-agentwake-" + i, "event-" + i);
+
+                AssertEqual(5, host.StartCallCount, "5 distinct vessels should each spawn once at custom AgentWake cap");
+
+                await service.FireDrainerAsync("vessel-agentwake-throttled", "sixth should be suppressed");
+
+                AssertEqual(5, host.StartCallCount, "6th AgentWake should be suppressed when cap is 5");
+            });
+
             await RunTest("FireCritical_AgentWake_AfterThrottleCap_BypassesThrottle", async () =>
             {
                 RecordingAgentWakeProcessHost host = new RecordingAgentWakeProcessHost();
