@@ -50,6 +50,13 @@ namespace Armada.Core.Settings
         public string AnthropicVersion { get; set; } = "2023-06-01";
 
         /// <summary>
+        /// Maximum wake spawns per rolling hour (global, across all vessels). Defaults to 20.
+        /// Raise for burst workloads where many WorkProduced events arrive faster than wakes drain.
+        /// Values less than or equal to zero fall back to 20.
+        /// </summary>
+        public int ThrottleCapPerHour { get; set; } = 20;
+
+        /// <summary>
         /// AgentWake mode settings. Used when <see cref="Mode"/> is <see cref="RemoteTriggerMode.AgentWake"/>.
         /// If absent, defaults are used (Claude runtime, --continue, 600s timeout).
         /// </summary>

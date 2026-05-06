@@ -12,7 +12,7 @@ namespace Armada.Core.Services
     /// <summary>
     /// Orchestrates admiral-side orchestrator wakes via RemoteFire (HTTP POST to Claude Code Routines /fire)
     /// or AgentWake (spawn a local Claude/Codex process) modes.
-    /// Per-vessel 60s coalescing, rolling 20/hour throttle, retry-once-on-failure,
+    /// Per-vessel 60s coalescing, rolling hourly throttle cap (default 20, configurable), retry-once-on-failure,
     /// and 3-strike consecutive-failure tracking apply.
     /// Critical events bypass coalescing and throttle.
     /// AgentWake additionally enforces a global single-flight lease to prevent bursts from spawning
@@ -23,7 +23,7 @@ namespace Armada.Core.Services
         #region Private-Members
 
         private const int CoalesceWindowSeconds = 60;
-        private const int ThrottleCapPerHour = 20;
+        private const int DefaultThrottleCapPerHour = 20;
         private const int ConsecutiveFailureCap = 3;
         private const int ThrottleNotificationDebounceMinutes = 10;
 
@@ -34,6 +34,7 @@ namespace Armada.Core.Services
         private readonly IAgentWakeProcessHost? _AgentWakeHost;
         private readonly LoggingModule _Logging;
         private readonly TimeSpan _RetryDelay;
+        private readonly int _ThrottleCap;
         private const string _Header = "[RemoteTriggerService] ";
 
         private readonly Dictionary<string, DateTime> _PerVesselLastFire = new Dictionary<string, DateTime>(StringComparer.Ordinal);
@@ -77,6 +78,10 @@ namespace Armada.Core.Services
             _AgentWakeHost = agentWakeHost;
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _RetryDelay = retryDelay;
+            int throttleCap = _Settings.ThrottleCapPerHour;
+            if (throttleCap <= 0)
+                throttleCap = DefaultThrottleCapPerHour;
+            _ThrottleCap = throttleCap;
         }
 
         #endregion
@@ -123,7 +128,7 @@ namespace Armada.Core.Services
                 while (_RecentWakes.Count > 0 && (now - _RecentWakes.Peek()).TotalMinutes > 60)
                     _RecentWakes.Dequeue();
 
-                if (_RecentWakes.Count >= ThrottleCapPerHour)
+                if (_RecentWakes.Count >= _ThrottleCap)
                 {
                     _Logging.Warn(_Header + "throttle hit (" + _RecentWakes.Count + " wakes/hour); suppressing wake for vessel " + vesselId);
                     MaybeFireThrottleNotification(now, vesselId);
@@ -246,7 +251,7 @@ namespace Armada.Core.Services
                 while (_RecentWakes.Count > 0 && (now - _RecentWakes.Peek()).TotalMinutes > 60)
                     _RecentWakes.Dequeue();
 
-                if (_RecentWakes.Count >= ThrottleCapPerHour)
+                if (_RecentWakes.Count >= _ThrottleCap)
                 {
                     _Logging.Warn(_Header + "throttle hit (" + _RecentWakes.Count + " wakes/hour); suppressing AgentWake for vessel " + vesselId);
                     MaybeFireThrottleNotification(now, vesselId);
@@ -492,7 +497,7 @@ namespace Armada.Core.Services
                 return;
             }
             _LastThrottleNotification = now;
-            _Logging.Warn(_Header + "throttle notification: " + ThrottleCapPerHour + " wakes in last hour exceeded for vessel " + vesselId + "; manual drain recommended");
+            _Logging.Warn(_Header + "throttle notification: " + _ThrottleCap + " wakes in last hour exceeded for vessel " + vesselId + "; manual drain recommended");
         }
 
         #endregion
