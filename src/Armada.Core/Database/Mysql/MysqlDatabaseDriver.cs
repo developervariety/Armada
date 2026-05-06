@@ -498,6 +498,11 @@ namespace Armada.Core.Database.Mysql
                     40,
                     "Add deployment-linked checks and rollout monitoring",
                     TableQueries.MigrationV40Statements
+                ),
+                new SchemaMigration(
+                    41,
+                    "Add vessel GitHub token overrides",
+                    TableQueries.MigrationV41Statements
                 )
             };
         }

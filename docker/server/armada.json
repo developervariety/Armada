@@ -5,6 +5,7 @@
   "reposDirectory": "/app/data/repos",
   "admiralPort": 7890,
   "mcpPort": 7891,
+  "gitHubToken": null,
   "webSocketEnabled": true,
   "syslogServers": [
     {
@@ -22,3 +23,4 @@
     "filename": "/app/data/db/armada.db"
   }
 }
+

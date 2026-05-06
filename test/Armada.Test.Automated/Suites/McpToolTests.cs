@@ -531,6 +531,49 @@ namespace Armada.Test.Automated.Suites
                 AssertContains(vesselId, listText);
             }).ConfigureAwait(false);
 
+            await RunTest("ArmadaAddVessel_GitHubTokenOverrideDoesNotLeak", async () =>
+            {
+                string fleetId = await RestCreateFleetAsync("AddVesselGitHubOverrideFleet").ConfigureAwait(false);
+                string token = "ghp_mcp_" + Guid.NewGuid().ToString("N").Substring(0, 10);
+                JsonElement result = await CallToolAsync("add_vessel", new
+                {
+                    name = "MCP GitHub Override Vessel",
+                    repoUrl = TestRepoHelper.GetLocalBareRepoUrl(),
+                    fleetId = fleetId,
+                    gitHubTokenOverride = token
+                }).ConfigureAwait(false);
+                AssertToolResultValid(result);
+                string text = GetToolResultText(result);
+                AssertFalse(text.Contains(token, StringComparison.Ordinal));
+                AssertFalse(text.Contains("\"gitHubTokenOverride\"", StringComparison.Ordinal));
+                AssertContains("HasGitHubTokenOverride", text);
+                Vessel vessel = JsonHelper.Deserialize<Vessel>(text);
+                AssertTrue(vessel.HasGitHubTokenOverride);
+            }).ConfigureAwait(false);
+
+            await RunTest("ArmadaUpdateVessel_EmptyGitHubTokenOverrideClearsOverride", async () =>
+            {
+                string fleetId = await RestCreateFleetAsync("UpdateVesselGitHubOverrideFleet").ConfigureAwait(false);
+                JsonElement addResult = await CallToolAsync("add_vessel", new
+                {
+                    name = "MCP Clear Override Vessel",
+                    repoUrl = TestRepoHelper.GetLocalBareRepoUrl(),
+                    fleetId = fleetId,
+                    gitHubTokenOverride = "ghp_mcp_clear"
+                }).ConfigureAwait(false);
+                Vessel added = JsonHelper.Deserialize<Vessel>(GetToolResultText(addResult));
+                AssertTrue(added.HasGitHubTokenOverride);
+
+                JsonElement updateResult = await CallToolAsync("update_vessel", new
+                {
+                    vesselId = added.Id,
+                    gitHubTokenOverride = ""
+                }).ConfigureAwait(false);
+                AssertToolResultValid(updateResult);
+                Vessel updated = JsonHelper.Deserialize<Vessel>(GetToolResultText(updateResult));
+                AssertFalse(updated.HasGitHubTokenOverride);
+            }).ConfigureAwait(false);
+
             // ArmadaStopCaptain
             await RunTest("ArmadaStopCaptain_IdleCaptain_ReturnsStopped", async () =>
             {

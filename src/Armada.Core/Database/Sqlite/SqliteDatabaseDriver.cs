@@ -439,6 +439,12 @@ namespace Armada.Core.Database.Sqlite
             try { vessel.EnableModelContext = Convert.ToInt64(reader["enable_model_context"]) == 1; }
             catch { vessel.EnableModelContext = true; }
             vessel.ModelContext = NullableString(reader["model_context"]);
+            try
+            {
+                vessel.GitHubTokenOverride = NullableString(reader["github_token_override"]);
+                vessel.NormalizeGitHubTokenOverride();
+            }
+            catch { }
             string? landingModeStr = NullableString(reader["landing_mode"]);
             if (!String.IsNullOrEmpty(landingModeStr) && Enum.TryParse<LandingModeEnum>(landingModeStr, out LandingModeEnum lm))
                 vessel.LandingMode = lm;

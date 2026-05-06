@@ -93,6 +93,7 @@ namespace Armada.Core.Database.Postgresql.Queries
                         style_guide TEXT,
                         enable_model_context BOOLEAN NOT NULL DEFAULT TRUE,
                         model_context TEXT,
+                        github_token_override TEXT,
                         landing_mode TEXT,
                         branch_cleanup_policy TEXT,
                         allow_concurrent_missions BOOLEAN NOT NULL DEFAULT FALSE,
@@ -830,6 +831,9 @@ namespace Armada.Core.Database.Postgresql.Queries
                     @"ALTER TABLE deployments ADD COLUMN IF NOT EXISTS last_regression_alert_utc TIMESTAMP;",
                     @"ALTER TABLE deployments ADD COLUMN IF NOT EXISTS latest_monitoring_summary TEXT;",
                     @"ALTER TABLE deployments ADD COLUMN IF NOT EXISTS monitoring_failure_count INTEGER NOT NULL DEFAULT 0;"
+                ),
+                new SchemaMigration(41, "Add vessel GitHub token overrides",
+                    @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS github_token_override TEXT;"
                 )
             };
         }

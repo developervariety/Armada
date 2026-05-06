@@ -30,7 +30,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Route = "/api/v1/missions",
                     QueryString = "?scope=repo&token=secret-token",
                     RequestContentType = "application/json",
-                    RequestBodyText = "{\"title\":\"Mission\",\"password\":\"hunter2\",\"nested\":{\"apiKey\":\"abc123\"}}",
+                    RequestBodyText = "{\"title\":\"Mission\",\"password\":\"hunter2\",\"gitHubToken\":\"ghp_global\",\"nested\":{\"apiKey\":\"abc123\",\"gitHubTokenOverride\":\"ghp_vessel\"}}",
                     ResponseContentType = "application/json",
                     ResponseBodyText = "{\"ok\":true}",
                     RequestHeaders = new Dictionary<string, string?>
@@ -56,6 +56,8 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("[REDACTED]", record.Detail.RequestBodyText ?? string.Empty);
                 AssertFalse((record.Detail.RequestBodyText ?? string.Empty).Contains("hunter2"));
                 AssertFalse((record.Detail.RequestBodyText ?? string.Empty).Contains("abc123"));
+                AssertFalse((record.Detail.RequestBodyText ?? string.Empty).Contains("ghp_global"));
+                AssertFalse((record.Detail.RequestBodyText ?? string.Empty).Contains("ghp_vessel"));
                 AssertContains("[REDACTED]", record.Detail.ResponseHeadersJson ?? string.Empty);
             });
 

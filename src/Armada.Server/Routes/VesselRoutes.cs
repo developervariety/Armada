@@ -131,6 +131,7 @@ namespace Armada.Server.Routes
                     req.Http.Response.StatusCode = 400;
                     return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "repoUrl is required when creating a vessel" };
                 }
+                vessel.NormalizeGitHubTokenOverride();
                 vessel.TenantId = ctx.TenantId;
                 vessel.UserId = ctx.UserId;
                 vessel = await _database.Vessels.CreateAsync(vessel).ConfigureAwait(false);
@@ -189,6 +190,16 @@ namespace Armada.Server.Routes
                 Vessel updated = JsonSerializer.Deserialize<Vessel>(req.Http.Request.DataAsString, _jsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as Vessel.");
                 updated.Id = id;
+                updated.TenantId = existing.TenantId;
+                updated.UserId = existing.UserId;
+                if (updated.GitHubTokenOverrideSpecified)
+                {
+                    updated.NormalizeGitHubTokenOverride();
+                }
+                else
+                {
+                    updated.GitHubTokenOverride = existing.GitHubTokenOverride;
+                }
                 updated = await _database.Vessels.UpdateAsync(updated).ConfigureAwait(false);
                 return (object)updated;
             },

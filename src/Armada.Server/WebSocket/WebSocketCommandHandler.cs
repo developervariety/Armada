@@ -188,6 +188,7 @@ namespace Armada.Server.WebSocket
                     Vessel newVessel = JsonSerializer.Deserialize<WebSocketDataCommand<Vessel>>(rawBody, _JsonOptions)?.Data!;
                     if (String.IsNullOrEmpty(newVessel.RepoUrl))
                         return new { type = "command.error", action = "create_vessel", error = "repoUrl is required when creating a vessel" };
+                    newVessel.NormalizeGitHubTokenOverride();
                     newVessel = await _Database.Vessels.CreateAsync(newVessel).ConfigureAwait(false);
                     return new { type = "command.result", action = "create_vessel", data = (object)newVessel };
 
@@ -200,6 +201,16 @@ namespace Armada.Server.WebSocket
                     {
                         Vessel updVessel = JsonSerializer.Deserialize<WebSocketDataCommand<Vessel>>(rawBody, _JsonOptions)?.Data!;
                         updVessel.Id = updVesselId;
+                        updVessel.TenantId = existVessel.TenantId;
+                        updVessel.UserId = existVessel.UserId;
+                        if (updVessel.GitHubTokenOverrideSpecified)
+                        {
+                            updVessel.NormalizeGitHubTokenOverride();
+                        }
+                        else
+                        {
+                            updVessel.GitHubTokenOverride = existVessel.GitHubTokenOverride;
+                        }
                         updVessel = await _Database.Vessels.UpdateAsync(updVessel).ConfigureAwait(false);
                         return new { type = "command.result", action = "update_vessel", data = (object)updVessel };
                     }

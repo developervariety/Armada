@@ -28,6 +28,7 @@ const vessel = {
   hotfixBranchPrefix: 'hotfix/',
   requirePullRequestForProtectedBranches: false,
   requireMergeQueueForReleaseBranches: false,
+  hasGitHubTokenOverride: false,
   active: true,
   createdUtc: '2026-05-01T00:00:00Z',
   lastUpdateUtc: '2026-05-01T00:00:00Z',

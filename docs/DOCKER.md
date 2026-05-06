@@ -111,6 +111,7 @@ Edit `docker/server/armada.json` to customize:
   "reposDirectory": "/app/data/repos",
   "admiralPort": 7890,
   "mcpPort": 7891,
+  "gitHubToken": null,
   "syslogServers": [
     {
       "hostname": "127.0.0.1",
@@ -275,3 +276,4 @@ The React dashboard makes API calls from the browser, not from the container. En
 
 **CORS errors:**
 The Armada server enables CORS on all routes by default. If you see CORS errors, verify you're accessing the correct port (7890 for the API).
+

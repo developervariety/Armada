@@ -1,6 +1,7 @@
 namespace Armada.Test.Unit.Suites.Services
 {
     using Armada.Core;
+    using Armada.Core.Models;
     using Armada.Core.Settings;
     using Armada.Test.Common;
 
@@ -65,6 +66,7 @@ namespace Armada.Test.Unit.Suites.Services
                     original.HeartbeatIntervalSeconds = 60;
                     original.DataRetentionDays = 90;
                     original.ApiKey = "test-key-123";
+                    original.GitHubToken = "ghp-settings-test";
 
                     await original.SaveAsync(tempFile);
 
@@ -74,6 +76,7 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(60, loaded.HeartbeatIntervalSeconds);
                     AssertEqual(90, loaded.DataRetentionDays);
                     AssertEqual("test-key-123", loaded.ApiKey);
+                    AssertEqual("ghp-settings-test", loaded.GitHubToken);
                 }
                 finally
                 {
@@ -273,6 +276,27 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     if (File.Exists(tempFile)) File.Delete(tempFile);
                 }
+            });
+
+            await RunTest("ArmadaSettings ResolveGitHubToken PrefersVesselOverride", () =>
+            {
+                ArmadaSettings settings = new ArmadaSettings();
+                settings.GitHubToken = "ghp_global";
+                Vessel vessel = new Vessel("Resolve GitHub", "https://github.com/test/repo");
+                vessel.GitHubTokenOverride = "  ghp_vessel  ";
+
+                string? resolved = settings.ResolveGitHubToken(vessel);
+                AssertEqual("ghp_vessel", resolved);
+            });
+
+            await RunTest("ArmadaSettings ResolveGitHubToken FallsBackToGlobal", () =>
+            {
+                ArmadaSettings settings = new ArmadaSettings();
+                settings.GitHubToken = "  ghp_global  ";
+                Vessel vessel = new Vessel("Resolve GitHub", "https://github.com/test/repo");
+
+                string? resolved = settings.ResolveGitHubToken(vessel);
+                AssertEqual("ghp_global", resolved);
             });
         }
     }

@@ -164,6 +164,37 @@ namespace Armada.Test.Automated.Suites
                 AssertTrue(vessel.Active);
             });
 
+            await RunTest("Create Vessel GitHubTokenOverride DoesNotLeakAndSetsHasOverride", async () =>
+            {
+                string fleetId = await CreateFleetAsync("GitHubOverrideFleet");
+                string token = "ghp_create_override_" + Guid.NewGuid().ToString("N").Substring(0, 10);
+                StringContent content = JsonHelper.ToJsonContent(new
+                {
+                    Name = "GitHubOverrideVessel",
+                    FleetId = fleetId,
+                    RepoUrl = "https://github.com/test/github-override",
+                    GitHubTokenOverride = token
+                });
+
+                HttpResponseMessage response = await _Client.PostAsync("/api/v1/vessels", content);
+                AssertEqual(HttpStatusCode.Created, response.StatusCode);
+
+                string responseText = await response.Content.ReadAsStringAsync();
+                AssertFalse(responseText.Contains(token, StringComparison.Ordinal));
+                AssertFalse(responseText.Contains("\"gitHubTokenOverride\"", StringComparison.Ordinal));
+
+                Vessel vessel = JsonHelper.Deserialize<Vessel>(responseText);
+                _CreatedVesselIds.Add(vessel.Id);
+                AssertTrue(vessel.HasGitHubTokenOverride);
+
+                HttpResponseMessage getResponse = await _Client.GetAsync("/api/v1/vessels/" + vessel.Id);
+                string getText = await getResponse.Content.ReadAsStringAsync();
+                AssertFalse(getText.Contains(token, StringComparison.Ordinal));
+                AssertFalse(getText.Contains("\"gitHubTokenOverride\"", StringComparison.Ordinal));
+                Vessel fetched = JsonHelper.Deserialize<Vessel>(getText);
+                AssertTrue(fetched.HasGitHubTokenOverride);
+            });
+
             #endregion
 
             #region CRUD - Read
@@ -308,6 +339,69 @@ namespace Armada.Test.Automated.Suites
 
                 AssertEqual("VerifiedUpdate", vessel.Name);
                 AssertEqual("feature", vessel.DefaultBranch);
+            });
+
+            await RunTest("Update Vessel OmittingGitHubTokenOverride PreservesExistingOverride", async () =>
+            {
+                string fleetId = await CreateFleetAsync("PreserveGitHubOverrideFleet");
+                string token = "ghp_preserve_" + Guid.NewGuid().ToString("N").Substring(0, 10);
+
+                HttpResponseMessage createResponse = await _Client.PostAsync("/api/v1/vessels", JsonHelper.ToJsonContent(new
+                {
+                    Name = "PreserveGitHubOverride",
+                    FleetId = fleetId,
+                    RepoUrl = "https://github.com/test/preserve-override",
+                    GitHubTokenOverride = token
+                }));
+                Vessel created = await JsonHelper.DeserializeAsync<Vessel>(createResponse);
+                _CreatedVesselIds.Add(created.Id);
+                AssertTrue(created.HasGitHubTokenOverride);
+
+                HttpResponseMessage updateResponse = await _Client.PutAsync("/api/v1/vessels/" + created.Id, JsonHelper.ToJsonContent(new
+                {
+                    Name = "PreserveGitHubOverrideUpdated",
+                    FleetId = fleetId,
+                    RepoUrl = "https://github.com/test/preserve-override"
+                }));
+                AssertEqual(HttpStatusCode.OK, updateResponse.StatusCode);
+
+                Vessel updated = await JsonHelper.DeserializeAsync<Vessel>(updateResponse);
+                AssertTrue(updated.HasGitHubTokenOverride);
+
+                HttpResponseMessage getResponse = await _Client.GetAsync("/api/v1/vessels/" + created.Id);
+                Vessel fetched = await JsonHelper.DeserializeAsync<Vessel>(getResponse);
+                AssertTrue(fetched.HasGitHubTokenOverride);
+            });
+
+            await RunTest("Update Vessel EmptyGitHubTokenOverride ClearsOverride", async () =>
+            {
+                string fleetId = await CreateFleetAsync("ClearGitHubOverrideFleet");
+                string token = "ghp_clear_" + Guid.NewGuid().ToString("N").Substring(0, 10);
+
+                HttpResponseMessage createResponse = await _Client.PostAsync("/api/v1/vessels", JsonHelper.ToJsonContent(new
+                {
+                    Name = "ClearGitHubOverride",
+                    FleetId = fleetId,
+                    RepoUrl = "https://github.com/test/clear-override",
+                    GitHubTokenOverride = token
+                }));
+                Vessel created = await JsonHelper.DeserializeAsync<Vessel>(createResponse);
+                _CreatedVesselIds.Add(created.Id);
+
+                HttpResponseMessage updateResponse = await _Client.PutAsync("/api/v1/vessels/" + created.Id, JsonHelper.ToJsonContent(new
+                {
+                    Name = "ClearGitHubOverride",
+                    FleetId = fleetId,
+                    RepoUrl = "https://github.com/test/clear-override",
+                    GitHubTokenOverride = ""
+                }));
+                AssertEqual(HttpStatusCode.OK, updateResponse.StatusCode);
+                Vessel updated = await JsonHelper.DeserializeAsync<Vessel>(updateResponse);
+                AssertFalse(updated.HasGitHubTokenOverride);
+
+                HttpResponseMessage getResponse = await _Client.GetAsync("/api/v1/vessels/" + created.Id);
+                Vessel fetched = await JsonHelper.DeserializeAsync<Vessel>(getResponse);
+                AssertFalse(fetched.HasGitHubTokenOverride);
             });
 
             #endregion

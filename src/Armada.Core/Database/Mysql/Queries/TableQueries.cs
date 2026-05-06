@@ -45,6 +45,7 @@ namespace Armada.Core.Database.Mysql.Queries
             style_guide LONGTEXT,
             enable_model_context TINYINT(1) NOT NULL DEFAULT 1,
             model_context LONGTEXT,
+            github_token_override LONGTEXT,
             landing_mode TEXT,
             branch_cleanup_policy TEXT,
             allow_concurrent_missions TINYINT(1) NOT NULL DEFAULT 0,
@@ -978,6 +979,14 @@ namespace Armada.Core.Database.Mysql.Queries
             @"ALTER TABLE deployments ADD COLUMN last_regression_alert_utc DATETIME(6) NULL;",
             @"ALTER TABLE deployments ADD COLUMN latest_monitoring_summary LONGTEXT NULL;",
             @"ALTER TABLE deployments ADD COLUMN monitoring_failure_count INT NOT NULL DEFAULT 0;"
+        };
+
+        /// <summary>
+        /// Migration v41 statements for vessel GitHub token overrides.
+        /// </summary>
+        public static readonly string[] MigrationV41Statements = new string[]
+        {
+            @"ALTER TABLE vessels ADD COLUMN github_token_override LONGTEXT NULL;"
         };
 
         /// <summary>

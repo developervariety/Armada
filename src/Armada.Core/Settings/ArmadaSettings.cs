@@ -3,6 +3,7 @@ namespace Armada.Core.Settings
     using System.Text.Json;
     using System.Text.Json.Serialization;
     using Armada.Core.Enums;
+    using Armada.Core.Models;
     using SyslogLogging;
 
     /// <summary>
@@ -369,6 +370,12 @@ namespace Armada.Core.Settings
         public string? ApiKey { get; set; } = null;
 
         /// <summary>
+        /// Optional global GitHub token used for Armada-managed GitHub integrations.
+        /// A vessel-specific override takes precedence when present.
+        /// </summary>
+        public string? GitHubToken { get; set; } = null;
+
+        /// <summary>
         /// Path to the external web dashboard directory (React build output).
         /// When set, the server serves static files from this directory at /dashboard.
         /// When null/empty, falls back to embedded wwwroot resources (legacy dashboard, not the React dashboard).
@@ -601,6 +608,26 @@ namespace Armada.Core.Settings
             settings ??= new ArmadaSettings();
             settings.NormalizePaths();
             return settings;
+        }
+
+        /// <summary>
+        /// Resolve the effective GitHub token for the supplied vessel.
+        /// </summary>
+        /// <param name="vessel">Optional vessel context.</param>
+        /// <returns>Vessel override first, otherwise the global settings token.</returns>
+        public string? ResolveGitHubToken(Vessel? vessel = null)
+        {
+            if (vessel != null && !String.IsNullOrWhiteSpace(vessel.GitHubTokenOverride))
+            {
+                return vessel.GitHubTokenOverride!.Trim();
+            }
+
+            if (!String.IsNullOrWhiteSpace(GitHubToken))
+            {
+                return GitHubToken!.Trim();
+            }
+
+            return null;
         }
 
         #endregion

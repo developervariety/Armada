@@ -227,6 +227,32 @@ namespace Armada.Test.Unit.Suites.Database
                     AssertEqual("Fleet vessel style", results[0].StyleGuide);
                 }
             });
+
+            await RunTest("CreateAndUpdateAsync persists GitHubTokenOverride", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    Vessel vessel = new Vessel("Token Vessel", "https://github.com/test/repo");
+                    vessel.GitHubTokenOverride = "  ghp_repo_token  ";
+                    vessel.NormalizeGitHubTokenOverride();
+                    await db.Vessels.CreateAsync(vessel);
+
+                    Vessel? created = await db.Vessels.ReadAsync(vessel.Id);
+                    AssertNotNull(created);
+                    AssertEqual("ghp_repo_token", created!.GitHubTokenOverride);
+                    AssertTrue(created.HasGitHubTokenOverride);
+
+                    created.GitHubTokenOverride = "   ";
+                    created.NormalizeGitHubTokenOverride();
+                    await db.Vessels.UpdateAsync(created);
+
+                    Vessel? cleared = await db.Vessels.ReadAsync(vessel.Id);
+                    AssertNotNull(cleared);
+                    AssertNull(cleared!.GitHubTokenOverride);
+                    AssertFalse(cleared.HasGitHubTokenOverride);
+                }
+            });
         }
     }
 }

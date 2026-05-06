@@ -113,6 +113,8 @@ export interface Vessel {
   styleGuide: string | null;
   enableModelContext: boolean;
   modelContext: string | null;
+  gitHubTokenOverride?: string | null;
+  hasGitHubTokenOverride: boolean;
   landingMode: string | null;
   branchCleanupPolicy: string | null;
   requirePassingChecksToLand: boolean;
@@ -1439,6 +1441,7 @@ export interface HistoricalTimelineQuery {
   environmentId?: string | null;
   deploymentId?: string | null;
   incidentId?: string | null;
+  postmortemOnly?: boolean;
   missionId?: string | null;
   voyageId?: string | null;
   actor?: string | null;

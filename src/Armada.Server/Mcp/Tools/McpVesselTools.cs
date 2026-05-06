@@ -66,6 +66,7 @@ namespace Armada.Server.Mcp.Tools
                         projectContext = new { type = "string", description = "Project context describing architecture, key files, and dependencies" },
                         styleGuide = new { type = "string", description = "Style guide describing naming conventions, patterns, and library preferences" },
                         workingDirectory = new { type = "string", description = "Optional local directory where completed mission changes will be pulled after merge" },
+                        gitHubTokenOverride = new { type = "string", description = "Optional per-vessel GitHub token override. Leave unset to use the global configured token." },
                         allowConcurrentMissions = new { type = "boolean", description = "Allow multiple concurrent missions on this vessel (default false)" },
                         enableModelContext = new { type = "boolean", description = "Enable model context accumulation -- agents will update context with key information discovered during missions (default false)" },
                         defaultPipelineId = new { type = "string", description = "Default pipeline ID for dispatches to this vessel (ppl_ prefix)" }
@@ -84,6 +85,8 @@ namespace Armada.Server.Mcp.Tools
                     vessel.ProjectContext = request.ProjectContext;
                     vessel.StyleGuide = request.StyleGuide;
                     vessel.WorkingDirectory = request.WorkingDirectory;
+                    vessel.GitHubTokenOverride = request.GitHubTokenOverride;
+                    vessel.NormalizeGitHubTokenOverride();
                     vessel.AllowConcurrentMissions = request.AllowConcurrentMissions ?? false;
                     vessel.EnableModelContext = request.EnableModelContext ?? true;
                     vessel.DefaultPipelineId = request.DefaultPipelineId;
@@ -106,6 +109,7 @@ namespace Armada.Server.Mcp.Tools
                         projectContext = new { type = "string", description = "New project context" },
                         styleGuide = new { type = "string", description = "New style guide" },
                         workingDirectory = new { type = "string", description = "New local directory where completed mission changes will be pulled after merge" },
+                        gitHubTokenOverride = new { type = "string", description = "Optional per-vessel GitHub token override. Empty string clears the existing override." },
                         allowConcurrentMissions = new { type = "boolean", description = "Allow multiple concurrent missions on this vessel" },
                         enableModelContext = new { type = "boolean", description = "Enable or disable model context accumulation" },
                         modelContext = new { type = "string", description = "Agent-accumulated context about this repository" },
@@ -131,6 +135,11 @@ namespace Armada.Server.Mcp.Tools
                         vessel.StyleGuide = request.StyleGuide;
                     if (request.WorkingDirectory != null)
                         vessel.WorkingDirectory = request.WorkingDirectory;
+                    if (request.GitHubTokenOverride != null)
+                    {
+                        vessel.GitHubTokenOverride = request.GitHubTokenOverride;
+                        vessel.NormalizeGitHubTokenOverride();
+                    }
                     if (request.AllowConcurrentMissions.HasValue)
                         vessel.AllowConcurrentMissions = request.AllowConcurrentMissions.Value;
                     if (request.EnableModelContext.HasValue)

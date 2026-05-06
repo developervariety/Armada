@@ -268,6 +268,26 @@ namespace Armada.Test.Automated.Suites
                 AssertStartsWith("vsl_", data.Id);
             }).ConfigureAwait(false);
 
+            await RunTest("CreateVessel_GitHubTokenOverrideDoesNotLeak", async () =>
+            {
+                string token = "ghp_ws_" + Guid.NewGuid().ToString("N").Substring(0, 10);
+                JsonElement resp = await WsCommandAsync("create_vessel", new
+                {
+                    data = new
+                    {
+                        Name = "ws-vessel-github-override",
+                        RepoUrl = TestRepoHelper.GetLocalBareRepoUrl(),
+                        GitHubTokenOverride = token
+                    }
+                }).ConfigureAwait(false);
+                AssertEqual("command.result", resp.GetProperty("type").GetString());
+                string raw = resp.GetRawText();
+                AssertFalse(raw.Contains(token, StringComparison.Ordinal));
+                AssertFalse(raw.Contains("\"gitHubTokenOverride\"", StringComparison.Ordinal));
+                Vessel data = DeserializeData<Vessel>(resp);
+                AssertTrue(data.HasGitHubTokenOverride);
+            }).ConfigureAwait(false);
+
             await RunTest("GetVessel_ExistingVessel_ReturnsVessel", async () =>
             {
                 string vesselId = await CreateVesselViaRestAsync("ws-get-vessel").ConfigureAwait(false);
@@ -291,6 +311,34 @@ namespace Armada.Test.Automated.Suites
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
                 Vessel data = DeserializeData<Vessel>(resp);
                 AssertEqual(vesselId, data.Id);
+            }).ConfigureAwait(false);
+
+            await RunTest("UpdateVessel_EmptyGitHubTokenOverrideClearsOverride", async () =>
+            {
+                JsonElement createResponse = await WsCommandAsync("create_vessel", new
+                {
+                    data = new
+                    {
+                        Name = "ws-clear-github-override",
+                        RepoUrl = TestRepoHelper.GetLocalBareRepoUrl(),
+                        GitHubTokenOverride = "ghp_ws_clear"
+                    }
+                }).ConfigureAwait(false);
+                Vessel created = DeserializeData<Vessel>(createResponse);
+                AssertTrue(created.HasGitHubTokenOverride);
+
+                JsonElement updateResponse = await WsCommandAsync("update_vessel", new
+                {
+                    id = created.Id,
+                    data = new
+                    {
+                        Name = "ws-clear-github-override",
+                        RepoUrl = TestRepoHelper.GetLocalBareRepoUrl(),
+                        GitHubTokenOverride = ""
+                    }
+                }).ConfigureAwait(false);
+                Vessel updated = DeserializeData<Vessel>(updateResponse);
+                AssertFalse(updated.HasGitHubTokenOverride);
             }).ConfigureAwait(false);
 
             await RunTest("UpdateVessel_NonExistent_ReturnsError", async () =>

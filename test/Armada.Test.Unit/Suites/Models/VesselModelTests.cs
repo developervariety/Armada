@@ -152,6 +152,49 @@ namespace Armada.Test.Unit.Suites.Models
                 AssertContains("StyleGuide", json);
                 AssertContains("test style", json);
             });
+
+            await RunTest("Vessel GitHubTokenOverride DeserializeSetsHiddenProperty", () =>
+            {
+                string json = "{\"Name\":\"Token Vessel\",\"RepoUrl\":\"https://github.com/test/repo\",\"gitHubTokenOverride\":\"  ghp_test_token  \"}";
+                Vessel vessel = JsonSerializer.Deserialize<Vessel>(json)!;
+
+                AssertTrue(vessel.GitHubTokenOverrideSpecified);
+                AssertEqual("  ghp_test_token  ", vessel.GitHubTokenOverride);
+                AssertTrue(vessel.HasGitHubTokenOverride);
+            });
+
+            await RunTest("Vessel GitHubTokenOverride SerializeDoesNotLeakToken", () =>
+            {
+                Vessel vessel = new Vessel("Token Vessel", "https://github.com/test/repo");
+                vessel.GitHubTokenOverride = "ghp_hidden";
+
+                string json = JsonSerializer.Serialize(vessel);
+                AssertFalse(json.Contains("ghp_hidden", StringComparison.Ordinal));
+                AssertFalse(json.Contains("\"gitHubTokenOverride\"", StringComparison.Ordinal));
+                AssertContains("HasGitHubTokenOverride", json);
+            });
+
+            await RunTest("Vessel HasGitHubTokenOverride DeserializesFromReadModel", () =>
+            {
+                string json = "{\"Name\":\"Token Vessel\",\"RepoUrl\":\"https://github.com/test/repo\",\"HasGitHubTokenOverride\":true}";
+                Vessel vessel = JsonSerializer.Deserialize<Vessel>(json)!;
+
+                AssertNull(vessel.GitHubTokenOverride);
+                AssertTrue(vessel.HasGitHubTokenOverride);
+            });
+
+            await RunTest("Vessel NormalizeGitHubTokenOverride TrimsAndClearsBlank", () =>
+            {
+                Vessel vessel = new Vessel("Normalize Vessel", "https://github.com/test/repo");
+                vessel.GitHubTokenOverride = "  ghp_trim_me  ";
+                vessel.NormalizeGitHubTokenOverride();
+                AssertEqual("ghp_trim_me", vessel.GitHubTokenOverride);
+
+                vessel.GitHubTokenOverride = "   ";
+                vessel.NormalizeGitHubTokenOverride();
+                AssertNull(vessel.GitHubTokenOverride);
+                AssertFalse(vessel.HasGitHubTokenOverride);
+            });
         }
     }
 }

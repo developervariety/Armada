@@ -247,6 +247,7 @@ namespace Armada.Server
             }
 
             vessel.LastUpdateUtc = _UtcNow();
+            vessel.NormalizeGitHubTokenOverride();
             vessel = await _Database.Vessels.CreateAsync(vessel, token).ConfigureAwait(false);
             await _EmitEventAsync("vessel.created", "Vessel created from proxy: " + vessel.Name, "vessel", vessel.Id, null, null, vessel.Id, null).ConfigureAwait(false);
             return Created(vessel, "Vessel created.");
@@ -298,6 +299,11 @@ namespace Armada.Server
             existing.StyleGuide = request.Vessel.StyleGuide;
             existing.EnableModelContext = request.Vessel.EnableModelContext;
             existing.ModelContext = request.Vessel.ModelContext;
+            if (request.Vessel.GitHubTokenOverrideSpecified)
+            {
+                existing.GitHubTokenOverride = request.Vessel.GitHubTokenOverride;
+                existing.NormalizeGitHubTokenOverride();
+            }
             existing.LandingMode = request.Vessel.LandingMode;
             existing.BranchCleanupPolicy = request.Vessel.BranchCleanupPolicy;
             existing.AllowConcurrentMissions = request.Vessel.AllowConcurrentMissions;

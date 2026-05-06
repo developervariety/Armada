@@ -54,5 +54,10 @@ namespace Armada.Server.Mcp
         /// Default pipeline ID for dispatches to this vessel (ppl_ prefix).
         /// </summary>
         public string? DefaultPipelineId { get; set; }
+
+        /// <summary>
+        /// Optional per-vessel GitHub token override.
+        /// </summary>
+        public string? GitHubTokenOverride { get; set; }
     }
 }

@@ -354,6 +354,45 @@ namespace Armada.Test.Automated.Suites
                 AssertNotNull(historyEntry, "Captured history route entry");
             }).ConfigureAwait(false);
 
+            await RunTest("RequestHistory_RedactsGitHubTokenOverrideInVesselPayload", async () =>
+            {
+                string fleetName = "rqh-github-fleet-" + Guid.NewGuid().ToString("N").Substring(0, 8);
+                HttpResponseMessage fleetResponse = await _TenantAAdminClient!.PostAsync(
+                    "/api/v1/fleets",
+                    JsonHelper.ToJsonContent(new
+                    {
+                        Name = fleetName
+                    })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Created, fleetResponse.StatusCode);
+                Fleet fleet = await JsonHelper.DeserializeAsync<Fleet>(fleetResponse).ConfigureAwait(false);
+
+                string trace = "vessel-github-token-" + Guid.NewGuid().ToString("N").Substring(0, 10);
+                string token = "ghp_request_history_" + Guid.NewGuid().ToString("N").Substring(0, 10);
+                HttpResponseMessage vesselResponse = await _TenantAAdminClient.PostAsync(
+                    "/api/v1/vessels?trace=" + Uri.EscapeDataString(trace),
+                    JsonHelper.ToJsonContent(new
+                    {
+                        Name = "RequestHistoryGitHubOverride",
+                        FleetId = fleet.Id,
+                        RepoUrl = "https://github.com/test/request-history-github-override",
+                        GitHubTokenOverride = token
+                    })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Created, vesselResponse.StatusCode);
+
+                RequestHistoryEntry? entry = await FindEntryByTraceAsync(
+                    _TenantAAdminClient,
+                    "/api/v1/vessels",
+                    trace,
+                    "POST").ConfigureAwait(false);
+                AssertNotNull(entry, "Captured vessel-create request");
+
+                RequestHistoryRecord record = await ReadEntryAsync(_TenantAAdminClient, entry!.Id).ConfigureAwait(false);
+                AssertNotNull(record.Detail, "Vessel-create detail");
+                AssertNotNull(record.Detail!.RequestBodyText, "Vessel-create request body");
+                AssertContains("[REDACTED]", record.Detail.RequestBodyText!);
+                AssertFalse(record.Detail.RequestBodyText!.Contains(token, StringComparison.Ordinal), "GitHub token override should be redacted");
+            }).ConfigureAwait(false);
+
             #endregion
 
             #region Scope

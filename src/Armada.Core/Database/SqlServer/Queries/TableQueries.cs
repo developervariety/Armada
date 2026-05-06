@@ -676,6 +676,11 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"IF COL_LENGTH('deployments', 'last_regression_alert_utc') IS NULL ALTER TABLE deployments ADD last_regression_alert_utc NVARCHAR(450) NULL;",
                     @"IF COL_LENGTH('deployments', 'latest_monitoring_summary') IS NULL ALTER TABLE deployments ADD latest_monitoring_summary NVARCHAR(MAX) NULL;",
                     @"IF COL_LENGTH('deployments', 'monitoring_failure_count') IS NULL ALTER TABLE deployments ADD monitoring_failure_count INT NOT NULL CONSTRAINT DF_deployments_monitoring_failure_count DEFAULT 0;"
+                ),
+                new SchemaMigration(
+                    41,
+                    "Add vessel GitHub token overrides",
+                    @"IF COL_LENGTH('vessels', 'github_token_override') IS NULL ALTER TABLE vessels ADD github_token_override NVARCHAR(MAX) NULL;"
                 )
             };
         }
@@ -773,6 +778,7 @@ namespace Armada.Core.Database.SqlServer.Queries
                 style_guide NVARCHAR(MAX),
                 enable_model_context BIT NOT NULL DEFAULT 1,
                 model_context NVARCHAR(MAX),
+                github_token_override NVARCHAR(MAX),
                 landing_mode NVARCHAR(450),
                 branch_cleanup_policy NVARCHAR(450),
                 allow_concurrent_missions BIT NOT NULL DEFAULT 0,

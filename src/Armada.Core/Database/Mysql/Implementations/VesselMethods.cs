@@ -54,8 +54,8 @@ namespace Armada.Core.Database.Mysql.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = @"INSERT INTO vessels (id, tenant_id, user_id, fleet_id, name, repo_url, local_path, working_directory, project_context, style_guide, enable_model_context, model_context, landing_mode, branch_cleanup_policy, require_passing_checks_to_land, allow_concurrent_missions, default_pipeline_id, default_branch, protected_branch_patterns_json, release_branch_prefix, hotfix_branch_prefix, require_pull_request_for_protected_branches, require_merge_queue_for_release_branches, active, created_utc, last_update_utc)
-                        VALUES (@id, @tenant_id, @user_id, @fleet_id, @name, @repo_url, @local_path, @working_directory, @project_context, @style_guide, @enable_model_context, @model_context, @landing_mode, @branch_cleanup_policy, @require_passing_checks_to_land, @allow_concurrent_missions, @default_pipeline_id, @default_branch, @protected_branch_patterns_json, @release_branch_prefix, @hotfix_branch_prefix, @require_pull_request_for_protected_branches, @require_merge_queue_for_release_branches, @active, @created_utc, @last_update_utc);";
+                    cmd.CommandText = @"INSERT INTO vessels (id, tenant_id, user_id, fleet_id, name, repo_url, local_path, working_directory, project_context, style_guide, enable_model_context, model_context, github_token_override, landing_mode, branch_cleanup_policy, require_passing_checks_to_land, allow_concurrent_missions, default_pipeline_id, default_branch, protected_branch_patterns_json, release_branch_prefix, hotfix_branch_prefix, require_pull_request_for_protected_branches, require_merge_queue_for_release_branches, active, created_utc, last_update_utc)
+                        VALUES (@id, @tenant_id, @user_id, @fleet_id, @name, @repo_url, @local_path, @working_directory, @project_context, @style_guide, @enable_model_context, @model_context, @github_token_override, @landing_mode, @branch_cleanup_policy, @require_passing_checks_to_land, @allow_concurrent_missions, @default_pipeline_id, @default_branch, @protected_branch_patterns_json, @release_branch_prefix, @hotfix_branch_prefix, @require_pull_request_for_protected_branches, @require_merge_queue_for_release_branches, @active, @created_utc, @last_update_utc);";
                     cmd.Parameters.AddWithValue("@id", vessel.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)vessel.TenantId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@user_id", (object?)vessel.UserId ?? DBNull.Value);
@@ -68,6 +68,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     cmd.Parameters.AddWithValue("@style_guide", (object?)vessel.StyleGuide ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@enable_model_context", vessel.EnableModelContext ? 1 : 0);
                     cmd.Parameters.AddWithValue("@model_context", (object?)vessel.ModelContext ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@github_token_override", (object?)vessel.GitHubTokenOverride ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@landing_mode", vessel.LandingMode.HasValue ? vessel.LandingMode.Value.ToString() : DBNull.Value);
                     cmd.Parameters.AddWithValue("@branch_cleanup_policy", vessel.BranchCleanupPolicy.HasValue ? vessel.BranchCleanupPolicy.Value.ToString() : DBNull.Value);
                     cmd.Parameters.AddWithValue("@require_passing_checks_to_land", vessel.RequirePassingChecksToLand ? 1 : 0);
@@ -173,6 +174,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                         style_guide = @style_guide,
                         enable_model_context = @enable_model_context,
                         model_context = @model_context,
+                        github_token_override = @github_token_override,
                         landing_mode = @landing_mode,
                         branch_cleanup_policy = @branch_cleanup_policy,
                         require_passing_checks_to_land = @require_passing_checks_to_land,
@@ -199,6 +201,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     cmd.Parameters.AddWithValue("@style_guide", (object?)vessel.StyleGuide ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@enable_model_context", vessel.EnableModelContext ? 1 : 0);
                     cmd.Parameters.AddWithValue("@model_context", (object?)vessel.ModelContext ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@github_token_override", (object?)vessel.GitHubTokenOverride ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@landing_mode", vessel.LandingMode.HasValue ? vessel.LandingMode.Value.ToString() : DBNull.Value);
                     cmd.Parameters.AddWithValue("@branch_cleanup_policy", vessel.BranchCleanupPolicy.HasValue ? vessel.BranchCleanupPolicy.Value.ToString() : DBNull.Value);
                     cmd.Parameters.AddWithValue("@require_passing_checks_to_land", vessel.RequirePassingChecksToLand ? 1 : 0);
@@ -761,6 +764,12 @@ namespace Armada.Core.Database.Mysql.Implementations
             try { vessel.EnableModelContext = Convert.ToInt64(reader["enable_model_context"]) == 1; }
             catch { vessel.EnableModelContext = true; }
             vessel.ModelContext = NullableString(reader["model_context"]);
+            try
+            {
+                vessel.GitHubTokenOverride = NullableString(reader["github_token_override"]);
+                vessel.NormalizeGitHubTokenOverride();
+            }
+            catch { }
             string? landingModeStr = NullableString(reader["landing_mode"]);
             if (!String.IsNullOrEmpty(landingModeStr) && Enum.TryParse<LandingModeEnum>(landingModeStr, out LandingModeEnum lm))
                 vessel.LandingMode = lm;

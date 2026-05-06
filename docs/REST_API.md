@@ -1069,13 +1069,14 @@ Register a new vessel (git repository).
 | `RepoUrl` | string | yes | Remote repository URL |
 | `FleetId` | string | no | Fleet to assign to |
 | `DefaultBranch` | string | no | Default branch name (default: `"main"`) |
+| `GitHubTokenOverride` | string | no | Optional per-vessel GitHub token override. Omit to inherit the global token. Accepted only on create/update and never returned on reads. |
 
 **Response:** `201 Created` - [Vessel](#vessel)
 
 ```bash
 curl -X POST http://localhost:7890/api/v1/vessels \
   -H "Content-Type: application/json" \
-  -d '{"Name": "MyRepo", "RepoUrl": "https://github.com/org/repo.git", "FleetId": "flt_abc123"}'
+  -d '{"Name": "MyRepo", "RepoUrl": "https://github.com/org/repo.git", "FleetId": "flt_abc123", "GitHubTokenOverride": "ghp_example"}'
 ```
 
 ---
@@ -1104,6 +1105,8 @@ Update an existing vessel.
 | `id` | Vessel ID (`vsl_` prefix) |
 
 **Request Body:** [Vessel](#vessel) (fields to update)
+
+`GitHubTokenOverride` is write-only. Omit it to preserve the current override, or send `""` / `null` to clear the stored per-vessel override and fall back to the global `GitHubToken`.
 
 **Response:** `200 OK` - [Vessel](#vessel)
 **Error:** `404` - Vessel not found
@@ -2692,7 +2695,7 @@ Create and download a ZIP backup of the Armada database and settings.
 | File | Description |
 |---|---|
 | `armada.db` | SQLite database snapshot created via the SQLite online backup API |
-| `settings.json` | Current Armada server configuration |
+| `settings.json` | Current Armada server configuration, including `GitHubToken` when configured |
 | `manifest.json` | Backup metadata: timestamp, schema version, Armada version, record counts per table |
 
 **Example:**
@@ -3875,6 +3878,7 @@ A git repository registered with Armada.
   "StyleGuide": null,
   "EnableModelContext": false,
   "ModelContext": null,
+  "HasGitHubTokenOverride": false,
   "LandingMode": null,
   "BranchCleanupPolicy": null,
   "Active": true,
@@ -3896,6 +3900,7 @@ A git repository registered with Armada.
 | `StyleGuide` | string? | null | Style guide describing naming conventions, patterns, and library preferences |
 | `EnableModelContext` | bool | false | Whether model context accumulation is enabled |
 | `ModelContext` | string? | null | Agent-accumulated context about this repository |
+| `HasGitHubTokenOverride` | bool | false | Indicates whether a per-vessel GitHub token override is stored. The raw override value is never returned by the API. |
 | `LandingMode` | [LandingModeEnum](#landingmodeenum)? | null | Per-vessel landing policy override (null = use global setting) |
 | `BranchCleanupPolicy` | [BranchCleanupPolicyEnum](#branchcleanuppolicyenum)? | null | Per-vessel branch cleanup policy override (null = use global setting) |
 | `Active` | bool | true | Whether vessel is active |

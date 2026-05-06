@@ -31,6 +31,8 @@ namespace Armada.Core.Services
             "password",
             "passwordSha256",
             "bearerToken",
+            "gitHubToken",
+            "gitHubTokenOverride",
             "token",
             "apiKey",
             "authorization",

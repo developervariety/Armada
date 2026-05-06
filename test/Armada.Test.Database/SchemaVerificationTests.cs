@@ -27,11 +27,13 @@ namespace Armada.Test.Database
             await conn.OpenAsync(token).ConfigureAwait(false);
 
             DatabaseAssert.True(await TableExistsAsync(conn, "schema_migrations", token).ConfigureAwait(false), "schema_migrations table missing");
-            DatabaseAssert.True(await GetMaxSchemaVersionAsync(conn, token).ConfigureAwait(false) >= 39, "Expected schema version >= 39");
+            DatabaseAssert.True(await GetMaxSchemaVersionAsync(conn, token).ConfigureAwait(false) >= 41, "Expected schema version >= 41");
 
             DatabaseAssert.True(await TableExistsAsync(conn, "releases", token).ConfigureAwait(false), "releases table missing");
             DatabaseAssert.True(await TableExistsAsync(conn, "environments", token).ConfigureAwait(false), "environments table missing");
             DatabaseAssert.True(await TableExistsAsync(conn, "deployments", token).ConfigureAwait(false), "deployments table missing");
+            DatabaseAssert.True(await TableExistsAsync(conn, "workflow_profiles", token).ConfigureAwait(false), "workflow_profiles table missing");
+            DatabaseAssert.True(await TableExistsAsync(conn, "check_runs", token).ConfigureAwait(false), "check_runs table missing");
 
             await AssertColumnAsync(conn, "tenants", "is_protected", token).ConfigureAwait(false);
             await AssertColumnAsync(conn, "users", "is_protected", token).ConfigureAwait(false);
@@ -39,16 +41,25 @@ namespace Armada.Test.Database
             await AssertColumnAsync(conn, "credentials", "is_protected", token).ConfigureAwait(false);
             await AssertColumnAsync(conn, "captains", "model", token).ConfigureAwait(false);
             await AssertColumnAsync(conn, "missions", "total_runtime_ms", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "vessels", "github_token_override", token).ConfigureAwait(false);
             await AssertColumnAsync(conn, "releases", "tenant_id", token).ConfigureAwait(false);
             await AssertColumnAsync(conn, "releases", "user_id", token).ConfigureAwait(false);
             await AssertColumnAsync(conn, "releases", "vessel_id", token).ConfigureAwait(false);
             await AssertColumnAsync(conn, "releases", "workflow_profile_id", token).ConfigureAwait(false);
             await AssertColumnAsync(conn, "releases", "status", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "workflow_profiles", "environments_json", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "workflow_profiles", "deployment_verification_command", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "workflow_profiles", "rollback_verification_command", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "check_runs", "deployment_id", token).ConfigureAwait(false);
             await AssertColumnAsync(conn, "environments", "tenant_id", token).ConfigureAwait(false);
             await AssertColumnAsync(conn, "environments", "user_id", token).ConfigureAwait(false);
             await AssertColumnAsync(conn, "environments", "vessel_id", token).ConfigureAwait(false);
             await AssertColumnAsync(conn, "environments", "kind", token).ConfigureAwait(false);
             await AssertColumnAsync(conn, "environments", "name", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "environments", "verification_definitions_json", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "environments", "rollout_monitoring_window_minutes", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "environments", "rollout_monitoring_interval_seconds", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "environments", "alert_on_regression", token).ConfigureAwait(false);
             await AssertColumnAsync(conn, "deployments", "tenant_id", token).ConfigureAwait(false);
             await AssertColumnAsync(conn, "deployments", "user_id", token).ConfigureAwait(false);
             await AssertColumnAsync(conn, "deployments", "vessel_id", token).ConfigureAwait(false);
@@ -57,6 +68,11 @@ namespace Armada.Test.Database
             await AssertColumnAsync(conn, "deployments", "environment_name", token).ConfigureAwait(false);
             await AssertColumnAsync(conn, "deployments", "status", token).ConfigureAwait(false);
             await AssertColumnAsync(conn, "deployments", "verification_status", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "deployments", "monitoring_window_ends_utc", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "deployments", "last_monitored_utc", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "deployments", "last_regression_alert_utc", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "deployments", "latest_monitoring_summary", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "deployments", "monitoring_failure_count", token).ConfigureAwait(false);
 
             foreach (string table in new[] { "fleets", "vessels", "captains", "voyages", "missions", "docks", "signals", "events", "merge_entries" })
             {
@@ -73,6 +89,7 @@ namespace Armada.Test.Database
                 "idx_signals_tenant_user",
                 "idx_events_tenant_user",
                 "idx_merge_entries_tenant_user",
+                "idx_check_runs_deployment_created",
                 "idx_deployments_tenant_created",
                 "idx_deployments_status_created"
             })

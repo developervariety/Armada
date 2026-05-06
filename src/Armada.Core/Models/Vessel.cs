@@ -72,6 +72,51 @@ namespace Armada.Core.Models
         public string? WorkingDirectory { get; set; } = null;
 
         /// <summary>
+        /// Optional per-vessel GitHub token override.
+        /// This value is accepted on create and update, but is never serialized in read responses.
+        /// </summary>
+        [JsonIgnore]
+        public string? GitHubTokenOverride
+        {
+            get => _GitHubTokenOverride;
+            set
+            {
+                _GitHubTokenOverride = value;
+                _HasGitHubTokenOverride = null;
+            }
+        }
+
+        /// <summary>
+        /// Indicates whether this vessel has a GitHub token override configured.
+        /// </summary>
+        [JsonInclude]
+        public bool HasGitHubTokenOverride
+        {
+            get => _HasGitHubTokenOverride ?? !String.IsNullOrWhiteSpace(GitHubTokenOverride);
+            private set => _HasGitHubTokenOverride = value;
+        }
+
+        /// <summary>
+        /// Write-only JSON input for the GitHub token override.
+        /// This allows create and update requests to supply the token without Armada ever returning it.
+        /// </summary>
+        [JsonPropertyName("gitHubTokenOverride")]
+        public string? GitHubTokenOverrideInput
+        {
+            set
+            {
+                GitHubTokenOverrideSpecified = true;
+                GitHubTokenOverride = value;
+            }
+        }
+
+        /// <summary>
+        /// Whether the GitHub token override was explicitly supplied during JSON deserialization.
+        /// </summary>
+        [JsonIgnore]
+        public bool GitHubTokenOverrideSpecified { get; private set; } = false;
+
+        /// <summary>
         /// Default branch name.
         /// </summary>
         public string DefaultBranch { get; set; } = "main";
@@ -180,6 +225,8 @@ namespace Armada.Core.Models
         private string _Id = Constants.IdGenerator.GenerateKSortable(Constants.VesselIdPrefix, 24);
         private string _Name = "My Vessel";
         private string? _RepoUrl = null;
+        private string? _GitHubTokenOverride = null;
+        private bool? _HasGitHubTokenOverride = null;
 
         #endregion
 
@@ -201,6 +248,24 @@ namespace Armada.Core.Models
         {
             Name = name;
             RepoUrl = repoUrl;
+        }
+
+        #endregion
+
+        #region Public-Methods
+
+        /// <summary>
+        /// Normalizes the GitHub token override and clears it when blank.
+        /// </summary>
+        public void NormalizeGitHubTokenOverride()
+        {
+            if (String.IsNullOrWhiteSpace(GitHubTokenOverride))
+            {
+                GitHubTokenOverride = null;
+                return;
+            }
+
+            GitHubTokenOverride = GitHubTokenOverride.Trim();
         }
 
         #endregion

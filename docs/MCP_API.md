@@ -760,6 +760,10 @@ Register a new vessel (git repository) in a fleet.
       "type": "string",
       "description": "Optional local directory where completed mission changes will be pulled after merge"
     },
+    "gitHubTokenOverride": {
+      "type": "string",
+      "description": "Optional per-vessel GitHub token override. Leave unset to use the global configured token."
+    },
     "enableModelContext": {
       "type": "boolean",
       "description": "Enable model context accumulation -- agents will update context with key information discovered during missions (default false)"
@@ -782,6 +786,7 @@ Register a new vessel (git repository) in a fleet.
 | `projectContext` | string | No | Project context describing architecture, key files, and dependencies |
 | `styleGuide` | string | No | Style guide describing naming conventions, patterns, and library preferences |
 | `workingDirectory` | string | No | Optional local directory where completed mission changes will be pulled after merge |
+| `gitHubTokenOverride` | string | No | Optional per-vessel GitHub token override. The raw token is accepted on create but never returned by MCP reads. |
 | `enableModelContext` | boolean | No | Enable model context accumulation (default false) |
 | `defaultPipelineId` | string | No | Default pipeline ID for voyages dispatched to this vessel |
 
@@ -792,7 +797,8 @@ Register a new vessel (git repository) in a fleet.
   "name": "payment-service",
   "repoUrl": "git@github.com:org/payment-service.git",
   "fleetId": "flt_abc123def456ghi789jk",
-  "defaultBranch": "main"
+  "defaultBranch": "main",
+  "gitHubTokenOverride": "ghp_example"
 }
 ```
 
@@ -1316,6 +1322,7 @@ Update an existing vessel's properties.
     "projectContext": { "type": "string", "description": "New project context" },
     "styleGuide": { "type": "string", "description": "New style guide" },
     "workingDirectory": { "type": "string", "description": "New local directory where completed mission changes will be pulled after merge" },
+    "gitHubTokenOverride": { "type": "string", "description": "Optional per-vessel GitHub token override. Empty string clears the existing override." },
     "enableModelContext": { "type": "boolean", "description": "Enable or disable model context accumulation" },
     "modelContext": { "type": "string", "description": "Agent-accumulated context about this repository" },
     "defaultPipelineId": { "type": "string", "description": "Default pipeline ID for voyages dispatched to this vessel" }
@@ -1325,6 +1332,8 @@ Update an existing vessel's properties.
 ```
 
 **Response:** Updated [Vessel](#vessel) object, or `{ "Error": "Vessel not found" }`.
+
+When `gitHubTokenOverride` is omitted, MCP preserves the current stored override. Send `""` to clear the override and fall back to the global `GitHubToken` from Armada configuration.
 
 ---
 
@@ -3021,7 +3030,7 @@ Create a backup of the Armada database and settings as a ZIP archive.
 | File | Description |
 |---|---|
 | `armada.db` | SQLite database snapshot created via the SQLite online backup API |
-| `settings.json` | Current Armada server configuration |
+| `settings.json` | Current Armada server configuration, including `GitHubToken` when configured |
 | `manifest.json` | Backup metadata: timestamp, schema version, Armada version, record counts per table |
 
 ---
@@ -3139,6 +3148,7 @@ Paginated result wrapper returned by `enumerate`.
 | `defaultBranch` | string | Default branch name (default: `"main"`) |
 | `projectContext` | string \| null | Project context describing architecture, key files, and dependencies |
 | `styleGuide` | string \| null | Style guide describing naming conventions, patterns, and library preferences |
+| `hasGitHubTokenOverride` | bool | Indicates whether a per-vessel GitHub token override is stored. MCP never returns the raw token value. |
 | `landingMode` | string \| null | [LandingModeEnum](#landingmodeenum) Ã¢â‚¬â€ per-vessel landing policy override |
 | `branchCleanupPolicy` | string \| null | [BranchCleanupPolicyEnum](#branchcleanuppolicyenum) Ã¢â‚¬â€ per-vessel branch cleanup override |
 | `active` | bool | Whether the vessel is active |

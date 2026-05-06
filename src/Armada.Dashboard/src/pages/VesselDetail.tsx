@@ -23,6 +23,8 @@ interface VesselForm {
   styleGuide: string;
   enableModelContext: boolean;
   modelContext: string;
+  gitHubTokenOverride: string;
+  clearGitHubTokenOverride: boolean;
   requirePassingChecksToLand: boolean;
   protectedBranchPatterns: string;
   releaseBranchPrefix: string;
@@ -51,7 +53,7 @@ export default function VesselDetail() {
 
   // Edit modal
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState<VesselForm>({ name: '', fleetId: '', repoUrl: '', defaultBranch: 'main', localPath: '', workingDirectory: '', projectContext: '', styleGuide: '', enableModelContext: true, modelContext: '', requirePassingChecksToLand: false, protectedBranchPatterns: '', releaseBranchPrefix: 'release/', hotfixBranchPrefix: 'hotfix/', requirePullRequestForProtectedBranches: false, requireMergeQueueForReleaseBranches: false, defaultPipelineId: '' });
+  const [form, setForm] = useState<VesselForm>({ name: '', fleetId: '', repoUrl: '', defaultBranch: 'main', localPath: '', workingDirectory: '', projectContext: '', styleGuide: '', enableModelContext: true, modelContext: '', gitHubTokenOverride: '', clearGitHubTokenOverride: false, requirePassingChecksToLand: false, protectedBranchPatterns: '', releaseBranchPrefix: 'release/', hotfixBranchPrefix: 'hotfix/', requirePullRequestForProtectedBranches: false, requireMergeQueueForReleaseBranches: false, defaultPipelineId: '' });
 
   // JSON viewer
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
@@ -110,6 +112,8 @@ export default function VesselDetail() {
       styleGuide: vessel.styleGuide ?? '',
       enableModelContext: vessel.enableModelContext,
       modelContext: vessel.modelContext ?? '',
+      gitHubTokenOverride: '',
+      clearGitHubTokenOverride: false,
       requirePassingChecksToLand: vessel.requirePassingChecksToLand,
       protectedBranchPatterns: (vessel.protectedBranchPatterns || []).join('\n'),
       releaseBranchPrefix: vessel.releaseBranchPrefix || 'release/',
@@ -143,6 +147,13 @@ export default function VesselDetail() {
       if (!payload.styleGuide) delete payload.styleGuide;
       if (!payload.modelContext) delete payload.modelContext;
       if (!payload.defaultPipelineId) delete payload.defaultPipelineId;
+      delete payload.clearGitHubTokenOverride;
+      if (form.clearGitHubTokenOverride)
+        payload.gitHubTokenOverride = '';
+      else if (!form.gitHubTokenOverride.trim())
+        delete payload.gitHubTokenOverride;
+      else
+        payload.gitHubTokenOverride = form.gitHubTokenOverride.trim();
       payload.protectedBranchPatterns = form.protectedBranchPatterns
         .split(/\r?\n/)
         .map((item) => item.trim())
@@ -224,6 +235,32 @@ export default function VesselDetail() {
             <label>{t('Hotfix Branch Prefix')}<input value={form.hotfixBranchPrefix} onChange={e => setForm({ ...form, hotfixBranchPrefix: e.target.value })} /></label>
             <label>{t('Local Path')}<input value={form.localPath} onChange={e => setForm({ ...form, localPath: e.target.value })} /></label>
             <label>{t('Working Directory')}<input value={form.workingDirectory} onChange={e => setForm({ ...form, workingDirectory: e.target.value })} /></label>
+            <label>
+              GitHub Token Override
+              <input
+                type="password"
+                value={form.gitHubTokenOverride}
+                onChange={e => setForm({ ...form, gitHubTokenOverride: e.target.value, clearGitHubTokenOverride: false })}
+                placeholder={vessel.hasGitHubTokenOverride ? 'Leave blank to keep existing override' : 'Optional per-vessel GitHub token'}
+                autoComplete="new-password"
+              />
+              <span className="text-dim" style={{ fontSize: '0.8em' }}>
+                {vessel.hasGitHubTokenOverride
+                  ? 'This vessel already has an override. Leave blank to keep it, enter a new token to replace it, or clear it below.'
+                  : 'No vessel override is stored. Armada will use the global GitHub token if one is configured.'}
+              </span>
+            </label>
+            {vessel.hasGitHubTokenOverride && (
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input
+                  type="checkbox"
+                  checked={form.clearGitHubTokenOverride}
+                  onChange={e => setForm({ ...form, clearGitHubTokenOverride: e.target.checked, gitHubTokenOverride: e.target.checked ? '' : form.gitHubTokenOverride })}
+                  style={{ width: 'auto' }}
+                />
+                Clear existing GitHub token override
+              </label>
+            )}
             <label>
               {t('Protected Branch Patterns')}
               <textarea value={form.protectedBranchPatterns} onChange={e => setForm({ ...form, protectedBranchPatterns: e.target.value })} rows={4} placeholder={t('One pattern per line, e.g. main or release/*')} />
@@ -377,6 +414,7 @@ export default function VesselDetail() {
         <div className="detail-field"><span className="detail-label">{t('Require PR For Protected Branches')}</span><span>{vessel.requirePullRequestForProtectedBranches ? t('Yes') : t('No')}</span></div>
         <div className="detail-field"><span className="detail-label">{t('Require Merge Queue For Release Branches')}</span><span>{vessel.requireMergeQueueForReleaseBranches ? t('Yes') : t('No')}</span></div>
         <div className="detail-field"><span className="detail-label">{t('Allow Concurrent Missions')}</span><span>{vessel.allowConcurrentMissions ? t('Yes') : t('No')}</span></div>
+        <div className="detail-field"><span className="detail-label">GitHub Token Override</span><span>{vessel.hasGitHubTokenOverride ? 'Configured' : 'Inherited / None'}</span></div>
         <div className="detail-field">
           <span className="detail-label">{t('Default Pipeline')}</span>
           <span>{pipelines.find(p => p.id === vessel.defaultPipelineId)?.name || vessel.defaultPipelineId || <span className="text-dim">{t('None (WorkerOnly)')}</span>}</span>

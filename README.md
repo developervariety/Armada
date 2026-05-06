@@ -634,6 +634,8 @@ Mux captains require a named endpoint. Armada stores that endpoint selection on 
 
 Settings live in `~/.armada/settings.json` and are created on first use.
 
+For GitHub-backed integrations, Armada supports a server-global `GitHubToken` in `settings.json` (or `docker/server/armada.json` in Docker) plus an optional per-vessel `GitHubTokenOverride`. Vessel reads return `hasGitHubTokenOverride`, but the raw token is never returned through REST, MCP, WebSocket, or dashboard reads.
+
 ```bash
 armada config show              # View current settings
 armada config set MaxCaptains 8 # Change a setting
@@ -651,6 +653,7 @@ armada config init              # Interactive setup (optional)
 | `AutoMergePullRequests` | false | Auto-merge PRs after creation |
 | `LandingMode` | null | Landing policy: `LocalMerge`, `PullRequest`, `MergeQueue`, or `None` |
 | `BranchCleanupPolicy` | `LocalOnly` | Branch cleanup after landing: `LocalOnly`, `LocalAndRemote`, or `None` |
+| `GitHubToken` | null | Optional global GitHub token used by Armada-owned integrations; vessels can override it per repository |
 | `RequireAuthForShutdown` | false | Require authentication for `POST /api/v1/server/stop` |
 | `TerminalBell` | true | Ring terminal bell during `armada watch` |
 | `DefaultRuntime` | null (auto-detect) | Default agent runtime |
@@ -721,6 +724,8 @@ The React dashboard exposes that API surface through first-class `Delivery` and 
 - `System > Requests` for persisted request history, filtering, payload inspection, and replay.
 - `System > API Explorer` for live OpenAPI browsing, authenticated execution, response inspection, and code snippets.
 - `System > Runbooks` for playbook-backed operational runbooks with parameters, step tracking, and deployment/incident linkage.
+
+For the current internal-first operator workflow across releases, deployments, rollback, incidents, and runbooks, see [docs/DELIVERY_OPERATIONS.md](docs/DELIVERY_OPERATIONS.md).
 
 Start the Admiral as a standalone server:
 
@@ -794,7 +799,7 @@ The server starts on the following ports:
 | 7890 | HTTP | REST API + embedded dashboard (WebSocket at /ws) |
 | 7891 | JSON-RPC | MCP server |
 
-Open `http://localhost:7890/dashboard` in your browser. Configuration is stored in `armada.json` in the working directory. On first run, Armada creates the SQLite database, applies migrations, and seeds default data.
+Open `http://localhost:7890/dashboard` in your browser. Local server configuration is stored in `~/.armada/settings.json`. The Docker deployment uses `docker/server/armada.json`. On first run, Armada creates the SQLite database, applies migrations, and seeds default data.
 
 ### Install the CLI (optional)
 
@@ -872,6 +877,8 @@ reset.bat
 ```
 
 The reset scripts delete local SQLite database and log files while preserving `docker/server/armada.json`. If that Docker config points at MySQL, PostgreSQL, or SQL Server instead of the mounted SQLite file, the external database is not modified by the reset scripts.
+
+If you want a server-global GitHub integration token in Docker, add `"gitHubToken": "ghp_..."` to `docker/server/armada.json`. Individual vessels can also store their own override token through the dashboard or `POST/PUT /api/v1/vessels`; Armada only exposes `hasGitHubTokenOverride` on reads and never returns the raw override value.
 
 ### Stop
 

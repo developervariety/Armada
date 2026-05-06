@@ -1131,6 +1131,9 @@ namespace Armada.Core.Database.Sqlite.Queries
                     @"ALTER TABLE deployments ADD COLUMN last_regression_alert_utc TEXT;",
                     @"ALTER TABLE deployments ADD COLUMN latest_monitoring_summary TEXT;",
                     @"ALTER TABLE deployments ADD COLUMN monitoring_failure_count INTEGER NOT NULL DEFAULT 0;"
+                ),
+                new SchemaMigration(42, "Add vessel GitHub token overrides",
+                    @"ALTER TABLE vessels ADD COLUMN github_token_override TEXT;"
                 )
             };
         }
