@@ -1,6 +1,9 @@
 namespace Armada.Test.Runtimes.Suites
 {
     using System.IO;
+    using Armada.Core.Enums;
+    using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Runtimes;
     using Armada.Test.Common;
     using SyslogLogging;
@@ -17,8 +20,8 @@ namespace Armada.Test.Runtimes.Suites
 
             public string Command() => GetCommand();
 
-            public List<string> Args(string prompt, string? model = null, string? finalMessageFilePath = null) =>
-                BuildArguments(Path.GetTempPath(), prompt, model, finalMessageFilePath, null);
+            public List<string> Args(string prompt, string? model = null, string? finalMessageFilePath = null, Captain? captain = null) =>
+                BuildArguments(Path.GetTempPath(), prompt, model, finalMessageFilePath, captain);
         }
 
         private InspectableCodexRuntime CreateRuntime()
@@ -92,6 +95,42 @@ namespace Armada.Test.Runtimes.Suites
                 int outputIndex = args.IndexOf("--output-last-message");
                 AssertTrue(outputIndex >= 0);
                 AssertEqual("C:/temp/final-message.txt", args[outputIndex + 1]);
+            });
+
+            await RunTest("ValidateReasoningEffort_High_ReturnsNull", () =>
+            {
+                string? error = CaptainRuntimeOptions.ValidateReasoningEffort(AgentRuntimeEnum.Codex, "high");
+                AssertNull(error, "high must be accepted for Codex");
+            });
+
+            await RunTest("ValidateReasoningEffort_Xhigh_ReturnsError", () =>
+            {
+                string? error = CaptainRuntimeOptions.ValidateReasoningEffort(AgentRuntimeEnum.Codex, "xhigh");
+                AssertNotNull(error, "xhigh must be rejected for Codex");
+                AssertContains("Accepted values: low, medium, high.", error!, "Error should list the supported values");
+            });
+
+            await RunTest("ValidateReasoningEffort_Max_ReturnsError", () =>
+            {
+                string? error = CaptainRuntimeOptions.ValidateReasoningEffort(AgentRuntimeEnum.Codex, "max");
+                AssertNotNull(error, "max must be rejected for Codex");
+                AssertContains("Accepted values: low, medium, high.", error!, "Error should list the supported values");
+            });
+
+            await RunTest("BuildArguments_HighReasoningEffort_UsesModelReasoningEffortConfig", () =>
+            {
+                InspectableCodexRuntime runtime = CreateRuntime();
+                Captain captain = new Captain("codex", AgentRuntimeEnum.Codex);
+                captain.RuntimeOptionsJson = CaptainRuntimeOptions.Serialize(new CaptainOptions
+                {
+                    ReasoningEffort = "high"
+                });
+
+                List<string> args = runtime.Args("test prompt", captain: captain);
+
+                AssertTrue(args.Contains("-c"), "Codex config flag should be present");
+                AssertTrue(args.Contains("model_reasoning_effort=high"), "Codex should receive the effective reasoning config key");
+                AssertFalse(args.Contains("reasoning_effort=high"), "Codex should not receive the old reasoning config key");
             });
 
             await RunTest("Windows Command Resolves Cmd Wrapper", () =>

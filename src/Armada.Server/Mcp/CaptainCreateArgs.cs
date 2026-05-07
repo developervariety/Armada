@@ -77,8 +77,8 @@ namespace Armada.Server.Mcp
 
         /// <summary>
         /// Reasoning-effort / thinking-budget tier forwarded to the runtime CLI.
-        /// Codex accepts low|medium|high|xhigh; ClaudeCode accepts low|medium|high|xhigh|max;
-        /// Cursor TBD. Null means use the runtime's CLI default.
+        /// Codex, ClaudeCode, and Cursor accept low|medium|high.
+        /// Null means use the runtime's CLI default.
         /// </summary>
         public string? ReasoningEffort { get; set; }
 

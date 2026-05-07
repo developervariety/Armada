@@ -81,7 +81,7 @@ namespace Armada.Server.Mcp.Tools
                         muxMaxTokens = new { type = "integer", description = "Optional Mux max tokens override" },
                         muxSystemPromptPath = new { type = "string", description = "Optional Mux system prompt file path" },
                         muxApprovalPolicy = new { type = "string", description = "Optional Mux approval policy override" },
-                        reasoningEffort = new { type = "string", description = "Reasoning-effort / thinking-budget tier (low|medium|high|xhigh|max). Codex tops out at xhigh; ClaudeCode accepts max. Null means runtime CLI default." }
+                        reasoningEffort = new { type = "string", description = "Reasoning-effort / thinking-budget tier (low|medium|high). Null means runtime CLI default." }
                     },
                     required = new[] { "name" }
                 },
@@ -134,7 +134,7 @@ namespace Armada.Server.Mcp.Tools
                         muxMaxTokens = new { type = "integer", description = "Optional Mux max tokens override" },
                         muxSystemPromptPath = new { type = "string", description = "Optional Mux system prompt file path; empty string clears it" },
                         muxApprovalPolicy = new { type = "string", description = "Optional Mux approval policy override; empty string clears it" },
-                        reasoningEffort = new { type = "string", description = "Reasoning-effort / thinking-budget tier (low|medium|high|xhigh|max). Codex tops out at xhigh; ClaudeCode accepts max. Empty string clears it; null leaves it unchanged." }
+                        reasoningEffort = new { type = "string", description = "Reasoning-effort / thinking-budget tier (low|medium|high). Empty string clears it; null leaves it unchanged." }
                     },
                     required = new[] { "captainId" }
                 },

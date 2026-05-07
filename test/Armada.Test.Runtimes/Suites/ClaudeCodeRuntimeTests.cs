@@ -1,6 +1,10 @@
 namespace Armada.Test.Runtimes.Suites
 {
+    using System.Diagnostics;
     using System.IO;
+    using Armada.Core.Enums;
+    using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Runtimes;
     using Armada.Test.Common;
     using SyslogLogging;
@@ -15,8 +19,15 @@ namespace Armada.Test.Runtimes.Suites
             {
             }
 
-            public List<string> Args(string prompt, string? model = null, string? finalMessageFilePath = null) =>
-                BuildArguments(Path.GetTempPath(), prompt, model, finalMessageFilePath, null);
+            public List<string> Args(string prompt, string? model = null, string? finalMessageFilePath = null, Captain? captain = null) =>
+                BuildArguments(Path.GetTempPath(), prompt, model, finalMessageFilePath, captain);
+
+            public ProcessStartInfo StartInfoWithEnvironment(Captain? captain)
+            {
+                ProcessStartInfo startInfo = new ProcessStartInfo();
+                ApplyEnvironment(startInfo, captain);
+                return startInfo;
+            }
         }
 
         private InspectableClaudeCodeRuntime CreateRuntime()
@@ -97,6 +108,40 @@ namespace Armada.Test.Runtimes.Suites
                 AssertTrue(settingSourcesIndex >= 0, "--setting-sources flag missing");
                 AssertEqual("project,local", args[settingSourcesIndex + 1]);
                 AssertTrue(args.Contains("--strict-mcp-config"), "--strict-mcp-config flag missing");
+            });
+
+            await RunTest("ValidateReasoningEffort_High_ReturnsNull", () =>
+            {
+                string? error = CaptainRuntimeOptions.ValidateReasoningEffort(AgentRuntimeEnum.ClaudeCode, "high");
+                AssertNull(error, "high must be accepted for ClaudeCode");
+            });
+
+            await RunTest("ValidateReasoningEffort_Xhigh_ReturnsError", () =>
+            {
+                string? error = CaptainRuntimeOptions.ValidateReasoningEffort(AgentRuntimeEnum.ClaudeCode, "xhigh");
+                AssertNotNull(error, "xhigh must be rejected for ClaudeCode");
+                AssertContains("Accepted values: low, medium, high.", error!, "Error should list the supported values");
+            });
+
+            await RunTest("ValidateReasoningEffort_Max_ReturnsError", () =>
+            {
+                string? error = CaptainRuntimeOptions.ValidateReasoningEffort(AgentRuntimeEnum.ClaudeCode, "max");
+                AssertNotNull(error, "max must be rejected for ClaudeCode");
+                AssertContains("Accepted values: low, medium, high.", error!, "Error should list the supported values");
+            });
+
+            await RunTest("ApplyEnvironment_HighReasoningEffort_SetsMaximumThinkingBudget", () =>
+            {
+                InspectableClaudeCodeRuntime runtime = CreateRuntime();
+                Captain captain = new Captain("claude", AgentRuntimeEnum.ClaudeCode);
+                captain.RuntimeOptionsJson = CaptainRuntimeOptions.Serialize(new CaptainOptions
+                {
+                    ReasoningEffort = "high"
+                });
+
+                ProcessStartInfo startInfo = runtime.StartInfoWithEnvironment(captain);
+
+                AssertEqual("128000", startInfo.Environment["MAX_THINKING_TOKENS"], "high should map to Armada's maximum thinking budget");
             });
 
             await RunTest("IsRunningAsync Invalid ProcessId Returns False", async () =>
