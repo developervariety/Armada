@@ -84,11 +84,11 @@ namespace Armada.Test.Unit.Suites.Services
                 foreach (string m in models)
                 {
                     if (m == "kimi-k2.5") hasLow = true;
-                    if (m == "claude-sonnet-4-6") hasMid = true;
+                    if (m == "gpt-5.3-codex") hasMid = true;
                     if (m == "claude-opus-4-7") hasHigh = true;
                 }
                 AssertTrue(hasLow, "Low tier model kimi-k2.5 should be included");
-                AssertTrue(hasMid, "Mid tier model claude-sonnet-4-6 should be included");
+                AssertTrue(hasMid, "Mid tier model gpt-5.3-codex should be included");
                 AssertTrue(hasHigh, "High tier model claude-opus-4-7 should be included");
                 return Task.CompletedTask;
             });
@@ -231,19 +231,6 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
-            await RunTest("SelectModel_High_SelectsCaptainWithClaudeOpus47ThinkingMax", () =>
-            {
-                List<Captain> captains = new List<Captain>
-                {
-                    MakeCaptain("claude-opus-4-7-thinking-max")
-                };
-
-                string? selected = PreferredModelTierSelector.SelectModel("high", captains, null, _ => 0);
-                AssertNotNull(selected, "High tier should match Cursor opus thinking-max alias");
-                AssertEqual("claude-opus-4-7-thinking-max", selected, "Exact model string should round-trip");
-                return Task.CompletedTask;
-            });
-
             await RunTest("SelectModel_High_SelectsCaptainWithClaude46OpusHighThinking", () =>
             {
                 List<Captain> captains = new List<Captain>
@@ -283,11 +270,23 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("SelectModel_Mid_SelectsGpt53Codex", () =>
+            {
+                List<Captain> captains = new List<Captain>
+                {
+                    MakeCaptain("gpt-5.3-codex")
+                };
+
+                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0);
+                AssertNotNull(selected, "Mid tier should match gpt-5.3-codex");
+                AssertEqual("gpt-5.3-codex", selected, "Exact model string should round-trip");
+                return Task.CompletedTask;
+            });
+
             await RunTest("SelectModel_High_DoesNotFuzzyMatchCursorOpusAliases", () =>
             {
                 List<Captain> captains = new List<Captain>
                 {
-                    MakeCaptain("claude-opus-4-7-thinking-max-preview"),
                     MakeCaptain("claude-4.6-opus-high-thinking-preview")
                 };
 

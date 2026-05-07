@@ -14,20 +14,19 @@ namespace Armada.Core.Services
         #region Public-Members
 
         /// <summary>
-        /// Reasoning-effort tiers accepted by Codex (CLI tops out at xhigh).
+        /// Reasoning-effort tiers accepted by Codex.
         /// </summary>
         public static readonly IReadOnlySet<string> CodexReasoningEfforts = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            "low", "medium", "high", "xhigh"
+            "low", "medium", "high"
         };
 
         /// <summary>
-        /// Reasoning-effort tiers accepted by Anthropic ClaudeCode (extended thinking ranges
-        /// from low through max; max maps to per-model maximum thinking budget).
+        /// Reasoning-effort tiers accepted by Anthropic ClaudeCode.
         /// </summary>
         public static readonly IReadOnlySet<string> ClaudeCodeReasoningEfforts = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            "low", "medium", "high", "xhigh", "max"
+            "low", "medium", "high"
         };
 
         /// <summary>
@@ -38,7 +37,7 @@ namespace Armada.Core.Services
         /// </summary>
         public static readonly IReadOnlySet<string> CursorReasoningEfforts = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            "low", "medium", "high", "xhigh"
+            "low", "medium", "high"
         };
 
         #endregion
@@ -122,17 +121,17 @@ namespace Armada.Core.Services
             {
                 case AgentRuntimeEnum.Codex:
                     if (!CodexReasoningEfforts.Contains(trimmed))
-                        return $"reasoningEffort '{trimmed}' is not supported for Codex captains. Accepted values: low, medium, high, xhigh.";
+                        return $"reasoningEffort '{trimmed}' is not supported for Codex captains. Accepted values: low, medium, high.";
                     return null;
 
                 case AgentRuntimeEnum.ClaudeCode:
                     if (!ClaudeCodeReasoningEfforts.Contains(trimmed))
-                        return $"reasoningEffort '{trimmed}' is not supported for ClaudeCode captains. Accepted values: low, medium, high, xhigh, max.";
+                        return $"reasoningEffort '{trimmed}' is not supported for ClaudeCode captains. Accepted values: low, medium, high.";
                     return null;
 
                 case AgentRuntimeEnum.Cursor:
                     if (!CursorReasoningEfforts.Contains(trimmed))
-                        return $"reasoningEffort '{trimmed}' is not supported for Cursor captains. Accepted values: low, medium, high, xhigh.";
+                        return $"reasoningEffort '{trimmed}' is not supported for Cursor captains. Accepted values: low, medium, high.";
                     return null;
 
                 default:

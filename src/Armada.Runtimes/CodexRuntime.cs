@@ -10,8 +10,8 @@ namespace Armada.Runtimes
     /// </summary>
     /// <remarks>
     /// Per-invocation reasoning effort: when <c>CaptainRuntimeOptions.ReasoningEffort</c> is set
-    /// for a captain, Codex CLI receives <c>-c reasoning_effort=&lt;value&gt;</c> on each call
-    /// (commit b5088b0). Accepted values: low|medium|high|xhigh. The flag is injected before
+    /// for a captain, Codex CLI receives <c>-c model_reasoning_effort=&lt;value&gt;</c> on each call.
+    /// Accepted values: low|medium|high. The flag is injected before
     /// <c>--output-last-message</c> and the prompt argument so Codex parses it as a config
     /// override rather than prompt text.
     ///
@@ -114,8 +114,8 @@ namespace Armada.Runtimes
             }
 
             // Forward per-captain reasoning effort to Codex CLI as a per-invocation
-            // config override. Codex CLI v0.125.0 accepts -c reasoning_effort=<value>
-            // for low|medium|high|xhigh. Position before --output-last-message and
+            // config override. Codex CLI accepts -c model_reasoning_effort=<value>
+            // for low|medium|high. Position before --output-last-message and
             // the prompt argument so Codex parses it as a config flag rather than
             // part of the prompt text. Null reasoningEffort preserves existing args
             // exactly (regression guard for captains without RuntimeOptionsJson).
@@ -123,7 +123,7 @@ namespace Armada.Runtimes
             if (!String.IsNullOrWhiteSpace(reasoningEffort))
             {
                 args.Add("-c");
-                args.Add("reasoning_effort=" + reasoningEffort.Trim().ToLowerInvariant());
+                args.Add("model_reasoning_effort=" + reasoningEffort.Trim().ToLowerInvariant());
             }
 
             if (!String.IsNullOrEmpty(finalMessageFilePath))

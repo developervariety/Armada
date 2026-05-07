@@ -34,6 +34,7 @@ namespace Armada.Core.Services
             "composer-2-fast",
             "claude-sonnet-4-6",
             "gemini-3.5-pro",
+            "gpt-5.3-codex",
             "claude-4.6-sonnet-medium",
             "claude-4.6-sonnet-medium-thinking",
             "gemini-3.1-pro",
@@ -44,14 +45,9 @@ namespace Armada.Core.Services
             "claude-opus-4-7",
             "gpt-5.5",
             "claude-opus-4-7-high",
-            "claude-opus-4-7-max",
             "claude-opus-4-7-thinking-high",
-            "claude-opus-4-7-thinking-xhigh",
-            "claude-opus-4-7-thinking-max",
             "claude-4.6-opus-high",
-            "claude-4.6-opus-max",
             "claude-4.6-opus-high-thinking",
-            "claude-4.6-opus-max-thinking",
         };
 
         private static readonly Dictionary<string, string> _Aliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)

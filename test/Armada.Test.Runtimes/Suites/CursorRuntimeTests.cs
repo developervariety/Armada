@@ -151,16 +151,18 @@ namespace Armada.Test.Runtimes.Suites
                 AssertNull(error, "high must be accepted for Cursor");
             });
 
-            await RunTest("ValidateReasoningEffort_Xhigh_ReturnsNull", () =>
+            await RunTest("ValidateReasoningEffort_Xhigh_ReturnsError", () =>
             {
                 string? error = CaptainRuntimeOptions.ValidateReasoningEffort(AgentRuntimeEnum.Cursor, "xhigh");
-                AssertNull(error, "xhigh must be accepted for Cursor");
+                AssertNotNull(error, "xhigh must be rejected for Cursor");
+                AssertContains("Accepted values: low, medium, high.", error!, "Error should list the supported values");
             });
 
             await RunTest("ValidateReasoningEffort_Max_ReturnsError", () =>
             {
                 string? error = CaptainRuntimeOptions.ValidateReasoningEffort(AgentRuntimeEnum.Cursor, "max");
-                AssertNotNull(error, "max is not in the Cursor accepted set (only ClaudeCode accepts max)");
+                AssertNotNull(error, "max must be rejected for Cursor");
+                AssertContains("Accepted values: low, medium, high.", error!, "Error should list the supported values");
             });
 
             await RunTest("ValidateReasoningEffort_InvalidValue_ReturnsError", () =>

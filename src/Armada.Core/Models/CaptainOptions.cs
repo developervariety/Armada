@@ -18,8 +18,7 @@ namespace Armada.Core.Models
         /// <summary>
         /// Reasoning effort / thinking-budget tier passed to the underlying runtime CLI.
         /// Valid values depend on the captain's runtime:
-        /// Codex accepts low|medium|high|xhigh; Anthropic ClaudeCode accepts low|medium|high|xhigh|max.
-        /// Cursor's accepted set depends on cursor-agent CLI version.
+        /// Codex, ClaudeCode, and Cursor accept low|medium|high.
         /// Null means use the runtime's CLI default (no flag forwarded).
         /// </summary>
         public string? ReasoningEffort

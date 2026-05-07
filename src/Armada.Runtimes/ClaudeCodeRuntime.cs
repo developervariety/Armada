@@ -18,8 +18,8 @@ namespace Armada.Runtimes
     /// potential side effects.
     ///
     /// Reasoning effort: mapped from <c>CaptainRuntimeOptions.ReasoningEffort</c> to
-    /// MAX_THINKING_TOKENS env var (low=4096, medium=16384, high=32768, xhigh=65536, max=128000).
-    /// Accepted values: low|medium|high|xhigh|max.
+    /// MAX_THINKING_TOKENS env var (low=4096, medium=16384, high=128000).
+    /// Accepted values: low|medium|high.
     /// </remarks>
     public class ClaudeCodeRuntime : BaseAgentRuntime
     {
@@ -145,10 +145,7 @@ namespace Armada.Runtimes
 
         /// <summary>
         /// Map a reasoning-effort tier to an Anthropic extended-thinking token budget.
-        /// `max` triggers the per-model documented maximum (claude-opus-4-7 supports
-        /// the largest budget; claude-sonnet-4-6 ships a smaller cap). Conservative
-        /// upper bound of 128k is used at the `max` tier; Claude API silently caps
-        /// to the model's actual max if smaller.
+        /// The high tier is Armada's maximum user-facing thinking budget.
         /// </summary>
         private static int? MapReasoningEffortToThinkingBudget(string? reasoningEffort)
         {
@@ -157,9 +154,7 @@ namespace Armada.Runtimes
             {
                 case "low":     return 4096;
                 case "medium":  return 16384;
-                case "high":    return 32768;
-                case "xhigh":   return 65536;
-                case "max":     return 128000;
+                case "high":    return 128000;
                 default:        return null;
             }
         }
