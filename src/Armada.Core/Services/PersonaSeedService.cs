@@ -159,6 +159,12 @@ namespace Armada.Core.Services
                 "Worker then FrontendWorkflowReviewer then TestEngineer then Judge.",
                 BuildSpecialistTestedStages("FrontendWorkflowReviewer"),
                 token).ConfigureAwait(false);
+
+            await SeedPipelineAsync(
+                "Reflections",
+                "Single-stage memory consolidation. Output is the candidate playbook + diff; orchestrator reviews. No TestEngineer or Judge stage runs.",
+                new List<PipelineStage> { new PipelineStage(1, "MemoryConsolidator") { PreferredModel = "high" } },
+                token).ConfigureAwait(false);
         }
 
         private async Task SeedPipelineAsync(string name, string description, List<PipelineStage> stages, CancellationToken token)

@@ -153,6 +153,81 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Seed creates reflections pipeline", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    PersonaSeedService service = new PersonaSeedService(testDb.Driver, CreateLogging());
+                    await service.SeedAsync().ConfigureAwait(false);
+
+                    Pipeline? pipeline = await testDb.Driver.Pipelines.ReadByNameAsync("Reflections").ConfigureAwait(false);
+                    AssertNotNull(pipeline, "Reflections pipeline should be seeded");
+                    AssertEqual("Reflections", pipeline!.Name, "Pipeline name");
+                    AssertTrue(pipeline.IsBuiltIn, "Pipeline should be built in");
+                    AssertTrue(pipeline.Active, "Pipeline should be active");
+                    AssertEqual(Constants.DefaultTenantId, pipeline.TenantId, "Pipeline tenant");
+                    AssertEqual(1, pipeline.Stages.Count, "Reflections pipeline should have exactly one stage");
+
+                    PipelineStage stage = pipeline.Stages[0];
+                    AssertEqual(1, stage.Order, "Stage order");
+                    AssertEqual("MemoryConsolidator", stage.PersonaName, "Stage persona should be MemoryConsolidator");
+                    AssertEqual("high", stage.PreferredModel, "Stage preferred model should be high");
+                    AssertContains("orchestrator", pipeline.Description ?? "", "Pipeline description should mention orchestrator as reviewer");
+                }
+            });
+
+            await RunTest("Seed reconciles existing reflections pipeline", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    Pipeline existingPipeline = new Pipeline("Reflections");
+                    existingPipeline.Description = "Legacy reflections pipeline";
+                    existingPipeline.IsBuiltIn = false;
+                    existingPipeline.Active = false;
+                    existingPipeline.Stages = new List<PipelineStage>
+                    {
+                        new PipelineStage(1, "Worker"),
+                        new PipelineStage(2, "Judge")
+                    };
+                    await testDb.Driver.Pipelines.CreateAsync(existingPipeline).ConfigureAwait(false);
+
+                    PersonaSeedService service = new PersonaSeedService(testDb.Driver, CreateLogging());
+                    await service.SeedAsync().ConfigureAwait(false);
+
+                    Pipeline? pipeline = await testDb.Driver.Pipelines.ReadByNameAsync("Reflections").ConfigureAwait(false);
+                    AssertNotNull(pipeline, "Pipeline should still exist after reconciliation");
+                    AssertContains("orchestrator", pipeline!.Description ?? "", "Pipeline description should be canonical");
+                    AssertContains("memory consolidation", pipeline.Description ?? "", "Pipeline description should reference memory consolidation");
+                    AssertTrue(pipeline.IsBuiltIn, "Pipeline should be upgraded to built in");
+                    AssertTrue(pipeline.Active, "Pipeline should be reactivated");
+                    AssertEqual(Constants.DefaultTenantId, pipeline.TenantId, "Pipeline tenant should be reconciled");
+                    AssertEqual(1, pipeline.Stages.Count, "Pipeline should be reconciled to single stage");
+                    AssertEqual("MemoryConsolidator", pipeline.Stages[0].PersonaName, "Stage persona should be MemoryConsolidator after reconcile");
+                }
+            });
+
+            await RunTest("Seed reflections pipeline is idempotent", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    PersonaSeedService service = new PersonaSeedService(testDb.Driver, CreateLogging());
+                    await service.SeedAsync().ConfigureAwait(false);
+
+                    Pipeline? first = await testDb.Driver.Pipelines.ReadByNameAsync("Reflections").ConfigureAwait(false);
+                    AssertNotNull(first, "Reflections pipeline should exist after first seed");
+
+                    await service.SeedAsync().ConfigureAwait(false);
+
+                    Pipeline? second = await testDb.Driver.Pipelines.ReadByNameAsync("Reflections").ConfigureAwait(false);
+                    AssertNotNull(second, "Reflections pipeline should exist after second seed");
+                    AssertEqual(first!.Id, second!.Id, "Repeated seeding should update the existing pipeline instead of replacing it");
+
+                    List<Pipeline> pipelines = await testDb.Driver.Pipelines.EnumerateAsync().ConfigureAwait(false);
+                    int matches = pipelines.Count(p => p.Name == "Reflections");
+                    AssertEqual(1, matches, "Repeated seeding should not create duplicate Reflections pipelines");
+                }
+            });
+
             await RunTest("Seed preserves unrelated custom persona and pipeline", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
@@ -233,6 +308,14 @@ namespace Armada.Test.Unit.Suites.Services
                 { "PerformanceMemoryTested", "PerformanceMemoryReviewer" },
                 { "ReferencePortingTested", "PortingReferenceAnalyst" },
                 { "FrontendWorkflowTested", "FrontendWorkflowReviewer" }
+            };
+        }
+
+        private static Dictionary<string, string> GetSingleStagePipelineStages()
+        {
+            return new Dictionary<string, string>
+            {
+                { "Reflections", "MemoryConsolidator" }
             };
         }
 
