@@ -222,6 +222,93 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(mission.Id, reread!.LastReflectionMissionId, "Pointer advances to accepted mission");
                 }
             });
+
+            await RunTest("AcceptMemoryProposal_ExistingLearnedPlaybook_UpdatesSamePlaybookAndRecordsEvent", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, "accept-existing-playbook").ConfigureAwait(false);
+                    Playbook existing = new Playbook(LearnedPlaybookFileName(vessel), "# Old content");
+                    existing.TenantId = Constants.DefaultTenantId;
+                    existing.UserId = Constants.DefaultUserId;
+                    existing = await testDb.Driver.Playbooks.CreateAsync(existing).ConfigureAwait(false);
+
+                    Mission mission = await CreateReflectionMissionAsync(
+                        testDb.Driver,
+                        vessel.Id,
+                        WorkProducedAgentOutput("# Replaced content\n")).ConfigureAwait(false);
+
+                    Func<JsonElement?, Task<object>>? handler = CaptureAcceptHandler(testDb.Driver);
+                    JsonElement args = JsonSerializer.SerializeToElement(new { missionId = mission.Id });
+                    object result = await handler!(args).ConfigureAwait(false);
+                    string json = JsonSerializer.Serialize(result);
+
+                    AssertContains(existing.Id, json, "existing playbook id returned");
+                    AssertContains("playbookVersion", json, "version timestamp returned");
+
+                    Playbook? rereadPlaybook = await FindLearnedPlaybookAsync(testDb.Driver, vessel).ConfigureAwait(false);
+                    AssertNotNull(rereadPlaybook, "Learned playbook row should still exist");
+                    AssertEqual(existing.Id, rereadPlaybook!.Id, "Accept updates rather than creating a second learned playbook");
+                    AssertContains("Replaced content", rereadPlaybook.Content, "Updated content");
+                    AssertFalse(rereadPlaybook.Content.Contains("Old content"), "Old content replaced");
+
+                    List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByMissionAsync(mission.Id).ConfigureAwait(false);
+                    ArmadaEvent? accepted = null;
+                    foreach (ArmadaEvent armadaEvent in events)
+                    {
+                        if (armadaEvent.EventType == "reflection.accepted")
+                        {
+                            accepted = armadaEvent;
+                        }
+                    }
+
+                    AssertNotNull(accepted, "Accepted event should be recorded");
+                    AssertEqual(mission.Id, accepted!.MissionId, "Accepted event mission id");
+                    AssertEqual(vessel.Id, accepted.VesselId, "Accepted event vessel id");
+                    AssertContains(existing.Id, accepted.Payload ?? "", "Payload playbook id");
+                    AssertContains(mission.Id, accepted.Payload ?? "", "Payload mission id");
+                }
+            });
+
+            await RunTest("AcceptMemoryProposal_PreexistingRejectedEvent_ReturnsAlreadyProcessed", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, "accept-rejected").ConfigureAwait(false);
+                    Playbook existing = new Playbook(LearnedPlaybookFileName(vessel), "# Keep this content");
+                    existing.TenantId = Constants.DefaultTenantId;
+                    existing.UserId = Constants.DefaultUserId;
+                    await testDb.Driver.Playbooks.CreateAsync(existing).ConfigureAwait(false);
+
+                    Mission mission = await CreateReflectionMissionAsync(
+                        testDb.Driver,
+                        vessel.Id,
+                        WorkProducedAgentOutput("# Should not apply\n")).ConfigureAwait(false);
+
+                    ArmadaEvent rejected = new ArmadaEvent("reflection.rejected", "Reflection proposal rejected.");
+                    rejected.TenantId = Constants.DefaultTenantId;
+                    rejected.EntityType = "mission";
+                    rejected.EntityId = mission.Id;
+                    rejected.MissionId = mission.Id;
+                    rejected.VesselId = vessel.Id;
+                    await testDb.Driver.Events.CreateAsync(rejected).ConfigureAwait(false);
+
+                    Func<JsonElement?, Task<object>>? handler = CaptureAcceptHandler(testDb.Driver);
+                    JsonElement args = JsonSerializer.SerializeToElement(new { missionId = mission.Id });
+                    object result = await handler!(args).ConfigureAwait(false);
+                    string json = JsonSerializer.Serialize(result);
+
+                    AssertContains("proposal_already_processed", json, "Rejected proposal cannot later be accepted");
+
+                    Playbook? rereadPlaybook = await FindLearnedPlaybookAsync(testDb.Driver, vessel).ConfigureAwait(false);
+                    AssertNotNull(rereadPlaybook, "Existing learned playbook should remain");
+                    AssertContains("Keep this content", rereadPlaybook!.Content, "Existing content preserved");
+                    AssertFalse(rereadPlaybook.Content.Contains("Should not apply"), "Candidate was not applied");
+
+                    Vessel? rereadVessel = await testDb.Driver.Vessels.ReadAsync(vessel.Id).ConfigureAwait(false);
+                    AssertNull(rereadVessel!.LastReflectionMissionId, "Rejected proposal does not advance pointer");
+                }
+            });
         }
 
         private static string ValidDiffJson()
@@ -275,10 +362,15 @@ namespace Armada.Test.Unit.Suites.Services
 
         private static async Task<Playbook?> FindLearnedPlaybookAsync(DatabaseDriver database, Vessel vessel)
         {
+            string fileName = LearnedPlaybookFileName(vessel);
+            return await database.Playbooks.ReadByFileNameAsync(Constants.DefaultTenantId, fileName).ConfigureAwait(false);
+        }
+
+        private static string LearnedPlaybookFileName(Vessel vessel)
+        {
             string lower = vessel.Name.ToLowerInvariant();
             string sanitized = System.Text.RegularExpressions.Regex.Replace(lower, "[^a-z0-9]+", "-").Trim('-');
-            string fileName = "vessel-" + sanitized + "-learned.md";
-            return await database.Playbooks.ReadByFileNameAsync(Constants.DefaultTenantId, fileName).ConfigureAwait(false);
+            return "vessel-" + sanitized + "-learned.md";
         }
 
         private sealed class RecordingAdmiralService : IAdmiralService
