@@ -142,6 +142,16 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("Parse_EvidenceConfidencePascalCaseName_Valid", () =>
+            {
+                ReflectionOutputParser sut = CreateSut();
+                string diff = "{\n  \"EvidenceConfidence\": \"MiXeD\"\n}";
+                string input = "```reflections-candidate\nOK\n```\n```reflections-diff\n" + diff + "\n```";
+                ReflectionOutputParseResult r = sut.Parse(input);
+                AssertEqual(ReflectionOutputParseVerdict.Success, r.Verdict, "PascalCase field name and mixed-case value should be accepted");
+                return Task.CompletedTask;
+            });
+
             await RunTest("Parse_EvidenceConfidenceInvalidValue_ReturnsViolation", () =>
             {
                 ReflectionOutputParser sut = CreateSut();
@@ -178,6 +188,16 @@ namespace Armada.Test.Unit.Suites.Services
                 ReflectionOutputParseResult r = sut.Parse(input);
                 AssertEqual(ReflectionOutputParseVerdict.Success, r.Verdict, "Skipped unrelated fence");
                 AssertContains("B", r.CandidateMarkdown, "");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Parse_UnterminatedGenericFenceBeforeCandidate_ReturnsViolation", () =>
+            {
+                ReflectionOutputParser sut = CreateSut();
+                string input = "```python\npass\n```reflections-candidate\nB\n```\n```reflections-diff\n" + ValidDiffJson() + "\n```";
+                ReflectionOutputParseResult r = sut.Parse(input);
+                AssertEqual(ReflectionOutputParseVerdict.OutputContractViolation, r.Verdict, "Malformed unrelated fenced block should fail the output contract");
+                AssertEqual("unterminated_fence", r.Errors[0].Type, "Error type should identify the malformed fence");
                 return Task.CompletedTask;
             });
 
