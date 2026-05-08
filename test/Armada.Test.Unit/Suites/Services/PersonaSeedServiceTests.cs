@@ -91,6 +91,46 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Seed creates memory consolidator persona", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    PersonaSeedService service = new PersonaSeedService(testDb.Driver, CreateLogging());
+                    await service.SeedAsync().ConfigureAwait(false);
+
+                    Persona? persona = await testDb.Driver.Personas.ReadByNameAsync("MemoryConsolidator").ConfigureAwait(false);
+                    AssertNotNull(persona, "MemoryConsolidator persona should be seeded");
+                    AssertEqual("MemoryConsolidator", persona!.Name, "Persona name");
+                    AssertEqual("persona.memory_consolidator", persona.PromptTemplateName, "Persona prompt template");
+                    AssertTrue(persona.IsBuiltIn, "Persona should be built in");
+                    AssertTrue(persona.Active, "Persona should be active");
+                    AssertEqual(Constants.DefaultTenantId, persona.TenantId, "Persona tenant");
+                }
+            });
+
+            await RunTest("Seed reconciles existing memory consolidator persona", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    Persona existingPersona = new Persona("MemoryConsolidator", "persona.legacy_consolidator");
+                    existingPersona.Description = "Legacy consolidator placeholder";
+                    existingPersona.IsBuiltIn = false;
+                    existingPersona.Active = false;
+                    await testDb.Driver.Personas.CreateAsync(existingPersona).ConfigureAwait(false);
+
+                    PersonaSeedService service = new PersonaSeedService(testDb.Driver, CreateLogging());
+                    await service.SeedAsync().ConfigureAwait(false);
+
+                    Persona? persona = await testDb.Driver.Personas.ReadByNameAsync("MemoryConsolidator").ConfigureAwait(false);
+                    AssertNotNull(persona, "Persona should still exist after reconciliation");
+                    AssertEqual("persona.memory_consolidator", persona!.PromptTemplateName, "Persona template should be canonical after reconcile");
+                    AssertContains("learned-facts", persona.Description ?? "", "Persona description should be canonical");
+                    AssertTrue(persona.IsBuiltIn, "Persona should be reconciled to built in");
+                    AssertTrue(persona.Active, "Persona should be reactivated");
+                    AssertEqual(Constants.DefaultTenantId, persona.TenantId, "Persona tenant should be reconciled");
+                }
+            });
+
             await RunTest("Seed preserves unrelated custom persona and pipeline", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
