@@ -228,6 +228,37 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Seed reflections pipeline preserves existing built-in pipeline stages", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    PersonaSeedService service = new PersonaSeedService(testDb.Driver, CreateLogging());
+                    await service.SeedAsync().ConfigureAwait(false);
+
+                    AssertPipelineStages(
+                        await testDb.Driver.Pipelines.ReadByNameAsync("WorkerOnly").ConfigureAwait(false),
+                        new List<string> { "Worker" },
+                        "WorkerOnly");
+                    AssertPipelineStages(
+                        await testDb.Driver.Pipelines.ReadByNameAsync("Reviewed").ConfigureAwait(false),
+                        new List<string> { "Worker", "Judge" },
+                        "Reviewed");
+                    AssertPipelineStages(
+                        await testDb.Driver.Pipelines.ReadByNameAsync("Tested").ConfigureAwait(false),
+                        new List<string> { "Worker", "TestEngineer", "Judge" },
+                        "Tested");
+                    AssertPipelineStages(
+                        await testDb.Driver.Pipelines.ReadByNameAsync("FullPipeline").ConfigureAwait(false),
+                        new List<string> { "Architect", "Worker", "TestEngineer", "Judge" },
+                        "FullPipeline");
+
+                    Pipeline? reflections = await testDb.Driver.Pipelines.ReadByNameAsync("Reflections").ConfigureAwait(false);
+                    AssertNotNull(reflections, "Reflections pipeline should be seeded");
+                    AssertPipelineStages(reflections, new List<string> { "MemoryConsolidator" }, "Reflections");
+                    AssertContains("No TestEngineer or Judge stage runs", reflections!.Description ?? "", "Reflections description should document reviewer boundary");
+                }
+            });
+
             await RunTest("Seed preserves unrelated custom persona and pipeline", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
@@ -334,6 +365,19 @@ namespace Armada.Test.Unit.Suites.Services
             AssertEqual("high", ordered[1].PreferredModel, "Specialist stage preferred model");
             AssertEqual("TestEngineer", ordered[2].PersonaName, "Stage 3 persona");
             AssertEqual("Judge", ordered[3].PersonaName, "Stage 4 persona");
+        }
+
+        private void AssertPipelineStages(Pipeline? pipeline, List<string> expectedPersonas, string pipelineName)
+        {
+            AssertNotNull(pipeline, "Pipeline should be seeded: " + pipelineName);
+            AssertEqual(expectedPersonas.Count, pipeline!.Stages.Count, "Stage count for " + pipelineName);
+
+            List<PipelineStage> ordered = pipeline.Stages.OrderBy(s => s.Order).ToList();
+            for (int i = 0; i < expectedPersonas.Count; i++)
+            {
+                AssertEqual(i + 1, ordered[i].Order, "Stage order for " + pipelineName);
+                AssertEqual(expectedPersonas[i], ordered[i].PersonaName, "Stage persona for " + pipelineName);
+            }
         }
     }
 }
