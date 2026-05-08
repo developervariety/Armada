@@ -119,6 +119,134 @@ namespace Armada.Test.Unit.Suites.Database
                     try { File.Delete(tempFile); } catch { }
                 }
             });
+
+            await RunTest("VesselReflectionFields_OnlyMissionIdSet_ThresholdRemainsNull", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = new Vessel("ReflectionMissionIdOnly", "https://github.com/test/reflect-id-only");
+                    vessel.LastReflectionMissionId = "msn_reflect_solo";
+
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Vessel? loaded = await testDb.Driver.Vessels.ReadAsync(vessel.Id).ConfigureAwait(false);
+                    AssertNotNull(loaded, "vessel should be readable after create");
+                    AssertEqual("msn_reflect_solo", loaded!.LastReflectionMissionId, "LastReflectionMissionId should round-trip alone");
+                    AssertNull(loaded.ReflectionThreshold, "ReflectionThreshold should remain null when only mission id is set");
+                }
+            });
+
+            await RunTest("VesselReflectionFields_OnlyThresholdSet_MissionIdRemainsNull", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = new Vessel("ReflectionThresholdOnly", "https://github.com/test/reflect-threshold-only");
+                    vessel.ReflectionThreshold = 11;
+
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Vessel? loaded = await testDb.Driver.Vessels.ReadAsync(vessel.Id).ConfigureAwait(false);
+                    AssertNotNull(loaded, "vessel should be readable after create");
+                    AssertNull(loaded!.LastReflectionMissionId, "LastReflectionMissionId should remain null when only threshold is set");
+                    AssertEqual(11, loaded.ReflectionThreshold!.Value, "ReflectionThreshold should round-trip alone");
+                }
+            });
+
+            await RunTest("VesselReflectionFields_BoundaryThresholds_RoundTrip", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel zeroVessel = new Vessel("ReflectionThresholdZero", "https://github.com/test/reflect-zero");
+                    zeroVessel.ReflectionThreshold = 0;
+                    await testDb.Driver.Vessels.CreateAsync(zeroVessel).ConfigureAwait(false);
+
+                    Vessel maxVessel = new Vessel("ReflectionThresholdMax", "https://github.com/test/reflect-max");
+                    maxVessel.ReflectionThreshold = int.MaxValue;
+                    await testDb.Driver.Vessels.CreateAsync(maxVessel).ConfigureAwait(false);
+
+                    Vessel? zeroLoaded = await testDb.Driver.Vessels.ReadAsync(zeroVessel.Id).ConfigureAwait(false);
+                    Vessel? maxLoaded = await testDb.Driver.Vessels.ReadAsync(maxVessel.Id).ConfigureAwait(false);
+
+                    AssertNotNull(zeroLoaded, "zero-threshold vessel should be readable");
+                    AssertEqual(0, zeroLoaded!.ReflectionThreshold!.Value, "ReflectionThreshold zero should round-trip");
+
+                    AssertNotNull(maxLoaded, "max-threshold vessel should be readable");
+                    AssertEqual(int.MaxValue, maxLoaded!.ReflectionThreshold!.Value, "ReflectionThreshold int.MaxValue should round-trip");
+                }
+            });
+
+            await RunTest("VesselReflectionFields_Enumerate_ReturnsBothFields", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vesselA = new Vessel("ReflectionEnumA", "https://github.com/test/reflect-enum-a");
+                    vesselA.LastReflectionMissionId = "msn_reflect_a";
+                    vesselA.ReflectionThreshold = 3;
+                    Vessel vesselB = new Vessel("ReflectionEnumB", "https://github.com/test/reflect-enum-b");
+                    vesselB.LastReflectionMissionId = "msn_reflect_b";
+                    vesselB.ReflectionThreshold = 9;
+
+                    await testDb.Driver.Vessels.CreateAsync(vesselA).ConfigureAwait(false);
+                    await testDb.Driver.Vessels.CreateAsync(vesselB).ConfigureAwait(false);
+
+                    List<Vessel> all = await testDb.Driver.Vessels.EnumerateAsync().ConfigureAwait(false);
+                    Vessel? loadedA = all.Find(v => v.Id == vesselA.Id);
+                    Vessel? loadedB = all.Find(v => v.Id == vesselB.Id);
+
+                    AssertNotNull(loadedA, "vesselA should appear in EnumerateAsync");
+                    AssertEqual("msn_reflect_a", loadedA!.LastReflectionMissionId, "vesselA mission id should hydrate from enumerate");
+                    AssertEqual(3, loadedA.ReflectionThreshold!.Value, "vesselA threshold should hydrate from enumerate");
+
+                    AssertNotNull(loadedB, "vesselB should appear in EnumerateAsync");
+                    AssertEqual("msn_reflect_b", loadedB!.LastReflectionMissionId, "vesselB mission id should hydrate from enumerate");
+                    AssertEqual(9, loadedB.ReflectionThreshold!.Value, "vesselB threshold should hydrate from enumerate");
+                }
+            });
+
+            await RunTest("MigrationV40_FreshInit_SchemaVersionAtLeastV40_AndColumnsExist", async () =>
+            {
+                string tempFile = Path.Combine(Path.GetTempPath(), "armada_v40_fresh_" + Guid.NewGuid().ToString("N") + ".db");
+                string connectionString = "Data Source=" + tempFile;
+
+                try
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    SqliteDatabaseDriver driver = new SqliteDatabaseDriver(connectionString, logging);
+                    await driver.InitializeAsync().ConfigureAwait(false);
+                    int version = await driver.GetSchemaVersionAsync().ConfigureAwait(false);
+                    driver.Dispose();
+
+                    AssertTrue(version >= 40, "schema version should be at least 40 after fresh init (was " + version + ")");
+
+                    using (SqliteConnection conn = new SqliteConnection(connectionString))
+                    {
+                        await conn.OpenAsync().ConfigureAwait(false);
+                        AssertTrue(await ColumnExistsAsync(conn, "last_reflection_mission_id").ConfigureAwait(false), "last_reflection_mission_id should exist after fresh init");
+                        AssertTrue(await ColumnExistsAsync(conn, "reflection_threshold").ConfigureAwait(false), "reflection_threshold should exist after fresh init");
+
+                        AssertEqual("TEXT", await ColumnTypeAsync(conn, "last_reflection_mission_id").ConfigureAwait(false), "last_reflection_mission_id should be TEXT");
+                        AssertEqual("INTEGER", await ColumnTypeAsync(conn, "reflection_threshold").ConfigureAwait(false), "reflection_threshold should be INTEGER");
+                    }
+                }
+                finally
+                {
+                    try { File.Delete(tempFile); } catch { }
+                }
+            });
+        }
+
+        private static async Task<string?> ColumnTypeAsync(SqliteConnection conn, string columnName)
+        {
+            using (SqliteCommand cmd = conn.CreateCommand())
+            {
+                cmd.CommandText = "SELECT type FROM pragma_table_info('vessels') WHERE name = @name;";
+                cmd.Parameters.AddWithValue("@name", columnName);
+                object? result = await cmd.ExecuteScalarAsync().ConfigureAwait(false);
+                if (result == null || result == DBNull.Value) return null;
+                return result.ToString();
+            }
         }
 
         private static async Task<bool> ColumnExistsAsync(SqliteConnection conn, string columnName)
