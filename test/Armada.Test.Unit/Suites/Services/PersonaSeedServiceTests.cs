@@ -131,6 +131,28 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Seed memory consolidator persona is idempotent", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    PersonaSeedService service = new PersonaSeedService(testDb.Driver, CreateLogging());
+                    await service.SeedAsync().ConfigureAwait(false);
+
+                    Persona? first = await testDb.Driver.Personas.ReadByNameAsync("MemoryConsolidator").ConfigureAwait(false);
+                    AssertNotNull(first, "MemoryConsolidator persona should exist after first seed");
+
+                    await service.SeedAsync().ConfigureAwait(false);
+
+                    Persona? second = await testDb.Driver.Personas.ReadByNameAsync("MemoryConsolidator").ConfigureAwait(false);
+                    AssertNotNull(second, "MemoryConsolidator persona should exist after second seed");
+                    AssertEqual(first!.Id, second!.Id, "Repeated seeding should update the existing persona instead of replacing it");
+
+                    List<Persona> personas = await testDb.Driver.Personas.EnumerateAsync().ConfigureAwait(false);
+                    int matches = personas.Count(p => p.Name == "MemoryConsolidator");
+                    AssertEqual(1, matches, "Repeated seeding should not create duplicate MemoryConsolidator personas");
+                }
+            });
+
             await RunTest("Seed preserves unrelated custom persona and pipeline", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

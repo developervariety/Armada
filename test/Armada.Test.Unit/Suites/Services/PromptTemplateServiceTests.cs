@@ -143,6 +143,30 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Seed defaults preserves existing memory consolidator template content", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    PromptTemplate existing = new PromptTemplate("persona.memory_consolidator", "CUSTOM MEMORY CONTENT");
+                    existing.Category = "custom";
+                    existing.Description = "Custom memory consolidator prompt";
+                    existing.IsBuiltIn = false;
+                    await testDb.Driver.PromptTemplates.CreateAsync(existing).ConfigureAwait(false);
+
+                    PromptTemplateService service = new PromptTemplateService(testDb.Driver, logging);
+                    await service.SeedDefaultsAsync().ConfigureAwait(false);
+
+                    PromptTemplate? resolved = await service.ResolveAsync("persona.memory_consolidator").ConfigureAwait(false);
+                    AssertNotNull(resolved, "Memory consolidator template should still resolve");
+                    AssertEqual("CUSTOM MEMORY CONTENT", resolved!.Content, "Seeding should not overwrite database-edited MemoryConsolidator content");
+                    AssertEqual("persona", resolved.Category, "Seeding should reconcile MemoryConsolidator category metadata");
+                    AssertTrue(resolved.IsBuiltIn, "Seeding should reconcile MemoryConsolidator built-in metadata");
+                }
+            });
+
             await RunTest("Resolve returns database template when exists", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
