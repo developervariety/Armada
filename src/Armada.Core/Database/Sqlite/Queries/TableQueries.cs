@@ -398,6 +398,8 @@ namespace Armada.Core.Database.Sqlite.Queries
                         landing_mode TEXT,
                         branch_cleanup_policy TEXT,
                         allow_concurrent_missions INTEGER NOT NULL DEFAULT 0,
+                        last_reflection_mission_id TEXT,
+                        reflection_threshold INTEGER,
                         FOREIGN KEY (tenant_id) REFERENCES tenants(id),
                         FOREIGN KEY (user_id) REFERENCES users(id),
                         FOREIGN KEY (fleet_id) REFERENCES fleets(id) ON DELETE SET NULL
@@ -888,6 +890,10 @@ namespace Armada.Core.Database.Sqlite.Queries
                 ),
                 new SchemaMigration(39, "Add runtime_options_json to captains",
                     @"ALTER TABLE captains ADD COLUMN runtime_options_json TEXT;"
+                ),
+                new SchemaMigration(40, "Add reflection tracking columns to vessels",
+                    @"ALTER TABLE vessels ADD COLUMN last_reflection_mission_id TEXT;",
+                    @"ALTER TABLE vessels ADD COLUMN reflection_threshold INTEGER;"
                 )
             };
         }

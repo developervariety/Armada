@@ -96,6 +96,8 @@ namespace Armada.Core.Database.Postgresql.Queries
                         landing_mode TEXT,
                         branch_cleanup_policy TEXT,
                         allow_concurrent_missions BOOLEAN NOT NULL DEFAULT FALSE,
+                        last_reflection_mission_id TEXT,
+                        reflection_threshold INTEGER,
                         default_branch TEXT NOT NULL DEFAULT 'main',
                         active BOOLEAN NOT NULL DEFAULT TRUE,
                         created_utc TIMESTAMP NOT NULL,
@@ -588,6 +590,10 @@ namespace Armada.Core.Database.Postgresql.Queries
                 ),
                 new SchemaMigration(39, "Add runtime_options_json to captains",
                     @"ALTER TABLE captains ADD COLUMN IF NOT EXISTS runtime_options_json TEXT;"
+                ),
+                new SchemaMigration(40, "Add reflection tracking columns to vessels",
+                    @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS last_reflection_mission_id TEXT;",
+                    @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS reflection_threshold INTEGER;"
                 )
             };
         }
