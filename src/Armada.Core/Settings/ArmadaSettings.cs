@@ -369,6 +369,47 @@ namespace Armada.Core.Settings
         public bool TerminalBell { get; set; } = true;
 
         /// <summary>
+        /// Default number of completed missions on a vessel before a reflection is auto-triggered.
+        /// Per-vessel <c>ReflectionThreshold</c> overrides this when set. Must be >= 1.
+        /// </summary>
+        public int DefaultReflectionThreshold
+        {
+            get => _DefaultReflectionThreshold;
+            set
+            {
+                if (value < 1) throw new ArgumentOutOfRangeException(nameof(DefaultReflectionThreshold), "Must be >= 1");
+                _DefaultReflectionThreshold = value;
+            }
+        }
+
+        /// <summary>
+        /// Number of most-recent missions to include in the first reflection for a vessel that
+        /// has never had an accepted reflection. Must be >= 1.
+        /// </summary>
+        public int InitialReflectionWindow
+        {
+            get => _InitialReflectionWindow;
+            set
+            {
+                if (value < 1) throw new ArgumentOutOfRangeException(nameof(InitialReflectionWindow), "Must be >= 1");
+                _InitialReflectionWindow = value;
+            }
+        }
+
+        /// <summary>
+        /// Default token budget for reflection consolidation missions. Must be >= 1.
+        /// </summary>
+        public int DefaultReflectionTokenBudget
+        {
+            get => _DefaultReflectionTokenBudget;
+            set
+            {
+                if (value < 1) throw new ArgumentOutOfRangeException(nameof(DefaultReflectionTokenBudget), "Must be >= 1");
+                _DefaultReflectionTokenBudget = value;
+            }
+        }
+
+        /// <summary>
         /// Minimum number of <c>AuditDeepPicked = true</c> entries pending review before
         /// admiral fires a desktop notification on the next health-check cycle. 0 disables
         /// the notification entirely. Default is 1 -- as soon as Judge flags one entry,
@@ -489,6 +530,9 @@ namespace Armada.Core.Settings
         private int _MinIdleCaptains = 0;
         private int _MaxCaptains = 0;
         private int _IdleCaptainTimeoutSeconds = Constants.DefaultIdleCaptainTimeoutSeconds;
+        private int _DefaultReflectionThreshold = 15;
+        private int _InitialReflectionWindow = 100;
+        private int _DefaultReflectionTokenBudget = 400000;
         private RemoteControlSettings _RemoteControl = new RemoteControlSettings();
         private DatabaseSettings _Database = new DatabaseSettings();
         private CodeIndexSettings _CodeIndex = new CodeIndexSettings();
