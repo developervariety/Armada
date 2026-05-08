@@ -116,6 +116,59 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("BuildEvidenceBundle_SinceMissionId_IncludesOnlyNewerTerminalEvidence", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, "rc-since").ConfigureAwait(false);
+                    Mission before = await CreateTerminalMissionAsync(testDb.Driver, vessel.Id, "before", DateTime.UtcNow.AddMinutes(-40)).ConfigureAwait(false);
+                    Mission marker = await CreateTerminalMissionAsync(testDb.Driver, vessel.Id, "marker", DateTime.UtcNow.AddMinutes(-30)).ConfigureAwait(false);
+                    Mission after = await CreateTerminalMissionAsync(testDb.Driver, vessel.Id, "after", DateTime.UtcNow.AddMinutes(-20)).ConfigureAwait(false);
+
+                    ReflectionDispatcher dispatcher = CreateDispatcher(
+                        testDb.Driver,
+                        new RecordingAdmiralService(testDb.Driver),
+                        new ArmadaSettings { InitialReflectionWindow = 10 });
+
+                    ReflectionDispatcher.EvidenceBundleResult bundle = await dispatcher.BuildEvidenceBundleAsync(
+                        vessel,
+                        marker.Id,
+                        8000).ConfigureAwait(false);
+
+                    AssertEqual(1, bundle.EvidenceMissionCount, "Only missions completed after sinceMissionId should be included");
+                    AssertContains(after.Id, bundle.Brief, "Newer mission should be included");
+                    AssertFalse(bundle.Brief.Contains(marker.Id), "sinceMissionId marker should not be included");
+                    AssertFalse(bundle.Brief.Contains(before.Id), "Older mission should not be included");
+                }
+            });
+
+            await RunTest("BuildEvidenceBundle_LastReflectionMissionId_IncludesOnlyNewerTerminalEvidence", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, "rc-last-reflection").ConfigureAwait(false);
+                    Mission before = await CreateTerminalMissionAsync(testDb.Driver, vessel.Id, "before", DateTime.UtcNow.AddMinutes(-40)).ConfigureAwait(false);
+                    Mission lastReflection = await CreateTerminalMissionAsync(testDb.Driver, vessel.Id, "last reflection", DateTime.UtcNow.AddMinutes(-30)).ConfigureAwait(false);
+                    Mission after = await CreateTerminalMissionAsync(testDb.Driver, vessel.Id, "after", DateTime.UtcNow.AddMinutes(-20)).ConfigureAwait(false);
+                    vessel.LastReflectionMissionId = lastReflection.Id;
+
+                    ReflectionDispatcher dispatcher = CreateDispatcher(
+                        testDb.Driver,
+                        new RecordingAdmiralService(testDb.Driver),
+                        new ArmadaSettings { InitialReflectionWindow = 10 });
+
+                    ReflectionDispatcher.EvidenceBundleResult bundle = await dispatcher.BuildEvidenceBundleAsync(
+                        vessel,
+                        null,
+                        8000).ConfigureAwait(false);
+
+                    AssertEqual(1, bundle.EvidenceMissionCount, "Stored last reflection should start the evidence window");
+                    AssertContains(after.Id, bundle.Brief, "Newer mission should be included");
+                    AssertFalse(bundle.Brief.Contains(lastReflection.Id), "Last reflection mission should not be included again");
+                    AssertFalse(bundle.Brief.Contains(before.Id), "Older mission should not be included");
+                }
+            });
+
             await RunTest("DispatchReflection_UsesReflectionsPipelineAndHighTier", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
