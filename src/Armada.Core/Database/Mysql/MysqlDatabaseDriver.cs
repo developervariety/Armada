@@ -481,6 +481,11 @@ namespace Armada.Core.Database.Mysql
                     39,
                     "Add runtime_options_json to captains",
                     TableQueries.MigrationV39Statements
+                ),
+                new SchemaMigration(
+                    40,
+                    "Add reflection tracking columns to vessels",
+                    TableQueries.MigrationV40Statements
                 )
             };
         }
@@ -697,5 +702,4 @@ namespace Armada.Core.Database.Mysql
         #endregion
     }
 }
-
 

@@ -446,6 +446,16 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"
                     IF COL_LENGTH('captains', 'runtime_options_json') IS NULL
                         ALTER TABLE captains ADD runtime_options_json NVARCHAR(MAX) NULL;"
+                ),
+                new SchemaMigration(
+                    40,
+                    "Add reflection tracking columns to vessels",
+                    @"
+                    IF COL_LENGTH('vessels', 'last_reflection_mission_id') IS NULL
+                        ALTER TABLE vessels ADD last_reflection_mission_id NVARCHAR(MAX);",
+                    @"
+                    IF COL_LENGTH('vessels', 'reflection_threshold') IS NULL
+                        ALTER TABLE vessels ADD reflection_threshold INT;"
                 )
             };
         }
@@ -546,6 +556,8 @@ namespace Armada.Core.Database.SqlServer.Queries
                 landing_mode NVARCHAR(450),
                 branch_cleanup_policy NVARCHAR(450),
                 allow_concurrent_missions BIT NOT NULL DEFAULT 0,
+                last_reflection_mission_id NVARCHAR(MAX),
+                reflection_threshold INT,
                 default_branch NVARCHAR(450) NOT NULL DEFAULT 'main',
                 active BIT NOT NULL DEFAULT 1,
                 created_utc NVARCHAR(450) NOT NULL,

@@ -152,6 +152,70 @@ namespace Armada.Test.Unit.Suites.Models
                 AssertContains("StyleGuide", json);
                 AssertContains("test style", json);
             });
+
+            await RunTest("Vessel ReflectionFields DefaultToNull", () =>
+            {
+                Vessel vessel = new Vessel();
+                AssertNull(vessel.LastReflectionMissionId, nameof(Vessel.LastReflectionMissionId));
+                AssertNull(vessel.ReflectionThreshold, nameof(Vessel.ReflectionThreshold));
+            });
+
+            await RunTest("Vessel LastReflectionMissionId SetAndGet", () =>
+            {
+                Vessel vessel = new Vessel();
+                vessel.LastReflectionMissionId = "msn_reflect_abc123";
+                AssertEqual("msn_reflect_abc123", vessel.LastReflectionMissionId);
+            });
+
+            await RunTest("Vessel LastReflectionMissionId Nullable", () =>
+            {
+                Vessel vessel = new Vessel();
+                vessel.LastReflectionMissionId = "msn_reflect_temp";
+                vessel.LastReflectionMissionId = null;
+                AssertNull(vessel.LastReflectionMissionId);
+            });
+
+            await RunTest("Vessel ReflectionThreshold SetAndGet", () =>
+            {
+                Vessel vessel = new Vessel();
+                vessel.ReflectionThreshold = 42;
+                AssertEqual(42, vessel.ReflectionThreshold!.Value);
+            });
+
+            await RunTest("Vessel ReflectionThreshold Nullable", () =>
+            {
+                Vessel vessel = new Vessel();
+                vessel.ReflectionThreshold = 99;
+                vessel.ReflectionThreshold = null;
+                AssertNull(vessel.ReflectionThreshold);
+            });
+
+            await RunTest("Vessel Serialization RoundTrip WithReflectionFields", () =>
+            {
+                Vessel vessel = new Vessel("ReflectionVessel", "https://github.com/test/reflect");
+                vessel.LastReflectionMissionId = "msn_reflect_roundtrip";
+                vessel.ReflectionThreshold = 17;
+
+                string json = JsonSerializer.Serialize(vessel);
+                Vessel deserialized = JsonSerializer.Deserialize<Vessel>(json)!;
+
+                AssertEqual(vessel.Id, deserialized.Id);
+                AssertEqual("msn_reflect_roundtrip", deserialized.LastReflectionMissionId);
+                AssertEqual(17, deserialized.ReflectionThreshold!.Value);
+            });
+
+            await RunTest("Vessel Serialization JsonContainsReflectionFields", () =>
+            {
+                Vessel vessel = new Vessel("ReflectionJsonVessel", "https://github.com/test/reflect-json");
+                vessel.LastReflectionMissionId = "msn_reflect_present";
+                vessel.ReflectionThreshold = 31;
+
+                string json = JsonSerializer.Serialize(vessel);
+                AssertContains("LastReflectionMissionId", json);
+                AssertContains("msn_reflect_present", json);
+                AssertContains("ReflectionThreshold", json);
+                AssertContains("31", json);
+            });
         }
     }
 }
