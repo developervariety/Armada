@@ -147,6 +147,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new PreferredModelUserGuidanceTests());
             runner.AddSuite(new MissionServicePreferredModelRoutingTests());
             runner.AddSuite(new SchedulerHydrationTests());
+            runner.AddSuite(new ReflectionMemoryBootstrapServiceTests());
             runner.AddSuite(new VesselReflectionThresholdRoutesTests());
 
             int exitCode = await runner.RunAllAsync().ConfigureAwait(false);

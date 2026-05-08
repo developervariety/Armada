@@ -194,6 +194,10 @@ namespace Armada.Server
             await _PersonaSeedService.SeedAsync().ConfigureAwait(false);
             _Logging.Info(_Header + "persona and pipeline seeding completed");
 
+            IReflectionMemoryBootstrapService reflectionBootstrap = new ReflectionMemoryBootstrapService(_Database, _Logging);
+            await reflectionBootstrap.BootstrapAsync().ConfigureAwait(false);
+            _Logging.Info(_Header + "reflection memory bootstrap completed");
+
             ArchitectPersonaSyncService architectSync = new ArchitectPersonaSyncService(_Database, _Logging);
             bool architectSynced = await architectSync.SyncAsync().ConfigureAwait(false);
             if (architectSynced) _Logging.Info(_Header + "Architect persona prompt synced from embedded resource");
