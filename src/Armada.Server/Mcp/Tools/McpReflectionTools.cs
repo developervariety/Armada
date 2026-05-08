@@ -6,6 +6,8 @@ namespace Armada.Server.Mcp.Tools
     using Armada.Core.Database;
     using Armada.Core.Memory;
     using Armada.Core.Models;
+    using Armada.Core.Services;
+    using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
 
     /// <summary>
@@ -89,6 +91,48 @@ namespace Armada.Server.Mcp.Tools
                         truncated = bundle.Truncated
                     };
                 });
+
+            register(
+                "armada_accept_memory_proposal",
+                "Apply a reviewed MemoryConsolidator proposal to the vessel learned playbook.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        missionId = new { type = "string", description = "MemoryConsolidator mission id (msn_ prefix)" },
+                        editsMarkdown = new { type = "string", description = "Optional markdown override; when set, bypasses AgentOutput parsing" }
+                    },
+                    required = new[] { "missionId" }
+                },
+                async (args) =>
+                {
+                    AcceptMemoryProposalArgs request = JsonSerializer.Deserialize<AcceptMemoryProposalArgs>(args!.Value, _JsonOptions)!;
+                    IReflectionMemoryService memoryService = new ReflectionMemoryService(database);
+                    IReflectionOutputParser parser = new ReflectionOutputParser();
+                    ReflectionAcceptProposalResult result = await memoryService.AcceptMemoryProposalAsync(
+                        request.MissionId,
+                        request.EditsMarkdown,
+                        parser).ConfigureAwait(false);
+                    if (!String.IsNullOrEmpty(result.Error))
+                    {
+                        return (object)new { Error = result.Error };
+                    }
+
+                    return (object)new
+                    {
+                        playbookId = result.PlaybookId,
+                        playbookVersion = result.PlaybookVersion,
+                        appliedContent = result.AppliedContent
+                    };
+                });
+        }
+
+        private sealed class AcceptMemoryProposalArgs
+        {
+            public string MissionId { get; set; } = "";
+
+            public string? EditsMarkdown { get; set; }
         }
 
         private sealed class ConsolidateMemoryArgs
