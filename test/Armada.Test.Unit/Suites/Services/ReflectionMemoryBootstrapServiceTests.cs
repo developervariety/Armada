@@ -91,6 +91,80 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Bootstrap_ExistingLearnedPlaybook_AttachesExistingPlaybookWithoutDuplicateRow", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Fleet fleet = new Fleet("rmb-fleet-5");
+                    fleet = await testDb.Driver.Fleets.CreateAsync(fleet).ConfigureAwait(false);
+
+                    Playbook existingPlaybook = new Playbook("vessel-rmb-vessel-five-learned.md", "# Existing Learned Facts\n\nNo accepted reflection facts yet.");
+                    existingPlaybook.TenantId = Constants.DefaultTenantId;
+                    existingPlaybook = await testDb.Driver.Playbooks.CreateAsync(existingPlaybook).ConfigureAwait(false);
+
+                    Vessel vessel = new Vessel("rmb-vessel-five", "https://github.com/test/rmb-5.git");
+                    vessel.FleetId = fleet.Id;
+                    vessel.TenantId = Constants.DefaultTenantId;
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    SyslogLogging.LoggingModule logging = new SyslogLogging.LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    ReflectionMemoryBootstrapService svc = new ReflectionMemoryBootstrapService(testDb.Driver, logging);
+                    await svc.BootstrapAsync().ConfigureAwait(false);
+
+                    Vessel? updated = await testDb.Driver.Vessels.ReadAsync(vessel.Id).ConfigureAwait(false);
+                    AssertNotNull(updated, "Vessel should exist after bootstrap");
+                    List<SelectedPlaybook> defaults = updated!.GetDefaultPlaybooks();
+                    AssertEqual(1, defaults.Count, "Existing learned playbook should be attached once");
+                    AssertEqual(existingPlaybook.Id, defaults[0].PlaybookId, "DefaultPlaybooks entry should reference the existing playbook row");
+
+                    List<Playbook> allPlaybooks = await testDb.Driver.Playbooks.EnumerateAsync(Constants.DefaultTenantId).ConfigureAwait(false);
+                    int learnedCount = 0;
+                    foreach (Playbook pb in allPlaybooks)
+                    {
+                        if (pb.FileName == "vessel-rmb-vessel-five-learned.md") learnedCount++;
+                    }
+                    AssertEqual(1, learnedCount, "Bootstrap must reuse the existing deterministic learned playbook row");
+                }
+            });
+
+            await RunTest("Bootstrap_DefaultAlreadyReferencesLearnedPlaybook_DoesNotAppendDuplicateSelection", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Fleet fleet = new Fleet("rmb-fleet-6");
+                    fleet = await testDb.Driver.Fleets.CreateAsync(fleet).ConfigureAwait(false);
+
+                    Playbook existingPlaybook = new Playbook("vessel-rmb-vessel-six-learned.md", "# Existing Learned Facts\n\nNo accepted reflection facts yet.");
+                    existingPlaybook.TenantId = Constants.DefaultTenantId;
+                    existingPlaybook = await testDb.Driver.Playbooks.CreateAsync(existingPlaybook).ConfigureAwait(false);
+
+                    List<SelectedPlaybook> existingDefaults = new List<SelectedPlaybook>
+                    {
+                        new SelectedPlaybook { PlaybookId = existingPlaybook.Id, DeliveryMode = PlaybookDeliveryModeEnum.InlineFullContent }
+                    };
+
+                    Vessel vessel = new Vessel("rmb-vessel-six", "https://github.com/test/rmb-6.git");
+                    vessel.FleetId = fleet.Id;
+                    vessel.TenantId = Constants.DefaultTenantId;
+                    vessel.DefaultPlaybooks = JsonSerializer.Serialize(existingDefaults,
+                        new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    SyslogLogging.LoggingModule logging = new SyslogLogging.LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    ReflectionMemoryBootstrapService svc = new ReflectionMemoryBootstrapService(testDb.Driver, logging);
+                    await svc.BootstrapAsync().ConfigureAwait(false);
+
+                    Vessel? updated = await testDb.Driver.Vessels.ReadAsync(vessel.Id).ConfigureAwait(false);
+                    AssertNotNull(updated, "Vessel should exist after bootstrap");
+                    List<SelectedPlaybook> defaults = updated!.GetDefaultPlaybooks();
+                    AssertEqual(1, defaults.Count, "Existing learned playbook selection must not be duplicated");
+                    AssertEqual(existingPlaybook.Id, defaults[0].PlaybookId, "Existing selection should still reference the learned playbook");
+                    AssertEqual(PlaybookDeliveryModeEnum.InlineFullContent, defaults[0].DeliveryMode, "Existing caller-managed delivery mode must be preserved");
+                }
+            });
+
             await RunTest("Bootstrap_VesselWithExistingDefaults_PreservesExistingEntries", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -147,6 +221,32 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(Constants.DefaultTenantId, playbook!.TenantId, "Playbook TenantId must match vessel TenantId");
                     AssertTrue(playbook.Active, "Playbook should be active");
                     AssertFalse(string.IsNullOrWhiteSpace(playbook.Content), "Playbook content must not be empty");
+                }
+            });
+
+            await RunTest("Bootstrap_VesselWithoutTenant_SkipsPlaybookCreation", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Fleet fleet = new Fleet("rmb-fleet-7");
+                    fleet = await testDb.Driver.Fleets.CreateAsync(fleet).ConfigureAwait(false);
+
+                    Vessel vessel = new Vessel("rmb-vessel-seven", "https://github.com/test/rmb-7.git");
+                    vessel.FleetId = fleet.Id;
+                    vessel.TenantId = null;
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    SyslogLogging.LoggingModule logging = new SyslogLogging.LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    ReflectionMemoryBootstrapService svc = new ReflectionMemoryBootstrapService(testDb.Driver, logging);
+                    await svc.BootstrapAsync().ConfigureAwait(false);
+
+                    Vessel? updated = await testDb.Driver.Vessels.ReadAsync(vessel.Id).ConfigureAwait(false);
+                    AssertNotNull(updated, "Vessel should exist after bootstrap");
+                    AssertEqual(0, updated!.GetDefaultPlaybooks().Count, "Tenantless vessels should not receive DefaultPlaybooks entries");
+
+                    List<Playbook> allPlaybooks = await testDb.Driver.Playbooks.EnumerateAsync().ConfigureAwait(false);
+                    AssertEqual(0, allPlaybooks.Count, "Tenantless vessels should not create learned playbook rows");
                 }
             });
         }
