@@ -41,5 +41,18 @@ namespace Armada.Core.Services.Interfaces
             string? editsMarkdown,
             IReflectionOutputParser parser,
             CancellationToken token = default);
+
+        /// <summary>
+        /// Reject a MemoryConsolidator proposal: record a <c>reflection.rejected</c> event with the reason.
+        /// Does not update the learned playbook or <c>Vessel.LastReflectionMissionId</c>.
+        /// </summary>
+        /// <param name="missionId">MemoryConsolidator mission id.</param>
+        /// <param name="reason">Rejection reason fed into the next reflection brief.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Stable error code on failure; null on success.</returns>
+        Task<string?> RejectMemoryProposalAsync(
+            string missionId,
+            string reason,
+            CancellationToken token = default);
     }
 }
