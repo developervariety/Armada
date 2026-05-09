@@ -11,6 +11,7 @@ namespace Armada.Server
     using ArmadaConstants = Armada.Core.Constants;
     using Armada.Core.Database;
     using Armada.Core.Enums;
+    using Armada.Core.Memory;
     using Armada.Core.Models;
     using Armada.Core.Recovery;
     using Armada.Core.Services;
@@ -64,6 +65,8 @@ namespace Armada.Server
         private IMessageTemplateService _TemplateService = null!;
         private IPromptTemplateService _PromptTemplateService = null!;
         private ICodeIndexService _CodeIndex = null!;
+        private IReflectionMemoryService _ReflectionMemory = null!;
+        private ReflectionDispatcher _ReflectionDispatcher = null!;
         private PersonaSeedService _PersonaSeedService = null!;
         private LogRotationService _LogRotation = null!;
         private DataExpiryService _DataExpiry = null!;
@@ -193,6 +196,12 @@ namespace Armada.Server
             _PersonaSeedService = new PersonaSeedService(_Database, _Logging);
             await _PersonaSeedService.SeedAsync().ConfigureAwait(false);
             _Logging.Info(_Header + "persona and pipeline seeding completed");
+
+            IReflectionMemoryBootstrapService reflectionBootstrap = new ReflectionMemoryBootstrapService(_Database, _Logging);
+            await reflectionBootstrap.BootstrapAsync().ConfigureAwait(false);
+            _Logging.Info(_Header + "reflection memory bootstrap completed");
+            _ReflectionMemory = new ReflectionMemoryService(_Database);
+            _ReflectionDispatcher = new ReflectionDispatcher(_Database, _Admiral, _Settings, _ReflectionMemory);
 
             ArchitectPersonaSyncService architectSync = new ArchitectPersonaSyncService(_Database, _Logging);
             bool architectSynced = await architectSync.SyncAsync().ConfigureAwait(false);
@@ -665,7 +674,8 @@ namespace Armada.Server
                 _PromptTemplateService,
                 _Logging,
                 _RemoteTriggerService,
-                _CodeIndex);
+                _CodeIndex,
+                _ReflectionDispatcher);
         }
 
         private async Task EmitEventAsync(string eventType, string message,

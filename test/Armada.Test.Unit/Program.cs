@@ -120,6 +120,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new VesselDefaultPlaybooksTests());
             runner.AddSuite(new AuditDrainerTests());
             runner.AddSuite(new ArchitectOutputParserTests());
+            runner.AddSuite(new ReflectionOutputParserTests());
             runner.AddSuite(new McpArchitectToolsTests());
             runner.AddSuite(new ArchitectPersonaSyncTests());
             runner.AddSuite(new RemoteTriggerSettingsTests());
@@ -147,6 +148,10 @@ namespace Armada.Test.Unit
             runner.AddSuite(new PreferredModelUserGuidanceTests());
             runner.AddSuite(new MissionServicePreferredModelRoutingTests());
             runner.AddSuite(new SchedulerHydrationTests());
+            runner.AddSuite(new ReflectionMemoryBootstrapServiceTests());
+            runner.AddSuite(new ReflectionConsolidateToolsTests());
+            runner.AddSuite(new ReflectionAcceptRejectToolsTests());
+            runner.AddSuite(new VesselReflectionThresholdRoutesTests());
 
             int exitCode = await runner.RunAllAsync().ConfigureAwait(false);
             return exitCode;

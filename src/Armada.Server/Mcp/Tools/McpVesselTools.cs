@@ -81,6 +81,11 @@ namespace Armada.Server.Mcp.Tools
                             description = "Optional auto-land predicate config. Null = orchestrator-triggered lands only. Schema: { enabled: bool, maxAddedLines?: int, maxFiles?: int, allowPaths?: string[], denyPaths?: string[] }.",
                             additionalProperties = true
                         },
+                        reflectionThreshold = new
+                        {
+                            type = "integer",
+                            description = "Per-vessel override for the number of completed missions that triggers an auto-reflection. Null = use the global default (15). Must be >= 0; pass 0 only if you intend to disable auto-triggering."
+                        },
                         defaultPlaybooks = new
                         {
                             type = "array",
@@ -149,6 +154,15 @@ namespace Armada.Server.Mcp.Tools
                     vessel.EnableModelContext = request.EnableModelContext ?? true;
                     vessel.DefaultPipelineId = request.DefaultPipelineId;
                     vessel.ProtectedPaths = (request.ProtectedPaths != null && request.ProtectedPaths.Count > 0) ? request.ProtectedPaths : null;
+                    if (args.HasValue && args.Value.TryGetProperty("reflectionThreshold", out JsonElement addRtElem)
+                        && addRtElem.ValueKind != JsonValueKind.Null)
+                    {
+                        if (addRtElem.ValueKind != JsonValueKind.Number || !addRtElem.TryGetInt32(out int addRtVal))
+                            return (object)new { Error = "reflectionThreshold must be an integer" };
+                        if (addRtVal < 0)
+                            return (object)new { Error = "reflectionThreshold must not be negative" };
+                        vessel.ReflectionThreshold = addRtVal;
+                    }
                     vessel.AutoLandPredicate = autoLandPredicateJson;
                     vessel.DefaultPlaybooks = defaultPlaybooksJson;
                     vessel = await database.Vessels.CreateAsync(vessel).ConfigureAwait(false);
@@ -185,6 +199,11 @@ namespace Armada.Server.Mcp.Tools
                             type = "object",
                             description = "Optional auto-land predicate config. Null = orchestrator-triggered lands only. Schema: { enabled: bool, maxAddedLines?: int, maxFiles?: int, allowPaths?: string[], denyPaths?: string[] }. Omit to leave the existing predicate unchanged; pass null to clear it.",
                             additionalProperties = true
+                        },
+                        reflectionThreshold = new
+                        {
+                            type = "integer",
+                            description = "Per-vessel reflection trigger threshold. Omit to leave unchanged; pass null to clear (revert to global default); pass an integer >= 0 to set."
                         },
                         defaultPlaybooks = new
                         {
@@ -274,6 +293,21 @@ namespace Armada.Server.Mcp.Tools
                             {
                                 return (object)new { Error = "invalid defaultPlaybooks JSON: " + ex.Message };
                             }
+                        }
+                    }
+                    if (args.HasValue && args.Value.TryGetProperty("reflectionThreshold", out JsonElement updRtElem))
+                    {
+                        if (updRtElem.ValueKind == JsonValueKind.Null)
+                        {
+                            vessel.ReflectionThreshold = null;
+                        }
+                        else
+                        {
+                            if (updRtElem.ValueKind != JsonValueKind.Number || !updRtElem.TryGetInt32(out int updRtVal))
+                                return (object)new { Error = "reflectionThreshold must be an integer" };
+                            if (updRtVal < 0)
+                                return (object)new { Error = "reflectionThreshold must not be negative" };
+                            vessel.ReflectionThreshold = updRtVal;
                         }
                     }
                     vessel = await database.Vessels.UpdateAsync(vessel).ConfigureAwait(false);

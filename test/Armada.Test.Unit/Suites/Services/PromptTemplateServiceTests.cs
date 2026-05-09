@@ -143,6 +143,30 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Seed defaults preserves existing memory consolidator template content", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    PromptTemplate existing = new PromptTemplate("persona.memory_consolidator", "CUSTOM MEMORY CONTENT");
+                    existing.Category = "custom";
+                    existing.Description = "Custom memory consolidator prompt";
+                    existing.IsBuiltIn = false;
+                    await testDb.Driver.PromptTemplates.CreateAsync(existing).ConfigureAwait(false);
+
+                    PromptTemplateService service = new PromptTemplateService(testDb.Driver, logging);
+                    await service.SeedDefaultsAsync().ConfigureAwait(false);
+
+                    PromptTemplate? resolved = await service.ResolveAsync("persona.memory_consolidator").ConfigureAwait(false);
+                    AssertNotNull(resolved, "Memory consolidator template should still resolve");
+                    AssertEqual("CUSTOM MEMORY CONTENT", resolved!.Content, "Seeding should not overwrite database-edited MemoryConsolidator content");
+                    AssertEqual("persona", resolved.Category, "Seeding should reconcile MemoryConsolidator category metadata");
+                    AssertTrue(resolved.IsBuiltIn, "Seeding should reconcile MemoryConsolidator built-in metadata");
+                }
+            });
+
             await RunTest("Resolve returns database template when exists", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
@@ -213,6 +237,49 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertContains("negative or edge-path test", testEngineer!.Content, "Test engineer template should require negative-path coverage");
                     AssertContains("## Coverage Added", testEngineer.Content, "Test engineer template should request a coverage summary section");
                     AssertContains("residual risk", testEngineer.Content, "Test engineer template should require residual risk notes");
+                }
+            });
+
+            await RunTest("Memory consolidator embedded default declares evidence and write-surface restrictions", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    PromptTemplateService service = new PromptTemplateService(testDb.Driver, logging);
+
+                    PromptTemplate? resolved = await service.ResolveAsync("persona.memory_consolidator").ConfigureAwait(false);
+                    AssertNotNull(resolved, "Memory consolidator template should resolve from embedded defaults");
+                    AssertEqual("persona.memory_consolidator", resolved!.Name, "Memory consolidator template name");
+                    AssertEqual("persona", resolved.Category, "Memory consolidator template category");
+                    AssertTrue(resolved.IsBuiltIn, "Memory consolidator template should be built in");
+                    AssertContains("MemoryConsolidator", resolved.Content, "Memory consolidator content should identify the role");
+                    AssertContains("read-only", resolved.Content, "Memory consolidator content should describe read-only evidence surface");
+                    AssertContains("AgentOutput", resolved.Content, "Memory consolidator content should restrict writes to AgentOutput");
+                    AssertContains("reflections-candidate", resolved.Content, "Memory consolidator content should require the reflections-candidate block");
+                    AssertContains("reflections-diff", resolved.Content, "Memory consolidator content should require the reflections-diff block");
+                    AssertContains("CLAUDE.md", resolved.Content, "Memory consolidator content should explicitly forbid CLAUDE.md edits");
+                    AssertContains("[ARMADA:RESULT] COMPLETE", resolved.Content, "Memory consolidator content should include completion signal");
+                    AssertTrue(IsAscii(resolved.Content), "Memory consolidator content should be ASCII only");
+                }
+            });
+
+            await RunTest("Seed defaults includes memory consolidator persona template", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    PromptTemplateService service = new PromptTemplateService(testDb.Driver, logging);
+                    await service.SeedDefaultsAsync().ConfigureAwait(false);
+
+                    List<PromptTemplate> personaTemplates = await service.ListAsync("persona").ConfigureAwait(false);
+                    PromptTemplate? seeded = personaTemplates.FirstOrDefault(t => t.Name == "persona.memory_consolidator");
+                    AssertNotNull(seeded, "Memory consolidator template should be seeded under the persona category");
+                    AssertEqual("persona", seeded!.Category, "Seeded memory consolidator category");
+                    AssertTrue(seeded.IsBuiltIn, "Seeded memory consolidator should be built in");
                 }
             });
 
@@ -302,6 +369,16 @@ namespace Armada.Test.Unit.Suites.Services
                     }
                 }
             });
+        }
+
+        private static bool IsAscii(string value)
+        {
+            if (value == null) return true;
+            foreach (char c in value)
+            {
+                if (c > 127) return false;
+            }
+            return true;
         }
     }
 }

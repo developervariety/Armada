@@ -192,6 +192,30 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(2, read.Stages.Count, "Pipeline read by name should include stages");
                 }
             });
+
+            await RunTest("Create and read single-stage pipeline with preferred model", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    Pipeline pipeline = new Pipeline("Reflections");
+                    pipeline.Description = "Single-stage memory consolidation pipeline";
+                    pipeline.Stages = new List<PipelineStage>
+                    {
+                        new PipelineStage(1, "MemoryConsolidator") { PreferredModel = "high" }
+                    };
+                    pipeline = await testDb.Driver.Pipelines.CreateAsync(pipeline).ConfigureAwait(false);
+
+                    Pipeline? read = await testDb.Driver.Pipelines.ReadAsync(pipeline.Id).ConfigureAwait(false);
+                    AssertNotNull(read, "Pipeline should be readable by ID");
+                    AssertEqual("Reflections", read!.Name, "Pipeline name");
+                    AssertEqual(1, read.Stages.Count, "Pipeline should have 1 stage");
+
+                    PipelineStage stage = read.Stages[0];
+                    AssertEqual(1, stage.Order, "Stage order");
+                    AssertEqual("MemoryConsolidator", stage.PersonaName, "Stage persona");
+                    AssertEqual("high", stage.PreferredModel, "Stage preferred model");
+                }
+            });
         }
     }
 }

@@ -7,6 +7,7 @@ namespace Armada.Server.Mcp
     using System.Threading.Tasks;
     using Armada.Server;
     using Armada.Core.Database;
+    using Armada.Core.Memory;
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
@@ -51,6 +52,7 @@ namespace Armada.Server.Mcp
         /// <param name="logging">Logging module for tools that need validation services.</param>
         /// <param name="remoteTriggerService">Remote trigger service for event-driven wake-up integration.</param>
         /// <param name="codeIndexService">Code index service for search and context-pack tools.</param>
+        /// <param name="reflectionDispatcher">Optional shared reflection dispatcher.</param>
         public static void RegisterAll(
             RegisterToolDelegate register,
             DatabaseDriver database,
@@ -66,8 +68,13 @@ namespace Armada.Server.Mcp
             IPromptTemplateService? templateService = null,
             LoggingModule? logging = null,
             IRemoteTriggerService? remoteTriggerService = null,
-            ICodeIndexService? codeIndexService = null)
+            ICodeIndexService? codeIndexService = null,
+            ReflectionDispatcher? reflectionDispatcher = null)
         {
+            ArmadaSettings effectiveSettings = settings ?? new ArmadaSettings();
+            ReflectionDispatcher effectiveReflectionDispatcher = reflectionDispatcher
+                ?? new ReflectionDispatcher(database, admiral, effectiveSettings, new ReflectionMemoryService(database));
+
             McpStatusTools.Register(register, admiral, onStop);
             McpEnumerateTools.Register(register, database, mergeQueue);
             McpFleetTools.Register(register, database);
@@ -88,6 +95,7 @@ namespace Armada.Server.Mcp
             McpAgentWakeTools.Register(register, remoteTriggerService);
             McpAuditTools.Register(register, database, remoteTriggerService);
             McpArchitectTools.Register(register, database, new ArchitectOutputParser(), admiral, codeIndexService, logging);
+            McpReflectionTools.Register(register, database, effectiveReflectionDispatcher, effectiveSettings);
             if (codeIndexService != null) McpCodeIndexTools.Register(register, codeIndexService);
         }
     }

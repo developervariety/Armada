@@ -131,9 +131,15 @@ namespace Armada.Server.Routes
                     req.Http.Response.StatusCode = 400;
                     return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "repoUrl is required when creating a vessel" };
                 }
+                if (vessel.ReflectionThreshold.HasValue && vessel.ReflectionThreshold.Value < 0)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "reflectionThreshold must not be negative" };
+                }
                 vessel.TenantId = ctx.TenantId;
                 vessel.UserId = ctx.UserId;
                 vessel.AutoLandPredicate = autoLandPredicateJson;
+                vessel.LastReflectionMissionId = null;
                 vessel = await _database.Vessels.CreateAsync(vessel).ConfigureAwait(false);
                 req.Http.Response.StatusCode = 201;
                 return vessel;
@@ -198,8 +204,14 @@ namespace Armada.Server.Routes
                 }
                 Vessel updated = JsonSerializer.Deserialize<Vessel>(updateBodyText, _jsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as Vessel.");
+                if (updated.ReflectionThreshold.HasValue && updated.ReflectionThreshold.Value < 0)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "reflectionThreshold must not be negative" };
+                }
                 updated.Id = id;
                 updated.AutoLandPredicate = updateAlpJson;
+                updated.LastReflectionMissionId = existing.LastReflectionMissionId;
                 updated = await _database.Vessels.UpdateAsync(updated).ConfigureAwait(false);
                 return (object)updated;
             },

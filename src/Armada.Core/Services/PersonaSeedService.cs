@@ -63,6 +63,7 @@ namespace Armada.Core.Services
             await SeedPersonaAsync("PerformanceMemoryReviewer", "Specialist reviewer for memory/allocations, retained object graphs, process output/log growth, DB materialization, throughput, and resource lifetime.", "persona.performance_memory_reviewer", token).ConfigureAwait(false);
             await SeedPersonaAsync("PortingReferenceAnalyst", "Specialist analyst for approved reference material, decompiler-derived notes, vendor traces, protocol captures, and semantic parity evidence for porting work.", "persona.porting_reference_analyst", token).ConfigureAwait(false);
             await SeedPersonaAsync("FrontendWorkflowReviewer", "Specialist reviewer for frontend UX/workflow, accessibility, responsive states, i18n, errors, and design consistency.", "persona.frontend_workflow_reviewer", token).ConfigureAwait(false);
+            await SeedPersonaAsync("MemoryConsolidator", "Curates the per-vessel learned-facts playbook from completed-mission evidence. Read-only on logs/diffs/notes; writes proposals to AgentOutput only.", "persona.memory_consolidator", token).ConfigureAwait(false);
         }
 
         private async Task SeedPersonaAsync(string name, string description, string templateName, CancellationToken token)
@@ -157,6 +158,12 @@ namespace Armada.Core.Services
                 "FrontendWorkflowTested",
                 "Worker then FrontendWorkflowReviewer then TestEngineer then Judge.",
                 BuildSpecialistTestedStages("FrontendWorkflowReviewer"),
+                token).ConfigureAwait(false);
+
+            await SeedPipelineAsync(
+                "Reflections",
+                "Single-stage memory consolidation. Output is the candidate playbook + diff; orchestrator reviews. No TestEngineer or Judge stage runs.",
+                new List<PipelineStage> { new PipelineStage(1, "MemoryConsolidator") { PreferredModel = "high" } },
                 token).ConfigureAwait(false);
         }
 
