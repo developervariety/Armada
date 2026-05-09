@@ -330,6 +330,53 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("RejectMemoryProposal_MissingMission_ReturnsNotFound", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Func<JsonElement?, Task<object>>? handler = CaptureRejectHandler(testDb.Driver);
+                    JsonElement args = JsonSerializer.SerializeToElement(new { missionId = "msn_missing", reason = "No such proposal" });
+                    object result = await handler!(args).ConfigureAwait(false);
+                    string json = JsonSerializer.Serialize(result);
+
+                    AssertContains("mission_not_found", json);
+                }
+            });
+
+            await RunTest("RejectMemoryProposal_RecordsRejectedEventWithTrimmedReason", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, "reject-event").ConfigureAwait(false);
+                    Mission mission = await CreateReflectionMissionAsync(
+                        testDb.Driver,
+                        vessel.Id,
+                        "any output").ConfigureAwait(false);
+
+                    Func<JsonElement?, Task<object>>? handler = CaptureRejectHandler(testDb.Driver);
+                    await handler!(JsonSerializer.SerializeToElement(new { missionId = mission.Id, reason = "  Needs stronger evidence  " })).ConfigureAwait(false);
+
+                    List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByMissionAsync(mission.Id).ConfigureAwait(false);
+                    ArmadaEvent? rejected = null;
+                    foreach (ArmadaEvent armadaEvent in events)
+                    {
+                        if (armadaEvent.EventType == "reflection.rejected")
+                        {
+                            rejected = armadaEvent;
+                            break;
+                        }
+                    }
+
+                    AssertNotNull(rejected, "Rejected event should be stored");
+                    AssertEqual("mission", rejected!.EntityType, "Event entity type");
+                    AssertEqual(mission.Id, rejected.EntityId, "Event entity id");
+                    AssertEqual(mission.Id, rejected.MissionId, "Event mission id");
+                    AssertEqual(vessel.Id, rejected.VesselId, "Event vessel id");
+                    AssertContains("\"reason\":\"Needs stronger evidence\"", rejected.Payload ?? "", "Payload should contain trimmed reason");
+                    AssertFalse((rejected.Payload ?? "").Contains("  Needs stronger evidence  "), "Payload should not preserve surrounding reason whitespace");
+                }
+            });
+
             await RunTest("RejectMemoryProposal_WrongPersona_ReturnsNotReflection", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
