@@ -318,6 +318,63 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(0, admiral.DispatchCount);
                 }
             });
+
+            await RunTest("Drain_MixedActiveAndInactive_AllVesselsPath_DispatchesOnlyActive", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = new ArmadaSettings { DefaultReflectionThreshold = 2 };
+                    Vessel activeVessel = await CreateVesselAsync(testDb.Driver, "mixed-active").ConfigureAwait(false);
+                    activeVessel.ReflectionThreshold = 2;
+                    activeVessel = await testDb.Driver.Vessels.UpdateAsync(activeVessel).ConfigureAwait(false);
+
+                    Vessel inactiveVessel = await CreateVesselAsync(testDb.Driver, "mixed-inactive").ConfigureAwait(false);
+                    inactiveVessel.Active = false;
+                    inactiveVessel.ReflectionThreshold = 2;
+                    inactiveVessel = await testDb.Driver.Vessels.UpdateAsync(inactiveVessel).ConfigureAwait(false);
+
+                    for (int i = 0; i < 2; i++)
+                    {
+                        await CreateTerminalMissionAsync(
+                                testDb.Driver,
+                                activeVessel.Id,
+                                "active" + i,
+                                DateTime.UtcNow.AddMinutes(-10 + i))
+                            .ConfigureAwait(false);
+                        await CreateTerminalMissionAsync(
+                                testDb.Driver,
+                                inactiveVessel.Id,
+                                "inactive" + i,
+                                DateTime.UtcNow.AddMinutes(-10 + i))
+                            .ConfigureAwait(false);
+                    }
+
+                    RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                    ReflectionDispatcher dispatcher = new ReflectionDispatcher(
+                        testDb.Driver,
+                        admiral,
+                        settings,
+                        new ReflectionMemoryService(testDb.Driver));
+
+                    Func<JsonElement?, Task<object>>? drainHandler = null;
+                    McpAuditTools.Register(
+                        (name, _, _, h) => { if (name == "armada_drain_audit_queue") drainHandler = h; },
+                        testDb.Driver,
+                        null,
+                        dispatcher);
+                    AssertNotNull(drainHandler);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new { limit = 10 });
+                    object result = await drainHandler!(args).ConfigureAwait(false);
+                    JsonNode? root = JsonNode.Parse(JsonSerializer.Serialize(result));
+                    JsonArray? reflections = root?["reflectionsDispatched"]?.AsArray();
+
+                    AssertNotNull(reflections);
+                    AssertEqual(1, reflections!.Count);
+                    AssertEqual(activeVessel.Id, reflections[0]?["vesselId"]?.GetValue<string>());
+                    AssertEqual(1, admiral.DispatchCount);
+                }
+            });
         }
 
         private static async Task<Vessel> CreateVesselAsync(DatabaseDriver database, string name)
