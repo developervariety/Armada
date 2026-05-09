@@ -89,7 +89,13 @@ namespace Armada.Server.Mcp.Tools
                         }
                         else
                         {
-                            vesselsToCheck = await database.Vessels.EnumerateAsync().ConfigureAwait(false);
+                            List<Vessel> allVessels = await database.Vessels.EnumerateAsync().ConfigureAwait(false);
+                            vesselsToCheck = new List<Vessel>();
+                            foreach (Vessel v in allVessels)
+                            {
+                                if (v.Active)
+                                    vesselsToCheck.Add(v);
+                            }
                         }
 
                         foreach (Vessel checkVessel in vesselsToCheck)

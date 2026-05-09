@@ -272,6 +272,52 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(1, admiral.DispatchCount);
                 }
             });
+
+            await RunTest("Drain_InactiveVessel_AllVesselsPath_SkipsAutoDispatch", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = new ArmadaSettings { DefaultReflectionThreshold = 3 };
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, "inactive-all-vessels").ConfigureAwait(false);
+                    vessel.Active = false;
+                    vessel.ReflectionThreshold = 3;
+                    vessel = await testDb.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
+
+                    for (int i = 0; i < 3; i++)
+                    {
+                        await CreateTerminalMissionAsync(
+                                testDb.Driver,
+                                vessel.Id,
+                                "inactive" + i,
+                                DateTime.UtcNow.AddMinutes(-10 + i))
+                            .ConfigureAwait(false);
+                    }
+
+                    RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                    ReflectionDispatcher dispatcher = new ReflectionDispatcher(
+                        testDb.Driver,
+                        admiral,
+                        settings,
+                        new ReflectionMemoryService(testDb.Driver));
+
+                    Func<JsonElement?, Task<object>>? drainHandler = null;
+                    McpAuditTools.Register(
+                        (name, _, _, h) => { if (name == "armada_drain_audit_queue") drainHandler = h; },
+                        testDb.Driver,
+                        null,
+                        dispatcher);
+                    AssertNotNull(drainHandler);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new { limit = 10 });
+                    object result = await drainHandler!(args).ConfigureAwait(false);
+                    JsonNode? root = JsonNode.Parse(JsonSerializer.Serialize(result));
+                    JsonArray? reflections = root?["reflectionsDispatched"]?.AsArray();
+
+                    AssertNotNull(reflections);
+                    AssertEqual(0, reflections!.Count);
+                    AssertEqual(0, admiral.DispatchCount);
+                }
+            });
         }
 
         private static async Task<Vessel> CreateVesselAsync(DatabaseDriver database, string name)
