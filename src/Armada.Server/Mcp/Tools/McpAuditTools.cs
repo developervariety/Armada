@@ -6,6 +6,7 @@ namespace Armada.Server.Mcp.Tools
     using System.Text.Json;
     using System.Threading.Tasks;
     using Armada.Core.Database;
+    using Armada.Core.Memory;
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
 
@@ -22,7 +23,12 @@ namespace Armada.Server.Mcp.Tools
         /// <param name="register">Delegate to register each tool.</param>
         /// <param name="database">Database driver for data access.</param>
         /// <param name="remoteTriggerService">Optional remote trigger service; when provided, fires FireCriticalAsync on Critical verdicts.</param>
-        public static void Register(RegisterToolDelegate register, DatabaseDriver database, IRemoteTriggerService? remoteTriggerService = null)
+        /// <param name="reflectionDispatcher">Optional reflection dispatcher; when null, audit drain does not auto-dispatch reflections.</param>
+        public static void Register(
+            RegisterToolDelegate register,
+            DatabaseDriver database,
+            IRemoteTriggerService? remoteTriggerService = null,
+            ReflectionDispatcher? reflectionDispatcher = null)
         {
             register(
                 "armada_drain_audit_queue",
@@ -40,8 +46,8 @@ namespace Armada.Server.Mcp.Tools
                 {
                     string? vesselId = null;
                     int limit = 10;
-                    if (args.HasValue && args.Value.TryGetProperty("vesselId", out JsonElement v) && v.ValueKind == JsonValueKind.String)
-                        vesselId = v.GetString();
+                    if (args.HasValue && args.Value.TryGetProperty("vesselId", out JsonElement vidEl) && vidEl.ValueKind == JsonValueKind.String)
+                        vesselId = vidEl.GetString();
                     if (args.HasValue && args.Value.TryGetProperty("limit", out JsonElement l) && l.ValueKind == JsonValueKind.Number)
                         limit = Math.Clamp(l.GetInt32(), 1, 50);
 
@@ -71,7 +77,34 @@ namespace Armada.Server.Mcp.Tools
                             isCalibration
                         });
                     }
-                    return (object)results;
+
+                    List<object> reflectionsDispatched = new List<object>();
+                    if (reflectionDispatcher != null)
+                    {
+                        List<Vessel> vesselsToCheck;
+                        if (!String.IsNullOrEmpty(vesselId))
+                        {
+                            Vessel? single = await database.Vessels.ReadAsync(vesselId).ConfigureAwait(false);
+                            vesselsToCheck = single != null ? new List<Vessel> { single } : new List<Vessel>();
+                        }
+                        else
+                        {
+                            vesselsToCheck = await database.Vessels.EnumerateAsync().ConfigureAwait(false);
+                        }
+
+                        foreach (Vessel checkVessel in vesselsToCheck)
+                        {
+                            ReflectionDispatcher.DispatchResult? dispatched = await reflectionDispatcher
+                                .TryAutoDispatchAfterAuditDrainAsync(checkVessel)
+                                .ConfigureAwait(false);
+                            if (dispatched != null)
+                            {
+                                reflectionsDispatched.Add(new { vesselId = checkVessel.Id, missionId = dispatched.MissionId });
+                            }
+                        }
+                    }
+
+                    return (object)new { entries = results, reflectionsDispatched };
                 });
 
             register(

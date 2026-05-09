@@ -126,6 +126,34 @@ namespace Armada.Server.Mcp.Tools
                         appliedContent = result.AppliedContent
                     };
                 });
+
+            register(
+                "armada_reject_memory_proposal",
+                "Reject a MemoryConsolidator proposal and record the rejection reason for the next reflection brief.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        missionId = new { type = "string", description = "MemoryConsolidator mission id (msn_ prefix)" },
+                        reason = new { type = "string", description = "Rejection reason fed into the next reflection brief" }
+                    },
+                    required = new[] { "missionId", "reason" }
+                },
+                async (args) =>
+                {
+                    RejectMemoryProposalArgs request = JsonSerializer.Deserialize<RejectMemoryProposalArgs>(args!.Value, _JsonOptions)!;
+                    IReflectionMemoryService memoryService = new ReflectionMemoryService(database);
+                    string? error = await memoryService.RejectMemoryProposalAsync(
+                        request.MissionId,
+                        request.Reason).ConfigureAwait(false);
+                    if (!String.IsNullOrEmpty(error))
+                    {
+                        return (object)new { Error = error };
+                    }
+
+                    return (object)new { status = "Rejected" };
+                });
         }
 
         private sealed class AcceptMemoryProposalArgs
@@ -144,6 +172,13 @@ namespace Armada.Server.Mcp.Tools
             public string? Instructions { get; set; }
 
             public int? TokenBudget { get; set; }
+        }
+
+        private sealed class RejectMemoryProposalArgs
+        {
+            public string MissionId { get; set; } = "";
+
+            public string Reason { get; set; } = "";
         }
     }
 }

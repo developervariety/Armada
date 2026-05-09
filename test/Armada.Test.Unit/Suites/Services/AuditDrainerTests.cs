@@ -2,6 +2,7 @@ namespace Armada.Test.Unit.Suites.Services
 {
     using System;
     using System.Text.Json;
+    using System.Text.Json.Nodes;
     using System.Threading.Tasks;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -41,10 +42,16 @@ namespace Armada.Test.Unit.Suites.Services
                     JsonElement args = JsonSerializer.SerializeToElement(new { vesselId = vessel.Id, limit = 10 });
                     object result = await drainHandler!(args).ConfigureAwait(false);
                     string resultJson = JsonSerializer.Serialize(result);
+                    JsonNode? root = JsonNode.Parse(resultJson);
+                    JsonArray? entries = root?["entries"]?.AsArray();
+                    string entriesJson = entries?.ToJsonString() ?? "";
 
-                    AssertContains("branch-1", resultJson);
-                    AssertFalse(resultJson.Contains("branch-2"), "Picked+Pass entry should be excluded");
-                    AssertFalse(resultJson.Contains("branch-3"), "Not-Picked entry should be excluded");
+                    AssertContains("branch-1", entriesJson);
+                    AssertFalse(entriesJson.Contains("branch-2"), "Picked+Pass entry should be excluded");
+                    AssertFalse(entriesJson.Contains("branch-3"), "Not-Picked entry should be excluded");
+                    JsonArray? reflections = root?["reflectionsDispatched"]?.AsArray();
+                    AssertNotNull(reflections, "Drain response should include reflectionsDispatched");
+                    AssertEqual(0, reflections!.Count, "Without reflection dispatcher nothing auto-dispatches");
                 }
             });
 

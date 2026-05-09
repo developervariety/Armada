@@ -173,6 +173,40 @@ namespace Armada.Core.Memory
             };
         }
 
+        /// <summary>
+        /// After an audit queue drain, evaluates the vessel reflection mission-count threshold,
+        /// in-flight concurrency, and evidence availability; dispatches when due.
+        /// </summary>
+        /// <param name="vessel">Vessel to evaluate.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Dispatch result when a reflection mission was created; otherwise null.</returns>
+        public async Task<DispatchResult?> TryAutoDispatchAfterAuditDrainAsync(Vessel vessel, CancellationToken token = default)
+        {
+            if (vessel == null) throw new ArgumentNullException(nameof(vessel));
+
+            int effectiveThreshold = vessel.ReflectionThreshold ?? _Settings.DefaultReflectionThreshold;
+            List<Mission> evidenceMissions = await SelectEvidenceMissionsAsync(vessel, null, token).ConfigureAwait(false);
+            if (evidenceMissions.Count < effectiveThreshold)
+                return null;
+
+            Mission? inFlight = await IsReflectionInFlightAsync(vessel.Id, token).ConfigureAwait(false);
+            if (inFlight != null)
+                return null;
+
+            EvidenceBundleResult bundle = await BuildEvidenceBundleAsync(
+                    vessel,
+                    null,
+                    _Settings.DefaultReflectionTokenBudget,
+                    token)
+                .ConfigureAwait(false);
+
+            if (bundle.EvidenceMissionCount == 0 && bundle.RejectedProposalCount == 0)
+                return null;
+
+            DispatchResult dispatched = await DispatchReflectionAsync(vessel, bundle.Brief, token).ConfigureAwait(false);
+            return dispatched;
+        }
+
         #endregion
 
         #region Private-Methods

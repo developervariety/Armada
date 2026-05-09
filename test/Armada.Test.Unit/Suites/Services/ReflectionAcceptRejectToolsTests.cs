@@ -309,6 +309,202 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertNull(rereadVessel!.LastReflectionMissionId, "Rejected proposal does not advance pointer");
                 }
             });
+
+            await RunTest("RejectMemoryProposal_MalformedOutput_Succeeds", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, "reject-malformed").ConfigureAwait(false);
+                    Mission mission = await CreateReflectionMissionAsync(
+                        testDb.Driver,
+                        vessel.Id,
+                        "not valid output at all").ConfigureAwait(false);
+
+                    Func<JsonElement?, Task<object>>? handler = CaptureRejectHandler(testDb.Driver);
+                    JsonElement args = JsonSerializer.SerializeToElement(new { missionId = mission.Id, reason = "Garbage output" });
+                    object result = await handler!(args).ConfigureAwait(false);
+                    string json = JsonSerializer.Serialize(result);
+
+                    AssertFalse(json.Contains("Error"), json);
+                    AssertContains("Rejected", json, "status");
+                }
+            });
+
+            await RunTest("RejectMemoryProposal_MissingMission_ReturnsNotFound", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Func<JsonElement?, Task<object>>? handler = CaptureRejectHandler(testDb.Driver);
+                    JsonElement args = JsonSerializer.SerializeToElement(new { missionId = "msn_missing", reason = "No such proposal" });
+                    object result = await handler!(args).ConfigureAwait(false);
+                    string json = JsonSerializer.Serialize(result);
+
+                    AssertContains("mission_not_found", json);
+                }
+            });
+
+            await RunTest("RejectMemoryProposal_RecordsRejectedEventWithTrimmedReason", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, "reject-event").ConfigureAwait(false);
+                    Mission mission = await CreateReflectionMissionAsync(
+                        testDb.Driver,
+                        vessel.Id,
+                        "any output").ConfigureAwait(false);
+
+                    Func<JsonElement?, Task<object>>? handler = CaptureRejectHandler(testDb.Driver);
+                    await handler!(JsonSerializer.SerializeToElement(new { missionId = mission.Id, reason = "  Needs stronger evidence  " })).ConfigureAwait(false);
+
+                    List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByMissionAsync(mission.Id).ConfigureAwait(false);
+                    ArmadaEvent? rejected = null;
+                    foreach (ArmadaEvent armadaEvent in events)
+                    {
+                        if (armadaEvent.EventType == "reflection.rejected")
+                        {
+                            rejected = armadaEvent;
+                            break;
+                        }
+                    }
+
+                    AssertNotNull(rejected, "Rejected event should be stored");
+                    AssertEqual("mission", rejected!.EntityType, "Event entity type");
+                    AssertEqual(mission.Id, rejected.EntityId, "Event entity id");
+                    AssertEqual(mission.Id, rejected.MissionId, "Event mission id");
+                    AssertEqual(vessel.Id, rejected.VesselId, "Event vessel id");
+                    AssertContains("\"reason\":\"Needs stronger evidence\"", rejected.Payload ?? "", "Payload should contain trimmed reason");
+                    AssertFalse((rejected.Payload ?? "").Contains("  Needs stronger evidence  "), "Payload should not preserve surrounding reason whitespace");
+                }
+            });
+
+            await RunTest("RejectMemoryProposal_WrongPersona_ReturnsNotReflection", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, "reject-worker").ConfigureAwait(false);
+                    Mission mission = new Mission("worker", "d");
+                    mission.VesselId = vessel.Id;
+                    mission.Persona = "Worker";
+                    mission.Status = MissionStatusEnum.WorkProduced;
+                    mission = await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    Func<JsonElement?, Task<object>>? handler = CaptureRejectHandler(testDb.Driver);
+                    JsonElement args = JsonSerializer.SerializeToElement(new { missionId = mission.Id, reason = "Wrong persona" });
+                    object result = await handler!(args).ConfigureAwait(false);
+                    string json = JsonSerializer.Serialize(result);
+
+                    AssertContains("mission_not_a_reflection", json);
+                }
+            });
+
+            await RunTest("RejectMemoryProposal_IncompleteMission_ReturnsNotComplete", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, "reject-incomplete").ConfigureAwait(false);
+                    Mission mission = new Mission("inflight", "d");
+                    mission.VesselId = vessel.Id;
+                    mission.Persona = "MemoryConsolidator";
+                    mission.Status = MissionStatusEnum.InProgress;
+                    mission = await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    Func<JsonElement?, Task<object>>? handler = CaptureRejectHandler(testDb.Driver);
+                    JsonElement args = JsonSerializer.SerializeToElement(new { missionId = mission.Id, reason = "Incomplete" });
+                    object result = await handler!(args).ConfigureAwait(false);
+                    string json = JsonSerializer.Serialize(result);
+
+                    AssertContains("mission_not_complete", json);
+                }
+            });
+
+            await RunTest("RejectMemoryProposal_SecondReject_ReturnsAlreadyProcessed", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, "reject-twice").ConfigureAwait(false);
+                    Mission mission = await CreateReflectionMissionAsync(
+                        testDb.Driver,
+                        vessel.Id,
+                        "any output").ConfigureAwait(false);
+
+                    Func<JsonElement?, Task<object>>? handler = CaptureRejectHandler(testDb.Driver);
+                    JsonElement args = JsonSerializer.SerializeToElement(new { missionId = mission.Id, reason = "First rejection" });
+                    await handler!(args).ConfigureAwait(false);
+
+                    object second = await handler!(JsonSerializer.SerializeToElement(new { missionId = mission.Id, reason = "Second rejection" })).ConfigureAwait(false);
+                    string json = JsonSerializer.Serialize(second);
+
+                    AssertContains("proposal_already_processed", json);
+                }
+            });
+
+            await RunTest("RejectMemoryProposal_AfterAccept_ReturnsAlreadyProcessed", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, "reject-after-accept").ConfigureAwait(false);
+                    Mission mission = await CreateReflectionMissionAsync(
+                        testDb.Driver,
+                        vessel.Id,
+                        WorkProducedAgentOutput("# Accepted content\n")).ConfigureAwait(false);
+
+                    Func<JsonElement?, Task<object>>? acceptHandler = CaptureAcceptHandler(testDb.Driver);
+                    await acceptHandler!(JsonSerializer.SerializeToElement(new { missionId = mission.Id })).ConfigureAwait(false);
+
+                    Func<JsonElement?, Task<object>>? rejectHandler = CaptureRejectHandler(testDb.Driver);
+                    object result = await rejectHandler!(JsonSerializer.SerializeToElement(new { missionId = mission.Id, reason = "Too late" })).ConfigureAwait(false);
+                    string json = JsonSerializer.Serialize(result);
+
+                    AssertContains("proposal_already_processed", json);
+                }
+            });
+
+            await RunTest("RejectMemoryProposal_DoesNotAdvanceLastReflectionMissionId", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, "reject-no-pointer").ConfigureAwait(false);
+                    vessel.LastReflectionMissionId = "msn_prior_id";
+                    await testDb.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
+
+                    Mission mission = await CreateReflectionMissionAsync(
+                        testDb.Driver,
+                        vessel.Id,
+                        "any output").ConfigureAwait(false);
+
+                    Func<JsonElement?, Task<object>>? handler = CaptureRejectHandler(testDb.Driver);
+                    await handler!(JsonSerializer.SerializeToElement(new { missionId = mission.Id, reason = "Not useful" })).ConfigureAwait(false);
+
+                    Vessel? reread = await testDb.Driver.Vessels.ReadAsync(vessel.Id).ConfigureAwait(false);
+                    AssertEqual("msn_prior_id", reread!.LastReflectionMissionId, "Pointer unchanged after rejection");
+                }
+            });
+
+            await RunTest("RejectMemoryProposal_RejectionReason_AppearsInNextConsolidateBrief", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, "reject-brief").ConfigureAwait(false);
+                    Mission mission = await CreateReflectionMissionAsync(
+                        testDb.Driver,
+                        vessel.Id,
+                        "any output").ConfigureAwait(false);
+
+                    Func<JsonElement?, Task<object>>? rejectHandler = CaptureRejectHandler(testDb.Driver);
+                    await rejectHandler!(JsonSerializer.SerializeToElement(new { missionId = mission.Id, reason = "Hallucinated fact about logging" })).ConfigureAwait(false);
+
+                    ReflectionMemoryService memSvc = new ReflectionMemoryService(testDb.Driver);
+                    RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                    ArmadaSettings settings = new ArmadaSettings();
+                    ReflectionDispatcher dispatcher = new ReflectionDispatcher(testDb.Driver, admiral, settings, memSvc);
+
+                    ReflectionDispatcher.EvidenceBundleResult bundle = await dispatcher.BuildEvidenceBundleAsync(vessel, null, settings.DefaultReflectionTokenBudget).ConfigureAwait(false);
+
+                    AssertContains("Hallucinated fact about logging", bundle.Brief, "Rejection reason in brief");
+                    AssertContains(mission.Id, bundle.Brief, "Rejection mission id in brief");
+                    AssertTrue(bundle.RejectedProposalCount >= 1, "At least one rejected proposal counted");
+                }
+            });
         }
 
         private static string ValidDiffJson()
@@ -337,6 +533,25 @@ namespace Armada.Test.Unit.Suites.Services
                 dispatcher,
                 settings);
             if (handler == null) throw new InvalidOperationException("armada_accept_memory_proposal handler missing");
+            return handler;
+        }
+
+        private static Func<JsonElement?, Task<object>>? CaptureRejectHandler(DatabaseDriver database)
+        {
+            Func<JsonElement?, Task<object>>? handler = null;
+            RecordingAdmiralService admiral = new RecordingAdmiralService(database);
+            ArmadaSettings settings = new ArmadaSettings();
+            ReflectionDispatcher dispatcher = new ReflectionDispatcher(
+                database,
+                admiral,
+                settings,
+                new ReflectionMemoryService(database));
+            McpReflectionTools.Register(
+                (name, _, _, h) => { if (name == "armada_reject_memory_proposal") handler = h; },
+                database,
+                dispatcher,
+                settings);
+            if (handler == null) throw new InvalidOperationException("armada_reject_memory_proposal handler missing");
             return handler;
         }
 

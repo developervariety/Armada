@@ -56,13 +56,36 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
-        public Task<List<string>> ReadRejectedProposalNotesAsync(Vessel vessel, CancellationToken token = default)
+        public async Task<List<string>> ReadRejectedProposalNotesAsync(Vessel vessel, CancellationToken token = default)
         {
             if (vessel == null) throw new ArgumentNullException(nameof(vessel));
 
-            // Rejection persistence lands in a later milestone. Keep this as the shared
-            // service seam so accept/reject can fill it without changing dispatcher callers.
-            return Task.FromResult(new List<string>());
+            List<ArmadaEvent> events = await _Database.Events.EnumerateByVesselAsync(vessel.Id, 50, token).ConfigureAwait(false);
+            List<string> notes = new List<string>();
+            foreach (ArmadaEvent evt in events)
+            {
+                if (!String.Equals(evt.EventType, _ReflectionRejectedEvent, StringComparison.Ordinal))
+                    continue;
+
+                string missionId = evt.MissionId ?? "";
+                string reason = "";
+                if (!String.IsNullOrEmpty(evt.Payload))
+                {
+                    try
+                    {
+                        RejectionPayload? payload = System.Text.Json.JsonSerializer.Deserialize<RejectionPayload>(evt.Payload);
+                        reason = payload?.Reason ?? "";
+                    }
+                    catch (System.Text.Json.JsonException)
+                    {
+                        reason = "";
+                    }
+                }
+
+                notes.Add("missionId: " + missionId + " -- " + reason);
+            }
+
+            return notes;
         }
 
         /// <inheritdoc />
@@ -193,6 +216,47 @@ namespace Armada.Core.Services
             return outcome;
         }
 
+        /// <inheritdoc />
+        public async Task<string?> RejectMemoryProposalAsync(
+            string missionId,
+            string reason,
+            CancellationToken token = default)
+        {
+            if (String.IsNullOrWhiteSpace(missionId))
+                return "mission_not_found";
+
+            if (String.IsNullOrWhiteSpace(reason))
+                return "mission_not_found";
+
+            Mission? mission = await _Database.Missions.ReadAsync(missionId.Trim(), token).ConfigureAwait(false);
+            if (mission == null)
+                return "mission_not_found";
+
+            if (!String.Equals(mission.Persona, "MemoryConsolidator", StringComparison.OrdinalIgnoreCase))
+                return "mission_not_a_reflection";
+
+            if (!IsMissionCompleteEnoughForAcceptance(mission.Status))
+                return "mission_not_complete";
+
+            if (await MissionHasReflectionDispositionAsync(mission.Id, token).ConfigureAwait(false))
+                return "proposal_already_processed";
+
+            string vesselId = mission.VesselId ?? "";
+            string tenantId = mission.TenantId ?? Constants.DefaultTenantId;
+
+            ArmadaEvent rejected = new ArmadaEvent(_ReflectionRejectedEvent, "Reflection memory proposal rejected.");
+            rejected.TenantId = tenantId;
+            rejected.EntityType = "mission";
+            rejected.EntityId = mission.Id;
+            rejected.MissionId = mission.Id;
+            rejected.VesselId = vesselId;
+            rejected.VoyageId = mission.VoyageId;
+            rejected.Payload = JsonSerializer.Serialize(new { missionId = mission.Id, reason = reason.Trim() });
+            await _Database.Events.CreateAsync(rejected, token).ConfigureAwait(false);
+
+            return null;
+        }
+
         #endregion
 
         #region Private-Methods
@@ -230,6 +294,19 @@ namespace Armada.Core.Services
             string lower = name.ToLowerInvariant();
             string replaced = Regex.Replace(lower, "[^a-z0-9]+", "-");
             return replaced.Trim('-');
+        }
+
+        #endregion
+
+        #region Private-Classes
+
+        private sealed class RejectionPayload
+        {
+            [System.Text.Json.Serialization.JsonPropertyName("missionId")]
+            public string? MissionId { get; set; }
+
+            [System.Text.Json.Serialization.JsonPropertyName("reason")]
+            public string? Reason { get; set; }
         }
 
         #endregion
