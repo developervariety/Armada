@@ -19,7 +19,7 @@ Every Armada mission brief restates the same things: codebase facts captains kee
 | Component | Description |
 |-----------|-------------|
 | `MemoryConsolidator` persona | New reviewer-class persona with read-only access to mission logs/diffs and write-only access to its own AgentOutput. Cannot edit code or CLAUDE.md. |
-| `Reflections` pipeline | Single-stage pipeline (Worker only) that outputs the proposal for orchestrator review. |
+| `Reflections` pipeline | Single-stage pipeline (MemoryConsolidator only) that outputs the proposal for orchestrator review. |
 | `armada_consolidate_memory` | Manual trigger to dispatch a consolidation mission. |
 | `armada_accept_memory_proposal` | Apply the captain's proposed playbook content (with optional orchestrator edits). |
 | `armada_reject_memory_proposal` | Reject the proposal with a reason that feeds into the next reflection. |
