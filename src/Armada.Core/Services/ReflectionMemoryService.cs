@@ -269,6 +269,11 @@ namespace Armada.Core.Services
                 return await AcceptIdentityCurateProposalAsync(mission, vessel, tenantId, editsMarkdown, parser, dualJudge, missionMode, dispatchedPayload, outcome, token).ConfigureAwait(false);
             }
 
+            if (missionMode == ReflectionMode.FleetCurate)
+            {
+                return await AcceptFleetCurateProposalAsync(mission, vessel, tenantId, editsMarkdown, parser, dualJudge, dispatchedPayload, outcome, token).ConfigureAwait(false);
+            }
+
             bool overrideActive = !String.IsNullOrWhiteSpace(editsMarkdown);
             string contentToApply;
             string? candidateMarkdown = null;
@@ -795,6 +800,589 @@ namespace Armada.Core.Services
             outcome.AppliedContent = contentToApply;
             outcome.ConflictWarnings = conflictWarnings;
             return outcome;
+        }
+
+        private async Task<ReflectionAcceptProposalResult> AcceptFleetCurateProposalAsync(
+            Mission mission,
+            Vessel anchorVessel,
+            string tenantId,
+            string? editsMarkdown,
+            IReflectionOutputParser parser,
+            bool dualJudge,
+            DispatchedPayload? dispatched,
+            ReflectionAcceptProposalResult outcome,
+            CancellationToken token)
+        {
+            string? fleetId = dispatched?.TargetId;
+            if (String.IsNullOrEmpty(fleetId))
+            {
+                outcome.Error = "fleet_target_unresolved";
+                return outcome;
+            }
+            Fleet? fleet = await _Database.Fleets.ReadAsync(fleetId!, token).ConfigureAwait(false);
+            if (fleet == null)
+            {
+                outcome.Error = "fleet_not_found";
+                return outcome;
+            }
+            string fleetTenantId = !String.IsNullOrEmpty(fleet.TenantId) ? fleet.TenantId! : tenantId;
+
+            bool overrideActive = !String.IsNullOrWhiteSpace(editsMarkdown);
+            string fleetPlaybookContent;
+            string ripplesJson;
+            string? diffText = null;
+
+            if (overrideActive)
+            {
+                FleetCandidateSplit overrideSplit = ParseFleetCandidateBlock(editsMarkdown!.Trim());
+                if (overrideSplit.Verdict != FleetCandidateSplitVerdict.Success)
+                {
+                    outcome.Error = "output_contract_violation";
+                    return outcome;
+                }
+                fleetPlaybookContent = overrideSplit.PlaybookContent;
+                ripplesJson = overrideSplit.RipplesJson;
+            }
+            else
+            {
+                ReflectionOutputParseResult parsed = parser.Parse(mission.AgentOutput ?? "");
+                if (parsed.Verdict != ReflectionOutputParseVerdict.Success)
+                {
+                    outcome.Error = "output_contract_violation";
+                    return outcome;
+                }
+                FleetCandidateSplit split = ParseFleetCandidateBlock(parsed.CandidateMarkdown ?? "");
+                if (split.Verdict != FleetCandidateSplitVerdict.Success)
+                {
+                    outcome.Error = "output_contract_violation";
+                    return outcome;
+                }
+                fleetPlaybookContent = split.PlaybookContent;
+                ripplesJson = split.RipplesJson;
+                diffText = parsed.ReflectionsDiffText;
+            }
+
+            // Parse ripple disables JSON (sidecar). Empty array permitted.
+            List<FleetRippleDisable> ripples;
+            try
+            {
+                ripples = ParseRippleDisables(ripplesJson);
+            }
+            catch
+            {
+                outcome.Error = "output_contract_violation";
+                return outcome;
+            }
+
+            List<Vessel> fleetVessels = await _Database.Vessels.EnumerateByFleetAsync(fleet.Id, token).ConfigureAwait(false);
+            List<Vessel> activeFleetVessels = fleetVessels.Where(v => v.Active).ToList();
+
+            if (!overrideActive)
+            {
+                // Promotion-evidence gates: parse diff `added` array.
+                FleetPromotionGateError? gateErr = ValidateFleetPromotionGates(diffText);
+                if (gateErr.HasValue)
+                {
+                    outcome.Error = gateErr.Value.Error;
+                    outcome.ErrorDetails = gateErr.Value.Details;
+                    return outcome;
+                }
+
+                // Vessel-fleet conflict detection (BLOCKING per Q3 brainstorm choice).
+                FleetConflictResult conflictResult = await DetectFleetVesselConflictAsync(
+                    fleetPlaybookContent,
+                    activeFleetVessels,
+                    token).ConfigureAwait(false);
+                if (conflictResult.Conflict != null)
+                {
+                    outcome.Error = "fleet_curate_vessel_conflict";
+                    outcome.ErrorDetails = conflictResult.Conflict;
+                    return outcome;
+                }
+
+                // Counter-evidence handling (mirrors F2). Read current fleet playbook content;
+                // if it had tagged notes and the new diff has zero modified+disabled, BLOCK.
+                string priorFleetContent = await ReadFleetLearnedPlaybookContentForAcceptAsync(fleet, fleetTenantId, token).ConfigureAwait(false);
+                if (HasTaggedNotes(priorFleetContent))
+                {
+                    int modDis = CountDiffModifiedAndDisabled(diffText);
+                    if (modDis == 0 && CountTaggedNotes(priorFleetContent) > CountTaggedNotes(fleetPlaybookContent))
+                    {
+                        outcome.Error = "fleet_curate_ignored_counter_evidence";
+                        return outcome;
+                    }
+                }
+
+                // Ripple validation: each ripple's vesselId must be in fleet; noteRef must
+                // resolve to an existing entry in that vessel's learned playbook.
+                foreach (FleetRippleDisable ripple in ripples)
+                {
+                    Vessel? rippleVessel = activeFleetVessels.FirstOrDefault(v => String.Equals(v.Id, ripple.VesselId, StringComparison.Ordinal));
+                    if (rippleVessel == null)
+                    {
+                        outcome.Error = "fleet_ripple_invalid_vessel";
+                        outcome.ErrorDetails = new { vesselId = ripple.VesselId };
+                        return outcome;
+                    }
+                    string vesselContent = await ReadLearnedPlaybookContentAsync(rippleVessel, token).ConfigureAwait(false);
+                    if (!HasNoteAt(vesselContent, ripple.NoteRef))
+                    {
+                        outcome.Error = "fleet_ripple_invalid_note_ref";
+                        outcome.ErrorDetails = new { vesselId = ripple.VesselId, noteRef = ripple.NoteRef };
+                        return outcome;
+                    }
+                }
+            }
+
+            // Dual-judge gate (shared with v1).
+            if (!overrideActive && dualJudge)
+            {
+                DualJudgeGateResult judgeGate = await EvaluateDualJudgeGateAsync(mission, token).ConfigureAwait(false);
+                outcome.JudgeVerdicts = judgeGate.Verdicts;
+                if (!judgeGate.AllPassed)
+                {
+                    outcome.Error = "dual_judge_not_passed";
+                    outcome.ErrorDetails = new { judgeVerdicts = judgeGate.Verdicts };
+                    return outcome;
+                }
+            }
+
+            // Apply transactionally (best-effort -- the database driver may not expose explicit
+            // transactions across mixed table writes, so we sequence: 1) update or lazy-create
+            // fleet learned playbook, 2) wire FleetId.LearnedPlaybookId + DefaultPlaybooks,
+            // 3) apply ripple disables to each vessel-learned playbook).
+            string fileName = "fleet-" + Armada.Core.Memory.ReflectionDispatcher.SanitizeIdentityName(fleet.Id) + "-learned.md";
+            PlaybookService playbookService = new PlaybookService(_Database, CreateSilentLogging());
+            Playbook? existing = null;
+            if (!String.IsNullOrEmpty(fleet.LearnedPlaybookId))
+            {
+                existing = await _Database.Playbooks.ReadAsync(fleet.LearnedPlaybookId!, token).ConfigureAwait(false);
+            }
+            if (existing == null)
+            {
+                existing = await _Database.Playbooks.ReadByFileNameAsync(fleetTenantId, fileName, token).ConfigureAwait(false);
+            }
+
+            Playbook persisted;
+            if (existing == null)
+            {
+                Playbook created = new Playbook(fileName, fleetPlaybookContent);
+                created.TenantId = fleetTenantId;
+                created.UserId = Constants.DefaultUserId;
+                created.Description = "Fleet-learned notes for " + fleet.Name;
+                playbookService.Validate(created);
+                persisted = await _Database.Playbooks.CreateAsync(created, token).ConfigureAwait(false);
+            }
+            else
+            {
+                existing.Content = fleetPlaybookContent;
+                playbookService.Validate(existing);
+                persisted = await _Database.Playbooks.UpdateAsync(existing, token).ConfigureAwait(false);
+            }
+
+            // Wire the fleet row: LearnedPlaybookId + DefaultPlaybooks (lazy-add the FK entry).
+            await EnsureFleetLearnedPlaybookWiringAsync(fleet, persisted.Id, token).ConfigureAwait(false);
+
+            // Apply ripple disables.
+            int rippleApplied = 0;
+            foreach (FleetRippleDisable ripple in ripples)
+            {
+                Vessel? rippleVessel = activeFleetVessels.FirstOrDefault(v => String.Equals(v.Id, ripple.VesselId, StringComparison.Ordinal));
+                if (rippleVessel == null) continue;
+                string vesselContent = await ReadLearnedPlaybookContentAsync(rippleVessel, token).ConfigureAwait(false);
+                string newVesselContent = DisableNoteAt(vesselContent, ripple.NoteRef, ripple.Reason ?? "Promoted to fleet scope.");
+                if (String.Equals(newVesselContent, vesselContent, StringComparison.Ordinal)) continue;
+
+                string vesselFile = "vessel-" + SanitizeName(rippleVessel.Name) + "-learned.md";
+                string vesselTenant = !String.IsNullOrEmpty(rippleVessel.TenantId) ? rippleVessel.TenantId! : Constants.DefaultTenantId;
+                Playbook? vp = await _Database.Playbooks.ReadByFileNameAsync(vesselTenant, vesselFile, token).ConfigureAwait(false);
+                if (vp == null) continue;
+                vp.Content = newVesselContent;
+                playbookService.Validate(vp);
+                await _Database.Playbooks.UpdateAsync(vp, token).ConfigureAwait(false);
+                rippleApplied++;
+            }
+
+            ReflectionDiffMetrics metrics = ParseIdentityDiffMetrics(diffText);
+            int vesselsInScope = activeFleetVessels.Count;
+
+            ArmadaEvent accepted = new ArmadaEvent(_ReflectionAcceptedEvent, "Fleet-curate proposal accepted.");
+            accepted.TenantId = mission.TenantId ?? fleetTenantId;
+            accepted.EntityType = "mission";
+            accepted.EntityId = mission.Id;
+            accepted.MissionId = mission.Id;
+            accepted.VesselId = anchorVessel.Id;
+            accepted.VoyageId = mission.VoyageId;
+            accepted.Payload = JsonSerializer.Serialize(new
+            {
+                playbookId = persisted.Id,
+                missionId = mission.Id,
+                appliedContentLength = fleetPlaybookContent.Length,
+                mode = ModeToWireString(ReflectionMode.FleetCurate),
+                targetType = "fleet",
+                targetId = fleet.Id,
+                factsAdded = metrics.NotesAdded,
+                factsModified = metrics.NotesModified,
+                factsDisabled = metrics.NotesDisabled,
+                rippleDisablesApplied = rippleApplied,
+                missionsExamined = metrics.MissionsExamined,
+                vesselsInScope = vesselsInScope,
+                evidenceConfidence = metrics.EvidenceConfidence,
+                vesselConflictBlocked = 0,
+                dualJudge = dualJudge,
+                judgeVerdicts = outcome.JudgeVerdicts
+            });
+            await _Database.Events.CreateAsync(accepted, token).ConfigureAwait(false);
+
+            outcome.PlaybookId = persisted.Id;
+            outcome.PlaybookVersion = persisted.LastUpdateUtc.ToString("o");
+            outcome.AppliedContent = fleetPlaybookContent;
+            return outcome;
+        }
+
+        private async Task<string> ReadFleetLearnedPlaybookContentForAcceptAsync(Fleet fleet, string tenantId, CancellationToken token)
+        {
+            if (!String.IsNullOrEmpty(fleet.LearnedPlaybookId))
+            {
+                Playbook? byId = await _Database.Playbooks.ReadAsync(fleet.LearnedPlaybookId!, token).ConfigureAwait(false);
+                if (byId != null) return byId.Content;
+            }
+            string fileName = "fleet-" + Armada.Core.Memory.ReflectionDispatcher.SanitizeIdentityName(fleet.Id) + "-learned.md";
+            Playbook? p = await _Database.Playbooks.ReadByFileNameAsync(tenantId, fileName, token).ConfigureAwait(false);
+            return p?.Content ?? "";
+        }
+
+        private async Task EnsureFleetLearnedPlaybookWiringAsync(Fleet fleet, string playbookId, CancellationToken token)
+        {
+            bool dirty = false;
+            if (!String.Equals(fleet.LearnedPlaybookId, playbookId, StringComparison.Ordinal))
+            {
+                fleet.LearnedPlaybookId = playbookId;
+                dirty = true;
+            }
+            List<SelectedPlaybook> defaults = fleet.GetDefaultPlaybooks();
+            if (!defaults.Exists(sp => String.Equals(sp.PlaybookId, playbookId, StringComparison.Ordinal)))
+            {
+                defaults.Add(new SelectedPlaybook { PlaybookId = playbookId, DeliveryMode = PlaybookDeliveryModeEnum.InstructionWithReference });
+                fleet.DefaultPlaybooks = JsonSerializer.Serialize(defaults);
+                dirty = true;
+            }
+            if (dirty) await _Database.Fleets.UpdateAsync(fleet, token).ConfigureAwait(false);
+        }
+
+        private static FleetCandidateSplit ParseFleetCandidateBlock(string raw)
+        {
+            FleetCandidateSplit split = new FleetCandidateSplit();
+            if (String.IsNullOrEmpty(raw))
+            {
+                split.Verdict = FleetCandidateSplitVerdict.Malformed;
+                return split;
+            }
+
+            const string playbookOpen = "=== FLEET PLAYBOOK CONTENT ===";
+            const string playbookClose = "=== END FLEET PLAYBOOK CONTENT ===";
+            const string ripplesOpen = "=== RIPPLE DISABLES (JSON) ===";
+            const string ripplesClose = "=== END RIPPLE DISABLES ===";
+
+            int pOpen = raw.IndexOf(playbookOpen, StringComparison.Ordinal);
+            int pClose = raw.IndexOf(playbookClose, StringComparison.Ordinal);
+            int rOpen = raw.IndexOf(ripplesOpen, StringComparison.Ordinal);
+            int rClose = raw.IndexOf(ripplesClose, StringComparison.Ordinal);
+
+            if (pOpen < 0 || pClose < 0 || rOpen < 0 || rClose < 0)
+            {
+                split.Verdict = FleetCandidateSplitVerdict.Malformed;
+                return split;
+            }
+            if (pClose <= pOpen || rClose <= rOpen)
+            {
+                split.Verdict = FleetCandidateSplitVerdict.Malformed;
+                return split;
+            }
+
+            split.PlaybookContent = raw.Substring(pOpen + playbookOpen.Length, pClose - pOpen - playbookOpen.Length).Trim();
+            split.RipplesJson = raw.Substring(rOpen + ripplesOpen.Length, rClose - rOpen - ripplesOpen.Length).Trim();
+            split.Verdict = String.IsNullOrWhiteSpace(split.PlaybookContent)
+                ? FleetCandidateSplitVerdict.Malformed
+                : FleetCandidateSplitVerdict.Success;
+            return split;
+        }
+
+        private static List<FleetRippleDisable> ParseRippleDisables(string ripplesJson)
+        {
+            List<FleetRippleDisable> result = new List<FleetRippleDisable>();
+            if (String.IsNullOrWhiteSpace(ripplesJson)) return result;
+            using JsonDocument doc = JsonDocument.Parse(ripplesJson);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) throw new JsonException("expected object");
+            if (!doc.RootElement.TryGetProperty("disableFromVessels", out JsonElement arrEl)) return result;
+            if (arrEl.ValueKind != JsonValueKind.Array) throw new JsonException("disableFromVessels must be array");
+            foreach (JsonElement el in arrEl.EnumerateArray())
+            {
+                if (el.ValueKind != JsonValueKind.Object) throw new JsonException("disableFromVessels entries must be objects");
+                FleetRippleDisable r = new FleetRippleDisable();
+                if (el.TryGetProperty("vesselId", out JsonElement vEl) && vEl.ValueKind == JsonValueKind.String)
+                    r.VesselId = vEl.GetString() ?? "";
+                if (el.TryGetProperty("noteRef", out JsonElement nEl) && nEl.ValueKind == JsonValueKind.String)
+                    r.NoteRef = nEl.GetString() ?? "";
+                if (el.TryGetProperty("reason", out JsonElement rEl) && rEl.ValueKind == JsonValueKind.String)
+                    r.Reason = rEl.GetString();
+                if (String.IsNullOrEmpty(r.VesselId) || String.IsNullOrEmpty(r.NoteRef))
+                    throw new JsonException("ripple entry missing vesselId or noteRef");
+                result.Add(r);
+            }
+            return result;
+        }
+
+        private static FleetPromotionGateError? ValidateFleetPromotionGates(string? diffText)
+        {
+            if (String.IsNullOrEmpty(diffText)) return null;
+            try
+            {
+                using JsonDocument doc = JsonDocument.Parse(diffText.Trim());
+                if (doc.RootElement.ValueKind != JsonValueKind.Object) return null;
+                if (!doc.RootElement.TryGetProperty("added", out JsonElement addedEl)) return null;
+                if (addedEl.ValueKind != JsonValueKind.Array) return null;
+                int idx = 0;
+                foreach (JsonElement entry in addedEl.EnumerateArray())
+                {
+                    if (entry.ValueKind != JsonValueKind.Object) { idx++; continue; }
+                    int vc = 0;
+                    int ms = 0;
+                    if (entry.TryGetProperty("vesselsContributing", out JsonElement vEl) && vEl.ValueKind == JsonValueKind.Number)
+                        vc = vEl.GetInt32();
+                    if (entry.TryGetProperty("missionsSupporting", out JsonElement mEl) && mEl.ValueKind == JsonValueKind.Number)
+                        ms = mEl.GetInt32();
+                    if (vc < 2)
+                    {
+                        return new FleetPromotionGateError
+                        {
+                            Error = "fleet_promotion_insufficient_vessels",
+                            Details = new { entryIndex = idx, vesselsContributing = vc }
+                        };
+                    }
+                    if (ms < 3)
+                    {
+                        return new FleetPromotionGateError
+                        {
+                            Error = "fleet_promotion_insufficient_missions",
+                            Details = new { entryIndex = idx, missionsSupporting = ms }
+                        };
+                    }
+                    idx++;
+                }
+            }
+            catch (JsonException) { /* malformed diff is caught upstream */ }
+            return null;
+        }
+
+        private async Task<FleetConflictResult> DetectFleetVesselConflictAsync(
+            string fleetCandidateContent,
+            List<Vessel> activeVessels,
+            CancellationToken token)
+        {
+            FleetConflictResult result = new FleetConflictResult();
+            double threshold = _FleetConflictThreshold;
+
+            // Extract candidate fact lines (each line starting with [high]/[medium]/[low]).
+            List<string> candidateNotes = ExtractTaggedNoteLines(fleetCandidateContent);
+            if (candidateNotes.Count == 0) return result;
+
+            foreach (Vessel v in activeVessels)
+            {
+                string vesselContent = await ReadLearnedPlaybookContentAsync(v, token).ConfigureAwait(false);
+                if (String.IsNullOrWhiteSpace(vesselContent)) continue;
+                List<string> vesselNotes = ExtractTaggedNoteLines(vesselContent);
+                foreach (string cand in candidateNotes)
+                {
+                    foreach (string vn in vesselNotes)
+                    {
+                        double sim = Armada.Core.Memory.HabitPatternMiner.Jaccard3GramSimilarity(cand, vn);
+                        if (sim < threshold) continue;
+                        if (!Armada.Core.Memory.HabitPatternMiner.SentimentDisagrees(cand, vn)) continue;
+                        result.Conflict = new
+                        {
+                            vesselId = v.Id,
+                            vesselName = v.Name,
+                            vesselNote = vn.Length > 240 ? vn.Substring(0, 240) + "..." : vn,
+                            candidateNote = cand.Length > 240 ? cand.Substring(0, 240) + "..." : cand,
+                            jaccardSimilarity = Math.Round(sim, 4)
+                        };
+                        return result;
+                    }
+                }
+            }
+
+            return result;
+        }
+
+        // Settings hooks for fleet-curate gates. The dispatcher passes live settings in via
+        // ReflectionDispatcher; the service uses module-static defaults that mirror the v2-F3
+        // ArmadaSettings defaults.
+        private static double _FleetConflictThreshold = 0.7;
+
+        private static List<string> ExtractTaggedNoteLines(string content)
+        {
+            List<string> notes = new List<string>();
+            if (String.IsNullOrEmpty(content)) return notes;
+            string[] lines = content.Replace("\r\n", "\n").Split('\n');
+            int idx = 0;
+            while (idx < lines.Length)
+            {
+                string trimmed = lines[idx].TrimStart();
+                if (Regex.IsMatch(trimmed, @"^\[(high|medium|low)\]", RegexOptions.IgnoreCase))
+                {
+                    StringBuilder body = new StringBuilder();
+                    body.Append(trimmed);
+                    int next = idx + 1;
+                    while (next < lines.Length)
+                    {
+                        string peek = lines[next].TrimStart();
+                        if (peek.Length == 0) break;
+                        if (peek.StartsWith("#", StringComparison.Ordinal)) break;
+                        if (peek.StartsWith("Source:", StringComparison.OrdinalIgnoreCase)) break;
+                        if (Regex.IsMatch(peek, @"^\[(high|medium|low)\]", RegexOptions.IgnoreCase)) break;
+                        body.Append(' ').Append(peek);
+                        next++;
+                    }
+                    notes.Add(body.ToString());
+                    idx = next;
+                    continue;
+                }
+                idx++;
+            }
+            return notes;
+        }
+
+        private static bool HasTaggedNotes(string content)
+        {
+            return !String.IsNullOrEmpty(content)
+                && Regex.IsMatch(content, @"^\s*\[(high|medium|low)\]", RegexOptions.IgnoreCase | RegexOptions.Multiline);
+        }
+
+        private static int CountTaggedNotes(string content)
+        {
+            if (String.IsNullOrEmpty(content)) return 0;
+            return Regex.Matches(content, @"^\s*\[(high|medium|low)\]", RegexOptions.IgnoreCase | RegexOptions.Multiline).Count;
+        }
+
+        private static int CountDiffModifiedAndDisabled(string? diffText)
+        {
+            if (String.IsNullOrEmpty(diffText)) return 0;
+            try
+            {
+                using JsonDocument doc = JsonDocument.Parse(diffText.Trim());
+                if (doc.RootElement.ValueKind != JsonValueKind.Object) return 0;
+                int n = 0;
+                if (doc.RootElement.TryGetProperty("modified", out JsonElement mEl) && mEl.ValueKind == JsonValueKind.Array)
+                    n += mEl.GetArrayLength();
+                if (doc.RootElement.TryGetProperty("disabled", out JsonElement dEl) && dEl.ValueKind == JsonValueKind.Array)
+                    n += dEl.GetArrayLength();
+                return n;
+            }
+            catch (JsonException) { return 0; }
+        }
+
+        private static bool HasNoteAt(string content, string noteRef)
+        {
+            // noteRef shape: "<Section>:<index>" -- locate the section heading then count
+            // confidence-tagged note lines until reaching the index.
+            if (String.IsNullOrEmpty(content) || String.IsNullOrEmpty(noteRef)) return false;
+            int colon = noteRef.LastIndexOf(':');
+            if (colon <= 0 || colon >= noteRef.Length - 1) return false;
+            string section = noteRef.Substring(0, colon).Trim();
+            if (!Int32.TryParse(noteRef.Substring(colon + 1), out int targetIndex) || targetIndex < 0) return false;
+
+            string[] lines = content.Replace("\r\n", "\n").Split('\n');
+            bool inSection = false;
+            int count = 0;
+            foreach (string raw in lines)
+            {
+                string trimmed = raw.TrimStart();
+                if (trimmed.StartsWith("##", StringComparison.Ordinal))
+                {
+                    string heading = trimmed.TrimStart('#').Trim();
+                    inSection = String.Equals(heading, section, StringComparison.OrdinalIgnoreCase);
+                    count = 0;
+                    continue;
+                }
+                if (!inSection) continue;
+                if (Regex.IsMatch(trimmed, @"^\[(high|medium|low)\]", RegexOptions.IgnoreCase))
+                {
+                    if (count == targetIndex) return true;
+                    count++;
+                }
+            }
+            return false;
+        }
+
+        private static string DisableNoteAt(string content, string noteRef, string reason)
+        {
+            // Best-effort: prepend a `[disabled: <reason>]` marker to the matching note line so
+            // the next curate cycle can see the disable trail. When the note can't be located,
+            // returns the content unchanged.
+            if (String.IsNullOrEmpty(content) || String.IsNullOrEmpty(noteRef)) return content;
+            int colon = noteRef.LastIndexOf(':');
+            if (colon <= 0) return content;
+            string section = noteRef.Substring(0, colon).Trim();
+            if (!Int32.TryParse(noteRef.Substring(colon + 1), out int targetIndex) || targetIndex < 0) return content;
+
+            string[] lines = content.Replace("\r\n", "\n").Split('\n');
+            bool inSection = false;
+            int count = 0;
+            for (int i = 0; i < lines.Length; i++)
+            {
+                string trimmed = lines[i].TrimStart();
+                if (trimmed.StartsWith("##", StringComparison.Ordinal))
+                {
+                    string heading = trimmed.TrimStart('#').Trim();
+                    inSection = String.Equals(heading, section, StringComparison.OrdinalIgnoreCase);
+                    count = 0;
+                    continue;
+                }
+                if (!inSection) continue;
+                if (Regex.IsMatch(trimmed, @"^\[(high|medium|low)\]", RegexOptions.IgnoreCase))
+                {
+                    if (count == targetIndex)
+                    {
+                        if (lines[i].Contains("[disabled:", StringComparison.Ordinal)) return content; // already disabled
+                        lines[i] = "[disabled: " + reason + "] " + lines[i].TrimStart();
+                        return String.Join("\n", lines);
+                    }
+                    count++;
+                }
+            }
+            return content;
+        }
+
+        private struct FleetCandidateSplit
+        {
+            public FleetCandidateSplitVerdict Verdict;
+            public string PlaybookContent;
+            public string RipplesJson;
+        }
+
+        private enum FleetCandidateSplitVerdict
+        {
+            Success = 0,
+            Malformed = 1
+        }
+
+        private sealed class FleetRippleDisable
+        {
+            public string VesselId { get; set; } = "";
+            public string NoteRef { get; set; } = "";
+            public string? Reason { get; set; }
+        }
+
+        private struct FleetPromotionGateError
+        {
+            public string Error;
+            public object Details;
+        }
+
+        private struct FleetConflictResult
+        {
+            public object? Conflict;
         }
 
         private static string? ValidateIdentityCandidateNotes(string content, ReflectionMode mode)
