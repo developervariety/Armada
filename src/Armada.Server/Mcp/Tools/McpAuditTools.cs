@@ -100,12 +100,31 @@ namespace Armada.Server.Mcp.Tools
 
                         foreach (Vessel checkVessel in vesselsToCheck)
                         {
-                            ReflectionDispatcher.DispatchResult? dispatched = await reflectionDispatcher
+                            ReflectionDispatcher.DispatchResult? consolidateDispatched = await reflectionDispatcher
                                 .TryAutoDispatchAfterAuditDrainAsync(checkVessel)
                                 .ConfigureAwait(false);
-                            if (dispatched != null)
+                            if (consolidateDispatched != null)
                             {
-                                reflectionsDispatched.Add(new { vesselId = checkVessel.Id, missionId = dispatched.MissionId });
+                                reflectionsDispatched.Add(new
+                                {
+                                    vesselId = checkVessel.Id,
+                                    missionId = consolidateDispatched.MissionId,
+                                    mode = "consolidate"
+                                });
+                                continue;
+                            }
+
+                            ReflectionDispatcher.DispatchResult? reorganizeDispatched = await reflectionDispatcher
+                                .TryAutoDispatchReorganizeAfterAuditDrainAsync(checkVessel)
+                                .ConfigureAwait(false);
+                            if (reorganizeDispatched != null)
+                            {
+                                reflectionsDispatched.Add(new
+                                {
+                                    vesselId = checkVessel.Id,
+                                    missionId = reorganizeDispatched.MissionId,
+                                    mode = "reorganize"
+                                });
                             }
                         }
                     }
