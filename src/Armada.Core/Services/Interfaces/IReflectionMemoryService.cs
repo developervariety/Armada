@@ -28,6 +28,34 @@ namespace Armada.Core.Services.Interfaces
         Task<List<string>> ReadRejectedProposalNotesAsync(Vessel vessel, CancellationToken token = default);
 
         /// <summary>
+        /// Read the recently-rejected proposal notes filtered to a specific reflection mode.
+        /// Used by reorganize-mode brief assembly so consolidate-mode rejections do not
+        /// contaminate the reorganize feedback loop.
+        /// </summary>
+        /// <param name="vessel">Vessel whose rejected proposals should be read.</param>
+        /// <param name="mode">Mode of the corresponding dispatched event to filter by.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Rejected proposal notes whose corresponding dispatched event matches <paramref name="mode"/>.</returns>
+        Task<List<string>> ReadRejectedProposalNotesByModeAsync(
+            Vessel vessel,
+            ReflectionMode mode,
+            CancellationToken token = default);
+
+        /// <summary>
+        /// Read the most recent commit subjects on the vessel's default branch.
+        /// Returns an empty list when the vessel has no working directory configured or git
+        /// access fails. Subject lines only -- no diffs, no bodies.
+        /// </summary>
+        /// <param name="vessel">Vessel whose commit history should be read.</param>
+        /// <param name="limit">Maximum number of commits to return.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Short SHA + subject + ISO author date strings, newest first.</returns>
+        Task<List<string>> ReadRecentCommitSubjectsAsync(
+            Vessel vessel,
+            int limit,
+            CancellationToken token = default);
+
+        /// <summary>
         /// Accept a MemoryConsolidator proposal: update the vessel learned playbook, advance LastReflectionMissionId,
         /// and record a <c>reflection.accepted</c> event.
         /// </summary>

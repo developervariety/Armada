@@ -410,6 +410,68 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Default token budget for reorganize-only reflection missions (Reflections v2-F4).
+        /// Reorganize briefs are far smaller than the full v1 evidence bundle, so this
+        /// defaults to 30000. Must be >= 1.
+        /// </summary>
+        public int DefaultReorganizeTokenBudget
+        {
+            get => _DefaultReorganizeTokenBudget;
+            set
+            {
+                if (value < 1) throw new ArgumentOutOfRangeException(nameof(DefaultReorganizeTokenBudget), "Must be >= 1");
+                _DefaultReorganizeTokenBudget = value;
+            }
+        }
+
+        /// <summary>
+        /// Minimum learned-playbook character count required for cross-vessel fan-out reorganize
+        /// dispatches (Reflections v2-F4). Vessels at or below this size are skipped with reason
+        /// "too_small". Must be >= 0. Default 200.
+        /// </summary>
+        public int ReorganizePlaybookMinCharacters
+        {
+            get => _ReorganizePlaybookMinCharacters;
+            set
+            {
+                if (value < 0) throw new ArgumentOutOfRangeException(nameof(ReorganizePlaybookMinCharacters), "Must be >= 0");
+                _ReorganizePlaybookMinCharacters = value;
+            }
+        }
+
+        /// <summary>
+        /// Anti-thrash growth ratio for the audit-drain reorganize auto-trigger
+        /// (Reflections v2-F4). When the most recent reorganize on a vessel was accepted, the
+        /// next auto-fire is suppressed unless the playbook has grown by at least this fraction
+        /// of its post-accept size, OR by at least <see cref="ReorganizeAntiThrashMinNewEntries"/>
+        /// counted entries (whichever satisfies first). Default 0.10 (10 %). Must be > 0.
+        /// </summary>
+        public double ReorganizeAntiThrashGrowthRatio
+        {
+            get => _ReorganizeAntiThrashGrowthRatio;
+            set
+            {
+                if (value <= 0.0) throw new ArgumentOutOfRangeException(nameof(ReorganizeAntiThrashGrowthRatio), "Must be > 0");
+                _ReorganizeAntiThrashGrowthRatio = value;
+            }
+        }
+
+        /// <summary>
+        /// Anti-thrash entry-count fallback for the audit-drain reorganize auto-trigger
+        /// (Reflections v2-F4). Either this OR <see cref="ReorganizeAntiThrashGrowthRatio"/>
+        /// satisfies the gate, whichever comes first. Default 5. Must be >= 1.
+        /// </summary>
+        public int ReorganizeAntiThrashMinNewEntries
+        {
+            get => _ReorganizeAntiThrashMinNewEntries;
+            set
+            {
+                if (value < 1) throw new ArgumentOutOfRangeException(nameof(ReorganizeAntiThrashMinNewEntries), "Must be >= 1");
+                _ReorganizeAntiThrashMinNewEntries = value;
+            }
+        }
+
+        /// <summary>
         /// Minimum number of <c>AuditDeepPicked = true</c> entries pending review before
         /// admiral fires a desktop notification on the next health-check cycle. 0 disables
         /// the notification entirely. Default is 1 -- as soon as Judge flags one entry,
@@ -533,6 +595,10 @@ namespace Armada.Core.Settings
         private int _DefaultReflectionThreshold = 15;
         private int _InitialReflectionWindow = 100;
         private int _DefaultReflectionTokenBudget = 400000;
+        private int _DefaultReorganizeTokenBudget = 30000;
+        private int _ReorganizePlaybookMinCharacters = 200;
+        private double _ReorganizeAntiThrashGrowthRatio = 0.10;
+        private int _ReorganizeAntiThrashMinNewEntries = 5;
         private RemoteControlSettings _RemoteControl = new RemoteControlSettings();
         private DatabaseSettings _Database = new DatabaseSettings();
         private CodeIndexSettings _CodeIndex = new CodeIndexSettings();
