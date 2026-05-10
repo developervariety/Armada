@@ -134,3 +134,85 @@ The following are explicitly out of scope for Reflections v1:
 ### Core Rule
 
 Reflection proposals get reviewed in the same pass as the audit queue. When `armada_drain_audit_queue` returns `reflectionsDispatched` entries OR a previously-dispatched reflection mission has reached `Complete`, the orchestrator reviews and accepts/rejects the proposal in the SAME session that drained the audit queue -- never deferred to "later". A reflection sitting un-reviewed gates the next reflection on that vessel (concurrency rule), so deferring breaks the feedback loop.
+
+---
+
+## Reflections v2-F4 (Reorganize Mode)
+
+**Status:** Shipped
+
+F4 extends v1's MCP surface with a `mode` parameter, optional dual-Judge review, cross-vessel fan-out, audit-drain reorganize auto-trigger, and quality-metric event payloads. v1's persona, pipeline, and output contract are unchanged.
+
+### Three Modes
+
+| Mode | Purpose | Brief shape | Default tokenBudget |
+|------|---------|-------------|---------------------|
+| `consolidate` (default) | v1 behavior: distill new evidence into the playbook. New facts allowed. | Full v1 evidence bundle. | 400000 |
+| `reorganize` | Restructure the playbook (group, merge near-duplicates, drop stale entries, reorder, reword). New facts forbidden. | Current playbook + last 20 commit subjects + reorganize-mode rejection feedback + reorganize-specific constraints. No evidence bundle. | 30000 |
+| `consolidate-and-reorganize` | Combined: mine new facts AND restructure in one mission. | Full v1 evidence bundle + reorganize instructions + recent commit subjects. | 400000 |
+
+A missing or unrecognized `mode` returns the new error `invalid_mode`.
+
+### Optional Dual-Judge
+
+Pass `dualJudge: true` to dispatch on the `ReflectionsDualJudge` pipeline (Worker -> two parallel Judge siblings) instead of `Reflections`. At accept time the orchestrator's `armada_accept_memory_proposal` requires both Judge sibling missions to have produced PASS verdicts; otherwise it returns `dual_judge_not_passed` with the verdict details. `editsMarkdown` overrides this gate just as it overrides the parser.
+
+`dualJudge: false` (default) keeps the v1 single-stage `Reflections` pipeline.
+
+### Cross-Vessel Fan-Out
+
+`armada_consolidate_memory(vesselId: null, mode: "reorganize")` enumerates active vessels and dispatches a reorganize mission per vessel that has a populated `vessel-<repo>-learned` playbook with no in-flight MemoryConsolidator. Skipped vessels appear in the response under `skipped[]` with reasons `in_flight`, `no_playbook`, or `too_small`. Fan-out is only valid with `mode: "reorganize"` -- calling with `null` vesselId on `consolidate` or `consolidate-and-reorganize` returns `vesselId_required`. `dualJudge` propagates to every dispatched mission.
+
+### Audit-Drain Auto-Trigger and Anti-Thrash
+
+When a vessel sets `Vessel.ReorganizeThreshold` (a token-count threshold; null disables), `armada_drain_audit_queue` evaluates the current learned playbook size against that threshold after the existing consolidate-threshold check. If exceeded and the vessel has no in-flight MemoryConsolidator, the drain auto-fires a reorganize mission. To prevent thrash, the trigger skips when the most recent reorganize-mode `reflection.accepted` payload's `appliedContentLength` has not grown by `ReorganizeAntiThrashGrowthRatio` (default 0.10) AND has not gained `ReorganizeAntiThrashMinNewEntries` worth of new content (default 5).
+
+`reflectionsDispatched[]` entries now carry a `mode` field (`"consolidate"` or `"reorganize"`); existing callers ignoring the field continue to work.
+
+### Quality Metrics
+
+Every `reflection.accepted` event payload now includes:
+
+| Field | Always populated? | Notes |
+|-------|------------------|-------|
+| `mode` | Yes | Wire string of the mission mode. |
+| `dualJudge` | Yes | Whether dual-Judge was requested at dispatch. |
+| `entriesBefore` / `entriesAfter` | Yes | Bullet count in the pre/post playbook. |
+| `tokensBefore` / `tokensAfter` | Yes | Approx 4-chars-per-token estimate. |
+| `removed` / `merged` | Reorganize/combined | Counts from the diff JSON. 0 in pure consolidate. |
+| `addedFromReorganize` | Reorganize/combined | Reorganize-mode count from diff `added`; -1 in combined mode (not attributable). |
+| `judgeVerdicts` | dualJudge=true | Per-Judge-sibling list of `{missionId, captainId, verdict}`. |
+
+Surface these via `armada_enumerate(entityType: "events", eventType: "reflection.accepted")`.
+
+### F4 MCP Errors
+
+In addition to v1's errors, F4 introduces:
+
+| Error | When |
+|-------|------|
+| `invalid_mode` | `mode` value not in the enum. |
+| `vesselId_required` | `vesselId: null` with non-reorganize mode. |
+| `playbook_empty` | Single-vessel reorganize on a vessel whose learned playbook still contains the bootstrap "No accepted reflection facts yet" template. |
+| `playbook_too_small` | Single-vessel reorganize on a populated playbook below `ArmadaSettings.ReorganizePlaybookMinCharacters` (default 200). |
+| `reorganize_added_facts` | Accept-time soft validation: reorganize diff `added` array contains a non-structural entry. Details list the offending entries. Override with `editsMarkdown`. |
+| `reorganize_invalid_merge_source` | Accept-time soft validation: a `merged.from` entry was not present in the pre-update playbook. |
+| `reorganize_invalid_remove` | Accept-time soft validation: a `removed` entry was not present in the pre-update playbook. |
+| `dual_judge_not_passed` | Accept-time gate: at least one Judge sibling did not emit `[ARMADA:VERDICT] PASS`. Details echo the verdicts. |
+
+### Settings
+
+| Setting | Default | Where |
+|---------|---------|-------|
+| `DefaultReorganizeTokenBudget` | 30000 | `ArmadaSettings` |
+| `ReorganizePlaybookMinCharacters` | 200 | `ArmadaSettings` |
+| `ReorganizeAntiThrashGrowthRatio` | 0.10 | `ArmadaSettings` |
+| `ReorganizeAntiThrashMinNewEntries` | 5 | `ArmadaSettings` |
+| `Vessel.ReorganizeThreshold` | NULL (auto-trigger disabled) | `armada_update_vessel` |
+
+### Non-Goals (F4 Scope)
+
+- No schedule-based reorganize (cron/time-of-day triggers); audit-drain auto-trigger is the only scheduled path.
+- No reorganize on vessels other than `vessel-<repo>-learned`.
+- No cross-playbook restructuring.
+- No auto-accept of reorganize proposals -- the orchestrator remains the final decision authority even when dual-Judge passes.

@@ -2642,7 +2642,7 @@ Restore Armada from a previously created backup ZIP file.
 
 ### armada_consolidate_memory
 
-Manually trigger a memory consolidation mission for a vessel. This dispatches a `MemoryConsolidator` persona captain that analyzes completed missions and produces a candidate playbook update.
+Trigger a memory consolidation or reorganize mission. v2-F4 extends the v1 surface with `mode`, `dualJudge`, and a cross-vessel fan-out semantic when `vesselId` is null.
 
 **Input Schema:**
 
@@ -2652,11 +2652,19 @@ Manually trigger a memory consolidation mission for a vessel. This dispatches a 
   "properties": {
     "vesselId": {
       "type": "string",
-      "description": "Target vessel ID (vsl_ prefix)"
+      "description": "Target vessel ID (vsl_ prefix). Required unless mode=reorganize, in which case null fan-outs across active vessels."
+    },
+    "mode": {
+      "type": "string",
+      "description": "consolidate (default) | reorganize | consolidate-and-reorganize"
+    },
+    "dualJudge": {
+      "type": "boolean",
+      "description": "When true, dispatches the ReflectionsDualJudge pipeline (Worker + two parallel Judge siblings). Default false."
     },
     "sinceMissionId": {
       "type": "string",
-      "description": "Override the auto-computed start point (msn_ prefix)"
+      "description": "Override the auto-computed evidence start point (msn_ prefix). Ignored in pure-reorganize mode."
     },
     "instructions": {
       "type": "string",
@@ -2664,47 +2672,77 @@ Manually trigger a memory consolidation mission for a vessel. This dispatches a 
     },
     "tokenBudget": {
       "type": "integer",
-      "description": "Token budget for evidence bundle (default 400000)"
+      "description": "Token budget for the brief (default 400000 for consolidate/combined, 30000 for reorganize)"
     }
-  },
-  "required": ["vesselId"]
+  }
 }
 ```
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `vesselId` | string | Yes | Target vessel ID (prefix `vsl_`) |
-| `sinceMissionId` | string | No | Override the auto-computed start point (uses `Vessel.LastReflectionMissionId` if not provided) |
+| `vesselId` | string | Conditional | Target vessel ID (`vsl_`). Required unless `mode = "reorganize"` -- then null triggers fan-out. |
+| `mode` | string | No | One of `consolidate` (default), `reorganize`, `consolidate-and-reorganize`. |
+| `dualJudge` | boolean | No | Use the `ReflectionsDualJudge` pipeline. Default false. |
+| `sinceMissionId` | string | No | Override the auto-computed start point (uses `Vessel.LastReflectionMissionId` if not provided). Ignored in pure reorganize. |
 | `instructions` | string | No | Extra guidance for the consolidator captain |
-| `tokenBudget` | integer | No | Token budget for evidence bundle (default 400000) |
+| `tokenBudget` | integer | No | Token budget for the brief. Default depends on mode. |
 
-**Response:**
+**Response (single-vessel):**
 
 ```json
 {
   "missionId": "msn_abc123def456ghi789jk",
   "voyageId": "vyg_abc123def456ghi789jk",
   "evidenceMissionCount": 15,
-  "truncated": false
+  "truncated": false,
+  "mode": "consolidate",
+  "dualJudge": false
+}
+```
+
+**Response (cross-vessel fan-out, vesselId=null + mode=reorganize):**
+
+```json
+{
+  "dispatchedMissions": [
+    { "vesselId": "vsl_a", "missionId": "msn_x", "voyageId": "vyg_x" }
+  ],
+  "skipped": [
+    { "vesselId": "vsl_b", "reason": "in_flight", "missionId": "msn_inflight" },
+    { "vesselId": "vsl_c", "reason": "no_playbook" },
+    { "vesselId": "vsl_d", "reason": "too_small" }
+  ],
+  "mode": "reorganize",
+  "dualJudge": false
 }
 ```
 
 | Field | Type | Description |
 |-----------|------|-------------|
-| `missionId` | string | The dispatched consolidation mission ID |
+| `missionId` | string | The dispatched consolidation mission ID (single-vessel response) |
 | `voyageId` | string | The voyage containing the consolidation mission |
-| `evidenceMissionCount` | integer | How many missions made it into the bundle after token budget capping |
+| `evidenceMissionCount` | integer | How many missions made it into the bundle after token budget capping. 0 for pure reorganize. |
 | `truncated` | boolean | True if oldest missions were evicted to fit token budget |
+| `mode` | string | Echoes the resolved mode |
+| `dualJudge` | boolean | Echoes the dualJudge flag |
+| `dispatchedMissions` | array | Fan-out only: `{vesselId, missionId, voyageId}` per vessel that dispatched |
+| `skipped` | array | Fan-out only: `{vesselId, reason}` per skipped vessel; reason in `in_flight | no_playbook | too_small` |
 
 **Errors:**
 
 | Error | When |
 |-------|------|
-| `vessel_not_found` | Invalid or nonexistent vessel ID |
+| `vessel_not_found` | Invalid or nonexistent vessel ID (single-vessel mode) |
+| `vesselId_required` | `vesselId: null` with mode != "reorganize" |
+| `invalid_mode` | `mode` value not in the enum |
 | `reflection_already_in_flight` | A reflection is already running for this vessel. Returns existing `missionId` in error payload. |
-| `no_evidence_available` | Vessel has zero terminal missions since the start point |
+| `no_evidence_available` | Mode is consolidate or combined and vessel has zero terminal missions since the start point |
+| `playbook_empty` | Single-vessel reorganize on a bootstrap-empty learned playbook |
+| `playbook_too_small` | Single-vessel reorganize on a populated playbook below `ArmadaSettings.ReorganizePlaybookMinCharacters` |
 
-**Concurrency Rule:** At most ONE pending/running reflection mission per vessel. If called while one is in-flight, returns the existing mission ID rather than dispatching a duplicate.
+**Concurrency Rule:** At most ONE pending/running reflection mission per vessel, regardless of mode. If called while one is in-flight, returns the existing mission ID rather than dispatching a duplicate.
+
+**Cross-Vessel Fan-Out:** With `vesselId: null, mode: "reorganize"`, admiral enumerates active vessels and dispatches a reorganize mission per vessel that (a) has no in-flight MemoryConsolidator and (b) has a populated playbook above `ReorganizePlaybookMinCharacters`. `dualJudge` propagates to every dispatched mission.
 
 ---
 
@@ -2742,7 +2780,12 @@ Accept a reflection proposal and apply it to the vessel's learned playbook. Opti
 {
   "playbookId": "pbk_abc123def456ghi789jk",
   "playbookVersion": 5,
-  "appliedContent": "# vessel-myrepo-learned\n\n..."
+  "appliedContent": "# vessel-myrepo-learned\n\n...",
+  "mode": "reorganize",
+  "judgeVerdicts": [
+    { "missionId": "msn_judge_a", "captainId": "cpt_a", "verdict": "PASS" },
+    { "missionId": "msn_judge_b", "captainId": "cpt_b", "verdict": "PASS" }
+  ]
 }
 ```
 
@@ -2751,6 +2794,8 @@ Accept a reflection proposal and apply it to the vessel's learned playbook. Opti
 | `playbookId` | string | The vessel learned-facts playbook ID |
 | `playbookVersion` | integer | Post-update version number |
 | `appliedContent` | string | Verbatim of what got written to the playbook |
+| `mode` | string | Wire-string mode read from the dispatched event (consolidate / reorganize / consolidate-and-reorganize) |
+| `judgeVerdicts` | array \| null | Per-Judge-sibling list of `{missionId, captainId, verdict}` when the dispatched mission ran with `dualJudge=true`; null otherwise |
 
 **Note:** The `vesselId` appears in the emitted `reflection.accepted` event payload, not in the MCP tool's direct response.
 
@@ -2761,12 +2806,18 @@ Accept a reflection proposal and apply it to the vessel's learned playbook. Opti
 | `mission_not_found` | Invalid or nonexistent mission ID |
 | `mission_not_a_reflection` | Mission persona mismatch (not a MemoryConsolidator mission) |
 | `mission_not_complete` | Mission has not reached Complete status |
-| `proposal_already_processed` | This proposal was already accepted or rejected (M-fix1: non-lossy check using event queries) |
+| `proposal_already_processed` | This proposal was already accepted or rejected |
 | `output_contract_violation` | Mission AgentOutput missing or malformed fenced blocks |
+| `reorganize_added_facts` | F4 soft-validation: reorganize-mode diff `added` array contains a non-structural entry. Details list offending entries. Override with `editsMarkdown`. |
+| `reorganize_invalid_merge_source` | F4 soft-validation: a `merged.from` entry was not present in the pre-update playbook. Override with `editsMarkdown`. |
+| `reorganize_invalid_remove` | F4 soft-validation: a `removed` entry was not present in the pre-update playbook. Override with `editsMarkdown`. |
+| `dual_judge_not_passed` | F4 dual-Judge gate: at least one Judge sibling did not produce `[ARMADA:VERDICT] PASS`. Details echo the verdicts. Override with `editsMarkdown`. |
 
-**Non-Lossy Semantics (M-fix1):** The tool uses filtered event queries to detect prior accept/reject actions, preventing duplicate processing even with noisy event history.
+**editsMarkdown Override:** When `editsMarkdown` is supplied, ALL F4 gates (reorganize soft-validation AND dual-Judge) AND v1 parser validation are bypassed. The orchestrator is the final decision authority.
 
-**Enriched Event Payload:** On acceptance, an event is emitted with payload containing `vesselId`, `playbookId`, `missionId`, and `appliedContentLength`.
+**Non-Lossy Semantics:** The tool uses filtered event queries to detect prior accept/reject actions, preventing duplicate processing even with noisy event history.
+
+**Enriched Event Payload (F4):** On acceptance, the `reflection.accepted` event payload includes `mode`, `dualJudge`, `entriesBefore`, `entriesAfter`, `removed`, `merged`, `addedFromReorganize`, `tokensBefore`, `tokensAfter`, `judgeVerdicts`, in addition to v1's `vesselId`, `playbookId`, `missionId`, `appliedContentLength`. Surface via `armada_enumerate(entityType: "events", eventType: "reflection.accepted")`.
 
 ---
 
@@ -2842,7 +2893,13 @@ The `armada_drain_audit_queue` response includes a `reflectionsDispatched` field
   "reflectionsDispatched": [
     {
       "vesselId": "vsl_abc123def456ghi789jk",
-      "missionId": "msn_def456ghi789jkl012mn"
+      "missionId": "msn_def456ghi789jkl012mn",
+      "mode": "consolidate"
+    },
+    {
+      "vesselId": "vsl_other",
+      "missionId": "msn_reorg_xyz",
+      "mode": "reorganize"
     }
   ]
 }
@@ -2851,13 +2908,14 @@ The `armada_drain_audit_queue` response includes a `reflectionsDispatched` field
 | Field | Type | Description |
 |-----------|------|-------------|
 | `entries` | array | List of pending audit entries (objects with `entryId`, `missionId`, `vesselId`, `branchName`, `auditLane`, `auditCriticalTrigger`, `auditConventionNotes`, `isCalibration`) |
-| `reflectionsDispatched` | array | List of auto-dispatched reflection missions (only for active vessels post M-fix1) |
+| `reflectionsDispatched` | array | List of auto-dispatched reflection missions (active vessels only). Each entry: `{vesselId, missionId, mode}` where `mode` is `"consolidate"` or `"reorganize"`. |
 
 **Auto-Dispatch Behavior:**
 
 - After draining audit entries, the admiral checks each vessel's `missionsSinceLastReflection` count.
 - If count >= `Vessel.ReflectionThreshold` (or `AdmiralOptions.DefaultReflectionThreshold` if null), a consolidation mission is auto-dispatched.
-- **Active Vessel Filter (M-fix1):** Only active vessels are considered for auto-dispatch. Inactive vessels are skipped.
+- **Reorganize threshold (F4):** When `Vessel.ReorganizeThreshold` is set and the learned playbook size (token-count via 4-chars-per-token estimator) meets or exceeds it, a reorganize mission auto-dispatches after the consolidate-threshold check. Anti-thrash skips repeat fires when the most recent reorganize-mode `reflection.accepted` has not grown by `ReorganizeAntiThrashGrowthRatio` (default 0.10) AND has not gained `ReorganizeAntiThrashMinNewEntries` (default 5) worth of new content.
+- **Active Vessel Filter:** Only active vessels are considered for auto-dispatch. Inactive vessels are skipped.
 
 ---
 
