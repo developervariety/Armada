@@ -192,6 +192,14 @@ namespace Armada.Core.Memory
                 return new EvidenceBundleResult { Brief = "", EvidenceMissionCount = 0, Mode = mode };
             }
 
+            if (mode == ReflectionMode.FleetCurate)
+            {
+                // Fleet-scope brief assembly does not pivot on a single vessel; callers should
+                // use BuildFleetCurateBriefAsync(Fleet, ...) directly. Same compatibility shim
+                // as the identity-scope branch above.
+                return new EvidenceBundleResult { Brief = "", EvidenceMissionCount = 0, Mode = mode };
+            }
+
             List<string> rejectedProposalNotes = await _Memory.ReadRejectedProposalNotesAsync(vessel, token).ConfigureAwait(false);
             string learnedPlaybook = await _Memory.ReadLearnedPlaybookContentAsync(vessel, token).ConfigureAwait(false);
             List<Mission> evidenceMissions = await SelectEvidenceMissionsAsync(vessel, sinceMissionId, token).ConfigureAwait(false);
@@ -441,6 +449,140 @@ namespace Armada.Core.Memory
             if (String.IsNullOrEmpty(captainId)) throw new ArgumentNullException(nameof(captainId));
 
             return await FindIdentityCurateInFlightAsync("captain-curate", captainId, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Search for an unfinished MemoryConsolidator mission for a specific fleet (Reflections
+        /// v2-F3). Honest TOCTOU guard, same shape as the per-vessel and identity-scope checks.
+        /// </summary>
+        /// <param name="fleetId">Fleet id.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The in-flight mission when present, otherwise null.</returns>
+        public async Task<Mission?> IsFleetCurateInFlightAsync(string fleetId, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(fleetId)) throw new ArgumentNullException(nameof(fleetId));
+
+            return await FindIdentityCurateInFlightAsync("fleet-curate", fleetId, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Build the fleet-curate brief (Reflections v2-F3): current fleet-learned playbook
+        /// content (empty placeholder until first accepted fleet-curate) + cross-vessel mission
+        /// evidence aggregated by <see cref="HabitPatternMiner.MineFleetAsync"/> across all
+        /// active vessels in the fleet + verbatim content of every active vessel's
+        /// <c>vessel-&lt;repo&gt;-learned</c> playbook (the section 4 surface used to spot
+        /// promotion candidates) + recently rejected fleet-curate proposals for this fleet.
+        /// Active-vessel filter consistent with the M-fix1 audit-drain auto-dispatch fix.
+        /// </summary>
+        /// <param name="fleet">Fleet being curated.</param>
+        /// <param name="tokenBudget">Approximate token budget for the brief.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Evidence bundle result; <see cref="EvidenceBundleResult.EvidenceMissionCount"/>
+        ///   reflects the number of terminal missions aggregated across active vessels.</returns>
+        public async Task<EvidenceBundleResult> BuildFleetCurateBriefAsync(
+            Fleet fleet,
+            int tokenBudget,
+            CancellationToken token = default)
+        {
+            if (fleet == null) throw new ArgumentNullException(nameof(fleet));
+            if (tokenBudget < 1) tokenBudget = _Settings.DefaultFleetCurateTokenBudget;
+
+            string fleetPlaybookContent = await ReadFleetLearnedPlaybookContentAsync(fleet, token).ConfigureAwait(false);
+            DateTime? sinceUtc = await ResolveLastAcceptedIdentityCurateAtAsync("fleet-curate", fleet.Id, token).ConfigureAwait(false);
+
+            HabitPatternResult? aggregate = null;
+            if (_HabitPatternMiner != null)
+            {
+                aggregate = await _HabitPatternMiner.MineFleetAsync(
+                    fleet.Id,
+                    sinceUtc,
+                    _Settings.FleetCurateInitialWindow,
+                    token).ConfigureAwait(false);
+            }
+
+            List<VesselLearnedSnapshot> vesselLearned = await ReadActiveVesselLearnedPlaybooksAsync(fleet, token).ConfigureAwait(false);
+            List<string> rejections = await ReadIdentityRejectionsAsync("fleet-curate", fleet.Id, token).ConfigureAwait(false);
+
+            string brief = ComposeFleetCurateBrief(
+                fleet,
+                fleetPlaybookContent,
+                aggregate,
+                vesselLearned,
+                rejections);
+
+            return new EvidenceBundleResult
+            {
+                Brief = brief,
+                EvidenceMissionCount = aggregate?.MissionsExamined ?? 0,
+                RejectedProposalCount = rejections.Count,
+                Truncated = false,
+                Mode = ReflectionMode.FleetCurate
+            };
+        }
+
+        /// <summary>
+        /// Dispatch a fleet-scoped MemoryConsolidator mission (Reflections v2-F3). The mission
+        /// is created without a vesselId pin because the brief is fleet-wide; admiral picks an
+        /// anchor vessel for worktree provisioning. Emits a <c>reflection.dispatched</c> event
+        /// whose payload includes <c>targetType: "fleet"</c> and <c>targetId: fleet.Id</c>.
+        /// </summary>
+        /// <param name="fleet">Fleet being curated.</param>
+        /// <param name="title">Mission title.</param>
+        /// <param name="brief">Mission brief (assembled by <see cref="BuildFleetCurateBriefAsync"/>).</param>
+        /// <param name="dualJudge">When true, dispatches the ReflectionsDualJudge pipeline.</param>
+        /// <param name="tokenBudget">Token budget recorded in the dispatched event.</param>
+        /// <param name="anchorVessel">Vessel used as the worktree pivot for the mission.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Dispatch result.</returns>
+        public async Task<DispatchResult> DispatchFleetCurateAsync(
+            Fleet fleet,
+            string title,
+            string brief,
+            bool dualJudge,
+            int tokenBudget,
+            Vessel anchorVessel,
+            CancellationToken token = default)
+        {
+            if (fleet == null) throw new ArgumentNullException(nameof(fleet));
+            if (String.IsNullOrEmpty(title)) throw new ArgumentNullException(nameof(title));
+            if (String.IsNullOrEmpty(brief)) throw new ArgumentNullException(nameof(brief));
+            if (anchorVessel == null) throw new ArgumentNullException(nameof(anchorVessel));
+
+            string pipelineId = dualJudge ? "ReflectionsDualJudge" : "Reflections";
+            List<MissionDescription> missions = new List<MissionDescription>
+            {
+                new MissionDescription(title, brief)
+                {
+                    PreferredModel = "high"
+                }
+            };
+
+            Voyage voyage = await _Admiral.DispatchVoyageAsync(
+                title,
+                brief,
+                anchorVessel.Id,
+                missions,
+                pipelineId,
+                token).ConfigureAwait(false);
+
+            List<Mission> voyageMissions = await _Database.Missions.EnumerateByVoyageAsync(voyage.Id, token).ConfigureAwait(false);
+            Mission? reflectionMission = voyageMissions
+                .Where(m => String.Equals(m.Persona, "MemoryConsolidator", StringComparison.OrdinalIgnoreCase))
+                .OrderBy(m => m.CreatedUtc)
+                .FirstOrDefault()
+                ?? voyageMissions.OrderBy(m => m.CreatedUtc).FirstOrDefault();
+            if (reflectionMission == null)
+                throw new InvalidOperationException("Fleet-curate dispatch created no mission");
+
+            await EmitFleetCurateDispatchedEventAsync(reflectionMission, anchorVessel, fleet.Id, dualJudge, tokenBudget, token).ConfigureAwait(false);
+
+            return new DispatchResult
+            {
+                MissionId = reflectionMission.Id,
+                VoyageId = voyage.Id,
+                Mode = ReflectionMode.FleetCurate,
+                DualJudge = dualJudge
+            };
         }
 
         /// <summary>
@@ -1372,6 +1514,41 @@ namespace Armada.Core.Memory
             return playbook?.Content ?? "# Captain Learned Notes -- " + captain.Id + "\n\nNo accepted captain-curate notes yet.";
         }
 
+        private async Task<string> ReadFleetLearnedPlaybookContentAsync(Fleet fleet, CancellationToken token)
+        {
+            // Prefer the explicit FleetId-pinned playbook when set; fall back to the lazy
+            // filename probe so a deleted playbook id (CLAUDE.md spec failure-mode #11) still
+            // resolves to a sensible empty placeholder.
+            if (!String.IsNullOrEmpty(fleet.LearnedPlaybookId))
+            {
+                Playbook? byId = await _Database.Playbooks.ReadAsync(fleet.LearnedPlaybookId!, token).ConfigureAwait(false);
+                if (byId != null) return byId.Content;
+            }
+
+            string tenantId = !String.IsNullOrEmpty(fleet.TenantId) ? fleet.TenantId! : Constants.DefaultTenantId;
+            string fileName = "fleet-" + SanitizeIdentityName(fleet.Id) + "-learned.md";
+            Playbook? playbook = await _Database.Playbooks.ReadByFileNameAsync(tenantId, fileName, token).ConfigureAwait(false);
+            return playbook?.Content ?? "# Fleet Learned Notes -- " + fleet.Name + "\n\nNo accepted fleet-curate notes yet.";
+        }
+
+        private async Task<List<VesselLearnedSnapshot>> ReadActiveVesselLearnedPlaybooksAsync(Fleet fleet, CancellationToken token)
+        {
+            List<VesselLearnedSnapshot> result = new List<VesselLearnedSnapshot>();
+            List<Vessel> vessels = await _Database.Vessels.EnumerateByFleetAsync(fleet.Id, token).ConfigureAwait(false);
+            foreach (Vessel vessel in vessels)
+            {
+                if (!vessel.Active) continue;
+                string content = await _Memory.ReadLearnedPlaybookContentAsync(vessel, token).ConfigureAwait(false);
+                result.Add(new VesselLearnedSnapshot
+                {
+                    VesselId = vessel.Id,
+                    VesselName = vessel.Name,
+                    LearnedPlaybookContent = content
+                });
+            }
+            return result;
+        }
+
         /// <summary>Sanitize a persona name or captain id into a learned-playbook filename segment.</summary>
         /// <param name="raw">Raw identity string.</param>
         /// <returns>Sanitized lowercase kebab-case form.</returns>
@@ -1673,6 +1850,164 @@ namespace Armada.Core.Memory
             return sb.ToString();
         }
 
+        private static string ComposeFleetCurateBrief(
+            Fleet fleet,
+            string fleetPlaybookContent,
+            HabitPatternResult? aggregate,
+            List<VesselLearnedSnapshot> vesselLearned,
+            List<string> rejections)
+        {
+            StringBuilder sb = new StringBuilder();
+            sb.AppendLine("Persona: MemoryConsolidator");
+            sb.AppendLine("Pipeline: Reflections");
+            sb.AppendLine("PreferredModel: high");
+            sb.AppendLine("Title: Curate fleet-learned facts for " + fleet.Name);
+            sb.AppendLine("Mode: fleet-curate");
+            sb.AppendLine("Target: fleet = " + fleet.Id);
+            sb.AppendLine();
+
+            sb.AppendLine("## 1. CURRENT FLEET-LEARNED PLAYBOOK");
+            sb.AppendLine(fleetPlaybookContent);
+            sb.AppendLine();
+
+            sb.AppendLine("## 2. INSTRUCTIONS (fleet-curate-specific)");
+            sb.AppendLine("Permitted operations:");
+            sb.AppendLine("- Add new fleet-scope facts that apply across multiple vessels in this fleet, backed by evidence in section 3 + section 4.");
+            sb.AppendLine("- Modify existing fleet entries (re-evaluation: weaken confidence, refresh attribution, update wording).");
+            sb.AppendLine("- Disable existing fleet entries when evidence shows the fact no longer holds across vessels.");
+            sb.AppendLine();
+            sb.AppendLine("Permitted ripple actions on vessel scopes:");
+            sb.AppendLine("- For each promoted fact, list disableFromVessels entries specifying which vessel-learned playbook entries to deactivate (avoids duplicate content when a fact lives at fleet scope).");
+            sb.AppendLine();
+            sb.AppendLine("Forbidden operations:");
+            sb.AppendLine("- No fact promoted with <2 contributing vessels. Single-vessel facts belong in vessel-curate.");
+            sb.AppendLine("- No fact promoted with <3 supporting missions across the contributing vessels.");
+            sb.AppendLine("- No fact that contradicts existing vessel-learned content (the accept tool BLOCKS this with strict validation; do not even propose).");
+            sb.AppendLine("- No CLAUDE.md edits, no code changes, no playbook proposals beyond fleet-<id>-learned and the explicit disableFromVessels ripple.");
+            sb.AppendLine();
+            sb.AppendLine("Confidence guidance:");
+            sb.AppendLine("- high -- pattern observed in >=3 vessels with >=5 supporting missions total.");
+            sb.AppendLine("- medium -- 2 vessels, 3-4 missions.");
+            sb.AppendLine("- low -- only 1 vessel meaningfully contributes (this is vessel-curate territory; reject).");
+            sb.AppendLine();
+            sb.AppendLine("Re-evaluation handling (REQUIRED):");
+            sb.AppendLine("- Each existing fleet entry in section 1 includes attribution. If recent vessel evidence (section 3) contradicts an entry on any vessel, propose disabling or weakening. If a vessel that used to contribute no longer does, update attribution accordingly. Failure to address counter-evidence is rejected as fleet_curate_ignored_counter_evidence at accept time.");
+            sb.AppendLine();
+
+            sb.AppendLine("## 3. CROSS-VESSEL MISSION EVIDENCE BUNDLE");
+            if (aggregate == null)
+            {
+                sb.AppendLine("HabitPatternMiner unavailable -- no aggregated evidence bundled.");
+            }
+            else
+            {
+                sb.AppendLine("- missionsExamined: " + aggregate.MissionsExamined);
+                sb.AppendLine("- complete: " + aggregate.MissionsComplete + ", failed: " + aggregate.MissionsFailed + ", cancelled: " + aggregate.MissionsCancelled);
+                sb.AppendLine("- judgeVerdicts: PASS=" + aggregate.JudgePassCount + ", FAIL=" + aggregate.JudgeFailCount + ", NEEDS_REVISION=" + aggregate.JudgeNeedsRevisionCount + ", PENDING=" + aggregate.JudgePendingCount);
+                sb.AppendLine("- averageRecoveryAttempts: " + aggregate.AverageRecoveryAttempts.ToString("0.00"));
+                sb.AppendLine("- signalMailReceivedTotal: " + aggregate.SignalMailReceivedTotal);
+
+                if (aggregate.FailureModeTags.Count > 0)
+                {
+                    sb.AppendLine("- failureModeTags:");
+                    foreach (FailureModeTagCount tag in aggregate.FailureModeTags)
+                        sb.AppendLine("    - " + tag.Tag + ": " + tag.MissionCount);
+                }
+
+                if (aggregate.TopTouchedFiles.Count > 0)
+                {
+                    sb.AppendLine("- topTouchedFiles:");
+                    foreach (FileTouchCount f in aggregate.TopTouchedFiles)
+                        sb.AppendLine("    - " + f.Path + " (" + f.EditCount + ")");
+                }
+
+                if (aggregate.VesselContributions.Count > 0)
+                {
+                    sb.AppendLine("- vesselContributions:");
+                    foreach (VesselContribution v in aggregate.VesselContributions)
+                    {
+                        sb.AppendLine("    - " + v.VesselId
+                            + " name=" + v.VesselName
+                            + " missions=" + v.MissionCount
+                            + " complete=" + v.CompleteCount
+                            + " failed=" + v.FailedCount
+                            + " cancelled=" + v.CancelledCount);
+                    }
+                }
+            }
+
+            sb.AppendLine();
+            sb.AppendLine("## 4. ALL VESSEL LEARNED PLAYBOOKS IN THIS FLEET (active vessels only)");
+            if (vesselLearned.Count == 0)
+            {
+                sb.AppendLine("No active vessels with learned playbooks in this fleet.");
+            }
+            else
+            {
+                foreach (VesselLearnedSnapshot snap in vesselLearned)
+                {
+                    sb.AppendLine();
+                    sb.AppendLine("### Vessel: " + snap.VesselName + " (" + snap.VesselId + ")");
+                    sb.AppendLine(snap.LearnedPlaybookContent);
+                }
+            }
+
+            sb.AppendLine();
+            sb.AppendLine("## 5. RECENTLY REJECTED FLEET-CURATE PROPOSALS");
+            if (rejections.Count == 0)
+            {
+                sb.AppendLine("No rejected fleet-curate proposals recorded for this fleet.");
+            }
+            else
+            {
+                foreach (string note in rejections)
+                    sb.AppendLine("- " + note);
+            }
+
+            sb.AppendLine();
+            sb.AppendLine("## 6. CONSTRAINTS");
+            sb.AppendLine("- Output must be exactly two fenced blocks named reflections-candidate and reflections-diff.");
+            sb.AppendLine("- The reflections-candidate block is the dual-section fleet shape: literal `=== FLEET PLAYBOOK CONTENT ===` and `=== END FLEET PLAYBOOK CONTENT ===` markers wrap the markdown fleet playbook (with `Source: vessel <name> (msn_xxx)` per-vessel attribution); literal `=== RIPPLE DISABLES (JSON) ===` and `=== END RIPPLE DISABLES ===` markers wrap a JSON object with one key `disableFromVessels` whose value is an array of `{vesselId, noteRef, reason}` entries (empty array permitted).");
+            sb.AppendLine("- The reflections-diff block is JSON: {\"added\":[{section,summary,confidence,vesselsContributing,missionsSupporting}], \"modified\":[{noteRef,change}], \"disabled\":[{noteRef,reason}], \"rippleDisables\":N, \"evidenceConfidence\":\"high|mixed|low\", \"missionsExamined\":N, \"vesselsInScope\":N, \"notes\":\"one paragraph\"}.");
+            sb.AppendLine("- Never propose CLAUDE.md edits or code changes.");
+
+            return sb.ToString();
+        }
+
+        private async Task EmitFleetCurateDispatchedEventAsync(
+            Mission mission,
+            Vessel anchorVessel,
+            string fleetId,
+            bool dualJudge,
+            int tokenBudget,
+            CancellationToken token)
+        {
+            try
+            {
+                ArmadaEvent dispatched = new ArmadaEvent(_ReflectionDispatchedEvent, "Fleet-curate reflection dispatched.");
+                dispatched.TenantId = mission.TenantId ?? anchorVessel.TenantId ?? Constants.DefaultTenantId;
+                dispatched.EntityType = "mission";
+                dispatched.EntityId = mission.Id;
+                dispatched.MissionId = mission.Id;
+                dispatched.VesselId = anchorVessel.Id;
+                dispatched.VoyageId = mission.VoyageId;
+                dispatched.Payload = JsonSerializer.Serialize(new
+                {
+                    mode = ReflectionMemoryService.ModeToWireString(ReflectionMode.FleetCurate),
+                    dualJudge = dualJudge,
+                    tokenBudget = tokenBudget,
+                    missionId = mission.Id,
+                    targetType = "fleet",
+                    targetId = fleetId
+                });
+                await _Database.Events.CreateAsync(dispatched, token).ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+                // Best-effort observability.
+            }
+        }
+
         #endregion
 
         #region Public-Classes
@@ -1696,6 +2031,23 @@ namespace Armada.Core.Memory
 
             /// <summary>Mode that drove the brief assembly.</summary>
             public ReflectionMode Mode { get; set; } = ReflectionMode.Consolidate;
+        }
+
+        /// <summary>
+        /// Snapshot of one active vessel's vessel-&lt;repo&gt;-learned playbook content used by the
+        /// fleet-curate brief assembler (Reflections v2-F3) to surface section 4 (all vessel
+        /// learned playbooks in the fleet) for promotion-candidate detection.
+        /// </summary>
+        public sealed class VesselLearnedSnapshot
+        {
+            /// <summary>Vessel id.</summary>
+            public string VesselId { get; set; } = "";
+
+            /// <summary>Vessel name.</summary>
+            public string VesselName { get; set; } = "";
+
+            /// <summary>Verbatim content of the vessel-learned playbook (or the empty placeholder).</summary>
+            public string LearnedPlaybookContent { get; set; } = "";
         }
 
         /// <summary>

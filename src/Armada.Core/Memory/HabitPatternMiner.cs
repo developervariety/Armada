@@ -175,6 +175,163 @@ namespace Armada.Core.Memory
             return result;
         }
 
+        /// <summary>
+        /// Aggregate behavior signals across ALL active vessels in a fleet (Reflections v2-F3).
+        /// Mirrors <see cref="MinePersonaAsync"/> but partitions by fleetId instead of persona,
+        /// filters vessels to <c>Active = true</c> per the F3 active-vessel-filter rule, and
+        /// returns a per-vessel contribution list under <see cref="HabitPatternResult.VesselContributions"/>
+        /// (consumed by the fleet-curate brief assembler to surface which vessels supplied
+        /// evidence). The captain breakdown is omitted for fleet scope.
+        /// </summary>
+        /// <param name="fleetId">Fleet id (flt_ prefix).</param>
+        /// <param name="sinceUtc">Lower bound on terminal mission completion time.</param>
+        /// <param name="initialWindow">Maximum terminal missions retained when <paramref name="sinceUtc"/> is null.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Aggregated <see cref="HabitPatternResult"/>; empty when no active vessels in
+        ///   the fleet have terminal missions.</returns>
+        public async Task<HabitPatternResult> MineFleetAsync(
+            string fleetId,
+            DateTime? sinceUtc,
+            int initialWindow,
+            CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(fleetId)) throw new ArgumentNullException(nameof(fleetId));
+            if (initialWindow < 1) initialWindow = 200;
+
+            List<Vessel> vesselsInFleet = await _Database.Vessels.EnumerateByFleetAsync(fleetId, token).ConfigureAwait(false);
+            HashSet<string> activeVesselIds = new HashSet<string>(
+                vesselsInFleet.Where(v => v.Active).Select(v => v.Id),
+                StringComparer.Ordinal);
+            Dictionary<string, string> vesselNamesById = vesselsInFleet
+                .Where(v => v.Active)
+                .ToDictionary(v => v.Id, v => v.Name, StringComparer.Ordinal);
+
+            HabitPatternResult result = new HabitPatternResult
+            {
+                Scope = HabitPatternScope.Fleet,
+                TargetId = fleetId
+            };
+
+            if (activeVesselIds.Count == 0) return result;
+
+            List<Mission> all = await _Database.Missions.EnumerateAsync(token).ConfigureAwait(false);
+            List<Mission> scope = all
+                .Where(m => IsTerminal(m.Status))
+                .Where(m => !String.IsNullOrEmpty(m.VesselId) && activeVesselIds.Contains(m.VesselId!))
+                .Where(m => !sinceUtc.HasValue || (m.CompletedUtc.HasValue && m.CompletedUtc.Value > sinceUtc.Value))
+                .OrderByDescending(m => m.CompletedUtc ?? m.LastUpdateUtc)
+                .ToList();
+
+            if (!sinceUtc.HasValue && scope.Count > initialWindow)
+            {
+                scope = scope.Take(initialWindow).ToList();
+            }
+
+            result.MissionsExamined = scope.Count;
+
+            if (scope.Count == 0) return result;
+
+            await PopulateAggregatesAsync(result, scope, token).ConfigureAwait(false);
+
+            // Per-vessel contribution breakdown: how many terminal missions each active vessel
+            // contributed to the fleet evidence pool.
+            Dictionary<string, List<Mission>> byVessel = new Dictionary<string, List<Mission>>(StringComparer.Ordinal);
+            foreach (Mission m in scope)
+            {
+                string key = m.VesselId ?? "_unassigned";
+                if (!byVessel.TryGetValue(key, out List<Mission>? lst))
+                {
+                    lst = new List<Mission>();
+                    byVessel[key] = lst;
+                }
+                lst.Add(m);
+            }
+
+            foreach (KeyValuePair<string, List<Mission>> kv in byVessel.OrderByDescending(p => p.Value.Count))
+            {
+                vesselNamesById.TryGetValue(kv.Key, out string? name);
+                result.VesselContributions.Add(new VesselContribution
+                {
+                    VesselId = kv.Key,
+                    VesselName = name ?? kv.Key,
+                    MissionCount = kv.Value.Count,
+                    CompleteCount = kv.Value.Count(x => x.Status == MissionStatusEnum.Complete),
+                    FailedCount = kv.Value.Count(x => x.Status == MissionStatusEnum.Failed),
+                    CancelledCount = kv.Value.Count(x => x.Status == MissionStatusEnum.Cancelled)
+                });
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Compute the Jaccard similarity between two strings using character-level 3-gram
+        /// shingles (Reflections v2-F3). Used by the fleet-curate vessel-fleet conflict gate
+        /// at accept time and the cross-vessel-suggestion hint pass at vessel-curate brief
+        /// assembly. Both inputs are lower-cased; whitespace runs collapse to a single space.
+        /// Returns 0.0 when either input has fewer than 3 effective characters.
+        /// </summary>
+        /// <param name="a">First string.</param>
+        /// <param name="b">Second string.</param>
+        /// <returns>Jaccard similarity in [0.0, 1.0].</returns>
+        public static double Jaccard3GramSimilarity(string? a, string? b)
+        {
+            if (String.IsNullOrEmpty(a) || String.IsNullOrEmpty(b)) return 0.0;
+            HashSet<string> setA = ToTrigramSet(a!);
+            HashSet<string> setB = ToTrigramSet(b!);
+            if (setA.Count == 0 || setB.Count == 0) return 0.0;
+            int intersection = 0;
+            foreach (string g in setA)
+            {
+                if (setB.Contains(g)) intersection++;
+            }
+            int union = setA.Count + setB.Count - intersection;
+            return union == 0 ? 0.0 : (double)intersection / union;
+        }
+
+        /// <summary>
+        /// Cheap sentiment-disagreement heuristic for the fleet-curate vessel-fleet conflict
+        /// gate (Reflections v2-F3). Returns true when one side contains a negation token
+        /// (`not`, `no`, `never`, `do not`, `don't`, `cannot`, `can't`) AND the other does not.
+        /// Does not analyze structure beyond token presence; combined with Jaccard similarity
+        /// over a high threshold, it surfaces likely contradictions.
+        /// </summary>
+        /// <param name="a">First string.</param>
+        /// <param name="b">Second string.</param>
+        /// <returns>True when negation polarity differs across the two inputs.</returns>
+        public static bool SentimentDisagrees(string? a, string? b)
+        {
+            return HasNegation(a) != HasNegation(b);
+        }
+
+        private static readonly string[] _NegationTokens = new[]
+        {
+            " not ", " no ", " never ", " do not ", " don't ", " cannot ", " can't ", " won't ", " isn't ", " aren't "
+        };
+
+        private static bool HasNegation(string? s)
+        {
+            if (String.IsNullOrEmpty(s)) return false;
+            string padded = " " + s!.ToLowerInvariant() + " ";
+            foreach (string token in _NegationTokens)
+            {
+                if (padded.Contains(token, StringComparison.Ordinal)) return true;
+            }
+            return false;
+        }
+
+        private static HashSet<string> ToTrigramSet(string raw)
+        {
+            string normalized = Regex.Replace(raw.ToLowerInvariant(), @"\s+", " ").Trim();
+            HashSet<string> shingles = new HashSet<string>(StringComparer.Ordinal);
+            if (normalized.Length < 3) return shingles;
+            for (int i = 0; i + 3 <= normalized.Length; i++)
+            {
+                shingles.Add(normalized.Substring(i, 3));
+            }
+            return shingles;
+        }
+
         #endregion
 
         #region Private-Methods
@@ -374,6 +531,9 @@ namespace Armada.Core.Memory
 
         /// <summary>Captain scope: cross-vessel aggregation for one captain id.</summary>
         Captain = 1,
+
+        /// <summary>Fleet scope: cross-vessel aggregation across all active vessels in one fleet (Reflections v2-F3).</summary>
+        Fleet = 2,
     }
 
     /// <summary>
@@ -428,6 +588,31 @@ namespace Armada.Core.Memory
 
         /// <summary>Persona-role distribution for captain-curate scope.</summary>
         public List<PersonaRoleCount> PersonaRoleDistribution { get; set; } = new List<PersonaRoleCount>();
+
+        /// <summary>Per-vessel contribution breakdown for fleet-curate scope (Reflections v2-F3).</summary>
+        public List<VesselContribution> VesselContributions { get; set; } = new List<VesselContribution>();
+    }
+
+    /// <summary>Per-vessel contribution to a fleet-scoped aggregation (Reflections v2-F3).</summary>
+    public sealed class VesselContribution
+    {
+        /// <summary>Vessel id.</summary>
+        public string VesselId { get; set; } = "";
+
+        /// <summary>Vessel name (resolved from the fleet membership query).</summary>
+        public string VesselName { get; set; } = "";
+
+        /// <summary>Total in-scope missions on this vessel.</summary>
+        public int MissionCount { get; set; }
+
+        /// <summary>Of those, how many completed successfully.</summary>
+        public int CompleteCount { get; set; }
+
+        /// <summary>Of those, how many failed.</summary>
+        public int FailedCount { get; set; }
+
+        /// <summary>Of those, how many were cancelled.</summary>
+        public int CancelledCount { get; set; }
     }
 
     /// <summary>Failure-mode tag count entry.</summary>

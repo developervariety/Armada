@@ -618,6 +618,86 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Default token budget for fleet-curate reflection missions (Reflections v2-F3).
+        /// Reading every active vessel's learned playbook plus cross-vessel mission evidence is
+        /// the largest brief surface in v2; default 400000. Must be &gt;= 1.
+        /// </summary>
+        public int DefaultFleetCurateTokenBudget
+        {
+            get => _DefaultFleetCurateTokenBudget;
+            set
+            {
+                if (value < 1) throw new ArgumentOutOfRangeException(nameof(DefaultFleetCurateTokenBudget), "Must be >= 1");
+                _DefaultFleetCurateTokenBudget = value;
+            }
+        }
+
+        /// <summary>
+        /// Initial fleet-curate evidence window (Reflections v2-F3): max number of newest
+        /// terminal missions across the fleet's active vessels mined when no fleet-curate has
+        /// been accepted yet. Default 200 (larger than per-vessel <c>InitialReflectionWindow</c>
+        /// because fleet evidence spans multiple vessels). Must be &gt;= 1.
+        /// </summary>
+        public int FleetCurateInitialWindow
+        {
+            get => _FleetCurateInitialWindow;
+            set
+            {
+                if (value < 1) throw new ArgumentOutOfRangeException(nameof(FleetCurateInitialWindow), "Must be >= 1");
+                _FleetCurateInitialWindow = value;
+            }
+        }
+
+        /// <summary>
+        /// Jaccard 3-gram similarity threshold above which a proposed fleet-curate entry is
+        /// flagged as conflicting with vessel-learned content (Reflections v2-F3). Combined
+        /// with sentiment-disagreement detection, exceeding this threshold BLOCKS the accept
+        /// (fleet_curate_vessel_conflict). Default 0.7. Must be in (0.0, 1.0].
+        /// </summary>
+        public double FleetVesselConflictThreshold
+        {
+            get => _FleetVesselConflictThreshold;
+            set
+            {
+                if (value <= 0.0 || value > 1.0) throw new ArgumentOutOfRangeException(nameof(FleetVesselConflictThreshold), "Must be in (0.0, 1.0]");
+                _FleetVesselConflictThreshold = value;
+            }
+        }
+
+        /// <summary>
+        /// Jaccard 3-gram similarity threshold for the cross-vessel suggestion hint surfaced in
+        /// vessel-curate (consolidate) briefs (Reflections v2-F3 extension). When a fact in a
+        /// sibling vessel's learned playbook overlaps the current vessel's evidence above this
+        /// threshold, it is included as a passive promotion-candidate hint. Permissive by
+        /// design (suggestion not blocking). Default 0.5. Must be in (0.0, 1.0].
+        /// </summary>
+        public double CrossVesselSuggestionThreshold
+        {
+            get => _CrossVesselSuggestionThreshold;
+            set
+            {
+                if (value <= 0.0 || value > 1.0) throw new ArgumentOutOfRangeException(nameof(CrossVesselSuggestionThreshold), "Must be in (0.0, 1.0]");
+                _CrossVesselSuggestionThreshold = value;
+            }
+        }
+
+        /// <summary>
+        /// Cross-fleet fan-out warning threshold for fleet-curate dispatches with dualJudge=true
+        /// (Reflections v2-F3). When a multi-fleet fan-out would dispatch to more than this
+        /// many fleets with dualJudge=true, the response includes a starvation-risk warning.
+        /// Default 3.
+        /// </summary>
+        public int FleetCurateDualJudgeFanOutWarnThreshold
+        {
+            get => _FleetCurateDualJudgeFanOutWarnThreshold;
+            set
+            {
+                if (value < 1) throw new ArgumentOutOfRangeException(nameof(FleetCurateDualJudgeFanOutWarnThreshold), "Must be >= 1");
+                _FleetCurateDualJudgeFanOutWarnThreshold = value;
+            }
+        }
+
+        /// <summary>
         /// Minimum number of <c>AuditDeepPicked = true</c> entries pending review before
         /// admiral fires a desktop notification on the next health-check cycle. 0 disables
         /// the notification entirely. Default is 1 -- as soon as Judge flags one entry,
@@ -754,6 +834,11 @@ namespace Armada.Core.Settings
         private int _IdentityNoteConflictVesselSampleSize = 3;
         private double _IdentityNoteConflictThreshold = 0.7;
         private int _IdentityCurateDualJudgeFanOutWarnThreshold = 3;
+        private int _DefaultFleetCurateTokenBudget = 400000;
+        private int _FleetCurateInitialWindow = 200;
+        private double _FleetVesselConflictThreshold = 0.7;
+        private double _CrossVesselSuggestionThreshold = 0.5;
+        private int _FleetCurateDualJudgeFanOutWarnThreshold = 3;
         private RemoteControlSettings _RemoteControl = new RemoteControlSettings();
         private DatabaseSettings _Database = new DatabaseSettings();
         private CodeIndexSettings _CodeIndex = new CodeIndexSettings();

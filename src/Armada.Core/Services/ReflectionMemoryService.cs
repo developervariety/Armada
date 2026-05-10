@@ -1469,6 +1469,7 @@ namespace Armada.Core.Services
                 ReflectionMode.PackCurate => "pack-curate",
                 ReflectionMode.PersonaCurate => "persona-curate",
                 ReflectionMode.CaptainCurate => "captain-curate",
+                ReflectionMode.FleetCurate => "fleet-curate",
                 _ => "consolidate"
             };
         }
