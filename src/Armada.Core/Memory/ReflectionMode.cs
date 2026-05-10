@@ -45,5 +45,16 @@ namespace Armada.Core.Memory
         /// Cross-vessel scope; the captain learned playbook is lazy-created on first accept.
         /// </summary>
         CaptainCurate = 5,
+
+        /// <summary>
+        /// v2-F3 fleet-curate mode: aggregate mission-pattern evidence across ALL active vessels
+        /// in a fleet AND read each vessel's vessel-&lt;repo&gt;-learned playbook for promotion
+        /// candidates. Propose updates to the fleet-&lt;id&gt;-learned playbook plus a JSON sidecar
+        /// describing per-vessel disableFromVessels ripples (vessel-scope notes that should be
+        /// retired because the same fact now lives at fleet scope). Fleet scope; the fleet
+        /// learned playbook is lazy-created on first accept. Strict accept-time validation:
+        /// promotion gates (>=2 vessels, >=3 missions) and vessel-fleet conflict detection BLOCK.
+        /// </summary>
+        FleetCurate = 6,
     }
 }
