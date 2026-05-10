@@ -1452,6 +1452,9 @@ namespace Armada.Core.Services
             if (String.Equals(trimmed, "captain-curate", StringComparison.OrdinalIgnoreCase)
                 || String.Equals(trimmed, "captaincurate", StringComparison.OrdinalIgnoreCase))
                 return ReflectionMode.CaptainCurate;
+            if (String.Equals(trimmed, "fleet-curate", StringComparison.OrdinalIgnoreCase)
+                || String.Equals(trimmed, "fleetcurate", StringComparison.OrdinalIgnoreCase))
+                return ReflectionMode.FleetCurate;
             return null;
         }
 

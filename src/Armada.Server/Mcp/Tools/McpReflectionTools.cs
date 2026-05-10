@@ -37,20 +37,21 @@ namespace Armada.Server.Mcp.Tools
         {
             register(
                 "armada_consolidate_memory",
-                "Trigger Reflections memory consolidation. v2-F2 extends with persona-curate and captain-curate modes. Mode-dependent required params: vesselId for consolidate/reorganize/consolidate-and-reorganize/pack-curate; personaName for persona-curate; captainId for captain-curate. At most one of vesselId/personaName/captainId may be supplied. Null target for reorganize/pack-curate/persona-curate fan-outs across active targets; captain-curate fan-out is gated by AdmiralOptions.AllowCaptainCurateFanOut.",
+                "Trigger Reflections memory consolidation. v2-F3 extends with fleet-curate mode (project-wide / fleet-scoped memory). Mode-dependent required params: vesselId for consolidate/reorganize/consolidate-and-reorganize/pack-curate; personaName for persona-curate; captainId for captain-curate; fleetId for fleet-curate. At most one of vesselId/personaName/captainId/fleetId may be supplied. Null target fans out across active targets for reorganize/pack-curate/persona-curate/fleet-curate; captain-curate fan-out is gated by AllowCaptainCurateFanOut.",
                 new
                 {
                     type = "object",
                     properties = new
                     {
-                        vesselId = new { type = "string", description = "Vessel ID (vsl_ prefix). Required for consolidate/combined modes; optional (null fan-outs) for reorganize/pack-curate; ignored for persona-curate/captain-curate." },
-                        personaName = new { type = "string", description = "Persona name (e.g. Architect). Required for persona-curate; null fan-outs across registered personas. Mutually exclusive with vesselId/captainId." },
-                        captainId = new { type = "string", description = "Captain id (cpt_ prefix). Required for captain-curate; null fan-out gated by AllowCaptainCurateFanOut. Mutually exclusive with vesselId/personaName." },
-                        mode = new { type = "string", description = "consolidate (default) | reorganize | consolidate-and-reorganize | pack-curate | persona-curate | captain-curate" },
+                        vesselId = new { type = "string", description = "Vessel ID (vsl_ prefix). Required for consolidate/combined modes; optional (null fan-outs) for reorganize/pack-curate; ignored for persona-curate/captain-curate/fleet-curate." },
+                        personaName = new { type = "string", description = "Persona name (e.g. Architect). Required for persona-curate; null fan-outs across registered personas. Mutually exclusive with vesselId/captainId/fleetId." },
+                        captainId = new { type = "string", description = "Captain id (cpt_ prefix). Required for captain-curate; null fan-out gated by AllowCaptainCurateFanOut. Mutually exclusive with vesselId/personaName/fleetId." },
+                        fleetId = new { type = "string", description = "Fleet id (flt_ prefix). Required for fleet-curate (single-target); null fan-outs across active fleets. Mutually exclusive with vesselId/personaName/captainId." },
+                        mode = new { type = "string", description = "consolidate (default) | reorganize | consolidate-and-reorganize | pack-curate | persona-curate | captain-curate | fleet-curate" },
                         dualJudge = new { type = "boolean", description = "When true, dispatches the ReflectionsDualJudge pipeline; default false" },
-                        sinceMissionId = new { type = "string", description = "Optional mission ID whose completion time starts the evidence window. Ignored in reorganize, pack-curate, persona-curate, and captain-curate modes." },
+                        sinceMissionId = new { type = "string", description = "Optional mission ID whose completion time starts the evidence window. Ignored in reorganize, pack-curate, persona-curate, captain-curate, and fleet-curate modes." },
                         instructions = new { type = "string", description = "Optional extra guidance for the consolidator" },
-                        tokenBudget = new { type = "integer", description = "Optional token budget. Defaults: 400000 (consolidate/combined/pack-curate/persona-curate/captain-curate); 30000 (reorganize)." }
+                        tokenBudget = new { type = "integer", description = "Optional token budget. Defaults: 400000 (consolidate/combined/pack-curate/persona-curate/captain-curate/fleet-curate); 30000 (reorganize)." }
                     }
                 },
                 async (args) =>
@@ -73,11 +74,12 @@ namespace Armada.Server.Mcp.Tools
 
                     bool dualJudge = request.DualJudge ?? false;
 
-                    // v2-F2: mutually-exclusive target params.
+                    // v2-F2 / v2-F3: mutually-exclusive target params.
                     int targetCount = 0;
                     if (!String.IsNullOrEmpty(request.VesselId)) targetCount++;
                     if (!String.IsNullOrEmpty(request.PersonaName)) targetCount++;
                     if (!String.IsNullOrEmpty(request.CaptainId)) targetCount++;
+                    if (!String.IsNullOrEmpty(request.FleetId)) targetCount++;
                     if (targetCount > 1)
                     {
                         return (object)new { Error = "target_ambiguous" };
@@ -91,6 +93,11 @@ namespace Armada.Server.Mcp.Tools
                     if (mode == ReflectionMode.CaptainCurate)
                     {
                         return await DispatchCaptainCurateAsync(database, dispatcher, settings, request, dualJudge).ConfigureAwait(false);
+                    }
+                    // v2-F3 fleet-curate dispatch path.
+                    if (mode == ReflectionMode.FleetCurate)
+                    {
+                        return await DispatchFleetCurateAsync(database, dispatcher, settings, request, dualJudge).ConfigureAwait(false);
                     }
 
                     if (String.IsNullOrEmpty(request.VesselId))
@@ -638,6 +645,161 @@ namespace Armada.Server.Mcp.Tools
             };
         }
 
+        private static async Task<object> DispatchFleetCurateAsync(
+            DatabaseDriver database,
+            ReflectionDispatcher dispatcher,
+            ArmadaSettings settings,
+            ConsolidateMemoryArgs request,
+            bool dualJudge)
+        {
+            int defaultTokenBudget = settings.DefaultFleetCurateTokenBudget;
+            int tokenBudget = request.TokenBudget ?? defaultTokenBudget;
+
+            if (String.IsNullOrEmpty(request.FleetId))
+            {
+                return await FanOutFleetCurateAsync(database, dispatcher, settings, request, dualJudge, tokenBudget).ConfigureAwait(false);
+            }
+
+            Fleet? fleet = await database.Fleets.ReadAsync(request.FleetId).ConfigureAwait(false);
+            if (fleet == null) return (object)new { Error = "fleet_not_found" };
+
+            Mission? inFlight = await dispatcher.IsFleetCurateInFlightAsync(fleet.Id).ConfigureAwait(false);
+            if (inFlight != null)
+            {
+                return (object)new
+                {
+                    Error = "fleet_curate_in_flight",
+                    missionId = inFlight.Id
+                };
+            }
+
+            ReflectionDispatcher.EvidenceBundleResult bundle = await dispatcher
+                .BuildFleetCurateBriefAsync(fleet, tokenBudget).ConfigureAwait(false);
+
+            if (bundle.EvidenceMissionCount == 0 && bundle.RejectedProposalCount == 0)
+            {
+                return (object)new { Error = "no_fleet_evidence_available" };
+            }
+
+            Vessel? anchor = await ResolveAnchorVesselForFleetAsync(database, fleet.Id).ConfigureAwait(false)
+                ?? await ResolveAnchorVesselAsync(database).ConfigureAwait(false);
+            if (anchor == null) return (object)new { Error = "no_anchor_vessel_available" };
+
+            string brief = bundle.Brief;
+            if (!String.IsNullOrWhiteSpace(request.Instructions))
+                brief += "\n\n## CALLER INSTRUCTIONS\n" + request.Instructions;
+
+            ReflectionDispatcher.DispatchResult dispatched = await dispatcher.DispatchFleetCurateAsync(
+                fleet,
+                "Curate fleet-learned facts for " + fleet.Name,
+                brief,
+                dualJudge,
+                tokenBudget,
+                anchor).ConfigureAwait(false);
+
+            return (object)new
+            {
+                missionId = dispatched.MissionId,
+                voyageId = dispatched.VoyageId,
+                evidenceMissionCount = bundle.EvidenceMissionCount,
+                truncated = bundle.Truncated,
+                mode = "fleet-curate",
+                dualJudge = dualJudge,
+                targetType = "fleet",
+                targetId = fleet.Id
+            };
+        }
+
+        private static async Task<object> FanOutFleetCurateAsync(
+            DatabaseDriver database,
+            ReflectionDispatcher dispatcher,
+            ArmadaSettings settings,
+            ConsolidateMemoryArgs request,
+            bool dualJudge,
+            int tokenBudget)
+        {
+            List<Fleet> fleets = await database.Fleets.EnumerateAsync().ConfigureAwait(false);
+            List<object> dispatchedMissions = new List<object>();
+            List<object> skipped = new List<object>();
+            List<string> warnings = new List<string>();
+
+            foreach (Fleet fleet in fleets)
+            {
+                if (!fleet.Active) continue;
+
+                Mission? inFlight = await dispatcher.IsFleetCurateInFlightAsync(fleet.Id).ConfigureAwait(false);
+                if (inFlight != null)
+                {
+                    skipped.Add(new { fleetId = fleet.Id, reason = "in_flight", missionId = inFlight.Id });
+                    continue;
+                }
+
+                ReflectionDispatcher.EvidenceBundleResult bundle = await dispatcher
+                    .BuildFleetCurateBriefAsync(fleet, tokenBudget).ConfigureAwait(false);
+
+                if (bundle.EvidenceMissionCount == 0 && bundle.RejectedProposalCount == 0)
+                {
+                    skipped.Add(new { fleetId = fleet.Id, reason = "no_fleet_evidence" });
+                    continue;
+                }
+
+                Vessel? anchor = await ResolveAnchorVesselForFleetAsync(database, fleet.Id).ConfigureAwait(false)
+                    ?? await ResolveAnchorVesselAsync(database).ConfigureAwait(false);
+                if (anchor == null)
+                {
+                    skipped.Add(new { fleetId = fleet.Id, reason = "no_anchor_vessel" });
+                    continue;
+                }
+
+                string brief = bundle.Brief;
+                if (!String.IsNullOrWhiteSpace(request.Instructions))
+                    brief += "\n\n## CALLER INSTRUCTIONS\n" + request.Instructions;
+
+                ReflectionDispatcher.DispatchResult dispatched = await dispatcher.DispatchFleetCurateAsync(
+                    fleet,
+                    "Curate fleet-learned facts for " + fleet.Name,
+                    brief,
+                    dualJudge,
+                    tokenBudget,
+                    anchor).ConfigureAwait(false);
+
+                dispatchedMissions.Add(new
+                {
+                    fleetId = fleet.Id,
+                    missionId = dispatched.MissionId,
+                    voyageId = dispatched.VoyageId
+                });
+            }
+
+            if (dualJudge && dispatchedMissions.Count > settings.FleetCurateDualJudgeFanOutWarnThreshold)
+            {
+                warnings.Add(
+                    "dual_judge_fan_out_starvation_risk: " + dispatchedMissions.Count
+                    + " fleets dispatched with dualJudge=true (threshold "
+                    + settings.FleetCurateDualJudgeFanOutWarnThreshold
+                    + ")");
+            }
+
+            return (object)new
+            {
+                dispatchedMissions = dispatchedMissions,
+                skipped = skipped,
+                mode = "fleet-curate",
+                dualJudge = dualJudge,
+                warnings = warnings
+            };
+        }
+
+        private static async Task<Vessel?> ResolveAnchorVesselForFleetAsync(DatabaseDriver database, string fleetId)
+        {
+            List<Vessel> vessels = await database.Vessels.EnumerateByFleetAsync(fleetId).ConfigureAwait(false);
+            foreach (Vessel v in vessels)
+            {
+                if (v.Active) return v;
+            }
+            return vessels.Count > 0 ? vessels[0] : null;
+        }
+
         private static async Task<Vessel?> ResolveAnchorVesselAsync(DatabaseDriver database)
         {
             List<Vessel> vessels = await database.Vessels.EnumerateAsync().ConfigureAwait(false);
@@ -662,6 +824,8 @@ namespace Armada.Server.Mcp.Tools
             public string? PersonaName { get; set; }
 
             public string? CaptainId { get; set; }
+
+            public string? FleetId { get; set; }
 
             public string? Mode { get; set; }
 
