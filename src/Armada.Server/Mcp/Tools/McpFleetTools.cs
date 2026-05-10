@@ -29,7 +29,7 @@ namespace Armada.Server.Mcp.Tools
         {
             register(
                 "armada_get_fleet",
-                "Get details of a specific fleet including its vessels",
+                "Get details of a specific fleet including its vessels. v2-F3 extends the response with defaultPlaybooks, learnedPlaybookId, and curateThreshold (Reflections v2-F3 fleet-memory fields, additive backward-compatible).",
                 new
                 {
                     type = "object",
@@ -46,7 +46,17 @@ namespace Armada.Server.Mcp.Tools
                     Fleet? fleet = await database.Fleets.ReadAsync(fleetId).ConfigureAwait(false);
                     if (fleet == null) return (object)new { Error = "Fleet not found" };
                     List<Vessel> vessels = await database.Vessels.EnumerateByFleetAsync(fleetId).ConfigureAwait(false);
-                    return (object)new { Fleet = fleet, Vessels = vessels };
+                    return (object)new
+                    {
+                        Fleet = fleet,
+                        Vessels = vessels,
+                        // v2-F3 additive fields surfaced explicitly so MCP clients can rely on
+                        // the documented response shape without depending on Fleet model
+                        // serialization details.
+                        defaultPlaybooks = fleet.GetDefaultPlaybooks(),
+                        learnedPlaybookId = fleet.LearnedPlaybookId,
+                        curateThreshold = fleet.CurateThreshold
+                    };
                 });
 
             register(
@@ -75,7 +85,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_update_fleet",
-                "Update an existing fleet",
+                "Update an existing fleet. v2-F3 adds defaultPlaybooks (JSON array) and curateThreshold (int; null disables fleet-curate auto-trigger) to the editable fields.",
                 new
                 {
                     type = "object",
@@ -84,7 +94,9 @@ namespace Armada.Server.Mcp.Tools
                         fleetId = new { type = "string", description = "Fleet ID (flt_ prefix)" },
                         name = new { type = "string", description = "New fleet name" },
                         description = new { type = "string", description = "New fleet description" },
-                        defaultPipelineId = new { type = "string", description = "Default pipeline ID for dispatches to vessels in this fleet (ppl_ prefix)" }
+                        defaultPipelineId = new { type = "string", description = "Default pipeline ID for dispatches to vessels in this fleet (ppl_ prefix)" },
+                        defaultPlaybooks = new { type = "string", description = "JSON-serialized SelectedPlaybook list auto-merged into every mission for this fleet (Reflections v2-F3). Layered FIRST in the fleet -> vessel -> persona -> captain four-way merge." },
+                        curateThreshold = new { type = "integer", description = "Per-fleet fleet-curate trigger threshold (mission count across active vessels). NULL disables the audit-drain auto-trigger (Reflections v2-F3)." }
                     },
                     required = new[] { "fleetId" }
                 },
@@ -100,6 +112,10 @@ namespace Armada.Server.Mcp.Tools
                         fleet.Description = request.Description;
                     if (request.DefaultPipelineId != null)
                         fleet.DefaultPipelineId = request.DefaultPipelineId;
+                    if (request.DefaultPlaybooks != null)
+                        fleet.DefaultPlaybooks = request.DefaultPlaybooks;
+                    if (request.CurateThreshold.HasValue)
+                        fleet.CurateThreshold = request.CurateThreshold.Value;
                     fleet = await database.Fleets.UpdateAsync(fleet).ConfigureAwait(false);
                     return (object)fleet;
                 });
