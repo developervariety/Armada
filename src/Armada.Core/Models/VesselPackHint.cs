@@ -77,7 +77,7 @@ namespace Armada.Core.Models
 
         #region Private-Members
 
-        private string _Id = Constants.IdGenerator.GenerateKSortable(Constants.VesselPackHintIdPrefix, 8);
+        private string _Id = Constants.IdGenerator.GenerateKSortable(Constants.VesselPackHintIdPrefix, 24);
         private string _VesselId = "";
         private string _GoalPattern = "";
 
