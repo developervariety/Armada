@@ -252,10 +252,18 @@ namespace Armada.Core.Services
 
             string tenantId = !String.IsNullOrEmpty(vessel.TenantId) ? vessel.TenantId! : Constants.DefaultTenantId;
 
+            DispatchedPayload? dispatchedPayload = await ReadDispatchedPayloadAsync(mission.Id, token).ConfigureAwait(false);
+            ReflectionMode missionMode = ParseModeString(dispatchedPayload?.Mode) ?? ReflectionMode.Consolidate;
+            bool dualJudge = dispatchedPayload?.DualJudge ?? false;
+            outcome.Mode = ModeToWireString(missionMode);
+
+            bool overrideActive = !String.IsNullOrWhiteSpace(editsMarkdown);
             string contentToApply;
-            if (!String.IsNullOrWhiteSpace(editsMarkdown))
+            string? candidateMarkdown = null;
+            string? diffText = null;
+            if (overrideActive)
             {
-                contentToApply = editsMarkdown.Trim();
+                contentToApply = editsMarkdown!.Trim();
             }
             else
             {
@@ -267,6 +275,8 @@ namespace Armada.Core.Services
                 }
 
                 contentToApply = parsed.CandidateMarkdown ?? "";
+                candidateMarkdown = parsed.CandidateMarkdown;
+                diffText = parsed.ReflectionsDiffText;
                 if (String.IsNullOrWhiteSpace(contentToApply))
                 {
                     outcome.Error = "output_contract_violation";
@@ -278,6 +288,31 @@ namespace Armada.Core.Services
             {
                 outcome.Error = "output_contract_violation";
                 return outcome;
+            }
+
+            string priorPlaybookContent = await ReadLearnedPlaybookContentAsync(vessel, token).ConfigureAwait(false);
+
+            if (!overrideActive && missionMode == ReflectionMode.Reorganize && !String.IsNullOrEmpty(diffText))
+            {
+                ReorganizeGateResult gate = ValidateReorganizeDiff(diffText!, priorPlaybookContent);
+                if (!String.IsNullOrEmpty(gate.Error))
+                {
+                    outcome.Error = gate.Error;
+                    outcome.ErrorDetails = gate.Details;
+                    return outcome;
+                }
+            }
+
+            if (!overrideActive && dualJudge)
+            {
+                DualJudgeGateResult judgeGate = await EvaluateDualJudgeGateAsync(mission, token).ConfigureAwait(false);
+                outcome.JudgeVerdicts = judgeGate.Verdicts;
+                if (!judgeGate.AllPassed)
+                {
+                    outcome.Error = "dual_judge_not_passed";
+                    outcome.ErrorDetails = new { judgeVerdicts = judgeGate.Verdicts };
+                    return outcome;
+                }
             }
 
             string fileName = "vessel-" + SanitizeName(vessel.Name) + "-learned.md";
@@ -303,6 +338,12 @@ namespace Armada.Core.Services
             vessel.LastReflectionMissionId = mission.Id;
             await _Database.Vessels.UpdateAsync(vessel, token).ConfigureAwait(false);
 
+            ReflectionMetrics metrics = ComputeReflectionMetrics(
+                priorPlaybookContent,
+                contentToApply,
+                missionMode,
+                overrideActive ? null : diffText);
+
             ArmadaEvent accepted = new ArmadaEvent(_ReflectionAcceptedEvent, "Reflection memory proposal accepted.");
             accepted.TenantId = mission.TenantId ?? vessel.TenantId ?? tenantId;
             accepted.EntityType = "mission";
@@ -315,7 +356,17 @@ namespace Armada.Core.Services
                 playbookId = persisted.Id,
                 missionId = mission.Id,
                 vesselId = vessel.Id,
-                appliedContentLength = contentToApply.Length
+                appliedContentLength = contentToApply.Length,
+                mode = ModeToWireString(missionMode),
+                dualJudge = dualJudge,
+                entriesBefore = metrics.EntriesBefore,
+                entriesAfter = metrics.EntriesAfter,
+                removed = metrics.Removed,
+                merged = metrics.Merged,
+                addedFromReorganize = metrics.AddedFromReorganize,
+                tokensBefore = metrics.TokensBefore,
+                tokensAfter = metrics.TokensAfter,
+                judgeVerdicts = outcome.JudgeVerdicts
             });
             await _Database.Events.CreateAsync(accepted, token).ConfigureAwait(false);
 
@@ -352,6 +403,8 @@ namespace Armada.Core.Services
 
             string vesselId = mission.VesselId ?? "";
             string tenantId = mission.TenantId ?? Constants.DefaultTenantId;
+            DispatchedPayload? dispatchedPayload = await ReadDispatchedPayloadAsync(mission.Id, token).ConfigureAwait(false);
+            ReflectionMode missionMode = ParseModeString(dispatchedPayload?.Mode) ?? ReflectionMode.Consolidate;
 
             ArmadaEvent rejected = new ArmadaEvent(_ReflectionRejectedEvent, "Reflection memory proposal rejected.");
             rejected.TenantId = tenantId;
@@ -366,7 +419,8 @@ namespace Armada.Core.Services
                 reason = reason.Trim(),
                 vesselId = vesselId,
                 playbookId = (string?)null,
-                appliedContentLength = 0
+                appliedContentLength = 0,
+                mode = ModeToWireString(missionMode)
             });
             await _Database.Events.CreateAsync(rejected, token).ConfigureAwait(false);
 
@@ -483,6 +537,333 @@ namespace Armada.Core.Services
                 ReflectionMode.ConsolidateAndReorganize => "consolidate-and-reorganize",
                 _ => "consolidate"
             };
+        }
+
+        private async Task<DispatchedPayload?> ReadDispatchedPayloadAsync(string missionId, CancellationToken token)
+        {
+            EnumerationQuery query = new EnumerationQuery
+            {
+                MissionId = missionId,
+                EventType = _ReflectionDispatchedEvent,
+                PageNumber = 1,
+                PageSize = 5
+            };
+            EnumerationResult<ArmadaEvent> page = await _Database.Events.EnumerateAsync(query, token).ConfigureAwait(false);
+            foreach (ArmadaEvent evt in page.Objects)
+            {
+                if (String.IsNullOrEmpty(evt.Payload)) continue;
+                try
+                {
+                    return JsonSerializer.Deserialize<DispatchedPayload>(evt.Payload);
+                }
+                catch (JsonException)
+                {
+                    continue;
+                }
+            }
+
+            return null;
+        }
+
+        private static ReorganizeGateResult ValidateReorganizeDiff(string diffText, string priorPlaybookContent)
+        {
+            string trimmed = diffText.Trim();
+            if (trimmed.Length == 0) return new ReorganizeGateResult();
+
+            JsonDocument doc;
+            try
+            {
+                doc = JsonDocument.Parse(trimmed);
+            }
+            catch (JsonException)
+            {
+                return new ReorganizeGateResult();
+            }
+
+            using (doc)
+            {
+                if (doc.RootElement.ValueKind != JsonValueKind.Object) return new ReorganizeGateResult();
+
+                List<string> nonStructuralAdded = new List<string>();
+                if (doc.RootElement.TryGetProperty("added", out JsonElement addedEl) && addedEl.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (JsonElement entry in addedEl.EnumerateArray())
+                    {
+                        string? text = entry.ValueKind == JsonValueKind.String ? entry.GetString() : entry.ToString();
+                        if (String.IsNullOrWhiteSpace(text)) continue;
+                        if (!IsStructuralMarker(text!))
+                        {
+                            nonStructuralAdded.Add(text!);
+                        }
+                    }
+
+                    if (nonStructuralAdded.Count > 0)
+                    {
+                        return new ReorganizeGateResult
+                        {
+                            Error = "reorganize_added_facts",
+                            Details = new { offendingEntries = nonStructuralAdded }
+                        };
+                    }
+                }
+
+                List<string> invalidRemovedEntries = new List<string>();
+                if (doc.RootElement.TryGetProperty("removed", out JsonElement removedEl) && removedEl.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (JsonElement entry in removedEl.EnumerateArray())
+                    {
+                        string? text = entry.ValueKind == JsonValueKind.String ? entry.GetString() : entry.ToString();
+                        if (String.IsNullOrWhiteSpace(text)) continue;
+                        if (!PlaybookContainsSummary(priorPlaybookContent, text!))
+                        {
+                            invalidRemovedEntries.Add(text!);
+                        }
+                    }
+
+                    if (invalidRemovedEntries.Count > 0)
+                    {
+                        return new ReorganizeGateResult
+                        {
+                            Error = "reorganize_invalid_remove",
+                            Details = new { offendingEntries = invalidRemovedEntries }
+                        };
+                    }
+                }
+
+                List<string> invalidMergeSources = new List<string>();
+                if (doc.RootElement.TryGetProperty("merged", out JsonElement mergedEl) && mergedEl.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (JsonElement mergedEntry in mergedEl.EnumerateArray())
+                    {
+                        if (mergedEntry.ValueKind != JsonValueKind.Object) continue;
+                        if (!mergedEntry.TryGetProperty("from", out JsonElement fromEl)) continue;
+                        if (fromEl.ValueKind != JsonValueKind.Array) continue;
+
+                        foreach (JsonElement source in fromEl.EnumerateArray())
+                        {
+                            string? text = source.ValueKind == JsonValueKind.String ? source.GetString() : source.ToString();
+                            if (String.IsNullOrWhiteSpace(text)) continue;
+                            if (!PlaybookContainsSummary(priorPlaybookContent, text!))
+                            {
+                                invalidMergeSources.Add(text!);
+                            }
+                        }
+                    }
+
+                    if (invalidMergeSources.Count > 0)
+                    {
+                        return new ReorganizeGateResult
+                        {
+                            Error = "reorganize_invalid_merge_source",
+                            Details = new { offendingEntries = invalidMergeSources }
+                        };
+                    }
+                }
+            }
+
+            return new ReorganizeGateResult();
+        }
+
+        private static bool IsStructuralMarker(string entry)
+        {
+            string trimmed = entry.TrimStart();
+            if (trimmed.Length == 0) return true;
+
+            if (trimmed.Length > 1 && trimmed[0] == '#')
+            {
+                int hashCount = 0;
+                while (hashCount < trimmed.Length && trimmed[hashCount] == '#') hashCount++;
+                if (hashCount < trimmed.Length && trimmed[hashCount] == ' ') return true;
+            }
+
+            foreach (char ch in trimmed)
+            {
+                if (ch != ' ' && ch != '\t' && ch != '*' && ch != '-' && ch != '=' && ch != '_' && ch != '|') return false;
+            }
+
+            return true;
+        }
+
+        private static bool PlaybookContainsSummary(string playbook, string summary)
+        {
+            if (String.IsNullOrEmpty(playbook)) return false;
+            string normalizedSummary = summary.Trim();
+            if (normalizedSummary.Length == 0) return true;
+            return playbook.Contains(normalizedSummary, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private async Task<DualJudgeGateResult> EvaluateDualJudgeGateAsync(Mission workerMission, CancellationToken token)
+        {
+            DualJudgeGateResult result = new DualJudgeGateResult();
+            if (String.IsNullOrEmpty(workerMission.VoyageId))
+            {
+                result.AllPassed = false;
+                return result;
+            }
+
+            List<Mission> voyageMissions = await _Database.Missions.EnumerateByVoyageAsync(workerMission.VoyageId, token).ConfigureAwait(false);
+            List<Mission> judgeSiblings = voyageMissions
+                .Where(m => String.Equals(m.Persona, "Judge", StringComparison.OrdinalIgnoreCase))
+                .Where(m => String.Equals(m.DependsOnMissionId, workerMission.Id, StringComparison.Ordinal))
+                .ToList();
+
+            if (judgeSiblings.Count == 0)
+            {
+                judgeSiblings = voyageMissions
+                    .Where(m => String.Equals(m.Persona, "Judge", StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+            }
+
+            List<JudgeVerdictRecord> verdicts = new List<JudgeVerdictRecord>();
+            int passCount = 0;
+            foreach (Mission judge in judgeSiblings)
+            {
+                string verdict = ParseExplicitVerdictMarker(judge.AgentOutput);
+                if (verdict == "PASS" && judge.Status == Enums.MissionStatusEnum.Complete)
+                {
+                    passCount++;
+                }
+                else if (verdict == "PENDING" && judge.Status == Enums.MissionStatusEnum.Complete)
+                {
+                    verdict = "PASS";
+                    passCount++;
+                }
+
+                verdicts.Add(new JudgeVerdictRecord
+                {
+                    MissionId = judge.Id,
+                    CaptainId = judge.CaptainId,
+                    Verdict = verdict
+                });
+            }
+
+            result.Verdicts = verdicts;
+            result.AllPassed = verdicts.Count >= 2 && passCount == verdicts.Count;
+            return result;
+        }
+
+        private static string ParseExplicitVerdictMarker(string? agentOutput)
+        {
+            if (String.IsNullOrEmpty(agentOutput)) return "PENDING";
+
+            string[] lines = agentOutput.Split('\n');
+            foreach (string raw in lines)
+            {
+                string line = raw.Trim();
+                if (line.Length == 0) continue;
+
+                System.Text.RegularExpressions.Match m = System.Text.RegularExpressions.Regex.Match(
+                    line,
+                    @"^\[ARMADA:VERDICT\]\s+(?<v>PASS|FAIL|NEEDS_REVISION)\s*$");
+                if (m.Success) return m.Groups["v"].Value;
+            }
+
+            return "PENDING";
+        }
+
+        private static ReflectionMetrics ComputeReflectionMetrics(
+            string priorContent,
+            string newContent,
+            ReflectionMode mode,
+            string? diffText)
+        {
+            ReflectionMetrics metrics = new ReflectionMetrics
+            {
+                EntriesBefore = CountPlaybookEntries(priorContent),
+                EntriesAfter = CountPlaybookEntries(newContent),
+                TokensBefore = (priorContent?.Length ?? 0) / 4,
+                TokensAfter = (newContent?.Length ?? 0) / 4
+            };
+
+            if (mode == ReflectionMode.Consolidate)
+            {
+                metrics.Removed = 0;
+                metrics.Merged = 0;
+                metrics.AddedFromReorganize = 0;
+                return metrics;
+            }
+
+            if (!String.IsNullOrEmpty(diffText))
+            {
+                try
+                {
+                    using JsonDocument doc = JsonDocument.Parse(diffText.Trim());
+                    if (doc.RootElement.ValueKind == JsonValueKind.Object)
+                    {
+                        if (doc.RootElement.TryGetProperty("removed", out JsonElement removedEl) && removedEl.ValueKind == JsonValueKind.Array)
+                            metrics.Removed = removedEl.GetArrayLength();
+                        if (doc.RootElement.TryGetProperty("merged", out JsonElement mergedEl) && mergedEl.ValueKind == JsonValueKind.Array)
+                            metrics.Merged = mergedEl.GetArrayLength();
+                        if (mode == ReflectionMode.Reorganize
+                            && doc.RootElement.TryGetProperty("added", out JsonElement addedEl)
+                            && addedEl.ValueKind == JsonValueKind.Array)
+                        {
+                            metrics.AddedFromReorganize = addedEl.GetArrayLength();
+                        }
+                    }
+                }
+                catch (JsonException)
+                {
+                    // best-effort metrics; leave defaults
+                }
+            }
+
+            if (mode == ReflectionMode.ConsolidateAndReorganize)
+            {
+                metrics.AddedFromReorganize = -1;
+            }
+
+            return metrics;
+        }
+
+        private static int CountPlaybookEntries(string content)
+        {
+            if (String.IsNullOrEmpty(content)) return 0;
+            int count = 0;
+            foreach (string raw in content.Split('\n'))
+            {
+                string line = raw.TrimStart();
+                if (line.Length == 0) continue;
+                if (line.StartsWith("- ", StringComparison.Ordinal)
+                    || line.StartsWith("* ", StringComparison.Ordinal)
+                    || line.StartsWith("+ ", StringComparison.Ordinal))
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+
+        private sealed class ReorganizeGateResult
+        {
+            public string? Error { get; set; }
+
+            public object? Details { get; set; }
+        }
+
+        private sealed class DualJudgeGateResult
+        {
+            public bool AllPassed { get; set; }
+
+            public List<JudgeVerdictRecord> Verdicts { get; set; } = new List<JudgeVerdictRecord>();
+        }
+
+        private sealed class ReflectionMetrics
+        {
+            public int EntriesBefore { get; set; }
+
+            public int EntriesAfter { get; set; }
+
+            public int Removed { get; set; }
+
+            public int Merged { get; set; }
+
+            public int AddedFromReorganize { get; set; }
+
+            public int TokensBefore { get; set; }
+
+            public int TokensAfter { get; set; }
         }
 
         #endregion
