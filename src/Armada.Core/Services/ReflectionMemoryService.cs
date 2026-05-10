@@ -6,6 +6,7 @@ namespace Armada.Core.Services
     using System.Text.RegularExpressions;
     using System.Threading;
     using System.Threading.Tasks;
+    using Microsoft.Extensions.FileSystemGlobbing;
     using SyslogLogging;
     using Armada.Core;
     using Armada.Core.Database;
@@ -257,6 +258,11 @@ namespace Armada.Core.Services
             bool dualJudge = dispatchedPayload?.DualJudge ?? false;
             outcome.Mode = ModeToWireString(missionMode);
 
+            if (missionMode == ReflectionMode.PackCurate)
+            {
+                return await AcceptPackCurateProposalAsync(mission, vessel, tenantId, editsMarkdown, parser, dualJudge, outcome, token).ConfigureAwait(false);
+            }
+
             bool overrideActive = !String.IsNullOrWhiteSpace(editsMarkdown);
             string contentToApply;
             string? candidateMarkdown = null;
@@ -430,6 +436,457 @@ namespace Armada.Core.Services
         #endregion
 
         #region Private-Methods
+
+        private async Task<ReflectionAcceptProposalResult> AcceptPackCurateProposalAsync(
+            Mission mission,
+            Vessel vessel,
+            string tenantId,
+            string? editsMarkdown,
+            IReflectionOutputParser parser,
+            bool dualJudge,
+            ReflectionAcceptProposalResult outcome,
+            CancellationToken token)
+        {
+            bool overrideActive = !String.IsNullOrWhiteSpace(editsMarkdown);
+            string candidateJson;
+            if (overrideActive)
+            {
+                candidateJson = editsMarkdown!.Trim();
+            }
+            else
+            {
+                ReflectionOutputParseResult parsed = parser.Parse(mission.AgentOutput ?? "");
+                if (parsed.Verdict != ReflectionOutputParseVerdict.Success)
+                {
+                    outcome.Error = "output_contract_violation";
+                    return outcome;
+                }
+                candidateJson = parsed.CandidateMarkdown ?? "";
+            }
+
+            if (String.IsNullOrWhiteSpace(candidateJson))
+            {
+                outcome.Error = "output_contract_violation";
+                return outcome;
+            }
+
+            PackCurateCandidate? proposed;
+            try
+            {
+                proposed = JsonSerializer.Deserialize<PackCurateCandidate>(candidateJson, _PackCurateJsonOptions);
+            }
+            catch (JsonException)
+            {
+                outcome.Error = "output_contract_violation";
+                return outcome;
+            }
+            if (proposed == null)
+            {
+                outcome.Error = "output_contract_violation";
+                return outcome;
+            }
+
+            if (!overrideActive)
+            {
+                string? antiPatternError = ValidatePackCurateAntiPatterns(proposed);
+                if (antiPatternError != null)
+                {
+                    outcome.Error = antiPatternError;
+                    return outcome;
+                }
+            }
+
+            // Verify modify/disable hint ids exist on this vessel.
+            HashSet<string> existingIdSet = new HashSet<string>(StringComparer.Ordinal);
+            List<VesselPackHint> existingHints = await _Database.VesselPackHints
+                .EnumerateByVesselAsync(vessel.Id, token).ConfigureAwait(false);
+            foreach (VesselPackHint h in existingHints) existingIdSet.Add(h.Id);
+
+            if (proposed.ModifyHints != null)
+            {
+                foreach (PackCurateModifyHint mh in proposed.ModifyHints)
+                {
+                    if (String.IsNullOrEmpty(mh.Id) || !existingIdSet.Contains(mh.Id))
+                    {
+                        outcome.Error = "pack_hint_id_not_found";
+                        outcome.ErrorDetails = new { id = mh.Id ?? "" };
+                        return outcome;
+                    }
+                }
+            }
+            if (proposed.DisableHints != null)
+            {
+                foreach (PackCurateDisableHint dh in proposed.DisableHints)
+                {
+                    if (String.IsNullOrEmpty(dh.Id) || !existingIdSet.Contains(dh.Id))
+                    {
+                        outcome.Error = "pack_hint_id_not_found";
+                        outcome.ErrorDetails = new { id = dh.Id ?? "" };
+                        return outcome;
+                    }
+                }
+            }
+
+            if (!overrideActive && dualJudge)
+            {
+                DualJudgeGateResult judgeGate = await EvaluateDualJudgeGateAsync(mission, token).ConfigureAwait(false);
+                outcome.JudgeVerdicts = judgeGate.Verdicts;
+                if (!judgeGate.AllPassed)
+                {
+                    outcome.Error = "dual_judge_not_passed";
+                    outcome.ErrorDetails = new { judgeVerdicts = judgeGate.Verdicts };
+                    return outcome;
+                }
+            }
+
+            List<object> pathWarnings = overrideActive
+                ? new List<object>()
+                : RunPackCuratePathValidation(proposed, vessel);
+
+            List<object> conflictWarnings = overrideActive
+                ? new List<object>()
+                : RunPackCurateConflictDetection(proposed, existingHints);
+
+            // Apply: insert/update/disable. Best-effort sequential -- IVesselPackHintMethods
+            // does not currently expose a transaction primitive, but each operation is
+            // independently idempotent on retry (insert by new id, update by id, deactivate
+            // by id) so a partial failure is recoverable.
+            List<string> appliedHintIds = new List<string>();
+            int hintsAdded = 0;
+            int hintsModified = 0;
+            int hintsDisabled = 0;
+
+            if (proposed.AddHints != null)
+            {
+                foreach (PackCurateAddHint ah in proposed.AddHints)
+                {
+                    VesselPackHint hint = new VesselPackHint
+                    {
+                        VesselId = vessel.Id,
+                        GoalPattern = ah.GoalPattern ?? "",
+                        MustIncludeJson = VesselPackHint.SerializeStringList(ah.MustInclude),
+                        MustExcludeJson = VesselPackHint.SerializeStringList(ah.MustExclude),
+                        Priority = ah.Priority ?? 0,
+                        Confidence = String.IsNullOrEmpty(ah.Confidence) ? "medium" : ah.Confidence!,
+                        Justification = ah.Justification,
+                        SourceMissionIdsJson = VesselPackHint.SerializeStringList(ah.SourceMissionIds),
+                        Active = true
+                    };
+                    await _Database.VesselPackHints.CreateAsync(hint, token).ConfigureAwait(false);
+                    appliedHintIds.Add(hint.Id);
+                    hintsAdded++;
+                }
+            }
+
+            if (proposed.ModifyHints != null)
+            {
+                foreach (PackCurateModifyHint mh in proposed.ModifyHints)
+                {
+                    VesselPackHint? existing = await _Database.VesselPackHints.ReadAsync(mh.Id!, token).ConfigureAwait(false);
+                    if (existing == null) continue;
+                    if (mh.Changes == null) continue;
+
+                    if (mh.Changes.MustInclude != null)
+                        existing.MustIncludeJson = VesselPackHint.SerializeStringList(mh.Changes.MustInclude);
+                    if (mh.Changes.MustExclude != null)
+                        existing.MustExcludeJson = VesselPackHint.SerializeStringList(mh.Changes.MustExclude);
+                    if (mh.Changes.GoalPattern != null) existing.GoalPattern = mh.Changes.GoalPattern;
+                    if (mh.Changes.Priority.HasValue) existing.Priority = mh.Changes.Priority.Value;
+                    if (mh.Changes.Confidence != null) existing.Confidence = mh.Changes.Confidence;
+                    if (mh.Changes.Justification != null) existing.Justification = mh.Changes.Justification;
+
+                    await _Database.VesselPackHints.UpdateAsync(existing, token).ConfigureAwait(false);
+                    appliedHintIds.Add(existing.Id);
+                    hintsModified++;
+                }
+            }
+
+            if (proposed.DisableHints != null)
+            {
+                foreach (PackCurateDisableHint dh in proposed.DisableHints)
+                {
+                    await _Database.VesselPackHints.DeactivateAsync(dh.Id!, token).ConfigureAwait(false);
+                    appliedHintIds.Add(dh.Id!);
+                    hintsDisabled++;
+                }
+            }
+
+            vessel.LastReflectionMissionId = mission.Id;
+            await _Database.Vessels.UpdateAsync(vessel, token).ConfigureAwait(false);
+
+            ArmadaEvent accepted = new ArmadaEvent(_ReflectionAcceptedEvent, "Reflection memory proposal accepted (pack-curate).");
+            accepted.TenantId = mission.TenantId ?? vessel.TenantId ?? tenantId;
+            accepted.EntityType = "mission";
+            accepted.EntityId = mission.Id;
+            accepted.MissionId = mission.Id;
+            accepted.VesselId = vessel.Id;
+            accepted.VoyageId = mission.VoyageId;
+            accepted.Payload = JsonSerializer.Serialize(new
+            {
+                missionId = mission.Id,
+                vesselId = vessel.Id,
+                mode = "pack-curate",
+                dualJudge = dualJudge,
+                hintsAdded = hintsAdded,
+                hintsModified = hintsModified,
+                hintsDisabled = hintsDisabled,
+                missionsExamined = ExtractMissionsExaminedFromDiff(mission.AgentOutput, parser),
+                evidenceConfidence = ExtractEvidenceConfidenceFromDiff(mission.AgentOutput, parser),
+                pathValidationWarnings = pathWarnings.Count,
+                conflictWarnings = conflictWarnings.Count,
+                judgeVerdicts = outcome.JudgeVerdicts
+            });
+            await _Database.Events.CreateAsync(accepted, token).ConfigureAwait(false);
+
+            outcome.AppliedHintIds = appliedHintIds;
+            outcome.PathWarnings = pathWarnings;
+            outcome.ConflictWarnings = conflictWarnings;
+            return outcome;
+        }
+
+        private static string? ValidatePackCurateAntiPatterns(PackCurateCandidate proposed)
+        {
+            if (proposed.AddHints != null)
+            {
+                foreach (PackCurateAddHint ah in proposed.AddHints)
+                {
+                    string pattern = (ah.GoalPattern ?? "").Trim();
+                    if (pattern.Length < 3 || pattern == ".*" || String.IsNullOrWhiteSpace(pattern))
+                        return "pack_hint_pattern_too_broad";
+                    try
+                    {
+                        _ = new Regex(pattern, RegexOptions.IgnoreCase);
+                    }
+                    catch (ArgumentException)
+                    {
+                        return "pack_hint_invalid_regex";
+                    }
+
+                    if (ah.MustInclude != null)
+                    {
+                        foreach (string p in ah.MustInclude)
+                        {
+                            if (String.IsNullOrWhiteSpace(p)) return "pack_hint_invalid_path";
+                        }
+                    }
+                    if (ah.MustExclude != null)
+                    {
+                        foreach (string p in ah.MustExclude)
+                        {
+                            if (String.IsNullOrWhiteSpace(p)) return "pack_hint_invalid_path";
+                        }
+                    }
+                }
+            }
+
+            if (proposed.ModifyHints != null)
+            {
+                foreach (PackCurateModifyHint mh in proposed.ModifyHints)
+                {
+                    if (mh.Changes?.GoalPattern != null)
+                    {
+                        string pattern = mh.Changes.GoalPattern.Trim();
+                        if (pattern.Length < 3 || pattern == ".*") return "pack_hint_pattern_too_broad";
+                        try
+                        {
+                            _ = new Regex(pattern, RegexOptions.IgnoreCase);
+                        }
+                        catch (ArgumentException)
+                        {
+                            return "pack_hint_invalid_regex";
+                        }
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        private static List<object> RunPackCuratePathValidation(PackCurateCandidate proposed, Vessel vessel)
+        {
+            List<object> warnings = new List<object>();
+            HashSet<string> repoFiles = TryListRepoFiles(vessel);
+            if (repoFiles.Count == 0) return warnings; // best-effort: skip when repo unreachable
+
+            void CheckGlobs(string hintRef, IReadOnlyList<string>? globs)
+            {
+                if (globs == null) return;
+                List<string> unmatched = new List<string>();
+                foreach (string glob in globs)
+                {
+                    if (String.IsNullOrWhiteSpace(glob)) continue;
+                    if (!GlobMatchesAnyFile(glob, repoFiles))
+                        unmatched.Add(glob);
+                }
+                if (unmatched.Count > 0)
+                {
+                    warnings.Add(new
+                    {
+                        warning = "pack_hint_no_matches",
+                        hintReference = hintRef,
+                        unmatchedPaths = unmatched,
+                        branchChecked = vessel.DefaultBranch ?? "main"
+                    });
+                }
+            }
+
+            if (proposed.AddHints != null)
+            {
+                for (int i = 0; i < proposed.AddHints.Count; i++)
+                {
+                    PackCurateAddHint ah = proposed.AddHints[i];
+                    CheckGlobs("addHints[" + i + "].mustInclude", ah.MustInclude);
+                    CheckGlobs("addHints[" + i + "].mustExclude", ah.MustExclude);
+                }
+            }
+            if (proposed.ModifyHints != null)
+            {
+                for (int i = 0; i < proposed.ModifyHints.Count; i++)
+                {
+                    PackCurateModifyHint mh = proposed.ModifyHints[i];
+                    CheckGlobs("modifyHints[" + i + "].changes.mustInclude", mh.Changes?.MustInclude);
+                    CheckGlobs("modifyHints[" + i + "].changes.mustExclude", mh.Changes?.MustExclude);
+                }
+            }
+            return warnings;
+        }
+
+        private static List<object> RunPackCurateConflictDetection(PackCurateCandidate proposed, List<VesselPackHint> existingHints)
+        {
+            List<object> warnings = new List<object>();
+            if (proposed.AddHints == null) return warnings;
+            for (int i = 0; i < proposed.AddHints.Count; i++)
+            {
+                PackCurateAddHint ah = proposed.AddHints[i];
+                if (ah.MustInclude == null || ah.MustInclude.Count == 0) continue;
+                foreach (VesselPackHint existing in existingHints)
+                {
+                    if (!existing.Active) continue;
+                    string existingPattern = existing.GoalPattern ?? "";
+                    string newPattern = ah.GoalPattern ?? "";
+                    bool patternsOverlap = String.Equals(existingPattern, newPattern, StringComparison.OrdinalIgnoreCase)
+                        || existingPattern.IndexOf(newPattern, StringComparison.OrdinalIgnoreCase) >= 0
+                        || newPattern.IndexOf(existingPattern, StringComparison.OrdinalIgnoreCase) >= 0;
+                    if (!patternsOverlap) continue;
+
+                    List<string> existingExcl = existing.GetMustExclude();
+                    List<string> overlap = new List<string>();
+                    foreach (string inc in ah.MustInclude)
+                    {
+                        if (existingExcl.Contains(inc, StringComparer.OrdinalIgnoreCase))
+                            overlap.Add(inc);
+                    }
+                    if (overlap.Count == 0) continue;
+
+                    warnings.Add(new
+                    {
+                        warning = "pack_hint_conflict",
+                        hintA = "addHints[" + i + "]",
+                        hintB = existing.Id,
+                        overlappingPaths = overlap,
+                        resolution = "higher priority wins; if equal, exclude wins"
+                    });
+                }
+            }
+            return warnings;
+        }
+
+        private static HashSet<string> TryListRepoFiles(Vessel vessel)
+        {
+            HashSet<string> files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (String.IsNullOrEmpty(vessel.LocalPath)) return files;
+            string defaultBranch = String.IsNullOrEmpty(vessel.DefaultBranch) ? "main" : vessel.DefaultBranch!;
+            try
+            {
+                if (!System.IO.Directory.Exists(vessel.LocalPath)) return files;
+                System.Diagnostics.ProcessStartInfo psi = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "git",
+                    WorkingDirectory = vessel.LocalPath!,
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true
+                };
+                psi.ArgumentList.Add("ls-tree");
+                psi.ArgumentList.Add("-r");
+                psi.ArgumentList.Add("--name-only");
+                psi.ArgumentList.Add(defaultBranch);
+
+                using System.Diagnostics.Process? proc = System.Diagnostics.Process.Start(psi);
+                if (proc == null) return files;
+                string stdout = proc.StandardOutput.ReadToEnd();
+                proc.WaitForExit(10000);
+                if (proc.ExitCode != 0) return files;
+                foreach (string raw in stdout.Split('\n'))
+                {
+                    string line = raw.TrimEnd('\r').Trim();
+                    if (!String.IsNullOrEmpty(line)) files.Add(line);
+                }
+            }
+            catch (Exception)
+            {
+                // best-effort
+            }
+            return files;
+        }
+
+        private static bool GlobMatchesAnyFile(string glob, HashSet<string> files)
+        {
+            Matcher matcher = new Matcher();
+            matcher.AddInclude(glob);
+            foreach (string f in files)
+            {
+                PatternMatchingResult result = matcher.Match(f);
+                if (result.HasMatches) return true;
+            }
+            return false;
+        }
+
+        private static int ExtractMissionsExaminedFromDiff(string? agentOutput, IReflectionOutputParser parser)
+        {
+            if (String.IsNullOrEmpty(agentOutput)) return 0;
+            try
+            {
+                ReflectionOutputParseResult parsed = parser.Parse(agentOutput);
+                if (parsed.Verdict != ReflectionOutputParseVerdict.Success) return 0;
+                if (String.IsNullOrEmpty(parsed.ReflectionsDiffText)) return 0;
+                using JsonDocument doc = JsonDocument.Parse(parsed.ReflectionsDiffText.Trim());
+                if (doc.RootElement.TryGetProperty("missionsExamined", out JsonElement el)
+                    && el.ValueKind == JsonValueKind.Number
+                    && el.TryGetInt32(out int v))
+                {
+                    return v;
+                }
+            }
+            catch (Exception) { }
+            return 0;
+        }
+
+        private static string ExtractEvidenceConfidenceFromDiff(string? agentOutput, IReflectionOutputParser parser)
+        {
+            if (String.IsNullOrEmpty(agentOutput)) return "low";
+            try
+            {
+                ReflectionOutputParseResult parsed = parser.Parse(agentOutput);
+                if (parsed.Verdict != ReflectionOutputParseVerdict.Success) return "low";
+                if (String.IsNullOrEmpty(parsed.ReflectionsDiffText)) return "low";
+                using JsonDocument doc = JsonDocument.Parse(parsed.ReflectionsDiffText.Trim());
+                if (doc.RootElement.TryGetProperty("evidenceConfidence", out JsonElement el)
+                    && el.ValueKind == JsonValueKind.String)
+                {
+                    return el.GetString() ?? "low";
+                }
+            }
+            catch (Exception) { }
+            return "low";
+        }
+
+        private static readonly JsonSerializerOptions _PackCurateJsonOptions = new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true,
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        };
 
         private static LoggingModule CreateSilentLogging()
         {

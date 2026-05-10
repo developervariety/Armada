@@ -37,18 +37,18 @@ namespace Armada.Server.Mcp.Tools
         {
             register(
                 "armada_consolidate_memory",
-                "Trigger Reflections memory consolidation. F4-extended: optional mode (consolidate|reorganize|consolidate-and-reorganize), optional dualJudge bool, and vesselId=null cross-vessel fan-out (only with mode=reorganize).",
+                "Trigger Reflections memory consolidation. F1+F4-extended: optional mode (consolidate|reorganize|consolidate-and-reorganize|pack-curate), optional dualJudge bool, and vesselId=null cross-vessel fan-out (mode=reorganize OR mode=pack-curate).",
                 new
                 {
                     type = "object",
                     properties = new
                     {
-                        vesselId = new { type = "string", description = "Vessel ID (vsl_ prefix). Required unless mode=reorganize (then null fan-outs across active vessels)." },
-                        mode = new { type = "string", description = "consolidate (default) | reorganize | consolidate-and-reorganize" },
+                        vesselId = new { type = "string", description = "Vessel ID (vsl_ prefix). Required unless mode in {reorganize, pack-curate} (then null fan-outs across active vessels)." },
+                        mode = new { type = "string", description = "consolidate (default) | reorganize | consolidate-and-reorganize | pack-curate" },
                         dualJudge = new { type = "boolean", description = "When true, dispatches the ReflectionsDualJudge pipeline; default false" },
-                        sinceMissionId = new { type = "string", description = "Optional mission ID whose completion time starts the evidence window. Ignored in pure-reorganize mode." },
+                        sinceMissionId = new { type = "string", description = "Optional mission ID whose completion time starts the evidence window. Ignored in pure-reorganize and pack-curate modes." },
                         instructions = new { type = "string", description = "Optional extra guidance for the consolidator" },
-                        tokenBudget = new { type = "integer", description = "Optional token budget. Defaults to 400000 (consolidate/combined) or 30000 (reorganize)." }
+                        tokenBudget = new { type = "integer", description = "Optional token budget. Defaults to 400000 (consolidate/combined/pack-curate) or 30000 (reorganize)." }
                     }
                 },
                 async (args) =>
@@ -73,12 +73,12 @@ namespace Armada.Server.Mcp.Tools
 
                     if (String.IsNullOrEmpty(request.VesselId))
                     {
-                        if (mode != ReflectionMode.Reorganize)
+                        if (mode != ReflectionMode.Reorganize && mode != ReflectionMode.PackCurate)
                         {
                             return (object)new { Error = "vesselId_required" };
                         }
 
-                        return await DispatchCrossVesselFanOutAsync(database, dispatcher, settings, dualJudge, request).ConfigureAwait(false);
+                        return await DispatchCrossVesselFanOutAsync(database, dispatcher, settings, dualJudge, mode, request).ConfigureAwait(false);
                     }
 
                     Vessel? vessel = await database.Vessels.ReadAsync(request.VesselId).ConfigureAwait(false);
@@ -94,11 +94,16 @@ namespace Armada.Server.Mcp.Tools
                         };
                     }
 
-                    int tokenBudget = request.TokenBudget ?? (mode == ReflectionMode.Reorganize
-                        ? settings.DefaultReorganizeTokenBudget
-                        : settings.DefaultReflectionTokenBudget);
+                    int tokenBudget = request.TokenBudget ?? mode switch
+                    {
+                        ReflectionMode.Reorganize => settings.DefaultReorganizeTokenBudget,
+                        ReflectionMode.PackCurate => settings.DefaultPackCurateTokenBudget,
+                        _ => settings.DefaultReflectionTokenBudget,
+                    };
 
-                    string? sinceMissionId = mode == ReflectionMode.Reorganize ? null : request.SinceMissionId;
+                    string? sinceMissionId = (mode == ReflectionMode.Reorganize || mode == ReflectionMode.PackCurate)
+                        ? null
+                        : request.SinceMissionId;
 
                     if (mode == ReflectionMode.Reorganize)
                     {
@@ -127,6 +132,13 @@ namespace Armada.Server.Mcp.Tools
                         if (bundle.EvidenceMissionCount == 0 && bundle.RejectedProposalCount == 0)
                         {
                             return (object)new { Error = "no_evidence_available" };
+                        }
+                    }
+                    else if (mode == ReflectionMode.PackCurate)
+                    {
+                        if (bundle.EvidenceMissionCount == 0 && bundle.RejectedProposalCount == 0)
+                        {
+                            return (object)new { Error = "no_pack_evidence_available" };
                         }
                     }
 
@@ -187,7 +199,10 @@ namespace Armada.Server.Mcp.Tools
                         playbookVersion = result.PlaybookVersion,
                         appliedContent = result.AppliedContent,
                         mode = result.Mode,
-                        judgeVerdicts = result.JudgeVerdicts
+                        judgeVerdicts = result.JudgeVerdicts,
+                        appliedHintIds = result.AppliedHintIds,
+                        pathWarnings = result.PathWarnings,
+                        conflictWarnings = result.ConflictWarnings
                     };
                 });
 
@@ -225,12 +240,17 @@ namespace Armada.Server.Mcp.Tools
             ReflectionDispatcher dispatcher,
             ArmadaSettings settings,
             bool dualJudge,
+            ReflectionMode mode,
             ConsolidateMemoryArgs request)
         {
             List<Vessel> allVessels = await database.Vessels.EnumerateAsync().ConfigureAwait(false);
             IReflectionMemoryService memoryService = new ReflectionMemoryService(database);
             List<object> dispatchedMissions = new List<object>();
             List<object> skipped = new List<object>();
+            List<string> warnings = new List<string>();
+            int defaultTokenBudget = mode == ReflectionMode.PackCurate
+                ? settings.DefaultPackCurateTokenBudget
+                : settings.DefaultReorganizeTokenBudget;
 
             foreach (Vessel vessel in allVessels)
             {
@@ -243,26 +263,37 @@ namespace Armada.Server.Mcp.Tools
                     continue;
                 }
 
-                string playbook = await memoryService.ReadLearnedPlaybookContentAsync(vessel).ConfigureAwait(false);
-                string trimmed = playbook.Trim();
-                if (String.IsNullOrEmpty(trimmed) || IsBootstrapTemplate(trimmed))
+                if (mode == ReflectionMode.Reorganize)
                 {
-                    skipped.Add(new { vesselId = vessel.Id, reason = "no_playbook" });
-                    continue;
+                    string playbook = await memoryService.ReadLearnedPlaybookContentAsync(vessel).ConfigureAwait(false);
+                    string trimmed = playbook.Trim();
+                    if (String.IsNullOrEmpty(trimmed) || IsBootstrapTemplate(trimmed))
+                    {
+                        skipped.Add(new { vesselId = vessel.Id, reason = "no_playbook" });
+                        continue;
+                    }
+
+                    if (trimmed.Length < settings.ReorganizePlaybookMinCharacters)
+                    {
+                        skipped.Add(new { vesselId = vessel.Id, reason = "too_small" });
+                        continue;
+                    }
                 }
 
-                if (trimmed.Length < settings.ReorganizePlaybookMinCharacters)
-                {
-                    skipped.Add(new { vesselId = vessel.Id, reason = "too_small" });
-                    continue;
-                }
-
-                int tokenBudget = request.TokenBudget ?? settings.DefaultReorganizeTokenBudget;
+                int tokenBudget = request.TokenBudget ?? defaultTokenBudget;
                 ReflectionDispatcher.EvidenceBundleResult bundle = await dispatcher.BuildEvidenceBundleAsync(
                     vessel,
                     null,
                     tokenBudget,
-                    ReflectionMode.Reorganize).ConfigureAwait(false);
+                    mode).ConfigureAwait(false);
+
+                if (mode == ReflectionMode.PackCurate
+                    && bundle.EvidenceMissionCount == 0
+                    && bundle.RejectedProposalCount == 0)
+                {
+                    skipped.Add(new { vesselId = vessel.Id, reason = "no_pack_evidence" });
+                    continue;
+                }
 
                 string brief = bundle.Brief;
                 if (!String.IsNullOrWhiteSpace(request.Instructions))
@@ -271,17 +302,27 @@ namespace Armada.Server.Mcp.Tools
                 }
 
                 ReflectionDispatcher.DispatchResult dispatched = await dispatcher
-                    .DispatchReflectionAsync(vessel, brief, ReflectionMode.Reorganize, dualJudge, tokenBudget)
+                    .DispatchReflectionAsync(vessel, brief, mode, dualJudge, tokenBudget)
                     .ConfigureAwait(false);
                 dispatchedMissions.Add(new { vesselId = vessel.Id, missionId = dispatched.MissionId, voyageId = dispatched.VoyageId });
+            }
+
+            if (dualJudge && dispatchedMissions.Count > settings.PackCurateDualJudgeFanOutWarnThreshold)
+            {
+                warnings.Add(
+                    "dual_judge_fan_out_starvation_risk: " + dispatchedMissions.Count
+                    + " vessels dispatched with dualJudge=true (threshold "
+                    + settings.PackCurateDualJudgeFanOutWarnThreshold
+                    + ") may starve the pinned Codex Judge captain.");
             }
 
             return (object)new
             {
                 dispatchedMissions = dispatchedMissions,
                 skipped = skipped,
-                mode = "reorganize",
-                dualJudge = dualJudge
+                mode = ReflectionMemoryService.ModeToWireString(mode),
+                dualJudge = dualJudge,
+                warnings = warnings
             };
         }
 

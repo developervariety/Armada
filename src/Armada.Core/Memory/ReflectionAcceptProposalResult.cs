@@ -25,6 +25,15 @@ namespace Armada.Core.Memory
 
         /// <summary>Per-Judge sibling verdicts when the dispatched mission ran with dualJudge=true. Null otherwise.</summary>
         public List<JudgeVerdictRecord>? JudgeVerdicts { get; set; }
+
+        /// <summary>v2-F1 pack-curate accept: ids of vessel_pack_hints rows created, modified, or disabled.</summary>
+        public List<string>? AppliedHintIds { get; set; }
+
+        /// <summary>v2-F1 pack-curate accept: non-blocking pack_hint_no_matches warnings from path validation.</summary>
+        public List<object>? PathWarnings { get; set; }
+
+        /// <summary>v2-F1 pack-curate accept: non-blocking pack_hint_conflict warnings from conflict detection.</summary>
+        public List<object>? ConflictWarnings { get; set; }
     }
 
     /// <summary>One Judge sibling's verdict observation when dual-Judge was enabled on a reflection dispatch.</summary>
