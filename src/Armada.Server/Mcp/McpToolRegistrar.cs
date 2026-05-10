@@ -53,6 +53,7 @@ namespace Armada.Server.Mcp
         /// <param name="remoteTriggerService">Remote trigger service for event-driven wake-up integration.</param>
         /// <param name="codeIndexService">Code index service for search and context-pack tools.</param>
         /// <param name="reflectionDispatcher">Optional shared reflection dispatcher.</param>
+        /// <param name="reflectionBootstrap">Optional reflection memory bootstrap service used to lazy-bootstrap persona-learned playbooks on persona creation (v2-F2).</param>
         public static void RegisterAll(
             RegisterToolDelegate register,
             DatabaseDriver database,
@@ -69,7 +70,8 @@ namespace Armada.Server.Mcp
             LoggingModule? logging = null,
             IRemoteTriggerService? remoteTriggerService = null,
             ICodeIndexService? codeIndexService = null,
-            ReflectionDispatcher? reflectionDispatcher = null)
+            ReflectionDispatcher? reflectionDispatcher = null,
+            IReflectionMemoryBootstrapService? reflectionBootstrap = null)
         {
             ArmadaSettings effectiveSettings = settings ?? new ArmadaSettings();
             ReflectionDispatcher effectiveReflectionDispatcher = reflectionDispatcher
@@ -89,7 +91,7 @@ namespace Armada.Server.Mcp
             if (logging != null) McpPlaybookTools.Register(register, database, logging);
             if (mergeQueue != null) McpMergeQueueTools.Register(register, mergeQueue);
             if (templateService != null) McpPromptTemplateTools.Register(register, database, templateService);
-            McpPersonaTools.Register(register, database);
+            McpPersonaTools.Register(register, database, reflectionBootstrap);
             McpPipelineTools.Register(register, database);
             if (settings != null) McpBackupTools.Register(register, database, settings);
             McpAgentWakeTools.Register(register, remoteTriggerService);

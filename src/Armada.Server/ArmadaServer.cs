@@ -67,6 +67,7 @@ namespace Armada.Server
         private ICodeIndexService _CodeIndex = null!;
         private IReflectionMemoryService _ReflectionMemory = null!;
         private ReflectionDispatcher _ReflectionDispatcher = null!;
+        private IReflectionMemoryBootstrapService _ReflectionBootstrap = null!;
         private PersonaSeedService _PersonaSeedService = null!;
         private LogRotationService _LogRotation = null!;
         private DataExpiryService _DataExpiry = null!;
@@ -197,8 +198,8 @@ namespace Armada.Server
             await _PersonaSeedService.SeedAsync().ConfigureAwait(false);
             _Logging.Info(_Header + "persona and pipeline seeding completed");
 
-            IReflectionMemoryBootstrapService reflectionBootstrap = new ReflectionMemoryBootstrapService(_Database, _Logging);
-            await reflectionBootstrap.BootstrapAsync().ConfigureAwait(false);
+            _ReflectionBootstrap = new ReflectionMemoryBootstrapService(_Database, _Logging);
+            await _ReflectionBootstrap.BootstrapAsync().ConfigureAwait(false);
             _Logging.Info(_Header + "reflection memory bootstrap completed");
             _ReflectionMemory = new ReflectionMemoryService(_Database);
             string missionLogDirectory = System.IO.Path.Combine(_Settings.LogDirectory, "missions");
@@ -677,7 +678,8 @@ namespace Armada.Server
                 _Logging,
                 _RemoteTriggerService,
                 _CodeIndex,
-                _ReflectionDispatcher);
+                _ReflectionDispatcher,
+                _ReflectionBootstrap);
         }
 
         private async Task EmitEventAsync(string eventType, string message,

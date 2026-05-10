@@ -7,6 +7,7 @@ namespace Armada.Server.Mcp.Tools
     using ArmadaConstants = Armada.Core.Constants;
     using Armada.Core.Database;
     using Armada.Core.Models;
+    using Armada.Core.Services.Interfaces;
 
     /// <summary>
     /// Registers MCP tools for persona CRUD operations.
@@ -24,7 +25,12 @@ namespace Armada.Server.Mcp.Tools
         /// </summary>
         /// <param name="register">Delegate to register each tool.</param>
         /// <param name="database">Database driver for persona data access.</param>
-        public static void Register(RegisterToolDelegate register, DatabaseDriver database)
+        /// <param name="bootstrap">Optional reflection-memory bootstrap service used to lazily
+        ///   create the persona-&lt;name&gt;-learned playbook for newly-registered personas (v2-F2).</param>
+        public static void Register(
+            RegisterToolDelegate register,
+            DatabaseDriver database,
+            IReflectionMemoryBootstrapService? bootstrap = null)
         {
             register(
                 "armada_create_persona",
@@ -51,6 +57,21 @@ namespace Armada.Server.Mcp.Tools
                     if (request.Description != null)
                         persona.Description = request.Description;
                     persona = await database.Personas.CreateAsync(persona).ConfigureAwait(false);
+
+                    // v2-F2: lazy-bootstrap the persona-learned playbook for the new persona.
+                    if (bootstrap != null)
+                    {
+                        try
+                        {
+                            await bootstrap.BootstrapPersonaAsync(persona).ConfigureAwait(false);
+                            persona = await database.Personas.ReadAsync(persona.Id).ConfigureAwait(false) ?? persona;
+                        }
+                        catch (Exception)
+                        {
+                            // Best-effort; persona creation succeeded.
+                        }
+                    }
+
                     return (object)persona;
                 });
 
