@@ -684,6 +684,103 @@ namespace Armada.Core.Memory
         }
 
         /// <summary>
+        /// After an audit queue drain, evaluates the persona-level CurateThreshold and
+        /// anti-thrash and dispatches a persona-curate reflection when due (Reflections v2-F2).
+        /// Anti-thrash: skip when the most recent persona-curate accept for this persona had
+        /// at least one [high]-confidence note and no terminal mission since then has surfaced
+        /// new failure-mode tags or a fresh judge FAIL/NEEDS_REVISION.
+        /// </summary>
+        /// <param name="persona">Persona to evaluate.</param>
+        /// <param name="anchorVessel">Vessel used as the worktree pivot if a dispatch fires.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Dispatch result when a persona-curate mission was created; otherwise null.</returns>
+        public async Task<DispatchResult?> TryAutoDispatchPersonaCurateAfterAuditDrainAsync(
+            Persona persona,
+            Vessel anchorVessel,
+            CancellationToken token = default)
+        {
+            if (persona == null) throw new ArgumentNullException(nameof(persona));
+            if (anchorVessel == null) throw new ArgumentNullException(nameof(anchorVessel));
+            if (!persona.CurateThreshold.HasValue) return null;
+            int threshold = persona.CurateThreshold.Value;
+            if (threshold <= 0) return null;
+
+            DateTime? sinceUtc = await ResolveLastAcceptedIdentityCurateAtAsync("persona-curate", persona.Name, token).ConfigureAwait(false);
+            int countSince = await CountTerminalMissionsForPersonaSinceAsync(persona.Name, sinceUtc, token).ConfigureAwait(false);
+            if (countSince < threshold) return null;
+
+            Mission? inFlight = await IsPersonaCurateInFlightAsync(persona.Name, token).ConfigureAwait(false);
+            if (inFlight != null) return null;
+
+            // Anti-thrash for identity-curate: re-mine and require either a fresh failure tag
+            // or a judge FAIL/NEEDS_REVISION since last accept; otherwise skip.
+            if (_HabitPatternMiner != null && sinceUtc.HasValue)
+            {
+                HabitPatternResult result = await _HabitPatternMiner.MinePersonaAsync(persona.Name, sinceUtc, _Settings.IdentityCurateInitialWindow, token).ConfigureAwait(false);
+                if (result.MissionsExamined == 0) return null;
+                bool freshSignal = result.FailureModeTags.Count > 0 || result.JudgeFailCount > 0 || result.JudgeNeedsRevisionCount > 0;
+                if (!freshSignal) return null;
+            }
+
+            EvidenceBundleResult bundle = await BuildPersonaCurateBriefAsync(persona, _Settings.DefaultIdentityCurateTokenBudget, token).ConfigureAwait(false);
+            return await DispatchIdentityCurateAsync(
+                ReflectionMode.PersonaCurate,
+                persona.Name,
+                "Curate persona-learned notes for " + persona.Name,
+                bundle.Brief,
+                false,
+                _Settings.DefaultIdentityCurateTokenBudget,
+                anchorVessel,
+                token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// After an audit queue drain, evaluates the captain-level CurateThreshold and
+        /// anti-thrash and dispatches a captain-curate reflection when due (Reflections v2-F2).
+        /// </summary>
+        /// <param name="captain">Captain to evaluate.</param>
+        /// <param name="anchorVessel">Vessel used as the worktree pivot if a dispatch fires.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Dispatch result when a captain-curate mission was created; otherwise null.</returns>
+        public async Task<DispatchResult?> TryAutoDispatchCaptainCurateAfterAuditDrainAsync(
+            Captain captain,
+            Vessel anchorVessel,
+            CancellationToken token = default)
+        {
+            if (captain == null) throw new ArgumentNullException(nameof(captain));
+            if (anchorVessel == null) throw new ArgumentNullException(nameof(anchorVessel));
+            if (!captain.CurateThreshold.HasValue) return null;
+            int threshold = captain.CurateThreshold.Value;
+            if (threshold <= 0) return null;
+
+            DateTime? sinceUtc = await ResolveLastAcceptedIdentityCurateAtAsync("captain-curate", captain.Id, token).ConfigureAwait(false);
+            int countSince = await CountTerminalMissionsForCaptainSinceAsync(captain.Id, sinceUtc, token).ConfigureAwait(false);
+            if (countSince < threshold) return null;
+
+            Mission? inFlight = await IsCaptainCurateInFlightAsync(captain.Id, token).ConfigureAwait(false);
+            if (inFlight != null) return null;
+
+            if (_HabitPatternMiner != null && sinceUtc.HasValue)
+            {
+                HabitPatternResult result = await _HabitPatternMiner.MineCaptainAsync(captain.Id, sinceUtc, _Settings.IdentityCurateInitialWindow, token).ConfigureAwait(false);
+                if (result.MissionsExamined == 0) return null;
+                bool freshSignal = result.FailureModeTags.Count > 0 || result.JudgeFailCount > 0 || result.JudgeNeedsRevisionCount > 0;
+                if (!freshSignal) return null;
+            }
+
+            EvidenceBundleResult bundle = await BuildCaptainCurateBriefAsync(captain, _Settings.DefaultIdentityCurateTokenBudget, token).ConfigureAwait(false);
+            return await DispatchIdentityCurateAsync(
+                ReflectionMode.CaptainCurate,
+                captain.Id,
+                "Curate captain-learned notes for " + captain.Id,
+                bundle.Brief,
+                false,
+                _Settings.DefaultIdentityCurateTokenBudget,
+                anchorVessel,
+                token).ConfigureAwait(false);
+        }
+
+        /// <summary>
         /// After an audit queue drain, evaluates the vessel reorganize threshold + anti-thrash
         /// and dispatches a reorganize-mode reflection when due. v2-F4 audit-drain auto-trigger.
         /// </summary>
@@ -1285,6 +1382,34 @@ namespace Armada.Core.Memory
             string replaced = System.Text.RegularExpressions.Regex.Replace(lower, "[^a-z0-9]+", "-");
             string trimmed = replaced.Trim('-');
             return String.IsNullOrEmpty(trimmed) ? "unknown" : trimmed;
+        }
+
+        private async Task<int> CountTerminalMissionsForPersonaSinceAsync(string personaName, DateTime? sinceUtc, CancellationToken token)
+        {
+            List<Mission> all = await _Database.Missions.EnumerateAsync(token).ConfigureAwait(false);
+            int count = 0;
+            foreach (Mission m in all)
+            {
+                if (!IsTerminal(m.Status)) continue;
+                if (!String.Equals(m.Persona, personaName, StringComparison.OrdinalIgnoreCase)) continue;
+                if (sinceUtc.HasValue && (!m.CompletedUtc.HasValue || m.CompletedUtc.Value <= sinceUtc.Value)) continue;
+                count++;
+            }
+            return count;
+        }
+
+        private async Task<int> CountTerminalMissionsForCaptainSinceAsync(string captainId, DateTime? sinceUtc, CancellationToken token)
+        {
+            List<Mission> all = await _Database.Missions.EnumerateAsync(token).ConfigureAwait(false);
+            int count = 0;
+            foreach (Mission m in all)
+            {
+                if (!IsTerminal(m.Status)) continue;
+                if (!String.Equals(m.CaptainId, captainId, StringComparison.Ordinal)) continue;
+                if (sinceUtc.HasValue && (!m.CompletedUtc.HasValue || m.CompletedUtc.Value <= sinceUtc.Value)) continue;
+                count++;
+            }
+            return count;
         }
 
         private async Task<DateTime?> ResolveLastAcceptedIdentityCurateAtAsync(string mode, string targetId, CancellationToken token)

@@ -141,6 +141,50 @@ namespace Armada.Server.Mcp.Tools
                                 });
                             }
                         }
+
+                        // v2-F2: identity-scope auto-triggers (persona-curate / captain-curate).
+                        // Pick the first active vessel as the worktree anchor for cross-vessel
+                        // identity dispatches; the brief itself is vessel-agnostic.
+                        Vessel? identityAnchor = vesselsToCheck.Count > 0 ? vesselsToCheck[0] : null;
+                        if (identityAnchor != null)
+                        {
+                            List<Persona> personas = await database.Personas.EnumerateAsync().ConfigureAwait(false);
+                            foreach (Persona p in personas)
+                            {
+                                if (!p.Active) continue;
+                                if (String.Equals(p.Name, "MemoryConsolidator", StringComparison.OrdinalIgnoreCase)) continue;
+                                ReflectionDispatcher.DispatchResult? personaDispatched = await reflectionDispatcher
+                                    .TryAutoDispatchPersonaCurateAfterAuditDrainAsync(p, identityAnchor)
+                                    .ConfigureAwait(false);
+                                if (personaDispatched != null)
+                                {
+                                    reflectionsDispatched.Add(new
+                                    {
+                                        personaName = p.Name,
+                                        missionId = personaDispatched.MissionId,
+                                        mode = "persona-curate"
+                                    });
+                                }
+                            }
+
+                            List<Captain> captains = await database.Captains.EnumerateAsync().ConfigureAwait(false);
+                            foreach (Captain c in captains)
+                            {
+                                if (!c.CurateThreshold.HasValue) continue;
+                                ReflectionDispatcher.DispatchResult? captainDispatched = await reflectionDispatcher
+                                    .TryAutoDispatchCaptainCurateAfterAuditDrainAsync(c, identityAnchor)
+                                    .ConfigureAwait(false);
+                                if (captainDispatched != null)
+                                {
+                                    reflectionsDispatched.Add(new
+                                    {
+                                        captainId = c.Id,
+                                        missionId = captainDispatched.MissionId,
+                                        mode = "captain-curate"
+                                    });
+                                }
+                            }
+                        }
                     }
 
                     return (object)new { entries = results, reflectionsDispatched };
