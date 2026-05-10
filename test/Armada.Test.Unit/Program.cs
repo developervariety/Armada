@@ -155,6 +155,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new ReflectionConsolidateToolsTests());
             runner.AddSuite(new ReflectionAcceptRejectToolsTests());
             runner.AddSuite(new ReflectionsEndToEndSmokeTests());
+            runner.AddSuite(new ReflectionsV2F4EndToEndSmokeTests());
             runner.AddSuite(new VesselReflectionThresholdRoutesTests());
             runner.AddSuite(new VesselReorganizeThresholdRoutesTests());
 
