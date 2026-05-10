@@ -496,19 +496,21 @@ namespace Armada.Core.Services
         {
             if (mission == null) throw new ArgumentNullException(nameof(mission));
 
-            // v2-F2 three-way merge. Inbound `selections` already encodes the
-            // vessel.DefaultPlaybooks + voyage.SelectedPlaybooks + mission.SelectedPlaybooks
-            // chain (call sites bake vessel defaults into voyage selections via
-            // PlaybookMerge.MergeWithVesselDefaults before reaching here). Per the v2-F2
-            // spec the brief order is vessel -> persona -> captain with later layers winning
-            // on playbookId collision, so we apply persona on top of selections, then captain
-            // on top of that. Persona/captain entries with novel playbookIds (the common
-            // case for persona-<name>-learned and captain-<id>-learned) are appended;
-            // collisions land captain last.
+            // v2-F3 four-way merge: fleet -> vessel -> persona -> captain, with later layers
+            // winning on playbookId collision (more specific wins). Inbound `selections`
+            // already encodes the vessel.DefaultPlaybooks + voyage.SelectedPlaybooks +
+            // mission.SelectedPlaybooks chain (call sites bake vessel defaults into voyage
+            // selections via PlaybookMerge.MergeWithVesselDefaults before reaching here);
+            // F3 prepends the fleet layer (least specific) and F2 appends persona then
+            // captain (most specific). Fleet/persona/captain entries with novel playbookIds
+            // (the common case for fleet-<id>-learned, persona-<name>-learned, and
+            // captain-<id>-learned) are appended; collisions land captain last.
             List<SelectedPlaybook> caller = ClonePlaybookSelections(selections);
+            List<SelectedPlaybook> fleetLayer = await ResolveFleetLayerAsync(mission, token).ConfigureAwait(false);
             (List<SelectedPlaybook> personaLayer, List<SelectedPlaybook> captainLayer)
                 = await ResolveIdentityLayersAsync(mission, token).ConfigureAwait(false);
-            List<SelectedPlaybook> withPersona = PlaybookMerge.MergeWithVesselDefaults(caller, personaLayer);
+            List<SelectedPlaybook> withFleet = PlaybookMerge.MergeWithVesselDefaults(fleetLayer, caller);
+            List<SelectedPlaybook> withPersona = PlaybookMerge.MergeWithVesselDefaults(withFleet, personaLayer);
             mission.SelectedPlaybooks = PlaybookMerge.MergeWithVesselDefaults(withPersona, captainLayer);
 
             if (mission.SelectedPlaybooks.Count == 0 || String.IsNullOrEmpty(mission.TenantId))
@@ -523,6 +525,25 @@ namespace Armada.Core.Services
                 token).ConfigureAwait(false);
             mission.PlaybookSnapshots = snapshots;
             await _Database.Playbooks.SetMissionSnapshotsAsync(mission.Id, snapshots, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Resolve the fleet-default playbook layer for the v2-F3 four-way merge. Returns an
+        /// empty list when the mission has no vessel pin, the vessel has no fleet, the fleet
+        /// is not found, or the fleet carries no <see cref="Fleet.DefaultPlaybooks"/> JSON.
+        /// Fleet layer is the LEAST specific (applied first) per the v2-F3 spec.
+        /// </summary>
+        /// <param name="mission">Mission whose vessel resolves the fleet membership.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Fleet layer playbooks; empty when not applicable.</returns>
+        private async Task<List<SelectedPlaybook>> ResolveFleetLayerAsync(Mission mission, CancellationToken token)
+        {
+            if (String.IsNullOrEmpty(mission.VesselId)) return new List<SelectedPlaybook>();
+            Vessel? vessel = await _Database.Vessels.ReadAsync(mission.VesselId!, token).ConfigureAwait(false);
+            if (vessel == null || String.IsNullOrEmpty(vessel.FleetId)) return new List<SelectedPlaybook>();
+            Fleet? fleet = await _Database.Fleets.ReadAsync(vessel.FleetId!, token).ConfigureAwait(false);
+            if (fleet == null) return new List<SelectedPlaybook>();
+            return fleet.GetDefaultPlaybooks();
         }
 
         /// <summary>
