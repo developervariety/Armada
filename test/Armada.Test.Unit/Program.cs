@@ -155,6 +155,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new ReflectionAcceptRejectToolsTests());
             runner.AddSuite(new ReflectionsEndToEndSmokeTests());
             runner.AddSuite(new VesselReflectionThresholdRoutesTests());
+            runner.AddSuite(new VesselReorganizeThresholdRoutesTests());
 
             int exitCode = await runner.RunAllAsync().ConfigureAwait(false);
             return exitCode;

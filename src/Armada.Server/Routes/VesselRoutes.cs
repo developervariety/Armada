@@ -136,6 +136,11 @@ namespace Armada.Server.Routes
                     req.Http.Response.StatusCode = 400;
                     return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "reflectionThreshold must not be negative" };
                 }
+                if (vessel.ReorganizeThreshold.HasValue && vessel.ReorganizeThreshold.Value < 1)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "reorganizeThreshold must be a positive integer" };
+                }
                 vessel.TenantId = ctx.TenantId;
                 vessel.UserId = ctx.UserId;
                 vessel.AutoLandPredicate = autoLandPredicateJson;
@@ -208,6 +213,11 @@ namespace Armada.Server.Routes
                 {
                     req.Http.Response.StatusCode = 400;
                     return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "reflectionThreshold must not be negative" };
+                }
+                if (updated.ReorganizeThreshold.HasValue && updated.ReorganizeThreshold.Value < 1)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "reorganizeThreshold must be a positive integer" };
                 }
                 updated.Id = id;
                 updated.AutoLandPredicate = updateAlpJson;

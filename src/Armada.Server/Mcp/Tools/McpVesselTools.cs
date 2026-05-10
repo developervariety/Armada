@@ -86,6 +86,11 @@ namespace Armada.Server.Mcp.Tools
                             type = "integer",
                             description = "Per-vessel override for the number of completed missions that triggers an auto-reflection. Null = use the global default (15). Must be >= 0; pass 0 only if you intend to disable auto-triggering."
                         },
+                        reorganizeThreshold = new
+                        {
+                            type = "integer",
+                            description = "Per-vessel override for the number of completed missions that triggers an auto-reorganize of the learned playbook. Null = use the global default. Must be a positive integer (>= 1)."
+                        },
                         defaultPlaybooks = new
                         {
                             type = "array",
@@ -163,6 +168,15 @@ namespace Armada.Server.Mcp.Tools
                             return (object)new { Error = "reflectionThreshold must not be negative" };
                         vessel.ReflectionThreshold = addRtVal;
                     }
+                    if (args.HasValue && args.Value.TryGetProperty("reorganizeThreshold", out JsonElement addRorgElem)
+                        && addRorgElem.ValueKind != JsonValueKind.Null)
+                    {
+                        if (addRorgElem.ValueKind != JsonValueKind.Number || !addRorgElem.TryGetInt32(out int addRorgVal))
+                            return (object)new { Error = "reorganizeThreshold must be an integer" };
+                        if (addRorgVal < 1)
+                            return (object)new { Error = "reorganizeThreshold must be a positive integer" };
+                        vessel.ReorganizeThreshold = addRorgVal;
+                    }
                     vessel.AutoLandPredicate = autoLandPredicateJson;
                     vessel.DefaultPlaybooks = defaultPlaybooksJson;
                     vessel = await database.Vessels.CreateAsync(vessel).ConfigureAwait(false);
@@ -204,6 +218,11 @@ namespace Armada.Server.Mcp.Tools
                         {
                             type = "integer",
                             description = "Per-vessel reflection trigger threshold. Omit to leave unchanged; pass null to clear (revert to global default); pass an integer >= 0 to set."
+                        },
+                        reorganizeThreshold = new
+                        {
+                            type = "integer",
+                            description = "Per-vessel reorganize trigger threshold. Omit to leave unchanged; pass null to clear (revert to global default); pass a positive integer (>= 1) to set."
                         },
                         defaultPlaybooks = new
                         {
@@ -308,6 +327,21 @@ namespace Armada.Server.Mcp.Tools
                             if (updRtVal < 0)
                                 return (object)new { Error = "reflectionThreshold must not be negative" };
                             vessel.ReflectionThreshold = updRtVal;
+                        }
+                    }
+                    if (args.HasValue && args.Value.TryGetProperty("reorganizeThreshold", out JsonElement updRorgElem))
+                    {
+                        if (updRorgElem.ValueKind == JsonValueKind.Null)
+                        {
+                            vessel.ReorganizeThreshold = null;
+                        }
+                        else
+                        {
+                            if (updRorgElem.ValueKind != JsonValueKind.Number || !updRorgElem.TryGetInt32(out int updRorgVal))
+                                return (object)new { Error = "reorganizeThreshold must be an integer" };
+                            if (updRorgVal < 1)
+                                return (object)new { Error = "reorganizeThreshold must be a positive integer" };
+                            vessel.ReorganizeThreshold = updRorgVal;
                         }
                     }
                     vessel = await database.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
