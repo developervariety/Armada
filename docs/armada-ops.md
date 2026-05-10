@@ -266,3 +266,89 @@ learned-notes playbooks. Operator workflow extends the v1 review loop:
    null. Captain thresholds should be sparse -- enable per-captain
    only when behavior signal is strong enough to justify the dispatch
    cost.
+
+## Fleet-Curate Operator Workflow (Reflections v2-F3)
+
+Fleet-curate is the seventh `armada_consolidate_memory` mode and the
+last link in the v1 -> F4 -> F1 -> F2 -> F3 reflections chain. It
+promotes facts shared across vessels in a fleet to a fleet-pinned
+learned playbook with explicit `disableFromVessels` ripples.
+
+1. **Audit-drain auto-trigger** runs after the F2 captain-curate pass.
+   For each active fleet with a non-null `Fleet.CurateThreshold`, the
+   drain counts terminal missions across ACTIVE vessels in the fleet
+   since the last accepted fleet-curate; the anti-thrash gate ALSO
+   requires at least one consolidate / consolidate-and-reorganize
+   accept event on a member vessel since that timestamp (without fresh
+   vessel-learned acceptances, promotion candidates haven't moved).
+   Successful auto-dispatches surface as
+   `{fleetId, missionId, mode:"fleet-curate"}` in
+   `reflectionsDispatched[]`.
+
+2. **Manual dispatch** when anti-thrash suppresses the auto-trigger or
+   you want a fresh re-evaluation: call
+   `armada_consolidate_memory(fleetId, mode: "fleet-curate")`. Manual
+   dispatches bypass anti-thrash. Pass `fleetId: null` for cross-fleet
+   fan-out across active fleets.
+
+3. **Vessel-fleet conflict detection is BLOCKING** at accept time per
+   spec Q3. When a candidate fleet entry's 3-gram Jaccard similarity
+   to existing vessel-learned content exceeds
+   `FleetVesselConflictThreshold` (default 0.7) AND sentiment polarity
+   disagrees, accept fails with `fleet_curate_vessel_conflict`. The
+   `editsMarkdown` override is the safety valve when the consolidator
+   is right and the vessel content is stale; otherwise REJECT with a
+   reason and let the next cycle's brief surface the gap.
+
+4. **Promotion gates are strict.** Each new fleet entry MUST list at
+   least 2 contributing vessels (else
+   `fleet_promotion_insufficient_vessels`) and at least 3 supporting
+   missions across those vessels (else
+   `fleet_promotion_insufficient_missions`). Single-vessel facts
+   belong in vessel-curate (consolidate); reject the proposal and run
+   `armada_consolidate_memory(vesselId, mode: "consolidate")` instead.
+
+5. **Ripple disables** retire the original vessel-scope copy when a
+   fact is promoted. The candidate's JSON sidecar lists
+   `disableFromVessels: [{vesselId, noteRef, reason}]` per ripple;
+   accept applies them transactionally as `[disabled: <reason>]`
+   marker prefixes on the matching vessel-learned note line. The
+   marker preserves history so future fleet-curate cycles see the
+   disable trail. `noteRef` shape is `<Section>:<index>` (e.g.
+   `Project conventions:0`).
+
+6. **Cross-vessel suggestions in vessel-curate briefs** are passive
+   nudges. When a vessel-curate (consolidate) brief is assembled, the
+   dispatcher scans sibling vessels' learned playbooks and surfaces
+   facts whose 3-gram Jaccard similarity exceeds
+   `CrossVesselSuggestionThreshold` (default 0.5) as a
+   "Cross-vessel suggestion" hint section. The captain may mention
+   the suggestion in its diff `notes` paragraph or include a
+   `[CLAUDE.MD-PROPOSAL]` block; vessel-curate accept semantics are
+   unchanged. The actual promotion path is fleet-curate.
+
+7. **Four-way merge attaches fleet content automatically.**
+   `AdmiralService.PersistMissionPlaybooksAsync` layers
+   `fleet -> vessel -> persona -> captain` with fleet appearing first
+   (least specific). No manual `selectedPlaybooks` editing required.
+
+8. **Threshold tuning:** for the typical multi-repo project setup
+   (3-5 vessels in one fleet), start with `Fleet.CurateThreshold = 50`
+   so the auto-trigger fires after roughly two vessel-curate cycles
+   per member vessel. Leave the threshold null for fleets where
+   cross-vessel sharing is unlikely (single-repo projects, isolated
+   experimental repos).
+
+9. **Cross-fleet fan-out** is supported via
+   `armada_consolidate_memory(fleetId: null, mode: "fleet-curate")`
+   for multi-fleet admiral instances. Single-fleet setups (the common
+   case) see this dispatch as a single fleet-curate. The
+   `dual_judge_fan_out_starvation_risk` warning emits at N > 3 fleets
+   with `dualJudge=true`.
+
+10. **`armada_get_fleet` and `armada_update_fleet` extensions** carry
+    the F3 fields: `defaultPlaybooks`, `learnedPlaybookId`, and
+    `curateThreshold`. The `learnedPlaybookId` is read-only through
+    the update tool -- the accept path lazy-creates the playbook on
+    the first successful fleet-curate and writes the FK back to the
+    fleet row.

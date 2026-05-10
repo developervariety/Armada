@@ -688,6 +688,9 @@ Returns `{"error": "Fleet not found"}` if the ID does not exist.
 |---|---|---|
 | `fleet` | object | [Fleet](#fleet) object |
 | `vessels` | array | List of [Vessel](#vessel) objects in this fleet |
+| `defaultPlaybooks` | array | (v2-F3) Parsed `SelectedPlaybook[]` auto-merged into every mission for this fleet (layered FIRST in the four-way merge). Empty list when unset. |
+| `learnedPlaybookId` | string\|null | (v2-F3) FK to the lazy-created `fleet-<id>-learned` playbook. Null until first accepted fleet-curate. |
+| `curateThreshold` | int\|null | (v2-F3) Per-fleet fleet-curate auto-trigger threshold (mission count across active vessels). Null disables the audit-drain auto-trigger. |
 
 ---
 
@@ -1167,7 +1170,8 @@ Create a new fleet (collection of repositories).
 
 ### armada_update_fleet
 
-Update an existing fleet's name or description.
+Update an existing fleet's editable fields. v2-F3 adds `defaultPlaybooks`
+and `curateThreshold` to the editable surface.
 
 **Input Schema:**
 
@@ -1178,11 +1182,18 @@ Update an existing fleet's name or description.
     "fleetId": { "type": "string", "description": "Fleet ID (flt_ prefix)" },
     "name": { "type": "string", "description": "New fleet name" },
     "description": { "type": "string", "description": "New fleet description" },
-    "defaultPipelineId": { "type": "string", "description": "Default pipeline ID for voyages dispatched to vessels in this fleet" }
+    "defaultPipelineId": { "type": "string", "description": "Default pipeline ID for voyages dispatched to vessels in this fleet" },
+    "defaultPlaybooks": { "type": "string", "description": "(v2-F3) JSON-serialized SelectedPlaybook list auto-merged into every mission for this fleet (layered FIRST in the four-way merge)." },
+    "curateThreshold": { "type": "integer", "description": "(v2-F3) Per-fleet fleet-curate auto-trigger threshold (mission count across active vessels). NULL disables the audit-drain auto-trigger." }
   },
   "required": ["fleetId"]
 }
 ```
+
+`learnedPlaybookId` is intentionally NOT editable through this tool;
+it is set automatically by the v2-F3 accept path on the first accepted
+fleet-curate (per surface-discipline: fleet learned playbook lifecycle
+is reflection-driven, not direct-edit).
 
 **Response:** Updated [Fleet](#fleet) object, or `{ "Error": "Fleet not found" }`.
 
@@ -2845,6 +2856,112 @@ hyphens. Persona-learned playbooks are bootstrapped at install for every
 registered persona; new personas registered via `armada_create_persona`
 get the playbook auto-created at registration time. Captain-learned
 playbooks are lazy-created on the first accepted captain-curate.
+
+### Fleet-Curate Mode (v2-F3)
+
+v2-F3 adds the `fleet-curate` mode (the seventh) that mines mission
+evidence across ALL active vessels in a fleet PLUS reads each vessel's
+`vessel-<repo>-learned` playbook for promotion candidates. The MCP tool
+input gains `fleetId`; at most one of `vesselId` / `personaName` /
+`captainId` / `fleetId` may be supplied.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `fleetId` | string | For `mode: "fleet-curate"` (single dispatch); null fans out across active fleets | Fleet id (`flt_` prefix). |
+
+Single-target response shape gains `targetType: "fleet"` and `targetId`
+(fleet id). Fan-out response uses the existing
+`dispatchedMissions[]` / `skipped[]` shape with fleet-keyed entries
+(`{fleetId, missionId, voyageId}`) and the
+`dual_judge_fan_out_starvation_risk` warning when `dualJudge=true`
+dispatches exceed `FleetCurateDualJudgeFanOutWarnThreshold` (default 3).
+
+**F3-Specific Errors:**
+
+| Error | When |
+|-------|------|
+| `target_ambiguous` | Multiple of `vesselId` / `personaName` / `captainId` / `fleetId` supplied. |
+| `fleet_not_found` | Single-target dispatch with unknown fleet id. |
+| `fleet_curate_in_flight` | Existing in-flight fleet-curate mission for the same fleet; returns existing `missionId`. |
+| `no_fleet_evidence_available` | Zero terminal missions and zero rejections in scope across active fleet vessels. |
+
+**Output Contract (fleet-curate):**
+
+The `reflections-candidate` block is a **dual-section** structure with
+literal marker pairs:
+
+```
+=== FLEET PLAYBOOK CONTENT ===
+# Fleet Notes -- <fleet name>
+
+## Project conventions
+[high] J1939 SPN decoding lives in j1939mitm/J1939Mitm.Core/<OEM>/.
+Source: vessel j1939mitm (msn_aaa, msn_bbb), vessel otrbuddy (msn_ccc).
+=== END FLEET PLAYBOOK CONTENT ===
+
+=== RIPPLE DISABLES (JSON) ===
+{
+  "disableFromVessels": [
+    {"vesselId": "vsl_j1939mitm", "noteRef": "Project conventions:0",
+     "reason": "Promoted to fleet scope."}
+  ]
+}
+=== END RIPPLE DISABLES ===
+```
+
+The `reflections-diff` block is JSON: `{added:[{section,summary,confidence,
+vesselsContributing,missionsSupporting}], modified:[{noteRef,change}],
+disabled:[{noteRef,reason}], rippleDisables:N, evidenceConfidence,
+missionsExamined, vesselsInScope, notes}`.
+
+**Accept-Time Validation (fleet-curate, BLOCKING per Q3):**
+
+| Error | Trigger |
+|-------|---------|
+| `output_contract_violation` | Standard fence/parser failure OR missing dual-section markers OR malformed ripples JSON. |
+| `fleet_target_unresolved` / `fleet_not_found` | Dispatched event missing targetId or fleet row deleted between dispatch and accept. |
+| `fleet_promotion_insufficient_vessels` | Diff `added` entry lists `vesselsContributing < 2`. |
+| `fleet_promotion_insufficient_missions` | Diff `added` entry lists `missionsSupporting < 3`. |
+| `fleet_curate_vessel_conflict` | Candidate fact contradicts vessel-learned content (3-gram Jaccard > `FleetVesselConflictThreshold` AND sentiment polarity disagrees). **BLOCKING.** |
+| `fleet_curate_ignored_counter_evidence` | Mirrors F2's persona/captain counter-evidence check, scoped to the fleet playbook. |
+| `fleet_ripple_invalid_vessel` | `disableFromVessels` references a vessel not in the fleet. |
+| `fleet_ripple_invalid_note_ref` | `disableFromVessels` `noteRef` (`<Section>:<index>`) does not resolve to an existing tagged note. |
+| `dual_judge_not_passed` | Shared with F4. |
+
+`editsMarkdown` bypasses every F3 gate (parsed as the dual-section block).
+
+**Transactional Apply:**
+
+Accept sequences:
+1. Lazy-create or update `fleet-<id>-learned` playbook content.
+2. Wire `Fleet.LearnedPlaybookId` and append the playbook id to
+   `Fleet.DefaultPlaybooks` JSON.
+3. Walk the ripple list and prepend `[disabled: <reason>]` markers to
+   the matching note line in each target vessel's learned playbook
+   (preserves history; future fleet-curate sees the disable trail).
+
+**`reflection.accepted` payload (fleet-curate):**
+
+`mode: "fleet-curate"`, `targetType: "fleet"`, `targetId`, `factsAdded`,
+`factsModified`, `factsDisabled`, `rippleDisablesApplied`,
+`missionsExamined`, `vesselsInScope`, `evidenceConfidence`,
+`vesselConflictBlocked`, `dualJudge`, `judgeVerdicts`.
+
+**Audit-Drain Auto-Trigger:** `armada_drain_audit_queue` iterates active
+fleets after the F2 captain-curate pass. For each fleet with a non-null
+`CurateThreshold`, fires when the active-vessel terminal-mission count
+since the most recent fleet-curate accept meets the threshold AND the
+anti-thrash gate detects at least one vessel-curate accept (mode =
+consolidate / consolidate-and-reorganize) on a member active vessel
+since that timestamp. Reported in `reflectionsDispatched[]` as
+`{fleetId, missionId, mode:"fleet-curate"}`.
+
+**Fleet-Pinned Playbook Filename:**
+
+`fleet-<sanitized-fleet-id>-learned.md` (e.g.
+`fleet-flt-mofwihz3-jw6ey04qhbo-learned.md`). Sanitization lowercases
+and replaces non-alphanumeric runs with single hyphens. Lazy-created on
+the first accepted fleet-curate; no bootstrap migration.
 
 ---
 

@@ -475,3 +475,215 @@ For persona-curate / captain-curate accept events the payload carries:
 - No direct-edit MCP tool for identity notes (`armada_update_*_notes`).
 - No auto-routing based on captain notes -- admiral tier-routing remains the primary scheduler.
 - No schedule-based identity curate (cron); audit-drain auto-trigger is the only scheduled path.
+
+## Reflections v2-F3 (Fleet-Scoped / Project-Wide Memory)
+
+F3 extends `armada_consolidate_memory` with `fleet-curate`, the seventh
+mode. The consolidator mines mission evidence across ALL active vessels
+in a fleet PLUS reads each vessel's `vessel-<repo>-learned` playbook for
+promotion candidates. It proposes promoting cross-vessel-shared facts to
+a `fleet-<id>-learned` playbook with explicit per-vessel
+`disableFromVessels` ripples. Brief assembly extends F2's three-way merge
+to a four-way merge (fleet -> vessel -> persona -> captain).
+
+### Fleet-Pinned Memory Store
+
+| Store | Filename | Lifecycle |
+|---|---|---|
+| Fleet-learned | `fleet-<sanitized-fleet-id>-learned.md` | Lazy-created on the first accepted fleet-curate; no bootstrap migration. Fleet ids are kebab-cased for the filename (`flt_aaa_BBB` -> `fleet-flt-aaa-bbb-learned.md`). |
+
+`Fleet.LearnedPlaybookId`, `Fleet.DefaultPlaybooks`, and
+`Fleet.CurateThreshold` (migration v45 nullable columns) carry the wiring;
+the accept path keeps them in sync via
+`EnsureFleetLearnedPlaybookWiringAsync`.
+
+### `fleet-curate` Brief Assembly
+
+`ReflectionDispatcher.BuildFleetCurateBriefAsync` produces a six-section
+brief (default token budget 400000):
+
+1. Current fleet-learned playbook content (verbatim, empty placeholder
+   until first accept).
+2. Mode-specific instructions covering promotion gates, ripple semantics,
+   vessel-conflict prohibition, confidence guidance, counter-evidence
+   handling.
+3. Cross-vessel mission evidence aggregated by
+   `HabitPatternMiner.MineFleetAsync` -- filters vessels to
+   `Active = true` (consistent with the M-fix1 active-vessel-filter in
+   v1 audit-drain auto-dispatch) and emits per-vessel contribution
+   counts.
+4. Verbatim content of every active vessel's `vessel-<repo>-learned`
+   playbook -- this is the surface the consolidator scans for promotion
+   candidates.
+5. Recently rejected fleet-curate proposals.
+6. Constraints (output contract).
+
+### Output Contract
+
+The `reflections-candidate` block is a **dual-section** structure:
+
+```
+=== FLEET PLAYBOOK CONTENT ===
+# Fleet Notes -- <fleet name>
+## Project conventions
+[high] J1939 SPN decoding lives in j1939mitm/J1939Mitm.Core/<OEM>/.
+Source: vessel j1939mitm (msn_aaa, msn_bbb), vessel otrbuddy (msn_ccc).
+=== END FLEET PLAYBOOK CONTENT ===
+
+=== RIPPLE DISABLES (JSON) ===
+{
+  "disableFromVessels": [
+    {"vesselId": "vsl_j1939mitm", "noteRef": "Project conventions:0",
+     "reason": "Promoted to fleet scope."}
+  ]
+}
+=== END RIPPLE DISABLES ===
+```
+
+The diff JSON shape adds `vesselsContributing` and `missionsSupporting` to
+each `added` entry plus top-level `rippleDisables` and `vesselsInScope`.
+
+### Four-Way Merge In Mission Briefs
+
+`AdmiralService.PersistMissionPlaybooksAsync` post-F3:
+
+```
+fleet -> vessel -> persona -> captain   (FIRST -> LAST in merged list)
+```
+
+Fleet content appears FIRST (least specific); captain LAST (most
+specific). Captain reads sources in order; per the prompt template,
+more-specific sources win on disagreement. The strict accept-time
+conflict gate has already minimized cross-layer disagreements.
+
+### Validation Gates At Accept Time (BLOCKING)
+
+`armada_accept_memory_proposal` runs fleet-curate candidates through:
+
+| Error | Trigger |
+|---|---|
+| `output_contract_violation` | Standard fence/parser failure OR missing dual-section markers OR malformed ripples JSON. |
+| `fleet_target_unresolved` / `fleet_not_found` | Dispatched event missing targetId, or fleet row deleted between dispatch and accept. |
+| `fleet_promotion_insufficient_vessels` | Diff `added` entry lists `vesselsContributing < 2`. |
+| `fleet_promotion_insufficient_missions` | Diff `added` entry lists `missionsSupporting < 3`. |
+| `fleet_curate_vessel_conflict` | Candidate fact's 3-gram Jaccard similarity to a vessel-learned note exceeds `FleetVesselConflictThreshold` (default 0.7) AND sentiment polarity disagrees. **BLOCKING** per Q3 brainstorm choice. |
+| `fleet_curate_ignored_counter_evidence` | Prior fleet content had tagged notes; new diff zero modifications/disables; new content silently dropped at least one tagged note. |
+| `fleet_ripple_invalid_vessel` | `disableFromVessels` references a vessel not in the fleet. |
+| `fleet_ripple_invalid_note_ref` | `disableFromVessels` `noteRef` (`<Section>:<index>`) does not resolve to an existing tagged note in the target vessel-learned playbook. |
+| `dual_judge_not_passed` | Shared with F4. |
+
+`editsMarkdown` bypasses every F3 gate (parses the override as the
+dual-section block).
+
+### Transactional Apply
+
+Accept sequences:
+
+1. Lazy-create or update `fleet-<id>-learned` playbook with the new
+   markdown content.
+2. `EnsureFleetLearnedPlaybookWiringAsync` writes
+   `Fleet.LearnedPlaybookId` and appends an `InstructionWithReference`
+   entry to `Fleet.DefaultPlaybooks` JSON.
+3. For each ripple, `DisableNoteAt` prepends a
+   `[disabled: <reason>]` marker to the matching note line in the target
+   vessel's learned playbook (preserves history -- future fleet-curate
+   sees the disable trail).
+
+### Cross-Vessel Suggestion Hint (Vessel-Curate Brief Extension)
+
+When a `mode: consolidate` (or `consolidate-and-reorganize`) brief is
+assembled for vessel V, the dispatcher scans every OTHER active vessel
+in the same fleet. Fact-strings whose 3-gram Jaccard similarity to V's
+learned playbook OR the new evidence bundle exceeds
+`CrossVesselSuggestionThreshold` (default 0.5) are surfaced as a passive
+"Cross-vessel suggestion" hint section in the brief. This is a NUDGE,
+not a directive -- the captain may mention it in its diff `notes`
+paragraph or include a `[CLAUDE.MD-PROPOSAL]` block; vessel-curate
+accept semantics are unchanged.
+
+### Concurrency Lock
+
+| Mode | Lock |
+|---|---|
+| `fleet-curate` | Max one MemoryConsolidator mission per **fleet id** -- `fleet_curate_in_flight` returns the existing missionId. |
+
+Independent of vessel / persona / captain locks.
+
+### Audit-Drain Auto-Trigger
+
+`armada_drain_audit_queue` iterates active fleets after the F2 captain-
+curate pass. For each fleet with a non-null `CurateThreshold`, the
+dispatch counts terminal missions across ACTIVE vessels in the fleet
+since the most recent `reflection.accepted` (mode=fleet-curate, targetId).
+When the count meets the threshold, an anti-thrash gate fires that is
+keyed on FLEET ACTIVITY: a previous fleet-curate must be followed by at
+least one consolidate / consolidate-and-reorganize accept on a member
+vessel; otherwise vessel-learned playbooks haven't moved and there are
+no new promotion candidates, so the auto-trigger skips. Successful
+auto-dispatches surface in `reflectionsDispatched[]` with shape
+`{fleetId, missionId, mode:"fleet-curate"}`. Manual dispatch via
+`armada_consolidate_memory(fleetId, mode:"fleet-curate")` always
+allowed.
+
+### Cross-Fleet Fan-Out
+
+`armada_consolidate_memory(fleetId: null, mode: "fleet-curate")` fans
+out across active fleets, with the same dispatchedMissions / skipped
+shape as F1/F2/F4 fan-outs. `dual_judge_fan_out_starvation_risk` warning
+emits at N > `FleetCurateDualJudgeFanOutWarnThreshold` (default 3) with
+`dualJudge=true`.
+
+### Quality Metrics On `reflection.accepted`
+
+For fleet-curate accept events the payload carries:
+
+| Field | Notes |
+|---|---|
+| `mode` | `fleet-curate`. |
+| `targetType` / `targetId` | `fleet` + fleet id. |
+| `factsAdded` / `factsModified` / `factsDisabled` | Diff-derived counts. |
+| `rippleDisablesApplied` | Vessel-scope notes deactivated by ripple. |
+| `missionsExamined` | Diff-derived. |
+| `vesselsInScope` | How many active vessels were in scope. |
+| `evidenceConfidence` | Diff-derived (`high`/`mixed`/`low`). |
+| `vesselConflictBlocked` | Reserved for future telemetry; currently 0 (override path bypasses but does not record). |
+| `dualJudge` / `judgeVerdicts` | Shared with F4. |
+
+### `armada_get_fleet` Response Extension
+
+Backward-compatible additive fields:
+
+- `defaultPlaybooks` (parsed `SelectedPlaybook[]`)
+- `learnedPlaybookId` (string, may be null until first accept)
+- `curateThreshold` (int, may be null when audit-drain auto-trigger
+  disabled)
+
+`armada_update_fleet` accepts `defaultPlaybooks` (JSON string) and
+`curateThreshold` (int) as editable fields.
+
+### Configuration (F3 Defaults)
+
+| Knob | Default | Where |
+|---|---|---|
+| `DefaultFleetCurateTokenBudget` | 400000 | `ArmadaSettings` |
+| `FleetCurateInitialWindow` | 200 missions | `ArmadaSettings` |
+| `FleetVesselConflictThreshold` | 0.7 | `ArmadaSettings` |
+| `CrossVesselSuggestionThreshold` | 0.5 | `ArmadaSettings` |
+| `FleetCurateDualJudgeFanOutWarnThreshold` | 3 | `ArmadaSettings` |
+| `Fleet.CurateThreshold` | NULL (auto-trigger disabled) | `armada_update_fleet` |
+
+### Non-Goals (F3 Scope)
+
+- No schedule-based fleet-curate (cron) -- audit-drain is the only
+  scheduled path.
+- No cross-fleet fact promotion (admiral-global tier; YAGNI for
+  single-fleet setups).
+- No auto-disable of stale fleet entries without orchestrator review.
+- No direct-edit MCP tool for fleet notes (surface-discipline; all
+  fleet-note mutations land via fleet-curate -> review).
+- No cross-scope evidence (mixing persona/captain learned into fleet
+  evidence).
+- No vessel-fleet conflict detection as warning -- BLOCKING per
+  brainstorm Q3 (`editsMarkdown` is the safety valve).
+- No utilization telemetry (which vessels actually used a fleet-pinned
+  fact).
