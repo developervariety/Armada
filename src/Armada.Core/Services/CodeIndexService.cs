@@ -8,6 +8,7 @@ namespace Armada.Core.Services
     using System.Security.Cryptography;
     using System.Text;
     using System.Text.Json;
+    using Microsoft.Extensions.FileSystemGlobbing;
     using SyslogLogging;
     using Armada.Core.Database;
     using Armada.Core.Models;
@@ -217,6 +218,31 @@ namespace Armada.Core.Services
             int maxResults = request.MaxResults ?? _Settings.CodeIndex.MaxContextPackResults;
             maxResults = ClampLimit(maxResults, _Settings.CodeIndex.MaxContextPackResults);
 
+            // v2-F1 pre-selection pass: load vessel_pack_hints, filter by goal regex, compute hard-include / hard-exclude.
+            List<VesselPackHint> matchedHints = new List<VesselPackHint>();
+            List<string> warnings = new List<string>();
+            HashSet<string> hardExcludePatterns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                List<VesselPackHint> activeHints = await _Database.VesselPackHints
+                    .EnumerateActiveByVesselAsync(request.VesselId, token).ConfigureAwait(false);
+                foreach (VesselPackHint h in activeHints)
+                {
+                    if (TryMatchGoalPattern(h.GoalPattern, request.Goal))
+                    {
+                        matchedHints.Add(h);
+                        foreach (string excl in h.GetMustExclude())
+                            if (!String.IsNullOrWhiteSpace(excl))
+                                hardExcludePatterns.Add(excl);
+                    }
+                }
+                matchedHints = matchedHints.OrderByDescending(h => h.Priority).ToList();
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "vessel_pack_hints lookup failed for " + request.VesselId + ": " + ex.Message);
+            }
+
             CodeSearchRequest searchRequest = new CodeSearchRequest
             {
                 VesselId = request.VesselId,
@@ -227,6 +253,26 @@ namespace Armada.Core.Services
             };
 
             CodeSearchResponse search = await SearchAsync(searchRequest, token).ConfigureAwait(false);
+            if (hardExcludePatterns.Count > 0)
+            {
+                Matcher excludeMatcher = new Matcher();
+                foreach (string p in hardExcludePatterns) excludeMatcher.AddInclude(p);
+                List<CodeSearchResult> filtered = new List<CodeSearchResult>();
+                int dropped = 0;
+                foreach (CodeSearchResult r in search.Results)
+                {
+                    string path = r.Record?.Path ?? "";
+                    PatternMatchingResult match = excludeMatcher.Match(path);
+                    if (match.HasMatches) { dropped++; continue; }
+                    filtered.Add(r);
+                }
+                search.Results = filtered;
+                if (dropped > 0)
+                {
+                    warnings.Add("hard_exclude_filtered: dropped " + dropped + " result(s) matching pack-hint mustExclude globs");
+                }
+            }
+
             string markdown = BuildContextPackMarkdown(request.Goal, tokenBudget, search);
             string materializedPath = await WriteContextPackAsync(request.VesselId, markdown, token).ConfigureAwait(false);
 
@@ -240,7 +286,28 @@ namespace Armada.Core.Services
                 Results = search.Results
             };
             response.PrestagedFiles.Add(new PrestagedFile(materializedPath, "_briefing/context-pack.md"));
+            foreach (VesselPackHint h in matchedHints)
+                response.MatchedHintIds.Add(h.Id);
+            foreach (string w in warnings)
+                response.Warnings.Add(w);
             return response;
+        }
+
+        private static bool TryMatchGoalPattern(string? pattern, string goal)
+        {
+            if (String.IsNullOrEmpty(pattern)) return false;
+            try
+            {
+                return System.Text.RegularExpressions.Regex.IsMatch(
+                    goal,
+                    pattern,
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase,
+                    TimeSpan.FromMilliseconds(50));
+            }
+            catch (Exception)
+            {
+                return false;
+            }
         }
 
         #endregion
