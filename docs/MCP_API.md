@@ -2642,7 +2642,7 @@ Restore Armada from a previously created backup ZIP file.
 
 ### armada_consolidate_memory
 
-Trigger a memory consolidation or reorganize mission. v2-F4 extends the v1 surface with `mode`, `dualJudge`, and a cross-vessel fan-out semantic when `vesselId` is null.
+Trigger a memory consolidation, reorganize, or pack-curate mission. v2-F4 extended the v1 surface with `mode`, `dualJudge`, and a cross-vessel fan-out semantic when `vesselId` is null. v2-F1 adds a fourth mode (`pack-curate`) and extends the fan-out semantic to it.
 
 **Input Schema:**
 
@@ -2652,11 +2652,11 @@ Trigger a memory consolidation or reorganize mission. v2-F4 extends the v1 surfa
   "properties": {
     "vesselId": {
       "type": "string",
-      "description": "Target vessel ID (vsl_ prefix). Required unless mode=reorganize, in which case null fan-outs across active vessels."
+      "description": "Target vessel ID (vsl_ prefix). Required unless mode in {reorganize, pack-curate}, in which case null fan-outs across active vessels."
     },
     "mode": {
       "type": "string",
-      "description": "consolidate (default) | reorganize | consolidate-and-reorganize"
+      "description": "consolidate (default) | reorganize | consolidate-and-reorganize | pack-curate"
     },
     "dualJudge": {
       "type": "boolean",
@@ -2664,7 +2664,7 @@ Trigger a memory consolidation or reorganize mission. v2-F4 extends the v1 surfa
     },
     "sinceMissionId": {
       "type": "string",
-      "description": "Override the auto-computed evidence start point (msn_ prefix). Ignored in pure-reorganize mode."
+      "description": "Override the auto-computed evidence start point (msn_ prefix). Ignored in pure-reorganize and pack-curate modes."
     },
     "instructions": {
       "type": "string",
@@ -2672,7 +2672,7 @@ Trigger a memory consolidation or reorganize mission. v2-F4 extends the v1 surfa
     },
     "tokenBudget": {
       "type": "integer",
-      "description": "Token budget for the brief (default 400000 for consolidate/combined, 30000 for reorganize)"
+      "description": "Token budget for the brief (default 400000 for consolidate/combined/pack-curate, 30000 for reorganize)"
     }
   }
 }
@@ -2680,8 +2680,8 @@ Trigger a memory consolidation or reorganize mission. v2-F4 extends the v1 surfa
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `vesselId` | string | Conditional | Target vessel ID (`vsl_`). Required unless `mode = "reorganize"` -- then null triggers fan-out. |
-| `mode` | string | No | One of `consolidate` (default), `reorganize`, `consolidate-and-reorganize`. |
+| `vesselId` | string | Conditional | Target vessel ID (`vsl_`). Required unless `mode` is `reorganize` or `pack-curate` -- then null triggers fan-out. |
+| `mode` | string | No | One of `consolidate` (default), `reorganize`, `consolidate-and-reorganize`, `pack-curate`. |
 | `dualJudge` | boolean | No | Use the `ReflectionsDualJudge` pipeline. Default false. |
 | `sinceMissionId` | string | No | Override the auto-computed start point (uses `Vessel.LastReflectionMissionId` if not provided). Ignored in pure reorganize. |
 | `instructions` | string | No | Extra guidance for the consolidator captain |
@@ -2733,16 +2733,27 @@ Trigger a memory consolidation or reorganize mission. v2-F4 extends the v1 surfa
 | Error | When |
 |-------|------|
 | `vessel_not_found` | Invalid or nonexistent vessel ID (single-vessel mode) |
-| `vesselId_required` | `vesselId: null` with mode != "reorganize" |
+| `vesselId_required` | `vesselId: null` with mode not in {reorganize, pack-curate} |
 | `invalid_mode` | `mode` value not in the enum |
 | `reflection_already_in_flight` | A reflection is already running for this vessel. Returns existing `missionId` in error payload. |
 | `no_evidence_available` | Mode is consolidate or combined and vessel has zero terminal missions since the start point |
+| `no_pack_evidence_available` | Mode is `pack-curate` and vessel has zero terminal missions since the start point (v2-F1) |
 | `playbook_empty` | Single-vessel reorganize on a bootstrap-empty learned playbook |
 | `playbook_too_small` | Single-vessel reorganize on a populated playbook below `ArmadaSettings.ReorganizePlaybookMinCharacters` |
 
 **Concurrency Rule:** At most ONE pending/running reflection mission per vessel, regardless of mode. If called while one is in-flight, returns the existing mission ID rather than dispatching a duplicate.
 
-**Cross-Vessel Fan-Out:** With `vesselId: null, mode: "reorganize"`, admiral enumerates active vessels and dispatches a reorganize mission per vessel that (a) has no in-flight MemoryConsolidator and (b) has a populated playbook above `ReorganizePlaybookMinCharacters`. `dualJudge` propagates to every dispatched mission.
+**Cross-Vessel Fan-Out:** With `vesselId: null, mode: "reorganize"`, admiral enumerates active vessels and dispatches a reorganize mission per vessel that (a) has no in-flight MemoryConsolidator and (b) has a populated playbook above `ReorganizePlaybookMinCharacters`. `dualJudge` propagates to every dispatched mission. Same shape applies for `mode: "pack-curate"` (skipped with reason `no_pack_evidence` when no terminal missions exist in the window). When fan-out dispatches more than `PackCurateDualJudgeFanOutWarnThreshold` (default 3) vessels with `dualJudge=true`, the response includes a `dual_judge_fan_out_starvation_risk` warning string.
+
+### Pack-Curate Mode (v2-F1)
+
+Pack-curate dispatches a `MemoryConsolidator` mission whose brief is JSON-output-oriented. The candidate fence contains a JSON object describing `vessel_pack_hints` row deltas (`addHints` / `modifyHints` / `disableHints`); the diff fence contains a structural summary (`evidenceConfidence`, `missionsExamined`, free-text `notes`).
+
+Accept-time validation pipeline runs anti-pattern checks (`pack_hint_pattern_too_broad`, `pack_hint_invalid_regex`, `pack_hint_id_not_found`, `pack_hint_invalid_path`), best-effort `git ls-tree` path validation (non-blocking `pack_hint_no_matches` warnings), and conflict detection (non-blocking `pack_hint_conflict` warnings). `editsMarkdown` override skips all of the above.
+
+Audit-drain auto-trigger fires pack-curate when `Vessel.PackCurateThreshold` is set and exceeded by terminal-mission count since last accepted pack-curate, no MemoryConsolidator is in-flight, and at least one mission since the last accept has non-empty `filesGrepDiscovered` (anti-thrash).
+
+Hint mutations land **only** through the pack-curate reflection -> orchestrator review path. There is no dedicated `armada_update_pack_hint` tool.
 
 ---
 

@@ -216,3 +216,111 @@ In addition to v1's errors, F4 introduces:
 - No reorganize on vessels other than `vessel-<repo>-learned`.
 - No cross-playbook restructuring.
 - No auto-accept of reorganize proposals -- the orchestrator remains the final decision authority even when dual-Judge passes.
+
+## Reflections v2-F1 (Pack-Curate Mode)
+
+F1 extends `armada_consolidate_memory` with a fourth mode (`pack-curate`)
+that mines completed-mission captain logs for pack-usage signals
+(prestaged-files Read / ignored / grep-discovered / Edited) and
+proposes deltas to a new `vessel_pack_hints` table. `armada_context_pack`
+consults the table at dispatch time as a hard pre-selection pass.
+
+### Modes (post-F1)
+
+| Mode | Behavior |
+|------|----------|
+| `consolidate` | v1: mine evidence, propose updated learned-facts playbook. |
+| `reorganize` | v2-F4: restructure learned playbook without adding facts. |
+| `consolidate-and-reorganize` | v2-F4: combined evidence+restructure pass. |
+| `pack-curate` | v2-F1: mine pack-usage evidence; propose `vessel_pack_hints` deltas. **No playbook edits.** |
+
+### Hint Structure
+
+`vessel_pack_hints` rows:
+- `id` (`vph_` prefix)
+- `vessel_id`
+- `goal_pattern`: case-insensitive regex applied to the dispatch goal text.
+- `must_include`: JSON array of glob paths (Microsoft.Extensions.FileSystemGlobbing).
+- `must_exclude`: JSON array of glob paths.
+- `priority`: integer; higher applied first. Equal-priority conflicts resolve to **exclude wins**.
+- `confidence`: `high` | `medium` | `low`.
+- `source_mission_ids`: JSON array (traceability).
+- `justification`: free-text rationale.
+- `active`: soft-disable flag.
+
+### Cross-Vessel Fan-Out
+
+`armada_consolidate_memory(vesselId: null, mode: "pack-curate")` mirrors
+F4's reorganize fan-out. Skips vessels with reason `in_flight` (existing
+MemoryConsolidator mission), `no_pack_evidence` (no terminal-mission
+evidence in window). When `dualJudge: true` AND fan-out dispatches more
+than `PackCurateDualJudgeFanOutWarnThreshold` (default 3) vessels, the
+response includes a `dual_judge_fan_out_starvation_risk` warning string.
+
+### Pack-Time Application
+
+`armada_context_pack` reads matching active hints (regex match on goal
+text), applies hard `mustInclude` and `mustExclude` before lexical
+ranking, and returns `matchedHintIds` + `warnings` in the response.
+Empty `vessel_pack_hints` table preserves prior behavior.
+
+Conflict resolution: higher priority wins; equal priority => exclude wins.
+
+### Validation Pipeline (Accept Time)
+
+`armada_accept_memory_proposal` runs (in this order, all bypassed by
+`editsMarkdown` override):
+
+1. JSON parse of reflections-candidate as `PackCurateCandidate`.
+2. Anti-pattern checks: `pack_hint_pattern_too_broad` (`.*`, empty,
+   < 3 chars), `pack_hint_invalid_regex`, `pack_hint_invalid_path`,
+   `pack_hint_id_not_found` (modify/disable references unknown id).
+3. Dual-Judge gate when `dualJudge=true`.
+4. Path-existence validation: best-effort `git ls-tree -r <default-branch>`
+   against `Vessel.LocalPath`. Unmatched globs surface as **non-blocking**
+   `pack_hint_no_matches` warnings.
+5. Conflict detection: hint pairs with overlapping pattern shape AND
+   overlapping mustInclude/mustExclude on the same path surface as
+   **non-blocking** `pack_hint_conflict` warnings.
+6. Apply add/modify/disable in sequence (each operation is independently
+   idempotent on retry).
+
+### Audit-Drain Auto-Trigger
+
+`armada_drain_audit_queue` evaluates `Vessel.PackCurateThreshold` after
+consolidate-threshold and reorganize-threshold checks. Fires when:
+- threshold is set and > 0,
+- terminal-mission count since last accepted pack-curate exceeds threshold,
+- no MemoryConsolidator is in-flight,
+- anti-thrash gate passes (at least one terminal mission since last accept
+  has non-empty `filesGrepDiscovered`).
+
+`reflectionsDispatched[]` entries carry `mode: "pack-curate"`.
+
+### F1 MCP Errors
+
+| Error | Trigger |
+|-------|---------|
+| `no_pack_evidence_available` | Single-vessel pack-curate with zero terminal missions in the window. |
+| `pack_hint_pattern_too_broad` | `goalPattern` is `.*`, empty, whitespace, or < 3 chars. |
+| `pack_hint_invalid_regex` | `goalPattern` fails to compile. |
+| `pack_hint_id_not_found` | `modifyHints` or `disableHints` references an unknown id on the vessel. |
+| `pack_hint_invalid_path` | `mustInclude` / `mustExclude` entry is null/whitespace. |
+
+### F1 Settings
+
+| Setting | Default | Where |
+|---------|---------|-------|
+| `DefaultPackCurateTokenBudget` | 400000 | `ArmadaSettings` |
+| `PackCurateInitialWindow` | 25 | `ArmadaSettings` |
+| `PackHintConflictPriorityMargin` | 50 | `ArmadaSettings` |
+| `PackCurateDualJudgeFanOutWarnThreshold` | 3 | `ArmadaSettings` |
+| `Vessel.PackCurateThreshold` | NULL (auto-trigger disabled) | `armada_update_vessel` |
+
+### Non-Goals (F1 Scope)
+
+- No A/B testing / shadow mode for hints.
+- No cross-vessel hint promotion (F3 territory).
+- No dedicated hint-editing MCP tool -- all mutations go through the
+  reflection -> orchestrator review path.
+- No auto-disable of stale hints without orchestrator review.
