@@ -472,6 +472,67 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Default token budget for pack-curate reflection missions (Reflections v2-F1).
+        /// Mining per-mission file-touch evidence is comparable in size to consolidate, so
+        /// this defaults to 400000. Must be >= 1.
+        /// </summary>
+        public int DefaultPackCurateTokenBudget
+        {
+            get => _DefaultPackCurateTokenBudget;
+            set
+            {
+                if (value < 1) throw new ArgumentOutOfRangeException(nameof(DefaultPackCurateTokenBudget), "Must be >= 1");
+                _DefaultPackCurateTokenBudget = value;
+            }
+        }
+
+        /// <summary>
+        /// Initial pack-curate evidence window: number of newest terminal missions mined when no
+        /// pack-curate has been accepted yet for the vessel (Reflections v2-F1). Default 25.
+        /// Must be >= 1.
+        /// </summary>
+        public int PackCurateInitialWindow
+        {
+            get => _PackCurateInitialWindow;
+            set
+            {
+                if (value < 1) throw new ArgumentOutOfRangeException(nameof(PackCurateInitialWindow), "Must be >= 1");
+                _PackCurateInitialWindow = value;
+            }
+        }
+
+        /// <summary>
+        /// Conflict-detection priority margin for pack-curate accept-time validation (Reflections
+        /// v2-F1). Two hints with overlapping mustInclude/mustExclude on the same path are
+        /// flagged as a pack_hint_conflict warning when their priorities differ by less than
+        /// this amount. Default 50. Must be >= 0.
+        /// </summary>
+        public int PackHintConflictPriorityMargin
+        {
+            get => _PackHintConflictPriorityMargin;
+            set
+            {
+                if (value < 0) throw new ArgumentOutOfRangeException(nameof(PackHintConflictPriorityMargin), "Must be >= 0");
+                _PackHintConflictPriorityMargin = value;
+            }
+        }
+
+        /// <summary>
+        /// Cross-vessel fan-out warning threshold for pack-curate dispatches with dualJudge=true
+        /// (Reflections v2-F1). When a fan-out would dispatch to more than this many vessels with
+        /// dualJudge true, the response includes a starvation-risk warning. Default 3.
+        /// </summary>
+        public int PackCurateDualJudgeFanOutWarnThreshold
+        {
+            get => _PackCurateDualJudgeFanOutWarnThreshold;
+            set
+            {
+                if (value < 1) throw new ArgumentOutOfRangeException(nameof(PackCurateDualJudgeFanOutWarnThreshold), "Must be >= 1");
+                _PackCurateDualJudgeFanOutWarnThreshold = value;
+            }
+        }
+
+        /// <summary>
         /// Minimum number of <c>AuditDeepPicked = true</c> entries pending review before
         /// admiral fires a desktop notification on the next health-check cycle. 0 disables
         /// the notification entirely. Default is 1 -- as soon as Judge flags one entry,
@@ -599,6 +660,10 @@ namespace Armada.Core.Settings
         private int _ReorganizePlaybookMinCharacters = 200;
         private double _ReorganizeAntiThrashGrowthRatio = 0.10;
         private int _ReorganizeAntiThrashMinNewEntries = 5;
+        private int _DefaultPackCurateTokenBudget = 400000;
+        private int _PackCurateInitialWindow = 25;
+        private int _PackHintConflictPriorityMargin = 50;
+        private int _PackCurateDualJudgeFanOutWarnThreshold = 3;
         private RemoteControlSettings _RemoteControl = new RemoteControlSettings();
         private DatabaseSettings _Database = new DatabaseSettings();
         private CodeIndexSettings _CodeIndex = new CodeIndexSettings();

@@ -24,5 +24,12 @@ namespace Armada.Core.Memory
         /// mission. Brief includes the v1 evidence bundle plus reorganize instructions.
         /// </summary>
         ConsolidateAndReorganize = 2,
+
+        /// <summary>
+        /// v2-F1 pack-curate mode: mine completed-mission captain logs for the four pack-usage
+        /// buckets (prestaged-Read / ignored / grep-discovered / Edited) and propose deltas
+        /// to the vessel_pack_hints table. Brief is JSON-output-oriented (NOT markdown).
+        /// </summary>
+        PackCurate = 3,
     }
 }

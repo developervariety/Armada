@@ -521,6 +521,9 @@ namespace Armada.Core.Services
             if (String.Equals(trimmed, "consolidate-and-reorganize", StringComparison.OrdinalIgnoreCase)
                 || String.Equals(trimmed, "consolidateandreorganize", StringComparison.OrdinalIgnoreCase))
                 return ReflectionMode.ConsolidateAndReorganize;
+            if (String.Equals(trimmed, "pack-curate", StringComparison.OrdinalIgnoreCase)
+                || String.Equals(trimmed, "packcurate", StringComparison.OrdinalIgnoreCase))
+                return ReflectionMode.PackCurate;
             return null;
         }
 
@@ -535,6 +538,7 @@ namespace Armada.Core.Services
             {
                 ReflectionMode.Reorganize => "reorganize",
                 ReflectionMode.ConsolidateAndReorganize => "consolidate-and-reorganize",
+                ReflectionMode.PackCurate => "pack-curate",
                 _ => "consolidate"
             };
         }

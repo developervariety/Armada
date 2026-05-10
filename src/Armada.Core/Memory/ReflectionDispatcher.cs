@@ -26,6 +26,7 @@ namespace Armada.Core.Memory
         private readonly IAdmiralService _Admiral;
         private readonly ArmadaSettings _Settings;
         private readonly IReflectionMemoryService _Memory;
+        private readonly PackUsageMiner? _PackUsageMiner;
         private const int _CharactersPerToken = 4;
         private const int _MaxDiffChars = 24000;
         private const int _MaxAgentOutputChars = 12000;
@@ -49,11 +50,30 @@ namespace Armada.Core.Memory
             IAdmiralService admiral,
             ArmadaSettings settings,
             IReflectionMemoryService memory)
+            : this(database, admiral, settings, memory, null)
+        {
+        }
+
+        /// <summary>
+        /// Instantiate with an explicit PackUsageMiner. Used by v2-F1 pack-curate brief assembly.
+        /// </summary>
+        /// <param name="database">Database driver.</param>
+        /// <param name="admiral">Admiral service.</param>
+        /// <param name="settings">Armada settings.</param>
+        /// <param name="memory">Reflection memory service.</param>
+        /// <param name="packUsageMiner">Pack-usage miner (null disables pack-curate brief assembly).</param>
+        public ReflectionDispatcher(
+            DatabaseDriver database,
+            IAdmiralService admiral,
+            ArmadaSettings settings,
+            IReflectionMemoryService memory,
+            PackUsageMiner? packUsageMiner)
         {
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _Admiral = admiral ?? throw new ArgumentNullException(nameof(admiral));
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _Memory = memory ?? throw new ArgumentNullException(nameof(memory));
+            _PackUsageMiner = packUsageMiner;
         }
 
         #endregion
@@ -122,14 +142,22 @@ namespace Armada.Core.Memory
             if (vessel == null) throw new ArgumentNullException(nameof(vessel));
             if (tokenBudget < 1)
             {
-                tokenBudget = mode == ReflectionMode.Reorganize
-                    ? _Settings.DefaultReorganizeTokenBudget
-                    : _Settings.DefaultReflectionTokenBudget;
+                tokenBudget = mode switch
+                {
+                    ReflectionMode.Reorganize => _Settings.DefaultReorganizeTokenBudget,
+                    ReflectionMode.PackCurate => _Settings.DefaultPackCurateTokenBudget,
+                    _ => _Settings.DefaultReflectionTokenBudget,
+                };
             }
 
             if (mode == ReflectionMode.Reorganize)
             {
                 return await BuildReorganizeBriefAsync(vessel, tokenBudget, token).ConfigureAwait(false);
+            }
+
+            if (mode == ReflectionMode.PackCurate)
+            {
+                return await BuildPackCurateBriefAsync(vessel, tokenBudget, token).ConfigureAwait(false);
             }
 
             List<string> rejectedProposalNotes = await _Memory.ReadRejectedProposalNotesAsync(vessel, token).ConfigureAwait(false);
@@ -204,6 +232,70 @@ namespace Armada.Core.Memory
         }
 
         /// <summary>
+        /// Build the pack-curate brief: current vessel_pack_hints rows, mined pack-usage
+        /// evidence (four-bucket triples per terminal mission since last accepted pack-curate),
+        /// and recently rejected pack-curate proposals (Reflections v2-F1).
+        /// </summary>
+        /// <param name="vessel">Vessel being curated.</param>
+        /// <param name="tokenBudget">Approximate token budget for the brief.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Evidence bundle result with EvidenceMissionCount = mined-mission count.</returns>
+        public async Task<EvidenceBundleResult> BuildPackCurateBriefAsync(
+            Vessel vessel,
+            int tokenBudget,
+            CancellationToken token = default)
+        {
+            if (vessel == null) throw new ArgumentNullException(nameof(vessel));
+            if (tokenBudget < 1) tokenBudget = _Settings.DefaultPackCurateTokenBudget;
+
+            List<VesselPackHint> currentHints = await _Database.VesselPackHints
+                .EnumerateActiveByVesselAsync(vessel.Id, token).ConfigureAwait(false);
+            List<string> packCurateRejections = await _Memory
+                .ReadRejectedProposalNotesByModeAsync(vessel, ReflectionMode.PackCurate, token).ConfigureAwait(false);
+
+            List<Mission> evidenceMissions = await SelectPackCurateEvidenceMissionsAsync(vessel, token).ConfigureAwait(false);
+
+            List<PackUsageTriple> triples = new List<PackUsageTriple>();
+            if (_PackUsageMiner != null)
+            {
+                foreach (Mission m in evidenceMissions)
+                {
+                    PackUsageTriple t = await _PackUsageMiner.MineAsync(m, token).ConfigureAwait(false);
+                    triples.Add(t);
+                }
+            }
+            else
+            {
+                foreach (Mission m in evidenceMissions)
+                {
+                    triples.Add(new PackUsageTriple { MissionId = m.Id, LogAvailable = false });
+                }
+            }
+
+            long maxChars = (long)tokenBudget * _CharactersPerToken;
+            if (maxChars > Int32.MaxValue) maxChars = Int32.MaxValue;
+
+            int includedCount = triples.Count;
+            int skipped = 0;
+            string brief = ComposePackCurateBrief(vessel, currentHints, evidenceMissions, triples, packCurateRejections, includedCount, skipped);
+            while (includedCount > 1 && brief.Length > maxChars)
+            {
+                includedCount--;
+                skipped++;
+                brief = ComposePackCurateBrief(vessel, currentHints, evidenceMissions, triples, packCurateRejections, includedCount, skipped);
+            }
+
+            return new EvidenceBundleResult
+            {
+                Brief = brief,
+                EvidenceMissionCount = includedCount,
+                RejectedProposalCount = packCurateRejections.Count,
+                Truncated = skipped > 0,
+                Mode = ReflectionMode.PackCurate
+            };
+        }
+
+        /// <summary>
         /// Dispatch a MemoryConsolidator mission through the Reflections pipeline (legacy v1 entry).
         /// </summary>
         /// <param name="vessel">Vessel being consolidated.</param>
@@ -238,11 +330,13 @@ namespace Armada.Core.Memory
             if (vessel == null) throw new ArgumentNullException(nameof(vessel));
             if (String.IsNullOrEmpty(brief)) throw new ArgumentNullException(nameof(brief));
 
-            string title = mode == ReflectionMode.Reorganize
-                ? "Reorganize learned-facts playbook for " + vessel.Name
-                : mode == ReflectionMode.ConsolidateAndReorganize
-                    ? "Consolidate and reorganize learned-facts playbook for " + vessel.Name
-                    : "Consolidate learned-facts playbook for " + vessel.Name;
+            string title = mode switch
+            {
+                ReflectionMode.Reorganize => "Reorganize learned-facts playbook for " + vessel.Name,
+                ReflectionMode.ConsolidateAndReorganize => "Consolidate and reorganize learned-facts playbook for " + vessel.Name,
+                ReflectionMode.PackCurate => "Curate context-pack hints for " + vessel.Name,
+                _ => "Consolidate learned-facts playbook for " + vessel.Name,
+            };
             string pipelineId = dualJudge ? "ReflectionsDualJudge" : "Reflections";
 
             List<MissionDescription> missions = new List<MissionDescription>
@@ -320,6 +414,53 @@ namespace Armada.Core.Memory
                 ReflectionMode.Consolidate,
                 false,
                 _Settings.DefaultReflectionTokenBudget,
+                token).ConfigureAwait(false);
+            return dispatched;
+        }
+
+        /// <summary>
+        /// After an audit queue drain, evaluates the vessel pack-curate threshold + anti-thrash
+        /// and dispatches a pack-curate-mode reflection when due. v2-F1 audit-drain auto-trigger.
+        /// Anti-thrash: skip if the most recent pack-curate was accepted and no terminal mission
+        /// since then has non-empty filesGrepDiscovered (no new pack-miss evidence).
+        /// </summary>
+        /// <param name="vessel">Vessel to evaluate.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Dispatch result when a pack-curate mission was created; otherwise null.</returns>
+        public async Task<DispatchResult?> TryAutoDispatchPackCurateAfterAuditDrainAsync(Vessel vessel, CancellationToken token = default)
+        {
+            if (vessel == null) throw new ArgumentNullException(nameof(vessel));
+            if (!vessel.PackCurateThreshold.HasValue) return null;
+
+            int threshold = vessel.PackCurateThreshold.Value;
+            if (threshold <= 0) return null;
+
+            DateTime? sinceUtc = await ResolveLastAcceptedPackCurateAtAsync(vessel, token).ConfigureAwait(false);
+            List<Mission> terminalMissions = await _Database.Missions.EnumerateByVesselAsync(vessel.Id, token).ConfigureAwait(false);
+            int countSince = 0;
+            foreach (Mission m in terminalMissions)
+            {
+                if (!IsTerminal(m.Status)) continue;
+                if (sinceUtc.HasValue && m.CompletedUtc.HasValue && m.CompletedUtc.Value <= sinceUtc.Value) continue;
+                countSince++;
+            }
+
+            if (countSince < threshold) return null;
+
+            Mission? inFlight = await IsReflectionInFlightAsync(vessel.Id, token).ConfigureAwait(false);
+            if (inFlight != null) return null;
+
+            if (!await PackCurateAntiThrashHasNewEvidenceAsync(vessel, sinceUtc, token).ConfigureAwait(false))
+                return null;
+
+            EvidenceBundleResult bundle = await BuildPackCurateBriefAsync(
+                vessel, _Settings.DefaultPackCurateTokenBudget, token).ConfigureAwait(false);
+            DispatchResult dispatched = await DispatchReflectionAsync(
+                vessel,
+                bundle.Brief,
+                ReflectionMode.PackCurate,
+                false,
+                _Settings.DefaultPackCurateTokenBudget,
                 token).ConfigureAwait(false);
             return dispatched;
         }
@@ -672,6 +813,205 @@ namespace Armada.Core.Memory
             if (approxNewEntries >= _Settings.ReorganizeAntiThrashMinNewEntries) return true;
 
             return false;
+        }
+
+        private async Task<List<Mission>> SelectPackCurateEvidenceMissionsAsync(Vessel vessel, CancellationToken token)
+        {
+            List<Mission> all = await _Database.Missions.EnumerateByVesselAsync(vessel.Id, token).ConfigureAwait(false);
+            List<Mission> terminal = all
+                .Where(m => IsTerminal(m.Status))
+                .Where(m => !String.Equals(m.Persona, "MemoryConsolidator", StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(GetEvidenceTime)
+                .ToList();
+
+            DateTime? sinceUtc = await ResolveLastAcceptedPackCurateAtAsync(vessel, token).ConfigureAwait(false);
+            if (sinceUtc.HasValue)
+            {
+                return terminal
+                    .Where(m => m.CompletedUtc.HasValue && m.CompletedUtc.Value > sinceUtc.Value)
+                    .ToList();
+            }
+
+            return terminal.Take(_Settings.PackCurateInitialWindow).ToList();
+        }
+
+        private async Task<DateTime?> ResolveLastAcceptedPackCurateAtAsync(Vessel vessel, CancellationToken token)
+        {
+            EnumerationQuery query = new EnumerationQuery
+            {
+                VesselId = vessel.Id,
+                EventType = "reflection.accepted",
+                PageNumber = 1,
+                PageSize = 50
+            };
+            EnumerationResult<ArmadaEvent> page = await _Database.Events.EnumerateAsync(query, token).ConfigureAwait(false);
+            foreach (ArmadaEvent evt in page.Objects.OrderByDescending(e => e.CreatedUtc))
+            {
+                if (String.IsNullOrEmpty(evt.Payload)) continue;
+                try
+                {
+                    using JsonDocument doc = JsonDocument.Parse(evt.Payload);
+                    if (doc.RootElement.TryGetProperty("mode", out JsonElement modeEl)
+                        && modeEl.ValueKind == JsonValueKind.String
+                        && String.Equals(modeEl.GetString(), "pack-curate", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return evt.CreatedUtc;
+                    }
+                }
+                catch (JsonException)
+                {
+                    continue;
+                }
+            }
+
+            return null;
+        }
+
+        private async Task<bool> PackCurateAntiThrashHasNewEvidenceAsync(Vessel vessel, DateTime? sinceUtc, CancellationToken token)
+        {
+            if (!sinceUtc.HasValue) return true;
+            if (_PackUsageMiner == null) return true;
+
+            List<Mission> all = await _Database.Missions.EnumerateByVesselAsync(vessel.Id, token).ConfigureAwait(false);
+            foreach (Mission m in all)
+            {
+                if (!IsTerminal(m.Status)) continue;
+                if (!m.CompletedUtc.HasValue || m.CompletedUtc.Value <= sinceUtc.Value) continue;
+
+                PackUsageTriple triple = await _PackUsageMiner.MineAsync(m, token).ConfigureAwait(false);
+                if (triple.LogAvailable && triple.FilesGrepDiscovered.Count > 0) return true;
+            }
+
+            return false;
+        }
+
+        private static string ComposePackCurateBrief(
+            Vessel vessel,
+            List<VesselPackHint> currentHints,
+            List<Mission> evidenceMissions,
+            List<PackUsageTriple> triples,
+            List<string> packCurateRejections,
+            int includedCount,
+            int skipped)
+        {
+            StringBuilder sb = new StringBuilder();
+            sb.AppendLine("Persona: MemoryConsolidator");
+            sb.AppendLine("Pipeline: Reflections");
+            sb.AppendLine("PreferredModel: high");
+            sb.AppendLine("Title: Curate context-pack hints for " + vessel.Name);
+            sb.AppendLine("Mode: pack-curate");
+            sb.AppendLine();
+
+            sb.AppendLine("## CURRENT VESSEL PACK HINTS");
+            if (currentHints.Count == 0)
+            {
+                sb.AppendLine("No pack hints recorded for this vessel yet.");
+            }
+            else
+            {
+                List<object> hintObjects = new List<object>();
+                foreach (VesselPackHint h in currentHints)
+                {
+                    hintObjects.Add(new
+                    {
+                        id = h.Id,
+                        goalPattern = h.GoalPattern,
+                        mustInclude = h.GetMustInclude(),
+                        mustExclude = h.GetMustExclude(),
+                        priority = h.Priority,
+                        confidence = h.Confidence,
+                        justification = h.Justification ?? "",
+                        sourceMissionIds = h.GetSourceMissionIds(),
+                        createdUtc = h.CreatedUtc.ToString("O")
+                    });
+                }
+                sb.AppendLine(JsonSerializer.Serialize(hintObjects, new JsonSerializerOptions { WriteIndented = true }));
+            }
+
+            sb.AppendLine();
+            sb.AppendLine("## INSTRUCTIONS (pack-curate-specific)");
+            sb.AppendLine("Permitted operations:");
+            sb.AppendLine("- Add new hints (proposed rows) backed by evidence in the bundle below.");
+            sb.AppendLine("- Modify existing hints (paths, priority, justification) when evidence shows over- or under-inclusion.");
+            sb.AppendLine("- Disable existing hints (active=false) when evidence shows they no longer match anything (e.g., file path renamed).");
+            sb.AppendLine();
+            sb.AppendLine("Forbidden operations:");
+            sb.AppendLine("- Do NOT propose hints whose goalPattern is `.*`, empty, whitespace, or fewer than 3 characters (rejected as pack_hint_pattern_too_broad).");
+            sb.AppendLine("- Do NOT propose paths that aren't in the vessel repo (the accept tool runs git ls-tree validation; non-matches surface as warnings).");
+            sb.AppendLine("- Do NOT propose CLAUDE.md edits or code changes.");
+            sb.AppendLine();
+            sb.AppendLine("Confidence guidance:");
+            sb.AppendLine("- high: same prestaged/grep-discovered pattern appears in 3+ missions for matching goals.");
+            sb.AppendLine("- medium: appears in 2 missions.");
+            sb.AppendLine("- low: appears in 1 mission OR evidence is mixed.");
+
+            sb.AppendLine();
+            sb.AppendLine("## PACK USAGE EVIDENCE BUNDLE");
+            if (includedCount == 0)
+            {
+                sb.AppendLine("No terminal mission evidence available since last accepted pack-curate.");
+            }
+            else
+            {
+                int emitted = 0;
+                for (int i = 0; i < triples.Count && emitted < includedCount; i++)
+                {
+                    Mission m = evidenceMissions[i];
+                    PackUsageTriple t = triples[i];
+                    sb.AppendLine();
+                    sb.AppendLine("### Mission " + m.Id);
+                    sb.AppendLine("- voyageId: " + (m.VoyageId ?? ""));
+                    sb.AppendLine("- goal: " + (m.Title ?? ""));
+                    sb.AppendLine("- persona: " + (m.Persona ?? "Worker"));
+                    sb.AppendLine("- status: " + m.Status);
+                    sb.AppendLine("- logAvailable: " + (t.LogAvailable ? "true" : "false"));
+                    sb.AppendLine("- prestagedFiles:");
+                    if (m.PrestagedFiles != null)
+                    {
+                        foreach (PrestagedFile pf in m.PrestagedFiles)
+                            sb.AppendLine("    - " + pf.DestPath);
+                    }
+                    AppendBucket(sb, "filesReadFromPack", t.FilesReadFromPack);
+                    AppendBucket(sb, "filesIgnoredFromPack", t.FilesIgnoredFromPack);
+                    AppendBucket(sb, "filesGrepDiscovered", t.FilesGrepDiscovered);
+                    AppendBucket(sb, "filesEdited", t.FilesEdited);
+                    emitted++;
+                }
+            }
+
+            if (skipped > 0)
+            {
+                sb.AppendLine();
+                sb.AppendLine("Evidence truncated, " + skipped + " missions skipped to fit token budget.");
+            }
+
+            sb.AppendLine();
+            sb.AppendLine("## RECENTLY REJECTED PACK-CURATE PROPOSALS");
+            if (packCurateRejections.Count == 0)
+            {
+                sb.AppendLine("No rejected pack-curate proposals recorded.");
+            }
+            else
+            {
+                foreach (string note in packCurateRejections)
+                    sb.AppendLine("- " + note);
+            }
+
+            sb.AppendLine();
+            sb.AppendLine("## CONSTRAINTS");
+            sb.AppendLine("- Output must be exactly two fenced blocks named reflections-candidate and reflections-diff.");
+            sb.AppendLine("- The reflections-candidate block is JSON in pack-curate mode (NOT markdown). Shape: {\"addHints\":[...], \"modifyHints\":[...], \"disableHints\":[...]}.");
+            sb.AppendLine("- The reflections-diff block is JSON: {\"added\":[\"N new hints\"], \"modified\":[...], \"disabled\":[...], \"evidenceConfidence\":\"high|mixed|low\", \"missionsExamined\":N, \"notes\":\"one paragraph\"}.");
+            sb.AppendLine("- Never propose CLAUDE.md edits or code changes.");
+            sb.AppendLine("- Never add facts to the learned-facts playbook in this mode.");
+            return sb.ToString();
+        }
+
+        private static void AppendBucket(StringBuilder sb, string label, List<string> items)
+        {
+            sb.AppendLine("- " + label + " (" + items.Count + "):");
+            foreach (string p in items)
+                sb.AppendLine("    - " + p);
         }
 
         private static void AppendBlock(StringBuilder sb, string title, string? value)
