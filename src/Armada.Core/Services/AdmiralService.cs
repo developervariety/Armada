@@ -496,7 +496,21 @@ namespace Armada.Core.Services
         {
             if (mission == null) throw new ArgumentNullException(nameof(mission));
 
-            mission.SelectedPlaybooks = ClonePlaybookSelections(selections);
+            // v2-F2 three-way merge. Inbound `selections` already encodes the
+            // vessel.DefaultPlaybooks + voyage.SelectedPlaybooks + mission.SelectedPlaybooks
+            // chain (call sites bake vessel defaults into voyage selections via
+            // PlaybookMerge.MergeWithVesselDefaults before reaching here). Per the v2-F2
+            // spec the brief order is vessel -> persona -> captain with later layers winning
+            // on playbookId collision, so we apply persona on top of selections, then captain
+            // on top of that. Persona/captain entries with novel playbookIds (the common
+            // case for persona-<name>-learned and captain-<id>-learned) are appended;
+            // collisions land captain last.
+            List<SelectedPlaybook> caller = ClonePlaybookSelections(selections);
+            (List<SelectedPlaybook> personaLayer, List<SelectedPlaybook> captainLayer)
+                = await ResolveIdentityLayersAsync(mission, token).ConfigureAwait(false);
+            List<SelectedPlaybook> withPersona = PlaybookMerge.MergeWithVesselDefaults(caller, personaLayer);
+            mission.SelectedPlaybooks = PlaybookMerge.MergeWithVesselDefaults(withPersona, captainLayer);
+
             if (mission.SelectedPlaybooks.Count == 0 || String.IsNullOrEmpty(mission.TenantId))
             {
                 mission.PlaybookSnapshots = new List<MissionPlaybookSnapshot>();
@@ -509,6 +523,39 @@ namespace Armada.Core.Services
                 token).ConfigureAwait(false);
             mission.PlaybookSnapshots = snapshots;
             await _Database.Playbooks.SetMissionSnapshotsAsync(mission.Id, snapshots, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Resolve the persona-default and captain-default playbook layers for the v2-F2
+        /// three-way merge. Either layer may be empty when the corresponding identity is not
+        /// set or carries no DefaultPlaybooks JSON.
+        /// </summary>
+        /// <param name="mission">Mission to resolve persona and captain for.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Tuple of (personaLayer, captainLayer); captain layer is intended to apply last.</returns>
+        private async Task<(List<SelectedPlaybook> Persona, List<SelectedPlaybook> Captain)> ResolveIdentityLayersAsync(Mission mission, CancellationToken token)
+        {
+            List<SelectedPlaybook> personaLayer = new List<SelectedPlaybook>();
+            if (!String.IsNullOrEmpty(mission.Persona))
+            {
+                Persona? persona = await _Database.Personas.ReadByNameAsync(mission.Persona!, token).ConfigureAwait(false);
+                if (persona != null)
+                {
+                    personaLayer = persona.GetDefaultPlaybooks();
+                }
+            }
+
+            List<SelectedPlaybook> captainLayer = new List<SelectedPlaybook>();
+            if (!String.IsNullOrEmpty(mission.CaptainId))
+            {
+                Captain? captain = await _Database.Captains.ReadAsync(mission.CaptainId!, token).ConfigureAwait(false);
+                if (captain != null)
+                {
+                    captainLayer = captain.GetDefaultPlaybooks();
+                }
+            }
+
+            return (personaLayer, captainLayer);
         }
 
         /// <inheritdoc />
