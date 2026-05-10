@@ -746,6 +746,15 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
+        /// Migration v42 statements for allowing same-order parallel stages in pipeline_stages.
+        /// </summary>
+        public static readonly string[] MigrationV42Statements = new string[]
+        {
+            @"DROP INDEX IF EXISTS idx_pipeline_stages_order ON pipeline_stages;",
+            @"CREATE INDEX idx_pipeline_stages_order ON pipeline_stages(pipeline_id, stage_order);"
+        };
+
+        /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
         public static readonly string[] Indexes = new string[]

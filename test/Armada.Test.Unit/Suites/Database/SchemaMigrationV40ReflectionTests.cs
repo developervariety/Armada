@@ -105,7 +105,7 @@ namespace Armada.Test.Unit.Suites.Database
                     int version = await driver2.GetSchemaVersionAsync().ConfigureAwait(false);
                     driver2.Dispose();
 
-                    AssertEqual(41, version, "schema version should return to latest after idempotent rerun of reflection columns");
+                    AssertEqual(42, version, "schema version should return to latest after idempotent rerun of reflection columns");
 
                     using (SqliteConnection conn = new SqliteConnection(connectionString))
                     {

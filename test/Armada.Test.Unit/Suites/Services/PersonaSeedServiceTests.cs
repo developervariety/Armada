@@ -259,6 +259,89 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Seed creates ReflectionsDualJudge pipeline", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    PersonaSeedService service = new PersonaSeedService(testDb.Driver, CreateLogging());
+                    await service.SeedAsync().ConfigureAwait(false);
+
+                    Pipeline? pipeline = await testDb.Driver.Pipelines.ReadByNameAsync("ReflectionsDualJudge").ConfigureAwait(false);
+                    AssertNotNull(pipeline, "ReflectionsDualJudge pipeline should be seeded");
+                    AssertEqual("ReflectionsDualJudge", pipeline!.Name, "Pipeline name");
+                    AssertTrue(pipeline.IsBuiltIn, "Pipeline should be built in");
+                    AssertTrue(pipeline.Active, "Pipeline should be active");
+                    AssertEqual(Constants.DefaultTenantId, pipeline.TenantId, "Pipeline tenant");
+                    AssertEqual(3, pipeline.Stages.Count, "ReflectionsDualJudge should have three stages");
+
+                    List<PipelineStage> ordered = pipeline.Stages.OrderBy(s => s.Order).ToList();
+                    AssertEqual(1, ordered[0].Order, "Stage 1 order");
+                    AssertEqual("MemoryConsolidator", ordered[0].PersonaName, "Stage 1 persona");
+                    AssertEqual("high", ordered[0].PreferredModel, "Stage 1 preferred model");
+                    AssertEqual(2, ordered[1].Order, "Stage 2 order");
+                    AssertEqual("Judge", ordered[1].PersonaName, "Stage 2 persona");
+                    AssertEqual("high", ordered[1].PreferredModel, "Stage 2 preferred model");
+                    AssertEqual(2, ordered[2].Order, "Stage 3 order (sibling Judge)");
+                    AssertEqual("Judge", ordered[2].PersonaName, "Stage 3 persona");
+                    AssertEqual("high", ordered[2].PreferredModel, "Stage 3 preferred model");
+                    AssertContains("dualJudge", pipeline.Description ?? "", "Pipeline description should reference dualJudge");
+                }
+            });
+
+            await RunTest("Seed reconciles stale ReflectionsDualJudge pipeline", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    Pipeline existingPipeline = new Pipeline("ReflectionsDualJudge");
+                    existingPipeline.Description = "Legacy stale dual judge pipeline";
+                    existingPipeline.IsBuiltIn = false;
+                    existingPipeline.Active = false;
+                    existingPipeline.Stages = new List<PipelineStage>
+                    {
+                        new PipelineStage(1, "Worker"),
+                        new PipelineStage(2, "Judge")
+                    };
+                    await testDb.Driver.Pipelines.CreateAsync(existingPipeline).ConfigureAwait(false);
+
+                    PersonaSeedService service = new PersonaSeedService(testDb.Driver, CreateLogging());
+                    await service.SeedAsync().ConfigureAwait(false);
+
+                    Pipeline? pipeline = await testDb.Driver.Pipelines.ReadByNameAsync("ReflectionsDualJudge").ConfigureAwait(false);
+                    AssertNotNull(pipeline, "Pipeline should still exist after reconciliation");
+                    AssertContains("dualJudge", pipeline!.Description ?? "", "Pipeline description should be canonical after reconcile");
+                    AssertTrue(pipeline.IsBuiltIn, "Pipeline should be upgraded to built in");
+                    AssertTrue(pipeline.Active, "Pipeline should be reactivated");
+                    AssertEqual(Constants.DefaultTenantId, pipeline.TenantId, "Pipeline tenant should be reconciled");
+                    AssertEqual(3, pipeline.Stages.Count, "Pipeline should be reconciled to three stages");
+                    List<PipelineStage> ordered = pipeline.Stages.OrderBy(s => s.Order).ToList();
+                    AssertEqual("MemoryConsolidator", ordered[0].PersonaName, "Stage 1 should be MemoryConsolidator after reconcile");
+                    AssertEqual("Judge", ordered[1].PersonaName, "Stage 2 should be Judge after reconcile");
+                    AssertEqual("Judge", ordered[2].PersonaName, "Stage 3 should be Judge after reconcile");
+                }
+            });
+
+            await RunTest("Seed ReflectionsDualJudge pipeline is idempotent", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    PersonaSeedService service = new PersonaSeedService(testDb.Driver, CreateLogging());
+                    await service.SeedAsync().ConfigureAwait(false);
+
+                    Pipeline? first = await testDb.Driver.Pipelines.ReadByNameAsync("ReflectionsDualJudge").ConfigureAwait(false);
+                    AssertNotNull(first, "ReflectionsDualJudge pipeline should exist after first seed");
+
+                    await service.SeedAsync().ConfigureAwait(false);
+
+                    Pipeline? second = await testDb.Driver.Pipelines.ReadByNameAsync("ReflectionsDualJudge").ConfigureAwait(false);
+                    AssertNotNull(second, "ReflectionsDualJudge pipeline should exist after second seed");
+                    AssertEqual(first!.Id, second!.Id, "Repeated seeding should update the existing pipeline instead of replacing it");
+
+                    List<Pipeline> pipelines = await testDb.Driver.Pipelines.EnumerateAsync().ConfigureAwait(false);
+                    int matches = pipelines.Count(p => p.Name == "ReflectionsDualJudge");
+                    AssertEqual(1, matches, "Repeated seeding should not create duplicate ReflectionsDualJudge pipelines");
+                }
+            });
+
             await RunTest("Seed preserves unrelated custom persona and pipeline", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

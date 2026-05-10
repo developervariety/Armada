@@ -750,79 +750,94 @@ namespace Armada.Server.Mcp.Tools
                 }
 
                 // Multi-stage pipeline: expand this MD into a chain of stage missions.
+                // Stages with the same Order dispatch as parallel siblings that all depend on
+                // the last mission of the previous order group rather than on each other.
                 string baseTitle = md.Title.Length > 60 ? md.Title.Substring(0, 60).TrimEnd() + "..." : md.Title;
-                string? previousMissionId = null;
+                string? previousOrderLastMissionId = null;
                 string? lastStageMissionId = null;
 
-                foreach (PipelineStage stage in pipeline!.Stages.OrderBy(s => s.Order))
+                IOrderedEnumerable<IGrouping<int, PipelineStage>> stageGroups =
+                    pipeline!.Stages.GroupBy(s => s.Order).OrderBy(g => g.Key);
+
+                foreach (IGrouping<int, PipelineStage> stageGroup in stageGroups)
                 {
-                    Mission stageMission = new Mission(
-                        "[" + stage.PersonaName + "] " + baseTitle,
-                        md.Description);
-                    stageMission.TenantId = vessel.TenantId;
-                    stageMission.UserId = vessel.UserId;
-                    stageMission.VoyageId = voyage.Id;
-                    stageMission.VesselId = vesselId;
-                    stageMission.Persona = stage.PersonaName;
-                    // First stage carries the external dep (alias-resolved or literal);
-                    // downstream stages depend on the previous stage of this chain.
-                    stageMission.DependsOnMissionId = previousMissionId ?? externalDep;
-                    // Captain pin applies across stages only when compatible with each stage's
-                    // persona and model. Stage-level PreferredModel can force dropping the pin so
-                    // the pool routes Judge to Opus while Worker keeps a Mid-tier pin, etc.
-                    string? stagePreferredCaptainId = md.PreferredCaptainId;
-                    if (!String.IsNullOrWhiteSpace(md.PreferredCaptainId) && !String.IsNullOrWhiteSpace(stage.PreferredModel))
-                    {
-                        Captain? pinnedCaptain = await database.Captains.ReadAsync(md.PreferredCaptainId).ConfigureAwait(false);
-                        stagePreferredCaptainId = MissionService.ResolvePipelineStagePreferredCaptainId(
-                            md.PreferredCaptainId,
-                            pinnedCaptain,
-                            stage.PersonaName,
-                            stage.PreferredModel);
-                    }
-                    stageMission.PreferredCaptainId = stagePreferredCaptainId;
-                    stageMission.PreferredModel = stage.PreferredModel ?? md.PreferredModel;
-                    stageMission.SelectedPlaybooks = ClonePlaybookSelectionsLocal(mergedForMission);
-                    if (previousMissionId == null)
-                        stageMission.PrestagedFiles = ClonePrestagedFilesLocal(md.PrestagedFiles);
+                    // All stages in this group share the same upstream dependency.
+                    string? groupDependencyId = previousOrderLastMissionId ?? externalDep;
 
-                    if (previousMissionId == null)
-                    {
-                        // First stage of the chain: dispatch through admiral so it gets
-                        // the standard create + try-assign treatment (deps still gate
-                        // assignment via MissionService.TryAssignAsync).
-                        stageMission = await admiral.DispatchMissionAsync(stageMission).ConfigureAwait(false);
-                        if (stageMission.Status == MissionStatusEnum.Assigned || stageMission.Status == MissionStatusEnum.InProgress)
-                            anyAssigned = true;
-                    }
-                    else
-                    {
-                        // Downstream stage: persist as Pending. The captain pool picks
-                        // it up after its dep completes; assigning now would race the
-                        // upstream stage's worktree.
-                        stageMission = await database.Missions.CreateAsync(stageMission).ConfigureAwait(false);
+                    string? lastMissionInGroup = null;
 
-                        // Persist playbook snapshots for downstream stages the same way
-                        // admiral.DispatchMissionAsync does for the first stage. Without
-                        // this, MissionService.GenerateClaudeMdAsync has no snapshots to
-                        // render, resulting in a missing playbook section in the captain brief.
-                        // A silent fallback LoggingModule is used when none was provided so
-                        // snapshots are always persisted regardless of optional logging.
-                        if (stageMission.SelectedPlaybooks != null
-                            && stageMission.SelectedPlaybooks.Count > 0
-                            && !String.IsNullOrEmpty(stageMission.TenantId))
+                    foreach (PipelineStage stage in stageGroup)
+                    {
+                        Mission stageMission = new Mission(
+                            "[" + stage.PersonaName + "] " + baseTitle,
+                            md.Description);
+                        stageMission.TenantId = vessel.TenantId;
+                        stageMission.UserId = vessel.UserId;
+                        stageMission.VoyageId = voyage.Id;
+                        stageMission.VesselId = vesselId;
+                        stageMission.Persona = stage.PersonaName;
+                        stageMission.DependsOnMissionId = groupDependencyId;
+                        // Captain pin applies across stages only when compatible with each stage's
+                        // persona and model. Stage-level PreferredModel can force dropping the pin so
+                        // the pool routes Judge to Opus while Worker keeps a Mid-tier pin, etc.
+                        string? stagePreferredCaptainId = md.PreferredCaptainId;
+                        if (!String.IsNullOrWhiteSpace(md.PreferredCaptainId) && !String.IsNullOrWhiteSpace(stage.PreferredModel))
                         {
-                            LoggingModule effectiveLogging = logging ?? CreateSilentLogging();
-                            IPlaybookService playbooks = new PlaybookService(database, effectiveLogging);
-                            List<MissionPlaybookSnapshot> snapshots = await playbooks.CreateSnapshotsAsync(
-                                stageMission.TenantId,
-                                stageMission.SelectedPlaybooks).ConfigureAwait(false);
-                            await database.Playbooks.SetMissionSnapshotsAsync(stageMission.Id, snapshots).ConfigureAwait(false);
+                            Captain? pinnedCaptain = await database.Captains.ReadAsync(md.PreferredCaptainId).ConfigureAwait(false);
+                            stagePreferredCaptainId = MissionService.ResolvePipelineStagePreferredCaptainId(
+                                md.PreferredCaptainId,
+                                pinnedCaptain,
+                                stage.PersonaName,
+                                stage.PreferredModel);
                         }
+                        stageMission.PreferredCaptainId = stagePreferredCaptainId;
+                        stageMission.PreferredModel = stage.PreferredModel ?? md.PreferredModel;
+                        stageMission.SelectedPlaybooks = ClonePlaybookSelectionsLocal(mergedForMission);
+
+                        // The very first mission of the chain gets the prestaged files.
+                        bool isFirstChainMission = previousOrderLastMissionId == null && lastMissionInGroup == null;
+                        if (isFirstChainMission)
+                            stageMission.PrestagedFiles = ClonePrestagedFilesLocal(md.PrestagedFiles);
+
+                        if (isFirstChainMission)
+                        {
+                            // First mission of the chain: dispatch through admiral so it gets
+                            // the standard create + try-assign treatment (deps still gate
+                            // assignment via MissionService.TryAssignAsync).
+                            stageMission = await admiral.DispatchMissionAsync(stageMission).ConfigureAwait(false);
+                            if (stageMission.Status == MissionStatusEnum.Assigned || stageMission.Status == MissionStatusEnum.InProgress)
+                                anyAssigned = true;
+                        }
+                        else
+                        {
+                            // All other stages (downstream order or same-order sibling): persist as
+                            // Pending. The captain pool picks them up after their dep completes.
+                            stageMission = await database.Missions.CreateAsync(stageMission).ConfigureAwait(false);
+
+                            // Persist playbook snapshots for non-first stages the same way
+                            // admiral.DispatchMissionAsync does for the first stage. Without
+                            // this, MissionService.GenerateClaudeMdAsync has no snapshots to
+                            // render, resulting in a missing playbook section in the captain brief.
+                            // A silent fallback LoggingModule is used when none was provided so
+                            // snapshots are always persisted regardless of optional logging.
+                            if (stageMission.SelectedPlaybooks != null
+                                && stageMission.SelectedPlaybooks.Count > 0
+                                && !String.IsNullOrEmpty(stageMission.TenantId))
+                            {
+                                LoggingModule effectiveLogging = logging ?? CreateSilentLogging();
+                                IPlaybookService playbooks = new PlaybookService(database, effectiveLogging);
+                                List<MissionPlaybookSnapshot> snapshots = await playbooks.CreateSnapshotsAsync(
+                                    stageMission.TenantId,
+                                    stageMission.SelectedPlaybooks).ConfigureAwait(false);
+                                await database.Playbooks.SetMissionSnapshotsAsync(stageMission.Id, snapshots).ConfigureAwait(false);
+                            }
+                        }
+
+                        lastMissionInGroup = stageMission.Id;
+                        lastStageMissionId = stageMission.Id;
                     }
 
-                    previousMissionId = stageMission.Id;
-                    lastStageMissionId = stageMission.Id;
+                    previousOrderLastMissionId = lastMissionInGroup;
                 }
 
                 // Map the user-visible alias to the LAST stage so any downstream alias

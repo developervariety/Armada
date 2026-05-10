@@ -491,6 +491,11 @@ namespace Armada.Core.Database.Mysql
                     41,
                     "Add reorganize_threshold column to vessels",
                     TableQueries.MigrationV41Statements
+                ),
+                new SchemaMigration(
+                    42,
+                    "Allow same-order parallel stages in pipeline_stages",
+                    TableQueries.MigrationV42Statements
                 )
             };
         }

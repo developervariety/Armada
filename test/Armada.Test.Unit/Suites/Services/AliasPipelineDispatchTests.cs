@@ -435,6 +435,82 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("AliasDispatch_SameOrderStages_CreateSiblingMissionsWithIdenticalDependency", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("alias-dual-judge-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    // Pipeline with two Judge stages at the same Order.
+                    Pipeline dualJudge = new Pipeline("AliasDualJudge");
+                    dualJudge.Stages = new List<PipelineStage>
+                    {
+                        new PipelineStage(1, "MemoryConsolidator") { PreferredModel = "high" },
+                        new PipelineStage(2, "Judge") { PreferredModel = "high" },
+                        new PipelineStage(2, "Judge") { PreferredModel = "high" }
+                    };
+                    dualJudge = await testDb.Driver.Pipelines.CreateAsync(dualJudge).ConfigureAwait(false);
+
+                    PersistingAdmiralDouble admiralDouble = new PersistingAdmiralDouble(testDb.Driver, dualJudge);
+
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null);
+                    AssertNotNull(dispatchHandler, "armada_dispatch handler must be registered");
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "dual judge voyage",
+                        description = "verifies same-order sibling dispatch under alias path",
+                        vesselId = vessel.Id,
+                        pipeline = "AliasDualJudge",
+                        missions = new object[]
+                        {
+                            new { title = "consolidate memory", description = "reorganize playbook", alias = "C1" }
+                        }
+                    });
+
+                    object result = await dispatchHandler!(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+                    AssertFalse(resultJson.Contains("\"Error\""), "Should not return error: " + resultJson);
+
+                    Voyage voyage = (Voyage)result;
+                    List<Mission> all = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+                    AssertEqual(3, all.Count, "One MD * three pipeline stages = 3 missions");
+
+                    Mission? consolidatorMission = all.FirstOrDefault(m => m.Persona == "MemoryConsolidator");
+                    List<Mission> judgeMissions = all.Where(m => m.Persona == "Judge").ToList();
+
+                    AssertNotNull(consolidatorMission, "MemoryConsolidator mission should exist");
+                    AssertEqual(2, judgeMissions.Count, "Should have exactly two Judge missions");
+
+                    // MemoryConsolidator is the first stage -- no upstream dep.
+                    AssertTrue(String.IsNullOrEmpty(consolidatorMission!.DependsOnMissionId),
+                        "MemoryConsolidator should have no upstream dependency");
+
+                    // Both Judge siblings depend on MemoryConsolidator, not on each other.
+                    AssertEqual(consolidatorMission.Id, judgeMissions[0].DependsOnMissionId,
+                        "First Judge should depend on MemoryConsolidator");
+                    AssertEqual(consolidatorMission.Id, judgeMissions[1].DependsOnMissionId,
+                        "Second Judge should depend on MemoryConsolidator (same as first Judge)");
+
+                    // The two Judge missions must be distinct.
+                    AssertFalse(judgeMissions[0].Id == judgeMissions[1].Id,
+                        "Two Judge sibling missions should have distinct IDs");
+
+                    // Persona must be set on all missions.
+                    foreach (Mission m in all)
+                    {
+                        AssertFalse(String.IsNullOrEmpty(m.Persona),
+                            "All pipeline-expanded stage missions must carry a Persona; got null/empty for " + m.Title);
+                    }
+                }
+            });
+
             await RunTest("AliasDispatch_LoggingOmitted_DownstreamStageSnapshotsStillPersisted", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

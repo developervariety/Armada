@@ -598,6 +598,10 @@ namespace Armada.Core.Database.Postgresql.Queries
                 ),
                 new SchemaMigration(41, "Add reorganize_threshold column to vessels",
                     @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS reorganize_threshold INTEGER;"
+                ),
+                new SchemaMigration(42, "Allow same-order parallel stages in pipeline_stages",
+                    @"DROP INDEX IF EXISTS idx_pipeline_stages_order;",
+                    @"CREATE INDEX IF NOT EXISTS idx_pipeline_stages_order ON pipeline_stages(pipeline_id, stage_order);"
                 )
             };
         }

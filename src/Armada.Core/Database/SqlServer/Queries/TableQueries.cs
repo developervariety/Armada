@@ -463,6 +463,16 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"
                     IF COL_LENGTH('vessels', 'reorganize_threshold') IS NULL
                         ALTER TABLE vessels ADD reorganize_threshold INT;"
+                ),
+                new SchemaMigration(
+                    42,
+                    "Allow same-order parallel stages in pipeline_stages",
+                    @"
+                    IF EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID('pipeline_stages') AND name = 'idx_pipeline_stages_order' AND is_unique = 1)
+                        DROP INDEX idx_pipeline_stages_order ON pipeline_stages;",
+                    @"
+                    IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID('pipeline_stages') AND name = 'idx_pipeline_stages_order')
+                        CREATE INDEX idx_pipeline_stages_order ON pipeline_stages (pipeline_id, stage_order);"
                 )
             };
         }

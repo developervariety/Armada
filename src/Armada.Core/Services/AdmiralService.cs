@@ -280,68 +280,79 @@ namespace Armada.Core.Services
 
             foreach (MissionDescription md in missionDescriptions)
             {
-                string? previousMissionId = null;
-
                 // Use a short base title (first 60 chars of the mission title)
                 string baseTitle = md.Title.Length > 60 ? md.Title.Substring(0, 60).TrimEnd() + "..." : md.Title;
 
-                foreach (PipelineStage stage in pipeline.Stages.OrderBy(s => s.Order))
+                // Group stages by Order so that same-Order stages dispatch as parallel siblings
+                // that all depend on the last mission of the previous order group rather than
+                // forming a sequential chain within the same order.
+                IOrderedEnumerable<IGrouping<int, PipelineStage>> stageGroups =
+                    pipeline.Stages.GroupBy(s => s.Order).OrderBy(g => g.Key);
+
+                string? previousOrderLastMissionId = null;
+
+                foreach (IGrouping<int, PipelineStage> stageGroup in stageGroups)
                 {
-                    Mission mission = new Mission(
-                        "[" + stage.PersonaName + "] " + baseTitle,
-                        md.Description);
-                    mission.TenantId = vessel.TenantId;
-                    mission.UserId = vessel.UserId;
-                    mission.VoyageId = voyage.Id;
-                    mission.VesselId = vesselId;
-                    mission.Persona = stage.PersonaName;
-                    // The first pipeline stage may carry an externally-supplied dependency;
-                    // downstream stages always depend on the previous stage of the chain.
-                    mission.DependsOnMissionId = previousMissionId
+                    // All stages in this group share the same upstream dependency.
+                    string? groupDependencyId = previousOrderLastMissionId
                         ?? (String.IsNullOrEmpty(md.DependsOnMissionId) ? null : md.DependsOnMissionId);
-                    // Per-mission captain pin runs the whole chain when each stage is compatible.
-                    // A stage-level PreferredModel can require a different model than the pinned
-                    // captain; drop the pin for that stage so the pool can satisfy the stage model.
-                    // PreferredModel uses the stage-level value when set and falls back to the
-                    // dispatch's per-mission PreferredModel otherwise.
-                    string? stagePreferredCaptainId = md.PreferredCaptainId;
-                    if (!String.IsNullOrWhiteSpace(md.PreferredCaptainId) && !String.IsNullOrWhiteSpace(stage.PreferredModel))
+
+                    string? lastMissionInGroup = null;
+
+                    foreach (PipelineStage stage in stageGroup)
                     {
-                        Captain? pinnedCaptain = await _Database.Captains.ReadAsync(md.PreferredCaptainId, token).ConfigureAwait(false);
-                        stagePreferredCaptainId = MissionService.ResolvePipelineStagePreferredCaptainId(
-                            md.PreferredCaptainId,
-                            pinnedCaptain,
-                            stage.PersonaName,
-                            stage.PreferredModel);
-                    }
-                    mission.PreferredCaptainId = stagePreferredCaptainId;
-                    mission.PreferredModel = stage.PreferredModel ?? md.PreferredModel;
-                    // Only the first stage of each pipeline mission gets the prestaged files.
-                    // Downstream stages re-use the same worktree and would hit the
-                    // "destPath already exists" guard if we tried to copy again.
-                    if (previousMissionId == null)
-                    {
-                        mission.PrestagedFiles = ClonePrestagedFiles(md.PrestagedFiles);
+                        Mission mission = new Mission(
+                            "[" + stage.PersonaName + "] " + baseTitle,
+                            md.Description);
+                        mission.TenantId = vessel.TenantId;
+                        mission.UserId = vessel.UserId;
+                        mission.VoyageId = voyage.Id;
+                        mission.VesselId = vesselId;
+                        mission.Persona = stage.PersonaName;
+                        mission.DependsOnMissionId = groupDependencyId;
+                        // Per-mission captain pin runs the whole chain when each stage is compatible.
+                        // A stage-level PreferredModel can require a different model than the pinned
+                        // captain; drop the pin for that stage so the pool can satisfy the stage model.
+                        string? stagePreferredCaptainId = md.PreferredCaptainId;
+                        if (!String.IsNullOrWhiteSpace(md.PreferredCaptainId) && !String.IsNullOrWhiteSpace(stage.PreferredModel))
+                        {
+                            Captain? pinnedCaptain = await _Database.Captains.ReadAsync(md.PreferredCaptainId, token).ConfigureAwait(false);
+                            stagePreferredCaptainId = MissionService.ResolvePipelineStagePreferredCaptainId(
+                                md.PreferredCaptainId,
+                                pinnedCaptain,
+                                stage.PersonaName,
+                                stage.PreferredModel);
+                        }
+                        mission.PreferredCaptainId = stagePreferredCaptainId;
+                        mission.PreferredModel = stage.PreferredModel ?? md.PreferredModel;
+
+                        // The very first mission of the chain (first stage of the first order group)
+                        // gets the prestaged files. Subsequent missions re-use the same worktree.
+                        bool isFirstChainMission = previousOrderLastMissionId == null && lastMissionInGroup == null;
+                        if (isFirstChainMission)
+                        {
+                            mission.PrestagedFiles = ClonePrestagedFiles(md.PrestagedFiles);
+                        }
+
+                        mission = await _Database.Missions.CreateAsync(mission, token).ConfigureAwait(false);
+                        List<SelectedPlaybook> perMissionPlaybooks = PlaybookMerge.MergeWithVesselDefaults(
+                            voyage.SelectedPlaybooks,
+                            md.SelectedPlaybooks ?? new List<SelectedPlaybook>());
+                        await PersistMissionPlaybooksAsync(mission, perMissionPlaybooks, token).ConfigureAwait(false);
+                        _Logging.Info(_Header + "created pipeline mission " + mission.Id + ": " + mission.Title +
+                            " (stage " + stage.Order + "/" + pipeline.Stages.Count + ", persona: " + stage.PersonaName +
+                            (groupDependencyId != null ? ", depends on: " + groupDependencyId : "") + ")");
+
+                        // Try to auto-assign only the very first mission in the chain.
+                        if (isFirstChainMission)
+                        {
+                            await _Missions.TryAssignAsync(mission, vessel, token).ConfigureAwait(false);
+                        }
+
+                        lastMissionInGroup = mission.Id;
                     }
 
-                    // Only the first stage starts as Pending; dependent stages also start as Pending
-                    // but won't be assigned until their dependency completes
-                    mission = await _Database.Missions.CreateAsync(mission, token).ConfigureAwait(false);
-                    List<SelectedPlaybook> perMissionPlaybooks = PlaybookMerge.MergeWithVesselDefaults(
-                        voyage.SelectedPlaybooks,
-                        md.SelectedPlaybooks ?? new List<SelectedPlaybook>());
-                    await PersistMissionPlaybooksAsync(mission, perMissionPlaybooks, token).ConfigureAwait(false);
-                    _Logging.Info(_Header + "created pipeline mission " + mission.Id + ": " + mission.Title +
-                        " (stage " + stage.Order + "/" + pipeline.Stages.Count + ", persona: " + stage.PersonaName +
-                        (previousMissionId != null ? ", depends on: " + previousMissionId : "") + ")");
-
-                    // Try to auto-assign only if no dependency (first stage)
-                    if (previousMissionId == null)
-                    {
-                        await _Missions.TryAssignAsync(mission, vessel, token).ConfigureAwait(false);
-                    }
-
-                    previousMissionId = mission.Id;
+                    previousOrderLastMissionId = lastMissionInGroup;
                 }
             }
 

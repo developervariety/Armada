@@ -35,6 +35,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new SchemaMigrationTests());
             runner.AddSuite(new SchemaMigrationV40ReflectionTests());
             runner.AddSuite(new SchemaMigrationV41ReorganizeTests());
+            runner.AddSuite(new SchemaMigrationV42PipelineStageParallelTests());
             runner.AddSuite(new SchemaMigrationV38RoundTripTests());
             runner.AddSuite(new EdgeCaseTests());
             runner.AddSuite(new TenantMethodsTests());

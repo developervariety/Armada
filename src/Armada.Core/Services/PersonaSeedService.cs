@@ -165,6 +165,17 @@ namespace Armada.Core.Services
                 "Single-stage memory consolidation. Output is the candidate playbook + diff; orchestrator reviews. No TestEngineer or Judge stage runs.",
                 new List<PipelineStage> { new PipelineStage(1, "MemoryConsolidator") { PreferredModel = "high" } },
                 token).ConfigureAwait(false);
+
+            await SeedPipelineAsync(
+                "ReflectionsDualJudge",
+                "Dual-Judge memory consolidation. MemoryConsolidator produces the candidate; two Judge siblings review in parallel at the same order. Used when dualJudge is enabled on armada_consolidate_memory.",
+                new List<PipelineStage>
+                {
+                    new PipelineStage(1, "MemoryConsolidator") { PreferredModel = "high" },
+                    new PipelineStage(2, "Judge") { PreferredModel = "high" },
+                    new PipelineStage(2, "Judge") { PreferredModel = "high" }
+                },
+                token).ConfigureAwait(false);
         }
 
         private async Task SeedPipelineAsync(string name, string description, List<PipelineStage> stages, CancellationToken token)

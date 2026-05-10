@@ -209,6 +209,72 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Dispatch with same-order stages creates sibling missions with identical dependency", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    IVoyageService voyageService = new VoyageService(logging, testDb.Driver);
+                    AdmiralService admiralService = new AdmiralService(logging, testDb.Driver, settings, captainService, missionService, voyageService, dockService);
+
+                    Vessel vessel = new Vessel("dual-judge-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "armada_test_bare_" + Guid.NewGuid().ToString("N"));
+                    vessel.WorkingDirectory = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "armada_test_work_" + Guid.NewGuid().ToString("N"));
+                    vessel.DefaultBranch = "main";
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    // Pipeline with two Judge stages at the same Order (parallel siblings).
+                    Pipeline pipeline = new Pipeline("ReflectionsDualJudge");
+                    pipeline.Stages = new List<PipelineStage>
+                    {
+                        new PipelineStage(1, "MemoryConsolidator") { PreferredModel = "high" },
+                        new PipelineStage(2, "Judge") { PreferredModel = "high" },
+                        new PipelineStage(2, "Judge") { PreferredModel = "high" }
+                    };
+                    pipeline = await testDb.Driver.Pipelines.CreateAsync(pipeline).ConfigureAwait(false);
+
+                    List<MissionDescription> missions = new List<MissionDescription>
+                    {
+                        new MissionDescription("Consolidate memory", "Reorganize the learned-facts playbook")
+                    };
+
+                    Voyage voyage = await admiralService.DispatchVoyageAsync(
+                        "DualJudge Voyage",
+                        "Test same-order sibling dispatch",
+                        vessel.Id,
+                        missions,
+                        pipeline.Id).ConfigureAwait(false);
+
+                    AssertNotNull(voyage, "Voyage should be created");
+
+                    List<Mission> voyageMissions = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+                    AssertEqual(3, voyageMissions.Count, "Should have 3 missions: 1 MemoryConsolidator + 2 Judge siblings");
+
+                    Mission? consolidatorMission = voyageMissions.FirstOrDefault(m => m.Persona == "MemoryConsolidator");
+                    List<Mission> judgeMissions = voyageMissions.Where(m => m.Persona == "Judge").ToList();
+
+                    AssertNotNull(consolidatorMission, "MemoryConsolidator mission should exist");
+                    AssertEqual(2, judgeMissions.Count, "Should have exactly two Judge missions");
+
+                    // MemoryConsolidator is the first stage, so it has no dependency.
+                    AssertNull(consolidatorMission!.DependsOnMissionId, "MemoryConsolidator should have no upstream dependency");
+
+                    // Both Judge siblings depend on the MemoryConsolidator, not on each other.
+                    AssertEqual(consolidatorMission.Id, judgeMissions[0].DependsOnMissionId,
+                        "First Judge should depend on MemoryConsolidator");
+                    AssertEqual(consolidatorMission.Id, judgeMissions[1].DependsOnMissionId,
+                        "Second Judge should depend on MemoryConsolidator (same as first Judge)");
+
+                    // Verify the two Judge missions have distinct IDs (they are separate missions).
+                    AssertFalse(judgeMissions[0].Id == judgeMissions[1].Id, "Two Judge missions should be distinct");
+                }
+            });
+
             await RunTest("Dependency check blocks assignment of dependent mission", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
