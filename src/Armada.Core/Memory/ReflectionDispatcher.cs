@@ -217,14 +217,22 @@ namespace Armada.Core.Memory
                 ? await _Memory.ReadRecentCommitSubjectsAsync(vessel, _RecentCommitWindow, token).ConfigureAwait(false)
                 : new List<string>();
 
+            // Cross-vessel suggestion pass (Reflections v2-F3 extension): scan every OTHER active
+            // vessel in the same fleet for fact-strings whose 3-gram Jaccard similarity to the
+            // current vessel's learned content or the new evidence bundle exceeds the
+            // CrossVesselSuggestionThreshold; surface as a passive promotion-candidate hint.
+            List<CrossVesselSuggestion> crossVesselSuggestions = mode == ReflectionMode.Consolidate || mode == ReflectionMode.ConsolidateAndReorganize
+                ? await GatherCrossVesselSuggestionsAsync(vessel, learnedPlaybook, records, token).ConfigureAwait(false)
+                : new List<CrossVesselSuggestion>();
+
             List<string> included = new List<string>(records);
             int skipped = 0;
-            string brief = ComposeBrief(vessel, learnedPlaybook, included, rejectedProposalNotes, skipped, mode, recentCommitSubjects);
+            string brief = ComposeBrief(vessel, learnedPlaybook, included, rejectedProposalNotes, skipped, mode, recentCommitSubjects, crossVesselSuggestions);
             while (included.Count > 1 && brief.Length > maxChars)
             {
                 included.RemoveAt(included.Count - 1);
                 skipped++;
-                brief = ComposeBrief(vessel, learnedPlaybook, included, rejectedProposalNotes, skipped, mode, recentCommitSubjects);
+                brief = ComposeBrief(vessel, learnedPlaybook, included, rejectedProposalNotes, skipped, mode, recentCommitSubjects, crossVesselSuggestions);
             }
 
             bool truncated = skipped > 0;
@@ -1047,7 +1055,8 @@ namespace Armada.Core.Memory
             List<string> rejectedProposalNotes,
             int skipped,
             ReflectionMode mode,
-            List<string> recentCommitSubjects)
+            List<string> recentCommitSubjects,
+            List<CrossVesselSuggestion> crossVesselSuggestions)
         {
             StringBuilder sb = new StringBuilder();
             sb.AppendLine("Persona: MemoryConsolidator");
@@ -1114,6 +1123,19 @@ namespace Armada.Core.Memory
                 foreach (string note in rejectedProposalNotes)
                 {
                     sb.AppendLine("- " + note);
+                }
+            }
+
+            if (crossVesselSuggestions.Count > 0)
+            {
+                sb.AppendLine();
+                sb.AppendLine("## CROSS-VESSEL SUGGESTION (passive hint)");
+                sb.AppendLine("The following facts appear in OTHER vessels' learned playbooks AND look related to the work covered by this curate.");
+                sb.AppendLine("Consider whether any of them belong at fleet scope rather than vessel scope -- you don't have to act on this; it's a heads-up.");
+                sb.AppendLine("If a pattern looks fleet-worthy, mention it in your diff `notes` paragraph or include a [CLAUDE.MD-PROPOSAL] block in your final report suggesting a fleet-curate run; the orchestrator decides.");
+                foreach (CrossVesselSuggestion s in crossVesselSuggestions)
+                {
+                    sb.AppendLine("- From vessel-" + s.VesselName + "-learned: " + s.SuggestedFact);
                 }
             }
 
@@ -1529,6 +1551,73 @@ namespace Armada.Core.Memory
             string fileName = "fleet-" + SanitizeIdentityName(fleet.Id) + "-learned.md";
             Playbook? playbook = await _Database.Playbooks.ReadByFileNameAsync(tenantId, fileName, token).ConfigureAwait(false);
             return playbook?.Content ?? "# Fleet Learned Notes -- " + fleet.Name + "\n\nNo accepted fleet-curate notes yet.";
+        }
+
+        private async Task<List<CrossVesselSuggestion>> GatherCrossVesselSuggestionsAsync(
+            Vessel currentVessel,
+            string currentLearnedPlaybook,
+            List<string> evidenceRecords,
+            CancellationToken token)
+        {
+            List<CrossVesselSuggestion> suggestions = new List<CrossVesselSuggestion>();
+            if (String.IsNullOrEmpty(currentVessel.FleetId)) return suggestions;
+
+            double threshold = _Settings.CrossVesselSuggestionThreshold;
+            string evidenceJoined = String.Join("\n", evidenceRecords);
+
+            List<Vessel> siblings;
+            try
+            {
+                siblings = await _Database.Vessels.EnumerateByFleetAsync(currentVessel.FleetId!, token).ConfigureAwait(false);
+            }
+            catch
+            {
+                return suggestions;
+            }
+
+            HashSet<string> seenFacts = new HashSet<string>(StringComparer.Ordinal);
+            foreach (Vessel sibling in siblings)
+            {
+                if (!sibling.Active) continue;
+                if (String.Equals(sibling.Id, currentVessel.Id, StringComparison.Ordinal)) continue;
+
+                string siblingContent;
+                try
+                {
+                    siblingContent = await _Memory.ReadLearnedPlaybookContentAsync(sibling, token).ConfigureAwait(false);
+                }
+                catch
+                {
+                    continue;
+                }
+                if (String.IsNullOrEmpty(siblingContent)) continue;
+
+                foreach (string line in siblingContent.Split('\n'))
+                {
+                    string trimmed = line.Trim();
+                    if (trimmed.Length < 30) continue;
+                    if (trimmed.StartsWith("#", StringComparison.Ordinal)) continue;
+                    if (trimmed.StartsWith(">", StringComparison.Ordinal)) continue;
+                    if (trimmed.StartsWith("Source:", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (seenFacts.Contains(trimmed)) continue;
+
+                    double simToCurrent = HabitPatternMiner.Jaccard3GramSimilarity(trimmed, currentLearnedPlaybook);
+                    double simToEvidence = HabitPatternMiner.Jaccard3GramSimilarity(trimmed, evidenceJoined);
+                    double sim = Math.Max(simToCurrent, simToEvidence);
+                    if (sim < threshold) continue;
+
+                    seenFacts.Add(trimmed);
+                    suggestions.Add(new CrossVesselSuggestion
+                    {
+                        VesselId = sibling.Id,
+                        VesselName = sibling.Name,
+                        SuggestedFact = trimmed.Length > 240 ? trimmed.Substring(0, 240) + "..." : trimmed,
+                        Similarity = sim
+                    });
+                    if (suggestions.Count >= 8) return suggestions;
+                }
+            }
+            return suggestions;
         }
 
         private async Task<List<VesselLearnedSnapshot>> ReadActiveVesselLearnedPlaybooksAsync(Fleet fleet, CancellationToken token)
@@ -2031,6 +2120,27 @@ namespace Armada.Core.Memory
 
             /// <summary>Mode that drove the brief assembly.</summary>
             public ReflectionMode Mode { get; set; } = ReflectionMode.Consolidate;
+        }
+
+        /// <summary>
+        /// Cross-vessel promotion-candidate hint surfaced in the consolidate-mode brief
+        /// (Reflections v2-F3 extension to v1's vessel-curate flow). Passive nudge: the
+        /// vessel-curate captain may mention the suggestion in its diff notes or a
+        /// [CLAUDE.MD-PROPOSAL] block, but accept semantics are unchanged.
+        /// </summary>
+        public sealed class CrossVesselSuggestion
+        {
+            /// <summary>Sibling vessel id whose learned playbook contains the candidate fact.</summary>
+            public string VesselId { get; set; } = "";
+
+            /// <summary>Sibling vessel name (used to compose the human-readable hint line).</summary>
+            public string VesselName { get; set; } = "";
+
+            /// <summary>Trimmed fact line copied from the sibling vessel's learned playbook.</summary>
+            public string SuggestedFact { get; set; } = "";
+
+            /// <summary>Maximum 3-gram Jaccard similarity observed (vs current playbook or evidence bundle).</summary>
+            public double Similarity { get; set; }
         }
 
         /// <summary>
