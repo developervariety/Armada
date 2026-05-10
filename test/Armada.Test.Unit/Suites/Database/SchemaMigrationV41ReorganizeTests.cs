@@ -1,6 +1,7 @@
 namespace Armada.Test.Unit.Suites.Database
 {
     using Armada.Core.Database;
+    using Armada.Core.Database.Mysql;
     using MysqlTableQueries = Armada.Core.Database.Mysql.Queries.TableQueries;
     using PostgresqlTableQueries = Armada.Core.Database.Postgresql.Queries.TableQueries;
     using Armada.Core.Database.Sqlite;
@@ -46,6 +47,15 @@ namespace Armada.Test.Unit.Suites.Database
 
                 AssertEqual(1, MysqlTableQueries.MigrationV41Statements.Length);
                 AssertContains("reorganize_threshold", MysqlTableQueries.MigrationV41Statements[0]);
+
+                System.Reflection.MethodInfo? mysqlGetMigrations = typeof(MysqlDatabaseDriver).GetMethod("GetMigrations", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+                AssertNotNull(mysqlGetMigrations, "MySQL driver must expose its migration registration list internally");
+                object? mysqlMigrationsObject = mysqlGetMigrations!.Invoke(null, Array.Empty<object>());
+                AssertNotNull(mysqlMigrationsObject, "MySQL driver migration list should not be null");
+                List<SchemaMigration> mysql = (List<SchemaMigration>)mysqlMigrationsObject!;
+                SchemaMigration? mysql41 = mysql.Find(m => m.Version == 41);
+                AssertNotNull(mysql41, "MySQL driver migrations must register v41");
+                AssertContains("reorganize_threshold", mysql41!.Statements[0]);
             });
 
             await RunTest("VesselReorganizeThreshold_CreateReadUpdate_RoundTrip", async () =>
