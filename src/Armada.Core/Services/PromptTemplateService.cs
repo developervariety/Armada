@@ -656,10 +656,11 @@ namespace Armada.Core.Services
                     "Your job is to read the mission-evidence bundle in your brief and propose the next version of this vessel's learned-facts playbook. You are a curator, not an editor of code or rules.\n" +
                     "\n" +
                     "## Operating Modes\n" +
-                    "Your brief states a Mode: one of consolidate, reorganize, or consolidate-and-reorganize.\n" +
+                    "Your brief states a Mode: one of consolidate, reorganize, consolidate-and-reorganize, or pack-curate.\n" +
                     "- consolidate (v1 default): mine the evidence bundle for new facts, dedupe against the existing playbook, and propose the updated playbook. Adding facts is permitted when grounded in evidence.\n" +
                     "- reorganize (v2-F4): the brief omits the evidence bundle. You may regroup, merge near-duplicates, drop stale entries (use the recent commit subjects to spot staleness), reorder, and reword without changing factual content. You MUST NOT add new facts. The orchestrator's accept tool rejects reorganize proposals whose diff `added` array contains non-structural facts.\n" +
                     "- consolidate-and-reorganize (v2-F4): both passes in one mission. Mine new facts AND restructure the resulting playbook. The diff `added` array MAY contain facts.\n" +
+                    "- pack-curate (v2-F1): the brief contains pack-usage evidence (prestaged-file Read / ignored / grep-discovered / Edited buckets per mission) and the current vessel_pack_hints rows. Propose ADD / MODIFY / DISABLE deltas to the hint table to improve future context-pack pre-selection. The reflections-candidate block is JSON in this mode (NOT markdown); see Output Contract below. You MUST NOT add new facts to the learned-facts playbook in pack-curate mode -- this mode targets a different store (vessel_pack_hints) and never touches the playbook.\n" +
                     "If a mode line is missing, treat the brief as consolidate.\n" +
                     "\n" +
                     "## Evidence Surface (read-only)\n" +
@@ -683,19 +684,20 @@ namespace Armada.Core.Services
                     "## Output Contract\n" +
                     "Your AgentOutput MUST contain exactly one fenced block named reflections-candidate and exactly one fenced block named reflections-diff. The parser tolerates text outside these two blocks, but you should avoid prose around them. Multiple blocks of the same name are treated as malformed.\n" +
                     "\n" +
-                    "Block 1 -- reflections-candidate: the full proposed playbook content, ready to drop into the playbook table. Markdown, no front matter, ASCII only.\n" +
+                    "Block 1 -- reflections-candidate:\n" +
+                    "- consolidate / reorganize / consolidate-and-reorganize: the full proposed playbook content, ready to drop into the playbook table. Markdown, no front matter, ASCII only.\n" +
+                    "- pack-curate: a JSON object describing vessel_pack_hints row deltas, with arrays addHints / modifyHints / disableHints. Each addHint entry has goalPattern (regex; case-insensitive at runtime), mustInclude (array of glob paths), mustExclude (array of glob paths), priority (integer; higher applied first), confidence (high|medium|low), justification (short rationale), and sourceMissionIds (array). modifyHints entries have id + a changes object with any subset of the above fields. disableHints entries have id + reason. The accept tool parses this JSON; non-parseable JSON is rejected as output_contract_violation.\n" +
                     "\n" +
-                    "Block 2 -- reflections-diff: a JSON object with these fields:\n" +
-                    "- added: array of entry-key-or-bullet summaries newly introduced.\n" +
-                    "- removed: array of entry-key-or-bullet summaries removed from the prior playbook.\n" +
-                    "- merged: array of objects with from (array of prior summaries) and to (consolidated summary).\n" +
-                    "- unchangedCount: integer count of entries kept verbatim.\n" +
-                    "- evidenceConfidence: one of high, mixed, or low.\n" +
-                    "- notes: free-form one-paragraph summary of what changed and why.\n" +
+                    "Block 2 -- reflections-diff:\n" +
+                    "- consolidate / reorganize / consolidate-and-reorganize: JSON object with added / removed / merged / unchangedCount / evidenceConfidence / notes (free-form paragraph).\n" +
+                    "- pack-curate: JSON object with added (array of human-readable counts), modified (array), disabled (array), evidenceConfidence (high|mixed|low), missionsExamined (integer), and notes (free-form paragraph).\n" +
                     "\n" +
                     "## Curation Rules\n" +
                     "- Only include facts grounded in the supplied evidence. Flag low confidence on borderline items via evidenceConfidence and notes rather than fabricating support.\n" +
                     "- In reorganize mode you MUST NOT add new facts. The diff `added` array must be empty or contain only structural markers (headings, group labels). Adding a fact in reorganize mode is rejected at accept time.\n" +
+                    "- In pack-curate mode you MUST NOT propose hints whose goalPattern is `.*`, empty, whitespace, or fewer than three characters: the accept tool rejects these as pack_hint_pattern_too_broad. Hint goalPattern must be a valid .NET regex; invalid patterns are rejected as pack_hint_invalid_regex.\n" +
+                    "- In pack-curate mode you MUST NOT propose paths that aren't in the vessel repo. The accept tool runs a best-effort `git ls-tree` against the vessel default branch and surfaces unmatched globs as pack_hint_no_matches warnings (non-blocking; operator decides). Conflicting hints (overlapping mustInclude / mustExclude across hints) surface as pack_hint_conflict warnings (non-blocking).\n" +
+                    "- In pack-curate mode the disableHints array is the channel for proposing stale hints be retired (e.g., when the file path was renamed in a recent commit and the hint no longer matches). Auto-disable without orchestrator review is forbidden.\n" +
                     "- Never re-propose a candidate that the recently rejected proposals list already waved off; respect those rejection reasons.\n" +
                     "- Prefer merging duplicate or near-duplicate facts over accumulating noisy variants.\n" +
                     "- Keep the candidate playbook ASCII only and free of references to plans, specs, or roadmap documents.\n" +
