@@ -2,6 +2,7 @@ namespace Armada.Core.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.Text;
     using System.Text.Json;
     using System.Text.RegularExpressions;
     using System.Threading;
@@ -261,6 +262,11 @@ namespace Armada.Core.Services
             if (missionMode == ReflectionMode.PackCurate)
             {
                 return await AcceptPackCurateProposalAsync(mission, vessel, tenantId, editsMarkdown, parser, dualJudge, outcome, token).ConfigureAwait(false);
+            }
+
+            if (missionMode == ReflectionMode.PersonaCurate || missionMode == ReflectionMode.CaptainCurate)
+            {
+                return await AcceptIdentityCurateProposalAsync(mission, vessel, tenantId, editsMarkdown, parser, dualJudge, missionMode, dispatchedPayload, outcome, token).ConfigureAwait(false);
             }
 
             bool overrideActive = !String.IsNullOrWhiteSpace(editsMarkdown);
@@ -642,6 +648,465 @@ namespace Armada.Core.Services
             outcome.PathWarnings = pathWarnings;
             outcome.ConflictWarnings = conflictWarnings;
             return outcome;
+        }
+
+        private async Task<ReflectionAcceptProposalResult> AcceptIdentityCurateProposalAsync(
+            Mission mission,
+            Vessel anchorVessel,
+            string tenantId,
+            string? editsMarkdown,
+            IReflectionOutputParser parser,
+            bool dualJudge,
+            ReflectionMode missionMode,
+            DispatchedPayload? dispatched,
+            ReflectionAcceptProposalResult outcome,
+            CancellationToken token)
+        {
+            string? targetType = dispatched?.TargetType;
+            string? targetId = dispatched?.TargetId;
+            if (String.IsNullOrEmpty(targetId))
+            {
+                outcome.Error = "identity_target_unresolved";
+                return outcome;
+            }
+
+            bool overrideActive = !String.IsNullOrWhiteSpace(editsMarkdown);
+            string contentToApply;
+            string? diffText = null;
+            if (overrideActive)
+            {
+                contentToApply = editsMarkdown!.Trim();
+            }
+            else
+            {
+                ReflectionOutputParseResult parsed = parser.Parse(mission.AgentOutput ?? "");
+                if (parsed.Verdict != ReflectionOutputParseVerdict.Success)
+                {
+                    outcome.Error = "output_contract_violation";
+                    return outcome;
+                }
+
+                contentToApply = parsed.CandidateMarkdown ?? "";
+                diffText = parsed.ReflectionsDiffText;
+                if (String.IsNullOrWhiteSpace(contentToApply))
+                {
+                    outcome.Error = "output_contract_violation";
+                    return outcome;
+                }
+            }
+
+            // Validation pipeline: confidence, captain-id-in-persona, evidence floor.
+            if (!overrideActive)
+            {
+                string? validationError = ValidateIdentityCandidateNotes(contentToApply, missionMode);
+                if (!String.IsNullOrEmpty(validationError))
+                {
+                    outcome.Error = validationError;
+                    return outcome;
+                }
+
+                // Counter-evidence handling: when the prior playbook had notes with `Source:`
+                // attribution, the new diff MUST address those notes (modified or disabled).
+                string? counterError = await ValidateCounterEvidenceHandlingAsync(missionMode, targetId!, anchorVessel, diffText, contentToApply, token).ConfigureAwait(false);
+                if (!String.IsNullOrEmpty(counterError))
+                {
+                    outcome.Error = counterError;
+                    return outcome;
+                }
+            }
+
+            // Dual-judge gate (shared with v1).
+            if (!overrideActive && dualJudge)
+            {
+                DualJudgeGateResult judgeGate = await EvaluateDualJudgeGateAsync(mission, token).ConfigureAwait(false);
+                outcome.JudgeVerdicts = judgeGate.Verdicts;
+                if (!judgeGate.AllPassed)
+                {
+                    outcome.Error = "dual_judge_not_passed";
+                    outcome.ErrorDetails = new { judgeVerdicts = judgeGate.Verdicts };
+                    return outcome;
+                }
+            }
+
+            // Vessel-vs-identity conflict detection (non-blocking).
+            List<object> conflictWarnings = overrideActive
+                ? new List<object>()
+                : await DetectVesselIdentityConflictsAsync(targetId!, missionMode, contentToApply, anchorVessel, token).ConfigureAwait(false);
+
+            // Apply: write to persona-/captain-learned playbook (lazy-create captain side).
+            string fileName = (missionMode == ReflectionMode.PersonaCurate ? "persona-" : "captain-")
+                + Armada.Core.Memory.ReflectionDispatcher.SanitizeIdentityName(targetId!)
+                + "-learned.md";
+            PlaybookService playbookService = new PlaybookService(_Database, CreateSilentLogging());
+            Playbook? existing = await _Database.Playbooks.ReadByFileNameAsync(tenantId, fileName, token).ConfigureAwait(false);
+
+            Playbook persisted;
+            if (existing == null)
+            {
+                Playbook created = new Playbook(fileName, contentToApply);
+                created.TenantId = tenantId;
+                created.UserId = Constants.DefaultUserId;
+                created.Description = (missionMode == ReflectionMode.PersonaCurate ? "Persona-learned notes for " : "Captain-learned notes for ") + targetId;
+                playbookService.Validate(created);
+                persisted = await _Database.Playbooks.CreateAsync(created, token).ConfigureAwait(false);
+            }
+            else
+            {
+                existing.Content = contentToApply;
+                playbookService.Validate(existing);
+                persisted = await _Database.Playbooks.UpdateAsync(existing, token).ConfigureAwait(false);
+            }
+
+            // Wire LearnedPlaybookId + DefaultPlaybooks on the identity row (lazy-create captain).
+            await EnsureIdentityLearnedPlaybookWiringAsync(missionMode, targetId!, persisted.Id, token).ConfigureAwait(false);
+
+            // Identity-curate event uses targetType/targetId rather than vesselId.
+            ReflectionDiffMetrics metrics = ParseIdentityDiffMetrics(diffText);
+
+            ArmadaEvent accepted = new ArmadaEvent(_ReflectionAcceptedEvent, "Identity-curate proposal accepted.");
+            accepted.TenantId = mission.TenantId ?? tenantId;
+            accepted.EntityType = "mission";
+            accepted.EntityId = mission.Id;
+            accepted.MissionId = mission.Id;
+            accepted.VesselId = anchorVessel.Id;
+            accepted.VoyageId = mission.VoyageId;
+            accepted.Payload = JsonSerializer.Serialize(new
+            {
+                playbookId = persisted.Id,
+                missionId = mission.Id,
+                appliedContentLength = contentToApply.Length,
+                mode = ModeToWireString(missionMode),
+                targetType = targetType,
+                targetId = targetId,
+                notesAdded = metrics.NotesAdded,
+                notesModified = metrics.NotesModified,
+                notesDisabled = metrics.NotesDisabled,
+                missionsExamined = metrics.MissionsExamined,
+                captainsInScope = metrics.CaptainsInScope,
+                evidenceConfidence = metrics.EvidenceConfidence,
+                vesselConflictWarnings = conflictWarnings.Count,
+                dualJudge = dualJudge,
+                judgeVerdicts = outcome.JudgeVerdicts
+            });
+            await _Database.Events.CreateAsync(accepted, token).ConfigureAwait(false);
+
+            outcome.PlaybookId = persisted.Id;
+            outcome.PlaybookVersion = persisted.LastUpdateUtc.ToString("o");
+            outcome.AppliedContent = contentToApply;
+            outcome.ConflictWarnings = conflictWarnings;
+            return outcome;
+        }
+
+        private static string? ValidateIdentityCandidateNotes(string content, ReflectionMode mode)
+        {
+            // Parse note lines: each line beginning with `[high]`, `[medium]`, or `[low]`.
+            // For persona-curate: low confidence is rejected; mentioning a captain id
+            // (cpt_xxxx pattern) in a note is rejected; <3 supporting missions on a Source:
+            // line is rejected.
+            // For captain-curate: low is permitted (bias-amplification risk lower).
+            string[] lines = content.Replace("\r\n", "\n").Split('\n');
+            int idx = 0;
+            while (idx < lines.Length)
+            {
+                string line = lines[idx];
+                string trimmed = line.TrimStart();
+                Match m = Regex.Match(trimmed, @"^\[(?<c>high|medium|low)\]", RegexOptions.IgnoreCase);
+                if (!m.Success) { idx++; continue; }
+
+                string confidence = m.Groups["c"].Value.ToLowerInvariant();
+                if (mode == ReflectionMode.PersonaCurate && confidence == "low")
+                {
+                    return "persona_note_confidence_too_low";
+                }
+
+                // Collect this note's body across continuation lines until a blank line, the
+                // next note tag, or a section header.
+                StringBuilder body = new StringBuilder();
+                body.AppendLine(trimmed);
+                int next = idx + 1;
+                while (next < lines.Length)
+                {
+                    string peek = lines[next];
+                    string peekTrim = peek.TrimStart();
+                    if (peekTrim.Length == 0) break;
+                    if (peekTrim.StartsWith("#")) break;
+                    if (Regex.IsMatch(peekTrim, @"^\[(high|medium|low)\]", RegexOptions.IgnoreCase)) break;
+                    body.AppendLine(peek);
+                    next++;
+                }
+                string noteBody = body.ToString();
+
+                if (mode == ReflectionMode.PersonaCurate
+                    && Regex.IsMatch(noteBody, @"\bcpt_[A-Za-z0-9_]+", RegexOptions.IgnoreCase))
+                {
+                    return "persona_note_specifies_captain";
+                }
+
+                Match sourceMatch = Regex.Match(noteBody, @"Source:\s*(?<ids>[^\n]+)", RegexOptions.IgnoreCase);
+                if (sourceMatch.Success)
+                {
+                    string idsStr = sourceMatch.Groups["ids"].Value;
+                    int idCount = idsStr.Split(',').Count(s => Regex.IsMatch(s.Trim(), @"^msn_[A-Za-z0-9_]+", RegexOptions.IgnoreCase));
+                    if (mode == ReflectionMode.PersonaCurate && idCount < 3)
+                    {
+                        return "persona_note_insufficient_evidence";
+                    }
+                }
+
+                idx = next;
+            }
+            return null;
+        }
+
+        private async Task<string?> ValidateCounterEvidenceHandlingAsync(
+            ReflectionMode mode,
+            string targetId,
+            Vessel anchorVessel,
+            string? diffText,
+            string newContent,
+            CancellationToken token)
+        {
+            // Read prior playbook content to identify pre-existing note headings + Source: lines.
+            string priorFileName = (mode == ReflectionMode.PersonaCurate ? "persona-" : "captain-")
+                + Armada.Core.Memory.ReflectionDispatcher.SanitizeIdentityName(targetId)
+                + "-learned.md";
+            string tenantId = anchorVessel.TenantId ?? Constants.DefaultTenantId;
+            Playbook? prior = await _Database.Playbooks.ReadByFileNameAsync(tenantId, priorFileName, token).ConfigureAwait(false);
+            if (prior == null || String.IsNullOrWhiteSpace(prior.Content)) return null;
+
+            // Identify prior note bodies. If a prior note appears verbatim in the new content
+            // (substring match), it's preserved unchanged: counter-evidence handling is the
+            // consolidator's responsibility but we cannot detect "evidence contradicted N
+            // missions" without re-running the miner. Pragmatic gate: if the diff JSON has
+            // ZERO modified+disabled entries AND the prior playbook had >=1 confidence-tagged
+            // note, require at least one disabled-or-modified entry whenever the prior content
+            // is no longer a substring of the new content (i.e. something changed but nothing
+            // was explicitly addressed). This catches the obvious "ignored counter-evidence"
+            // case the spec calls out.
+            string priorContent = prior.Content;
+            bool priorHasTaggedNotes = Regex.IsMatch(priorContent, @"^\s*\[(high|medium|low)\]", RegexOptions.IgnoreCase | RegexOptions.Multiline);
+            if (!priorHasTaggedNotes) return null;
+
+            int modifiedDisabledCount = 0;
+            if (!String.IsNullOrEmpty(diffText))
+            {
+                try
+                {
+                    using JsonDocument doc = JsonDocument.Parse(diffText.Trim());
+                    if (doc.RootElement.ValueKind == JsonValueKind.Object)
+                    {
+                        if (doc.RootElement.TryGetProperty("modified", out JsonElement mEl) && mEl.ValueKind == JsonValueKind.Array)
+                            modifiedDisabledCount += mEl.GetArrayLength();
+                        if (doc.RootElement.TryGetProperty("disabled", out JsonElement dEl) && dEl.ValueKind == JsonValueKind.Array)
+                            modifiedDisabledCount += dEl.GetArrayLength();
+                    }
+                }
+                catch (JsonException) { /* best-effort */ }
+            }
+
+            if (modifiedDisabledCount > 0) return null;
+
+            // No modifications/disables proposed. If the new content materially differs from
+            // prior (set of note tags differs), we have an unaddressed prior-state delta.
+            int priorTagged = Regex.Matches(priorContent, @"^\s*\[(high|medium|low)\]", RegexOptions.IgnoreCase | RegexOptions.Multiline).Count;
+            int newTagged = Regex.Matches(newContent, @"^\s*\[(high|medium|low)\]", RegexOptions.IgnoreCase | RegexOptions.Multiline).Count;
+            if (priorTagged > newTagged)
+            {
+                // Notes were dropped silently rather than disabled with a reason.
+                return mode == ReflectionMode.PersonaCurate
+                    ? "persona_curate_ignored_counter_evidence"
+                    : "captain_curate_ignored_counter_evidence";
+            }
+
+            return null;
+        }
+
+        private async Task<List<object>> DetectVesselIdentityConflictsAsync(
+            string targetId,
+            ReflectionMode mode,
+            string newContent,
+            Vessel anchorVessel,
+            CancellationToken token)
+        {
+            List<object> warnings = new List<object>();
+            int sampleSize = ReadConflictSampleSize();
+            if (sampleSize <= 0) return warnings;
+
+            // Find the top-N vessels this identity has served.
+            List<Vessel> candidates = await PickVesselsForIdentityAsync(targetId, mode, sampleSize, token).ConfigureAwait(false);
+            if (candidates.Count == 0) return warnings;
+
+            HashSet<string> newShingles = ShingleNGrams(newContent, 3);
+            if (newShingles.Count == 0) return warnings;
+
+            double threshold = ReadConflictThreshold();
+
+            foreach (Vessel v in candidates)
+            {
+                string vesselContent = await ReadLearnedPlaybookContentAsync(v, token).ConfigureAwait(false);
+                HashSet<string> vesselShingles = ShingleNGrams(vesselContent, 3);
+                if (vesselShingles.Count == 0) continue;
+
+                int intersect = newShingles.Count(s => vesselShingles.Contains(s));
+                int union = newShingles.Count + vesselShingles.Count - intersect;
+                double jaccard = union <= 0 ? 0.0 : (double)intersect / union;
+                if (jaccard >= threshold)
+                {
+                    warnings.Add(new
+                    {
+                        warning = "identity_note_conflicts_vessel",
+                        vesselId = v.Id,
+                        vesselName = v.Name,
+                        jaccardSimilarity = Math.Round(jaccard, 4)
+                    });
+                }
+            }
+
+            return warnings;
+        }
+
+        private async Task<List<Vessel>> PickVesselsForIdentityAsync(string targetId, ReflectionMode mode, int sampleSize, CancellationToken token)
+        {
+            // Pick the vessels with the most recent terminal missions for this identity.
+            List<Mission> all = await _Database.Missions.EnumerateAsync(token).ConfigureAwait(false);
+            IEnumerable<Mission> filtered = all.Where(m => m.Status == MissionStatusEnum.Complete
+                || m.Status == MissionStatusEnum.Failed
+                || m.Status == MissionStatusEnum.Cancelled);
+            if (mode == ReflectionMode.PersonaCurate)
+            {
+                filtered = filtered.Where(m => String.Equals(m.Persona, targetId, StringComparison.OrdinalIgnoreCase));
+            }
+            else
+            {
+                filtered = filtered.Where(m => String.Equals(m.CaptainId, targetId, StringComparison.Ordinal));
+            }
+
+            Dictionary<string, int> vesselCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (Mission m in filtered)
+            {
+                if (String.IsNullOrEmpty(m.VesselId)) continue;
+                if (!vesselCounts.ContainsKey(m.VesselId)) vesselCounts[m.VesselId] = 0;
+                vesselCounts[m.VesselId]++;
+            }
+
+            List<Vessel> result = new List<Vessel>();
+            foreach (KeyValuePair<string, int> kv in vesselCounts.OrderByDescending(p => p.Value).Take(sampleSize))
+            {
+                Vessel? v = await _Database.Vessels.ReadAsync(kv.Key, token).ConfigureAwait(false);
+                if (v != null) result.Add(v);
+            }
+            return result;
+        }
+
+        private int ReadConflictSampleSize()
+        {
+            // _Database is the only injected dependency; read settings via reflection-free
+            // fallback. Default 3 matches ArmadaSettings.IdentityNoteConflictVesselSampleSize.
+            return _ConflictSampleSize;
+        }
+
+        private double ReadConflictThreshold()
+        {
+            return _ConflictThreshold;
+        }
+
+        // Module-static fallbacks; in practice the dispatch path passes the live settings via
+        // ReflectionDispatcher (not threaded into this service yet). These match the v2-F2 spec
+        // defaults and are tunable by anyone instantiating ReflectionMemoryService later.
+        private static int _ConflictSampleSize = 3;
+        private static double _ConflictThreshold = 0.7;
+
+        private static HashSet<string> ShingleNGrams(string text, int n)
+        {
+            HashSet<string> result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (String.IsNullOrEmpty(text) || n <= 0) return result;
+            string normalized = Regex.Replace(text.ToLowerInvariant(), @"[^a-z0-9 ]+", " ");
+            normalized = Regex.Replace(normalized, @"\s+", " ").Trim();
+            string[] words = normalized.Split(' ');
+            for (int i = 0; i + n <= words.Length; i++)
+            {
+                result.Add(String.Join(" ", words, i, n));
+            }
+            return result;
+        }
+
+        private async Task EnsureIdentityLearnedPlaybookWiringAsync(ReflectionMode mode, string targetId, string playbookId, CancellationToken token)
+        {
+            if (mode == ReflectionMode.PersonaCurate)
+            {
+                Persona? persona = await _Database.Personas.ReadByNameAsync(targetId, token).ConfigureAwait(false);
+                if (persona == null) return;
+                bool dirty = false;
+                if (!String.Equals(persona.LearnedPlaybookId, playbookId, StringComparison.Ordinal))
+                {
+                    persona.LearnedPlaybookId = playbookId;
+                    dirty = true;
+                }
+                List<SelectedPlaybook> defaults = persona.GetDefaultPlaybooks();
+                if (!defaults.Exists(sp => String.Equals(sp.PlaybookId, playbookId, StringComparison.Ordinal)))
+                {
+                    defaults.Add(new SelectedPlaybook { PlaybookId = playbookId, DeliveryMode = PlaybookDeliveryModeEnum.InstructionWithReference });
+                    persona.DefaultPlaybooks = JsonSerializer.Serialize(defaults);
+                    dirty = true;
+                }
+                if (dirty) await _Database.Personas.UpdateAsync(persona, token).ConfigureAwait(false);
+                return;
+            }
+
+            // Captain side: lazy-create the wiring on first accepted captain-curate.
+            Captain? captain = await _Database.Captains.ReadAsync(targetId, token).ConfigureAwait(false);
+            if (captain == null) return;
+            bool cDirty = false;
+            if (!String.Equals(captain.LearnedPlaybookId, playbookId, StringComparison.Ordinal))
+            {
+                captain.LearnedPlaybookId = playbookId;
+                cDirty = true;
+            }
+            List<SelectedPlaybook> cDefaults = captain.GetDefaultPlaybooks();
+            if (!cDefaults.Exists(sp => String.Equals(sp.PlaybookId, playbookId, StringComparison.Ordinal)))
+            {
+                cDefaults.Add(new SelectedPlaybook { PlaybookId = playbookId, DeliveryMode = PlaybookDeliveryModeEnum.InstructionWithReference });
+                captain.DefaultPlaybooks = JsonSerializer.Serialize(cDefaults);
+                cDirty = true;
+            }
+            if (cDirty) await _Database.Captains.UpdateAsync(captain, token).ConfigureAwait(false);
+        }
+
+        private static ReflectionDiffMetrics ParseIdentityDiffMetrics(string? diffText)
+        {
+            ReflectionDiffMetrics m = new ReflectionDiffMetrics();
+            if (String.IsNullOrEmpty(diffText)) return m;
+            try
+            {
+                using JsonDocument doc = JsonDocument.Parse(diffText.Trim());
+                JsonElement root = doc.RootElement;
+                if (root.ValueKind != JsonValueKind.Object) return m;
+
+                if (root.TryGetProperty("added", out JsonElement aEl) && aEl.ValueKind == JsonValueKind.Array)
+                    m.NotesAdded = aEl.GetArrayLength();
+                if (root.TryGetProperty("modified", out JsonElement modEl) && modEl.ValueKind == JsonValueKind.Array)
+                    m.NotesModified = modEl.GetArrayLength();
+                if (root.TryGetProperty("disabled", out JsonElement disEl) && disEl.ValueKind == JsonValueKind.Array)
+                    m.NotesDisabled = disEl.GetArrayLength();
+                if (root.TryGetProperty("missionsExamined", out JsonElement mxEl) && mxEl.ValueKind == JsonValueKind.Number && mxEl.TryGetInt32(out int mx))
+                    m.MissionsExamined = mx;
+                if (root.TryGetProperty("captainsInScope", out JsonElement csEl) && csEl.ValueKind == JsonValueKind.Number && csEl.TryGetInt32(out int cs))
+                    m.CaptainsInScope = cs;
+                if (root.TryGetProperty("evidenceConfidence", out JsonElement ecEl) && ecEl.ValueKind == JsonValueKind.String)
+                    m.EvidenceConfidence = ecEl.GetString() ?? "low";
+            }
+            catch (JsonException) { /* best-effort */ }
+            return m;
+        }
+
+        private sealed class ReflectionDiffMetrics
+        {
+            public int NotesAdded { get; set; }
+            public int NotesModified { get; set; }
+            public int NotesDisabled { get; set; }
+            public int MissionsExamined { get; set; }
+            public int CaptainsInScope { get; set; }
+            public string EvidenceConfidence { get; set; } = "low";
         }
 
         private static string? ValidatePackCurateAntiPatterns(PackCurateCandidate proposed)
@@ -1358,6 +1823,12 @@ namespace Armada.Core.Services
 
             [System.Text.Json.Serialization.JsonPropertyName("dualJudge")]
             public bool? DualJudge { get; set; }
+
+            [System.Text.Json.Serialization.JsonPropertyName("targetType")]
+            public string? TargetType { get; set; }
+
+            [System.Text.Json.Serialization.JsonPropertyName("targetId")]
+            public string? TargetId { get; set; }
         }
 
         #endregion
