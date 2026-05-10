@@ -6,9 +6,12 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core;
+    using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
+    using Armada.Core.Settings;
     using Armada.Server.Mcp;
     using Armada.Server.Mcp.Tools;
     using Armada.Test.Common;
@@ -482,6 +485,48 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("RegisterAll_NullReflectionDispatcher_AuditDrainStillAutoDispatchesReflections", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = new ArmadaSettings { DefaultReflectionThreshold = 5 };
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("registrar-reflection-drain-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    vessel.TenantId = Constants.DefaultTenantId;
+                    vessel.ReflectionThreshold = 5;
+                    vessel = await testDb.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
+
+                    for (int i = 0; i < 5; i++)
+                    {
+                        Mission mission = new Mission("terminal " + i, "desc " + i);
+                        mission.VesselId = vessel.Id;
+                        mission.Persona = "Worker";
+                        mission.Status = MissionStatusEnum.Complete;
+                        mission.CompletedUtc = DateTime.UtcNow.AddMinutes(-10 + i);
+                        mission.DiffSnapshot = "diff " + i;
+                        mission.AgentOutput = "output " + i;
+                        await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+                    }
+
+                    ReflectionDrainRecordingAdmiral admiral = new ReflectionDrainRecordingAdmiral(testDb.Driver);
+                    Dictionary<string, Func<JsonElement?, Task<object>>> handlers = new Dictionary<string, Func<JsonElement?, Task<object>>>();
+                    McpToolRegistrar.RegisterAll(
+                        (name, _, _, handler) => { handlers[name] = handler; },
+                        testDb.Driver,
+                        admiral,
+                        settings: settings,
+                        reflectionDispatcher: null);
+
+                    JsonElement drainArgs = JsonSerializer.SerializeToElement(new { vesselId = vessel.Id, limit = 10 });
+                    object drainResult = await handlers["armada_drain_audit_queue"](drainArgs).ConfigureAwait(false);
+                    JsonDocument drainDoc = JsonDocument.Parse(JsonSerializer.Serialize(drainResult));
+                    JsonElement reflectionsEl = drainDoc.RootElement.GetProperty("reflectionsDispatched");
+                    AssertEqual(JsonValueKind.Array, reflectionsEl.ValueKind);
+                    AssertEqual(1, reflectionsEl.GetArrayLength());
+                    AssertEqual(1, admiral.DispatchCount);
+                }
+            });
+
             await RunTest("Dispatch_InvalidAliasCycle_ReturnsError", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -697,6 +742,116 @@ namespace Armada.Test.Unit.Suites.Services
 
             public Task HandleProcessExitAsync(
                 int processId, int? exitCode, string captainId, string missionId,
+                CancellationToken token = default)
+                => throw new NotImplementedException();
+        }
+
+        /// <summary>
+        /// Persists voyages and missions from DispatchVoyageAsync for reflection drain coverage
+        /// (matches the RecordingAdmiralService pattern used in reflection audit drain tests).
+        /// </summary>
+        private sealed class ReflectionDrainRecordingAdmiral : IAdmiralService
+        {
+            private readonly DatabaseDriver _Database;
+
+            public ReflectionDrainRecordingAdmiral(DatabaseDriver database)
+            {
+                _Database = database;
+            }
+
+            public int DispatchCount { get; private set; }
+
+            public Func<Captain, Mission, Dock, Task<int>>? OnLaunchAgent { get; set; }
+            public Func<Captain, Task>? OnStopAgent { get; set; }
+            public Func<Mission, Dock, Task>? OnCaptureDiff { get; set; }
+            public Func<Mission, Dock, Task>? OnMissionComplete { get; set; }
+            public Func<Voyage, Task>? OnVoyageComplete { get; set; }
+            public Func<Mission, Task<bool>>? OnReconcilePullRequest { get; set; }
+            public Func<Task<int>>? OnReconcileMergeEntries { get; set; }
+            public Func<int, bool>? OnIsProcessExitHandled { get; set; }
+
+            public Task<Voyage> DispatchVoyageAsync(
+                string title,
+                string description,
+                string vesselId,
+                List<MissionDescription> missionDescriptions,
+                CancellationToken token = default)
+            {
+                return DispatchVoyageAsync(title, description, vesselId, missionDescriptions, (string?)null, token);
+            }
+
+            public Task<Voyage> DispatchVoyageAsync(
+                string title,
+                string description,
+                string vesselId,
+                List<MissionDescription> missionDescriptions,
+                List<SelectedPlaybook>? selectedPlaybooks,
+                CancellationToken token = default)
+            {
+                return DispatchVoyageAsync(title, description, vesselId, missionDescriptions, (string?)null, token);
+            }
+
+            public async Task<Voyage> DispatchVoyageAsync(
+                string title,
+                string description,
+                string vesselId,
+                List<MissionDescription> missionDescriptions,
+                string? pipelineId,
+                CancellationToken token = default)
+            {
+                DispatchCount++;
+                Voyage voyage = await _Database.Voyages.CreateAsync(new Voyage(title, description), token).ConfigureAwait(false);
+                foreach (MissionDescription md in missionDescriptions)
+                {
+                    Mission mission = new Mission(md.Title, md.Description);
+                    mission.VoyageId = voyage.Id;
+                    mission.VesselId = vesselId;
+                    mission.Persona = pipelineId == "Reflections" ? "MemoryConsolidator" : "Worker";
+                    mission.PreferredModel = md.PreferredModel;
+                    await _Database.Missions.CreateAsync(mission, token).ConfigureAwait(false);
+                }
+
+                return voyage;
+            }
+
+            public Task<Voyage> DispatchVoyageAsync(
+                string title,
+                string description,
+                string vesselId,
+                List<MissionDescription> missionDescriptions,
+                string? pipelineId,
+                List<SelectedPlaybook>? selectedPlaybooks,
+                CancellationToken token = default)
+            {
+                return DispatchVoyageAsync(title, description, vesselId, missionDescriptions, pipelineId, token);
+            }
+
+            public Task<Mission> DispatchMissionAsync(Mission mission, CancellationToken token = default)
+                => throw new NotImplementedException();
+
+            public Task<Pipeline?> ResolvePipelineAsync(string? pipelineIdOrName, Vessel vessel, CancellationToken token = default)
+                => throw new NotImplementedException();
+
+            public Task<ArmadaStatus> GetStatusAsync(CancellationToken token = default)
+                => throw new NotImplementedException();
+
+            public Task RecallCaptainAsync(string captainId, CancellationToken token = default)
+                => throw new NotImplementedException();
+
+            public Task RecallAllAsync(CancellationToken token = default)
+                => throw new NotImplementedException();
+
+            public Task HealthCheckAsync(CancellationToken token = default)
+                => throw new NotImplementedException();
+
+            public Task CleanupStaleCaptainsAsync(CancellationToken token = default)
+                => throw new NotImplementedException();
+
+            public Task HandleProcessExitAsync(
+                int processId,
+                int? exitCode,
+                string captainId,
+                string missionId,
                 CancellationToken token = default)
                 => throw new NotImplementedException();
         }

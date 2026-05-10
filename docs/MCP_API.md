@@ -116,6 +116,10 @@ If/when MCP-over-tunnel is added, this document will gain explicit routed-tool s
   - **Backup and Restore**
     - [armada_backup](#armada_backup)
     - [armada_restore](#armada_restore)
+  - **Reflections (Memory Consolidation)**
+    - [armada_consolidate_memory](#armada_consolidate_memory)
+    - [armada_accept_memory_proposal](#armada_accept_memory_proposal)
+    - [armada_reject_memory_proposal](#armada_reject_memory_proposal)
 - [Data Types](#data-types)
   - [Models](#models)
   - [Enumerations](#enumerations)
@@ -2633,6 +2637,217 @@ Restore Armada from a previously created backup ZIP file.
 ```
 
 > **Note:** Restart the server after restoring to ensure all in-memory state is refreshed.
+
+---
+
+### armada_consolidate_memory
+
+Manually trigger a memory consolidation mission for a vessel. This dispatches a `MemoryConsolidator` persona captain that analyzes completed missions and produces a candidate playbook update.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "vesselId": {
+      "type": "string",
+      "description": "Target vessel ID (vsl_ prefix)"
+    },
+    "sinceMissionId": {
+      "type": "string",
+      "description": "Override the auto-computed start point (msn_ prefix)"
+    },
+    "instructions": {
+      "type": "string",
+      "description": "Extra guidance for the consolidator"
+    },
+    "tokenBudget": {
+      "type": "integer",
+      "description": "Token budget for evidence bundle (default 400000)"
+    }
+  },
+  "required": ["vesselId"]
+}
+```
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `vesselId` | string | Yes | Target vessel ID (prefix `vsl_`) |
+| `sinceMissionId` | string | No | Override the auto-computed start point (uses `Vessel.LastReflectionMissionId` if not provided) |
+| `instructions` | string | No | Extra guidance for the consolidator captain |
+| `tokenBudget` | integer | No | Token budget for evidence bundle (default 400000) |
+
+**Response:**
+
+```json
+{
+  "missionId": "msn_abc123def456ghi789jk",
+  "voyageId": "vyg_abc123def456ghi789jk",
+  "evidenceMissionCount": 15,
+  "truncated": false
+}
+```
+
+| Field | Type | Description |
+|-----------|------|-------------|
+| `missionId` | string | The dispatched consolidation mission ID |
+| `voyageId` | string | The voyage containing the consolidation mission |
+| `evidenceMissionCount` | integer | How many missions made it into the bundle after token budget capping |
+| `truncated` | boolean | True if oldest missions were evicted to fit token budget |
+
+**Errors:**
+
+| Error | When |
+|-------|------|
+| `vessel_not_found` | Invalid or nonexistent vessel ID |
+| `reflection_already_in_flight` | A reflection is already running for this vessel. Returns existing `missionId` in error payload. |
+| `no_evidence_available` | Vessel has zero terminal missions since the start point |
+
+**Concurrency Rule:** At most ONE pending/running reflection mission per vessel. If called while one is in-flight, returns the existing mission ID rather than dispatching a duplicate.
+
+---
+
+### armada_accept_memory_proposal
+
+Accept a reflection proposal and apply it to the vessel's learned playbook. Optionally apply orchestrator edits instead of the captain's candidate verbatim.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "missionId": {
+      "type": "string",
+      "description": "Reflection mission ID (msn_ prefix)"
+    },
+    "editsMarkdown": {
+      "type": "string",
+      "description": "Orchestrator-edited markdown that overrides the captain's candidate"
+    }
+  },
+  "required": ["missionId"]
+}
+```
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `missionId` | string | Yes | Reflection mission ID (prefix `msn_`) |
+| `editsMarkdown` | string | No | Orchestrator-edited markdown that overrides the captain's candidate. If provided, this content is applied instead of the `reflections-candidate` block. |
+
+**Response:**
+
+```json
+{
+  "playbookId": "pbk_abc123def456ghi789jk",
+  "playbookVersion": 5,
+  "appliedContent": "# vessel-myrepo-learned\n\n...",
+  "vesselId": "vsl_abc123def456ghi789jk"
+}
+```
+
+| Field | Type | Description |
+|-----------|------|-------------|
+| `playbookId` | string | The vessel learned-facts playbook ID |
+| `playbookVersion` | integer | Post-update version number |
+| `appliedContent` | string | Verbatim of what got written to the playbook |
+| `vesselId` | string | The vessel ID |
+
+**Errors:**
+
+| Error | When |
+|-------|------|
+| `mission_not_found` | Invalid or nonexistent mission ID |
+| `mission_not_a_reflection` | Mission persona mismatch (not a MemoryConsolidator mission) |
+| `mission_not_complete` | Mission has not reached Complete status |
+| `proposal_already_processed` | This proposal was already accepted or rejected (M-fix1: non-lossy check using event queries) |
+| `output_contract_violation` | Mission AgentOutput missing or malformed fenced blocks |
+
+**Non-Lossy Semantics (M-fix1):** The tool uses filtered event queries to detect prior accept/reject actions, preventing duplicate processing even with noisy event history.
+
+**Enriched Event Payload:** On acceptance, an event is emitted with payload containing `vesselId`, `playbookId`, `missionId`, and `appliedContentLength`.
+
+---
+
+### armada_reject_memory_proposal
+
+Reject a reflection proposal with a reason. The reason is recorded and fed into the next reflection's brief so the consolidator doesn't re-propose the same thing.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "missionId": {
+      "type": "string",
+      "description": "Reflection mission ID (msn_ prefix)"
+    },
+    "reason": {
+      "type": "string",
+      "description": "Rejection reason (required)"
+    }
+  },
+  "required": ["missionId", "reason"]
+}
+```
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `missionId` | string | Yes | Reflection mission ID (prefix `msn_`) |
+| `reason` | string | Yes | Rejection reason that will feed into next reflection |
+
+**Response:**
+
+```json
+{
+  "status": "Rejected",
+  "missionId": "msn_abc123def456ghi789jk"
+}
+```
+
+**Errors:**
+
+| Error | When |
+|-------|------|
+| `mission_not_found` | Invalid or nonexistent mission ID |
+| `mission_not_a_reflection` | Mission persona mismatch |
+| `mission_not_complete` | Mission has not reached Complete status |
+| `proposal_already_processed` | This proposal was already accepted or rejected |
+
+Note: `output_contract_violation` is NOT returned for rejections -- rejection works regardless of output validity.
+
+---
+
+### armada_drain_audit_queue (Reflection Extension)
+
+The `armada_drain_audit_queue` response includes a `reflectionsDispatched` field when auto-dispatch is enabled.
+
+**Extended Response:**
+
+```json
+{
+  "auditEntriesDrained": 5,
+  "reflectionsDispatched": [
+    {
+      "vesselId": "vsl_abc123def456ghi789jk",
+      "missionId": "msn_def456ghi789jkl012mn"
+    }
+  ]
+}
+```
+
+| Field | Type | Description |
+|-----------|------|-------------|
+| `auditEntriesDrained` | integer | Number of audit queue entries processed |
+| `reflectionsDispatched` | array | List of auto-dispatched reflection missions (only for active vessels post M-fix1) |
+
+**Auto-Dispatch Behavior:**
+
+- After draining audit entries, the admiral checks each vessel's `missionsSinceLastReflection` count.
+- If count >= `Vessel.ReflectionThreshold` (or `AdmiralOptions.DefaultReflectionThreshold` if null), a consolidation mission is auto-dispatched.
+- **Active Vessel Filter (M-fix1):** Only active vessels are considered for auto-dispatch. Inactive vessels are skipped.
 
 ---
 

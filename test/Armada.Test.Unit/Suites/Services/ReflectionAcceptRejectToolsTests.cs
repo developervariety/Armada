@@ -179,6 +179,39 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("AcceptMemoryProposal_SecondAccept_DetectedWhenManyEventsFollowDisposition", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, "accept-noise-after-accept").ConfigureAwait(false);
+                    Mission mission = await CreateReflectionMissionAsync(
+                        testDb.Driver,
+                        vessel.Id,
+                        WorkProducedAgentOutput("# Once\n")).ConfigureAwait(false);
+
+                    Func<JsonElement?, Task<object>>? handler = CaptureAcceptHandler(testDb.Driver);
+                    JsonElement args = JsonSerializer.SerializeToElement(new { missionId = mission.Id });
+                    await handler!(args).ConfigureAwait(false);
+
+                    DateTime anchorUtc = DateTime.UtcNow;
+                    for (int i = 0; i < 55; i++)
+                    {
+                        ArmadaEvent noiseEvent = new ArmadaEvent("noise.reflection_test", "Synthetic events after reflection.accepted");
+                        noiseEvent.TenantId = Constants.DefaultTenantId;
+                        noiseEvent.EntityType = "mission";
+                        noiseEvent.EntityId = mission.Id;
+                        noiseEvent.MissionId = mission.Id;
+                        noiseEvent.VesselId = vessel.Id;
+                        noiseEvent.CreatedUtc = anchorUtc.AddSeconds(i + 1);
+                        await testDb.Driver.Events.CreateAsync(noiseEvent).ConfigureAwait(false);
+                    }
+
+                    object second = await handler!(args).ConfigureAwait(false);
+                    string json = JsonSerializer.Serialize(second);
+                    AssertContains("proposal_already_processed", json);
+                }
+            });
+
             await RunTest("AcceptMemoryProposal_OnFailure_DoesNotAdvanceLastReflectionMissionId", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -267,6 +300,12 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(vessel.Id, accepted.VesselId, "Accepted event vessel id");
                     AssertContains(existing.Id, accepted.Payload ?? "", "Payload playbook id");
                     AssertContains(mission.Id, accepted.Payload ?? "", "Payload mission id");
+                    AssertContains("appliedContentLength", accepted.Payload ?? "", "Payload should include applied content length");
+                    using (JsonDocument payloadDoc = JsonDocument.Parse(accepted.Payload ?? "{}"))
+                    {
+                        int length = payloadDoc.RootElement.GetProperty("appliedContentLength").GetInt32();
+                        AssertTrue(length > 0, "appliedContentLength should be positive for non-empty apply");
+                    }
                 }
             });
 
@@ -374,6 +413,8 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(vessel.Id, rejected.VesselId, "Event vessel id");
                     AssertContains("\"reason\":\"Needs stronger evidence\"", rejected.Payload ?? "", "Payload should contain trimmed reason");
                     AssertFalse((rejected.Payload ?? "").Contains("  Needs stronger evidence  "), "Payload should not preserve surrounding reason whitespace");
+                    AssertContains("\"vesselId\"", rejected.Payload ?? "", "Payload should echo vessel id");
+                    AssertContains("\"appliedContentLength\":0", rejected.Payload ?? "", "Reject payload marks zero applied length");
                 }
             });
 
@@ -434,6 +475,39 @@ namespace Armada.Test.Unit.Suites.Services
                     object second = await handler!(JsonSerializer.SerializeToElement(new { missionId = mission.Id, reason = "Second rejection" })).ConfigureAwait(false);
                     string json = JsonSerializer.Serialize(second);
 
+                    AssertContains("proposal_already_processed", json);
+                }
+            });
+
+            await RunTest("RejectMemoryProposal_SecondReject_DetectedWhenManyEventsFollowDisposition", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, "reject-noise-after-reject").ConfigureAwait(false);
+                    Mission mission = await CreateReflectionMissionAsync(
+                        testDb.Driver,
+                        vessel.Id,
+                        "any output").ConfigureAwait(false);
+
+                    Func<JsonElement?, Task<object>>? handler = CaptureRejectHandler(testDb.Driver);
+                    JsonElement firstArgs = JsonSerializer.SerializeToElement(new { missionId = mission.Id, reason = "First rejection" });
+                    await handler!(firstArgs).ConfigureAwait(false);
+
+                    DateTime anchorUtc = DateTime.UtcNow;
+                    for (int i = 0; i < 55; i++)
+                    {
+                        ArmadaEvent noiseEvent = new ArmadaEvent("noise.reflection_test", "Synthetic events after reflection.rejected");
+                        noiseEvent.TenantId = Constants.DefaultTenantId;
+                        noiseEvent.EntityType = "mission";
+                        noiseEvent.EntityId = mission.Id;
+                        noiseEvent.MissionId = mission.Id;
+                        noiseEvent.VesselId = vessel.Id;
+                        noiseEvent.CreatedUtc = anchorUtc.AddSeconds(i + 1);
+                        await testDb.Driver.Events.CreateAsync(noiseEvent).ConfigureAwait(false);
+                    }
+
+                    object second = await handler!(JsonSerializer.SerializeToElement(new { missionId = mission.Id, reason = "Second rejection" })).ConfigureAwait(false);
+                    string json = JsonSerializer.Serialize(second);
                     AssertContains("proposal_already_processed", json);
                 }
             });

@@ -206,7 +206,8 @@ namespace Armada.Core.Services
             {
                 playbookId = persisted.Id,
                 missionId = mission.Id,
-                vesselId = vessel.Id
+                vesselId = vessel.Id,
+                appliedContentLength = contentToApply.Length
             });
             await _Database.Events.CreateAsync(accepted, token).ConfigureAwait(false);
 
@@ -251,7 +252,14 @@ namespace Armada.Core.Services
             rejected.MissionId = mission.Id;
             rejected.VesselId = vesselId;
             rejected.VoyageId = mission.VoyageId;
-            rejected.Payload = JsonSerializer.Serialize(new { missionId = mission.Id, reason = reason.Trim() });
+            rejected.Payload = JsonSerializer.Serialize(new
+            {
+                missionId = mission.Id,
+                reason = reason.Trim(),
+                vesselId = vesselId,
+                playbookId = (string?)null,
+                appliedContentLength = 0
+            });
             await _Database.Events.CreateAsync(rejected, token).ConfigureAwait(false);
 
             return null;
@@ -277,16 +285,26 @@ namespace Armada.Core.Services
 
         private async Task<bool> MissionHasReflectionDispositionAsync(string missionId, CancellationToken token)
         {
-            List<ArmadaEvent> events = await _Database.Events.EnumerateByMissionAsync(missionId, 50, token).ConfigureAwait(false);
-            foreach (ArmadaEvent armadaEvent in events)
+            EnumerationQuery acceptedQuery = new EnumerationQuery
             {
-                if (String.Equals(armadaEvent.EventType, _ReflectionAcceptedEvent, StringComparison.Ordinal))
-                    return true;
-                if (String.Equals(armadaEvent.EventType, _ReflectionRejectedEvent, StringComparison.Ordinal))
-                    return true;
-            }
+                MissionId = missionId,
+                EventType = _ReflectionAcceptedEvent,
+                PageNumber = 1,
+                PageSize = 1
+            };
+            EnumerationResult<ArmadaEvent> acceptedPage = await _Database.Events.EnumerateAsync(acceptedQuery, token).ConfigureAwait(false);
+            if (acceptedPage.Objects.Count > 0)
+                return true;
 
-            return false;
+            EnumerationQuery rejectedQuery = new EnumerationQuery
+            {
+                MissionId = missionId,
+                EventType = _ReflectionRejectedEvent,
+                PageNumber = 1,
+                PageSize = 1
+            };
+            EnumerationResult<ArmadaEvent> rejectedPage = await _Database.Events.EnumerateAsync(rejectedQuery, token).ConfigureAwait(false);
+            return rejectedPage.Objects.Count > 0;
         }
 
         private static string SanitizeName(string name)
