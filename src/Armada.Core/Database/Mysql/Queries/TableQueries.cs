@@ -747,11 +747,21 @@ namespace Armada.Core.Database.Mysql.Queries
 
         /// <summary>
         /// Migration v42 statements for allowing same-order parallel stages in pipeline_stages.
+        /// MySQL does not support `IF EXISTS` on `DROP INDEX` or `IF NOT EXISTS` on `CREATE INDEX`,
+        /// so each operation is wrapped in an `INFORMATION_SCHEMA.STATISTICS` lookup that builds
+        /// the DDL only when needed and runs it via `PREPARE`/`EXECUTE`. Session variables persist
+        /// across the separate `ExecuteNonQueryAsync` calls inside the migration transaction.
         /// </summary>
         public static readonly string[] MigrationV42Statements = new string[]
         {
-            @"DROP INDEX IF EXISTS idx_pipeline_stages_order ON pipeline_stages;",
-            @"CREATE INDEX idx_pipeline_stages_order ON pipeline_stages(pipeline_id, stage_order);"
+            @"SET @drop_idx_sql = IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'pipeline_stages' AND INDEX_NAME = 'idx_pipeline_stages_order') > 0, 'DROP INDEX idx_pipeline_stages_order ON pipeline_stages', 'SELECT 1');",
+            @"PREPARE drop_idx_stmt FROM @drop_idx_sql;",
+            @"EXECUTE drop_idx_stmt;",
+            @"DEALLOCATE PREPARE drop_idx_stmt;",
+            @"SET @create_idx_sql = IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'pipeline_stages' AND INDEX_NAME = 'idx_pipeline_stages_order') = 0, 'CREATE INDEX idx_pipeline_stages_order ON pipeline_stages(pipeline_id, stage_order)', 'SELECT 1');",
+            @"PREPARE create_idx_stmt FROM @create_idx_sql;",
+            @"EXECUTE create_idx_stmt;",
+            @"DEALLOCATE PREPARE create_idx_stmt;"
         };
 
         /// <summary>
