@@ -75,6 +75,7 @@ namespace Armada.Core.Database.Sqlite
             Playbooks = new PlaybookMethods(this, _Settings, _Logging);
             Personas = new PersonaMethods(this, _Settings, _Logging);
             Pipelines = new PipelineMethods(this, _Settings, _Logging);
+            VesselPackHints = new VesselPackHintMethods(this, _Settings, _Logging);
         }
 
         /// <summary>
@@ -106,6 +107,7 @@ namespace Armada.Core.Database.Sqlite
             Playbooks = new PlaybookMethods(this, _Settings, _Logging);
             Personas = new PersonaMethods(this, _Settings, _Logging);
             Pipelines = new PipelineMethods(this, _Settings, _Logging);
+            VesselPackHints = new VesselPackHintMethods(this, _Settings, _Logging);
         }
 
         #endregion
@@ -442,6 +444,7 @@ namespace Armada.Core.Database.Sqlite
             try { vessel.LastReflectionMissionId = NullableString(reader["last_reflection_mission_id"]); } catch { }
             try { vessel.ReflectionThreshold = reader["reflection_threshold"] == DBNull.Value ? null : Convert.ToInt32(reader["reflection_threshold"]); } catch { }
             try { vessel.ReorganizeThreshold = reader["reorganize_threshold"] == DBNull.Value ? null : Convert.ToInt32(reader["reorganize_threshold"]); } catch { }
+            try { vessel.PackCurateThreshold = reader["pack_curate_threshold"] == DBNull.Value ? null : Convert.ToInt32(reader["pack_curate_threshold"]); } catch { }
             vessel.DefaultBranch = reader["default_branch"].ToString()!;
             vessel.Active = Convert.ToInt64(reader["active"]) == 1;
             vessel.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);

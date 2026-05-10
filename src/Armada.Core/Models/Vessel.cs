@@ -166,6 +166,12 @@ namespace Armada.Core.Models
         public int? ReorganizeThreshold { get; set; } = null;
 
         /// <summary>
+        /// Per-vessel pack-curate trigger threshold (mission-count window since last accepted pack-curate).
+        /// Null means audit-queue auto-trigger for pack-curate is disabled for this vessel. v2-F1.
+        /// </summary>
+        public int? PackCurateThreshold { get; set; } = null;
+
+        /// <summary>
         /// Count of successful auto-landings on this vessel. Used by the auto-land
         /// safety net's calibration period: while this count is below 50, every
         /// auto-landed entry is queued for deep review regardless of critical-trigger

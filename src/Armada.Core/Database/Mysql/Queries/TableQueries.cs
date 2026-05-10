@@ -51,6 +51,7 @@ namespace Armada.Core.Database.Mysql.Queries
             last_reflection_mission_id LONGTEXT,
             reflection_threshold INT,
             reorganize_threshold INT,
+            pack_curate_threshold INT,
             active TINYINT(1) NOT NULL DEFAULT 1,
             created_utc DATETIME(6) NOT NULL,
             last_update_utc DATETIME(6) NOT NULL,
@@ -762,6 +763,36 @@ namespace Armada.Core.Database.Mysql.Queries
             @"PREPARE create_idx_stmt FROM @create_idx_sql;",
             @"EXECUTE create_idx_stmt;",
             @"DEALLOCATE PREPARE create_idx_stmt;"
+        };
+
+        /// <summary>
+        /// Migration v43 statements for adding the vessel_pack_hints table and pack_curate_threshold column (v2-F1).
+        /// MySQL supports `IF NOT EXISTS` on `CREATE TABLE` and on `ALTER TABLE ... ADD COLUMN` (8.0+) but NOT on
+        /// `CREATE INDEX`, so the index is wrapped in an `INFORMATION_SCHEMA.STATISTICS` lookup that builds the DDL
+        /// only when the index does not already exist and runs it via `PREPARE`/`EXECUTE`. Same pattern as v42.
+        /// </summary>
+        public static readonly string[] MigrationV43Statements = new string[]
+        {
+            @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS pack_curate_threshold INT;",
+            @"CREATE TABLE IF NOT EXISTS vessel_pack_hints (
+                id VARCHAR(450) NOT NULL PRIMARY KEY,
+                vessel_id VARCHAR(450) NOT NULL,
+                goal_pattern LONGTEXT NOT NULL,
+                must_include LONGTEXT NOT NULL,
+                must_exclude LONGTEXT NOT NULL,
+                priority INT NOT NULL DEFAULT 0,
+                confidence VARCHAR(32) NOT NULL,
+                source_mission_ids LONGTEXT NOT NULL,
+                justification LONGTEXT,
+                active TINYINT(1) NOT NULL DEFAULT 1,
+                created_utc DATETIME(6) NOT NULL,
+                last_update_utc DATETIME(6) NOT NULL,
+                FOREIGN KEY (vessel_id) REFERENCES vessels(id) ON DELETE CASCADE
+            );",
+            @"SET @create_pack_idx_sql = IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'vessel_pack_hints' AND INDEX_NAME = 'idx_vessel_pack_hints_vessel') = 0, 'CREATE INDEX idx_vessel_pack_hints_vessel ON vessel_pack_hints(vessel_id, active)', 'SELECT 1');",
+            @"PREPARE create_pack_idx_stmt FROM @create_pack_idx_sql;",
+            @"EXECUTE create_pack_idx_stmt;",
+            @"DEALLOCATE PREPARE create_pack_idx_stmt;"
         };
 
         /// <summary>

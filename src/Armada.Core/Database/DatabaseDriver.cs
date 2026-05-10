@@ -99,6 +99,11 @@ namespace Armada.Core.Database
         /// </summary>
         public IPlaybookMethods Playbooks { get; protected set; } = null!;
 
+        /// <summary>
+        /// Vessel pack-curate hint operations (v2-F1).
+        /// </summary>
+        public IVesselPackHintMethods VesselPackHints { get; protected set; } = null!;
+
         #endregion
 
         #region Constructors-and-Factories

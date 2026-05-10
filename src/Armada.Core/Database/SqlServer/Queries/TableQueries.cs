@@ -473,6 +473,33 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"
                     IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID('pipeline_stages') AND name = 'idx_pipeline_stages_order')
                         CREATE INDEX idx_pipeline_stages_order ON pipeline_stages (pipeline_id, stage_order);"
+                ),
+                new SchemaMigration(
+                    43,
+                    "Add vessel_pack_hints table and pack_curate_threshold column to vessels (v2-F1)",
+                    @"
+                    IF COL_LENGTH('vessels', 'pack_curate_threshold') IS NULL
+                        ALTER TABLE vessels ADD pack_curate_threshold INT;",
+                    @"
+                    IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'vessel_pack_hints')
+                        CREATE TABLE vessel_pack_hints (
+                            id NVARCHAR(450) NOT NULL PRIMARY KEY,
+                            vessel_id NVARCHAR(450) NOT NULL,
+                            goal_pattern NVARCHAR(MAX) NOT NULL,
+                            must_include NVARCHAR(MAX) NOT NULL,
+                            must_exclude NVARCHAR(MAX) NOT NULL,
+                            priority INT NOT NULL DEFAULT 0,
+                            confidence NVARCHAR(32) NOT NULL,
+                            source_mission_ids NVARCHAR(MAX) NOT NULL,
+                            justification NVARCHAR(MAX),
+                            active BIT NOT NULL DEFAULT 1,
+                            created_utc NVARCHAR(450) NOT NULL,
+                            last_update_utc NVARCHAR(450) NOT NULL,
+                            CONSTRAINT FK_vessel_pack_hints_vessel FOREIGN KEY (vessel_id) REFERENCES vessels(id) ON DELETE CASCADE
+                        );",
+                    @"
+                    IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID('vessel_pack_hints') AND name = 'idx_vessel_pack_hints_vessel')
+                        CREATE INDEX idx_vessel_pack_hints_vessel ON vessel_pack_hints(vessel_id, active);"
                 )
             };
         }
@@ -576,6 +603,7 @@ namespace Armada.Core.Database.SqlServer.Queries
                 last_reflection_mission_id NVARCHAR(MAX),
                 reflection_threshold INT,
                 reorganize_threshold INT,
+                pack_curate_threshold INT,
                 default_branch NVARCHAR(450) NOT NULL DEFAULT 'main',
                 active BIT NOT NULL DEFAULT 1,
                 created_utc NVARCHAR(450) NOT NULL,

@@ -135,6 +135,11 @@ namespace Armada.Core
         public static readonly string AgentRuntimeIdPrefix = "art_";
 
         /// <summary>
+        /// Vessel pack-hint ID prefix (v2-F1 pack-curate hints).
+        /// </summary>
+        public static readonly string VesselPackHintIdPrefix = "vph_";
+
+        /// <summary>
         /// Default data retention period in days for completed records.
         /// </summary>
         public static readonly int DefaultDataRetentionDays = 30;

@@ -68,6 +68,7 @@ namespace Armada.Core.Database.Mysql
             Playbooks = new PlaybookMethods(_ConnectionString);
             Personas = new PersonaMethods(_ConnectionString);
             Pipelines = new PipelineMethods(_ConnectionString);
+            VesselPackHints = new VesselPackHintMethods(_ConnectionString, _Settings, _Logging);
         }
 
         #endregion
@@ -496,6 +497,11 @@ namespace Armada.Core.Database.Mysql
                     42,
                     "Allow same-order parallel stages in pipeline_stages",
                     TableQueries.MigrationV42Statements
+                ),
+                new SchemaMigration(
+                    43,
+                    "Add vessel_pack_hints table and pack_curate_threshold column to vessels (v2-F1)",
+                    TableQueries.MigrationV43Statements
                 )
             };
         }

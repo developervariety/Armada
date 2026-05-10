@@ -241,6 +241,7 @@ namespace Armada.Core.Database.Postgresql
             Playbooks = new PlaybookMethods(this, _Settings, _Logging);
             Personas = new PersonaMethods(this, _Settings, _Logging);
             Pipelines = new PipelineMethods(this, _Settings, _Logging);
+            VesselPackHints = new VesselPackHintMethods(this, _Settings, _Logging);
         }
 
         #endregion

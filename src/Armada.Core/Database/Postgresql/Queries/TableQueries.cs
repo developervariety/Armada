@@ -99,6 +99,7 @@ namespace Armada.Core.Database.Postgresql.Queries
                         last_reflection_mission_id TEXT,
                         reflection_threshold INTEGER,
                         reorganize_threshold INTEGER,
+                        pack_curate_threshold INTEGER,
                         default_branch TEXT NOT NULL DEFAULT 'main',
                         active BOOLEAN NOT NULL DEFAULT TRUE,
                         created_utc TIMESTAMP NOT NULL,
@@ -602,6 +603,25 @@ namespace Armada.Core.Database.Postgresql.Queries
                 new SchemaMigration(42, "Allow same-order parallel stages in pipeline_stages",
                     @"DROP INDEX IF EXISTS idx_pipeline_stages_order;",
                     @"CREATE INDEX IF NOT EXISTS idx_pipeline_stages_order ON pipeline_stages(pipeline_id, stage_order);"
+                ),
+                new SchemaMigration(43, "Add vessel_pack_hints table and pack_curate_threshold column to vessels (v2-F1)",
+                    @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS pack_curate_threshold INTEGER;",
+                    @"CREATE TABLE IF NOT EXISTS vessel_pack_hints (
+                        id TEXT PRIMARY KEY,
+                        vessel_id TEXT NOT NULL,
+                        goal_pattern TEXT NOT NULL,
+                        must_include TEXT NOT NULL,
+                        must_exclude TEXT NOT NULL,
+                        priority INTEGER NOT NULL DEFAULT 0,
+                        confidence TEXT NOT NULL,
+                        source_mission_ids TEXT NOT NULL,
+                        justification TEXT,
+                        active BOOLEAN NOT NULL DEFAULT TRUE,
+                        created_utc TIMESTAMP NOT NULL,
+                        last_update_utc TIMESTAMP NOT NULL,
+                        FOREIGN KEY (vessel_id) REFERENCES vessels(id) ON DELETE CASCADE
+                    );",
+                    @"CREATE INDEX IF NOT EXISTS idx_vessel_pack_hints_vessel ON vessel_pack_hints(vessel_id, active);"
                 )
             };
         }
