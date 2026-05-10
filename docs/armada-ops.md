@@ -24,7 +24,18 @@ Run `armada_drain_audit_queue` as part of your normal dispatch-kernel pre-flight
 
 // Response
 {
-  "auditEntriesDrained": 5,
+  "entries": [
+    {
+      "entryId": "mrg_abc123def456ghi789jk",
+      "missionId": "msn_abc123def456ghi789jk",
+      "vesselId": "vsl_abc123def456ghi789jk",
+      "branchName": "armada/cursor-kimi-1/msn_abc123",
+      "auditLane": "standard",
+      "auditCriticalTrigger": false,
+      "auditConventionNotes": null,
+      "isCalibration": false
+    }
+  ],
   "reflectionsDispatched": [
     {
       "vesselId": "vsl_abc123def456ghi789jk",

@@ -47,7 +47,7 @@ orchestrator -> armada_drain_audit_queue
              -> if yes, dispatches consolidation missions automatically
              -> drain response includes:
                 {
-                  auditEntriesDrained: N,
+                  entries: [{entryId, missionId, vesselId, branchName, auditLane, auditCriticalTrigger, auditConventionNotes, isCalibration}, ...],
                   reflectionsDispatched: [{vesselId, missionId}, ...]
                 }
 ```

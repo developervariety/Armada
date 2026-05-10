@@ -2742,8 +2742,7 @@ Accept a reflection proposal and apply it to the vessel's learned playbook. Opti
 {
   "playbookId": "pbk_abc123def456ghi789jk",
   "playbookVersion": 5,
-  "appliedContent": "# vessel-myrepo-learned\n\n...",
-  "vesselId": "vsl_abc123def456ghi789jk"
+  "appliedContent": "# vessel-myrepo-learned\n\n..."
 }
 ```
 
@@ -2752,7 +2751,8 @@ Accept a reflection proposal and apply it to the vessel's learned playbook. Opti
 | `playbookId` | string | The vessel learned-facts playbook ID |
 | `playbookVersion` | integer | Post-update version number |
 | `appliedContent` | string | Verbatim of what got written to the playbook |
-| `vesselId` | string | The vessel ID |
+
+**Note:** The `vesselId` appears in the emitted `reflection.accepted` event payload, not in the MCP tool's direct response.
 
 **Errors:**
 
@@ -2802,8 +2802,7 @@ Reject a reflection proposal with a reason. The reason is recorded and fed into 
 
 ```json
 {
-  "status": "Rejected",
-  "missionId": "msn_abc123def456ghi789jk"
+  "status": "Rejected"
 }
 ```
 
@@ -2828,7 +2827,18 @@ The `armada_drain_audit_queue` response includes a `reflectionsDispatched` field
 
 ```json
 {
-  "auditEntriesDrained": 5,
+  "entries": [
+    {
+      "entryId": "mrg_abc123def456ghi789jk",
+      "missionId": "msn_abc123def456ghi789jk",
+      "vesselId": "vsl_abc123def456ghi789jk",
+      "branchName": "armada/cursor-kimi-1/msn_abc123",
+      "auditLane": "standard",
+      "auditCriticalTrigger": false,
+      "auditConventionNotes": null,
+      "isCalibration": false
+    }
+  ],
   "reflectionsDispatched": [
     {
       "vesselId": "vsl_abc123def456ghi789jk",
@@ -2840,7 +2850,7 @@ The `armada_drain_audit_queue` response includes a `reflectionsDispatched` field
 
 | Field | Type | Description |
 |-----------|------|-------------|
-| `auditEntriesDrained` | integer | Number of audit queue entries processed |
+| `entries` | array | List of pending audit entries (objects with `entryId`, `missionId`, `vesselId`, `branchName`, `auditLane`, `auditCriticalTrigger`, `auditConventionNotes`, `isCalibration`) |
 | `reflectionsDispatched` | array | List of auto-dispatched reflection missions (only for active vessels post M-fix1) |
 
 **Auto-Dispatch Behavior:**
