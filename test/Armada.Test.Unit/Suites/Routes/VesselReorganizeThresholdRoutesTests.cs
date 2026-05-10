@@ -84,6 +84,42 @@ namespace Armada.Test.Unit.Suites.Routes
                 }
             });
 
+            await RunTest("ReorganizeThreshold_UpdatedToPositive_McpUpdateVessel_SetsNewValue", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Fleet fleet = new Fleet("rorg-update-fleet");
+                    fleet = await testDb.Driver.Fleets.CreateAsync(fleet).ConfigureAwait(false);
+
+                    Vessel vessel = new Vessel("rorg-update-vessel", "https://github.com/test/repo.git");
+                    vessel.FleetId = fleet.Id;
+                    vessel.ReorganizeThreshold = 20;
+                    vessel.ReflectionThreshold = 9;
+                    vessel.LastReflectionMissionId = "msn_existing_reflection";
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Func<JsonElement?, Task<object>>? updateHandler = null;
+                    McpVesselTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_update_vessel") updateHandler = handler; },
+                        testDb.Driver);
+
+                    AssertNotNull(updateHandler, "armada_update_vessel handler must be registered");
+
+                    JsonElement updateArgs = JsonSerializer.SerializeToElement(new
+                    {
+                        vesselId = vessel.Id,
+                        reorganizeThreshold = 45
+                    });
+                    await updateHandler!(updateArgs).ConfigureAwait(false);
+
+                    Vessel? updated = await testDb.Driver.Vessels.ReadAsync(vessel.Id).ConfigureAwait(false);
+                    AssertNotNull(updated, "Vessel must exist after update");
+                    AssertEqual(45, updated!.ReorganizeThreshold!.Value, "ReorganizeThreshold should be updated");
+                    AssertEqual(9, updated.ReflectionThreshold!.Value, "ReflectionThreshold should remain unchanged");
+                    AssertEqual("msn_existing_reflection", updated.LastReflectionMissionId, "LastReflectionMissionId should remain unchanged");
+                }
+            });
+
             await RunTest("AbsentReorganizeThreshold_McpUpdateVessel_DoesNotClobberExistingValue", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -115,6 +151,35 @@ namespace Armada.Test.Unit.Suites.Routes
                     AssertNotNull(updated, "Vessel must exist after update");
                     AssertTrue(updated!.ReorganizeThreshold.HasValue, "ReorganizeThreshold must not be clobbered");
                     AssertEqual(60, updated.ReorganizeThreshold!.Value, "ReorganizeThreshold value must be unchanged");
+                }
+            });
+
+            await RunTest("ReorganizeThreshold_McpSchemas_AdvertiseIntegerProperty", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    object? addSchema = null;
+                    object? updateSchema = null;
+
+                    McpVesselTools.Register(
+                        (name, _, schema, _) =>
+                        {
+                            if (name == "armada_add_vessel")
+                                addSchema = schema;
+                            if (name == "armada_update_vessel")
+                                updateSchema = schema;
+                        },
+                        testDb.Driver);
+
+                    AssertNotNull(addSchema, "armada_add_vessel schema must be registered");
+                    AssertNotNull(updateSchema, "armada_update_vessel schema must be registered");
+
+                    string addSchemaJson = JsonSerializer.Serialize(addSchema);
+                    string updateSchemaJson = JsonSerializer.Serialize(updateSchema);
+                    AssertContains("reorganizeThreshold", addSchemaJson, "Add schema should advertise reorganizeThreshold");
+                    AssertContains("\"type\":\"integer\"", addSchemaJson, "Add schema should type reorganizeThreshold as integer");
+                    AssertContains("reorganizeThreshold", updateSchemaJson, "Update schema should advertise reorganizeThreshold");
+                    AssertContains("\"type\":\"integer\"", updateSchemaJson, "Update schema should type reorganizeThreshold as integer");
                 }
             });
 
