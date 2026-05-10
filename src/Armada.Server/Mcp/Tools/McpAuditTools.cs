@@ -125,6 +125,20 @@ namespace Armada.Server.Mcp.Tools
                                     missionId = reorganizeDispatched.MissionId,
                                     mode = "reorganize"
                                 });
+                                continue;
+                            }
+
+                            ReflectionDispatcher.DispatchResult? packCurateDispatched = await reflectionDispatcher
+                                .TryAutoDispatchPackCurateAfterAuditDrainAsync(checkVessel)
+                                .ConfigureAwait(false);
+                            if (packCurateDispatched != null)
+                            {
+                                reflectionsDispatched.Add(new
+                                {
+                                    vesselId = checkVessel.Id,
+                                    missionId = packCurateDispatched.MissionId,
+                                    mode = "pack-curate"
+                                });
                             }
                         }
                     }

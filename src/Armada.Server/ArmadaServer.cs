@@ -201,7 +201,9 @@ namespace Armada.Server
             await reflectionBootstrap.BootstrapAsync().ConfigureAwait(false);
             _Logging.Info(_Header + "reflection memory bootstrap completed");
             _ReflectionMemory = new ReflectionMemoryService(_Database);
-            _ReflectionDispatcher = new ReflectionDispatcher(_Database, _Admiral, _Settings, _ReflectionMemory);
+            string missionLogDirectory = System.IO.Path.Combine(_Settings.LogDirectory, "missions");
+            PackUsageMiner packUsageMiner = new PackUsageMiner(missionLogDirectory);
+            _ReflectionDispatcher = new ReflectionDispatcher(_Database, _Admiral, _Settings, _ReflectionMemory, packUsageMiner);
 
             ArchitectPersonaSyncService architectSync = new ArchitectPersonaSyncService(_Database, _Logging);
             bool architectSynced = await architectSync.SyncAsync().ConfigureAwait(false);
