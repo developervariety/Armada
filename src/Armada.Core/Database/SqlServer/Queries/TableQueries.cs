@@ -522,6 +522,19 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"
                     IF COL_LENGTH('captains', 'learned_playbook_id') IS NULL
                         ALTER TABLE captains ADD learned_playbook_id NVARCHAR(450) NULL;"
+                ),
+                new SchemaMigration(
+                    45,
+                    "Add fleet-memory columns to fleets (Reflections v2-F3)",
+                    @"
+                    IF COL_LENGTH('fleets', 'default_playbooks') IS NULL
+                        ALTER TABLE fleets ADD default_playbooks NVARCHAR(MAX) NULL;",
+                    @"
+                    IF COL_LENGTH('fleets', 'curate_threshold') IS NULL
+                        ALTER TABLE fleets ADD curate_threshold INT NULL;",
+                    @"
+                    IF COL_LENGTH('fleets', 'learned_playbook_id') IS NULL
+                        ALTER TABLE fleets ADD learned_playbook_id NVARCHAR(450) NULL;"
                 )
             };
         }

@@ -630,6 +630,11 @@ namespace Armada.Core.Database.Postgresql.Queries
                     @"ALTER TABLE captains ADD COLUMN IF NOT EXISTS default_playbooks TEXT;",
                     @"ALTER TABLE captains ADD COLUMN IF NOT EXISTS curate_threshold INTEGER;",
                     @"ALTER TABLE captains ADD COLUMN IF NOT EXISTS learned_playbook_id TEXT;"
+                ),
+                new SchemaMigration(45, "Add fleet-memory columns to fleets (Reflections v2-F3)",
+                    @"ALTER TABLE fleets ADD COLUMN IF NOT EXISTS default_playbooks TEXT;",
+                    @"ALTER TABLE fleets ADD COLUMN IF NOT EXISTS curate_threshold INTEGER;",
+                    @"ALTER TABLE fleets ADD COLUMN IF NOT EXISTS learned_playbook_id TEXT;"
                 )
             };
         }

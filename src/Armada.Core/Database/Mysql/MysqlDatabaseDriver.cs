@@ -507,6 +507,11 @@ namespace Armada.Core.Database.Mysql
                     44,
                     "Add identity-memory columns to personas and captains (Reflections v2-F2)",
                     TableQueries.MigrationV44Statements
+                ),
+                new SchemaMigration(
+                    45,
+                    "Add fleet-memory columns to fleets (Reflections v2-F3)",
+                    TableQueries.MigrationV45Statements
                 )
             };
         }
@@ -595,6 +600,9 @@ namespace Armada.Core.Database.Mysql
             fleet.UserId = NullableString(reader["user_id"]);
             fleet.Name = reader["name"].ToString()!;
             fleet.Description = NullableString(reader["description"]);
+            try { fleet.DefaultPlaybooks = NullableString(reader["default_playbooks"]); } catch { }
+            try { fleet.CurateThreshold = reader["curate_threshold"] == DBNull.Value ? null : Convert.ToInt32(reader["curate_threshold"]); } catch { }
+            try { fleet.LearnedPlaybookId = NullableString(reader["learned_playbook_id"]); } catch { }
             fleet.Active = Convert.ToInt64(reader["active"]) == 1;
             fleet.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
             fleet.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);

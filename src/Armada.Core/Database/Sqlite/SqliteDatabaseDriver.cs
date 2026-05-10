@@ -401,6 +401,9 @@ namespace Armada.Core.Database.Sqlite
             fleet.Name = reader["name"].ToString()!;
             fleet.Description = NullableString(reader["description"]);
             try { fleet.DefaultPipelineId = NullableString(reader["default_pipeline_id"]); } catch { }
+            try { fleet.DefaultPlaybooks = NullableString(reader["default_playbooks"]); } catch { }
+            try { fleet.CurateThreshold = reader["curate_threshold"] == DBNull.Value ? null : Convert.ToInt32(reader["curate_threshold"]); } catch { }
+            try { fleet.LearnedPlaybookId = NullableString(reader["learned_playbook_id"]); } catch { }
             fleet.Active = Convert.ToInt64(reader["active"]) == 1;
             fleet.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
             fleet.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);

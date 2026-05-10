@@ -811,6 +811,18 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
+        /// Migration v45 statements for adding fleet-memory columns to fleets (Reflections v2-F3).
+        /// MySQL 8.0+ supports `IF NOT EXISTS` on `ALTER TABLE ... ADD COLUMN`, so this migration
+        /// is a flat list of additive ALTERs and idempotent on re-run.
+        /// </summary>
+        public static readonly string[] MigrationV45Statements = new string[]
+        {
+            @"ALTER TABLE fleets ADD COLUMN IF NOT EXISTS default_playbooks LONGTEXT NULL;",
+            @"ALTER TABLE fleets ADD COLUMN IF NOT EXISTS curate_threshold INT NULL;",
+            @"ALTER TABLE fleets ADD COLUMN IF NOT EXISTS learned_playbook_id VARCHAR(450) NULL;"
+        };
+
+        /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
         public static readonly string[] Indexes = new string[]

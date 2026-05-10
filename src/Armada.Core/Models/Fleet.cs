@@ -1,5 +1,7 @@
 namespace Armada.Core.Models
 {
+    using System;
+    using System.Collections.Generic;
     using System.Text.Json.Serialization;
 
     /// <summary>
@@ -57,6 +59,29 @@ namespace Armada.Core.Models
         public string? DefaultPipelineId { get; set; } = null;
 
         /// <summary>
+        /// JSON-serialized list of <see cref="SelectedPlaybook"/> entries automatically merged
+        /// into every mission whose vessel belongs to this fleet (Reflections v2-F3). Layered
+        /// FIRST in the four-way merge (least specific): fleet -&gt; vessel -&gt; persona -&gt; captain.
+        /// Use <see cref="GetDefaultPlaybooks"/> to obtain a parsed list.
+        /// </summary>
+        public string? DefaultPlaybooks { get; set; } = null;
+
+        /// <summary>
+        /// Per-fleet fleet-curate trigger threshold (mission-count window across all active
+        /// vessels in the fleet since the last accepted fleet-curate). Null disables the
+        /// audit-drain auto-trigger for this fleet (Reflections v2-F3).
+        /// </summary>
+        public int? CurateThreshold { get; set; } = null;
+
+        /// <summary>
+        /// FK reference to the fleet-&lt;id&gt;-learned playbook. Lazy-created on the first
+        /// accepted fleet-curate reflection (Reflections v2-F3); null until then. There is
+        /// no bootstrap migration for this column — fleets are stable but few, so pre-creating
+        /// empty playbooks adds little value vs lazy creation.
+        /// </summary>
+        public string? LearnedPlaybookId { get; set; } = null;
+
+        /// <summary>
         /// Whether the fleet is active.
         /// </summary>
         public bool Active { get; set; } = true;
@@ -96,6 +121,32 @@ namespace Armada.Core.Models
         public Fleet(string name)
         {
             Name = name;
+        }
+
+        #endregion
+
+        #region Public-Methods
+
+        /// <summary>
+        /// Lazy-parses the <see cref="DefaultPlaybooks"/> JSON string. Returns an empty list
+        /// when unset or malformed. Mirrors the helper on <see cref="Vessel"/>,
+        /// <see cref="Persona"/>, and <see cref="Captain"/>.
+        /// </summary>
+        /// <returns>List of <see cref="SelectedPlaybook"/> entries.</returns>
+        public List<SelectedPlaybook> GetDefaultPlaybooks()
+        {
+            if (String.IsNullOrWhiteSpace(DefaultPlaybooks)) return new List<SelectedPlaybook>();
+            try
+            {
+                List<SelectedPlaybook>? list = System.Text.Json.JsonSerializer.Deserialize<List<SelectedPlaybook>>(
+                    DefaultPlaybooks,
+                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                return list ?? new List<SelectedPlaybook>();
+            }
+            catch
+            {
+                return new List<SelectedPlaybook>();
+            }
         }
 
         #endregion

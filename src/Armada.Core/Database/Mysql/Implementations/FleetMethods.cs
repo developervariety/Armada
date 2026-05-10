@@ -53,14 +53,17 @@ namespace Armada.Core.Database.Mysql.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = @"INSERT INTO fleets (id, tenant_id, user_id, name, description, default_pipeline_id, active, created_utc, last_update_utc)
-                        VALUES (@id, @tenant_id, @user_id, @name, @description, @default_pipeline_id, @active, @created_utc, @last_update_utc);";
+                    cmd.CommandText = @"INSERT INTO fleets (id, tenant_id, user_id, name, description, default_pipeline_id, default_playbooks, curate_threshold, learned_playbook_id, active, created_utc, last_update_utc)
+                        VALUES (@id, @tenant_id, @user_id, @name, @description, @default_pipeline_id, @default_playbooks, @curate_threshold, @learned_playbook_id, @active, @created_utc, @last_update_utc);";
                     cmd.Parameters.AddWithValue("@id", fleet.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)fleet.TenantId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@user_id", (object?)fleet.UserId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@name", fleet.Name);
                     cmd.Parameters.AddWithValue("@description", (object?)fleet.Description ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@default_pipeline_id", (object?)fleet.DefaultPipelineId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@default_playbooks", (object?)fleet.DefaultPlaybooks ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@curate_threshold", (object?)fleet.CurateThreshold ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@learned_playbook_id", (object?)fleet.LearnedPlaybookId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@active", fleet.Active ? 1 : 0);
                     cmd.Parameters.AddWithValue("@created_utc", ToIso8601(fleet.CreatedUtc));
                     cmd.Parameters.AddWithValue("@last_update_utc", ToIso8601(fleet.LastUpdateUtc));
@@ -149,6 +152,9 @@ namespace Armada.Core.Database.Mysql.Implementations
                         name = @name,
                         description = @description,
                         default_pipeline_id = @default_pipeline_id,
+                        default_playbooks = @default_playbooks,
+                        curate_threshold = @curate_threshold,
+                        learned_playbook_id = @learned_playbook_id,
                         active = @active,
                         last_update_utc = @last_update_utc
                         WHERE id = @id;";
@@ -158,6 +164,9 @@ namespace Armada.Core.Database.Mysql.Implementations
                     cmd.Parameters.AddWithValue("@name", fleet.Name);
                     cmd.Parameters.AddWithValue("@description", (object?)fleet.Description ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@default_pipeline_id", (object?)fleet.DefaultPipelineId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@default_playbooks", (object?)fleet.DefaultPlaybooks ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@curate_threshold", (object?)fleet.CurateThreshold ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@learned_playbook_id", (object?)fleet.LearnedPlaybookId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@active", fleet.Active ? 1 : 0);
                     cmd.Parameters.AddWithValue("@last_update_utc", ToIso8601(fleet.LastUpdateUtc));
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
@@ -634,6 +643,9 @@ namespace Armada.Core.Database.Mysql.Implementations
             fleet.Name = reader["name"].ToString()!;
             fleet.Description = NullableString(reader["description"]);
             try { fleet.DefaultPipelineId = NullableString(reader["default_pipeline_id"]); } catch { }
+            try { fleet.DefaultPlaybooks = NullableString(reader["default_playbooks"]); } catch { }
+            try { fleet.CurateThreshold = reader["curate_threshold"] == DBNull.Value ? null : Convert.ToInt32(reader["curate_threshold"]); } catch { }
+            try { fleet.LearnedPlaybookId = NullableString(reader["learned_playbook_id"]); } catch { }
             fleet.Active = Convert.ToInt64(reader["active"]) == 1;
             fleet.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
             fleet.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
