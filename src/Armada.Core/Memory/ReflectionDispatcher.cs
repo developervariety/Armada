@@ -931,6 +931,121 @@ namespace Armada.Core.Memory
         }
 
         /// <summary>
+        /// After an audit queue drain, evaluates the fleet-level <see cref="Fleet.CurateThreshold"/>
+        /// + anti-thrash and dispatches a fleet-curate reflection when due (Reflections v2-F3).
+        /// Anti-thrash for fleet-curate is keyed on FLEET ACTIVITY rather than mission count
+        /// alone: skip when the most recent vessel-curate (consolidate) accept on any member
+        /// vessel happened BEFORE the last accepted fleet-curate -- the consolidator's
+        /// promotion candidates come from vessel-learned playbooks, so without fresh
+        /// vessel-learned acceptances there are no new shared facts to discover.
+        /// </summary>
+        /// <param name="fleet">Fleet to evaluate.</param>
+        /// <param name="anchorVessel">Vessel used as the worktree pivot if a dispatch fires.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Dispatch result when a fleet-curate mission was created; otherwise null.</returns>
+        public async Task<DispatchResult?> TryAutoDispatchFleetCurateAfterAuditDrainAsync(
+            Fleet fleet,
+            Vessel anchorVessel,
+            CancellationToken token = default)
+        {
+            if (fleet == null) throw new ArgumentNullException(nameof(fleet));
+            if (anchorVessel == null) throw new ArgumentNullException(nameof(anchorVessel));
+            if (!fleet.CurateThreshold.HasValue) return null;
+            int threshold = fleet.CurateThreshold.Value;
+            if (threshold <= 0) return null;
+
+            DateTime? sinceUtc = await ResolveLastAcceptedIdentityCurateAtAsync("fleet-curate", fleet.Id, token).ConfigureAwait(false);
+
+            // Threshold: count terminal missions across all ACTIVE vessels in the fleet since
+            // the last accepted fleet-curate. Active-vessel filter consistent with M-fix1.
+            int countSince = await CountTerminalMissionsForFleetSinceAsync(fleet.Id, sinceUtc, token).ConfigureAwait(false);
+            if (countSince < threshold) return null;
+
+            Mission? inFlight = await IsFleetCurateInFlightAsync(fleet.Id, token).ConfigureAwait(false);
+            if (inFlight != null) return null;
+
+            // Anti-thrash: when a fleet-curate has accepted before, require a vessel-curate
+            // (consolidate) accept on any member vessel SINCE that timestamp; otherwise
+            // promotion candidates haven't moved.
+            if (sinceUtc.HasValue)
+            {
+                bool hasFreshVesselCurate = await AnyVesselCurateAcceptedSinceAsync(fleet.Id, sinceUtc.Value, token).ConfigureAwait(false);
+                if (!hasFreshVesselCurate) return null;
+            }
+
+            EvidenceBundleResult bundle = await BuildFleetCurateBriefAsync(fleet, _Settings.DefaultFleetCurateTokenBudget, token).ConfigureAwait(false);
+            if (bundle.EvidenceMissionCount == 0 && bundle.RejectedProposalCount == 0) return null;
+
+            return await DispatchFleetCurateAsync(
+                fleet,
+                "Curate fleet-learned facts for " + fleet.Name,
+                bundle.Brief,
+                false,
+                _Settings.DefaultFleetCurateTokenBudget,
+                anchorVessel,
+                token).ConfigureAwait(false);
+        }
+
+        private async Task<int> CountTerminalMissionsForFleetSinceAsync(string fleetId, DateTime? sinceUtc, CancellationToken token)
+        {
+            List<Vessel> vessels = await _Database.Vessels.EnumerateByFleetAsync(fleetId, token).ConfigureAwait(false);
+            HashSet<string> activeIds = new HashSet<string>(
+                vessels.Where(v => v.Active).Select(v => v.Id),
+                StringComparer.Ordinal);
+            if (activeIds.Count == 0) return 0;
+
+            List<Mission> all = await _Database.Missions.EnumerateAsync(token).ConfigureAwait(false);
+            int count = 0;
+            foreach (Mission m in all)
+            {
+                if (!IsTerminal(m.Status)) continue;
+                if (String.IsNullOrEmpty(m.VesselId) || !activeIds.Contains(m.VesselId!)) continue;
+                if (sinceUtc.HasValue && (!m.CompletedUtc.HasValue || m.CompletedUtc.Value <= sinceUtc.Value)) continue;
+                count++;
+            }
+            return count;
+        }
+
+        private async Task<bool> AnyVesselCurateAcceptedSinceAsync(string fleetId, DateTime sinceUtc, CancellationToken token)
+        {
+            List<Vessel> vessels = await _Database.Vessels.EnumerateByFleetAsync(fleetId, token).ConfigureAwait(false);
+            HashSet<string> activeIds = new HashSet<string>(
+                vessels.Where(v => v.Active).Select(v => v.Id),
+                StringComparer.Ordinal);
+            if (activeIds.Count == 0) return false;
+
+            EnumerationQuery query = new EnumerationQuery
+            {
+                EventType = "reflection.accepted",
+                PageNumber = 1,
+                PageSize = 200
+            };
+            EnumerationResult<ArmadaEvent> page = await _Database.Events.EnumerateAsync(query, token).ConfigureAwait(false);
+            foreach (ArmadaEvent evt in page.Objects)
+            {
+                if (evt.CreatedUtc <= sinceUtc) continue;
+                if (String.IsNullOrEmpty(evt.Payload)) continue;
+                try
+                {
+                    using JsonDocument doc = JsonDocument.Parse(evt.Payload);
+                    JsonElement root = doc.RootElement;
+                    if (!root.TryGetProperty("mode", out JsonElement modeEl)
+                        || modeEl.ValueKind != JsonValueKind.String) continue;
+                    string? modeStr = modeEl.GetString();
+                    if (!String.Equals(modeStr, "consolidate", StringComparison.OrdinalIgnoreCase)
+                        && !String.Equals(modeStr, "consolidate-and-reorganize", StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    if (!String.IsNullOrEmpty(evt.VesselId) && activeIds.Contains(evt.VesselId!))
+                    {
+                        return true;
+                    }
+                }
+                catch (JsonException) { continue; }
+            }
+            return false;
+        }
+
+        /// <summary>
         /// After an audit queue drain, evaluates the vessel reorganize threshold + anti-thrash
         /// and dispatches a reorganize-mode reflection when due. v2-F4 audit-drain auto-trigger.
         /// </summary>

@@ -184,6 +184,38 @@ namespace Armada.Server.Mcp.Tools
                                     });
                                 }
                             }
+
+                            // v2-F3: fleet-scope auto-trigger. Iterate active fleets; require
+                            // CurateThreshold be set per fleet (NULL disables the trigger).
+                            // Anchor-vessel resolution: prefer an active vessel from the same
+                            // fleet so worktree provisioning lands in a fleet member.
+                            List<Fleet> fleets = await database.Fleets.EnumerateAsync().ConfigureAwait(false);
+                            foreach (Fleet f in fleets)
+                            {
+                                if (!f.Active) continue;
+                                if (!f.CurateThreshold.HasValue) continue;
+                                List<Vessel> fleetVessels = await database.Vessels.EnumerateByFleetAsync(f.Id).ConfigureAwait(false);
+                                Vessel? fleetAnchor = null;
+                                foreach (Vessel fv in fleetVessels)
+                                {
+                                    if (fv.Active) { fleetAnchor = fv; break; }
+                                }
+                                fleetAnchor ??= identityAnchor;
+                                if (fleetAnchor == null) continue;
+
+                                ReflectionDispatcher.DispatchResult? fleetDispatched = await reflectionDispatcher
+                                    .TryAutoDispatchFleetCurateAfterAuditDrainAsync(f, fleetAnchor)
+                                    .ConfigureAwait(false);
+                                if (fleetDispatched != null)
+                                {
+                                    reflectionsDispatched.Add(new
+                                    {
+                                        fleetId = f.Id,
+                                        missionId = fleetDispatched.MissionId,
+                                        mode = "fleet-curate"
+                                    });
+                                }
+                            }
                         }
                     }
 
