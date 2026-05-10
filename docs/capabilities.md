@@ -324,3 +324,154 @@ consolidate-threshold and reorganize-threshold checks. Fires when:
 - No dedicated hint-editing MCP tool -- all mutations go through the
   reflection -> orchestrator review path.
 - No auto-disable of stale hints without orchestrator review.
+
+## Reflections v2-F2 (Persona/Captain Identity Memory)
+
+F2 extends `armada_consolidate_memory` with two cross-vessel modes
+(`persona-curate` and `captain-curate`) that mine identity-pinned habits
+across all vessels a persona role or captain has served and propose
+updates to dedicated learned-notes playbooks. Briefs assemble through a
+new three-way merge so vessel, persona, and captain content all flow
+into mission instructions.
+
+### Identity-Pinned Memory Stores
+
+| Store | Filename | Lifecycle |
+|---|---|---|
+| Persona-learned | `persona-<sanitized-name>-learned.md` | Bootstrapped at install for every registered persona; new personas registered later get the playbook auto-created via `ReflectionMemoryBootstrapService.BootstrapPersonaAsync` (also wired into `armada_create_persona`). |
+| Captain-learned | `captain-<sanitized-id>-learned.md` | Lazy-created on the first accepted captain-curate. Captain ids are kebab-cased for the filename (`cpt_aaa_BBB` -> `cpt-aaa-bbb`). |
+
+`Persona.LearnedPlaybookId`, `Persona.DefaultPlaybooks`, `Captain.Learned-
+PlaybookId`, and `Captain.DefaultPlaybooks` (all migration v44 nullable
+columns) carry the wiring; the bootstrap and accept paths keep them in
+sync with the playbook table.
+
+### New Modes
+
+| Mode | Target | Brief content | Token budget |
+|---|---|---|---|
+| `persona-curate` | `personaName` (required for single dispatch) | Persona-learned playbook content + cross-vessel mission-pattern aggregate produced by `HabitPatternMiner.MinePersonaAsync` (per-captain breakdown, judge verdict trends, recurring failure-mode tags, top-touched files, signal-mail counts) + recent persona-curate rejections. | 400000 |
+| `captain-curate` | `captainId` (required for single dispatch) | Captain-learned playbook content (may be empty) + `MineCaptainAsync` aggregate (persona-role distribution, failure tags, top-touched files) + recent captain-curate rejections. | 400000 |
+
+`HabitPatternMiner` lives at `src/Armada.Core/Memory/HabitPatternMiner.cs`
+and reuses parts of `PackUsageMiner` for the file-touch signal. Failure-
+mode taxonomy starts with 10 curated tags including `missing-tests`,
+`test-framework-mismatch`, `compiler-warnings-suppressed`, `wrong-file-paths`,
+`scope-creep`, `decomposition-too-fine`, `merge-conflict`, and
+`auth-violation`; the consolidator's prompt may emit ad-hoc tags too.
+
+### Three-Way Merge In Mission Briefs
+
+`AdmiralService.PersistMissionPlaybooksAsync` layers playbooks for every
+mission as `vessel.DefaultPlaybooks -> persona.DefaultPlaybooks ->
+captain.DefaultPlaybooks -> voyage.SelectedPlaybooks ->
+mission.SelectedPlaybooks`. Identity layers apply on top of the existing
+selections so identity-pinned playbooks (which carry novel ids) coexist
+with vessel-pinned content; on a rare playbookId collision captain wins
+last. The resulting `MissionPlaybookSnapshot` set persists through the
+existing v1 path. Persona layers apply at create time; captain layer
+applies whenever `mission.CaptainId` is already set on persist (preferred-
+captain pin) and otherwise lights up at the next snapshot persist
+post-assignment.
+
+### Cross-Vessel Concurrency Locks
+
+| Mode | Lock |
+|---|---|
+| `consolidate` / `reorganize` / `consolidate-and-reorganize` / `pack-curate` | Max one MemoryConsolidator mission per **vessel** (existing). |
+| `persona-curate` | Max one MemoryConsolidator mission per **persona name** -- `persona_curate_in_flight` returns the existing missionId. |
+| `captain-curate` | Max one MemoryConsolidator mission per **captain id** -- `captain_curate_in_flight`. |
+
+Locks are independent: a vessel-scoped consolidate can run alongside a
+persona-curate alongside a captain-curate as long as targets are disjoint.
+The dispatcher picks the first active vessel as a worktree anchor for
+identity-curate dispatches because the brief itself is vessel-agnostic
+but voyage creation still requires a vessel.
+
+### Validation Gates At Accept Time
+
+`armada_accept_memory_proposal` runs persona-curate / captain-curate
+candidates through:
+
+| Error | Trigger |
+|---|---|
+| `output_contract_violation` | Standard fence/parser failure (shared with v1). |
+| `persona_note_confidence_too_low` | Persona-curate note tagged `[low]`. |
+| `persona_note_specifies_captain` | Persona-curate note body contains a `cpt_<id>` token. |
+| `persona_note_insufficient_evidence` | Persona-curate note's `Source:` line lists fewer than 3 `msn_*` ids. |
+| `persona_curate_ignored_counter_evidence` / `captain_curate_ignored_counter_evidence` | Prior playbook had >=1 confidence-tagged note, the diff shipped zero modifications/disables, AND the new content silently dropped at least one tagged note. The bias-correction loop. |
+| `dual_judge_not_passed` | `dualJudge=true` dispatch where the two Judge siblings did not both verdict PASS (shared with F4). |
+
+`identity_note_conflicts_vessel` is a non-blocking warning: for each
+proposed identity note, the accept tool reads the top-N vessels (default
+3, `IdentityNoteConflictVesselSampleSize`) where this identity has served,
+shingles both texts to 3-grams, and flags when Jaccard similarity exceeds
+`IdentityNoteConflictThreshold` (default 0.7). Operators decide whether
+to accept, reject, or override via `editsMarkdown`. `editsMarkdown`
+bypasses every gate (consistent with v1).
+
+The persona/captain row's `LearnedPlaybookId` and `DefaultPlaybooks`
+update transparently on first accept (lazy-creation for captains) so the
+next mission with that identity in scope picks up the new playbook through
+the three-way merge.
+
+### Audit-Drain Auto-Trigger
+
+After per-vessel triggers run, `armada_drain_audit_queue` enumerates
+active personas (skipping the `MemoryConsolidator` self-persona) and
+captains. For each identity with a non-null `CurateThreshold`, the dispatch
+counts terminal missions since the most recent `reflection.accepted` event
+filtered by mode + targetId; when the count meets the threshold, the
+anti-thrash gate re-runs the miner with the since-window and requires
+fresh signal (any failure-mode tag, judge FAIL, or judge NEEDS_REVISION)
+before firing. Successful auto-dispatches surface in
+`reflectionsDispatched[]` with shape
+`{personaName, missionId, mode:"persona-curate"}` or
+`{captainId, missionId, mode:"captain-curate"}`.
+
+### Captain-Curate Fan-Out Gate
+
+`armada_consolidate_memory(captainId: null, mode: "captain-curate")` is
+gated by `ArmadaSettings.AllowCaptainCurateFanOut` (default `false`).
+When disabled, the call returns `captain_fan_out_disabled`. Persona-curate
+fan-out is unconditional. Both fan-out paths emit a
+`dual_judge_fan_out_starvation_risk` warning when the dispatched count
+exceeds `IdentityCurateDualJudgeFanOutWarnThreshold` (default 3) with
+`dualJudge=true`.
+
+### Quality Metrics On `reflection.accepted`
+
+For persona-curate / captain-curate accept events the payload carries:
+
+| Field | Notes |
+|---|---|
+| `mode` | `persona-curate` or `captain-curate`. |
+| `targetType` / `targetId` | `persona` + persona name, or `captain` + captain id. |
+| `notesAdded` / `notesModified` / `notesDisabled` | Diff-derived counts. |
+| `missionsExamined` | Diff-derived. |
+| `captainsInScope` | Diff-derived (persona-curate only). |
+| `evidenceConfidence` | Diff-derived (`high`/`mixed`/`low`). |
+| `vesselConflictWarnings` | Count of `identity_note_conflicts_vessel` warnings. |
+| `dualJudge` / `judgeVerdicts` | Shared with F4. |
+
+### Configuration (F2 Defaults)
+
+| Knob | Default | Where |
+|---|---|---|
+| `DefaultIdentityCurateTokenBudget` | 400000 | `ArmadaSettings` |
+| `IdentityCurateInitialWindow` | 25 missions | `ArmadaSettings` |
+| `IdentityNoteConflictVesselSampleSize` | 3 | `ArmadaSettings` |
+| `IdentityNoteConflictThreshold` | 0.7 | `ArmadaSettings` |
+| `IdentityCurateDualJudgeFanOutWarnThreshold` | 3 | `ArmadaSettings` |
+| `AllowCaptainCurateFanOut` | false | `ArmadaSettings` |
+| `Persona.CurateThreshold` | NULL (auto-trigger disabled) | `armada_update_persona` (when surfaced) |
+| `Captain.CurateThreshold` | NULL (auto-trigger disabled) | `armada_update_captain` (when surfaced) |
+
+### Non-Goals (F2 Scope)
+
+- No auto-decay of low-confidence notes -- the consolidator must explicitly disable.
+- No time-based note expiry -- notes change via reflection, not by date.
+- No cross-persona inheritance -- each persona's notes are independent.
+- No direct-edit MCP tool for identity notes (`armada_update_*_notes`).
+- No auto-routing based on captain notes -- admiral tier-routing remains the primary scheduler.
+- No schedule-based identity curate (cron); audit-drain auto-trigger is the only scheduled path.

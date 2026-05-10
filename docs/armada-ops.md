@@ -216,3 +216,53 @@ Returns immediately with the dispatched mission ID. The mission runs asynchronou
 5. **Check confidence:** Review the `evidenceConfidence` field in the diff. "low" confidence indicates the consolidator was uncertain -- consider manual review or rejection with guidance.
 
 6. **Inactive vessel handling:** If you need reflections on an inactive vessel, manually trigger with `armada_consolidate_memory` rather than relying on auto-dispatch.
+
+## Identity-Curate Operator Workflow (Reflections v2-F2)
+
+Persona-curate and captain-curate add cross-vessel identity-pinned
+learned-notes playbooks. Operator workflow extends the v1 review loop:
+
+1. **Audit-drain triggers** identity-curate auto-dispatches alongside
+   the per-vessel triggers. Look for `mode: "persona-curate"` and
+   `mode: "captain-curate"` entries in `reflectionsDispatched[]`. Each
+   carries `personaName` or `captainId` instead of `vesselId`.
+
+2. **Manual dispatch** for re-evaluation without new evidence: call
+   `armada_consolidate_memory` with `personaName` (or `captainId`) and
+   `mode`. Manual dispatches bypass the audit-drain anti-thrash gate;
+   the brief still surfaces existing notes plus rejection history.
+
+3. **Captain-curate fan-out** is gated by
+   `ArmadaSettings.AllowCaptainCurateFanOut` (default false). Enabling
+   it dispatches one captain-curate per active captain on a single
+   `armada_consolidate_memory(captainId: null)` call -- this can be
+   expensive with a 25+ captain pool and risks correlated bias, so
+   prefer single-target dispatches in normal operation.
+
+4. **Counter-evidence checks at accept time** are the bias-correction
+   loop. When the prior identity playbook had confidence-tagged notes,
+   the new candidate MUST disable or weaken any contradicted notes;
+   otherwise accept fails with
+   `persona_curate_ignored_counter_evidence` (or the captain variant).
+   Reject with a specific reason rather than `editsMarkdown`-overriding
+   so the next cycle's brief surfaces the gap.
+
+5. **Vessel conflict warnings** are non-blocking: identity notes
+   resembling vessel-learned content surface as
+   `identity_note_conflicts_vessel` warnings. Decide whether the
+   identity override is intentional (accept), redundant (reject), or
+   needs editing (`editsMarkdown`). The Jaccard threshold and vessel
+   sample size are tunable in `ArmadaSettings`.
+
+6. **Identity playbooks attach automatically** through the three-way
+   merge in `AdmiralService.PersistMissionPlaybooksAsync`
+   (vessel -> persona -> captain). Persona-pinned content lights up
+   on every mission running that persona; captain-pinned content
+   lights up the next time the captain is assigned. No manual
+   `selectedPlaybooks` editing is required.
+
+7. **Threshold tuning:** start with `Persona.CurateThreshold = 30`
+   for high-throughput personas (Architect, Worker) and leave others
+   null. Captain thresholds should be sparse -- enable per-captain
+   only when behavior signal is strong enough to justify the dispatch
+   cost.

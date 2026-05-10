@@ -2755,6 +2755,97 @@ Audit-drain auto-trigger fires pack-curate when `Vessel.PackCurateThreshold` is 
 
 Hint mutations land **only** through the pack-curate reflection -> orchestrator review path. There is no dedicated `armada_update_pack_hint` tool.
 
+### Persona-Curate / Captain-Curate Modes (v2-F2)
+
+v2-F2 adds two cross-vessel modes (`persona-curate` and `captain-curate`)
+that mine identity-pinned habits and propose updates to dedicated learned-
+notes playbooks. The MCP tool input gains `personaName` and `captainId`;
+at most one of `vesselId` / `personaName` / `captainId` may be supplied.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `personaName` | string | For `mode: "persona-curate"` (single dispatch); null fan-outs across registered personas | Persona name (e.g. `Architect`). |
+| `captainId` | string | For `mode: "captain-curate"` (single dispatch); null fan-outs only when `AllowCaptainCurateFanOut=true` | Captain id (`cpt_` prefix). |
+
+Single-target response shape gains `targetType` (`persona` / `captain`)
+and `targetId` (persona name / captain id) so callers can correlate
+without re-parsing the dispatched event payload.
+
+Fan-out response uses the existing `dispatchedMissions[]` / `skipped[]`
+shape with persona-keyed or captain-keyed entries and the
+`dual_judge_fan_out_starvation_risk` warning when `dualJudge=true`
+dispatches exceed `IdentityCurateDualJudgeFanOutWarnThreshold`.
+
+**F2-Specific Errors:**
+
+| Error | When |
+|-------|------|
+| `target_ambiguous` | Multiple of `vesselId` / `personaName` / `captainId` supplied. |
+| `personaName_required` | `mode: "persona-curate"` with neither personaName nor fan-out (handled implicitly when the dispatcher infers fan-out). |
+| `captain_fan_out_disabled` | `mode: "captain-curate"` with `captainId: null` and `AllowCaptainCurateFanOut=false` (default). |
+| `persona_not_found` / `captain_not_found` | Single-target dispatch with unknown identity. |
+| `persona_curate_in_flight` / `captain_curate_in_flight` | Existing in-flight identity-curate mission for the same target; returns existing `missionId`. |
+| `no_persona_evidence_available` / `no_captain_evidence_available` | Zero terminal missions and zero rejections in scope. |
+| `no_anchor_vessel_available` | Cluster has no active vessel; identity-curate dispatches need one as the worktree pivot. |
+
+**Output Contract (persona-curate / captain-curate):**
+
+The `reflections-candidate` fence contains markdown identity-pinned
+learned notes. Each note line begins with a `[high]` / `[medium]` /
+`[low]` confidence tag and includes a `Source: msn_xxx, msn_yyy, msn_zzz`
+attribution line so the next curate cycle can re-evaluate the supporting
+evidence. Section headings use `## <Section>` (`Routing preferences`,
+`Anti-patterns`, `Context scaffolding`).
+
+The `reflections-diff` fence is JSON: `{added:[{section,summary,confidence}],
+modified:[{noteRef,change,supportingMissions}], disabled:[{noteRef,reason}],
+evidenceConfidence:"high|mixed|low", missionsExamined:N, captainsInScope:N
+(persona-curate only), notes:"one paragraph"}`.
+
+**Accept-Time Validation (persona-curate / captain-curate):**
+
+| Error | Trigger |
+|-------|---------|
+| `output_contract_violation` | Standard fence/parser failure or missing/empty candidate. |
+| `persona_note_confidence_too_low` | Persona-curate note tagged `[low]`. |
+| `persona_note_specifies_captain` | Persona-curate note body matches `\bcpt_[A-Za-z0-9_]+`. |
+| `persona_note_insufficient_evidence` | Persona-curate note's `Source:` line lists fewer than 3 `msn_*` ids. |
+| `persona_curate_ignored_counter_evidence` / `captain_curate_ignored_counter_evidence` | Prior playbook had >=1 confidence-tagged note, the diff shipped 0 modifications/disables, AND the new content silently dropped at least one tagged note. |
+| `dual_judge_not_passed` | `dualJudge=true` and the two Judge siblings did not both verdict PASS (shared with F4). |
+
+`identity_note_conflicts_vessel` is a non-blocking warning attached to
+the response when a proposed identity note has a 3-gram Jaccard similarity
+above `IdentityNoteConflictThreshold` (default 0.7) against any of the
+top-N (default 3) vessel-learned playbooks the identity has served.
+`editsMarkdown` bypasses every gate.
+
+**`reflection.accepted` payload (persona-curate / captain-curate):**
+
+`mode`, `targetType`, `targetId`, `notesAdded`, `notesModified`,
+`notesDisabled`, `missionsExamined`, `captainsInScope` (persona scope),
+`evidenceConfidence`, `vesselConflictWarnings` (count), `dualJudge`,
+`judgeVerdicts`.
+
+**Audit-Drain Auto-Trigger:** `armada_drain_audit_queue` enumerates
+personas (skipping `MemoryConsolidator`) and captains; for each identity
+with a non-null `CurateThreshold`, fires when the terminal-mission count
+since the most recent identity accept event meets the threshold AND the
+anti-thrash gate detects a fresh failure tag, judge FAIL, or judge
+NEEDS_REVISION. Reported in `reflectionsDispatched[]` as
+`{personaName, missionId, mode:"persona-curate"}` or
+`{captainId, missionId, mode:"captain-curate"}`.
+
+**Identity-Pinned Playbook Filenames:**
+
+- Persona: `persona-<sanitized-name>-learned.md` (e.g. `persona-architect-learned.md`).
+- Captain: `captain-<sanitized-id>-learned.md` (e.g. `captain-cpt-mouwolsu-xoddchjh252-learned.md`).
+
+Sanitization lowercases and replaces non-alphanumeric runs with single
+hyphens. Persona-learned playbooks are bootstrapped at install for every
+registered persona; new personas registered via `armada_create_persona`
+get the playbook auto-created at registration time. Captain-learned
+playbooks are lazy-created on the first accepted captain-curate.
+
 ---
 
 ### armada_accept_memory_proposal
