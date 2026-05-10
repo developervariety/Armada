@@ -450,7 +450,13 @@ namespace Armada.Core.Services
             return null;
         }
 
-        internal static ReflectionMode? ParseModeString(string? value)
+        /// <summary>
+        /// Parse a wire-string mode value into a <see cref="ReflectionMode"/>.
+        /// Returns null when the value is missing or unrecognized.
+        /// </summary>
+        /// <param name="value">Wire string from MCP input or event payload.</param>
+        /// <returns>Parsed mode, or null when not parseable.</returns>
+        public static ReflectionMode? ParseModeString(string? value)
         {
             if (String.IsNullOrEmpty(value)) return null;
             string trimmed = value.Trim();
