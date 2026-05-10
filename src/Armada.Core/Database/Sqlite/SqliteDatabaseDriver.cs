@@ -478,6 +478,9 @@ namespace Armada.Core.Database.Sqlite
             try { captain.AllowedPersonas = NullableString(reader["allowed_personas"]); } catch { }
             try { captain.PreferredPersona = NullableString(reader["preferred_persona"]); } catch { }
             try { captain.RuntimeOptionsJson = NullableString(reader["runtime_options_json"]); } catch { }
+            try { captain.DefaultPlaybooks = NullableString(reader["default_playbooks"]); } catch { }
+            try { captain.CurateThreshold = reader["curate_threshold"] == DBNull.Value ? null : Convert.ToInt32(reader["curate_threshold"]); } catch { }
+            try { captain.LearnedPlaybookId = NullableString(reader["learned_playbook_id"]); } catch { }
             return captain;
         }
 

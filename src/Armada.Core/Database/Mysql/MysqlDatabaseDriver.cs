@@ -502,6 +502,11 @@ namespace Armada.Core.Database.Mysql
                     43,
                     "Add vessel_pack_hints table and pack_curate_threshold column to vessels (v2-F1)",
                     TableQueries.MigrationV43Statements
+                ),
+                new SchemaMigration(
+                    44,
+                    "Add identity-memory columns to personas and captains (Reflections v2-F2)",
+                    TableQueries.MigrationV44Statements
                 )
             };
         }

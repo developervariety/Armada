@@ -1,6 +1,7 @@
 namespace Armada.Core.Models
 {
     using System;
+    using System.Collections.Generic;
     using System.Text.Json.Serialization;
 
     /// <summary>
@@ -64,6 +65,48 @@ namespace Armada.Core.Models
         /// Whether this is a built-in system persona. Built-in personas cannot be deleted.
         /// </summary>
         public bool IsBuiltIn { get; set; } = false;
+
+        /// <summary>
+        /// JSON-serialized list of <see cref="SelectedPlaybook"/> entries automatically merged
+        /// into every mission whose stage runs this persona (Reflections v2-F2). Layered between
+        /// vessel.DefaultPlaybooks and captain.DefaultPlaybooks during brief assembly.
+        /// Use <see cref="GetDefaultPlaybooks"/> to obtain a parsed list.
+        /// </summary>
+        public string? DefaultPlaybooks { get; set; } = null;
+
+        /// <summary>
+        /// Per-persona persona-curate trigger threshold (mission-count window since last
+        /// accepted persona-curate). Null disables the audit-drain auto-trigger for this
+        /// persona (Reflections v2-F2).
+        /// </summary>
+        public int? CurateThreshold { get; set; } = null;
+
+        /// <summary>
+        /// FK reference to the persona-&lt;name&gt;-learned playbook. Set at v2-F2 install bootstrap
+        /// (or at first <c>PersonaSeedService</c> seed for personas added after install).
+        /// Null means the persona has no learned playbook yet.
+        /// </summary>
+        public string? LearnedPlaybookId { get; set; } = null;
+
+        /// <summary>
+        /// Lazy-parses the <see cref="DefaultPlaybooks"/> JSON string. Returns an empty list when unset or malformed.
+        /// </summary>
+        /// <returns>List of <see cref="SelectedPlaybook"/> entries.</returns>
+        public List<SelectedPlaybook> GetDefaultPlaybooks()
+        {
+            if (String.IsNullOrWhiteSpace(DefaultPlaybooks)) return new List<SelectedPlaybook>();
+            try
+            {
+                List<SelectedPlaybook>? list = System.Text.Json.JsonSerializer.Deserialize<List<SelectedPlaybook>>(
+                    DefaultPlaybooks,
+                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                return list ?? new List<SelectedPlaybook>();
+            }
+            catch
+            {
+                return new List<SelectedPlaybook>();
+            }
+        }
 
         /// <summary>
         /// Whether the persona is active.

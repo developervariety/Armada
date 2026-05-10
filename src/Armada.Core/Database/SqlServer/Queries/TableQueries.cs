@@ -500,6 +500,28 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"
                     IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID('vessel_pack_hints') AND name = 'idx_vessel_pack_hints_vessel')
                         CREATE INDEX idx_vessel_pack_hints_vessel ON vessel_pack_hints(vessel_id, active);"
+                ),
+                new SchemaMigration(
+                    44,
+                    "Add identity-memory columns to personas and captains (Reflections v2-F2)",
+                    @"
+                    IF COL_LENGTH('personas', 'default_playbooks') IS NULL
+                        ALTER TABLE personas ADD default_playbooks NVARCHAR(MAX) NULL;",
+                    @"
+                    IF COL_LENGTH('personas', 'curate_threshold') IS NULL
+                        ALTER TABLE personas ADD curate_threshold INT NULL;",
+                    @"
+                    IF COL_LENGTH('personas', 'learned_playbook_id') IS NULL
+                        ALTER TABLE personas ADD learned_playbook_id NVARCHAR(450) NULL;",
+                    @"
+                    IF COL_LENGTH('captains', 'default_playbooks') IS NULL
+                        ALTER TABLE captains ADD default_playbooks NVARCHAR(MAX) NULL;",
+                    @"
+                    IF COL_LENGTH('captains', 'curate_threshold') IS NULL
+                        ALTER TABLE captains ADD curate_threshold INT NULL;",
+                    @"
+                    IF COL_LENGTH('captains', 'learned_playbook_id') IS NULL
+                        ALTER TABLE captains ADD learned_playbook_id NVARCHAR(450) NULL;"
                 )
             };
         }

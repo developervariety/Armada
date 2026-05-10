@@ -922,6 +922,14 @@ namespace Armada.Core.Database.Sqlite.Queries
                         FOREIGN KEY (vessel_id) REFERENCES vessels(id) ON DELETE CASCADE
                     );",
                     @"CREATE INDEX IF NOT EXISTS idx_vessel_pack_hints_vessel ON vessel_pack_hints(vessel_id, active);"
+                ),
+                new SchemaMigration(44, "Add identity-memory columns to personas and captains (Reflections v2-F2)",
+                    @"ALTER TABLE personas ADD COLUMN default_playbooks TEXT;",
+                    @"ALTER TABLE personas ADD COLUMN curate_threshold INTEGER;",
+                    @"ALTER TABLE personas ADD COLUMN learned_playbook_id TEXT;",
+                    @"ALTER TABLE captains ADD COLUMN default_playbooks TEXT;",
+                    @"ALTER TABLE captains ADD COLUMN curate_threshold INTEGER;",
+                    @"ALTER TABLE captains ADD COLUMN learned_playbook_id TEXT;"
                 )
             };
         }

@@ -1,5 +1,7 @@
 namespace Armada.Core.Models
 {
+    using System;
+    using System.Collections.Generic;
     using System.Text.Json.Serialization;
     using Armada.Core.Enums;
 
@@ -132,6 +134,48 @@ namespace Armada.Core.Models
         /// Last heartbeat timestamp in UTC.
         /// </summary>
         public DateTime? LastHeartbeatUtc { get; set; } = null;
+
+        /// <summary>
+        /// JSON-serialized list of <see cref="Models.SelectedPlaybook"/> entries automatically
+        /// merged into every mission this captain runs (Reflections v2-F2). Layered last in the
+        /// three-way merge (vessel -&gt; persona -&gt; captain), so captain content wins on collision.
+        /// Use <see cref="GetDefaultPlaybooks"/> to obtain a parsed list.
+        /// </summary>
+        public string? DefaultPlaybooks { get; set; } = null;
+
+        /// <summary>
+        /// Per-captain captain-curate trigger threshold (mission-count window since last accepted
+        /// captain-curate). Null disables the audit-drain auto-trigger for this captain
+        /// (Reflections v2-F2).
+        /// </summary>
+        public int? CurateThreshold { get; set; } = null;
+
+        /// <summary>
+        /// FK reference to the captain-&lt;sanitized-id&gt;-learned playbook. Lazy-created on the
+        /// first accepted captain-curate proposal (Reflections v2-F2). Null means no learned
+        /// playbook has been accepted for this captain yet.
+        /// </summary>
+        public string? LearnedPlaybookId { get; set; } = null;
+
+        /// <summary>
+        /// Lazy-parses the <see cref="DefaultPlaybooks"/> JSON string. Returns an empty list when unset or malformed.
+        /// </summary>
+        /// <returns>List of <see cref="Models.SelectedPlaybook"/> entries.</returns>
+        public List<SelectedPlaybook> GetDefaultPlaybooks()
+        {
+            if (String.IsNullOrWhiteSpace(DefaultPlaybooks)) return new List<SelectedPlaybook>();
+            try
+            {
+                List<SelectedPlaybook>? list = System.Text.Json.JsonSerializer.Deserialize<List<SelectedPlaybook>>(
+                    DefaultPlaybooks,
+                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                return list ?? new List<SelectedPlaybook>();
+            }
+            catch
+            {
+                return new List<SelectedPlaybook>();
+            }
+        }
 
         /// <summary>
         /// Creation timestamp in UTC.

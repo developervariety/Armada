@@ -796,6 +796,21 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
+        /// Migration v44 statements for adding identity-memory columns to personas and captains
+        /// (Reflections v2-F2). MySQL 8.0+ supports `IF NOT EXISTS` on `ALTER TABLE ... ADD COLUMN`,
+        /// so this migration is a flat list of additive ALTERs and idempotent on re-run.
+        /// </summary>
+        public static readonly string[] MigrationV44Statements = new string[]
+        {
+            @"ALTER TABLE personas ADD COLUMN IF NOT EXISTS default_playbooks LONGTEXT NULL;",
+            @"ALTER TABLE personas ADD COLUMN IF NOT EXISTS curate_threshold INT NULL;",
+            @"ALTER TABLE personas ADD COLUMN IF NOT EXISTS learned_playbook_id VARCHAR(450) NULL;",
+            @"ALTER TABLE captains ADD COLUMN IF NOT EXISTS default_playbooks LONGTEXT NULL;",
+            @"ALTER TABLE captains ADD COLUMN IF NOT EXISTS curate_threshold INT NULL;",
+            @"ALTER TABLE captains ADD COLUMN IF NOT EXISTS learned_playbook_id VARCHAR(450) NULL;"
+        };
+
+        /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
         public static readonly string[] Indexes = new string[]
