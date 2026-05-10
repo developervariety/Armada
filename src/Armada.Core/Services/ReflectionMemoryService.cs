@@ -981,6 +981,12 @@ namespace Armada.Core.Services
             if (String.Equals(trimmed, "pack-curate", StringComparison.OrdinalIgnoreCase)
                 || String.Equals(trimmed, "packcurate", StringComparison.OrdinalIgnoreCase))
                 return ReflectionMode.PackCurate;
+            if (String.Equals(trimmed, "persona-curate", StringComparison.OrdinalIgnoreCase)
+                || String.Equals(trimmed, "personacurate", StringComparison.OrdinalIgnoreCase))
+                return ReflectionMode.PersonaCurate;
+            if (String.Equals(trimmed, "captain-curate", StringComparison.OrdinalIgnoreCase)
+                || String.Equals(trimmed, "captaincurate", StringComparison.OrdinalIgnoreCase))
+                return ReflectionMode.CaptainCurate;
             return null;
         }
 
@@ -996,6 +1002,8 @@ namespace Armada.Core.Services
                 ReflectionMode.Reorganize => "reorganize",
                 ReflectionMode.ConsolidateAndReorganize => "consolidate-and-reorganize",
                 ReflectionMode.PackCurate => "pack-curate",
+                ReflectionMode.PersonaCurate => "persona-curate",
+                ReflectionMode.CaptainCurate => "captain-curate",
                 _ => "consolidate"
             };
         }

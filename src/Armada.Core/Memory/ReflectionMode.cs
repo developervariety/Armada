@@ -31,5 +31,19 @@ namespace Armada.Core.Memory
         /// to the vessel_pack_hints table. Brief is JSON-output-oriented (NOT markdown).
         /// </summary>
         PackCurate = 3,
+
+        /// <summary>
+        /// v2-F2 persona-curate mode: aggregate cross-vessel mission-pattern evidence for one
+        /// persona role and propose updates to the persona-&lt;name&gt;-learned playbook. Cross-
+        /// vessel scope; HabitPatternMiner produces the brief evidence bundle.
+        /// </summary>
+        PersonaCurate = 4,
+
+        /// <summary>
+        /// v2-F2 captain-curate mode: aggregate cross-vessel mission-pattern evidence for one
+        /// captain id and propose updates to the captain-&lt;sanitized-id&gt;-learned playbook.
+        /// Cross-vessel scope; the captain learned playbook is lazy-created on first accept.
+        /// </summary>
+        CaptainCurate = 5,
     }
 }

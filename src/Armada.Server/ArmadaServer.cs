@@ -204,7 +204,8 @@ namespace Armada.Server
             _ReflectionMemory = new ReflectionMemoryService(_Database);
             string missionLogDirectory = System.IO.Path.Combine(_Settings.LogDirectory, "missions");
             PackUsageMiner packUsageMiner = new PackUsageMiner(missionLogDirectory);
-            _ReflectionDispatcher = new ReflectionDispatcher(_Database, _Admiral, _Settings, _ReflectionMemory, packUsageMiner);
+            HabitPatternMiner habitPatternMiner = new HabitPatternMiner(_Database, packUsageMiner);
+            _ReflectionDispatcher = new ReflectionDispatcher(_Database, _Admiral, _Settings, _ReflectionMemory, packUsageMiner, habitPatternMiner);
 
             ArchitectPersonaSyncService architectSync = new ArchitectPersonaSyncService(_Database, _Logging);
             bool architectSynced = await architectSync.SyncAsync().ConfigureAwait(false);

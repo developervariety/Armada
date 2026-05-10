@@ -533,6 +533,91 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Default token budget for persona-curate / captain-curate reflection missions
+        /// (Reflections v2-F2). Cross-vessel mining can be expensive; default 400000.
+        /// Must be >= 1.
+        /// </summary>
+        public int DefaultIdentityCurateTokenBudget
+        {
+            get => _DefaultIdentityCurateTokenBudget;
+            set
+            {
+                if (value < 1) throw new ArgumentOutOfRangeException(nameof(DefaultIdentityCurateTokenBudget), "Must be >= 1");
+                _DefaultIdentityCurateTokenBudget = value;
+            }
+        }
+
+        /// <summary>
+        /// Initial persona/captain-curate evidence window: number of newest terminal missions
+        /// mined when no persona-curate / captain-curate has been accepted yet for the target
+        /// (Reflections v2-F2). Default 25. Must be >= 1.
+        /// </summary>
+        public int IdentityCurateInitialWindow
+        {
+            get => _IdentityCurateInitialWindow;
+            set
+            {
+                if (value < 1) throw new ArgumentOutOfRangeException(nameof(IdentityCurateInitialWindow), "Must be >= 1");
+                _IdentityCurateInitialWindow = value;
+            }
+        }
+
+        /// <summary>
+        /// When true, allow null-captainId fan-out for captain-curate dispatches (Reflections
+        /// v2-F2). Default false: fan-out across the captain pool can be expensive (25+ captains)
+        /// and risks correlated bias. Single-captain dispatches are always allowed.
+        /// </summary>
+        public bool AllowCaptainCurateFanOut { get; set; } = false;
+
+        /// <summary>
+        /// Top-N vessel sample size for the vessel-vs-identity conflict-detection check that
+        /// fires at persona/captain-curate accept time (Reflections v2-F2). For each proposed
+        /// identity note, the accept tool reads the vessel-learned content for the top N vessels
+        /// the identity has served and warns when keyword overlap exceeds the threshold.
+        /// Default 3. Must be &gt;= 0 (0 disables the check).
+        /// </summary>
+        public int IdentityNoteConflictVesselSampleSize
+        {
+            get => _IdentityNoteConflictVesselSampleSize;
+            set
+            {
+                if (value < 0) throw new ArgumentOutOfRangeException(nameof(IdentityNoteConflictVesselSampleSize), "Must be >= 0");
+                _IdentityNoteConflictVesselSampleSize = value;
+            }
+        }
+
+        /// <summary>
+        /// Jaccard similarity threshold (3-gram shingle) above which a proposed identity note
+        /// is flagged as conflicting with vessel-learned content (Reflections v2-F2). Default
+        /// 0.7. Must be in (0.0, 1.0].
+        /// </summary>
+        public double IdentityNoteConflictThreshold
+        {
+            get => _IdentityNoteConflictThreshold;
+            set
+            {
+                if (value <= 0.0 || value > 1.0) throw new ArgumentOutOfRangeException(nameof(IdentityNoteConflictThreshold), "Must be in (0.0, 1.0]");
+                _IdentityNoteConflictThreshold = value;
+            }
+        }
+
+        /// <summary>
+        /// Cross-target fan-out warning threshold for persona/captain-curate dispatches with
+        /// dualJudge=true (Reflections v2-F2). When a fan-out would dispatch to more than this
+        /// many targets with dualJudge=true, the response includes a starvation-risk warning.
+        /// Default 3.
+        /// </summary>
+        public int IdentityCurateDualJudgeFanOutWarnThreshold
+        {
+            get => _IdentityCurateDualJudgeFanOutWarnThreshold;
+            set
+            {
+                if (value < 1) throw new ArgumentOutOfRangeException(nameof(IdentityCurateDualJudgeFanOutWarnThreshold), "Must be >= 1");
+                _IdentityCurateDualJudgeFanOutWarnThreshold = value;
+            }
+        }
+
+        /// <summary>
         /// Minimum number of <c>AuditDeepPicked = true</c> entries pending review before
         /// admiral fires a desktop notification on the next health-check cycle. 0 disables
         /// the notification entirely. Default is 1 -- as soon as Judge flags one entry,
@@ -664,6 +749,11 @@ namespace Armada.Core.Settings
         private int _PackCurateInitialWindow = 25;
         private int _PackHintConflictPriorityMargin = 50;
         private int _PackCurateDualJudgeFanOutWarnThreshold = 3;
+        private int _DefaultIdentityCurateTokenBudget = 400000;
+        private int _IdentityCurateInitialWindow = 25;
+        private int _IdentityNoteConflictVesselSampleSize = 3;
+        private double _IdentityNoteConflictThreshold = 0.7;
+        private int _IdentityCurateDualJudgeFanOutWarnThreshold = 3;
         private RemoteControlSettings _RemoteControl = new RemoteControlSettings();
         private DatabaseSettings _Database = new DatabaseSettings();
         private CodeIndexSettings _CodeIndex = new CodeIndexSettings();

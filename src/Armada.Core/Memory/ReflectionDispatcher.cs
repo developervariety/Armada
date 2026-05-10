@@ -27,6 +27,7 @@ namespace Armada.Core.Memory
         private readonly ArmadaSettings _Settings;
         private readonly IReflectionMemoryService _Memory;
         private readonly PackUsageMiner? _PackUsageMiner;
+        private readonly HabitPatternMiner? _HabitPatternMiner;
         private const int _CharactersPerToken = 4;
         private const int _MaxDiffChars = 24000;
         private const int _MaxAgentOutputChars = 12000;
@@ -68,12 +69,34 @@ namespace Armada.Core.Memory
             ArmadaSettings settings,
             IReflectionMemoryService memory,
             PackUsageMiner? packUsageMiner)
+            : this(database, admiral, settings, memory, packUsageMiner, null)
+        {
+        }
+
+        /// <summary>
+        /// Instantiate with explicit miners. v2-F2 wires both <see cref="PackUsageMiner"/>
+        /// (pack-curate) and <see cref="HabitPatternMiner"/> (persona/captain-curate).
+        /// </summary>
+        /// <param name="database">Database driver.</param>
+        /// <param name="admiral">Admiral service.</param>
+        /// <param name="settings">Armada settings.</param>
+        /// <param name="memory">Reflection memory service.</param>
+        /// <param name="packUsageMiner">Pack-usage miner; null disables pack-curate brief assembly.</param>
+        /// <param name="habitPatternMiner">Habit-pattern miner; null disables persona/captain-curate brief assembly.</param>
+        public ReflectionDispatcher(
+            DatabaseDriver database,
+            IAdmiralService admiral,
+            ArmadaSettings settings,
+            IReflectionMemoryService memory,
+            PackUsageMiner? packUsageMiner,
+            HabitPatternMiner? habitPatternMiner)
         {
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _Admiral = admiral ?? throw new ArgumentNullException(nameof(admiral));
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _Memory = memory ?? throw new ArgumentNullException(nameof(memory));
             _PackUsageMiner = packUsageMiner;
+            _HabitPatternMiner = habitPatternMiner;
         }
 
         #endregion
@@ -158,6 +181,15 @@ namespace Armada.Core.Memory
             if (mode == ReflectionMode.PackCurate)
             {
                 return await BuildPackCurateBriefAsync(vessel, tokenBudget, token).ConfigureAwait(false);
+            }
+
+            if (mode == ReflectionMode.PersonaCurate || mode == ReflectionMode.CaptainCurate)
+            {
+                // Identity-scope brief assembly does not pivot on a vessel; callers should use
+                // BuildPersonaCurateBriefAsync / BuildCaptainCurateBriefAsync directly. Keep
+                // the signature compatibility shim by returning an empty bundle so legacy
+                // call sites do not crash.
+                return new EvidenceBundleResult { Brief = "", EvidenceMissionCount = 0, Mode = mode };
             }
 
             List<string> rejectedProposalNotes = await _Memory.ReadRejectedProposalNotesAsync(vessel, token).ConfigureAwait(false);
@@ -292,6 +324,192 @@ namespace Armada.Core.Memory
                 RejectedProposalCount = packCurateRejections.Count,
                 Truncated = skipped > 0,
                 Mode = ReflectionMode.PackCurate
+            };
+        }
+
+        /// <summary>
+        /// Build the persona-curate brief: persona-learned playbook content + cross-vessel
+        /// mission-pattern aggregation produced by <see cref="HabitPatternMiner"/> +
+        /// recently rejected persona-curate proposals (Reflections v2-F2).
+        /// </summary>
+        /// <param name="persona">Persona being curated.</param>
+        /// <param name="tokenBudget">Approximate token budget for the brief.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Evidence bundle result; <see cref="EvidenceBundleResult.EvidenceMissionCount"/>
+        ///   reflects the number of terminal missions aggregated by the miner.</returns>
+        public async Task<EvidenceBundleResult> BuildPersonaCurateBriefAsync(
+            Persona persona,
+            int tokenBudget,
+            CancellationToken token = default)
+        {
+            if (persona == null) throw new ArgumentNullException(nameof(persona));
+            if (tokenBudget < 1) tokenBudget = _Settings.DefaultIdentityCurateTokenBudget;
+
+            string playbookContent = await ReadPersonaLearnedPlaybookContentAsync(persona, token).ConfigureAwait(false);
+            DateTime? sinceUtc = await ResolveLastAcceptedIdentityCurateAtAsync("persona-curate", persona.Name, token).ConfigureAwait(false);
+            HabitPatternResult? aggregate = null;
+            if (_HabitPatternMiner != null)
+            {
+                aggregate = await _HabitPatternMiner.MinePersonaAsync(persona.Name, sinceUtc, _Settings.IdentityCurateInitialWindow, token).ConfigureAwait(false);
+            }
+
+            List<string> rejections = await ReadIdentityRejectionsAsync("persona-curate", persona.Name, token).ConfigureAwait(false);
+            string brief = ComposeIdentityCurateBrief(
+                "persona-curate",
+                persona.Name,
+                playbookContent,
+                aggregate,
+                rejections);
+
+            return new EvidenceBundleResult
+            {
+                Brief = brief,
+                EvidenceMissionCount = aggregate?.MissionsExamined ?? 0,
+                RejectedProposalCount = rejections.Count,
+                Truncated = false,
+                Mode = ReflectionMode.PersonaCurate
+            };
+        }
+
+        /// <summary>
+        /// Build the captain-curate brief: captain-learned playbook content (may be empty
+        /// when no captain-curate has been accepted yet) + cross-vessel mission-pattern
+        /// aggregation + recently rejected captain-curate proposals (Reflections v2-F2).
+        /// </summary>
+        /// <param name="captain">Captain being curated.</param>
+        /// <param name="tokenBudget">Approximate token budget for the brief.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Evidence bundle result; <see cref="EvidenceBundleResult.EvidenceMissionCount"/>
+        ///   reflects the number of terminal missions aggregated by the miner.</returns>
+        public async Task<EvidenceBundleResult> BuildCaptainCurateBriefAsync(
+            Captain captain,
+            int tokenBudget,
+            CancellationToken token = default)
+        {
+            if (captain == null) throw new ArgumentNullException(nameof(captain));
+            if (tokenBudget < 1) tokenBudget = _Settings.DefaultIdentityCurateTokenBudget;
+
+            string playbookContent = await ReadCaptainLearnedPlaybookContentAsync(captain, token).ConfigureAwait(false);
+            DateTime? sinceUtc = await ResolveLastAcceptedIdentityCurateAtAsync("captain-curate", captain.Id, token).ConfigureAwait(false);
+            HabitPatternResult? aggregate = null;
+            if (_HabitPatternMiner != null)
+            {
+                aggregate = await _HabitPatternMiner.MineCaptainAsync(captain.Id, sinceUtc, _Settings.IdentityCurateInitialWindow, token).ConfigureAwait(false);
+            }
+
+            List<string> rejections = await ReadIdentityRejectionsAsync("captain-curate", captain.Id, token).ConfigureAwait(false);
+            string brief = ComposeIdentityCurateBrief(
+                "captain-curate",
+                captain.Id,
+                playbookContent,
+                aggregate,
+                rejections);
+
+            return new EvidenceBundleResult
+            {
+                Brief = brief,
+                EvidenceMissionCount = aggregate?.MissionsExamined ?? 0,
+                RejectedProposalCount = rejections.Count,
+                Truncated = false,
+                Mode = ReflectionMode.CaptainCurate
+            };
+        }
+
+        /// <summary>
+        /// Search for an unfinished MemoryConsolidator mission for a specific persona
+        /// (cross-vessel scope). Honest TOCTOU guard, same shape as the per-vessel check.
+        /// </summary>
+        /// <param name="personaName">Persona name.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The in-flight mission when present, otherwise null.</returns>
+        public async Task<Mission?> IsPersonaCurateInFlightAsync(string personaName, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(personaName)) throw new ArgumentNullException(nameof(personaName));
+
+            return await FindIdentityCurateInFlightAsync("persona-curate", personaName, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Search for an unfinished MemoryConsolidator mission for a specific captain
+        /// (cross-vessel scope). Honest TOCTOU guard.
+        /// </summary>
+        /// <param name="captainId">Captain id.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The in-flight mission when present, otherwise null.</returns>
+        public async Task<Mission?> IsCaptainCurateInFlightAsync(string captainId, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(captainId)) throw new ArgumentNullException(nameof(captainId));
+
+            return await FindIdentityCurateInFlightAsync("captain-curate", captainId, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Dispatch an identity-scoped MemoryConsolidator mission (persona-curate or captain-
+        /// curate). The mission is created without a vesselId pin because the brief is cross-
+        /// vessel; admiral's voyage-creation path will pick a representative vessel for
+        /// worktree provisioning. Emits a <c>reflection.dispatched</c> event whose payload
+        /// includes <c>targetType</c> + <c>targetId</c> for downstream filtering.
+        /// </summary>
+        /// <param name="mode">Mode (persona-curate or captain-curate).</param>
+        /// <param name="targetId">Persona name or captain id.</param>
+        /// <param name="title">Mission title.</param>
+        /// <param name="brief">Mission brief (assembled by Build*CurateBriefAsync).</param>
+        /// <param name="dualJudge">When true, dispatches the ReflectionsDualJudge pipeline.</param>
+        /// <param name="tokenBudget">Token budget recorded in the dispatched event.</param>
+        /// <param name="anchorVessel">Vessel used as the worktree pivot for the mission.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Dispatch result.</returns>
+        public async Task<DispatchResult> DispatchIdentityCurateAsync(
+            ReflectionMode mode,
+            string targetId,
+            string title,
+            string brief,
+            bool dualJudge,
+            int tokenBudget,
+            Vessel anchorVessel,
+            CancellationToken token = default)
+        {
+            if (mode != ReflectionMode.PersonaCurate && mode != ReflectionMode.CaptainCurate)
+                throw new ArgumentOutOfRangeException(nameof(mode), "DispatchIdentityCurateAsync requires PersonaCurate or CaptainCurate");
+            if (String.IsNullOrEmpty(targetId)) throw new ArgumentNullException(nameof(targetId));
+            if (String.IsNullOrEmpty(title)) throw new ArgumentNullException(nameof(title));
+            if (String.IsNullOrEmpty(brief)) throw new ArgumentNullException(nameof(brief));
+            if (anchorVessel == null) throw new ArgumentNullException(nameof(anchorVessel));
+
+            string pipelineId = dualJudge ? "ReflectionsDualJudge" : "Reflections";
+            List<MissionDescription> missions = new List<MissionDescription>
+            {
+                new MissionDescription(title, brief)
+                {
+                    PreferredModel = "high"
+                }
+            };
+
+            Voyage voyage = await _Admiral.DispatchVoyageAsync(
+                title,
+                brief,
+                anchorVessel.Id,
+                missions,
+                pipelineId,
+                token).ConfigureAwait(false);
+
+            List<Mission> voyageMissions = await _Database.Missions.EnumerateByVoyageAsync(voyage.Id, token).ConfigureAwait(false);
+            Mission? reflectionMission = voyageMissions
+                .Where(m => String.Equals(m.Persona, "MemoryConsolidator", StringComparison.OrdinalIgnoreCase))
+                .OrderBy(m => m.CreatedUtc)
+                .FirstOrDefault()
+                ?? voyageMissions.OrderBy(m => m.CreatedUtc).FirstOrDefault();
+            if (reflectionMission == null)
+                throw new InvalidOperationException("Identity-curate dispatch created no mission");
+
+            await EmitIdentityDispatchedEventAsync(reflectionMission, anchorVessel, mode, targetId, dualJudge, tokenBudget, token).ConfigureAwait(false);
+
+            return new DispatchResult
+            {
+                MissionId = reflectionMission.Id,
+                VoyageId = voyage.Id,
+                Mode = mode,
+                DualJudge = dualJudge
             };
         }
 
@@ -1039,6 +1257,295 @@ namespace Armada.Core.Memory
         private static DateTime GetEvidenceTime(Mission mission)
         {
             return mission.CompletedUtc ?? mission.LastUpdateUtc;
+        }
+
+        private async Task<string> ReadPersonaLearnedPlaybookContentAsync(Persona persona, CancellationToken token)
+        {
+            string tenantId = !String.IsNullOrEmpty(persona.TenantId) ? persona.TenantId! : Constants.DefaultTenantId;
+            string fileName = "persona-" + SanitizeIdentityName(persona.Name) + "-learned.md";
+            Playbook? playbook = await _Database.Playbooks.ReadByFileNameAsync(tenantId, fileName, token).ConfigureAwait(false);
+            return playbook?.Content ?? "# Persona Learned Notes -- " + persona.Name + "\n\nNo accepted persona-curate notes yet.";
+        }
+
+        private async Task<string> ReadCaptainLearnedPlaybookContentAsync(Captain captain, CancellationToken token)
+        {
+            string tenantId = !String.IsNullOrEmpty(captain.TenantId) ? captain.TenantId! : Constants.DefaultTenantId;
+            string fileName = "captain-" + SanitizeIdentityName(captain.Id) + "-learned.md";
+            Playbook? playbook = await _Database.Playbooks.ReadByFileNameAsync(tenantId, fileName, token).ConfigureAwait(false);
+            return playbook?.Content ?? "# Captain Learned Notes -- " + captain.Id + "\n\nNo accepted captain-curate notes yet.";
+        }
+
+        /// <summary>Sanitize a persona name or captain id into a learned-playbook filename segment.</summary>
+        /// <param name="raw">Raw identity string.</param>
+        /// <returns>Sanitized lowercase kebab-case form.</returns>
+        public static string SanitizeIdentityName(string raw)
+        {
+            if (String.IsNullOrEmpty(raw)) return "unknown";
+            string lower = raw.ToLowerInvariant();
+            string replaced = System.Text.RegularExpressions.Regex.Replace(lower, "[^a-z0-9]+", "-");
+            string trimmed = replaced.Trim('-');
+            return String.IsNullOrEmpty(trimmed) ? "unknown" : trimmed;
+        }
+
+        private async Task<DateTime?> ResolveLastAcceptedIdentityCurateAtAsync(string mode, string targetId, CancellationToken token)
+        {
+            EnumerationQuery query = new EnumerationQuery
+            {
+                EventType = "reflection.accepted",
+                PageNumber = 1,
+                PageSize = 100
+            };
+            EnumerationResult<ArmadaEvent> page = await _Database.Events.EnumerateAsync(query, token).ConfigureAwait(false);
+            foreach (ArmadaEvent evt in page.Objects.OrderByDescending(e => e.CreatedUtc))
+            {
+                if (String.IsNullOrEmpty(evt.Payload)) continue;
+                try
+                {
+                    using JsonDocument doc = JsonDocument.Parse(evt.Payload);
+                    JsonElement root = doc.RootElement;
+                    if (!root.TryGetProperty("mode", out JsonElement modeEl)
+                        || modeEl.ValueKind != JsonValueKind.String
+                        || !String.Equals(modeEl.GetString(), mode, StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    if (!root.TryGetProperty("targetId", out JsonElement tEl)
+                        || tEl.ValueKind != JsonValueKind.String
+                        || !String.Equals(tEl.GetString(), targetId, StringComparison.Ordinal))
+                        continue;
+
+                    return evt.CreatedUtc;
+                }
+                catch (JsonException) { continue; }
+            }
+            return null;
+        }
+
+        private async Task<List<string>> ReadIdentityRejectionsAsync(string mode, string targetId, CancellationToken token)
+        {
+            EnumerationQuery query = new EnumerationQuery
+            {
+                EventType = "reflection.rejected",
+                PageNumber = 1,
+                PageSize = 100
+            };
+            EnumerationResult<ArmadaEvent> page = await _Database.Events.EnumerateAsync(query, token).ConfigureAwait(false);
+            List<string> notes = new List<string>();
+            foreach (ArmadaEvent evt in page.Objects.OrderByDescending(e => e.CreatedUtc))
+            {
+                if (String.IsNullOrEmpty(evt.Payload)) continue;
+                try
+                {
+                    using JsonDocument doc = JsonDocument.Parse(evt.Payload);
+                    JsonElement root = doc.RootElement;
+                    if (!root.TryGetProperty("mode", out JsonElement modeEl)
+                        || modeEl.ValueKind != JsonValueKind.String
+                        || !String.Equals(modeEl.GetString(), mode, StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    if (!root.TryGetProperty("targetId", out JsonElement tEl)
+                        || tEl.ValueKind != JsonValueKind.String
+                        || !String.Equals(tEl.GetString(), targetId, StringComparison.Ordinal))
+                        continue;
+
+                    string missionId = root.TryGetProperty("missionId", out JsonElement mEl) && mEl.ValueKind == JsonValueKind.String
+                        ? mEl.GetString() ?? "" : "";
+                    string reason = root.TryGetProperty("reason", out JsonElement rEl) && rEl.ValueKind == JsonValueKind.String
+                        ? rEl.GetString() ?? "" : "";
+                    notes.Add("missionId: " + missionId + " -- " + reason);
+                }
+                catch (JsonException) { continue; }
+            }
+            return notes;
+        }
+
+        private async Task<Mission?> FindIdentityCurateInFlightAsync(string mode, string targetId, CancellationToken token)
+        {
+            EnumerationQuery query = new EnumerationQuery
+            {
+                EventType = "reflection.dispatched",
+                PageNumber = 1,
+                PageSize = 200
+            };
+            EnumerationResult<ArmadaEvent> page = await _Database.Events.EnumerateAsync(query, token).ConfigureAwait(false);
+            foreach (ArmadaEvent evt in page.Objects.OrderByDescending(e => e.CreatedUtc))
+            {
+                if (String.IsNullOrEmpty(evt.Payload) || String.IsNullOrEmpty(evt.MissionId)) continue;
+                try
+                {
+                    using JsonDocument doc = JsonDocument.Parse(evt.Payload);
+                    JsonElement root = doc.RootElement;
+                    if (!root.TryGetProperty("mode", out JsonElement modeEl)
+                        || modeEl.ValueKind != JsonValueKind.String
+                        || !String.Equals(modeEl.GetString(), mode, StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    if (!root.TryGetProperty("targetId", out JsonElement tEl)
+                        || tEl.ValueKind != JsonValueKind.String
+                        || !String.Equals(tEl.GetString(), targetId, StringComparison.Ordinal))
+                        continue;
+                }
+                catch (JsonException) { continue; }
+
+                Mission? mission = await _Database.Missions.ReadAsync(evt.MissionId!, token).ConfigureAwait(false);
+                if (mission == null) continue;
+                if (IsTerminal(mission.Status)) continue;
+                if (!String.Equals(mission.Persona, "MemoryConsolidator", StringComparison.OrdinalIgnoreCase)) continue;
+                return mission;
+            }
+            return null;
+        }
+
+        private async Task EmitIdentityDispatchedEventAsync(
+            Mission mission,
+            Vessel anchorVessel,
+            ReflectionMode mode,
+            string targetId,
+            bool dualJudge,
+            int tokenBudget,
+            CancellationToken token)
+        {
+            try
+            {
+                ArmadaEvent dispatched = new ArmadaEvent(_ReflectionDispatchedEvent, "Identity-curate reflection dispatched.");
+                dispatched.TenantId = mission.TenantId ?? anchorVessel.TenantId ?? Constants.DefaultTenantId;
+                dispatched.EntityType = "mission";
+                dispatched.EntityId = mission.Id;
+                dispatched.MissionId = mission.Id;
+                dispatched.VesselId = anchorVessel.Id;
+                dispatched.VoyageId = mission.VoyageId;
+                dispatched.Payload = JsonSerializer.Serialize(new
+                {
+                    mode = ReflectionMemoryService.ModeToWireString(mode),
+                    dualJudge = dualJudge,
+                    tokenBudget = tokenBudget,
+                    missionId = mission.Id,
+                    targetType = mode == ReflectionMode.PersonaCurate ? "persona" : "captain",
+                    targetId = targetId
+                });
+                await _Database.Events.CreateAsync(dispatched, token).ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+                // Best-effort observability.
+            }
+        }
+
+        private static string ComposeIdentityCurateBrief(
+            string modeWire,
+            string targetId,
+            string playbookContent,
+            HabitPatternResult? aggregate,
+            List<string> rejections)
+        {
+            StringBuilder sb = new StringBuilder();
+            sb.AppendLine("Persona: MemoryConsolidator");
+            sb.AppendLine("Pipeline: Reflections");
+            sb.AppendLine("PreferredModel: high");
+            sb.AppendLine("Title: Curate identity-learned notes for " + targetId);
+            sb.AppendLine("Mode: " + modeWire);
+            sb.AppendLine("Target: " + targetId);
+            sb.AppendLine();
+
+            sb.AppendLine("## CURRENT IDENTITY-LEARNED NOTES");
+            sb.AppendLine(playbookContent);
+            sb.AppendLine();
+
+            sb.AppendLine("## INSTRUCTIONS (" + modeWire + "-specific)");
+            sb.AppendLine("Permitted operations:");
+            sb.AppendLine("- Add new notes about identity-wide patterns observed across the missions in section 3.");
+            sb.AppendLine("- Modify existing notes when evidence shows the pattern has changed (update the [confidence] tag).");
+            sb.AppendLine("- Disable existing notes when evidence shows the pattern no longer holds (the bias-correction loop).");
+            sb.AppendLine();
+            sb.AppendLine("Forbidden operations:");
+            if (modeWire == "persona-curate")
+            {
+                sb.AppendLine("- Do NOT name a specific captain id. If a pattern only applies to one captain, that is captain-curate territory.");
+                sb.AppendLine("- Do NOT add notes derived from fewer than 3 missions or fewer than 2 captains.");
+            }
+            else
+            {
+                sb.AppendLine("- Do NOT make absolute routing claims. Phrase preferences as biases the admiral's tier-routing may consider.");
+            }
+            sb.AppendLine("- Do NOT propose CLAUDE.md edits or code changes.");
+            sb.AppendLine("- Do NOT propose vessel-pinned facts in this mode -- the per-vessel learned-facts playbook is a separate store curated by mode=consolidate.");
+            sb.AppendLine();
+            sb.AppendLine("Confidence guidance:");
+            sb.AppendLine("- high: pattern observed in >=5 missions across >=3 captains (persona) or in >=5 missions for the captain (captain).");
+            sb.AppendLine("- medium: 3-4 missions across >=2 captains (persona) or 3-4 missions for the captain.");
+            sb.AppendLine("- low: not allowed for persona-curate (rejected as persona_note_confidence_too_low). Permitted for captain-curate at first observation, but flag for re-confirmation next cycle.");
+            sb.AppendLine();
+            sb.AppendLine("Re-evaluation handling (REQUIRED):");
+            sb.AppendLine("- Each existing note in section 1 has a `Source: msn_*` line listing supporting missions. If section 3 contains contradicting evidence for any of those missions, you MUST emit a `disabled` or `modified` entry in the diff for that note. Failure to address counter-evidence is rejected at accept time as " + (modeWire == "persona-curate" ? "persona_curate_ignored_counter_evidence" : "captain_curate_ignored_counter_evidence") + ".");
+
+            sb.AppendLine();
+            sb.AppendLine("## CROSS-VESSEL EVIDENCE BUNDLE");
+            if (aggregate == null)
+            {
+                sb.AppendLine("HabitPatternMiner unavailable -- no aggregated evidence bundled.");
+            }
+            else
+            {
+                sb.AppendLine("- missionsExamined: " + aggregate.MissionsExamined);
+                sb.AppendLine("- complete: " + aggregate.MissionsComplete + ", failed: " + aggregate.MissionsFailed + ", cancelled: " + aggregate.MissionsCancelled);
+                sb.AppendLine("- judgeVerdicts: PASS=" + aggregate.JudgePassCount + ", FAIL=" + aggregate.JudgeFailCount + ", NEEDS_REVISION=" + aggregate.JudgeNeedsRevisionCount + ", PENDING=" + aggregate.JudgePendingCount);
+                sb.AppendLine("- averageRecoveryAttempts: " + aggregate.AverageRecoveryAttempts.ToString("0.00"));
+                sb.AppendLine("- signalMailReceivedTotal: " + aggregate.SignalMailReceivedTotal);
+
+                if (aggregate.FailureModeTags.Count > 0)
+                {
+                    sb.AppendLine("- failureModeTags:");
+                    foreach (FailureModeTagCount tag in aggregate.FailureModeTags)
+                        sb.AppendLine("    - " + tag.Tag + ": " + tag.MissionCount);
+                }
+
+                if (aggregate.TopTouchedFiles.Count > 0)
+                {
+                    sb.AppendLine("- topTouchedFiles:");
+                    foreach (FileTouchCount f in aggregate.TopTouchedFiles)
+                        sb.AppendLine("    - " + f.Path + " (" + f.EditCount + ")");
+                }
+
+                if (aggregate.CaptainContributions.Count > 0)
+                {
+                    sb.AppendLine("- captainContributions:");
+                    foreach (CaptainContribution c in aggregate.CaptainContributions)
+                    {
+                        sb.AppendLine("    - " + c.CaptainId
+                            + " runtime=" + (c.Runtime ?? "")
+                            + " model=" + (c.Model ?? "")
+                            + " missions=" + c.MissionCount
+                            + " complete=" + c.CompleteCount
+                            + " failed=" + c.FailedCount
+                            + " cancelled=" + c.CancelledCount);
+                    }
+                }
+
+                if (aggregate.PersonaRoleDistribution.Count > 0)
+                {
+                    sb.AppendLine("- personaRoleDistribution:");
+                    foreach (PersonaRoleCount p in aggregate.PersonaRoleDistribution)
+                        sb.AppendLine("    - " + p.PersonaName + ": " + p.MissionCount);
+                }
+            }
+
+            sb.AppendLine();
+            sb.AppendLine("## RECENTLY REJECTED " + modeWire.ToUpperInvariant() + " PROPOSALS");
+            if (rejections.Count == 0)
+            {
+                sb.AppendLine("No rejected " + modeWire + " proposals recorded for this target.");
+            }
+            else
+            {
+                foreach (string note in rejections)
+                    sb.AppendLine("- " + note);
+            }
+
+            sb.AppendLine();
+            sb.AppendLine("## CONSTRAINTS");
+            sb.AppendLine("- Output must be exactly two fenced blocks named reflections-candidate and reflections-diff.");
+            sb.AppendLine("- The reflections-candidate block is markdown identity-pinned learned-notes content; each note has a `[high]/[medium]/[low]` confidence tag and a `Source: msn_xxx` attribution line.");
+            sb.AppendLine("- The reflections-diff block is JSON: {\"added\":[{section,summary,confidence}], \"modified\":[{noteRef,change,supportingMissions}], \"disabled\":[{noteRef,reason}], \"evidenceConfidence\":\"high|mixed|low\", \"missionsExamined\":N" + (modeWire == "persona-curate" ? ", \"captainsInScope\":N" : "") + ", \"notes\":\"one paragraph\"}.");
+            sb.AppendLine("- Never propose CLAUDE.md edits or code changes.");
+
+            return sb.ToString();
         }
 
         #endregion
