@@ -400,6 +400,7 @@ namespace Armada.Core.Database.Sqlite.Queries
                         allow_concurrent_missions INTEGER NOT NULL DEFAULT 0,
                         last_reflection_mission_id TEXT,
                         reflection_threshold INTEGER,
+                        reorganize_threshold INTEGER,
                         FOREIGN KEY (tenant_id) REFERENCES tenants(id),
                         FOREIGN KEY (user_id) REFERENCES users(id),
                         FOREIGN KEY (fleet_id) REFERENCES fleets(id) ON DELETE SET NULL
@@ -894,6 +895,9 @@ namespace Armada.Core.Database.Sqlite.Queries
                 new SchemaMigration(40, "Add reflection tracking columns to vessels",
                     @"ALTER TABLE vessels ADD COLUMN last_reflection_mission_id TEXT;",
                     @"ALTER TABLE vessels ADD COLUMN reflection_threshold INTEGER;"
+                ),
+                new SchemaMigration(41, "Add reorganize_threshold column to vessels",
+                    @"ALTER TABLE vessels ADD COLUMN reorganize_threshold INTEGER;"
                 )
             };
         }

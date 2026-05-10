@@ -486,6 +486,11 @@ namespace Armada.Core.Database.Mysql
                     40,
                     "Add reflection tracking columns to vessels",
                     TableQueries.MigrationV40Statements
+                ),
+                new SchemaMigration(
+                    41,
+                    "Add reorganize_threshold column to vessels",
+                    TableQueries.MigrationV41Statements
                 )
             };
         }

@@ -456,6 +456,13 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"
                     IF COL_LENGTH('vessels', 'reflection_threshold') IS NULL
                         ALTER TABLE vessels ADD reflection_threshold INT;"
+                ),
+                new SchemaMigration(
+                    41,
+                    "Add reorganize_threshold column to vessels",
+                    @"
+                    IF COL_LENGTH('vessels', 'reorganize_threshold') IS NULL
+                        ALTER TABLE vessels ADD reorganize_threshold INT;"
                 )
             };
         }
@@ -558,6 +565,7 @@ namespace Armada.Core.Database.SqlServer.Queries
                 allow_concurrent_missions BIT NOT NULL DEFAULT 0,
                 last_reflection_mission_id NVARCHAR(MAX),
                 reflection_threshold INT,
+                reorganize_threshold INT,
                 default_branch NVARCHAR(450) NOT NULL DEFAULT 'main',
                 active BIT NOT NULL DEFAULT 1,
                 created_utc NVARCHAR(450) NOT NULL,

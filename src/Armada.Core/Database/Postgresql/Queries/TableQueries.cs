@@ -98,6 +98,7 @@ namespace Armada.Core.Database.Postgresql.Queries
                         allow_concurrent_missions BOOLEAN NOT NULL DEFAULT FALSE,
                         last_reflection_mission_id TEXT,
                         reflection_threshold INTEGER,
+                        reorganize_threshold INTEGER,
                         default_branch TEXT NOT NULL DEFAULT 'main',
                         active BOOLEAN NOT NULL DEFAULT TRUE,
                         created_utc TIMESTAMP NOT NULL,
@@ -594,6 +595,9 @@ namespace Armada.Core.Database.Postgresql.Queries
                 new SchemaMigration(40, "Add reflection tracking columns to vessels",
                     @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS last_reflection_mission_id TEXT;",
                     @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS reflection_threshold INTEGER;"
+                ),
+                new SchemaMigration(41, "Add reorganize_threshold column to vessels",
+                    @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS reorganize_threshold INTEGER;"
                 )
             };
         }

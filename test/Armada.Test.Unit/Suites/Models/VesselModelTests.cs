@@ -158,6 +158,7 @@ namespace Armada.Test.Unit.Suites.Models
                 Vessel vessel = new Vessel();
                 AssertNull(vessel.LastReflectionMissionId, nameof(Vessel.LastReflectionMissionId));
                 AssertNull(vessel.ReflectionThreshold, nameof(Vessel.ReflectionThreshold));
+                AssertNull(vessel.ReorganizeThreshold, nameof(Vessel.ReorganizeThreshold));
             });
 
             await RunTest("Vessel LastReflectionMissionId SetAndGet", () =>
@@ -190,6 +191,21 @@ namespace Armada.Test.Unit.Suites.Models
                 AssertNull(vessel.ReflectionThreshold);
             });
 
+            await RunTest("Vessel ReorganizeThreshold SetAndGet", () =>
+            {
+                Vessel vessel = new Vessel();
+                vessel.ReorganizeThreshold = 55;
+                AssertEqual(55, vessel.ReorganizeThreshold!.Value);
+            });
+
+            await RunTest("Vessel ReorganizeThreshold Nullable", () =>
+            {
+                Vessel vessel = new Vessel();
+                vessel.ReorganizeThreshold = 1;
+                vessel.ReorganizeThreshold = null;
+                AssertNull(vessel.ReorganizeThreshold);
+            });
+
             await RunTest("Vessel Serialization RoundTrip WithReflectionFields", () =>
             {
                 Vessel vessel = new Vessel("ReflectionVessel", "https://github.com/test/reflect");
@@ -215,6 +231,28 @@ namespace Armada.Test.Unit.Suites.Models
                 AssertContains("msn_reflect_present", json);
                 AssertContains("ReflectionThreshold", json);
                 AssertContains("31", json);
+            });
+
+            await RunTest("Vessel Serialization RoundTrip WithReorganizeThreshold", () =>
+            {
+                Vessel vessel = new Vessel("ReorganizeSerialization", "https://github.com/test/reorganize-ser");
+                vessel.ReorganizeThreshold = 73;
+
+                string json = JsonSerializer.Serialize(vessel);
+                Vessel deserialized = JsonSerializer.Deserialize<Vessel>(json)!;
+
+                AssertEqual(vessel.Id, deserialized.Id);
+                AssertEqual(73, deserialized.ReorganizeThreshold!.Value);
+            });
+
+            await RunTest("Vessel Serialization JsonContainsReorganizeThreshold", () =>
+            {
+                Vessel vessel = new Vessel("ReorganizeJsonVessel", "https://github.com/test/reorganize-json");
+                vessel.ReorganizeThreshold = 62;
+
+                string json = JsonSerializer.Serialize(vessel);
+                AssertContains("ReorganizeThreshold", json);
+                AssertContains("62", json);
             });
         }
     }

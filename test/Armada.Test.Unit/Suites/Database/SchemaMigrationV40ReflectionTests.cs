@@ -95,7 +95,7 @@ namespace Armada.Test.Unit.Suites.Database
                         await conn.OpenAsync().ConfigureAwait(false);
                         using (SqliteCommand cmd = conn.CreateCommand())
                         {
-                            cmd.CommandText = "DELETE FROM schema_migrations WHERE version = 40;";
+                            cmd.CommandText = "DELETE FROM schema_migrations WHERE version IN (40, 41);";
                             await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
                         }
                     }
@@ -105,7 +105,7 @@ namespace Armada.Test.Unit.Suites.Database
                     int version = await driver2.GetSchemaVersionAsync().ConfigureAwait(false);
                     driver2.Dispose();
 
-                    AssertEqual(40, version, "schema version should return to v40 after idempotent rerun");
+                    AssertEqual(41, version, "schema version should return to latest after idempotent rerun of reflection columns");
 
                     using (SqliteConnection conn = new SqliteConnection(connectionString))
                     {

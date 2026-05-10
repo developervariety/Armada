@@ -161,6 +161,11 @@ namespace Armada.Core.Models
         public int? ReflectionThreshold { get; set; } = null;
 
         /// <summary>
+        /// Per-vessel reorganize trigger threshold for playbook consolidation. Null means use the global default.
+        /// </summary>
+        public int? ReorganizeThreshold { get; set; } = null;
+
+        /// <summary>
         /// Count of successful auto-landings on this vessel. Used by the auto-land
         /// safety net's calibration period: while this count is below 50, every
         /// auto-landed entry is queued for deep review regardless of critical-trigger

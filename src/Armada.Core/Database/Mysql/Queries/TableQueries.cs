@@ -50,6 +50,7 @@ namespace Armada.Core.Database.Mysql.Queries
             allow_concurrent_missions TINYINT(1) NOT NULL DEFAULT 0,
             last_reflection_mission_id LONGTEXT,
             reflection_threshold INT,
+            reorganize_threshold INT,
             active TINYINT(1) NOT NULL DEFAULT 1,
             created_utc DATETIME(6) NOT NULL,
             last_update_utc DATETIME(6) NOT NULL,
@@ -734,6 +735,14 @@ namespace Armada.Core.Database.Mysql.Queries
         {
             @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS last_reflection_mission_id LONGTEXT;",
             @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS reflection_threshold INT;"
+        };
+
+        /// <summary>
+        /// Migration v41 statements for adding reorganize_threshold to vessels.
+        /// </summary>
+        public static readonly string[] MigrationV41Statements = new string[]
+        {
+            @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS reorganize_threshold INT;"
         };
 
         /// <summary>
