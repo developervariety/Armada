@@ -511,6 +511,77 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("AliasDispatch_SameOrderAliasDependency_WaitsForJudgeSibling", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("alias-dual-judge-dependent-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    Pipeline dualJudge = new Pipeline("AliasDualJudgeDependent");
+                    dualJudge.Stages = new List<PipelineStage>
+                    {
+                        new PipelineStage(1, "MemoryConsolidator") { PreferredModel = "high" },
+                        new PipelineStage(2, "Judge") { PreferredModel = "high" },
+                        new PipelineStage(2, "Judge") { PreferredModel = "high" }
+                    };
+                    dualJudge = await testDb.Driver.Pipelines.CreateAsync(dualJudge).ConfigureAwait(false);
+
+                    PersistingAdmiralDouble admiralDouble = new PersistingAdmiralDouble(testDb.Driver, dualJudge);
+
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null);
+                    AssertNotNull(dispatchHandler, "armada_dispatch handler must be registered");
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "dependent dual judge voyage",
+                        description = "verifies alias dependency resolves after same-order sibling expansion",
+                        vesselId = vessel.Id,
+                        pipeline = "AliasDualJudgeDependent",
+                        missions = new object[]
+                        {
+                            new { title = "first consolidation", description = "d1", alias = "M1" },
+                            new { title = "second consolidation", description = "d2", alias = "M2", dependsOnMissionAlias = "M1" }
+                        }
+                    });
+
+                    object result = await dispatchHandler!(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+                    AssertFalse(resultJson.Contains("\"Error\""), "Should not return error: " + resultJson);
+
+                    Voyage voyage = (Voyage)result;
+                    List<Mission> all = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+                    AssertEqual(6, all.Count, "Two MDs * three pipeline stages = 6 missions");
+
+                    List<Mission> m1Stages = all.Where(m => m.Title.Contains("first consolidation")).ToList();
+                    List<Mission> m2Stages = all.Where(m => m.Title.Contains("second consolidation")).ToList();
+                    AssertEqual(3, m1Stages.Count, "M1 should produce three stage missions");
+                    AssertEqual(3, m2Stages.Count, "M2 should produce three stage missions");
+
+                    Mission m1Memory = m1Stages.First(m => m.Persona == "MemoryConsolidator");
+                    List<Mission> m1Judges = m1Stages.Where(m => m.Persona == "Judge").ToList();
+                    Mission m2Memory = m2Stages.First(m => m.Persona == "MemoryConsolidator");
+                    List<Mission> m2Judges = m2Stages.Where(m => m.Persona == "Judge").ToList();
+
+                    AssertEqual(2, m1Judges.Count, "M1 should have two Judge siblings");
+                    AssertEqual(2, m2Judges.Count, "M2 should have two Judge siblings");
+                    AssertTrue(m1Judges.Any(m => m.Id == m2Memory.DependsOnMissionId),
+                        "M2 MemoryConsolidator should wait for a Judge sibling from M1");
+                    AssertFalse(m1Memory.Id == m2Memory.DependsOnMissionId,
+                        "M2 MemoryConsolidator should not depend on M1 MemoryConsolidator before M1 Judges finish");
+
+                    AssertEqual(m2Memory.Id, m2Judges[0].DependsOnMissionId,
+                        "First M2 Judge should depend on M2 MemoryConsolidator");
+                    AssertEqual(m2Memory.Id, m2Judges[1].DependsOnMissionId,
+                        "Second M2 Judge should depend on M2 MemoryConsolidator");
+                }
+            });
+
             await RunTest("AliasDispatch_LoggingOmitted_DownstreamStageSnapshotsStillPersisted", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
