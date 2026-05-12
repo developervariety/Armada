@@ -4,6 +4,8 @@ namespace Armada.Core.Services
     using System.Collections.Generic;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Database;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
@@ -32,6 +34,7 @@ namespace Armada.Core.Services
         private readonly RemoteTriggerSettings _Settings;
         private readonly IRemoteTriggerHttpClient _Http;
         private readonly IAgentWakeProcessHost? _AgentWakeHost;
+        private readonly DatabaseDriver? _Database;
         private readonly LoggingModule _Logging;
         private readonly TimeSpan _RetryDelay;
         private readonly int _ThrottleCap;
@@ -54,28 +57,41 @@ namespace Armada.Core.Services
         /// and all Fire* methods are no-ops.
         /// </summary>
         public RemoteTriggerService(RemoteTriggerSettings? settings, IRemoteTriggerHttpClient http, LoggingModule logging)
-            : this(settings, http, null, logging, _DefaultRetryDelay)
+            : this(settings, http, null, null, logging, _DefaultRetryDelay)
         {
         }
 
         /// <summary>Overload for test isolation: accepts a custom <paramref name="retryDelay"/> so unit tests run without sleeping.</summary>
         public RemoteTriggerService(RemoteTriggerSettings? settings, IRemoteTriggerHttpClient http, LoggingModule logging, TimeSpan retryDelay)
-            : this(settings, http, null, logging, retryDelay)
+            : this(settings, http, null, null, logging, retryDelay)
         {
         }
 
         /// <summary>Production overload: includes an <see cref="IAgentWakeProcessHost"/> for AgentWake mode support.</summary>
         public RemoteTriggerService(RemoteTriggerSettings? settings, IRemoteTriggerHttpClient http, IAgentWakeProcessHost? agentWakeHost, LoggingModule logging)
-            : this(settings, http, agentWakeHost, logging, _DefaultRetryDelay)
+            : this(settings, http, agentWakeHost, null, logging, _DefaultRetryDelay)
         {
         }
 
-        /// <summary>Full overload: includes AgentWake process host and custom retry delay for test isolation.</summary>
+        /// <summary>Production overload: AgentWake process host plus database driver for MCP notification delivery mode.</summary>
+        public RemoteTriggerService(RemoteTriggerSettings? settings, IRemoteTriggerHttpClient http, IAgentWakeProcessHost? agentWakeHost, DatabaseDriver? database, LoggingModule logging)
+            : this(settings, http, agentWakeHost, database, logging, _DefaultRetryDelay)
+        {
+        }
+
+        /// <summary>Test overload preserving the original 5-arg signature with retry delay.</summary>
         public RemoteTriggerService(RemoteTriggerSettings? settings, IRemoteTriggerHttpClient http, IAgentWakeProcessHost? agentWakeHost, LoggingModule logging, TimeSpan retryDelay)
+            : this(settings, http, agentWakeHost, null, logging, retryDelay)
+        {
+        }
+
+        /// <summary>Full overload: includes AgentWake process host, optional database driver for MCP notification delivery, and custom retry delay for test isolation.</summary>
+        public RemoteTriggerService(RemoteTriggerSettings? settings, IRemoteTriggerHttpClient http, IAgentWakeProcessHost? agentWakeHost, DatabaseDriver? database, LoggingModule logging, TimeSpan retryDelay)
         {
             _Settings = settings ?? new RemoteTriggerSettings { Enabled = false };
             _Http = http ?? throw new ArgumentNullException(nameof(http));
             _AgentWakeHost = agentWakeHost;
+            _Database = database;
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _RetryDelay = retryDelay;
             int throttleCap = _Settings.ThrottleCapPerHour;
@@ -103,12 +119,33 @@ namespace Armada.Core.Services
         {
             if (_Settings.IsAgentWakeConfigured())
             {
-                if (_AgentWakeHost == null)
+                AgentWakeDeliveryMode deliveryMode = _Settings.AgentWake?.DeliveryMode ?? AgentWakeDeliveryMode.SpawnProcess;
+                bool didMcp = false;
+                bool didSpawn = false;
+
+                if (deliveryMode == AgentWakeDeliveryMode.McpNotification || deliveryMode == AgentWakeDeliveryMode.Both)
                 {
-                    _Logging.Warn(_Header + "AgentWake mode configured but no IAgentWakeProcessHost wired; skipping");
-                    return;
+                    await WriteWakeSignalAsync(vesselId, text, critical: false, token).ConfigureAwait(false);
+                    didMcp = true;
                 }
-                await FireAgentWakeDrainerAsync(vesselId, text, token).ConfigureAwait(false);
+
+                if (deliveryMode == AgentWakeDeliveryMode.SpawnProcess || deliveryMode == AgentWakeDeliveryMode.Both)
+                {
+                    if (_AgentWakeHost == null)
+                    {
+                        _Logging.Warn(_Header + "AgentWake SpawnProcess mode configured but no IAgentWakeProcessHost wired; skipping spawn");
+                    }
+                    else
+                    {
+                        await FireAgentWakeDrainerAsync(vesselId, text, token).ConfigureAwait(false);
+                        didSpawn = true;
+                    }
+                }
+
+                if (!didMcp && !didSpawn)
+                {
+                    _Logging.Warn(_Header + "AgentWake mode configured (delivery=" + deliveryMode + ") but no delivery path fired");
+                }
                 return;
             }
 
@@ -155,12 +192,33 @@ namespace Armada.Core.Services
         {
             if (_Settings.IsAgentWakeConfigured())
             {
-                if (_AgentWakeHost == null)
+                AgentWakeDeliveryMode deliveryMode = _Settings.AgentWake?.DeliveryMode ?? AgentWakeDeliveryMode.SpawnProcess;
+                bool didMcp = false;
+                bool didSpawn = false;
+
+                if (deliveryMode == AgentWakeDeliveryMode.McpNotification || deliveryMode == AgentWakeDeliveryMode.Both)
                 {
-                    _Logging.Warn(_Header + "AgentWake mode configured but no IAgentWakeProcessHost wired; skipping critical");
-                    return;
+                    await WriteWakeSignalAsync(vesselId: null, text, critical: true, token).ConfigureAwait(false);
+                    didMcp = true;
                 }
-                await FireAgentWakeCriticalAsync(text, token).ConfigureAwait(false);
+
+                if (deliveryMode == AgentWakeDeliveryMode.SpawnProcess || deliveryMode == AgentWakeDeliveryMode.Both)
+                {
+                    if (_AgentWakeHost == null)
+                    {
+                        _Logging.Warn(_Header + "AgentWake SpawnProcess mode configured but no IAgentWakeProcessHost wired; skipping critical spawn");
+                    }
+                    else
+                    {
+                        await FireAgentWakeCriticalAsync(text, token).ConfigureAwait(false);
+                        didSpawn = true;
+                    }
+                }
+
+                if (!didMcp && !didSpawn)
+                {
+                    _Logging.Warn(_Header + "AgentWake mode configured (delivery=" + deliveryMode + ") but no critical delivery path fired");
+                }
                 return;
             }
 
@@ -233,6 +291,45 @@ namespace Armada.Core.Services
         #endregion
 
         #region Private-Methods
+
+        /// <summary>
+        /// Writes a <see cref="SignalTypeEnum.Wake"/> signal row carrying the wake text. Interactive
+        /// orchestrators drain these via <c>armada_enumerate entityType=signals signalType=Wake
+        /// unreadOnly=true</c> and acknowledge with <c>armada_mark_signal_read</c>. Used when
+        /// <see cref="AgentWakeDeliveryMode.McpNotification"/> or
+        /// <see cref="AgentWakeDeliveryMode.Both"/> is configured.
+        /// </summary>
+        /// <param name="vesselId">Source vessel id, or null/empty for cross-vessel critical wakes.</param>
+        /// <param name="text">Wake-text payload as produced by <see cref="MissionOutcomeWakeHandler.BuildWakeText"/> or the critical caller.</param>
+        /// <param name="critical">When true, the signal payload is prefixed with <c>[CRITICAL]</c> so a poller can route it differently.</param>
+        /// <param name="token">Cancellation token.</param>
+        private async Task WriteWakeSignalAsync(string? vesselId, string text, bool critical, CancellationToken token)
+        {
+            if (_Database == null)
+            {
+                _Logging.Warn(_Header + "AgentWake McpNotification mode configured but no DatabaseDriver wired; skipping signal write");
+                return;
+            }
+
+            try
+            {
+                string body = text ?? string.Empty;
+                if (!string.IsNullOrEmpty(vesselId))
+                {
+                    // Signal model has no VesselId field today; encode it into the payload prefix so
+                    // operators can grep without an extra schema migration. Format: "[vsl=<vid>] <text>".
+                    body = "[vsl=" + vesselId + "] " + body;
+                }
+                string payload = critical ? "[CRITICAL] " + body : body;
+                Signal signal = new Signal(SignalTypeEnum.Wake, payload);
+                signal.TenantId = Constants.DefaultTenantId;
+                await _Database.Signals.CreateAsync(signal, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "WriteWakeSignalAsync failed: " + ex.Message);
+            }
+        }
 
         private async Task FireAgentWakeDrainerAsync(string vesselId, string text, CancellationToken token)
         {

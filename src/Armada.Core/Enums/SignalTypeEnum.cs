@@ -49,6 +49,15 @@ namespace Armada.Core.Enums
         /// Persistent mail message.
         /// </summary>
         [EnumMember(Value = "Mail")]
-        Mail
+        Mail,
+
+        /// <summary>
+        /// Orchestrator-targeted wake notification. Replaces the AgentWake process spawn
+        /// when <see cref="Armada.Core.Settings.AgentWakeDeliveryMode.McpNotification"/> is
+        /// configured. Interactive orchestrators drain these via
+        /// <c>armada_enumerate entityType=signals signalType=Wake unreadOnly=true</c>.
+        /// </summary>
+        [EnumMember(Value = "Wake")]
+        Wake
     }
 }

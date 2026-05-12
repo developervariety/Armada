@@ -18,6 +18,39 @@ namespace Armada.Core.Settings
     }
 
     /// <summary>
+    /// Delivery channel for AgentWake events. Lets operators choose between
+    /// the historical process-spawn behavior (AFK orchestrator) and an
+    /// MCP-pollable signal channel (interactive orchestrator running in the
+    /// same admiral instance).
+    /// </summary>
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public enum AgentWakeDeliveryMode
+    {
+        /// <summary>
+        /// Spawn the agent CLI as a headless process (current default). Best when
+        /// the operator is AFK with the interactive session closed; the spawned
+        /// process resumes the saved conversation and drives the orchestrator turn
+        /// autonomously.
+        /// </summary>
+        SpawnProcess,
+
+        /// <summary>
+        /// Write a <see cref="Armada.Core.Enums.SignalTypeEnum.Wake"/> signal row
+        /// instead of spawning a process. Interactive operators drain these via
+        /// <c>armada_enumerate entityType=signals signalType=Wake unreadOnly=true</c>
+        /// and acknowledge with <c>armada_mark_signal_read</c>.
+        /// </summary>
+        McpNotification,
+
+        /// <summary>
+        /// Do both: spawn a process AND write a Wake signal. Useful for transition
+        /// or belt-and-suspenders deployments; double-fires are documented as an
+        /// opt-in race the operator accepts.
+        /// </summary>
+        Both,
+    }
+
+    /// <summary>
     /// Configuration for AgentWake mode -- starts a local Claude or Codex process on wake events.
     /// Lives under the <c>remoteTrigger.agentWake</c> key in settings.json.
     /// Default values allow opt-in with only <c>mode: "AgentWake"</c> and no other fields.
@@ -47,6 +80,14 @@ namespace Armada.Core.Settings
 
         /// <summary>Optional working directory for the spawned process. Null uses the process default.</summary>
         public string? WorkingDirectory { get; set; }
+
+        /// <summary>
+        /// Delivery mode for AgentWake events. Defaults to
+        /// <see cref="AgentWakeDeliveryMode.SpawnProcess"/> for backward
+        /// compatibility; interactive orchestrators should set this to
+        /// <see cref="AgentWakeDeliveryMode.McpNotification"/>.
+        /// </summary>
+        public AgentWakeDeliveryMode DeliveryMode { get; set; } = AgentWakeDeliveryMode.SpawnProcess;
 
         /// <summary>Seconds before the spawned agent process is killed. Defaults to 600 (10 minutes).</summary>
         public int TimeoutSeconds

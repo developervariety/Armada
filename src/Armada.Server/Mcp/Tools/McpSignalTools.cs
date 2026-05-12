@@ -91,6 +91,40 @@ namespace Armada.Server.Mcp.Tools
                     result.ResolveStatus();
                     return (object)result;
                 });
+
+            register(
+                "armada_mark_signal_read",
+                "Mark a single signal as read (idempotent). Used by interactive orchestrators draining AgentWake notifications via armada_enumerate entityType=signals signalType=Wake unreadOnly=true. Returns status=marked when the signal flipped from unread to read, already_read when the signal was already marked, or not_found when no signal exists with the given id.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        signalId = new { type = "string", description = "Signal ID (sig_ prefix) to acknowledge." }
+                    },
+                    required = new[] { "signalId" }
+                },
+                async (args) =>
+                {
+                    MarkSignalReadArgs request = JsonSerializer.Deserialize<MarkSignalReadArgs>(args!.Value, _JsonOptions)!;
+                    if (String.IsNullOrEmpty(request.SignalId))
+                        return (object)new { Error = "signalId is required" };
+
+                    Signal? signal = await database.Signals.ReadAsync(request.SignalId).ConfigureAwait(false);
+                    if (signal == null)
+                        return (object)new { Status = "not_found", SignalId = request.SignalId };
+
+                    if (signal.Read)
+                        return (object)new { Status = "already_read", SignalId = request.SignalId };
+
+                    await database.Signals.MarkReadAsync(request.SignalId).ConfigureAwait(false);
+                    return (object)new { Status = "marked", SignalId = request.SignalId };
+                });
+        }
+
+        private sealed class MarkSignalReadArgs
+        {
+            public string SignalId { get; set; } = string.Empty;
         }
     }
 }
