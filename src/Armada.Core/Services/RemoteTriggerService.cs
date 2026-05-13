@@ -300,7 +300,7 @@ namespace Armada.Core.Services
         /// <see cref="AgentWakeDeliveryMode.Both"/> is configured.
         /// </summary>
         /// <param name="vesselId">Source vessel id, or null/empty for cross-vessel critical wakes.</param>
-        /// <param name="text">Wake-text payload as produced by <see cref="MissionOutcomeWakeHandler.BuildWakeText"/> or the critical caller.</param>
+        /// <param name="text">Wake-text payload as produced by <c>MissionOutcomeWakeHandler.BuildWakeText</c> or the critical caller.</param>
         /// <param name="critical">When true, the signal payload is prefixed with <c>[CRITICAL]</c> so a poller can route it differently.</param>
         /// <param name="token">Cancellation token.</param>
         private async Task WriteWakeSignalAsync(string? vesselId, string text, bool critical, CancellationToken token)

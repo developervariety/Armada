@@ -812,36 +812,49 @@ namespace Armada.Server.Mcp.Tools
 
         private sealed class AcceptMemoryProposalArgs
         {
+            /// <summary>The mission ID of the reflection mission.</summary>
             public string MissionId { get; set; } = "";
 
+            /// <summary>Optional markdown overrides.</summary>
             public string? EditsMarkdown { get; set; }
         }
 
         private sealed class ConsolidateMemoryArgs
         {
+            /// <summary>The vessel ID.</summary>
             public string? VesselId { get; set; }
 
+            /// <summary>The persona name.</summary>
             public string? PersonaName { get; set; }
 
+            /// <summary>The captain ID.</summary>
             public string? CaptainId { get; set; }
 
+            /// <summary>The fleet ID.</summary>
             public string? FleetId { get; set; }
 
+            /// <summary>The reflection mode.</summary>
             public string? Mode { get; set; }
 
+            /// <summary>Whether dual judge is required.</summary>
             public bool? DualJudge { get; set; }
 
+            /// <summary>The starting mission ID for evidence.</summary>
             public string? SinceMissionId { get; set; }
 
+            /// <summary>Caller instructions.</summary>
             public string? Instructions { get; set; }
 
+            /// <summary>Token budget for the reflection.</summary>
             public int? TokenBudget { get; set; }
         }
 
         private sealed class RejectMemoryProposalArgs
         {
+            /// <summary>The mission ID of the reflection mission.</summary>
             public string MissionId { get; set; } = "";
 
+            /// <summary>The reason for rejection.</summary>
             public string Reason { get; set; } = "";
         }
     }
