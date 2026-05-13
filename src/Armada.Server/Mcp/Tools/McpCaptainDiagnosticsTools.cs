@@ -230,12 +230,16 @@ namespace Armada.Server.Mcp.Tools
 
         private sealed class GitStatusResult
         {
+            /// <summary>Raw git status output.</summary>
             public string Output { get; set; } = "";
 
+            /// <summary>Error message if git status failed.</summary>
             public string? Error { get; set; } = null;
 
+            /// <summary>True if there are uncommitted changes.</summary>
             public bool HasChanges { get; set; } = false;
 
+            /// <summary>Helper to create a failed result.</summary>
             public static GitStatusResult NotAvailable(string error)
             {
                 return new GitStatusResult
@@ -247,6 +251,7 @@ namespace Armada.Server.Mcp.Tools
 
         private sealed class CaptainIdArgs
         {
+            /// <summary>The captain ID.</summary>
             public string CaptainId { get; set; } = "";
         }
     }

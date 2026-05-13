@@ -1356,8 +1356,13 @@ namespace Armada.Core.Services
 
         private struct FleetCandidateSplit
         {
+            /// <summary>The parsed verdict.</summary>
             public FleetCandidateSplitVerdict Verdict;
+
+            /// <summary>The markdown payload.</summary>
             public string PlaybookContent;
+
+            /// <summary>The optional JSON payload.</summary>
             public string RipplesJson;
         }
 
@@ -2363,32 +2368,43 @@ namespace Armada.Core.Services
 
         private sealed class ReorganizeGateResult
         {
+            /// <summary>Error message if the gate failed.</summary>
             public string? Error { get; set; }
 
+            /// <summary>Additional context or details regarding the failure.</summary>
             public object? Details { get; set; }
         }
 
         private sealed class DualJudgeGateResult
         {
+            /// <summary>Whether all judges passed.</summary>
             public bool AllPassed { get; set; }
 
+            /// <summary>The verdicts collected from the judges.</summary>
             public List<JudgeVerdictRecord> Verdicts { get; set; } = new List<JudgeVerdictRecord>();
         }
 
         private sealed class ReflectionMetrics
         {
+            /// <summary>The number of entries before.</summary>
             public int EntriesBefore { get; set; }
 
+            /// <summary>The number of entries after.</summary>
             public int EntriesAfter { get; set; }
 
+            /// <summary>The number of removed entries.</summary>
             public int Removed { get; set; }
 
+            /// <summary>The number of merged entries.</summary>
             public int Merged { get; set; }
 
+            /// <summary>The number of entries added from reorganization.</summary>
             public int AddedFromReorganize { get; set; }
 
+            /// <summary>The number of tokens before.</summary>
             public int TokensBefore { get; set; }
 
+            /// <summary>The number of tokens after.</summary>
             public int TokensAfter { get; set; }
         }
 
@@ -2398,27 +2414,34 @@ namespace Armada.Core.Services
 
         private sealed class RejectionPayload
         {
+            /// <summary>The mission ID that was rejected.</summary>
             [System.Text.Json.Serialization.JsonPropertyName("missionId")]
             public string? MissionId { get; set; }
 
+            /// <summary>The reason for the rejection.</summary>
             [System.Text.Json.Serialization.JsonPropertyName("reason")]
             public string? Reason { get; set; }
 
+            /// <summary>The reflection mode.</summary>
             [System.Text.Json.Serialization.JsonPropertyName("mode")]
             public string? Mode { get; set; }
         }
 
         private sealed class DispatchedPayload
         {
+            /// <summary>The reflection mode used for dispatch.</summary>
             [System.Text.Json.Serialization.JsonPropertyName("mode")]
             public string? Mode { get; set; }
 
+            /// <summary>Whether a dual judge configuration was used.</summary>
             [System.Text.Json.Serialization.JsonPropertyName("dualJudge")]
             public bool? DualJudge { get; set; }
 
+            /// <summary>The target type (e.g. vessel, persona).</summary>
             [System.Text.Json.Serialization.JsonPropertyName("targetType")]
             public string? TargetType { get; set; }
 
+            /// <summary>The target identifier.</summary>
             [System.Text.Json.Serialization.JsonPropertyName("targetId")]
             public string? TargetId { get; set; }
         }
