@@ -392,7 +392,30 @@ namespace Armada.Core.Services
             }
 
             string markdown = BuildContextPackMarkdown(request.Goal, tokenBudget, search);
-            string materializedPath = await WriteContextPackAsync(request.VesselId, markdown, token).ConfigureAwait(false);
+
+            string? summarizedMarkdown = null;
+            bool isSummarized = false;
+
+            if (_Settings.CodeIndex.UseSummarizer && _InferenceClient != null && search.Results.Count > 0)
+            {
+                string systemPrompt = "You are a codebase analyst. Given code chunks from a repository, produce a compact markdown summary for a software engineer who needs to understand the relevant patterns before making a change. Output: first a 3-5 sentence synthesis naming the key types, their responsibilities, and any important call chains. Then a bulleted file-by-file list of key types and their roles. Be concise. No introductory text. Output only the summary markdown.";
+                string userMessage = "Goal: " + request.Goal + "\n\n" + markdown;
+                try
+                {
+                    string summary = (await _InferenceClient.CompleteAsync(systemPrompt, userMessage, token).ConfigureAwait(false) ?? "").Trim();
+                    if (!String.IsNullOrEmpty(summary))
+                    {
+                        summarizedMarkdown = summary;
+                        isSummarized = true;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "summarizer failed: " + ex.Message);
+                }
+            }
+
+            string materializedPath = await WriteContextPackAsync(request.VesselId, isSummarized ? summarizedMarkdown! : markdown, token).ConfigureAwait(false);
 
             ContextPackResponse response = new ContextPackResponse
             {
@@ -401,7 +424,9 @@ namespace Armada.Core.Services
                 Markdown = markdown,
                 EstimatedTokens = EstimateTokens(markdown),
                 MaterializedPath = materializedPath,
-                Results = search.Results
+                Results = search.Results,
+                SummarizedMarkdown = summarizedMarkdown,
+                IsSummarized = isSummarized
             };
             response.PrestagedFiles.Add(new PrestagedFile(materializedPath, "_briefing/context-pack.md"));
             foreach (VesselPackHint h in matchedHints)
