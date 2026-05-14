@@ -466,6 +466,9 @@ namespace Armada.Test.Unit.Suites.Services
                         admiralDouble,
                         codeIndexService: codeIndex);
 
+                    AssertTrue(handlers.ContainsKey("armada_fleet_code_search"), "Registrar should include fleet code-search tool");
+                    AssertTrue(handlers.ContainsKey("armada_fleet_context_pack"), "Registrar should include fleet context-pack tool");
+
                     JsonElement args = JsonSerializer.SerializeToElement(new
                     {
                         title = "registrar voyage",
@@ -879,6 +882,12 @@ namespace Armada.Test.Unit.Suites.Services
                 if (BuildException != null) throw BuildException;
                 return Task.FromResult(ContextPackResponse);
             }
+
+            public Task<FleetCodeSearchResponse> SearchFleetAsync(FleetCodeSearchRequest request, CancellationToken token = default)
+                => throw new NotImplementedException();
+
+            public Task<FleetContextPackResponse> BuildFleetContextPackAsync(FleetContextPackRequest request, CancellationToken token = default)
+                => throw new NotImplementedException();
         }
     }
 }

@@ -360,6 +360,16 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 throw new NotSupportedException();
             }
+
+            public Task<FleetCodeSearchResponse> SearchFleetAsync(FleetCodeSearchRequest request, CancellationToken token = default)
+            {
+                throw new NotSupportedException();
+            }
+
+            public Task<FleetContextPackResponse> BuildFleetContextPackAsync(FleetContextPackRequest request, CancellationToken token = default)
+            {
+                throw new NotSupportedException();
+            }
         }
     }
 }

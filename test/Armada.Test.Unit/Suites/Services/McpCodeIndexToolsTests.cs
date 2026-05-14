@@ -31,6 +31,8 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(handlers.ContainsKey("armada_index_update"));
                 AssertTrue(handlers.ContainsKey("armada_code_search"));
                 AssertTrue(handlers.ContainsKey("armada_context_pack"));
+                AssertTrue(handlers.ContainsKey("armada_fleet_code_search"));
+                AssertTrue(handlers.ContainsKey("armada_fleet_context_pack"));
             });
 
             await RunTest("armada_context_pack delegates and returns prestaged file", async () =>
@@ -95,6 +97,68 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("needle", response.Query);
             });
 
+            await RunTest("armada_fleet_code_search delegates typed request", async () =>
+            {
+                RecordingCodeIndexService service = new RecordingCodeIndexService();
+                service.FleetSearchResponse = new FleetCodeSearchResponse
+                {
+                    FleetId = "flt_test",
+                    Query = "needle"
+                };
+
+                Dictionary<string, Func<JsonElement?, Task<object>>> handlers = RegisterHandlers(service);
+                JsonElement args = JsonSerializer.SerializeToElement(new
+                {
+                    fleetId = "flt_test",
+                    query = "needle",
+                    limit = 2,
+                    includeContent = true
+                });
+
+                object result = await handlers["armada_fleet_code_search"](args).ConfigureAwait(false);
+
+                FleetCodeSearchResponse response = (FleetCodeSearchResponse)result;
+                AssertNotNull(service.LastFleetSearchRequest);
+                AssertEqual("flt_test", service.LastFleetSearchRequest!.FleetId);
+                AssertEqual("needle", service.LastFleetSearchRequest.Query);
+                AssertEqual(2, service.LastFleetSearchRequest.Limit);
+                AssertTrue(service.LastFleetSearchRequest.IncludeContent);
+                AssertEqual("needle", response.Query);
+            });
+
+            await RunTest("armada_fleet_context_pack delegates and returns prestaged file", async () =>
+            {
+                RecordingCodeIndexService service = new RecordingCodeIndexService();
+                service.FleetContextPackResponse = new FleetContextPackResponse
+                {
+                    FleetId = "flt_test",
+                    Goal = "build context",
+                    Markdown = "# pack\n",
+                    EstimatedTokens = 2,
+                    MaterializedPath = "C:/tmp/fleet-context.md"
+                };
+                service.FleetContextPackResponse.PrestagedFiles.Add(new PrestagedFile("C:/tmp/fleet-context.md", "_briefing/context-pack.md"));
+
+                Dictionary<string, Func<JsonElement?, Task<object>>> handlers = RegisterHandlers(service);
+                JsonElement args = JsonSerializer.SerializeToElement(new
+                {
+                    fleetId = "flt_test",
+                    goal = "build context",
+                    tokenBudget = 1000,
+                    maxResultsPerVessel = 3
+                });
+
+                object result = await handlers["armada_fleet_context_pack"](args).ConfigureAwait(false);
+
+                FleetContextPackResponse response = (FleetContextPackResponse)result;
+                AssertNotNull(service.LastFleetContextPackRequest);
+                AssertEqual("flt_test", service.LastFleetContextPackRequest!.FleetId);
+                AssertEqual("build context", service.LastFleetContextPackRequest.Goal);
+                AssertEqual(1000, service.LastFleetContextPackRequest.TokenBudget);
+                AssertEqual(3, service.LastFleetContextPackRequest.MaxResultsPerVessel);
+                AssertEqual("_briefing/context-pack.md", response.PrestagedFiles[0].DestPath);
+            });
+
             await RunTest("Handlers reject missing required arguments", async () =>
             {
                 RecordingCodeIndexService service = new RecordingCodeIndexService();
@@ -112,6 +176,34 @@ namespace Armada.Test.Unit.Suites.Services
                 object missingGoalResult = await handlers["armada_context_pack"](missingGoal).ConfigureAwait(false);
                 string missingGoalJson = JsonSerializer.Serialize(missingGoalResult);
                 AssertContains("goal is required", missingGoalJson);
+
+                JsonElement missingFleetId = JsonSerializer.SerializeToElement(new
+                {
+                    query = "needle"
+                });
+                object missingFleetIdResult = await handlers["armada_fleet_code_search"](missingFleetId).ConfigureAwait(false);
+                string missingFleetIdJson = JsonSerializer.Serialize(missingFleetIdResult);
+                AssertContains("fleetId is required", missingFleetIdJson);
+                AssertEqual(null, service.LastFleetSearchRequest, "Invalid fleet search should not delegate to service");
+
+                JsonElement missingFleetQuery = JsonSerializer.SerializeToElement(new
+                {
+                    fleetId = "flt_test"
+                });
+                object missingFleetQueryResult = await handlers["armada_fleet_code_search"](missingFleetQuery).ConfigureAwait(false);
+                string missingFleetQueryJson = JsonSerializer.Serialize(missingFleetQueryResult);
+                AssertContains("query is required", missingFleetQueryJson);
+                AssertEqual(null, service.LastFleetSearchRequest, "Invalid fleet search should not delegate to service");
+
+                JsonElement missingFleetGoal = JsonSerializer.SerializeToElement(new
+                {
+                    fleetId = "flt_test",
+                    tokenBudget = 1000
+                });
+                object missingFleetGoalResult = await handlers["armada_fleet_context_pack"](missingFleetGoal).ConfigureAwait(false);
+                string missingFleetGoalJson = JsonSerializer.Serialize(missingFleetGoalResult);
+                AssertContains("goal is required", missingFleetGoalJson);
+                AssertEqual(null, service.LastFleetContextPackRequest, "Invalid fleet context-pack request should not delegate to service");
             });
         }
 
@@ -150,6 +242,10 @@ namespace Armada.Test.Unit.Suites.Services
 
             public CodeSearchRequest? LastSearchRequest { get; private set; }
 
+            public FleetCodeSearchRequest? LastFleetSearchRequest { get; private set; }
+
+            public FleetContextPackRequest? LastFleetContextPackRequest { get; private set; }
+
             public string? LastStatusVesselId { get; private set; }
 
             public string? LastUpdateVesselId { get; private set; }
@@ -167,6 +263,21 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 Status = NewStatus("vsl_default"),
                 Query = "default"
+            };
+
+            public FleetCodeSearchResponse FleetSearchResponse { get; set; } = new FleetCodeSearchResponse
+            {
+                FleetId = "flt_default",
+                Query = "default"
+            };
+
+            public FleetContextPackResponse FleetContextPackResponse { get; set; } = new FleetContextPackResponse
+            {
+                FleetId = "flt_default",
+                Goal = "default",
+                Markdown = "# default\n",
+                EstimatedTokens = 3,
+                MaterializedPath = "C:/tmp/default-fleet.md"
             };
 
             public Task<CodeIndexStatus> GetStatusAsync(string vesselId, CancellationToken token = default)
@@ -191,6 +302,18 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 LastContextPackRequest = request;
                 return Task.FromResult(ContextPackResponse);
+            }
+
+            public Task<FleetCodeSearchResponse> SearchFleetAsync(FleetCodeSearchRequest request, CancellationToken token = default)
+            {
+                LastFleetSearchRequest = request;
+                return Task.FromResult(FleetSearchResponse);
+            }
+
+            public Task<FleetContextPackResponse> BuildFleetContextPackAsync(FleetContextPackRequest request, CancellationToken token = default)
+            {
+                LastFleetContextPackRequest = request;
+                return Task.FromResult(FleetContextPackResponse);
             }
         }
     }
