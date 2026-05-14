@@ -313,6 +313,403 @@ namespace Armada.Test.Unit.Suites.Services
                     _IndexJsonOptions)!;
                 AssertTrue(legacy.EmbeddingVector == null, "Missing property deserializes as null");
             });
+
+            await RunTest("SearchAsync_QueryEmbeddingThrows_FallsBackToLexicalRanking", async () =>
+            {
+                string dataRoot = NewTempDirectory("armada-code-index-data-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Directory.CreateDirectory(Path.Combine(dataRoot, "repo"));
+                        Vessel vessel = await CreateVesselAsync(testDb, Path.Combine(dataRoot, "repo")).ConfigureAwait(false);
+
+                        List<CodeIndexRecord> records = BuildSemanticBlendCorpus(vessel.Id);
+                        ArmadaSettings settings = BuildSettings(dataRoot, ci => { ci.UseSemanticSearch = true; });
+                        await WritePersistedIndexAsync(settings, vessel, records).ConfigureAwait(false);
+
+                        ThrowingEmbeddingClient throwing = new ThrowingEmbeddingClient(new InvalidOperationException("transient embed failure"));
+                        CodeIndexService service = CreateService(
+                            testDb,
+                            dataRoot,
+                            throwing,
+                            ci => { ci.UseSemanticSearch = true; });
+
+                        CodeSearchResponse response = await service.SearchAsync(new CodeSearchRequest
+                        {
+                            VesselId = vessel.Id,
+                            Query = "SearchKeyword",
+                            Limit = 10,
+                            IncludeContent = true
+                        }).ConfigureAwait(false);
+
+                        AssertEqual(1, throwing.CallCount, "query embedding should be attempted exactly once");
+                        AssertEqual(1, response.Results.Count, "only the lexically-matching record should rank when semantic falls back");
+                        AssertEqual("noisy.cs", response.Results[0].Record.Path);
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("SearchAsync_QueryEmbeddingReturnsEmptyArray_FallsBackToLexicalRanking", async () =>
+            {
+                string dataRoot = NewTempDirectory("armada-code-index-data-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Directory.CreateDirectory(Path.Combine(dataRoot, "repo"));
+                        Vessel vessel = await CreateVesselAsync(testDb, Path.Combine(dataRoot, "repo")).ConfigureAwait(false);
+
+                        List<CodeIndexRecord> records = BuildSemanticBlendCorpus(vessel.Id);
+                        ArmadaSettings settings = BuildSettings(dataRoot, ci => { ci.UseSemanticSearch = true; });
+                        await WritePersistedIndexAsync(settings, vessel, records).ConfigureAwait(false);
+
+                        ConstantVectorEmbeddingClient empty = new ConstantVectorEmbeddingClient(Array.Empty<float>());
+                        CodeIndexService service = CreateService(
+                            testDb,
+                            dataRoot,
+                            empty,
+                            ci => { ci.UseSemanticSearch = true; });
+
+                        CodeSearchResponse response = await service.SearchAsync(new CodeSearchRequest
+                        {
+                            VesselId = vessel.Id,
+                            Query = "SearchKeyword",
+                            Limit = 10,
+                            IncludeContent = true
+                        }).ConfigureAwait(false);
+
+                        AssertEqual(1, response.Results.Count, "empty query vector must drop semantic blending entirely");
+                        AssertEqual("noisy.cs", response.Results[0].Record.Path);
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("SearchAsync_QueryVectorLengthMismatch_RanksLexicallyOnly", async () =>
+            {
+                string dataRoot = NewTempDirectory("armada-code-index-data-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Directory.CreateDirectory(Path.Combine(dataRoot, "repo"));
+                        Vessel vessel = await CreateVesselAsync(testDb, Path.Combine(dataRoot, "repo")).ConfigureAwait(false);
+
+                        List<CodeIndexRecord> records = BuildSemanticBlendCorpus(vessel.Id);
+                        ArmadaSettings settings = BuildSettings(dataRoot, ci => { ci.UseSemanticSearch = true; });
+                        await WritePersistedIndexAsync(settings, vessel, records).ConfigureAwait(false);
+
+                        // Query vector has length 4; record vectors have length 3. ScoreRecord must downgrade to lexical.
+                        ConstantVectorEmbeddingClient mismatched = new ConstantVectorEmbeddingClient(new float[] { 1F, 0F, 0F, 0F });
+                        CodeIndexService service = CreateService(
+                            testDb,
+                            dataRoot,
+                            mismatched,
+                            ci => { ci.UseSemanticSearch = true; });
+
+                        CodeSearchResponse response = await service.SearchAsync(new CodeSearchRequest
+                        {
+                            VesselId = vessel.Id,
+                            Query = "SearchKeyword",
+                            Limit = 10,
+                            IncludeContent = true
+                        }).ConfigureAwait(false);
+
+                        AssertEqual(1, response.Results.Count, "length-mismatched query vector must not blend");
+                        AssertEqual("noisy.cs", response.Results[0].Record.Path);
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("SearchAsync_LegacyChunksWithoutEmbeddingVectorField_LoadAndRankLexically", async () =>
+            {
+                string dataRoot = NewTempDirectory("armada-code-index-data-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Directory.CreateDirectory(Path.Combine(dataRoot, "repo"));
+                        Vessel vessel = await CreateVesselAsync(testDb, Path.Combine(dataRoot, "repo")).ConfigureAwait(false);
+
+                        ArmadaSettings settings = BuildSettings(dataRoot, ci => { ci.UseSemanticSearch = true; });
+                        string indexDir = Path.Combine(settings.CodeIndex.IndexDirectory, vessel.Id);
+                        Directory.CreateDirectory(indexDir);
+
+                        CodeIndexStatus status = new CodeIndexStatus
+                        {
+                            VesselId = vessel.Id,
+                            VesselName = vessel.Name,
+                            DefaultBranch = vessel.DefaultBranch,
+                            IndexedCommitSha = "deadbeef",
+                            CurrentCommitSha = "deadbeef",
+                            IndexedAtUtc = DateTime.UtcNow,
+                            Freshness = "Fresh",
+                            DocumentCount = 1,
+                            ChunkCount = 2,
+                            IndexDirectory = indexDir,
+                            LastError = null
+                        };
+                        string metadataPath = Path.Combine(indexDir, "metadata.json");
+                        await File.WriteAllTextAsync(metadataPath, JsonSerializer.Serialize(status, _IndexJsonOptions)).ConfigureAwait(false);
+
+                        // Hand-write JSONL entries that do NOT carry the embeddingVector property at all.
+                        string chunksPath = Path.Combine(indexDir, "chunks.jsonl");
+                        string aLine = "{\"vesselId\":\"" + vessel.Id + "\",\"path\":\"a.cs\",\"commitSha\":\"abc\","
+                                       + "\"contentHash\":\"h1\",\"language\":\"csharp\",\"startLine\":1,\"endLine\":5,"
+                                       + "\"isReferenceOnly\":false,\"content\":\"alpha beta gamma\"}";
+                        string bLine = "{\"vesselId\":\"" + vessel.Id + "\",\"path\":\"b.cs\",\"commitSha\":\"abc\","
+                                       + "\"contentHash\":\"h2\",\"language\":\"csharp\",\"startLine\":1,\"endLine\":5,"
+                                       + "\"isReferenceOnly\":false,\"content\":\"alpha alpha beta\"}";
+                        await File.WriteAllTextAsync(chunksPath, aLine + "\n" + bLine + "\n").ConfigureAwait(false);
+
+                        ConstantVectorEmbeddingClient working = new ConstantVectorEmbeddingClient(new float[] { 1F, 0F, 0F });
+                        CodeIndexService service = CreateService(
+                            testDb,
+                            dataRoot,
+                            working,
+                            ci => { ci.UseSemanticSearch = true; });
+
+                        CodeSearchResponse response = await service.SearchAsync(new CodeSearchRequest
+                        {
+                            VesselId = vessel.Id,
+                            Query = "alpha",
+                            Limit = 10,
+                            IncludeContent = true
+                        }).ConfigureAwait(false);
+
+                        // Even with semantic on + working query embedding, missing record vectors keep
+                        // the score per record on the lexical-only branch -- bit-identical to V1.
+                        AssertEqual(2, response.Results.Count);
+                        AssertEqual("b.cs", response.Results[0].Record.Path);
+                        AssertEqual(10.0, response.Results[0].Score);
+                        AssertEqual("a.cs", response.Results[1].Record.Path);
+                        AssertEqual(9.0, response.Results[1].Score);
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("UpdateAsync_SemanticSearchOff_DoesNotInvokeEmbeddingClient", async () =>
+            {
+                TestRepository repository = await CreateRepositoryAsync().ConfigureAwait(false);
+                string dataRoot = NewTempDirectory("armada-code-index-data-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Vessel vessel = await CreateVesselAsync(testDb, repository.Path).ConfigureAwait(false);
+                        RecordingEmbeddingClient recording = new RecordingEmbeddingClient(new float[] { 1F, 0F, 0F });
+                        CodeIndexService service = CreateService(
+                            testDb,
+                            dataRoot,
+                            recording,
+                            ci => { ci.UseSemanticSearch = false; });
+
+                        CodeIndexStatus status = await service.UpdateAsync(vessel.Id).ConfigureAwait(false);
+
+                        AssertEqual(0, recording.CallCount, "embedding client must not be called when UseSemanticSearch is false");
+                        string chunksPath = Path.Combine(status.IndexDirectory, "chunks.jsonl");
+                        AssertTrue(File.Exists(chunksPath), "chunks.jsonl should still be written");
+                        string chunksJson = await File.ReadAllTextAsync(chunksPath).ConfigureAwait(false);
+                        AssertFalse(chunksJson.Contains("\"embeddingVector\":[", StringComparison.Ordinal),
+                            "chunks must not carry embedding vectors when semantic search is disabled");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(repository.Root);
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("UpdateAsync_SemanticSearchOn_PersistsEmbeddingVectorsToChunksJsonl", async () =>
+            {
+                TestRepository repository = await CreateRepositoryAsync().ConfigureAwait(false);
+                string dataRoot = NewTempDirectory("armada-code-index-data-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Vessel vessel = await CreateVesselAsync(testDb, repository.Path).ConfigureAwait(false);
+                        // Use values with exact binary representations so JSON shortest-form output is deterministic.
+                        RecordingEmbeddingClient recording = new RecordingEmbeddingClient(new float[] { 0.5F, 0.25F, -0.125F });
+                        CodeIndexService service = CreateService(
+                            testDb,
+                            dataRoot,
+                            recording,
+                            ci => { ci.UseSemanticSearch = true; });
+
+                        CodeIndexStatus status = await service.UpdateAsync(vessel.Id).ConfigureAwait(false);
+
+                        AssertTrue(recording.CallCount >= status.ChunkCount,
+                            "embedding client must be invoked at least once per chunk");
+                        string chunksPath = Path.Combine(status.IndexDirectory, "chunks.jsonl");
+                        string chunksJson = await File.ReadAllTextAsync(chunksPath).ConfigureAwait(false);
+                        AssertContains("\"embeddingVector\":[0.5,0.25,-0.125]", chunksJson);
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(repository.Root);
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("UpdateAsync_SemanticSearchOn_PerChunkEmbeddingFailureDoesNotAbortUpdate", async () =>
+            {
+                TestRepository repository = await CreateRepositoryAsync().ConfigureAwait(false);
+                string dataRoot = NewTempDirectory("armada-code-index-data-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Vessel vessel = await CreateVesselAsync(testDb, repository.Path).ConfigureAwait(false);
+                        ThrowingEmbeddingClient throwing = new ThrowingEmbeddingClient(new InvalidOperationException("downstream embedder is sad"));
+                        CodeIndexService service = CreateService(
+                            testDb,
+                            dataRoot,
+                            throwing,
+                            ci => { ci.UseSemanticSearch = true; });
+
+                        CodeIndexStatus status = await service.UpdateAsync(vessel.Id).ConfigureAwait(false);
+
+                        AssertTrue(status.ChunkCount > 0, "chunk count should still be populated");
+                        AssertEqual("Fresh", status.Freshness);
+                        string chunksPath = Path.Combine(status.IndexDirectory, "chunks.jsonl");
+                        AssertTrue(File.Exists(chunksPath), "chunks.jsonl must still be written despite per-chunk embedding failures");
+                        string chunksJson = await File.ReadAllTextAsync(chunksPath).ConfigureAwait(false);
+                        AssertFalse(chunksJson.Contains("\"embeddingVector\":[", StringComparison.Ordinal),
+                            "no embeddingVector array should be persisted when every embed call throws");
+                        AssertTrue(throwing.CallCount >= status.ChunkCount,
+                            "embedder should have been attempted once per chunk before failure swallowed");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(repository.Root);
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("UpdateAsync_SemanticSearchOn_EmbeddingClientReturnsEmpty_LeavesVectorNull", async () =>
+            {
+                TestRepository repository = await CreateRepositoryAsync().ConfigureAwait(false);
+                string dataRoot = NewTempDirectory("armada-code-index-data-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Vessel vessel = await CreateVesselAsync(testDb, repository.Path).ConfigureAwait(false);
+                        ConstantVectorEmbeddingClient empty = new ConstantVectorEmbeddingClient(Array.Empty<float>());
+                        CodeIndexService service = CreateService(
+                            testDb,
+                            dataRoot,
+                            empty,
+                            ci => { ci.UseSemanticSearch = true; });
+
+                        CodeIndexStatus status = await service.UpdateAsync(vessel.Id).ConfigureAwait(false);
+
+                        string chunksPath = Path.Combine(status.IndexDirectory, "chunks.jsonl");
+                        string chunksJson = await File.ReadAllTextAsync(chunksPath).ConfigureAwait(false);
+                        AssertFalse(chunksJson.Contains("\"embeddingVector\":[", StringComparison.Ordinal),
+                            "empty embedding response must not produce an embedding vector array");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(repository.Root);
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("UpdateAsync_SemanticSearchOnButClientNull_CompletesWithoutEmbeddings", async () =>
+            {
+                TestRepository repository = await CreateRepositoryAsync().ConfigureAwait(false);
+                string dataRoot = NewTempDirectory("armada-code-index-data-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Vessel vessel = await CreateVesselAsync(testDb, repository.Path).ConfigureAwait(false);
+                        // No embedding client passed in; flag is on. Service must still run cleanly.
+                        CodeIndexService service = CreateService(
+                            testDb,
+                            dataRoot,
+                            embeddingClient: null,
+                            configureCodeIndex: ci => { ci.UseSemanticSearch = true; });
+
+                        CodeIndexStatus status = await service.UpdateAsync(vessel.Id).ConfigureAwait(false);
+
+                        AssertEqual("Fresh", status.Freshness);
+                        string chunksPath = Path.Combine(status.IndexDirectory, "chunks.jsonl");
+                        string chunksJson = await File.ReadAllTextAsync(chunksPath).ConfigureAwait(false);
+                        AssertFalse(chunksJson.Contains("\"embeddingVector\":[", StringComparison.Ordinal),
+                            "no embedding client means no vectors persisted, even with the flag on");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(repository.Root);
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+        }
+
+        private static List<CodeIndexRecord> BuildSemanticBlendCorpus(string vesselId)
+        {
+            return new List<CodeIndexRecord>
+            {
+                new CodeIndexRecord
+                {
+                    VesselId = vesselId,
+                    Path = "noisy.cs",
+                    CommitSha = "abc",
+                    ContentHash = "n1",
+                    Language = "csharp",
+                    StartLine = 1,
+                    EndLine = 10,
+                    IsReferenceOnly = false,
+                    Content = "SearchKeyword SearchKeyword SearchKeyword SearchKeyword SearchKeyword SearchKeyword",
+                    EmbeddingVector = new float[] { 0F, 1F, 0F }
+                },
+                new CodeIndexRecord
+                {
+                    VesselId = vesselId,
+                    Path = "target.cs",
+                    CommitSha = "abc",
+                    ContentHash = "t1",
+                    Language = "csharp",
+                    StartLine = 1,
+                    EndLine = 3,
+                    IsReferenceOnly = false,
+                    Content = "conceptual widget",
+                    EmbeddingVector = new float[] { 1F, 0F, 0F }
+                }
+            };
         }
 
         private static ArmadaSettings BuildSettings(string dataRoot, Action<CodeIndexSettings>? configureCodeIndex)
@@ -509,6 +906,45 @@ namespace Armada.Test.Unit.Suites.Services
 
             public Task<float[]> EmbedAsync(string text, CancellationToken token = default)
             {
+                return Task.FromResult(_Vector);
+            }
+        }
+
+        private sealed class ThrowingEmbeddingClient : IEmbeddingClient
+        {
+            private readonly Exception _Exception;
+
+            public int CallCount { get; private set; }
+
+            public ThrowingEmbeddingClient(Exception exception)
+            {
+                _Exception = exception ?? throw new ArgumentNullException(nameof(exception));
+            }
+
+            public Task<float[]> EmbedAsync(string text, CancellationToken token = default)
+            {
+                CallCount++;
+                throw _Exception;
+            }
+        }
+
+        private sealed class RecordingEmbeddingClient : IEmbeddingClient
+        {
+            private readonly float[] _Vector;
+
+            public int CallCount { get; private set; }
+
+            public List<string> Inputs { get; } = new List<string>();
+
+            public RecordingEmbeddingClient(float[] vector)
+            {
+                _Vector = vector ?? throw new ArgumentNullException(nameof(vector));
+            }
+
+            public Task<float[]> EmbedAsync(string text, CancellationToken token = default)
+            {
+                CallCount++;
+                Inputs.Add(text ?? string.Empty);
                 return Task.FromResult(_Vector);
             }
         }
