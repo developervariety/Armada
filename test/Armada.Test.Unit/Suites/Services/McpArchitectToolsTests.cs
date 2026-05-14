@@ -597,6 +597,12 @@ namespace Armada.Test.Unit.Suites.Services
                 if (BuildException != null) throw BuildException;
                 return Task.FromResult(ContextPackResponse);
             }
+
+            public Task<FleetCodeSearchResponse> SearchFleetAsync(FleetCodeSearchRequest request, CancellationToken token = default)
+                => throw new NotImplementedException();
+
+            public Task<FleetContextPackResponse> BuildFleetContextPackAsync(FleetContextPackRequest request, CancellationToken token = default)
+                => throw new NotImplementedException();
         }
     }
 }

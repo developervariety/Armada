@@ -323,6 +323,84 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
+        public async Task<FleetCodeSearchResponse> SearchFleetAsync(FleetCodeSearchRequest request, CancellationToken token = default)
+        {
+            if (request == null) throw new ArgumentNullException(nameof(request));
+            if (String.IsNullOrWhiteSpace(request.FleetId)) throw new ArgumentNullException(nameof(request.FleetId));
+            if (String.IsNullOrWhiteSpace(request.Query)) throw new ArgumentNullException(nameof(request.Query));
+
+            List<Vessel> vessels = await _Database.Vessels.EnumerateByFleetAsync(request.FleetId, token).ConfigureAwait(false);
+            int vesselCount = vessels.Count;
+            int perVesselDefault = ClampLimit(0, _Settings.CodeIndex.MaxSearchResults);
+            int requestedLimit = request.Limit > 0 ? request.Limit : perVesselDefault * Math.Max(1, vesselCount);
+            int limit = Math.Min(50, requestedLimit);
+            if (limit < 1) limit = 1;
+
+            List<FleetCodeSearchResult> merged = new List<FleetCodeSearchResult>();
+            List<string> warnings = new List<string>();
+
+            foreach (Vessel vessel in vessels)
+            {
+                try
+                {
+                    CodeSearchRequest vesselRequest = new CodeSearchRequest
+                    {
+                        VesselId = vessel.Id,
+                        Query = request.Query,
+                        Limit = limit,
+                        PathPrefix = request.PathPrefix,
+                        Language = request.Language,
+                        IncludeContent = request.IncludeContent,
+                        IncludeReferenceOnly = request.IncludeReferenceOnly
+                    };
+
+                    CodeSearchResponse search = await SearchAsync(vesselRequest, token).ConfigureAwait(false);
+
+                    if (!String.Equals(search.Status.Freshness, "Fresh", StringComparison.OrdinalIgnoreCase))
+                    {
+                        warnings.Add("vessel " + vessel.Id + " (" + vessel.Name + ") index freshness is " + search.Status.Freshness);
+                    }
+
+                    if (!String.IsNullOrWhiteSpace(search.Status.LastError))
+                    {
+                        warnings.Add("vessel " + vessel.Id + " (" + vessel.Name + ") index error: " + search.Status.LastError);
+                    }
+
+                    foreach (CodeSearchResult result in search.Results)
+                    {
+                        merged.Add(new FleetCodeSearchResult
+                        {
+                            VesselId = vessel.Id,
+                            VesselName = vessel.Name,
+                            Score = result.Score,
+                            Record = result.Record,
+                            Excerpt = result.Excerpt
+                        });
+                    }
+                }
+                catch (Exception ex)
+                {
+                    warnings.Add("vessel " + vessel.Id + " (" + vessel.Name + ") search failed: " + ex.Message);
+                }
+            }
+
+            List<FleetCodeSearchResult> results = merged
+                .OrderByDescending(r => r.Score)
+                .ThenBy(r => r.Record.Path, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(r => r.Record.StartLine)
+                .Take(limit)
+                .ToList();
+
+            return new FleetCodeSearchResponse
+            {
+                FleetId = request.FleetId,
+                Query = request.Query,
+                Results = results,
+                Warnings = warnings
+            };
+        }
+
+        /// <inheritdoc />
         public async Task<ContextPackResponse> BuildContextPackAsync(ContextPackRequest request, CancellationToken token = default)
         {
             if (request == null) throw new ArgumentNullException(nameof(request));
@@ -433,6 +511,106 @@ namespace Armada.Core.Services
                 response.MatchedHintIds.Add(h.Id);
             foreach (string w in warnings)
                 response.Warnings.Add(w);
+            return response;
+        }
+
+        /// <inheritdoc />
+        public async Task<FleetContextPackResponse> BuildFleetContextPackAsync(FleetContextPackRequest request, CancellationToken token = default)
+        {
+            if (request == null) throw new ArgumentNullException(nameof(request));
+            if (String.IsNullOrWhiteSpace(request.FleetId)) throw new ArgumentNullException(nameof(request.FleetId));
+            if (String.IsNullOrWhiteSpace(request.Goal)) throw new ArgumentNullException(nameof(request.Goal));
+
+            int tokenBudget = request.TokenBudget;
+            if (tokenBudget < 500) tokenBudget = 500;
+            if (tokenBudget > 20000) tokenBudget = 20000;
+
+            List<Vessel> vessels = await _Database.Vessels.EnumerateByFleetAsync(request.FleetId, token).ConfigureAwait(false);
+            int vesselCount = Math.Max(1, vessels.Count);
+            int perVesselBudget = Math.Max(2000, tokenBudget / vesselCount);
+
+            StringBuilder builder = new StringBuilder();
+            builder.AppendLine("# Armada Fleet Code Context Pack");
+            builder.AppendLine();
+            builder.AppendLine("Goal: " + request.Goal);
+            builder.AppendLine();
+            builder.AppendLine("FleetId: " + request.FleetId);
+            builder.AppendLine();
+            builder.AppendLine("This is repo discovery evidence from Armada's code index across fleet vessels. Playbooks, vessel CLAUDE.md, and project CLAUDE.md rules win on conflict.");
+
+            List<string> warnings = new List<string>();
+            foreach (Vessel vessel in vessels)
+            {
+                try
+                {
+                    ContextPackRequest vesselRequest = new ContextPackRequest
+                    {
+                        VesselId = vessel.Id,
+                        Goal = request.Goal,
+                        TokenBudget = perVesselBudget,
+                        MaxResults = request.MaxResultsPerVessel
+                    };
+                    ContextPackResponse vesselPack = await BuildContextPackAsync(vesselRequest, token).ConfigureAwait(false);
+
+                    builder.AppendLine();
+                    builder.AppendLine("## Vessel: " + vessel.Name);
+                    builder.AppendLine();
+                    builder.AppendLine(vesselPack.Markdown.Trim());
+
+                    foreach (string warning in vesselPack.Warnings)
+                    {
+                        warnings.Add("vessel " + vessel.Id + " (" + vessel.Name + "): " + warning);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    warnings.Add("vessel " + vessel.Id + " (" + vessel.Name + ") context pack failed: " + ex.Message);
+                }
+            }
+
+            if (vessels.Count == 0)
+            {
+                builder.AppendLine();
+                builder.AppendLine("No vessels were found for this fleet.");
+            }
+
+            string markdown = builder.ToString().TrimEnd() + "\n";
+            string? summarizedMarkdown = null;
+            bool isSummarized = false;
+
+            if (_Settings.CodeIndex.UseSummarizer && _InferenceClient != null && vessels.Count > 0)
+            {
+                string systemPrompt = "You are a codebase analyst. Given code chunks from multiple repositories, produce a compact markdown summary for a software engineer who needs to understand the relevant patterns before making a change. Output: first a 3-5 sentence synthesis naming the key types, their responsibilities, and any important call chains across vessels. Then a bulleted file-by-file list of key types and their roles grouped by vessel. Be concise. No introductory text. Output only the summary markdown.";
+                string userMessage = "Goal: " + request.Goal + "\n\n" + markdown;
+                try
+                {
+                    string summary = (await _InferenceClient.CompleteAsync(systemPrompt, userMessage, token).ConfigureAwait(false) ?? "").Trim();
+                    if (!String.IsNullOrEmpty(summary))
+                    {
+                        summarizedMarkdown = summary;
+                        isSummarized = true;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "fleet summarizer failed: " + ex.Message);
+                }
+            }
+
+            string materializedPath = await WriteFleetContextPackAsync(request.FleetId, isSummarized ? summarizedMarkdown! : markdown, token).ConfigureAwait(false);
+
+            FleetContextPackResponse response = new FleetContextPackResponse
+            {
+                FleetId = request.FleetId,
+                Goal = request.Goal,
+                Markdown = markdown,
+                SummarizedMarkdown = summarizedMarkdown,
+                IsSummarized = isSummarized,
+                EstimatedTokens = EstimateTokens(markdown),
+                MaterializedPath = materializedPath,
+                Warnings = warnings
+            };
+            response.PrestagedFiles.Add(new PrestagedFile(materializedPath, "_briefing/context-pack.md"));
             return response;
         }
 
@@ -1096,6 +1274,16 @@ namespace Armada.Core.Services
         private async Task<string> WriteContextPackAsync(string vesselId, string markdown, CancellationToken token)
         {
             string contextPackDirectory = Path.Combine(GetVesselIndexDirectory(vesselId), "context-packs");
+            Directory.CreateDirectory(contextPackDirectory);
+            string fileName = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N") + ".md";
+            string path = Path.Combine(contextPackDirectory, fileName);
+            await File.WriteAllTextAsync(path, markdown, new UTF8Encoding(false), token).ConfigureAwait(false);
+            return path;
+        }
+
+        private async Task<string> WriteFleetContextPackAsync(string fleetId, string markdown, CancellationToken token)
+        {
+            string contextPackDirectory = Path.Combine(_Settings.CodeIndex.IndexDirectory, "fleets", fleetId, "context-packs");
             Directory.CreateDirectory(contextPackDirectory);
             string fileName = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N") + ".md";
             string path = Path.Combine(contextPackDirectory, fileName);

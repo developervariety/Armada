@@ -117,6 +117,57 @@ namespace Armada.Server.Mcp.Tools
                     if (String.IsNullOrWhiteSpace(request.Goal)) return (object)new { Error = "goal is required" };
                     return (object)await codeIndex.BuildContextPackAsync(request).ConfigureAwait(false);
                 });
+
+            register(
+                "armada_fleet_code_search",
+                "Search all vessels in a fleet in one call. Results are merged, re-ranked by score, and include vessel attribution.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        fleetId = new { type = "string", description = "Fleet ID (flt_ prefix)" },
+                        query = new { type = "string", description = "Search query" },
+                        limit = new { type = "integer", description = "Maximum results (default per-vessel default x vessel count, capped at 50)" },
+                        pathPrefix = new { type = "string", description = "Optional repo-relative path prefix filter" },
+                        language = new { type = "string", description = "Optional language filter, e.g. csharp or markdown" },
+                        includeContent = new { type = "boolean", description = "Include full chunk content in results" },
+                        includeReferenceOnly = new { type = "boolean", description = "Include records marked reference-only" }
+                    },
+                    required = new[] { "fleetId", "query" }
+                },
+                async (args) =>
+                {
+                    if (!args.HasValue) return (object)new { Error = "missing args" };
+                    FleetCodeSearchRequest request = JsonSerializer.Deserialize<FleetCodeSearchRequest>(args.Value, _JsonOptions)!;
+                    if (String.IsNullOrWhiteSpace(request.FleetId)) return (object)new { Error = "fleetId is required" };
+                    if (String.IsNullOrWhiteSpace(request.Query)) return (object)new { Error = "query is required" };
+                    return (object)await codeIndex.SearchFleetAsync(request).ConfigureAwait(false);
+                });
+
+            register(
+                "armada_fleet_context_pack",
+                "Build a dispatch-ready context pack across all vessels in a fleet. Returns markdown plus a prestagedFiles entry for _briefing/context-pack.md.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        fleetId = new { type = "string", description = "Fleet ID (flt_ prefix)" },
+                        goal = new { type = "string", description = "Mission goal or implementation objective" },
+                        tokenBudget = new { type = "integer", description = "Approximate markdown token budget" },
+                        maxResultsPerVessel = new { type = "integer", description = "Optional maximum evidence snippets per vessel" }
+                    },
+                    required = new[] { "fleetId", "goal", "tokenBudget" }
+                },
+                async (args) =>
+                {
+                    if (!args.HasValue) return (object)new { Error = "missing args" };
+                    FleetContextPackRequest request = JsonSerializer.Deserialize<FleetContextPackRequest>(args.Value, _JsonOptions)!;
+                    if (String.IsNullOrWhiteSpace(request.FleetId)) return (object)new { Error = "fleetId is required" };
+                    if (String.IsNullOrWhiteSpace(request.Goal)) return (object)new { Error = "goal is required" };
+                    return (object)await codeIndex.BuildFleetContextPackAsync(request).ConfigureAwait(false);
+                });
         }
     }
 }
