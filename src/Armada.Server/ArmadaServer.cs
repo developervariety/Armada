@@ -1,6 +1,7 @@
 namespace Armada.Server
 {
     using System.IO;
+    using System.Net.Http;
     using System.Text.Json;
     using SyslogLogging;
     using WatsonWebserver;
@@ -148,7 +149,10 @@ namespace Armada.Server
             ICaptainService captainService = new CaptainService(_Logging, _Database, _Settings, _Git, dockService);
             // Prompt template service must be created before MissionService so it can resolve templates
             _PromptTemplateService = new PromptTemplateService(_Database, _Logging);
-            _CodeIndex = new CodeIndexService(_Logging, _Database, _Settings, _Git);
+            HttpClient codeIndexHttpClient = new HttpClient();
+            IEmbeddingClient embeddingClient = new DeepSeekEmbeddingClient(_Settings.CodeIndex, _Logging, codeIndexHttpClient);
+            IInferenceClient inferenceClient = new DeepSeekInferenceClient(_Settings.CodeIndex, _Logging, codeIndexHttpClient);
+            _CodeIndex = new CodeIndexService(_Logging, _Database, _Settings, _Git, embeddingClient, inferenceClient);
 
             IMissionService missionService = new MissionService(_Logging, _Database, _Settings, dockService, captainService, _PromptTemplateService, _Git);
             IVoyageService voyageService = new VoyageService(_Logging, _Database);
