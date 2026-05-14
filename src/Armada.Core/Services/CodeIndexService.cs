@@ -136,6 +136,59 @@ namespace Armada.Core.Services
                     }
                 }
 
+                List<FileSignatureRecord> signatures = new List<FileSignatureRecord>();
+                if (_Settings.CodeIndex.UseFileSignatures && _InferenceClient != null && _EmbeddingClient != null)
+                {
+                    const string signatureSystemPrompt =
+                        "You are a codebase analyst. Describe the purpose of the following source file in 1-2 sentences, naming the main types and their responsibilities. Output only the description.";
+                    foreach (IGrouping<string, CodeIndexRecord> group in records.GroupBy(r => r.Path, StringComparer.OrdinalIgnoreCase))
+                    {
+                        CodeIndexRecord representative = group
+                            .OrderBy(r => r.StartLine)
+                            .First();
+
+                        string excerpt = representative.Content ?? "";
+                        if (excerpt.Length > 2000)
+                        {
+                            excerpt = excerpt.Substring(0, 2000);
+                        }
+
+                        string userMessage = "File: " + representative.Path + "\n\n" + excerpt;
+                        try
+                        {
+                            string signature = (await _InferenceClient.CompleteAsync(signatureSystemPrompt, userMessage, token).ConfigureAwait(false) ?? "").Trim();
+                            if (String.IsNullOrWhiteSpace(signature))
+                            {
+                                continue;
+                            }
+
+                            float[] vector = await _EmbeddingClient.EmbedAsync(signature, token).ConfigureAwait(false);
+                            if (vector == null || vector.Length == 0)
+                            {
+                                continue;
+                            }
+
+                            signatures.Add(new FileSignatureRecord
+                            {
+                                VesselId = representative.VesselId,
+                                Path = representative.Path,
+                                CommitSha = representative.CommitSha,
+                                ContentHash = representative.ContentHash,
+                                Language = representative.Language,
+                                Signature = signature,
+                                SignatureVector = vector,
+                                GeneratedAtUtc = DateTime.UtcNow
+                            });
+                        }
+                        catch (Exception ex)
+                        {
+                            _Logging.Warn(_Header + "signature generation failed for file " + representative.Path + ": " + ex.Message);
+                        }
+                    }
+
+                    await WriteSignaturesAsync(vessel.Id, signatures, token).ConfigureAwait(false);
+                }
+
                 CodeIndexStatus status = new CodeIndexStatus
                 {
                     VesselId = vessel.Id,
@@ -202,6 +255,16 @@ namespace Armada.Core.Services
                 }
             }
 
+            Dictionary<string, FileSignatureRecord>? signaturesByPath = null;
+            if (_Settings.CodeIndex.UseFileSignatures && queryVector != null)
+            {
+                List<FileSignatureRecord> signatures = await ReadSignaturesAsync(request.VesselId, token).ConfigureAwait(false);
+                signaturesByPath = signatures
+                    .Where(s => !String.IsNullOrWhiteSpace(s.Path))
+                    .GroupBy(s => s.Path, StringComparer.OrdinalIgnoreCase)
+                    .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+            }
+
             List<CodeSearchResult> results = new List<CodeSearchResult>();
             foreach (CodeIndexRecord record in records)
             {
@@ -218,6 +281,16 @@ namespace Armada.Core.Services
                 }
 
                 double score = ScoreRecord(record, request.Query, terms, queryVector);
+                if (signaturesByPath != null
+                    && queryVector != null
+                    && signaturesByPath.TryGetValue(record.Path, out FileSignatureRecord? signatureRecord)
+                    && signatureRecord.SignatureVector != null
+                    && signatureRecord.SignatureVector.Length > 0)
+                {
+                    double signatureSimilarity = CosineSimilarity(queryVector, signatureRecord.SignatureVector);
+                    score += _Settings.CodeIndex.FileSignatureBoostWeight * signatureSimilarity;
+                }
+
                 if (score <= 0) continue;
 
                 CodeIndexRecord outputRecord = CopyRecord(record);
@@ -446,6 +519,48 @@ namespace Armada.Core.Services
             }
 
             return records;
+        }
+
+        private async Task WriteSignaturesAsync(string vesselId, List<FileSignatureRecord> signatures, CancellationToken token)
+        {
+            string signaturesPath = GetSignaturesPath(vesselId);
+            string? directory = Path.GetDirectoryName(signaturesPath);
+            if (!String.IsNullOrWhiteSpace(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            using (FileStream stream = new FileStream(signaturesPath, FileMode.Create, FileAccess.Write, FileShare.None))
+            using (StreamWriter writer = new StreamWriter(stream, new UTF8Encoding(false)))
+            {
+                foreach (FileSignatureRecord signature in signatures)
+                {
+                    string json = JsonSerializer.Serialize(signature, _JsonOptions);
+                    await writer.WriteLineAsync(json.AsMemory(), token).ConfigureAwait(false);
+                }
+            }
+        }
+
+        private async Task<List<FileSignatureRecord>> ReadSignaturesAsync(string vesselId, CancellationToken token)
+        {
+            string signaturesPath = GetSignaturesPath(vesselId);
+            if (!File.Exists(signaturesPath)) return new List<FileSignatureRecord>();
+
+            List<FileSignatureRecord> signatures = new List<FileSignatureRecord>();
+            using (FileStream stream = new FileStream(signaturesPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            using (StreamReader reader = new StreamReader(stream, Encoding.UTF8))
+            {
+                string? line;
+                while ((line = await reader.ReadLineAsync(token).ConfigureAwait(false)) != null)
+                {
+                    if (String.IsNullOrWhiteSpace(line)) continue;
+                    FileSignatureRecord? record = JsonSerializer.Deserialize<FileSignatureRecord>(line, _JsonOptions);
+                    if (record == null) continue;
+                    signatures.Add(record);
+                }
+            }
+
+            return signatures;
         }
 
         private async Task<string> ResolveRepositoryPathAsync(Vessel vessel, CancellationToken token)
@@ -981,6 +1096,11 @@ namespace Armada.Core.Services
         private string GetChunksPath(string vesselId)
         {
             return Path.Combine(GetVesselIndexDirectory(vesselId), "chunks.jsonl");
+        }
+
+        private string GetSignaturesPath(string vesselId)
+        {
+            return Path.Combine(GetVesselIndexDirectory(vesselId), "signatures.jsonl");
         }
 
         private async Task<string> RunGitAsync(string workingDirectory, CancellationToken token, params string[] args)
