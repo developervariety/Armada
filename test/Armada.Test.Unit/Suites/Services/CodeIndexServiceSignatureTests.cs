@@ -217,6 +217,108 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("UpdateAsync_InferenceReturnsBlank_SkipsFileSignatureRecord", async () =>
+            {
+                TestRepository repository = await CreateRepositoryAsync("alpha alpha", "alpha").ConfigureAwait(false);
+                string dataRoot = NewTempDirectory("armada-code-index-signatures-blank-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Vessel vessel = await CreateVesselAsync(testDb, repository.Path).ConfigureAwait(false);
+                        RecordingInferenceClient inference = new RecordingInferenceClient(userMessage =>
+                        {
+                            if (userMessage.Contains("File: src/noisy.cs", StringComparison.Ordinal))
+                            {
+                                return "   ";
+                            }
+
+                            return "target file handles alpha";
+                        });
+                        CodeIndexService service = CreateService(
+                            testDb,
+                            dataRoot,
+                            new RecordingEmbeddingClient(new float[] { 1F, 0F }),
+                            inference,
+                            ci =>
+                            {
+                                ci.UseSemanticSearch = false;
+                                ci.UseFileSignatures = true;
+                            });
+
+                        CodeIndexStatus status = await service.UpdateAsync(vessel.Id).ConfigureAwait(false);
+
+                        List<FileSignatureRecord> signatures = await ReadSignatureRecordsAsync(
+                            Path.Combine(status.IndexDirectory, "signatures.jsonl")).ConfigureAwait(false);
+                        AssertEqual(1, signatures.Count);
+                        AssertEqual("src/target.cs", signatures[0].Path);
+                        AssertEqual("target file handles alpha", signatures[0].Signature);
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(repository.Root);
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("UpdateAsync_EmbeddingReturnsEmptyVector_SkipsFileSignatureRecord", async () =>
+            {
+                TestRepository repository = await CreateRepositoryAsync("alpha alpha", "alpha").ConfigureAwait(false);
+                string dataRoot = NewTempDirectory("armada-code-index-signatures-empty-vector-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Vessel vessel = await CreateVesselAsync(testDb, repository.Path).ConfigureAwait(false);
+                        RecordingInferenceClient inference = new RecordingInferenceClient(userMessage =>
+                        {
+                            if (userMessage.Contains("File: src/noisy.cs", StringComparison.Ordinal))
+                            {
+                                return "empty vector file";
+                            }
+
+                            return "target file handles alpha";
+                        });
+                        SelectiveEmbeddingClient embedding = new SelectiveEmbeddingClient(text =>
+                        {
+                            if (String.Equals(text, "empty vector file", StringComparison.Ordinal))
+                            {
+                                return Array.Empty<float>();
+                            }
+
+                            return new float[] { 1F, 0F };
+                        });
+                        CodeIndexService service = CreateService(
+                            testDb,
+                            dataRoot,
+                            embedding,
+                            inference,
+                            ci =>
+                            {
+                                ci.UseSemanticSearch = false;
+                                ci.UseFileSignatures = true;
+                            });
+
+                        CodeIndexStatus status = await service.UpdateAsync(vessel.Id).ConfigureAwait(false);
+
+                        List<FileSignatureRecord> signatures = await ReadSignatureRecordsAsync(
+                            Path.Combine(status.IndexDirectory, "signatures.jsonl")).ConfigureAwait(false);
+                        AssertEqual(1, signatures.Count);
+                        AssertEqual("src/target.cs", signatures[0].Path);
+                        AssertEqual("target file handles alpha", signatures[0].Signature);
+                        AssertTrue(embedding.CallCount >= 2, "Embedding should run for both non-empty signatures");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(repository.Root);
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
             await RunTest("FileSignatureRecord_RoundTripsJsonl_WithNullAndNonNullVectors", () =>
             {
                 FileSignatureRecord withVector = new FileSignatureRecord
@@ -383,6 +485,32 @@ namespace Armada.Test.Unit.Suites.Services
                     await writer.WriteLineAsync(JsonSerializer.Serialize(signature, _IndexJsonOptions)).ConfigureAwait(false);
                 }
             }
+        }
+
+        private static async Task<List<FileSignatureRecord>> ReadSignatureRecordsAsync(string signaturesPath)
+        {
+            List<FileSignatureRecord> signatures = new List<FileSignatureRecord>();
+            if (!File.Exists(signaturesPath))
+            {
+                return signatures;
+            }
+
+            string[] lines = await File.ReadAllLinesAsync(signaturesPath).ConfigureAwait(false);
+            foreach (string line in lines)
+            {
+                if (String.IsNullOrWhiteSpace(line))
+                {
+                    continue;
+                }
+
+                FileSignatureRecord? signature = JsonSerializer.Deserialize<FileSignatureRecord>(line, _IndexJsonOptions);
+                if (signature != null)
+                {
+                    signatures.Add(signature);
+                }
+            }
+
+            return signatures;
         }
 
         private static async Task<Vessel> CreateVesselAsync(TestDatabase testDb, string repositoryPath)
@@ -553,6 +681,24 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 CallCount++;
                 return Task.FromResult(_Vector);
+            }
+        }
+
+        private sealed class SelectiveEmbeddingClient : IEmbeddingClient
+        {
+            private readonly Func<string, float[]> _Handler;
+
+            public int CallCount { get; private set; }
+
+            public SelectiveEmbeddingClient(Func<string, float[]> handler)
+            {
+                _Handler = handler ?? throw new ArgumentNullException(nameof(handler));
+            }
+
+            public Task<float[]> EmbedAsync(string text, CancellationToken token = default)
+            {
+                CallCount++;
+                return Task.FromResult(_Handler(text ?? String.Empty));
             }
         }
 
