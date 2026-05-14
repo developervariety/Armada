@@ -62,6 +62,11 @@ namespace Armada.Core.Models
         /// </summary>
         public string Content { get; set; } = "";
 
+        /// <summary>
+        /// Embedding vector for semantic search, when indexed with semantic search enabled; otherwise null.
+        /// </summary>
+        public float[]? EmbeddingVector { get; set; }
+
         #endregion
     }
 }
