@@ -1,5 +1,6 @@
 namespace Armada.Test.Unit.Suites.Services
 {
+    using System;
     using System.Net;
     using System.Net.Http;
     using System.Text;
@@ -70,6 +71,209 @@ namespace Armada.Test.Unit.Suites.Services
 
                 AssertEqual(0, result.Length);
             });
+
+            await RunTest("EmbedAsync_EmptyApiKey_OmitsAuthorizationHeader", async () =>
+            {
+                RecordingHttpMessageHandler handler = new RecordingHttpMessageHandler(
+                    HttpStatusCode.OK,
+                    "{\"data\":[{\"embedding\":[1.0]}]}");
+                HttpClient http = new HttpClient(handler);
+                CodeIndexSettings settings = new CodeIndexSettings
+                {
+                    EmbeddingApiBaseUrl = "https://api.deepseek.com",
+                    EmbeddingApiKey = string.Empty
+                };
+                DeepSeekEmbeddingClient client = new DeepSeekEmbeddingClient(settings, new LoggingModule(), http);
+
+                float[] result = await client.EmbedAsync("hello").ConfigureAwait(false);
+
+                AssertEqual(1, result.Length);
+                AssertNotNull(handler.LastRequest);
+                AssertNull(handler.LastRequest!.Headers.Authorization,
+                    "Authorization header must be omitted when EmbeddingApiKey is empty");
+            });
+
+            await RunTest("EmbedAsync_WhitespaceApiKey_OmitsAuthorizationHeader", async () =>
+            {
+                RecordingHttpMessageHandler handler = new RecordingHttpMessageHandler(
+                    HttpStatusCode.OK,
+                    "{\"data\":[{\"embedding\":[0.1]}]}");
+                HttpClient http = new HttpClient(handler);
+                CodeIndexSettings settings = new CodeIndexSettings
+                {
+                    EmbeddingApiBaseUrl = "https://api.deepseek.com",
+                    EmbeddingApiKey = "   "
+                };
+                DeepSeekEmbeddingClient client = new DeepSeekEmbeddingClient(settings, new LoggingModule(), http);
+
+                await client.EmbedAsync("hello").ConfigureAwait(false);
+
+                AssertNotNull(handler.LastRequest);
+                AssertNull(handler.LastRequest!.Headers.Authorization,
+                    "whitespace-only ApiKey must be treated as empty");
+            });
+
+            await RunTest("EmbedAsync_TrailingSlashBaseUrl_NormalizesEndpointPath", async () =>
+            {
+                RecordingHttpMessageHandler handler = new RecordingHttpMessageHandler(
+                    HttpStatusCode.OK,
+                    "{\"data\":[{\"embedding\":[0.0]}]}");
+                HttpClient http = new HttpClient(handler);
+                CodeIndexSettings settings = new CodeIndexSettings
+                {
+                    EmbeddingApiBaseUrl = "https://api.deepseek.com/",
+                    EmbeddingApiKey = "k"
+                };
+                DeepSeekEmbeddingClient client = new DeepSeekEmbeddingClient(settings, new LoggingModule(), http);
+
+                await client.EmbedAsync("hello").ConfigureAwait(false);
+
+                AssertNotNull(handler.LastRequest);
+                AssertEqual("https://api.deepseek.com/v1/embeddings", handler.LastRequest!.RequestUri!.ToString());
+            });
+
+            await RunTest("EmbedAsync_NetworkException_ReturnsEmptyArray", async () =>
+            {
+                ThrowingHttpMessageHandler handler = new ThrowingHttpMessageHandler(
+                    new HttpRequestException("connection refused"));
+                HttpClient http = new HttpClient(handler);
+                CodeIndexSettings settings = new CodeIndexSettings
+                {
+                    EmbeddingApiBaseUrl = "https://api.deepseek.com",
+                    EmbeddingApiKey = "k"
+                };
+                DeepSeekEmbeddingClient client = new DeepSeekEmbeddingClient(settings, new LoggingModule(), http);
+
+                float[] result = await client.EmbedAsync("hello").ConfigureAwait(false);
+
+                AssertEqual(0, result.Length);
+            });
+
+            await RunTest("EmbedAsync_CancellationRequested_ThrowsOperationCanceled", async () =>
+            {
+                ThrowingHttpMessageHandler handler = new ThrowingHttpMessageHandler(
+                    new OperationCanceledException("cancelled"));
+                HttpClient http = new HttpClient(handler);
+                CodeIndexSettings settings = new CodeIndexSettings
+                {
+                    EmbeddingApiBaseUrl = "https://api.deepseek.com"
+                };
+                DeepSeekEmbeddingClient client = new DeepSeekEmbeddingClient(settings, new LoggingModule(), http);
+
+                using CancellationTokenSource cts = new CancellationTokenSource();
+                cts.Cancel();
+
+                await AssertThrowsAsync<OperationCanceledException>(async () =>
+                {
+                    await client.EmbedAsync("hello", cts.Token).ConfigureAwait(false);
+                }).ConfigureAwait(false);
+            });
+
+            await RunTest("EmbedAsync_MissingDataField_ReturnsEmptyArray", async () =>
+            {
+                RecordingHttpMessageHandler handler = new RecordingHttpMessageHandler(
+                    HttpStatusCode.OK,
+                    "{\"object\":\"list\"}");
+                HttpClient http = new HttpClient(handler);
+                CodeIndexSettings settings = new CodeIndexSettings
+                {
+                    EmbeddingApiBaseUrl = "https://api.deepseek.com",
+                    EmbeddingApiKey = "k"
+                };
+                DeepSeekEmbeddingClient client = new DeepSeekEmbeddingClient(settings, new LoggingModule(), http);
+
+                float[] result = await client.EmbedAsync("hello").ConfigureAwait(false);
+
+                AssertEqual(0, result.Length);
+            });
+
+            await RunTest("EmbedAsync_EmptyDataArray_ReturnsEmptyArray", async () =>
+            {
+                RecordingHttpMessageHandler handler = new RecordingHttpMessageHandler(
+                    HttpStatusCode.OK,
+                    "{\"data\":[]}");
+                HttpClient http = new HttpClient(handler);
+                CodeIndexSettings settings = new CodeIndexSettings
+                {
+                    EmbeddingApiBaseUrl = "https://api.deepseek.com",
+                    EmbeddingApiKey = "k"
+                };
+                DeepSeekEmbeddingClient client = new DeepSeekEmbeddingClient(settings, new LoggingModule(), http);
+
+                float[] result = await client.EmbedAsync("hello").ConfigureAwait(false);
+
+                AssertEqual(0, result.Length);
+            });
+
+            await RunTest("EmbedAsync_MalformedJsonBody_ReturnsEmptyArray", async () =>
+            {
+                RecordingHttpMessageHandler handler = new RecordingHttpMessageHandler(
+                    HttpStatusCode.OK,
+                    "this is not json {{");
+                HttpClient http = new HttpClient(handler);
+                CodeIndexSettings settings = new CodeIndexSettings
+                {
+                    EmbeddingApiBaseUrl = "https://api.deepseek.com",
+                    EmbeddingApiKey = "k"
+                };
+                DeepSeekEmbeddingClient client = new DeepSeekEmbeddingClient(settings, new LoggingModule(), http);
+
+                float[] result = await client.EmbedAsync("hello").ConfigureAwait(false);
+
+                AssertEqual(0, result.Length);
+            });
+
+            await RunTest("EmbedAsync_NullInputText_SendsEmptyStringInRequestBody", async () =>
+            {
+                RecordingHttpMessageHandler handler = new RecordingHttpMessageHandler(
+                    HttpStatusCode.OK,
+                    "{\"data\":[{\"embedding\":[0.0]}]}");
+                HttpClient http = new HttpClient(handler);
+                CodeIndexSettings settings = new CodeIndexSettings
+                {
+                    EmbeddingApiBaseUrl = "https://api.deepseek.com",
+                    EmbeddingApiKey = "k"
+                };
+                DeepSeekEmbeddingClient client = new DeepSeekEmbeddingClient(settings, new LoggingModule(), http);
+
+                await client.EmbedAsync(null!).ConfigureAwait(false);
+
+                AssertNotNull(handler.LastRequestBody);
+                EmbeddingRequestBody? body = System.Text.Json.JsonSerializer.Deserialize<EmbeddingRequestBody>(handler.LastRequestBody!);
+                AssertNotNull(body);
+                AssertNotNull(body!.Input);
+                AssertEqual(1, body.Input!.Length);
+                AssertEqual(string.Empty, body.Input[0]);
+            });
+
+            await RunTest("Constructor_NullSettings_ThrowsArgumentNullException", () =>
+            {
+                AssertThrows<ArgumentNullException>(() =>
+                {
+                    HttpClient http = new HttpClient(new RecordingHttpMessageHandler(HttpStatusCode.OK, "{}"));
+                    DeepSeekEmbeddingClient ignored = new DeepSeekEmbeddingClient(null!, new LoggingModule(), http);
+                    GC.KeepAlive(ignored);
+                });
+            });
+
+            await RunTest("Constructor_NullLogging_ThrowsArgumentNullException", () =>
+            {
+                AssertThrows<ArgumentNullException>(() =>
+                {
+                    HttpClient http = new HttpClient(new RecordingHttpMessageHandler(HttpStatusCode.OK, "{}"));
+                    DeepSeekEmbeddingClient ignored = new DeepSeekEmbeddingClient(new CodeIndexSettings(), null!, http);
+                    GC.KeepAlive(ignored);
+                });
+            });
+
+            await RunTest("Constructor_NullHttpClient_ThrowsArgumentNullException", () =>
+            {
+                AssertThrows<ArgumentNullException>(() =>
+                {
+                    DeepSeekEmbeddingClient ignored = new DeepSeekEmbeddingClient(new CodeIndexSettings(), new LoggingModule(), null!);
+                    GC.KeepAlive(ignored);
+                });
+            });
         }
 
         private sealed class EmbeddingRequestBody
@@ -105,6 +309,23 @@ namespace Armada.Test.Unit.Suites.Services
                     Content = new StringContent(_Body, Encoding.UTF8, "application/json")
                 };
                 return response;
+            }
+        }
+
+        private sealed class ThrowingHttpMessageHandler : HttpMessageHandler
+        {
+            private readonly Exception _Exception;
+
+            public ThrowingHttpMessageHandler(Exception exception)
+            {
+                _Exception = exception;
+            }
+
+            protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+            {
+                if (cancellationToken.IsCancellationRequested)
+                    cancellationToken.ThrowIfCancellationRequested();
+                throw _Exception;
             }
         }
     }
