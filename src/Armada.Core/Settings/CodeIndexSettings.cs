@@ -86,6 +86,140 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Whether semantic search is enabled.
+        /// </summary>
+        public bool UseSemanticSearch { get; set; } = false;
+
+        /// <summary>
+        /// Embedding model name.
+        /// </summary>
+        public string EmbeddingModel
+        {
+            get => _EmbeddingModel;
+            set => _EmbeddingModel = value ?? string.Empty;
+        }
+
+        /// <summary>
+        /// Embedding API base URL.
+        /// </summary>
+        public string EmbeddingApiBaseUrl
+        {
+            get => _EmbeddingApiBaseUrl;
+            set => _EmbeddingApiBaseUrl = value ?? string.Empty;
+        }
+
+        /// <summary>
+        /// Embedding API key.
+        /// </summary>
+        public string EmbeddingApiKey
+        {
+            get => _EmbeddingApiKey;
+            set => _EmbeddingApiKey = value ?? string.Empty;
+        }
+
+        /// <summary>
+        /// Semantic score blend weight.
+        /// </summary>
+        public double SemanticWeight
+        {
+            get => _SemanticWeight;
+            set
+            {
+                if (value < 0.0) value = 0.0;
+                if (value > 1.0) value = 1.0;
+                _SemanticWeight = value;
+            }
+        }
+
+        /// <summary>
+        /// Lexical score blend weight.
+        /// </summary>
+        public double LexicalWeight
+        {
+            get => _LexicalWeight;
+            set
+            {
+                if (value < 0.0) value = 0.0;
+                if (value > 1.0) value = 1.0;
+                _LexicalWeight = value;
+            }
+        }
+
+        /// <summary>
+        /// Whether summarizer calls are enabled.
+        /// </summary>
+        public bool UseSummarizer { get; set; } = false;
+
+        /// <summary>
+        /// Summarizer model name.
+        /// </summary>
+        public string SummarizerModel
+        {
+            get => _SummarizerModel;
+            set => _SummarizerModel = value ?? string.Empty;
+        }
+
+        /// <summary>
+        /// Summarizer API base URL. Empty falls back to <see cref="EmbeddingApiBaseUrl"/>.
+        /// </summary>
+        public string SummarizerApiBaseUrl
+        {
+            get => _SummarizerApiBaseUrl;
+            set => _SummarizerApiBaseUrl = value ?? string.Empty;
+        }
+
+        /// <summary>
+        /// Summarizer API key. Empty falls back to <see cref="EmbeddingApiKey"/>.
+        /// </summary>
+        public string SummarizerApiKey
+        {
+            get => _SummarizerApiKey;
+            set => _SummarizerApiKey = value ?? string.Empty;
+        }
+
+        /// <summary>
+        /// Maximum tokens for summarizer output.
+        /// </summary>
+        public int MaxSummaryOutputTokens
+        {
+            get => _MaxSummaryOutputTokens;
+            set
+            {
+                if (value < 256) value = 256;
+                if (value > 8192) value = 8192;
+                _MaxSummaryOutputTokens = value;
+            }
+        }
+
+        /// <summary>
+        /// Whether file signatures are enabled.
+        /// </summary>
+        public bool UseFileSignatures { get; set; } = false;
+
+        /// <summary>
+        /// File signature model name. Empty falls back to <see cref="SummarizerModel"/>.
+        /// </summary>
+        public string SignatureModel
+        {
+            get => _SignatureModel;
+            set => _SignatureModel = value ?? string.Empty;
+        }
+
+        /// <summary>
+        /// Score boost blend weight for file-signature ranking.
+        /// </summary>
+        public double FileSignatureBoostWeight
+        {
+            get => _FileSignatureBoostWeight;
+            set
+            {
+                if (value < 0.0) value = 0.0;
+                if (value > 1.0) value = 1.0;
+                _FileSignatureBoostWeight = value;
+            }
+        }
+
+        /// <summary>
         /// Directory names excluded from indexing.
         /// </summary>
         public List<string> ExcludedDirectoryNames { get; set; } = new List<string>
@@ -195,6 +329,17 @@ namespace Armada.Core.Settings
         private int _MaxChunkLines = 80;
         private int _MaxSearchResults = 10;
         private int _MaxContextPackResults = 8;
+        private string _EmbeddingModel = "deepseek-embedding";
+        private string _EmbeddingApiBaseUrl = "https://api.deepseek.com";
+        private string _EmbeddingApiKey = string.Empty;
+        private double _SemanticWeight = 0.7;
+        private double _LexicalWeight = 0.3;
+        private string _SummarizerModel = "deepseek-chat";
+        private string _SummarizerApiBaseUrl = string.Empty;
+        private string _SummarizerApiKey = string.Empty;
+        private int _MaxSummaryOutputTokens = 2048;
+        private string _SignatureModel = string.Empty;
+        private double _FileSignatureBoostWeight = 0.2;
 
         #endregion
     }
