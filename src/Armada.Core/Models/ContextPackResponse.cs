@@ -57,6 +57,16 @@ namespace Armada.Core.Models
         /// </summary>
         public List<string> Warnings { get; set; } = new List<string>();
 
+        /// <summary>
+        /// Summarized version of the markdown context pack.
+        /// </summary>
+        public string? SummarizedMarkdown { get; set; } = null;
+
+        /// <summary>
+        /// True if the markdown was successfully summarized.
+        /// </summary>
+        public bool IsSummarized { get; set; } = false;
+
         #endregion
     }
 }

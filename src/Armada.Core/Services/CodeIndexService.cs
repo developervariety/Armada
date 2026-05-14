@@ -136,6 +136,59 @@ namespace Armada.Core.Services
                     }
                 }
 
+                List<FileSignatureRecord> signatures = new List<FileSignatureRecord>();
+                if (_Settings.CodeIndex.UseFileSignatures && _InferenceClient != null && _EmbeddingClient != null)
+                {
+                    const string signatureSystemPrompt =
+                        "You are a codebase analyst. Describe the purpose of the following source file in 1-2 sentences, naming the main types and their responsibilities. Output only the description.";
+                    foreach (IGrouping<string, CodeIndexRecord> group in records.GroupBy(r => r.Path, StringComparer.OrdinalIgnoreCase))
+                    {
+                        CodeIndexRecord representative = group
+                            .OrderBy(r => r.StartLine)
+                            .First();
+
+                        string excerpt = representative.Content ?? "";
+                        if (excerpt.Length > 2000)
+                        {
+                            excerpt = excerpt.Substring(0, 2000);
+                        }
+
+                        string userMessage = "File: " + representative.Path + "\n\n" + excerpt;
+                        try
+                        {
+                            string signature = (await _InferenceClient.CompleteAsync(signatureSystemPrompt, userMessage, token).ConfigureAwait(false) ?? "").Trim();
+                            if (String.IsNullOrWhiteSpace(signature))
+                            {
+                                continue;
+                            }
+
+                            float[] vector = await _EmbeddingClient.EmbedAsync(signature, token).ConfigureAwait(false);
+                            if (vector == null || vector.Length == 0)
+                            {
+                                continue;
+                            }
+
+                            signatures.Add(new FileSignatureRecord
+                            {
+                                VesselId = representative.VesselId,
+                                Path = representative.Path,
+                                CommitSha = representative.CommitSha,
+                                ContentHash = representative.ContentHash,
+                                Language = representative.Language,
+                                Signature = signature,
+                                SignatureVector = vector,
+                                GeneratedAtUtc = DateTime.UtcNow
+                            });
+                        }
+                        catch (Exception ex)
+                        {
+                            _Logging.Warn(_Header + "signature generation failed for file " + representative.Path + ": " + ex.Message);
+                        }
+                    }
+
+                    await WriteSignaturesAsync(vessel.Id, signatures, token).ConfigureAwait(false);
+                }
+
                 CodeIndexStatus status = new CodeIndexStatus
                 {
                     VesselId = vessel.Id,
@@ -202,6 +255,16 @@ namespace Armada.Core.Services
                 }
             }
 
+            Dictionary<string, FileSignatureRecord>? signaturesByPath = null;
+            if (_Settings.CodeIndex.UseFileSignatures && queryVector != null)
+            {
+                List<FileSignatureRecord> signatures = await ReadSignaturesAsync(request.VesselId, token).ConfigureAwait(false);
+                signaturesByPath = signatures
+                    .Where(s => !String.IsNullOrWhiteSpace(s.Path))
+                    .GroupBy(s => s.Path, StringComparer.OrdinalIgnoreCase)
+                    .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+            }
+
             List<CodeSearchResult> results = new List<CodeSearchResult>();
             foreach (CodeIndexRecord record in records)
             {
@@ -218,6 +281,16 @@ namespace Armada.Core.Services
                 }
 
                 double score = ScoreRecord(record, request.Query, terms, queryVector);
+                if (signaturesByPath != null
+                    && queryVector != null
+                    && signaturesByPath.TryGetValue(record.Path, out FileSignatureRecord? signatureRecord)
+                    && signatureRecord.SignatureVector != null
+                    && signatureRecord.SignatureVector.Length > 0)
+                {
+                    double signatureSimilarity = CosineSimilarity(queryVector, signatureRecord.SignatureVector);
+                    score += _Settings.CodeIndex.FileSignatureBoostWeight * signatureSimilarity;
+                }
+
                 if (score <= 0) continue;
 
                 CodeIndexRecord outputRecord = CopyRecord(record);
@@ -246,6 +319,84 @@ namespace Armada.Core.Services
                 Status = status,
                 Query = request.Query,
                 Results = results
+            };
+        }
+
+        /// <inheritdoc />
+        public async Task<FleetCodeSearchResponse> SearchFleetAsync(FleetCodeSearchRequest request, CancellationToken token = default)
+        {
+            if (request == null) throw new ArgumentNullException(nameof(request));
+            if (String.IsNullOrWhiteSpace(request.FleetId)) throw new ArgumentNullException(nameof(request.FleetId));
+            if (String.IsNullOrWhiteSpace(request.Query)) throw new ArgumentNullException(nameof(request.Query));
+
+            List<Vessel> vessels = await _Database.Vessels.EnumerateByFleetAsync(request.FleetId, token).ConfigureAwait(false);
+            int vesselCount = vessels.Count;
+            int perVesselDefault = ClampLimit(0, _Settings.CodeIndex.MaxSearchResults);
+            int requestedLimit = request.Limit > 0 ? request.Limit : perVesselDefault * Math.Max(1, vesselCount);
+            int limit = Math.Min(50, requestedLimit);
+            if (limit < 1) limit = 1;
+
+            List<FleetCodeSearchResult> merged = new List<FleetCodeSearchResult>();
+            List<string> warnings = new List<string>();
+
+            foreach (Vessel vessel in vessels)
+            {
+                try
+                {
+                    CodeSearchRequest vesselRequest = new CodeSearchRequest
+                    {
+                        VesselId = vessel.Id,
+                        Query = request.Query,
+                        Limit = limit,
+                        PathPrefix = request.PathPrefix,
+                        Language = request.Language,
+                        IncludeContent = request.IncludeContent,
+                        IncludeReferenceOnly = request.IncludeReferenceOnly
+                    };
+
+                    CodeSearchResponse search = await SearchAsync(vesselRequest, token).ConfigureAwait(false);
+
+                    if (!String.Equals(search.Status.Freshness, "Fresh", StringComparison.OrdinalIgnoreCase))
+                    {
+                        warnings.Add("vessel " + vessel.Id + " (" + vessel.Name + ") index freshness is " + search.Status.Freshness);
+                    }
+
+                    if (!String.IsNullOrWhiteSpace(search.Status.LastError))
+                    {
+                        warnings.Add("vessel " + vessel.Id + " (" + vessel.Name + ") index error: " + search.Status.LastError);
+                    }
+
+                    foreach (CodeSearchResult result in search.Results)
+                    {
+                        merged.Add(new FleetCodeSearchResult
+                        {
+                            VesselId = vessel.Id,
+                            VesselName = vessel.Name,
+                            Score = result.Score,
+                            Record = result.Record,
+                            Excerpt = result.Excerpt
+                        });
+                    }
+                }
+                catch (Exception ex)
+                {
+                    warnings.Add("vessel " + vessel.Id + " (" + vessel.Name + ") search failed: " + ex.Message);
+                }
+            }
+
+            List<FleetCodeSearchResult> results = merged
+                .OrderByDescending(r => r.Score)
+                .ThenBy(r => r.Record.Path, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(r => r.Record.StartLine)
+                .Take(limit)
+                .ToList();
+
+            return new FleetCodeSearchResponse
+            {
+                FleetId = request.FleetId,
+                Query = request.Query,
+                Results = results,
+                Warnings = warnings
             };
         }
 
@@ -319,7 +470,30 @@ namespace Armada.Core.Services
             }
 
             string markdown = BuildContextPackMarkdown(request.Goal, tokenBudget, search);
-            string materializedPath = await WriteContextPackAsync(request.VesselId, markdown, token).ConfigureAwait(false);
+
+            string? summarizedMarkdown = null;
+            bool isSummarized = false;
+
+            if (_Settings.CodeIndex.UseSummarizer && _InferenceClient != null && search.Results.Count > 0)
+            {
+                string systemPrompt = "You are a codebase analyst. Given code chunks from a repository, produce a compact markdown summary for a software engineer who needs to understand the relevant patterns before making a change. Output: first a 3-5 sentence synthesis naming the key types, their responsibilities, and any important call chains. Then a bulleted file-by-file list of key types and their roles. Be concise. No introductory text. Output only the summary markdown.";
+                string userMessage = "Goal: " + request.Goal + "\n\n" + markdown;
+                try
+                {
+                    string summary = (await _InferenceClient.CompleteAsync(systemPrompt, userMessage, token).ConfigureAwait(false) ?? "").Trim();
+                    if (!String.IsNullOrEmpty(summary))
+                    {
+                        summarizedMarkdown = summary;
+                        isSummarized = true;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "summarizer failed: " + ex.Message);
+                }
+            }
+
+            string materializedPath = await WriteContextPackAsync(request.VesselId, isSummarized ? summarizedMarkdown! : markdown, token).ConfigureAwait(false);
 
             ContextPackResponse response = new ContextPackResponse
             {
@@ -328,13 +502,115 @@ namespace Armada.Core.Services
                 Markdown = markdown,
                 EstimatedTokens = EstimateTokens(markdown),
                 MaterializedPath = materializedPath,
-                Results = search.Results
+                Results = search.Results,
+                SummarizedMarkdown = summarizedMarkdown,
+                IsSummarized = isSummarized
             };
             response.PrestagedFiles.Add(new PrestagedFile(materializedPath, "_briefing/context-pack.md"));
             foreach (VesselPackHint h in matchedHints)
                 response.MatchedHintIds.Add(h.Id);
             foreach (string w in warnings)
                 response.Warnings.Add(w);
+            return response;
+        }
+
+        /// <inheritdoc />
+        public async Task<FleetContextPackResponse> BuildFleetContextPackAsync(FleetContextPackRequest request, CancellationToken token = default)
+        {
+            if (request == null) throw new ArgumentNullException(nameof(request));
+            if (String.IsNullOrWhiteSpace(request.FleetId)) throw new ArgumentNullException(nameof(request.FleetId));
+            if (String.IsNullOrWhiteSpace(request.Goal)) throw new ArgumentNullException(nameof(request.Goal));
+
+            int tokenBudget = request.TokenBudget;
+            if (tokenBudget < 500) tokenBudget = 500;
+            if (tokenBudget > 20000) tokenBudget = 20000;
+
+            List<Vessel> vessels = await _Database.Vessels.EnumerateByFleetAsync(request.FleetId, token).ConfigureAwait(false);
+            int vesselCount = Math.Max(1, vessels.Count);
+            int perVesselBudget = Math.Max(2000, tokenBudget / vesselCount);
+
+            StringBuilder builder = new StringBuilder();
+            builder.AppendLine("# Armada Fleet Code Context Pack");
+            builder.AppendLine();
+            builder.AppendLine("Goal: " + request.Goal);
+            builder.AppendLine();
+            builder.AppendLine("FleetId: " + request.FleetId);
+            builder.AppendLine();
+            builder.AppendLine("This is repo discovery evidence from Armada's code index across fleet vessels. Playbooks, vessel CLAUDE.md, and project CLAUDE.md rules win on conflict.");
+
+            List<string> warnings = new List<string>();
+            foreach (Vessel vessel in vessels)
+            {
+                try
+                {
+                    ContextPackRequest vesselRequest = new ContextPackRequest
+                    {
+                        VesselId = vessel.Id,
+                        Goal = request.Goal,
+                        TokenBudget = perVesselBudget,
+                        MaxResults = request.MaxResultsPerVessel
+                    };
+                    ContextPackResponse vesselPack = await BuildContextPackAsync(vesselRequest, token).ConfigureAwait(false);
+
+                    builder.AppendLine();
+                    builder.AppendLine("## Vessel: " + vessel.Name);
+                    builder.AppendLine();
+                    builder.AppendLine(vesselPack.Markdown.Trim());
+
+                    foreach (string warning in vesselPack.Warnings)
+                    {
+                        warnings.Add("vessel " + vessel.Id + " (" + vessel.Name + "): " + warning);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    warnings.Add("vessel " + vessel.Id + " (" + vessel.Name + ") context pack failed: " + ex.Message);
+                }
+            }
+
+            if (vessels.Count == 0)
+            {
+                builder.AppendLine();
+                builder.AppendLine("No vessels were found for this fleet.");
+            }
+
+            string markdown = builder.ToString().TrimEnd() + "\n";
+            string? summarizedMarkdown = null;
+            bool isSummarized = false;
+
+            if (_Settings.CodeIndex.UseSummarizer && _InferenceClient != null && vessels.Count > 0)
+            {
+                string systemPrompt = "You are a codebase analyst. Given code chunks from multiple repositories, produce a compact markdown summary for a software engineer who needs to understand the relevant patterns before making a change. Output: first a 3-5 sentence synthesis naming the key types, their responsibilities, and any important call chains across vessels. Then a bulleted file-by-file list of key types and their roles grouped by vessel. Be concise. No introductory text. Output only the summary markdown.";
+                string userMessage = "Goal: " + request.Goal + "\n\n" + markdown;
+                try
+                {
+                    string summary = (await _InferenceClient.CompleteAsync(systemPrompt, userMessage, token).ConfigureAwait(false) ?? "").Trim();
+                    if (!String.IsNullOrEmpty(summary))
+                    {
+                        summarizedMarkdown = summary;
+                        isSummarized = true;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "fleet summarizer failed: " + ex.Message);
+                }
+            }
+
+            string materializedPath = await WriteFleetContextPackAsync(request.FleetId, isSummarized ? summarizedMarkdown! : markdown, token).ConfigureAwait(false);
+
+            FleetContextPackResponse response = new FleetContextPackResponse
+            {
+                FleetId = request.FleetId,
+                Goal = request.Goal,
+                Markdown = markdown,
+                SummarizedMarkdown = summarizedMarkdown,
+                IsSummarized = isSummarized,
+                EstimatedTokens = EstimateTokens(markdown),
+                MaterializedPath = materializedPath,
+                Warnings = warnings
+            };
+            response.PrestagedFiles.Add(new PrestagedFile(materializedPath, "_briefing/context-pack.md"));
             return response;
         }
 
@@ -446,6 +722,48 @@ namespace Armada.Core.Services
             }
 
             return records;
+        }
+
+        private async Task WriteSignaturesAsync(string vesselId, List<FileSignatureRecord> signatures, CancellationToken token)
+        {
+            string signaturesPath = GetSignaturesPath(vesselId);
+            string? directory = Path.GetDirectoryName(signaturesPath);
+            if (!String.IsNullOrWhiteSpace(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            using (FileStream stream = new FileStream(signaturesPath, FileMode.Create, FileAccess.Write, FileShare.None))
+            using (StreamWriter writer = new StreamWriter(stream, new UTF8Encoding(false)))
+            {
+                foreach (FileSignatureRecord signature in signatures)
+                {
+                    string json = JsonSerializer.Serialize(signature, _JsonOptions);
+                    await writer.WriteLineAsync(json.AsMemory(), token).ConfigureAwait(false);
+                }
+            }
+        }
+
+        private async Task<List<FileSignatureRecord>> ReadSignaturesAsync(string vesselId, CancellationToken token)
+        {
+            string signaturesPath = GetSignaturesPath(vesselId);
+            if (!File.Exists(signaturesPath)) return new List<FileSignatureRecord>();
+
+            List<FileSignatureRecord> signatures = new List<FileSignatureRecord>();
+            using (FileStream stream = new FileStream(signaturesPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            using (StreamReader reader = new StreamReader(stream, Encoding.UTF8))
+            {
+                string? line;
+                while ((line = await reader.ReadLineAsync(token).ConfigureAwait(false)) != null)
+                {
+                    if (String.IsNullOrWhiteSpace(line)) continue;
+                    FileSignatureRecord? record = JsonSerializer.Deserialize<FileSignatureRecord>(line, _JsonOptions);
+                    if (record == null) continue;
+                    signatures.Add(record);
+                }
+            }
+
+            return signatures;
         }
 
         private async Task<string> ResolveRepositoryPathAsync(Vessel vessel, CancellationToken token)
@@ -963,6 +1281,16 @@ namespace Armada.Core.Services
             return path;
         }
 
+        private async Task<string> WriteFleetContextPackAsync(string fleetId, string markdown, CancellationToken token)
+        {
+            string contextPackDirectory = Path.Combine(_Settings.CodeIndex.IndexDirectory, "fleets", fleetId, "context-packs");
+            Directory.CreateDirectory(contextPackDirectory);
+            string fileName = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N") + ".md";
+            string path = Path.Combine(contextPackDirectory, fileName);
+            await File.WriteAllTextAsync(path, markdown, new UTF8Encoding(false), token).ConfigureAwait(false);
+            return path;
+        }
+
         private int EstimateTokens(string markdown)
         {
             return (int)Math.Ceiling((markdown ?? "").Length / 4.0);
@@ -981,6 +1309,11 @@ namespace Armada.Core.Services
         private string GetChunksPath(string vesselId)
         {
             return Path.Combine(GetVesselIndexDirectory(vesselId), "chunks.jsonl");
+        }
+
+        private string GetSignaturesPath(string vesselId)
+        {
+            return Path.Combine(GetVesselIndexDirectory(vesselId), "signatures.jsonl");
         }
 
         private async Task<string> RunGitAsync(string workingDirectory, CancellationToken token, params string[] args)

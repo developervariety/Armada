@@ -23,8 +23,18 @@ namespace Armada.Core.Services.Interfaces
         Task<CodeSearchResponse> SearchAsync(CodeSearchRequest request, CancellationToken token = default);
 
         /// <summary>
+        /// Search indexed code across all vessels in a fleet.
+        /// </summary>
+        Task<FleetCodeSearchResponse> SearchFleetAsync(FleetCodeSearchRequest request, CancellationToken token = default);
+
+        /// <summary>
         /// Build a dispatch-ready context pack for a mission goal.
         /// </summary>
         Task<ContextPackResponse> BuildContextPackAsync(ContextPackRequest request, CancellationToken token = default);
+
+        /// <summary>
+        /// Build a dispatch-ready context pack across all vessels in a fleet.
+        /// </summary>
+        Task<FleetContextPackResponse> BuildFleetContextPackAsync(FleetContextPackRequest request, CancellationToken token = default);
     }
 }

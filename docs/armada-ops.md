@@ -352,3 +352,108 @@ learned playbook with explicit `disableFromVessels` ripples.
     the update tool -- the accept path lazy-creates the playbook on
     the first successful fleet-curate and writes the FK back to the
     fleet row.
+
+---
+
+## Codebase index and context packs
+
+### Semantic index, fleet tools, and V2 settings surface
+
+The V2 index surface (shipped in M1-M5) adds semantic search, cross-vessel fleet queries, and file-level signatures to the original lexical index.
+
+#### V2 CodeIndex settings
+
+All settings live under `CodeIndex` in `~/.armada/settings.json`:
+
+| Setting | Default | Range | Description |
+|---------|---------|-------|-------------|
+| `UseSemanticSearch` | `false` | boolean | Enable embedding-based semantic search. When `false`, search is lexical-only (V1 behavior). |
+| `EmbeddingModel` | `"deepseek-embedding"` | string | Model name passed to the embedding endpoint. |
+| `EmbeddingApiBaseUrl` | `"https://api.deepseek.com"` | string | Base URL for embedding API calls. |
+| `EmbeddingApiKey` | `""` | string | API key for embedding calls. Store the secret here; never commit real keys to git. |
+| `SemanticWeight` | `0.7` | 0.0-1.0 | Weight applied to semantic cosine similarity in hybrid scoring. |
+| `LexicalWeight` | `0.3` | 0.0-1.0 | Weight applied to lexical substring/term-occurrence score in hybrid scoring. |
+| `UseSummarizer` | `false` | boolean | Enable context pack summarization via inference client. |
+| `SummarizerModel` | `"deepseek-chat"` | string | Model name for summarization calls. |
+| `SummarizerApiBaseUrl` | `""` | string | Falls back to `EmbeddingApiBaseUrl` when empty. |
+| `SummarizerApiKey` | `""` | string | Falls back to `EmbeddingApiKey` when empty. |
+| `MaxSummaryOutputTokens` | `2048` | 256-8192 | Maximum tokens the summarizer may emit. |
+| `UseFileSignatures` | `false` | boolean | Generate per-file natural-language signatures and embed them for file-level relevance boosting. |
+| `SignatureModel` | `""` | string | Model for signature generation. Falls back to `SummarizerModel` when empty. |
+| `FileSignatureBoostWeight` | `0.2` | 0.0-1.0 | Additive boost applied to chunk scores when a file's signature matches the query. |
+
+Weights are normalized at runtime if they sum to something other than 1.0.
+
+#### Fleet MCP tools
+
+Two fleet-scoped tools fan out across all vessels in a fleet and merge results:
+
+**armada_fleet_code_search**
+
+```json
+{
+  "fleetId": "flt_abc123def456ghi789jk",
+  "query": "tenant filter interceptor implementation",
+  "limit": 10,
+  "pathPrefix": "src/",
+  "language": "csharp",
+  "includeContent": false,
+  "includeReferenceOnly": false
+}
+```
+
+Response contains `Results` with `VesselId` and `VesselName` on every hit, sorted by score across the fleet. `Limit` is capped at 50.
+
+**armada_fleet_context_pack**
+
+```json
+{
+  "fleetId": "flt_abc123def456ghi789jk",
+  "goal": "How do I add a new vessel to an existing fleet?",
+  "tokenBudget": 8000,
+  "maxResultsPerVessel": 3
+}
+```
+
+Response contains combined markdown from all vessels with `## Vessel: {VesselName}` headings. When `UseSummarizer` is enabled, the combined pack is summarized once more at the fleet level.
+
+#### Summarizer behavior
+
+When `UseSummarizer` is enabled, context-pack chunks are compressed through the inference client before the pack is materialized for dispatch. `ContextPackResponse.Markdown` keeps the raw markdown, while `ContextPackResponse.SummarizedMarkdown` carries the compressed version when summarization succeeds. `prestagedFiles` points at the summarized materialized file when `SummarizedMarkdown` is present, otherwise it falls back to the raw markdown file. Operators can opt out by leaving `UseSummarizer` set to `false` in settings before making the request.
+
+#### File signature behavior
+
+When `UseFileSignatures` is enabled:
+
+1. **Index time**: `UpdateAsync` generates a 1-2 sentence natural-language signature for each unique file using the inference client, embeds it via the embedding client, and stores it in `signatures.jsonl` alongside `chunks.jsonl`.
+2. **Search time**: After chunk-level scoring, file signature vectors are compared to the query vector. All chunks belonging to a file with high signature similarity receive an additive boost proportional to `FileSignatureBoostWeight * signatureSimilarity`.
+3. **Boost semantics**: The boost is additive post-scoring; it never overrides a strong chunk hit, only lifts file-level relevance on otherwise weaker chunks.
+
+Performance note: signature generation costs one inference call plus one embedding call per file at index time. A full fleet index of ~10,000-15,000 files therefore requires ~20,000-30,000 API calls during the initial build.
+
+#### Sample settings.json
+
+```json
+{
+  "admiralPort": 7890,
+  "mcpPort": 7891,
+  "codeIndex": {
+    "useSemanticSearch": true,
+    "embeddingModel": "deepseek-embedding",
+    "embeddingApiBaseUrl": "https://api.deepseek.com",
+    "embeddingApiKey": "sk-your-embedding-key",
+    "semanticWeight": 0.7,
+    "lexicalWeight": 0.3,
+    "useSummarizer": true,
+    "summarizerModel": "deepseek-chat",
+    "summarizerApiBaseUrl": "",
+    "summarizerApiKey": "",
+    "maxSummaryOutputTokens": 2048,
+    "useFileSignatures": true,
+    "signatureModel": "",
+    "fileSignatureBoostWeight": 0.2
+  }
+}
+```
+
+Replace placeholder keys with actual secrets. `EmbeddingApiKey` is the sensitive field; keep it out of version control.
