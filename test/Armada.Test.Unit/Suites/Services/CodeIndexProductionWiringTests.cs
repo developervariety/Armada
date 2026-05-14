@@ -25,6 +25,13 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 string path = Path.Combine(FindRepositoryRoot(), "src", "Armada.Server", "ArmadaServer.cs");
                 string contents = File.ReadAllText(path);
+                AssertEqual(
+                    1,
+                    CountOccurrences(contents, "new CodeIndexService("),
+                    "ArmadaServer should have exactly one CodeIndexService construction site");
+                AssertFalse(
+                    contents.Contains("new CodeIndexService(_Logging, _Database, _Settings, _Git)"),
+                    "ArmadaServer should not use the legacy CodeIndexService constructor without semantic clients");
                 AssertContains(
                     "new DeepSeekEmbeddingClient(_Settings.CodeIndex, _Logging, codeIndexHttpClient)",
                     contents,
@@ -44,6 +51,13 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 string path = Path.Combine(FindRepositoryRoot(), "src", "Armada.Helm", "Commands", "McpStdioCommand.cs");
                 string contents = File.ReadAllText(path);
+                AssertEqual(
+                    1,
+                    CountOccurrences(contents, "new CodeIndexService("),
+                    "McpStdioCommand should have exactly one CodeIndexService construction site");
+                AssertFalse(
+                    contents.Contains("new CodeIndexService(logging, database, armadaSettings, git)"),
+                    "McpStdioCommand should not use the legacy CodeIndexService constructor without semantic clients");
                 AssertContains(
                     "new DeepSeekEmbeddingClient(armadaSettings.CodeIndex, logging, codeIndexHttpClient)",
                     contents,
@@ -167,6 +181,25 @@ namespace Armada.Test.Unit.Suites.Services
             }
 
             throw new DirectoryNotFoundException("Could not locate repository root from test base directory.");
+        }
+
+        private static int CountOccurrences(string contents, string value)
+        {
+            int count = 0;
+            int index = 0;
+            while (index < contents.Length)
+            {
+                int found = contents.IndexOf(value, index, StringComparison.Ordinal);
+                if (found < 0)
+                {
+                    return count;
+                }
+
+                count++;
+                index = found + value.Length;
+            }
+
+            return count;
         }
     }
 }
