@@ -176,6 +176,34 @@ namespace Armada.Test.Unit.Suites.Services
                 object missingGoalResult = await handlers["armada_context_pack"](missingGoal).ConfigureAwait(false);
                 string missingGoalJson = JsonSerializer.Serialize(missingGoalResult);
                 AssertContains("goal is required", missingGoalJson);
+
+                JsonElement missingFleetId = JsonSerializer.SerializeToElement(new
+                {
+                    query = "needle"
+                });
+                object missingFleetIdResult = await handlers["armada_fleet_code_search"](missingFleetId).ConfigureAwait(false);
+                string missingFleetIdJson = JsonSerializer.Serialize(missingFleetIdResult);
+                AssertContains("fleetId is required", missingFleetIdJson);
+                AssertEqual(null, service.LastFleetSearchRequest, "Invalid fleet search should not delegate to service");
+
+                JsonElement missingFleetQuery = JsonSerializer.SerializeToElement(new
+                {
+                    fleetId = "flt_test"
+                });
+                object missingFleetQueryResult = await handlers["armada_fleet_code_search"](missingFleetQuery).ConfigureAwait(false);
+                string missingFleetQueryJson = JsonSerializer.Serialize(missingFleetQueryResult);
+                AssertContains("query is required", missingFleetQueryJson);
+                AssertEqual(null, service.LastFleetSearchRequest, "Invalid fleet search should not delegate to service");
+
+                JsonElement missingFleetGoal = JsonSerializer.SerializeToElement(new
+                {
+                    fleetId = "flt_test",
+                    tokenBudget = 1000
+                });
+                object missingFleetGoalResult = await handlers["armada_fleet_context_pack"](missingFleetGoal).ConfigureAwait(false);
+                string missingFleetGoalJson = JsonSerializer.Serialize(missingFleetGoalResult);
+                AssertContains("goal is required", missingFleetGoalJson);
+                AssertEqual(null, service.LastFleetContextPackRequest, "Invalid fleet context-pack request should not delegate to service");
             });
         }
 

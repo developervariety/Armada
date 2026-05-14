@@ -212,6 +212,23 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertTrue(handlers.ContainsKey("armada_fleet_context_pack"));
                 }
             });
+
+            await RunTest("McpToolRegistrar RegisterAll omits fleet code index tools without code index service", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Dictionary<string, Func<System.Text.Json.JsonElement?, Task<object>>> handlers =
+                        new Dictionary<string, Func<System.Text.Json.JsonElement?, Task<object>>>();
+
+                    McpToolRegistrar.RegisterAll(
+                        (name, _, _, handler) => handlers[name] = handler,
+                        testDb.Driver,
+                        new StubAdmiralService());
+
+                    AssertFalse(handlers.ContainsKey("armada_fleet_code_search"));
+                    AssertFalse(handlers.ContainsKey("armada_fleet_context_pack"));
+                }
+            });
         }
 
         private static CodeIndexService CreateService(TestDatabase testDb, ArmadaSettings settings)
