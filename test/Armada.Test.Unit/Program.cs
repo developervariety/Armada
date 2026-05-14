@@ -142,6 +142,10 @@ namespace Armada.Test.Unit
             runner.AddSuite(new VoyageMissionPlaybookPropagationTests());
             runner.AddSuite(new MissionAliasResolverTests());
             runner.AddSuite(new CodeIndexServiceTests());
+            runner.AddSuite(new CodeIndexSettingsClampTests());
+            runner.AddSuite(new DeepSeekEmbeddingClientTests());
+            runner.AddSuite(new DeepSeekInferenceClientTests());
+            runner.AddSuite(new CodeIndexProductionWiringTests());
             runner.AddSuite(new McpCodeIndexToolsTests());
             runner.AddSuite(new McpCaptainDiagnosticsToolsTests());
             runner.AddSuite(new McpStdioServerTests());

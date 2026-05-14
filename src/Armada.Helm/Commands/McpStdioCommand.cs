@@ -2,6 +2,7 @@ namespace Armada.Helm.Commands
 {
     using System.ComponentModel;
     using System.IO;
+    using System.Net.Http;
     using System.Threading;
     using Spectre.Console.Cli;
     using SyslogLogging;
@@ -72,7 +73,10 @@ namespace Armada.Helm.Commands
             IMergeFailureClassifier mergeFailureClassifier = new MergeFailureClassifier();
             IMergeQueueService mergeQueueService = new MergeQueueService(logging, database, armadaSettings, git, mergeFailureClassifier);
             LandingService landingService = new LandingService(logging, database, armadaSettings, git);
-            ICodeIndexService codeIndexService = new CodeIndexService(logging, database, armadaSettings, git);
+            HttpClient codeIndexHttpClient = new HttpClient();
+            IEmbeddingClient embeddingClient = new DeepSeekEmbeddingClient(armadaSettings.CodeIndex, logging, codeIndexHttpClient);
+            IInferenceClient inferenceClient = new DeepSeekInferenceClient(armadaSettings.CodeIndex, logging, codeIndexHttpClient);
+            ICodeIndexService codeIndexService = new CodeIndexService(logging, database, armadaSettings, git, embeddingClient, inferenceClient);
             McpToolRegistrar.RegisterAll(mcpServer.RegisterTool, database, admiral, armadaSettings, gitService, mergeQueueService, dockService, landingService, agentLifecycle: agentLifecycle, templateService: promptTemplateService, logging: logging, codeIndexService: codeIndexService);
 
             // Run until stdin closes or process is killed
