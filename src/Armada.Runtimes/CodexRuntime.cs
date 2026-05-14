@@ -73,6 +73,13 @@ namespace Armada.Runtimes
         #region Private-Methods
 
         /// <summary>
+        /// Codex exec emits a session header (version, workdir, model, role context, branch)
+        /// to stderr before any real work begins. Suppress those from the mission log and
+        /// heartbeat tracker; they are still written to the file log.
+        /// </summary>
+        protected override bool ForwardStderrAsOutput => false;
+
+        /// <summary>
         /// Get the codex CLI command.
         /// </summary>
         protected override string GetCommand()

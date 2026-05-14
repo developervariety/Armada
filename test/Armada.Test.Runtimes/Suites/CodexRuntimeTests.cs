@@ -22,6 +22,8 @@ namespace Armada.Test.Runtimes.Suites
 
             public List<string> Args(string prompt, string? model = null, string? finalMessageFilePath = null, Captain? captain = null) =>
                 BuildArguments(Path.GetTempPath(), prompt, model, finalMessageFilePath, captain);
+
+            public bool ForwardStderr => ForwardStderrAsOutput;
         }
 
         private InspectableCodexRuntime CreateRuntime()
@@ -43,6 +45,12 @@ namespace Armada.Test.Runtimes.Suites
             {
                 CodexRuntime runtime = CreateRuntime();
                 AssertFalse(runtime.SupportsResume);
+            });
+
+            await RunTest("ForwardStderrAsOutput Returns False", () =>
+            {
+                InspectableCodexRuntime runtime = CreateRuntime();
+                AssertFalse(runtime.ForwardStderr, "Codex stderr must not be forwarded to mission log");
             });
 
             await RunTest("ExecutablePath Default Is Codex", () =>

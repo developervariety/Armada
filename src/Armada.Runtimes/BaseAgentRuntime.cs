@@ -202,10 +202,13 @@ namespace Armada.Runtimes
                     try { logWriter?.WriteLine("[stderr] " + e.Data); }
                     catch (ObjectDisposedException) { }
 
-                    // Treat stderr as runtime output for heartbeat/progress/output capture.
-                    // Some agent CLIs emit useful diagnostics or status lines on stderr.
-                    try { OnOutputReceived?.Invoke(process.Id, e.Data); }
-                    catch { }
+                    if (ForwardStderrAsOutput)
+                    {
+                        // Treat stderr as runtime output for heartbeat/progress/output capture.
+                        // Some agent CLIs emit useful diagnostics or status lines on stderr.
+                        try { OnOutputReceived?.Invoke(process.Id, e.Data); }
+                        catch { }
+                    }
                 }
             };
 
@@ -360,6 +363,14 @@ namespace Armada.Runtimes
         /// Whether the runtime expects the prompt to be written to stdin instead of passed as a CLI argument.
         /// </summary>
         protected virtual bool UsePromptStdin => false;
+
+        /// <summary>
+        /// Whether stderr lines should be forwarded to <see cref="OnOutputReceived"/> (and thus the
+        /// mission log and heartbeat tracker). Defaults to true. Override to false for runtimes
+        /// that emit verbose startup diagnostics on stderr unrelated to agent work output.
+        /// Stderr is always written to the file log regardless of this flag.
+        /// </summary>
+        protected virtual bool ForwardStderrAsOutput => true;
 
         /// <summary>
         /// Apply runtime-specific environment variables to the process start info.
