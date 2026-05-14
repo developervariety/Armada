@@ -382,7 +382,7 @@ All settings live under `CodeIndex` in `~/.armada/settings.json`:
 | `SignatureModel` | `""` | string | Model for signature generation. Falls back to `SummarizerModel` when empty. |
 | `FileSignatureBoostWeight` | `0.2` | 0.0-1.0 | Additive boost applied to chunk scores when a file's signature matches the query. |
 
-Weights are normalized at runtime if they sum to something other than 1.0.
+Each weight is clamped to 0.0-1.0 individually at config-load; weights are not renormalized at runtime, so the blended score magnitude scales with their sum.
 
 #### Fleet MCP tools
 
