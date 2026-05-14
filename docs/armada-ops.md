@@ -417,6 +417,10 @@ Response contains `Results` with `VesselId` and `VesselName` on every hit, sorte
 
 Response contains combined markdown from all vessels with `## Vessel: {VesselName}` headings. When `UseSummarizer` is enabled, the combined pack is summarized once more at the fleet level.
 
+#### Summarizer behavior
+
+When `UseSummarizer` is enabled, context-pack chunks are compressed through the inference client before the pack is materialized for dispatch. `ContextPackResponse.Markdown` keeps the raw markdown, while `ContextPackResponse.SummarizedMarkdown` carries the compressed version when summarization succeeds. `prestagedFiles` points at the summarized materialized file when `SummarizedMarkdown` is present, otherwise it falls back to the raw markdown file. Operators can opt out by leaving `UseSummarizer` set to `false` in settings before making the request.
+
 #### File signature behavior
 
 When `UseFileSignatures` is enabled:
