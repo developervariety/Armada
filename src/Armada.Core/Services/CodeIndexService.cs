@@ -1,5 +1,6 @@
 namespace Armada.Core.Services
 {
+    using System;
     using System.Collections.Generic;
     using System.Diagnostics;
     using System.IO;
@@ -34,6 +35,8 @@ namespace Armada.Core.Services
         private DatabaseDriver _Database;
         private ArmadaSettings _Settings;
         private IGitService _Git;
+        private IEmbeddingClient? _EmbeddingClient;
+        private IInferenceClient? _InferenceClient;
 
         #endregion
 
@@ -46,12 +49,22 @@ namespace Armada.Core.Services
         /// <param name="database">Database driver.</param>
         /// <param name="settings">Armada settings.</param>
         /// <param name="git">Git service.</param>
-        public CodeIndexService(LoggingModule logging, DatabaseDriver database, ArmadaSettings settings, IGitService git)
+        /// <param name="embeddingClient">Optional embedding client for semantic indexing and search.</param>
+        /// <param name="inferenceClient">Optional inference client (reserved for later layers).</param>
+        public CodeIndexService(
+            LoggingModule logging,
+            DatabaseDriver database,
+            ArmadaSettings settings,
+            IGitService git,
+            IEmbeddingClient? embeddingClient = null,
+            IInferenceClient? inferenceClient = null)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _Git = git ?? throw new ArgumentNullException(nameof(git));
+            _EmbeddingClient = embeddingClient;
+            _InferenceClient = inferenceClient;
         }
 
         #endregion
@@ -106,6 +119,23 @@ namespace Armada.Core.Services
                 await ExtractCommitArchiveAsync(repoPath, commitSha, tempDirectory, token).ConfigureAwait(false);
 
                 List<CodeIndexRecord> records = BuildRecordsFromDirectory(vessel, commitSha, tempDirectory);
+                if (_Settings.CodeIndex.UseSemanticSearch && _EmbeddingClient != null)
+                {
+                    foreach (CodeIndexRecord record in records)
+                    {
+                        try
+                        {
+                            float[] vector = await _EmbeddingClient.EmbedAsync(record.Content ?? "", token).ConfigureAwait(false);
+                            if (vector != null && vector.Length > 0)
+                                record.EmbeddingVector = vector;
+                        }
+                        catch (Exception ex)
+                        {
+                            _Logging.Warn(_Header + "embedding failed for chunk " + record.Path + ": " + ex.Message);
+                        }
+                    }
+                }
+
                 CodeIndexStatus status = new CodeIndexStatus
                 {
                     VesselId = vessel.Id,
@@ -157,6 +187,21 @@ namespace Armada.Core.Services
             string[] terms = SplitQueryTerms(request.Query);
             int limit = ClampLimit(request.Limit, _Settings.CodeIndex.MaxSearchResults);
 
+            float[]? queryVector = null;
+            if (_Settings.CodeIndex.UseSemanticSearch && _EmbeddingClient != null)
+            {
+                try
+                {
+                    float[] rawQueryVector = await _EmbeddingClient.EmbedAsync(request.Query, token).ConfigureAwait(false);
+                    if (rawQueryVector != null && rawQueryVector.Length > 0)
+                        queryVector = rawQueryVector;
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "query embedding failed for vessel " + request.VesselId + ": " + ex.Message);
+                }
+            }
+
             List<CodeSearchResult> results = new List<CodeSearchResult>();
             foreach (CodeIndexRecord record in records)
             {
@@ -172,7 +217,7 @@ namespace Armada.Core.Services
                     continue;
                 }
 
-                double score = ScoreRecord(record, request.Query, terms);
+                double score = ScoreRecord(record, request.Query, terms, queryVector);
                 if (score <= 0) continue;
 
                 CodeIndexRecord outputRecord = CopyRecord(record);
@@ -724,7 +769,33 @@ namespace Armada.Core.Services
             return limit;
         }
 
-        private double ScoreRecord(CodeIndexRecord record, string query, string[] terms)
+        private double ScoreRecord(CodeIndexRecord record, string query, string[] terms, float[]? queryVector)
+        {
+            double lexicalScore = ComputeLexicalScore(record, query, terms);
+            bool useSemantic =
+                queryVector != null
+                && queryVector.Length > 0
+                && record.EmbeddingVector != null
+                && record.EmbeddingVector.Length > 0
+                && record.EmbeddingVector.Length == queryVector.Length;
+
+            if (!useSemantic)
+                return lexicalScore;
+
+            double rawCosine = CosineSimilarity(queryVector!, record.EmbeddingVector!);
+            double semanticScore = rawCosine;
+            if (semanticScore < 0) semanticScore = 0;
+            if (semanticScore > 1) semanticScore = 1;
+
+            double lexicalNormalized = lexicalScore / 40.0;
+            if (lexicalNormalized < 0) lexicalNormalized = 0;
+            if (lexicalNormalized > 1) lexicalNormalized = 1;
+
+            CodeIndexSettings codeIndex = _Settings.CodeIndex;
+            return semanticScore * codeIndex.SemanticWeight + lexicalNormalized * codeIndex.LexicalWeight;
+        }
+
+        private static double ComputeLexicalScore(CodeIndexRecord record, string query, string[] terms)
         {
             double score = 0;
             string content = record.Content ?? "";
@@ -745,7 +816,30 @@ namespace Armada.Core.Services
             return score;
         }
 
-        private int CountOccurrences(string text, string term)
+        private static double CosineSimilarity(float[] a, float[] b)
+        {
+            if (a == null || b == null || a.Length == 0 || b.Length == 0 || a.Length != b.Length)
+                return 0.0;
+
+            double dot = 0;
+            double magA = 0;
+            double magB = 0;
+            for (int i = 0; i < a.Length; i++)
+            {
+                double fa = a[i];
+                double fb = b[i];
+                dot += fa * fb;
+                magA += fa * fa;
+                magB += fb * fb;
+            }
+
+            if (magA <= 0 || magB <= 0)
+                return 0.0;
+
+            return dot / (Math.Sqrt(magA) * Math.Sqrt(magB));
+        }
+
+        private static int CountOccurrences(string text, string term)
         {
             if (String.IsNullOrEmpty(text) || String.IsNullOrEmpty(term)) return 0;
 
@@ -797,7 +891,8 @@ namespace Armada.Core.Services
                 Freshness = record.Freshness,
                 IndexedAtUtc = record.IndexedAtUtc,
                 IsReferenceOnly = record.IsReferenceOnly,
-                Content = record.Content
+                Content = record.Content,
+                EmbeddingVector = record.EmbeddingVector
             };
         }
 

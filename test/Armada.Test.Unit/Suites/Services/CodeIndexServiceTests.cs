@@ -1,8 +1,10 @@
 namespace Armada.Test.Unit.Suites.Services
 {
     using System.Diagnostics;
+    using System.Text.Json;
     using Armada.Core.Models;
     using Armada.Core.Services;
+    using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
@@ -13,6 +15,13 @@ namespace Armada.Test.Unit.Suites.Services
     /// </summary>
     public class CodeIndexServiceTests : TestSuite
     {
+        private static readonly JsonSerializerOptions _IndexJsonOptions = new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true,
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            WriteIndented = false
+        };
+
         /// <summary>
         /// Suite name.
         /// </summary>
@@ -137,28 +146,240 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     TryDeleteDirectory(repository.Root);
                     TryDeleteDirectory(dataRoot);
+              }
+            });
+
+            await RunTest("SearchAsync_UseSemanticSearchFalse_MatchesV1LexicalScoresForFixedCorpus", async () =>
+            {
+                string dataRoot = NewTempDirectory("armada-code-index-data-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Directory.CreateDirectory(Path.Combine(dataRoot, "repo"));
+                        Vessel vessel = await CreateVesselAsync(testDb, Path.Combine(dataRoot, "repo")).ConfigureAwait(false);
+
+                        List<CodeIndexRecord> records = new List<CodeIndexRecord>
+                        {
+                            new CodeIndexRecord
+                            {
+                                VesselId = vessel.Id,
+                                Path = "a.cs",
+                                CommitSha = "abc",
+                                ContentHash = "h1",
+                                Language = "csharp",
+                                StartLine = 1,
+                                EndLine = 5,
+                                IsReferenceOnly = false,
+                                Content = "alpha beta gamma"
+                            },
+                            new CodeIndexRecord
+                            {
+                                VesselId = vessel.Id,
+                                Path = "b.cs",
+                                CommitSha = "abc",
+                                ContentHash = "h2",
+                                Language = "csharp",
+                                StartLine = 1,
+                                EndLine = 5,
+                                IsReferenceOnly = false,
+                                Content = "alpha alpha beta"
+                            }
+                        };
+
+                        ArmadaSettings settings = BuildSettings(dataRoot, ci =>
+                        {
+                            ci.UseSemanticSearch = false;
+                        });
+                        await WritePersistedIndexAsync(settings, vessel, records).ConfigureAwait(false);
+
+                        CodeIndexService service = CreateService(testDb, dataRoot);
+                        CodeSearchResponse response = await service.SearchAsync(new CodeSearchRequest
+                        {
+                            VesselId = vessel.Id,
+                            Query = "alpha",
+                            Limit = 10,
+                            IncludeContent = true
+                        }).ConfigureAwait(false);
+
+                        AssertEqual(2, response.Results.Count);
+                        AssertEqual("b.cs", response.Results[0].Record.Path);
+                        AssertEqual(10.0, response.Results[0].Score);
+                        AssertEqual("a.cs", response.Results[1].Record.Path);
+                        AssertEqual(9.0, response.Results[1].Score);
+                    }
                 }
+                finally
+                {
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("SearchAsync_SemanticBlending_OutranksLexicalNoiseWhenEmbeddingsAlign", async () =>
+            {
+                string dataRoot = NewTempDirectory("armada-code-index-data-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Directory.CreateDirectory(Path.Combine(dataRoot, "repo"));
+                        Vessel vessel = await CreateVesselAsync(testDb, Path.Combine(dataRoot, "repo")).ConfigureAwait(false);
+
+                        List<CodeIndexRecord> records = new List<CodeIndexRecord>
+                        {
+                            new CodeIndexRecord
+                            {
+                                VesselId = vessel.Id,
+                                Path = "noisy.cs",
+                                CommitSha = "abc",
+                                ContentHash = "n1",
+                                Language = "csharp",
+                                StartLine = 1,
+                                EndLine = 10,
+                                IsReferenceOnly = false,
+                                Content = "SearchKeyword SearchKeyword SearchKeyword SearchKeyword SearchKeyword SearchKeyword",
+                                EmbeddingVector = new float[] { 0F, 1F, 0F }
+                            },
+                            new CodeIndexRecord
+                            {
+                                VesselId = vessel.Id,
+                                Path = "target.cs",
+                                CommitSha = "abc",
+                                ContentHash = "t1",
+                                Language = "csharp",
+                                StartLine = 1,
+                                EndLine = 3,
+                                IsReferenceOnly = false,
+                                Content = "conceptual widget",
+                                EmbeddingVector = new float[] { 1F, 0F, 0F }
+                            }
+                        };
+
+                        ArmadaSettings settings = BuildSettings(dataRoot, ci => { ci.UseSemanticSearch = true; });
+                        await WritePersistedIndexAsync(settings, vessel, records).ConfigureAwait(false);
+
+                        CodeIndexService service = CreateService(
+                            testDb,
+                            dataRoot,
+                            new ConstantVectorEmbeddingClient(new float[] { 1F, 0F, 0F }),
+                            ci => { ci.UseSemanticSearch = true; });
+
+                        CodeSearchResponse response = await service.SearchAsync(new CodeSearchRequest
+                        {
+                            VesselId = vessel.Id,
+                            Query = "SearchKeyword",
+                            Limit = 10,
+                            IncludeContent = true
+                        }).ConfigureAwait(false);
+
+                        AssertTrue(response.Results.Count >= 2, "Expected both chunks to rank");
+                        AssertEqual("target.cs", response.Results[0].Record.Path);
+                        AssertTrue(response.Results[0].Score > response.Results[1].Score, "Semantic target should outrank lexical noise");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("CodeIndexRecord_EmbeddingVector_RoundTripsJson", () =>
+            {
+                CodeIndexRecord withVector = new CodeIndexRecord
+                {
+                    VesselId = "v1",
+                    Path = "p.cs",
+                    Content = "x",
+                    EmbeddingVector = new float[] { 0.1F, -0.25F, 0.5F }
+                };
+                string json = JsonSerializer.Serialize(withVector, _IndexJsonOptions);
+                CodeIndexRecord? parsed = JsonSerializer.Deserialize<CodeIndexRecord>(json, _IndexJsonOptions);
+                AssertTrue(parsed != null, "Deserialize");
+                AssertTrue(parsed!.EmbeddingVector != null && parsed.EmbeddingVector.Length == 3, "Vector length");
+                AssertEqual(0.1F, parsed.EmbeddingVector![0]);
+                AssertEqual(-0.25F, parsed.EmbeddingVector[1]);
+                AssertEqual(0.5F, parsed.EmbeddingVector[2]);
+
+                CodeIndexRecord nullVector = new CodeIndexRecord { VesselId = "v1", Path = "q.cs", Content = "y", EmbeddingVector = null };
+                string jsonNull = JsonSerializer.Serialize(nullVector, _IndexJsonOptions);
+                CodeIndexRecord? parsedNull = JsonSerializer.Deserialize<CodeIndexRecord>(jsonNull, _IndexJsonOptions);
+                AssertTrue(parsedNull != null, "Deserialize null case");
+                AssertTrue(parsedNull!.EmbeddingVector == null, "Vector stays null");
+
+                CodeIndexRecord legacy = JsonSerializer.Deserialize<CodeIndexRecord>(
+                    "{\"vesselId\":\"v1\",\"path\":\"z.cs\",\"content\":\"z\"}",
+                    _IndexJsonOptions)!;
+                AssertTrue(legacy.EmbeddingVector == null, "Missing property deserializes as null");
             });
         }
 
-        private static CodeIndexService CreateService(TestDatabase testDb, string dataRoot)
+        private static ArmadaSettings BuildSettings(string dataRoot, Action<CodeIndexSettings>? configureCodeIndex)
         {
+            CodeIndexSettings codeIndex = new CodeIndexSettings
+            {
+                IndexDirectory = Path.Combine(dataRoot, "code-index"),
+                MaxChunkLines = 20,
+                MaxSearchResults = 10,
+                MaxContextPackResults = 8,
+                UseSemanticSearch = false
+            };
+            configureCodeIndex?.Invoke(codeIndex);
+
             ArmadaSettings settings = new ArmadaSettings
             {
                 DataDirectory = Path.Combine(dataRoot, "data"),
                 ReposDirectory = Path.Combine(dataRoot, "repos"),
-                CodeIndex = new CodeIndexSettings
-                {
-                    IndexDirectory = Path.Combine(dataRoot, "code-index"),
-                    MaxChunkLines = 20,
-                    MaxSearchResults = 10,
-                    MaxContextPackResults = 8
-                }
+                CodeIndex = codeIndex
             };
             settings.InitializeDirectories();
+            return settings;
+        }
+
+        private static async Task WritePersistedIndexAsync(ArmadaSettings settings, Vessel vessel, IReadOnlyList<CodeIndexRecord> records)
+        {
+            string indexDir = Path.Combine(settings.CodeIndex.IndexDirectory, vessel.Id);
+            Directory.CreateDirectory(indexDir);
+
+            CodeIndexStatus status = new CodeIndexStatus
+            {
+                VesselId = vessel.Id,
+                VesselName = vessel.Name,
+                DefaultBranch = vessel.DefaultBranch,
+                IndexedCommitSha = "deadbeef",
+                CurrentCommitSha = "deadbeef",
+                IndexedAtUtc = DateTime.UtcNow,
+                Freshness = "Fresh",
+                DocumentCount = 1,
+                ChunkCount = records.Count,
+                IndexDirectory = indexDir,
+                LastError = null
+            };
+
+            string metadataPath = Path.Combine(indexDir, "metadata.json");
+            await File.WriteAllTextAsync(metadataPath, JsonSerializer.Serialize(status, _IndexJsonOptions)).ConfigureAwait(false);
+
+            string chunksPath = Path.Combine(indexDir, "chunks.jsonl");
+            using (StreamWriter writer = new StreamWriter(chunksPath))
+            {
+                foreach (CodeIndexRecord record in records)
+                {
+                    await writer.WriteLineAsync(JsonSerializer.Serialize(record, _IndexJsonOptions)).ConfigureAwait(false);
+                }
+            }
+        }
+
+        private static CodeIndexService CreateService(
+            TestDatabase testDb,
+            string dataRoot,
+            IEmbeddingClient? embeddingClient = null,
+            Action<CodeIndexSettings>? configureCodeIndex = null)
+        {
+            ArmadaSettings settings = BuildSettings(dataRoot, configureCodeIndex);
 
             LoggingModule logging = SilentLogging();
-            return new CodeIndexService(logging, testDb.Driver, settings, new GitService(logging));
+            return new CodeIndexService(logging, testDb.Driver, settings, new GitService(logging), embeddingClient, null);
         }
 
         private static async Task<Vessel> CreateVesselAsync(TestDatabase testDb, string repositoryPath)
@@ -274,6 +495,21 @@ namespace Armada.Test.Unit.Suites.Services
                 }
 
                 return stdout;
+            }
+        }
+
+        private sealed class ConstantVectorEmbeddingClient : IEmbeddingClient
+        {
+            private readonly float[] _Vector;
+
+            public ConstantVectorEmbeddingClient(float[] vector)
+            {
+                _Vector = vector ?? throw new ArgumentNullException(nameof(vector));
+            }
+
+            public Task<float[]> EmbedAsync(string text, CancellationToken token = default)
+            {
+                return Task.FromResult(_Vector);
             }
         }
 
