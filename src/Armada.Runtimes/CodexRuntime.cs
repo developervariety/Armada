@@ -73,11 +73,11 @@ namespace Armada.Runtimes
         #region Private-Methods
 
         /// <summary>
-        /// Codex exec emits a session header (version, workdir, model, role context, branch)
-        /// to stderr before any real work begins. Suppress those from the mission/captain log
-        /// file and OnOutputReceived; _Logging.Debug still captures them.
+        /// Codex receives its prompt as a CLI argument, not via stdin. Suppressing the stdin pipe
+        /// prevents Codex from detecting a piped context and printing "Reading additional input
+        /// from stdin..." to stderr on every invocation.
         /// </summary>
-        protected override bool ForwardStderrAsOutput => false;
+        protected override bool RedirectStdin => false;
 
         /// <summary>
         /// Get the codex CLI command.
@@ -100,6 +100,11 @@ namespace Armada.Runtimes
             List<string> args = new List<string>();
 
             args.Add("exec");
+
+            // Output events as JSONL to stdout (analogous to Claude Code's --print flag).
+            // This routes the session summary and conversation events to stdout, keeping
+            // stderr clean for genuine errors only.
+            args.Add("--json");
 
             if (String.Equals(ApprovalMode, "dangerous", StringComparison.OrdinalIgnoreCase))
             {

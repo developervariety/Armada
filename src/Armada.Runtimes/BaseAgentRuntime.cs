@@ -101,7 +101,7 @@ namespace Armada.Runtimes
                 FileName = command,
                 WorkingDirectory = workingDirectory,
                 UseShellExecute = false,
-                RedirectStandardInput = true,
+                RedirectStandardInput = RedirectStdin,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 StandardInputEncoding = Encoding.UTF8,
@@ -199,20 +199,13 @@ namespace Armada.Runtimes
                 if (!String.IsNullOrEmpty(e.Data))
                 {
                     _Logging.Debug(_Header + "[stderr] " + e.Data);
+                    try { logWriter?.WriteLine("[stderr] " + e.Data); }
+                    catch (ObjectDisposedException) { }
 
-                    if (ForwardStderrAsOutput)
-                    {
-                        // Write to the mission/captain log file and raise output event so the
-                        // file log, heartbeat, and progress capture all see stderr. Runtimes that
-                        // emit verbose startup diagnostics on stderr (e.g. Codex session headers)
-                        // override ForwardStderrAsOutput to false to keep those lines out of the
-                        // user-facing log. _Logging.Debug above always captures stderr regardless.
-                        try { logWriter?.WriteLine("[stderr] " + e.Data); }
-                        catch (ObjectDisposedException) { }
-
-                        try { OnOutputReceived?.Invoke(process.Id, e.Data); }
-                        catch { }
-                    }
+                    // Treat stderr as runtime output for heartbeat/progress/output capture.
+                    // Some agent CLIs emit useful diagnostics or status lines on stderr.
+                    try { OnOutputReceived?.Invoke(process.Id, e.Data); }
+                    catch { }
                 }
             };
 
@@ -255,15 +248,18 @@ namespace Armada.Runtimes
                 try { OnProcessStarted?.Invoke(process.Id); }
                 catch (Exception ex) { _Logging.Warn(_Header + "error in OnProcessStarted handler for process " + process.Id + ": " + ex.Message); }
 
-                if (UsePromptStdin)
+                if (RedirectStdin)
                 {
-                    await process.StandardInput.WriteAsync(prompt).ConfigureAwait(false);
-                    await process.StandardInput.FlushAsync().ConfigureAwait(false);
-                }
+                    if (UsePromptStdin)
+                    {
+                        await process.StandardInput.WriteAsync(prompt).ConfigureAwait(false);
+                        await process.StandardInput.FlushAsync().ConfigureAwait(false);
+                    }
 
-                // Close stdin after writing any prompt content so the agent doesn't block
-                // waiting for piped input.
-                process.StandardInput.Close();
+                    // Close stdin after writing any prompt content so the agent doesn't block
+                    // waiting for piped input.
+                    process.StandardInput.Close();
+                }
 
                 process.BeginOutputReadLine();
                 process.BeginErrorReadLine();
@@ -369,13 +365,12 @@ namespace Armada.Runtimes
         protected virtual bool UsePromptStdin => false;
 
         /// <summary>
-        /// Whether stderr lines should be written to the mission/captain log file and forwarded
-        /// to <see cref="OnOutputReceived"/>. Defaults to true. Override to false for runtimes
-        /// that emit verbose startup diagnostics on stderr unrelated to agent work output (e.g.
-        /// Codex session headers). <c>_Logging.Debug</c> always captures stderr regardless of
-        /// this flag.
+        /// Whether to redirect stdin for the agent process. Defaults to true. Override to false
+        /// for runtimes that receive the prompt as a CLI argument and do not need a stdin pipe.
+        /// When false the process inherits no stdin pipe, which prevents CLIs that probe for piped
+        /// input from printing spurious startup diagnostics.
         /// </summary>
-        protected virtual bool ForwardStderrAsOutput => true;
+        protected virtual bool RedirectStdin => true;
 
         /// <summary>
         /// Apply runtime-specific environment variables to the process start info.

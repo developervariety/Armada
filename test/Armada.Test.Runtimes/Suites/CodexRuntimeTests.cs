@@ -23,7 +23,7 @@ namespace Armada.Test.Runtimes.Suites
             public List<string> Args(string prompt, string? model = null, string? finalMessageFilePath = null, Captain? captain = null) =>
                 BuildArguments(Path.GetTempPath(), prompt, model, finalMessageFilePath, captain);
 
-            public bool ForwardStderr => ForwardStderrAsOutput;
+            public bool StdinRedirected => RedirectStdin;
         }
 
         private InspectableCodexRuntime CreateRuntime()
@@ -47,10 +47,17 @@ namespace Armada.Test.Runtimes.Suites
                 AssertFalse(runtime.SupportsResume);
             });
 
-            await RunTest("ForwardStderrAsOutput Returns False", () =>
+            await RunTest("RedirectStdin Returns False", () =>
             {
                 InspectableCodexRuntime runtime = CreateRuntime();
-                AssertFalse(runtime.ForwardStderr, "Codex stderr must not be forwarded to mission log");
+                AssertFalse(runtime.StdinRedirected, "Codex prompt is a CLI arg; stdin pipe must not be opened");
+            });
+
+            await RunTest("BuildArguments Includes Json Flag", () =>
+            {
+                InspectableCodexRuntime runtime = CreateRuntime();
+                List<string> args = runtime.Args("test prompt");
+                AssertTrue(args.Contains("--json"), "Codex must use --json to route session output to stdout");
             });
 
             await RunTest("ExecutablePath Default Is Codex", () =>
