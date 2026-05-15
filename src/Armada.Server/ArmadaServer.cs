@@ -86,6 +86,7 @@ namespace Armada.Server
         private IAuthenticationService _AuthenticationService = null!;
         private IAuthorizationService _AuthorizationService = null!;
         private IMissionService _MissionService = null!;
+        private CaptainToolService _CaptainTools = null!;
 
         private AgentLifecycleHandler _AgentLifecycle = null!;
         private MissionLandingHandler _MissionLanding = null!;
@@ -344,6 +345,34 @@ namespace Armada.Server
                 EmitEventAsync,
                 _WebSocketHub);
 
+            _CaptainTools = new CaptainToolService(
+                _Logging,
+                McpToolRegistrar.DescribeAll(
+                    _Database,
+                    _Admiral,
+                    _Settings,
+                    _Git,
+                    _MergeQueue,
+                    _Docks,
+                    _LandingService,
+                    _CheckRunService,
+                    _ObjectiveService,
+                    _PlanningSessions,
+                    _ObjectiveRefinementSessions,
+                    _ReleaseService,
+                    _DeploymentService,
+                    _RunbookService,
+                    () => Stop(),
+                    async (captainId) =>
+                    {
+                        Captain? captain = await _Database.Captains.ReadAsync(captainId).ConfigureAwait(false);
+                        if (captain != null)
+                            await _AgentLifecycle.HandleStopAgentAsync(captain).ConfigureAwait(false);
+                    },
+                    _AgentLifecycle,
+                    _PromptTemplateService,
+                    _Logging));
+
             RegisterRoutes();
             InitializeDashboard();
 
@@ -562,7 +591,7 @@ namespace Armada.Server
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Captains
-            new CaptainRoutes(_Database, _Admiral, _Settings, _RuntimeFactory, _AgentLifecycle, EmitEventAsync, _JsonOptions, _PlanningSessions, _ObjectiveRefinementSessions)
+            new CaptainRoutes(_Database, _Admiral, _Settings, _RuntimeFactory, _AgentLifecycle, _CaptainTools, EmitEventAsync, _JsonOptions, _PlanningSessions, _ObjectiveRefinementSessions)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Runtime helpers
@@ -934,7 +963,8 @@ namespace Armada.Server
                 },
                 _AgentLifecycle,
                 _PromptTemplateService,
-                _Logging);
+                _Logging,
+                _CaptainTools);
         }
 
         private async Task EmitEventAsync(string eventType, string message,

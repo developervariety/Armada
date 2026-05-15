@@ -269,6 +269,37 @@ body {
     transition: color 0.15s ease, transform 0.15s ease;
 }
 
+.captain-tool-viewer {
+    width: min(960px, calc(100vw - 2rem));
+    max-height: calc(100vh - 4rem);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.captain-tool-viewer-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.captain-tool-viewer-summary {
+    margin-top: -0.25rem;
+}
+
+.captain-tool-viewer-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.captain-tool-viewer-table {
+    flex: 1;
+    overflow: auto;
+}
+
 .sidebar-group-toggle:hover {
     color: #f1f5f9;
 }

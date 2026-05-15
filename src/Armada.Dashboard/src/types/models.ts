@@ -152,6 +152,27 @@ export interface Captain {
   lastUpdateUtc: string;
 }
 
+export interface CaptainToolSummary {
+  name: string;
+  description: string;
+  inputSchemaJson: string | null;
+}
+
+export interface CaptainToolAccessResult {
+  captainId: string;
+  captainName: string;
+  runtime: string;
+  toolsAccessible: boolean;
+  availabilityVerified: boolean;
+  availabilitySource: string;
+  summary: string;
+  endpointName: string | null;
+  toolsEnabled: boolean | null;
+  effectiveToolCount: number | null;
+  armadaToolCount: number;
+  tools: CaptainToolSummary[];
+}
+
 export interface Mission {
   id: string;
   tenantId: string | null;

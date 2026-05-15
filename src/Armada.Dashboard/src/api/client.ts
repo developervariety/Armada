@@ -11,6 +11,7 @@ import type {
   Fleet,
   Vessel,
   Captain,
+  CaptainToolAccessResult,
   Mission,
   Voyage,
   Objective,
@@ -551,6 +552,7 @@ export const deleteObjectiveRefinementSession = (sessionId: string) =>
 export const listCaptains = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
   get<EnumerationResult<Captain>>(`/api/v1/captains${buildQuery(params)}`);
 export const getCaptain = (id: string) => get<Captain>(`/api/v1/captains/${id}`);
+export const getCaptainTools = (id: string) => get<CaptainToolAccessResult>(`/api/v1/captains/${id}/tools`);
 export const createCaptain = (data: Partial<Captain>) => post<Captain>('/api/v1/captains', data);
 export const updateCaptain = (id: string, data: Partial<Captain>) => put<Captain>(`/api/v1/captains/${id}`, data);
 export const deleteCaptain = (id: string) => del<void>(`/api/v1/captains/${id}`);

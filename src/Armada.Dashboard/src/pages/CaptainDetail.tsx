@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   createCaptain,
   getCaptain,
+  getCaptainTools,
   getCaptainLog,
   stopCaptain,
   recallCaptain,
@@ -11,9 +12,10 @@ import {
   updateCaptain,
   deleteCaptain,
 } from '../api/client';
-import type { Captain, Mission, LogResult } from '../types/models';
+import type { Captain, Mission, LogResult, CaptainToolAccessResult } from '../types/models';
 import ActionMenu from '../components/shared/ActionMenu';
 import MuxRuntimeFields from '../components/captains/MuxRuntimeFields';
+import CaptainToolViewer from '../components/captains/CaptainToolViewer';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
@@ -57,6 +59,12 @@ export default function CaptainDetail() {
 
   // JSON viewer
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
+  const [toolViewer, setToolViewer] = useState<{ open: boolean; loading: boolean; error: string; data: CaptainToolAccessResult | null }>({
+    open: false,
+    loading: false,
+    error: '',
+    data: null,
+  });
 
   // Confirm
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
@@ -216,11 +224,40 @@ export default function CaptainDetail() {
     }
   }
 
+  async function handleViewTools() {
+    if (!captain) return;
+
+    setToolViewer({
+      open: true,
+      loading: true,
+      error: '',
+      data: null,
+    });
+
+    try {
+      const result = await getCaptainTools(captain.id);
+      setToolViewer({
+        open: true,
+        loading: false,
+        error: '',
+        data: result,
+      });
+    } catch {
+      setToolViewer({
+        open: true,
+        loading: false,
+        error: t('Failed to load captain tools.'),
+        data: null,
+      });
+    }
+  }
+
   function getActionItems() {
     if (!captain) return [];
     const items: { label: string; danger?: boolean; onClick: () => void }[] = [
       { label: 'Edit', onClick: openEdit },
       { label: 'Duplicate', onClick: () => void handleDuplicate() },
+      { label: 'View Tools', onClick: () => void handleViewTools() },
       { label: 'View Log', onClick: handleViewLog },
       { label: 'View JSON', onClick: () => setJsonData({ open: true, title: t('Captain: {{name}}', { name: captain.name }), data: captain }) },
     ];
@@ -299,6 +336,14 @@ export default function CaptainDetail() {
       )}
 
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
+      <CaptainToolViewer
+        open={toolViewer.open}
+        captainName={captain.name}
+        loading={toolViewer.loading}
+        error={toolViewer.error}
+        data={toolViewer.data}
+        onClose={() => setToolViewer({ open: false, loading: false, error: '', data: null })}
+      />
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
 

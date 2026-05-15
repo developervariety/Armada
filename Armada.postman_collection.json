@@ -2694,6 +2694,560 @@
                               ]
                  },
                  {
+                     "name":  "Prompting",
+                     "description":  "Prompt template, persona, and pipeline configuration.",
+                     "item":  [
+                                  {
+                                      "name":  "Prompt Templates",
+                                      "description":  "Prompt template CRUD and reset operations.",
+                                      "item":  [
+                                                   {
+                                                       "name":  "List Prompt Templates",
+                                                       "request":  {
+                                                                       "method":  "GET",
+                                                                       "header":  [
+
+                                                                                  ],
+                                                                       "url":  {
+                                                                                   "raw":  "{{baseUrl}}/api/v1/prompt-templates?pageNumber=1&pageSize=100",
+                                                                                   "host":  [
+                                                                                                "{{baseUrl}}"
+                                                                                            ],
+                                                                                   "path":  [
+                                                                                                "api",
+                                                                                                "v1",
+                                                                                                "prompt-templates"
+                                                                                            ],
+                                                                                   "query":  [
+                                                                                                 {
+                                                                                                     "key":  "pageNumber",
+                                                                                                     "value":  "1"
+                                                                                                 },
+                                                                                                 {
+                                                                                                     "key":  "pageSize",
+                                                                                                     "value":  "100"
+                                                                                                 }
+                                                                                             ]
+                                                                               },
+                                                                       "description":  "List prompt templates with pagination."
+                                                                   }
+                                                   },
+                                                   {
+                                                       "name":  "Enumerate Prompt Templates",
+                                                       "request":  {
+                                                                       "method":  "POST",
+                                                                       "header":  [
+                                                                                      {
+                                                                                          "key":  "Content-Type",
+                                                                                          "value":  "application/json"
+                                                                                      }
+                                                                                  ],
+                                                                       "body":  {
+                                                                                    "mode":  "raw",
+                                                                                    "raw":  "{\n  \"PageNumber\": 1,\n  \"PageSize\": 100\n}"
+                                                                                },
+                                                                       "url":  {
+                                                                                   "raw":  "{{baseUrl}}/api/v1/prompt-templates/enumerate",
+                                                                                   "host":  [
+                                                                                                "{{baseUrl}}"
+                                                                                            ],
+                                                                                   "path":  [
+                                                                                                "api",
+                                                                                                "v1",
+                                                                                                "prompt-templates",
+                                                                                                "enumerate"
+                                                                                            ]
+                                                                               },
+                                                                       "description":  "Enumerate prompt templates with a JSON query body."
+                                                                   }
+                                                   },
+                                                   {
+                                                       "name":  "Create Prompt Template",
+                                                       "event":  [
+                                                                     {
+                                                                         "listen":  "test",
+                                                                         "script":  {
+                                                                                        "exec":  [
+                                                                                                     "if (pm.response.code === 201) {",
+                                                                                                     "    const json = pm.response.json();",
+                                                                                                     "    pm.collectionVariables.set('promptTemplateName', json.Name || json.name);",
+                                                                                                     "}"
+                                                                                                 ],
+                                                                                        "type":  "text/javascript"
+                                                                                    }
+                                                                     }
+                                                                 ],
+                                                       "request":  {
+                                                                       "method":  "POST",
+                                                                       "header":  [
+                                                                                      {
+                                                                                          "key":  "Content-Type",
+                                                                                          "value":  "application/json"
+                                                                                      }
+                                                                                  ],
+                                                                       "body":  {
+                                                                                    "mode":  "raw",
+                                                                                    "raw":  "{\n  \"Name\": \"persona.product_manager.copy\",\n  \"Category\": \"persona\",\n  \"Description\": \"Derived product-manager prompt.\",\n  \"Content\": \"You are a product manager focused on platform adoption.\",\n  \"Active\": true\n}"
+                                                                                },
+                                                                       "url":  {
+                                                                                   "raw":  "{{baseUrl}}/api/v1/prompt-templates",
+                                                                                   "host":  [
+                                                                                                "{{baseUrl}}"
+                                                                                            ],
+                                                                                   "path":  [
+                                                                                                "api",
+                                                                                                "v1",
+                                                                                                "prompt-templates"
+                                                                                            ]
+                                                                               },
+                                                                       "description":  "Create a prompt template and save its Name to promptTemplateName."
+                                                                   }
+                                                   },
+                                                   {
+                                                       "name":  "Get Prompt Template",
+                                                       "request":  {
+                                                                       "method":  "GET",
+                                                                       "header":  [
+
+                                                                                  ],
+                                                                       "url":  {
+                                                                                   "raw":  "{{baseUrl}}/api/v1/prompt-templates/{{promptTemplateName}}",
+                                                                                   "host":  [
+                                                                                                "{{baseUrl}}"
+                                                                                            ],
+                                                                                   "path":  [
+                                                                                                "api",
+                                                                                                "v1",
+                                                                                                "prompt-templates",
+                                                                                                "{{promptTemplateName}}"
+                                                                                            ]
+                                                                               },
+                                                                       "description":  "Read one prompt template by name."
+                                                                   }
+                                                   },
+                                                   {
+                                                       "name":  "Update Prompt Template",
+                                                       "request":  {
+                                                                       "method":  "PUT",
+                                                                       "header":  [
+                                                                                      {
+                                                                                          "key":  "Content-Type",
+                                                                                          "value":  "application/json"
+                                                                                      }
+                                                                                  ],
+                                                                       "body":  {
+                                                                                    "mode":  "raw",
+                                                                                    "raw":  "{\n  \"Content\": \"You are a product manager focused on adoption, usability, and operational fit.\",\n  \"Description\": \"Updated derived product-manager prompt.\"\n}"
+                                                                                },
+                                                                       "url":  {
+                                                                                   "raw":  "{{baseUrl}}/api/v1/prompt-templates/{{promptTemplateName}}",
+                                                                                   "host":  [
+                                                                                                "{{baseUrl}}"
+                                                                                            ],
+                                                                                   "path":  [
+                                                                                                "api",
+                                                                                                "v1",
+                                                                                                "prompt-templates",
+                                                                                                "{{promptTemplateName}}"
+                                                                                            ]
+                                                                               },
+                                                                       "description":  "Update an existing prompt template."
+                                                                   }
+                                                   },
+                                                   {
+                                                       "name":  "Reset Prompt Template",
+                                                       "request":  {
+                                                                       "method":  "POST",
+                                                                       "header":  [
+
+                                                                                  ],
+                                                                       "body":  {
+                                                                                    "mode":  "raw",
+                                                                                    "raw":  "{}"
+                                                                                },
+                                                                       "url":  {
+                                                                                   "raw":  "{{baseUrl}}/api/v1/prompt-templates/{{promptTemplateName}}/reset",
+                                                                                   "host":  [
+                                                                                                "{{baseUrl}}"
+                                                                                            ],
+                                                                                   "path":  [
+                                                                                                "api",
+                                                                                                "v1",
+                                                                                                "prompt-templates",
+                                                                                                "{{promptTemplateName}}",
+                                                                                                "reset"
+                                                                                            ]
+                                                                               },
+                                                                       "description":  "Reset a built-in prompt template back to its embedded default."
+                                                                   }
+                                                   }
+                                               ]
+                                  },
+                                  {
+                                      "name":  "Personas",
+                                      "description":  "Persona CRUD operations.",
+                                      "item":  [
+                                                   {
+                                                       "name":  "List Personas",
+                                                       "request":  {
+                                                                       "method":  "GET",
+                                                                       "header":  [
+
+                                                                                  ],
+                                                                       "url":  {
+                                                                                   "raw":  "{{baseUrl}}/api/v1/personas?pageNumber=1&pageSize=100",
+                                                                                   "host":  [
+                                                                                                "{{baseUrl}}"
+                                                                                            ],
+                                                                                   "path":  [
+                                                                                                "api",
+                                                                                                "v1",
+                                                                                                "personas"
+                                                                                            ],
+                                                                                   "query":  [
+                                                                                                 {
+                                                                                                     "key":  "pageNumber",
+                                                                                                     "value":  "1"
+                                                                                                 },
+                                                                                                 {
+                                                                                                     "key":  "pageSize",
+                                                                                                     "value":  "100"
+                                                                                                 }
+                                                                                             ]
+                                                                               },
+                                                                       "description":  "List personas with pagination."
+                                                                   }
+                                                   },
+                                                   {
+                                                       "name":  "Enumerate Personas",
+                                                       "request":  {
+                                                                       "method":  "POST",
+                                                                       "header":  [
+                                                                                      {
+                                                                                          "key":  "Content-Type",
+                                                                                          "value":  "application/json"
+                                                                                      }
+                                                                                  ],
+                                                                       "body":  {
+                                                                                    "mode":  "raw",
+                                                                                    "raw":  "{\n  \"PageNumber\": 1,\n  \"PageSize\": 100\n}"
+                                                                                },
+                                                                       "url":  {
+                                                                                   "raw":  "{{baseUrl}}/api/v1/personas/enumerate",
+                                                                                   "host":  [
+                                                                                                "{{baseUrl}}"
+                                                                                            ],
+                                                                                   "path":  [
+                                                                                                "api",
+                                                                                                "v1",
+                                                                                                "personas",
+                                                                                                "enumerate"
+                                                                                            ]
+                                                                               },
+                                                                       "description":  "Enumerate personas with a JSON query body."
+                                                                   }
+                                                   },
+                                                   {
+                                                       "name":  "Create Persona",
+                                                       "event":  [
+                                                                     {
+                                                                         "listen":  "test",
+                                                                         "script":  {
+                                                                                        "exec":  [
+                                                                                                     "if (pm.response.code === 201) {",
+                                                                                                     "    const json = pm.response.json();",
+                                                                                                     "    pm.collectionVariables.set('personaName', json.Name || json.name);",
+                                                                                                     "}"
+                                                                                                 ],
+                                                                                        "type":  "text/javascript"
+                                                                                    }
+                                                                     }
+                                                                 ],
+                                                       "request":  {
+                                                                       "method":  "POST",
+                                                                       "header":  [
+                                                                                      {
+                                                                                          "key":  "Content-Type",
+                                                                                          "value":  "application/json"
+                                                                                      }
+                                                                                  ],
+                                                                       "body":  {
+                                                                                    "mode":  "raw",
+                                                                                    "raw":  "{\n  \"Name\": \"Platform Product Manager\",\n  \"Description\": \"Product manager variant for platform-oriented work.\",\n  \"PromptTemplateName\": \"persona.product_manager.copy\"\n}"
+                                                                                },
+                                                                       "url":  {
+                                                                                   "raw":  "{{baseUrl}}/api/v1/personas",
+                                                                                   "host":  [
+                                                                                                "{{baseUrl}}"
+                                                                                            ],
+                                                                                   "path":  [
+                                                                                                "api",
+                                                                                                "v1",
+                                                                                                "personas"
+                                                                                            ]
+                                                                               },
+                                                                       "description":  "Create a persona and save its Name to personaName."
+                                                                   }
+                                                   },
+                                                   {
+                                                       "name":  "Get Persona",
+                                                       "request":  {
+                                                                       "method":  "GET",
+                                                                       "header":  [
+
+                                                                                  ],
+                                                                       "url":  {
+                                                                                   "raw":  "{{baseUrl}}/api/v1/personas/{{personaName}}",
+                                                                                   "host":  [
+                                                                                                "{{baseUrl}}"
+                                                                                            ],
+                                                                                   "path":  [
+                                                                                                "api",
+                                                                                                "v1",
+                                                                                                "personas",
+                                                                                                "{{personaName}}"
+                                                                                            ]
+                                                                               },
+                                                                       "description":  "Read one persona by name."
+                                                                   }
+                                                   },
+                                                   {
+                                                       "name":  "Update Persona",
+                                                       "request":  {
+                                                                       "method":  "PUT",
+                                                                       "header":  [
+                                                                                      {
+                                                                                          "key":  "Content-Type",
+                                                                                          "value":  "application/json"
+                                                                                      }
+                                                                                  ],
+                                                                       "body":  {
+                                                                                    "mode":  "raw",
+                                                                                    "raw":  "{\n  \"Description\": \"Updated platform-oriented product manager persona.\",\n  \"PromptTemplateName\": \"persona.product_manager.copy\"\n}"
+                                                                                },
+                                                                       "url":  {
+                                                                                   "raw":  "{{baseUrl}}/api/v1/personas/{{personaName}}",
+                                                                                   "host":  [
+                                                                                                "{{baseUrl}}"
+                                                                                            ],
+                                                                                   "path":  [
+                                                                                                "api",
+                                                                                                "v1",
+                                                                                                "personas",
+                                                                                                "{{personaName}}"
+                                                                                            ]
+                                                                               },
+                                                                       "description":  "Update a persona by name."
+                                                                   }
+                                                   },
+                                                   {
+                                                       "name":  "Delete Persona",
+                                                       "request":  {
+                                                                       "method":  "DELETE",
+                                                                       "header":  [
+
+                                                                                  ],
+                                                                       "url":  {
+                                                                                   "raw":  "{{baseUrl}}/api/v1/personas/{{personaName}}",
+                                                                                   "host":  [
+                                                                                                "{{baseUrl}}"
+                                                                                            ],
+                                                                                   "path":  [
+                                                                                                "api",
+                                                                                                "v1",
+                                                                                                "personas",
+                                                                                                "{{personaName}}"
+                                                                                            ]
+                                                                               },
+                                                                       "description":  "Delete a custom persona."
+                                                                   }
+                                                   }
+                                               ]
+                                  },
+                                  {
+                                      "name":  "Pipelines",
+                                      "description":  "Pipeline CRUD operations.",
+                                      "item":  [
+                                                   {
+                                                       "name":  "List Pipelines",
+                                                       "request":  {
+                                                                       "method":  "GET",
+                                                                       "header":  [
+
+                                                                                  ],
+                                                                       "url":  {
+                                                                                   "raw":  "{{baseUrl}}/api/v1/pipelines?pageNumber=1&pageSize=100",
+                                                                                   "host":  [
+                                                                                                "{{baseUrl}}"
+                                                                                            ],
+                                                                                   "path":  [
+                                                                                                "api",
+                                                                                                "v1",
+                                                                                                "pipelines"
+                                                                                            ],
+                                                                                   "query":  [
+                                                                                                 {
+                                                                                                     "key":  "pageNumber",
+                                                                                                     "value":  "1"
+                                                                                                 },
+                                                                                                 {
+                                                                                                     "key":  "pageSize",
+                                                                                                     "value":  "100"
+                                                                                                 }
+                                                                                             ]
+                                                                               },
+                                                                       "description":  "List pipelines with pagination."
+                                                                   }
+                                                   },
+                                                   {
+                                                       "name":  "Enumerate Pipelines",
+                                                       "request":  {
+                                                                       "method":  "POST",
+                                                                       "header":  [
+                                                                                      {
+                                                                                          "key":  "Content-Type",
+                                                                                          "value":  "application/json"
+                                                                                      }
+                                                                                  ],
+                                                                       "body":  {
+                                                                                    "mode":  "raw",
+                                                                                    "raw":  "{\n  \"PageNumber\": 1,\n  \"PageSize\": 100\n}"
+                                                                                },
+                                                                       "url":  {
+                                                                                   "raw":  "{{baseUrl}}/api/v1/pipelines/enumerate",
+                                                                                   "host":  [
+                                                                                                "{{baseUrl}}"
+                                                                                            ],
+                                                                                   "path":  [
+                                                                                                "api",
+                                                                                                "v1",
+                                                                                                "pipelines",
+                                                                                                "enumerate"
+                                                                                            ]
+                                                                               },
+                                                                       "description":  "Enumerate pipelines with a JSON query body."
+                                                                   }
+                                                   },
+                                                   {
+                                                       "name":  "Create Pipeline",
+                                                       "event":  [
+                                                                     {
+                                                                         "listen":  "test",
+                                                                         "script":  {
+                                                                                        "exec":  [
+                                                                                                     "if (pm.response.code === 201) {",
+                                                                                                     "    const json = pm.response.json();",
+                                                                                                     "    pm.collectionVariables.set('pipelineName', json.Name || json.name);",
+                                                                                                     "}"
+                                                                                                 ],
+                                                                                        "type":  "text/javascript"
+                                                                                    }
+                                                                     }
+                                                                 ],
+                                                       "request":  {
+                                                                       "method":  "POST",
+                                                                       "header":  [
+                                                                                      {
+                                                                                          "key":  "Content-Type",
+                                                                                          "value":  "application/json"
+                                                                                      }
+                                                                                  ],
+                                                                       "body":  {
+                                                                                    "mode":  "raw",
+                                                                                    "raw":  "{\n  \"Name\": \"ProductFullPipeline\",\n  \"Description\": \"Product manager, architect, worker, usability, test, and judge flow.\",\n  \"Stages\": [\n    {\n      \"Order\": 1,\n      \"PersonaName\": \"Product Manager\",\n      \"RequiresReview\": true,\n      \"ReviewDenyAction\": \"RetryStage\"\n    },\n    {\n      \"Order\": 2,\n      \"PersonaName\": \"Architect\",\n      \"RequiresReview\": true,\n      \"ReviewDenyAction\": \"RetryStage\"\n    },\n    {\n      \"Order\": 3,\n      \"PersonaName\": \"Worker\",\n      \"RequiresReview\": true,\n      \"ReviewDenyAction\": \"RetryStage\"\n    },\n    {\n      \"Order\": 4,\n      \"PersonaName\": \"Usability Engineer\",\n      \"RequiresReview\": true,\n      \"ReviewDenyAction\": \"RetryStage\"\n    },\n    {\n      \"Order\": 5,\n      \"PersonaName\": \"TestEngineer\",\n      \"RequiresReview\": true,\n      \"ReviewDenyAction\": \"RetryStage\"\n    },\n    {\n      \"Order\": 6,\n      \"PersonaName\": \"Judge\",\n      \"RequiresReview\": true,\n      \"ReviewDenyAction\": \"FailPipeline\"\n    }\n  ]\n}"
+                                                                                },
+                                                                       "url":  {
+                                                                                   "raw":  "{{baseUrl}}/api/v1/pipelines",
+                                                                                   "host":  [
+                                                                                                "{{baseUrl}}"
+                                                                                            ],
+                                                                                   "path":  [
+                                                                                                "api",
+                                                                                                "v1",
+                                                                                                "pipelines"
+                                                                                            ]
+                                                                               },
+                                                                       "description":  "Create a pipeline and save its Name to pipelineName."
+                                                                   }
+                                                   },
+                                                   {
+                                                       "name":  "Get Pipeline",
+                                                       "request":  {
+                                                                       "method":  "GET",
+                                                                       "header":  [
+
+                                                                                  ],
+                                                                       "url":  {
+                                                                                   "raw":  "{{baseUrl}}/api/v1/pipelines/{{pipelineName}}",
+                                                                                   "host":  [
+                                                                                                "{{baseUrl}}"
+                                                                                            ],
+                                                                                   "path":  [
+                                                                                                "api",
+                                                                                                "v1",
+                                                                                                "pipelines",
+                                                                                                "{{pipelineName}}"
+                                                                                            ]
+                                                                               },
+                                                                       "description":  "Read one pipeline by name."
+                                                                   }
+                                                   },
+                                                   {
+                                                       "name":  "Update Pipeline",
+                                                       "request":  {
+                                                                       "method":  "PUT",
+                                                                       "header":  [
+                                                                                      {
+                                                                                          "key":  "Content-Type",
+                                                                                          "value":  "application/json"
+                                                                                      }
+                                                                                  ],
+                                                                       "body":  {
+                                                                                    "mode":  "raw",
+                                                                                    "raw":  "{\n  \"Description\": \"Updated product-oriented multi-stage pipeline.\",\n  \"Stages\": [\n    {\n      \"Order\": 1,\n      \"PersonaName\": \"Product Manager\",\n      \"RequiresReview\": true,\n      \"ReviewDenyAction\": \"RetryStage\"\n    },\n    {\n      \"Order\": 2,\n      \"PersonaName\": \"Architect\",\n      \"RequiresReview\": true,\n      \"ReviewDenyAction\": \"RetryStage\"\n    },\n    {\n      \"Order\": 3,\n      \"PersonaName\": \"Worker\",\n      \"RequiresReview\": true,\n      \"ReviewDenyAction\": \"RetryStage\"\n    },\n    {\n      \"Order\": 4,\n      \"PersonaName\": \"Usability Engineer\",\n      \"RequiresReview\": true,\n      \"ReviewDenyAction\": \"RetryStage\"\n    },\n    {\n      \"Order\": 5,\n      \"PersonaName\": \"TestEngineer\",\n      \"RequiresReview\": true,\n      \"ReviewDenyAction\": \"RetryStage\"\n    },\n    {\n      \"Order\": 6,\n      \"PersonaName\": \"Judge\",\n      \"RequiresReview\": true,\n      \"ReviewDenyAction\": \"FailPipeline\"\n    }\n  ]\n}"
+                                                                                },
+                                                                       "url":  {
+                                                                                   "raw":  "{{baseUrl}}/api/v1/pipelines/{{pipelineName}}",
+                                                                                   "host":  [
+                                                                                                "{{baseUrl}}"
+                                                                                            ],
+                                                                                   "path":  [
+                                                                                                "api",
+                                                                                                "v1",
+                                                                                                "pipelines",
+                                                                                                "{{pipelineName}}"
+                                                                                            ]
+                                                                               },
+                                                                       "description":  "Update a pipeline by name."
+                                                                   }
+                                                   },
+                                                   {
+                                                       "name":  "Delete Pipeline",
+                                                       "request":  {
+                                                                       "method":  "DELETE",
+                                                                       "header":  [
+
+                                                                                  ],
+                                                                       "url":  {
+                                                                                   "raw":  "{{baseUrl}}/api/v1/pipelines/{{pipelineName}}",
+                                                                                   "host":  [
+                                                                                                "{{baseUrl}}"
+                                                                                            ],
+                                                                                   "path":  [
+                                                                                                "api",
+                                                                                                "v1",
+                                                                                                "pipelines",
+                                                                                                "{{pipelineName}}"
+                                                                                            ]
+                                                                               },
+                                                                       "description":  "Delete a custom pipeline."
+                                                                   }
+                                                   }
+                                               ]
+                                  }
+                              ]
+                 },
+                 {
                      "name":  "Missions",
                      "description":  "Mission (atomic work unit) management. A mission is a single task assigned to an AI captain agent.",
                      "item":  [
@@ -3359,6 +3913,37 @@
                                                               },
                                                       "description":  "Returns a single captain by ID."
                                                   }
+                                  },
+                                  {
+                                      "name":  "Get Captain Tools",
+                                      "request":  {
+                                                      "method":  "GET",
+                                                      "header":  [
+
+                                                                 ],
+                                                      "url":  {
+                                                                  "raw":  "{{baseUrl}}/api/v1/captains/{{captainId}}/tools",
+                                                                  "host":  [
+                                                                               "{{baseUrl}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "api",
+                                                                               "v1",
+                                                                               "captains",
+                                                                               "{{captainId}}",
+                                                                               "tools"
+                                                                           ]
+                                                              },
+                                                      "description":  "Describe the Armada MCP tools available through the selected captain, including runtime-specific availability notes."
+                                                  },
+                                      "response":  [
+                                                       {
+                                                           "name":  "Captain Tools",
+                                                           "status":  "OK",
+                                                           "code":  200,
+                                                           "body":  "{\n  \"captainId\": \"cpt_abc123\",\n  \"captainName\": \"captain-1\",\n  \"runtime\": \"Mux\",\n  \"toolsAccessible\": true,\n  \"availabilityVerified\": true,\n  \"availabilitySource\": \"mux-probe\",\n  \"summary\": \"Mux probe succeeded and the endpoint reported tool calling enabled.\",\n  \"endpointName\": \"local-codex\",\n  \"toolsEnabled\": true,\n  \"effectiveToolCount\": 42,\n  \"armadaToolCount\": 37,\n  \"tools\": [\n    {\n      \"name\": \"get_status\",\n      \"description\": \"Get current Admiral status snapshot\",\n      \"inputSchemaJson\": \"{\\\"type\\\":\\\"object\\\",\\\"properties\\\":{}}\"\n    }\n  ]\n}"
+                                                       }
+                                                   ]
                                   },
                                   {
                                       "name":  "Update Captain",

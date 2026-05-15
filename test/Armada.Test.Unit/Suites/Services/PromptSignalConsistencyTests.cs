@@ -55,13 +55,14 @@ namespace Armada.Test.Unit.Suites.Services
 
         private static PromptFixtureResult CreatePromptFixture(string persona)
         {
+            string slug = persona.ToLowerInvariant().Replace(" ", "-");
             Vessel vessel = new Vessel("PromptSignalVessel", "https://github.com/test/repo");
-            Captain captain = new Captain(persona.ToLowerInvariant() + "-captain");
+            Captain captain = new Captain(slug + "-captain");
             captain.Runtime = AgentRuntimeEnum.Codex;
 
             Mission mission = new Mission(persona + " mission", "Validate the signal contract.");
             mission.Persona = persona;
-            mission.BranchName = "armada/" + persona.ToLowerInvariant() + "-signal-contract";
+            mission.BranchName = "armada/" + slug + "-signal-contract";
 
             Dock dock = new Dock(vessel.Id);
             dock.BranchName = mission.BranchName;
@@ -262,6 +263,8 @@ namespace Armada.Test.Unit.Suites.Services
                     PromptTemplateService templates = new PromptTemplateService(testDb.Driver, logging);
 
                     await AssertResultPersonaSignalsAsync(templates, "Worker", "persona.worker").ConfigureAwait(false);
+                    await AssertResultPersonaSignalsAsync(templates, "Product Manager", "persona.product_manager").ConfigureAwait(false);
+                    await AssertResultPersonaSignalsAsync(templates, "Usability Engineer", "persona.usability_engineer").ConfigureAwait(false);
                     await AssertResultPersonaSignalsAsync(templates, "TestEngineer", "persona.test_engineer").ConfigureAwait(false);
                     await AssertJudgeSignalsAsync(templates).ConfigureAwait(false);
                 }

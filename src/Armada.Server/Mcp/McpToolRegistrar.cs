@@ -7,6 +7,7 @@ namespace Armada.Server.Mcp
     using System.Threading.Tasks;
     using Armada.Server;
     using Armada.Core.Database;
+    using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
@@ -57,6 +58,7 @@ namespace Armada.Server.Mcp
         /// <param name="agentLifecycle">Agent lifecycle handler used for captain model validation.</param>
         /// <param name="templateService">Prompt template service for template operations.</param>
         /// <param name="logging">Logging module for tools that need validation services.</param>
+        /// <param name="captainToolService">Captain tool availability service for captain tool discovery.</param>
         public static void RegisterAll(
             RegisterToolDelegate register,
             DatabaseDriver database,
@@ -77,7 +79,8 @@ namespace Armada.Server.Mcp
             Func<string, Task>? onStopCaptain = null,
             AgentLifecycleHandler? agentLifecycle = null,
             IPromptTemplateService? templateService = null,
-            LoggingModule? logging = null)
+            LoggingModule? logging = null,
+            CaptainToolService? captainToolService = null)
         {
             McpStatusTools.Register(register, admiral, onStop);
             McpEnumerateTools.Register(register, database, mergeQueue);
@@ -85,7 +88,7 @@ namespace Armada.Server.Mcp
             McpVesselTools.Register(register, database, dockService);
             McpVoyageTools.Register(register, database, admiral, settings);
             McpMissionTools.Register(register, database, admiral, settings, git, landingService);
-            McpCaptainTools.Register(register, database, admiral, settings, onStopCaptain, agentLifecycle);
+            McpCaptainTools.Register(register, database, admiral, settings, onStopCaptain, agentLifecycle, captainToolService);
             McpSignalTools.Register(register, database);
             McpEventTools.Register(register, database);
             McpDockTools.Register(register, database, dockService);
@@ -100,6 +103,69 @@ namespace Armada.Server.Mcp
             McpPersonaTools.Register(register, database);
             McpPipelineTools.Register(register, database);
             if (settings != null) McpBackupTools.Register(register, database, settings);
+        }
+
+        /// <summary>
+        /// Describe the Armada MCP tool catalog that would be registered for the supplied services.
+        /// </summary>
+        /// <returns>Tool summaries ordered by name.</returns>
+        public static List<CaptainToolSummary> DescribeAll(
+            DatabaseDriver database,
+            IAdmiralService admiral,
+            ArmadaSettings? settings = null,
+            IGitService? git = null,
+            IMergeQueueService? mergeQueue = null,
+            IDockService? dockService = null,
+            ILandingService? landingService = null,
+            CheckRunService? checkRunService = null,
+            ObjectiveService? objectiveService = null,
+            PlanningSessionCoordinator? planningSessionCoordinator = null,
+            ObjectiveRefinementCoordinator? objectiveRefinementCoordinator = null,
+            ReleaseService? releaseService = null,
+            DeploymentService? deploymentService = null,
+            RunbookService? runbookService = null,
+            Action? onStop = null,
+            Func<string, Task>? onStopCaptain = null,
+            AgentLifecycleHandler? agentLifecycle = null,
+            IPromptTemplateService? templateService = null,
+            LoggingModule? logging = null)
+        {
+            List<CaptainToolSummary> tools = new List<CaptainToolSummary>();
+
+            RegisterAll(
+                (name, description, inputSchema, handler) =>
+                {
+                    tools.Add(new CaptainToolSummary
+                    {
+                        Name = name,
+                        Description = description,
+                        InputSchemaJson = inputSchema == null ? null : JsonSerializer.Serialize(inputSchema, _JsonOptions)
+                    });
+                },
+                database,
+                admiral,
+                settings,
+                git,
+                mergeQueue,
+                dockService,
+                landingService,
+                checkRunService,
+                objectiveService,
+                planningSessionCoordinator,
+                objectiveRefinementCoordinator,
+                releaseService,
+                deploymentService,
+                runbookService,
+                onStop,
+                onStopCaptain,
+                agentLifecycle,
+                templateService,
+                logging,
+                null);
+
+            return tools
+                .OrderBy(t => t.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
         }
     }
 }

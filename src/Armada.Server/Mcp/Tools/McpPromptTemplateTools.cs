@@ -1,6 +1,7 @@
 namespace Armada.Server.Mcp.Tools
 {
     using System;
+    using System.Collections.Generic;
     using System.Text.Json;
     using System.Threading.Tasks;
     using Armada.Core.Database;
@@ -26,6 +27,61 @@ namespace Armada.Server.Mcp.Tools
         /// <param name="templateService">Prompt template service for resolve and reset operations.</param>
         public static void Register(RegisterToolDelegate register, DatabaseDriver database, IPromptTemplateService templateService)
         {
+            register(
+                "list_prompt_templates",
+                "List prompt templates, optionally filtered by category.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        category = new { type = "string", description = "Optional category filter (for example 'persona' or 'mission')" }
+                    }
+                },
+                async (args) =>
+                {
+                    PromptTemplateArgs request = args.HasValue
+                        ? JsonSerializer.Deserialize<PromptTemplateArgs>(args.Value, _JsonOptions) ?? new PromptTemplateArgs()
+                        : new PromptTemplateArgs();
+                    List<PromptTemplate> templates = await templateService.ListAsync(request.Category).ConfigureAwait(false);
+                    return (object)templates;
+                });
+
+            register(
+                "create_prompt_template",
+                "Create a new prompt template.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        name = new { type = "string", description = "Template name (e.g. 'persona.worker.copy')" },
+                        category = new { type = "string", description = "Template category such as 'persona' or 'mission'" },
+                        content = new { type = "string", description = "Template content with {Placeholder} parameters" },
+                        description = new { type = "string", description = "Human-readable description of the template" },
+                        active = new { type = "boolean", description = "Whether the template should be active" }
+                    },
+                    required = new[] { "name", "category", "content" }
+                },
+                async (args) =>
+                {
+                    PromptTemplateArgs request = JsonSerializer.Deserialize<PromptTemplateArgs>(args!.Value, _JsonOptions)!;
+                    if (String.IsNullOrEmpty(request.Name)) return (object)new { Error = "name is required" };
+                    if (String.IsNullOrEmpty(request.Category)) return (object)new { Error = "category is required" };
+                    if (String.IsNullOrEmpty(request.Content)) return (object)new { Error = "content is required" };
+
+                    PromptTemplate? existing = await database.PromptTemplates.ReadByNameAsync(request.Name).ConfigureAwait(false);
+                    if (existing != null) return (object)new { Error = "Template already exists: " + request.Name };
+
+                    PromptTemplate template = new PromptTemplate(request.Name, request.Content);
+                    template.Category = request.Category;
+                    template.Description = request.Description;
+                    if (request.Active.HasValue) template.Active = request.Active.Value;
+
+                    PromptTemplate created = await database.PromptTemplates.CreateAsync(template).ConfigureAwait(false);
+                    return (object)created;
+                });
+
             register(
                 "get_prompt_template",
                 "Get a prompt template by name. Resolves from database first, falls back to embedded defaults.",

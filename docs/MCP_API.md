@@ -1674,10 +1674,10 @@ Register a new captain (AI agent).
   "type": "object",
   "properties": {
     "name": { "type": "string", "description": "Captain display name" },
-    "runtime": { "type": "string", "description": "Agent runtime: ClaudeCode, Codex, Gemini, Cursor" },
+    "runtime": { "type": "string", "description": "Agent runtime: ClaudeCode, Codex, Gemini, Cursor, Mux, or Custom" },
     "model": { "type": "string", "description": "Optional model override for this captain. When omitted, the runtime chooses automatically" },
     "systemInstructions": { "type": "string", "description": "System instructions for this captain -- injected into every mission prompt to specialize behavior" },
-    "allowedPersonas": { "type": "array", "items": { "type": "string" }, "description": "List of persona names this captain is allowed to use" },
+    "allowedPersonas": { "type": "string", "description": "JSON array of persona names this captain is allowed to use" },
     "preferredPersona": { "type": "string", "description": "Preferred persona name for this captain" }
   },
   "required": ["name"]
@@ -1687,10 +1687,10 @@ Register a new captain (AI agent).
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `name` | string | Yes | Captain display name |
-| `runtime` | string | No | Agent runtime: `ClaudeCode`, `Codex`, `Gemini`, `Cursor` |
+| `runtime` | string | No | Agent runtime: `ClaudeCode`, `Codex`, `Gemini`, `Cursor`, `Mux`, or `Custom` |
 | `model` | string | No | Optional model override. When omitted, the runtime chooses automatically |
 | `systemInstructions` | string | No | System instructions injected into every mission prompt for this captain |
-| `allowedPersonas` | string[] | No | List of persona names this captain is allowed to use |
+| `allowedPersonas` | string | No | JSON array of persona names this captain is allowed to use, for example `["Worker","Judge"]` |
 | `preferredPersona` | string | No | Preferred persona name for this captain |
 
 **Response:** [Captain](#captain) object. Invalid or unavailable models are returned as MCP tool errors.
@@ -1717,6 +1717,26 @@ Get details of a specific captain (AI agent).
 
 ---
 
+### get_captain_tools
+
+Describe the Armada MCP tools available to a specific captain.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "captainId": { "type": "string", "description": "Captain ID (cpt_ prefix)" }
+  },
+  "required": ["captainId"]
+}
+```
+
+**Response:** [CaptainToolAccessResult](#captaintoolaccessresult) object, or `{ "Error": "Captain not found" }`.
+
+---
+
 ### update_captain
 
 Update a captain's name or runtime. Operational fields (state, process, mission) are preserved.
@@ -1729,10 +1749,10 @@ Update a captain's name or runtime. Operational fields (state, process, mission)
   "properties": {
     "captainId": { "type": "string", "description": "Captain ID (cpt_ prefix)" },
     "name": { "type": "string", "description": "New display name" },
-    "runtime": { "type": "string", "description": "New agent runtime: ClaudeCode, Codex, Gemini, Cursor" },
+    "runtime": { "type": "string", "description": "New agent runtime: ClaudeCode, Codex, Gemini, Cursor, Mux, or Custom" },
     "model": { "type": "string", "description": "New optional model override for this captain" },
     "systemInstructions": { "type": "string", "description": "New system instructions for this captain" },
-    "allowedPersonas": { "type": "array", "items": { "type": "string" }, "description": "New list of persona names this captain is allowed to use" },
+    "allowedPersonas": { "type": "string", "description": "New JSON array of persona names this captain is allowed to use" },
     "preferredPersona": { "type": "string", "description": "New preferred persona name for this captain" }
   },
   "required": ["captainId"]
@@ -1743,10 +1763,10 @@ Update a captain's name or runtime. Operational fields (state, process, mission)
 |---|---|---|---|
 | `captainId` | string | Yes | Captain ID (prefix `cpt_`) |
 | `name` | string | No | New display name |
-| `runtime` | string | No | New agent runtime: `ClaudeCode`, `Codex`, `Gemini`, `Cursor` |
+| `runtime` | string | No | New agent runtime: `ClaudeCode`, `Codex`, `Gemini`, `Cursor`, `Mux`, or `Custom` |
 | `model` | string | No | New optional model override. When omitted, the existing value is preserved |
 | `systemInstructions` | string | No | New system instructions for this captain |
-| `allowedPersonas` | string[] | No | New list of persona names this captain is allowed to use |
+| `allowedPersonas` | string | No | New JSON array of persona names this captain is allowed to use, for example `["Worker","Judge"]` |
 | `preferredPersona` | string | No | New preferred persona name for this captain |
 
 **Response:** Updated [Captain](#captain) object, or `{ "Error": "Captain not found" }`. Invalid or unavailable models are returned as MCP tool errors.
@@ -2755,6 +2775,61 @@ Start a guided runbook execution with optional parameter overrides and deploymen
 
 ---
 
+### list_prompt_templates
+
+List prompt templates, optionally filtered by category.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "category": { "type": "string", "description": "Optional category filter such as 'persona' or 'mission'" }
+  }
+}
+```
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `category` | string | No | Optional category filter |
+
+**Response:** array of [PromptTemplate](#prompttemplate) objects.
+
+---
+
+### create_prompt_template
+
+Create a new prompt template.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "name": { "type": "string", "description": "Template name" },
+    "category": { "type": "string", "description": "Template category such as 'persona' or 'mission'" },
+    "content": { "type": "string", "description": "Template content" },
+    "description": { "type": "string", "description": "Template description" },
+    "active": { "type": "boolean", "description": "Whether the template is active" }
+  },
+  "required": ["name", "category", "content"]
+}
+```
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `name` | string | Yes | Template name |
+| `category` | string | Yes | Template category |
+| `content` | string | Yes | Template content |
+| `description` | string | No | Template description |
+| `active` | bool | No | Whether the template is active |
+
+**Response:** Created [PromptTemplate](#prompttemplate) object, or `{ "Error": "Template already exists: ..." }`.
+
+---
+
 ### get_prompt_template
 
 Get a prompt template by name.
@@ -2781,7 +2856,7 @@ Get a prompt template by name.
 
 ### update_prompt_template
 
-Update a prompt template's content.
+Update a prompt template's content. If the template does not already exist, this tool creates it.
 
 **Input Schema:**
 
@@ -2803,7 +2878,7 @@ Update a prompt template's content.
 | `content` | string | Yes | New template content |
 | `description` | string | No | New template description |
 
-**Response:** Updated [PromptTemplate](#prompttemplate) object, or `{ "Error": "Prompt template not found" }`.
+**Response:** Updated or created [PromptTemplate](#prompttemplate) object.
 
 ---
 
@@ -3313,6 +3388,31 @@ Paginated result wrapper returned by `enumerate`.
 | `lastHeartbeatUtc` | string \| null | ISO 8601 last heartbeat timestamp |
 | `createdUtc` | string | ISO 8601 creation timestamp |
 | `lastUpdateUtc` | string | ISO 8601 last update timestamp |
+
+#### CaptainToolAccessResult
+
+| Field | Type | Description |
+|---|---|---|
+| `captainId` | string | Captain ID |
+| `captainName` | string | Captain display name |
+| `runtime` | string | [AgentRuntimeEnum](#agentruntimeenum) value |
+| `toolsAccessible` | bool | Whether Armada currently considers the catalog reachable through this captain |
+| `availabilityVerified` | bool | Whether Armada actively verified availability instead of inferring it |
+| `availabilitySource` | string | Machine-readable availability source such as `mux-probe` or `runtime-assumption` |
+| `summary` | string | Human-readable explanation of availability and caveats |
+| `endpointName` | string \| null | Mux endpoint name when applicable |
+| `toolsEnabled` | bool \| null | Whether the runtime reported tool calling enabled when applicable |
+| `effectiveToolCount` | int \| null | Runtime-reported total tool count when applicable |
+| `armadaToolCount` | int | Number of Armada MCP tools in the returned catalog |
+| `tools` | array | Ordered list of [CaptainToolSummary](#captaintoolsummary) objects |
+
+#### CaptainToolSummary
+
+| Field | Type | Description |
+|---|---|---|
+| `name` | string | Tool name |
+| `description` | string | Human-readable tool description |
+| `inputSchemaJson` | string \| null | Serialized JSON input schema when available |
 
 #### Signal
 

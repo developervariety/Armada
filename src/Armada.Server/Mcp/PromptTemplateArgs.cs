@@ -19,5 +19,15 @@ namespace Armada.Server.Mcp
         /// Template description.
         /// </summary>
         public string? Description { get; set; }
+
+        /// <summary>
+        /// Template category.
+        /// </summary>
+        public string? Category { get; set; }
+
+        /// <summary>
+        /// Optional active flag.
+        /// </summary>
+        public bool? Active { get; set; }
     }
 }

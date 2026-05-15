@@ -1658,10 +1658,25 @@ namespace Armada.Core.Services
                 string personaPreamble = "";
                 switch (nextMission.Persona)
                 {
+                    case "Product Manager":
+                        personaPreamble = "## Your Role: Product Manager (Frame the Product)\n\n" +
+                            "You are turning the dispatched work into a concrete product picture before implementation. " +
+                            "Clarify user value, experience expectations, validation signals, and future-facing constraints.\n\n";
+                        break;
+                    case "Architect":
+                        personaPreamble = "## Your Role: Architect (Decompose)\n\n" +
+                            "You are translating the dispatched work and prior product framing into right-sized missions. " +
+                            "Carry forward the user outcomes, validation plan, and future-readiness constraints from the prior stage.\n\n";
+                        break;
                     case "Worker":
                         personaPreamble = "## Your Role: Worker (Implement)\n\n" +
                             "You are implementing code changes based on the Architect's plan. " +
                             "Review the prior stage output below and implement the described changes.\n\n";
+                        break;
+                    case "Usability Engineer":
+                        personaPreamble = "## Your Role: Usability Engineer (Refine Experience)\n\n" +
+                            "You are improving the completed implementation for user experience, consistency, and edge-case handling. " +
+                            "Review the prior diff below and make the capability easier and safer to use.\n\n";
                         break;
                     case "TestEngineer":
                         personaPreamble = "## Your Role: TestEngineer (Write Tests)\n\n" +

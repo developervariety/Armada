@@ -56,6 +56,8 @@ namespace Armada.Core.Services
         {
             await SeedPersonaAsync("Worker", "Standard mission executor -- writes code, makes changes, commits work.", "persona.worker", token).ConfigureAwait(false);
             await SeedPersonaAsync("Architect", "Plans voyages and decomposes work into right-sized missions.", "persona.architect", token).ConfigureAwait(false);
+            await SeedPersonaAsync("Product Manager", "Shapes the whole product picture, clarifies user outcomes, and turns dispatched work into durable requirements.", "persona.product_manager", token).ConfigureAwait(false);
+            await SeedPersonaAsync("Usability Engineer", "Improves usability, edge-case experience, and consistency with the surrounding product.", "persona.usability_engineer", token).ConfigureAwait(false);
             await SeedPersonaAsync("Judge", "Reviews completed mission diffs for correctness and completeness.", "persona.judge", token).ConfigureAwait(false);
             await SeedPersonaAsync("TestEngineer", "Writes and updates tests for mission changes.", "persona.test_engineer", token).ConfigureAwait(false);
         }
@@ -107,36 +109,79 @@ namespace Armada.Core.Services
 
             await SeedPipelineAsync(
                 "FullPipeline",
-                "Architect then Worker then TestEngineer then Judge.",
+                "Product Manager then Architect then Worker then Usability Engineer then TestEngineer then Judge.",
                 new List<PipelineStage>
                 {
-                    new PipelineStage(1, "Architect") { RequiresReview = true },
-                    new PipelineStage(2, "Worker") { RequiresReview = true },
-                    new PipelineStage(3, "TestEngineer") { RequiresReview = true },
-                    new PipelineStage(4, "Judge") { RequiresReview = true, ReviewDenyAction = ReviewDenyActionEnum.FailPipeline }
+                    new PipelineStage(1, "Product Manager") { RequiresReview = true },
+                    new PipelineStage(2, "Architect") { RequiresReview = true },
+                    new PipelineStage(3, "Worker") { RequiresReview = true },
+                    new PipelineStage(4, "Usability Engineer") { RequiresReview = true },
+                    new PipelineStage(5, "TestEngineer") { RequiresReview = true },
+                    new PipelineStage(6, "Judge") { RequiresReview = true, ReviewDenyAction = ReviewDenyActionEnum.FailPipeline }
                 },
                 token).ConfigureAwait(false);
         }
 
         private async Task SeedPipelineAsync(string name, string description, List<PipelineStage> stages, CancellationToken token)
         {
-            bool exists = await _Database.Pipelines.ExistsByNameAsync(name, token).ConfigureAwait(false);
-            if (exists) return;
+            Pipeline? existing = await _Database.Pipelines.ReadByNameAsync(name, token).ConfigureAwait(false);
+            if (existing != null)
+            {
+                if (ShouldUpgradeBuiltInPipeline(existing))
+                {
+                    existing.Description = description;
+                    existing.Stages = CloneStages(existing.Id, stages);
+                    existing.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.Pipelines.UpdateAsync(existing, token).ConfigureAwait(false);
+                    _Logging.Info(_Header + "upgraded built-in pipeline: " + name);
+                }
+                return;
+            }
 
             Pipeline pipeline = new Pipeline();
             pipeline.TenantId = Constants.DefaultTenantId;
             pipeline.Name = name;
             pipeline.Description = description;
             pipeline.IsBuiltIn = true;
-            pipeline.Stages = stages;
-
-            foreach (PipelineStage stage in stages)
-            {
-                stage.PipelineId = pipeline.Id;
-            }
+            pipeline.Stages = CloneStages(pipeline.Id, stages);
 
             await _Database.Pipelines.CreateAsync(pipeline, token).ConfigureAwait(false);
             _Logging.Info(_Header + "seeded built-in pipeline: " + name);
+        }
+
+        private static List<PipelineStage> CloneStages(string pipelineId, IEnumerable<PipelineStage> stages)
+        {
+            List<PipelineStage> clones = new List<PipelineStage>();
+            foreach (PipelineStage stage in stages)
+            {
+                clones.Add(new PipelineStage(stage.Order, stage.PersonaName)
+                {
+                    PipelineId = pipelineId,
+                    IsOptional = stage.IsOptional,
+                    Description = stage.Description,
+                    RequiresReview = stage.RequiresReview,
+                    ReviewDenyAction = stage.ReviewDenyAction
+                });
+            }
+
+            return clones;
+        }
+
+        private static bool ShouldUpgradeBuiltInPipeline(Pipeline existing)
+        {
+            if (existing == null) throw new ArgumentNullException(nameof(existing));
+            if (!existing.IsBuiltIn) return false;
+            if (!String.Equals(existing.Name, "FullPipeline", StringComparison.Ordinal)) return false;
+            if (existing.Stages == null || existing.Stages.Count == 0) return false;
+
+            List<string> personaOrder = existing.Stages
+                .OrderBy(stage => stage.Order)
+                .Select(stage => stage.PersonaName)
+                .ToList();
+
+            return personaOrder.SequenceEqual(
+                new[] { "Architect", "Worker", "TestEngineer", "Judge" },
+                StringComparer.Ordinal);
         }
 
         #endregion

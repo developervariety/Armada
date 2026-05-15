@@ -36,7 +36,8 @@ namespace Armada.Server.Mcp.Tools
         /// <param name="settings">Armada settings, or null if unavailable.</param>
         /// <param name="onStopCaptain">Optional callback invoked when a captain is stopped.</param>
         /// <param name="agentLifecycle">Optional lifecycle handler used for model validation.</param>
-        public static void Register(RegisterToolDelegate register, DatabaseDriver database, IAdmiralService admiral, ArmadaSettings? settings, Func<string, Task>? onStopCaptain = null, AgentLifecycleHandler? agentLifecycle = null)
+        /// <param name="captainToolService">Optional captain tool availability service.</param>
+        public static void Register(RegisterToolDelegate register, DatabaseDriver database, IAdmiralService admiral, ArmadaSettings? settings, Func<string, Task>? onStopCaptain = null, AgentLifecycleHandler? agentLifecycle = null, CaptainToolService? captainToolService = null)
         {
             register(
                 "get_captain",
@@ -58,6 +59,30 @@ namespace Armada.Server.Mcp.Tools
                     if (captain == null) return (object)new { Error = "Captain not found" };
                     return (object)captain;
                 });
+
+            if (captainToolService != null)
+            {
+                register(
+                    "get_captain_tools",
+                    "Describe the Armada MCP tools available to a specific captain.",
+                    new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            captainId = new { type = "string", description = "Captain ID (cpt_ prefix)" }
+                        },
+                        required = new[] { "captainId" }
+                    },
+                    async (args) =>
+                    {
+                        CaptainIdArgs request = JsonSerializer.Deserialize<CaptainIdArgs>(args!.Value, _JsonOptions)!;
+                        string captainId = request.CaptainId;
+                        Captain? captain = await database.Captains.ReadAsync(captainId).ConfigureAwait(false);
+                        if (captain == null) return (object)new { Error = "Captain not found" };
+                        return await captainToolService.DescribeAsync(captain).ConfigureAwait(false);
+                    });
+            }
 
             register(
                 "create_captain",

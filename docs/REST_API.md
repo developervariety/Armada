@@ -1740,6 +1740,44 @@ Get a single captain by ID.
 
 ---
 
+#### GET /api/v1/captains/{id}/tools
+
+Describe the Armada MCP tools available through a specific captain, including runtime-specific availability notes.
+
+**Path Parameters:**
+| Parameter | Description |
+|---|---|
+| `id` | Captain ID (`cpt_` prefix) |
+
+**Response:** `200 OK`
+
+```json
+{
+  "captainId": "cpt_abc123",
+  "captainName": "captain-1",
+  "runtime": "Mux",
+  "toolsAccessible": true,
+  "availabilityVerified": true,
+  "availabilitySource": "mux-probe",
+  "summary": "Mux probe succeeded and the endpoint reported tool calling enabled.",
+  "endpointName": "local-codex",
+  "toolsEnabled": true,
+  "effectiveToolCount": 42,
+  "armadaToolCount": 37,
+  "tools": [
+    {
+      "name": "get_status",
+      "description": "Get current Admiral status snapshot",
+      "inputSchemaJson": "{\"type\":\"object\",\"properties\":{}}"
+    }
+  ]
+}
+```
+
+**Error:** `404` - Captain not found
+
+---
+
 #### PUT /api/v1/captains/{id}
 
 Update a captain's name, runtime, or model. Operational fields (state, process, mission) are preserved.
@@ -2408,6 +2446,30 @@ Paginated enumeration of prompt templates with optional filtering and sorting.
 curl -X POST http://localhost:7890/api/v1/prompt-templates/enumerate \
   -H "Content-Type: application/json" \
   -d '{"PageSize": 10}'
+```
+
+---
+
+#### POST /api/v1/prompt-templates
+
+Create a prompt template.
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `Name` | string | yes | Unique template name |
+| `Category` | string | yes | Template category such as `persona`, `mission`, or `structure` |
+| `Content` | string | yes | Template content text |
+| `Description` | string | no | Template description |
+| `Active` | bool | no | Whether the template is active |
+
+**Response:** `201 Created` - PromptTemplate
+
+```bash
+curl -X POST http://localhost:7890/api/v1/prompt-templates \
+  -H "Content-Type: application/json" \
+  -d '{"Name": "persona.product_manager.copy", "Category": "persona", "Content": "You are...", "Description": "Derived persona template"}'
 ```
 
 ---
@@ -4288,6 +4350,62 @@ A worker AI agent instance executing missions.
 | `LastHeartbeatUtc` | datetime? | null | Last heartbeat timestamp (UTC) |
 | `CreatedUtc` | datetime | now | Creation timestamp (UTC) |
 | `LastUpdateUtc` | datetime | now | Last update timestamp (UTC) |
+
+---
+
+#### CaptainToolAccessResult
+
+Captain-scoped Armada MCP tool availability and catalog metadata.
+
+```json
+{
+  "captainId": "cpt_abc123",
+  "captainName": "captain-1",
+  "runtime": "Mux",
+  "toolsAccessible": true,
+  "availabilityVerified": true,
+  "availabilitySource": "mux-probe",
+  "summary": "Mux probe succeeded and the endpoint reported tool calling enabled.",
+  "endpointName": "local-codex",
+  "toolsEnabled": true,
+  "effectiveToolCount": 42,
+  "armadaToolCount": 37,
+  "tools": [
+    {
+      "name": "get_status",
+      "description": "Get current Admiral status snapshot",
+      "inputSchemaJson": "{\"type\":\"object\",\"properties\":{}}"
+    }
+  ]
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `captainId` | string | Captain ID |
+| `captainName` | string | Captain display name |
+| `runtime` | [AgentRuntimeEnum](#agentruntimeenum) | Captain runtime |
+| `toolsAccessible` | bool | Whether Armada currently considers the catalog reachable through this captain |
+| `availabilityVerified` | bool | Whether Armada actively verified availability instead of inferring it |
+| `availabilitySource` | string | Machine-readable availability source such as `mux-probe` or `runtime-assumption` |
+| `summary` | string | Human-readable explanation of availability and caveats |
+| `endpointName` | string? | Mux endpoint name when applicable |
+| `toolsEnabled` | bool? | Whether the runtime reported tool calling enabled when applicable |
+| `effectiveToolCount` | int? | Runtime-reported total tool count when applicable |
+| `armadaToolCount` | int | Number of Armada MCP tools in the returned catalog |
+| `tools` | [CaptainToolSummary](#captaintoolsummary)[] | Ordered tool list |
+
+---
+
+#### CaptainToolSummary
+
+One Armada MCP tool entry in a captain catalog response.
+
+| Field | Type | Description |
+|---|---|---|
+| `name` | string | Tool name |
+| `description` | string | Human-readable tool description |
+| `inputSchemaJson` | string? | Serialized JSON input schema when available |
 
 ---
 
