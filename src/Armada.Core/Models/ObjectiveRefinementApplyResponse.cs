@@ -5,7 +5,13 @@ namespace Armada.Core.Models
     /// </summary>
     public class ObjectiveRefinementApplyResponse
     {
+        /// <summary>
+        /// Gets or sets the summary.
+        /// </summary>
         public ObjectiveRefinementSummaryResponse Summary { get; set; } = new ObjectiveRefinementSummaryResponse();
+        /// <summary>
+        /// Gets or sets the objective.
+        /// </summary>
         public Objective Objective { get; set; } = new Objective();
     }
 }

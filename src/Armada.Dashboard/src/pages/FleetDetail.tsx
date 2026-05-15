@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { listFleets, listVessels, listPipelines, updateFleet, deleteFleet } from '../api/client';
+import { listFleets, listVessels, listPipelines, createFleet, updateFleet, deleteFleet } from '../api/client';
 import type { Fleet, Vessel, Pipeline } from '../types/models';
 import ActionMenu from '../components/shared/ActionMenu';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
@@ -9,6 +9,7 @@ import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
+import { buildFleetDuplicatePayload } from '../lib/duplicates';
 
 export default function FleetDetail() {
   const { t, formatDateTime } = useLocale();
@@ -86,6 +87,17 @@ export default function FleetDetail() {
     });
   }
 
+  async function handleDuplicate() {
+    if (!fleet) return;
+    try {
+      const created = await createFleet(buildFleetDuplicatePayload(fleet));
+      pushToast('success', t('Fleet "{{name}}" duplicated.', { name: created.name }));
+      navigate(`/fleets/${created.id}`);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('Duplicate failed.'));
+    }
+  }
+
   if (loading) return <p className="text-dim">{t('Loading...')}</p>;
   if (error && !fleet) return <ErrorModal error={error} onClose={() => setError('')} />;
   if (!fleet) return <p className="text-dim">{t('Fleet not found.')}</p>;
@@ -102,6 +114,7 @@ export default function FleetDetail() {
         <div className="inline-actions">
           <ActionMenu id={`fleet-${fleet.id}`} items={[
             { label: 'Edit', onClick: openEdit },
+            { label: 'Duplicate', onClick: () => void handleDuplicate() },
             { label: 'View JSON', onClick: () => setJsonData({ open: true, title: t('Fleet: {{name}}', { name: fleet.name }), data: fleet }) },
             { label: 'Delete', danger: true, onClick: handleDelete },
           ]} />

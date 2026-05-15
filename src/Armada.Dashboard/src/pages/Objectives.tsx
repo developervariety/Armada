@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
+  createBacklogItem,
   deleteBacklogItem,
   importObjectiveFromGitHub,
   listBacklog,
@@ -36,6 +37,7 @@ import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
 import RefreshButton from '../components/shared/RefreshButton';
 import StatusBadge from '../components/shared/StatusBadge';
+import { buildObjectiveDuplicatePayload } from '../lib/duplicates';
 
 export default function Objectives() {
   const navigate = useNavigate();
@@ -283,6 +285,16 @@ export default function Objectives() {
         }
       },
     });
+  }
+
+  async function handleDuplicate(objective: Objective) {
+    try {
+      const created = await createBacklogItem(buildObjectiveDuplicatePayload(objective));
+      pushToast('success', t('Backlog item "{{title}}" duplicated.', { title: created.title }));
+      navigate(`/backlog/${created.id}`);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('Duplicate failed.'));
+    }
   }
 
   async function handleImportFromGitHub() {
@@ -628,6 +640,7 @@ export default function Objectives() {
                         id={`backlog-${objective.id}`}
                         items={[
                           { label: 'Open', onClick: () => navigate(`/backlog/${objective.id}`) },
+                          ...(canManage ? [{ label: 'Duplicate', onClick: () => void handleDuplicate(objective) }] : []),
                           { label: 'View JSON', onClick: () => setJsonData({ open: true, title: objective.title, data: objective }) },
                           ...(canManage ? [
                             { label: 'Move Up', onClick: () => void handleMoveRank(objective.id, -1) },

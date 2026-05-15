@@ -5,6 +5,9 @@ namespace Armada.Core.Models
     /// </summary>
     public class ObjectiveRefinementMessageRequest
     {
+        /// <summary>
+        /// Gets or sets the content.
+        /// </summary>
         public string Content { get; set; } = String.Empty;
     }
 }

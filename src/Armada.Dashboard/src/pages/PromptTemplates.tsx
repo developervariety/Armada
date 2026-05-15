@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { listPromptTemplates, resetPromptTemplate } from '../api/client';
+import { createPromptTemplate, listPromptTemplates, resetPromptTemplate } from '../api/client';
 import type { PromptTemplate } from '../types/models';
 import Pagination from '../components/shared/Pagination';
 import ActionMenu from '../components/shared/ActionMenu';
@@ -11,6 +11,7 @@ import RefreshButton from '../components/shared/RefreshButton';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
+import { buildPromptTemplateDuplicatePayload } from '../lib/duplicates';
 
 type SortDir = 'asc' | 'desc';
 type SortField = 'name' | 'description' | 'category' | 'isBuiltIn' | 'contentLength' | 'active' | 'lastUpdateUtc';
@@ -124,6 +125,16 @@ export default function PromptTemplates() {
     });
   }
 
+  async function handleDuplicate(template: PromptTemplate) {
+    try {
+      const created = await createPromptTemplate(buildPromptTemplateDuplicatePayload(template));
+      pushToast('success', translate('Template "{{name}}" duplicated.', { name: created.name }));
+      navigate(`/prompt-templates/${encodeURIComponent(created.name)}`);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : translate('Duplicate failed.'));
+    }
+  }
+
   return (
     <div>
       <div className="view-header">
@@ -132,6 +143,9 @@ export default function PromptTemplates() {
           <p className="text-dim view-subtitle">{translate('Prompt templates define the instructions and structure used when generating prompts for captains and missions.')}</p>
         </div>
         <div className="view-actions">
+          <button className="btn btn-primary btn-sm" onClick={() => navigate('/prompt-templates/create')}>
+            + {translate('Prompt Template')}
+          </button>
           <RefreshButton onRefresh={load} title={translate('Refresh prompt template data')} />
         </div>
       </div>
@@ -221,6 +235,7 @@ export default function PromptTemplates() {
                     <td className="text-right" onClick={e => e.stopPropagation()}>
                       <ActionMenu id={`template-${template.id}`} items={[
                         { label: 'Edit', onClick: () => navigate(`/prompt-templates/${encodeURIComponent(template.name)}`) },
+                        { label: 'Duplicate', onClick: () => void handleDuplicate(template) },
                         { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `${translate('Template')}: ${template.name}`, data: template }) },
                         ...(template.isBuiltIn ? [{ label: 'Reset to Default', danger: true as const, onClick: () => handleResetToDefault(template.name) }] : []),
                       ]} />

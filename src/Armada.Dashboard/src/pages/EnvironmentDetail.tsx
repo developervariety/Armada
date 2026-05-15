@@ -21,6 +21,7 @@ import ConfirmDialog from '../components/shared/ConfirmDialog';
 import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
+import { buildEnvironmentDuplicatePayload } from '../lib/duplicates';
 
 const ENVIRONMENT_KINDS: EnvironmentKind[] = ['Development', 'Test', 'Staging', 'Production', 'CustomerHosted', 'Custom'];
 
@@ -247,6 +248,20 @@ export default function EnvironmentDetail() {
     });
   }
 
+  async function handleDuplicate() {
+    if (!environment || !canManage) return;
+    try {
+      setSaving(true);
+      const created = await createEnvironment(buildEnvironmentDuplicatePayload(environment));
+      pushToast('success', t('Environment "{{name}}" duplicated.', { name: created.name }));
+      navigate(`/environments/${created.id}`);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('Duplicate failed.'));
+    } finally {
+      setSaving(false);
+    }
+  }
+
   if (loading) return <p className="text-dim">{t('Loading...')}</p>;
 
   return (
@@ -333,6 +348,11 @@ export default function EnvironmentDetail() {
           {!createMode && (
             <button className="btn btn-sm" onClick={() => setJsonData({ open: true, title: name, data: environment })}>
               {t('View JSON')}
+            </button>
+          )}
+          {!createMode && canManage && (
+            <button className="btn btn-sm" disabled={saving} onClick={() => void handleDuplicate()}>
+              {t('Duplicate')}
             </button>
           )}
           {!createMode && canManage && (

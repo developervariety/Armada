@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
+  createCaptain,
   getCaptain,
   getCaptainLog,
   stopCaptain,
@@ -21,6 +22,7 @@ import CopyButton from '../components/shared/CopyButton';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { buildMuxRuntimeOptionsJson, EMPTY_MUX_CAPTAIN_FORM, isMuxRuntime, muxFormFromCaptain, parseMuxCaptainOptions, type MuxCaptainFormFields } from '../lib/mux';
+import { buildCaptainDuplicatePayload } from '../lib/duplicates';
 
 const RUNTIMES = ['ClaudeCode', 'Codex', 'Gemini', 'Cursor', 'Mux', 'Custom'];
 type CaptainDetailFormState = {
@@ -203,10 +205,22 @@ export default function CaptainDetail() {
     });
   }
 
+  async function handleDuplicate() {
+    if (!captain) return;
+    try {
+      const created = await createCaptain(buildCaptainDuplicatePayload(captain));
+      pushToast('success', t('Captain "{{name}}" duplicated.', { name: created.name }));
+      navigate(`/captains/${created.id}`);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('Duplicate failed.'));
+    }
+  }
+
   function getActionItems() {
     if (!captain) return [];
     const items: { label: string; danger?: boolean; onClick: () => void }[] = [
       { label: 'Edit', onClick: openEdit },
+      { label: 'Duplicate', onClick: () => void handleDuplicate() },
       { label: 'View Log', onClick: handleViewLog },
       { label: 'View JSON', onClick: () => setJsonData({ open: true, title: t('Captain: {{name}}', { name: captain.name }), data: captain }) },
     ];

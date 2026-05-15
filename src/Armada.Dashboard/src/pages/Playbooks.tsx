@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { deletePlaybook, listPlaybooks } from '../api/client';
+import { createPlaybook, deletePlaybook, listPlaybooks } from '../api/client';
 import type { Playbook } from '../types/models';
 import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
@@ -11,6 +11,7 @@ import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
 import RefreshButton from '../components/shared/RefreshButton';
 import StatusBadge from '../components/shared/StatusBadge';
+import { buildPlaybookDuplicatePayload } from '../lib/duplicates';
 
 export default function Playbooks() {
   const navigate = useNavigate();
@@ -82,6 +83,16 @@ export default function Playbooks() {
         }
       },
     });
+  }
+
+  async function handleDuplicate(playbook: Playbook) {
+    try {
+      const created = await createPlaybook(buildPlaybookDuplicatePayload(playbook));
+      pushToast('success', t('Playbook "{{name}}" duplicated.', { name: created.fileName }));
+      navigate(`/playbooks/${created.id}`);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('Duplicate failed.'));
+    }
   }
 
   return (
@@ -190,6 +201,7 @@ export default function Playbooks() {
                       id={`playbook-${playbook.id}`}
                       items={[
                         { label: 'Open', onClick: () => navigate(`/playbooks/${playbook.id}`) },
+                        ...(canManage ? [{ label: 'Duplicate', onClick: () => void handleDuplicate(playbook) }] : []),
                         { label: 'View JSON', onClick: () => setJsonData({ open: true, title: playbook.fileName, data: playbook }) },
                         ...(canManage ? [{ label: 'Delete', danger: true as const, onClick: () => handleDelete(playbook) }] : []),
                       ]}

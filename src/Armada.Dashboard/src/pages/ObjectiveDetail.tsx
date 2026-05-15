@@ -68,6 +68,7 @@ import ConfirmDialog from '../components/shared/ConfirmDialog';
 import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
 import StatusBadge from '../components/shared/StatusBadge';
+import { buildObjectiveDuplicatePayload } from '../lib/duplicates';
 
 function toDateTimeLocalValue(value: string | null | undefined): string {
   if (!value) return '';
@@ -720,6 +721,20 @@ export default function ObjectiveDetail() {
     });
   }
 
+  async function handleDuplicate() {
+    if (!objective || !canManage) return;
+    try {
+      setSaving(true);
+      const created = await createBacklogItem(buildObjectiveDuplicatePayload(objective));
+      pushToast('success', t('Backlog item "{{title}}" duplicated.', { title: created.title }));
+      navigate(canonicalItemPath(created.id));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('Duplicate failed.'));
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function handleCreateRefinementSession() {
     if (!objective || !refinementCaptainId) return;
 
@@ -946,6 +961,11 @@ export default function ObjectiveDetail() {
               })}
             >
               {t('Draft Release')}
+            </button>
+          )}
+          {!createMode && canManage && (
+            <button className="btn btn-sm" disabled={saving} onClick={() => void handleDuplicate()} title={t('Create a fresh backlog item by copying this item’s reusable planning metadata and scope.')}>
+              {t('Duplicate')}
             </button>
           )}
           {!createMode && canManage && (

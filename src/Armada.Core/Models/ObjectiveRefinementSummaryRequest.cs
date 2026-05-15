@@ -5,6 +5,9 @@ namespace Armada.Core.Models
     /// </summary>
     public class ObjectiveRefinementSummaryRequest
     {
+        /// <summary>
+        /// Gets or sets the message identifier.
+        /// </summary>
         public string? MessageId { get; set; } = null;
     }
 }

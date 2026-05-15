@@ -135,6 +135,7 @@ export default function App() {
                       <Route path="pipelines" element={<Pipelines />} />
                       <Route path="pipelines/:name" element={<PipelineDetail />} />
                       <Route path="prompt-templates" element={<PromptTemplates />} />
+                      <Route path="prompt-templates/create" element={<PromptTemplateDetail />} />
                       <Route path="prompt-templates/:name" element={<PromptTemplateDetail />} />
                       <Route path="playbooks" element={<Playbooks />} />
                       <Route path="playbooks/:id" element={<PlaybookDetail />} />

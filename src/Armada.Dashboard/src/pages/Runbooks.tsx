@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
+  createRunbook,
   deleteRunbook,
   listEnvironments,
   listRunbookExecutions,
@@ -23,6 +24,7 @@ import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
 import RefreshButton from '../components/shared/RefreshButton';
 import StatusBadge from '../components/shared/StatusBadge';
+import { buildRunbookDuplicatePayload } from '../lib/duplicates';
 
 interface RunbookPageState {
   prefillExecution?: Partial<RunbookExecutionStartRequest>;
@@ -122,6 +124,16 @@ export default function Runbooks() {
         }
       },
     });
+  }
+
+  async function handleDuplicate(runbook: Runbook) {
+    try {
+      const created = await createRunbook(buildRunbookDuplicatePayload(runbook));
+      pushToast('success', t('Runbook "{{title}}" duplicated.', { title: created.title }));
+      navigate(`/runbooks/${created.id}`, { state: carryState });
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('Duplicate failed.'));
+    }
   }
 
   return (
@@ -244,10 +256,11 @@ export default function Runbooks() {
                       <ActionMenu
                         id={`runbook-${runbook.id}`}
                         items={[
-                          { label: 'Open', onClick: () => navigate(`/runbooks/${runbook.id}`, { state: carryState }) },
-                          { label: 'View JSON', onClick: () => setJsonData({ open: true, title: runbook.title, data: runbook }) },
-                          ...(counts.running > 0 ? [{ label: `Running: ${counts.running}`, onClick: () => navigate(`/runbooks/${runbook.id}`, { state: carryState }) }] : []),
-                          ...(canManage ? [{ label: 'Delete', danger: true as const, onClick: () => handleDelete(runbook) }] : []),
+                        { label: 'Open', onClick: () => navigate(`/runbooks/${runbook.id}`, { state: carryState }) },
+                        ...(canManage ? [{ label: 'Duplicate', onClick: () => void handleDuplicate(runbook) }] : []),
+                        { label: 'View JSON', onClick: () => setJsonData({ open: true, title: runbook.title, data: runbook }) },
+                        ...(counts.running > 0 ? [{ label: `Running: ${counts.running}`, onClick: () => navigate(`/runbooks/${runbook.id}`, { state: carryState }) }] : []),
+                        ...(canManage ? [{ label: 'Delete', danger: true as const, onClick: () => handleDelete(runbook) }] : []),
                         ]}
                       />
                     </td>

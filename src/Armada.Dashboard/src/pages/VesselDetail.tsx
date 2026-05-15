@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom';
-import { listVessels, listFleets, listMissions, listPipelines, updateVessel, deleteVessel, getVesselReadiness, getVesselLandingPreview } from '../api/client';
+import { listVessels, listFleets, listMissions, listPipelines, createVessel, updateVessel, deleteVessel, getVesselReadiness, getVesselLandingPreview } from '../api/client';
 import type { Fleet, Vessel, Mission, Pipeline, VesselReadinessResult, LandingPreviewResult } from '../types/models';
 import ActionMenu from '../components/shared/ActionMenu';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
@@ -11,6 +11,7 @@ import ErrorModal from '../components/shared/ErrorModal';
 import ReadinessPanel from '../components/shared/ReadinessPanel';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
+import { buildVesselDuplicatePayload } from '../lib/duplicates';
 
 interface VesselForm {
   name: string;
@@ -192,6 +193,17 @@ export default function VesselDetail() {
     navigate(`/backlog?${params.toString()}`);
   }
 
+  async function handleDuplicate() {
+    if (!vessel) return;
+    try {
+      const created = await createVessel(buildVesselDuplicatePayload(vessel));
+      pushToast('success', t('Vessel "{{name}}" duplicated.', { name: created.name }));
+      navigate(`/vessels/${created.id}?edit=1`);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('Duplicate failed.'));
+    }
+  }
+
   if (loading) return <p className="text-dim">{t('Loading...')}</p>;
   if (error && !vessel) return <ErrorModal error={error} onClose={() => setError('')} />;
   if (!vessel) return <p className="text-dim">{t('Vessel not found.')}</p>;
@@ -229,6 +241,7 @@ export default function VesselDetail() {
             { label: 'Run Check', onClick: () => navigate('/checks', { state: { prefill: { vesselId: vessel.id, branchName: vessel.defaultBranch || '' } } }) },
             { label: 'Open Workspace', onClick: () => navigate(`/workspace/${vessel.id}`) },
             { label: 'Edit', onClick: openEdit },
+            { label: 'Duplicate', onClick: () => void handleDuplicate() },
             { label: 'View JSON', onClick: () => setJsonData({ open: true, title: t('Vessel: {{name}}', { name: vessel.name }), data: vessel }) },
             { label: 'Delete', danger: true, onClick: handleDelete },
           ]} />

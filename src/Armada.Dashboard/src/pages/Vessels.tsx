@@ -12,6 +12,7 @@ import RefreshButton from '../components/shared/RefreshButton';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
+import { buildVesselDuplicatePayload } from '../lib/duplicates';
 
 type SortDir = 'asc' | 'desc';
 type SortField = 'name' | 'fleetId' | 'defaultBranch' | 'createdUtc';
@@ -285,6 +286,16 @@ export default function Vessels() {
     navigate(`/backlog?${params.toString()}`);
   }
 
+  async function handleDuplicate(vessel: Vessel) {
+    try {
+      const created = await createVessel(buildVesselDuplicatePayload(vessel));
+      pushToast('success', t('Vessel "{{name}}" duplicated.', { name: created.name }));
+      navigate(`/vessels/${created.id}?edit=1`);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('Duplicate failed.'));
+    }
+  }
+
   return (
     <div>
       <div className="view-header">
@@ -544,6 +555,7 @@ export default function Vessels() {
                         { label: 'Open Workspace', onClick: () => navigate(`/workspace/${v.id}`) },
                         { label: 'View Detail', onClick: () => navigate(`/vessels/${v.id}`) },
                         { label: 'Edit', onClick: () => openEdit(v) },
+                        { label: 'Duplicate', onClick: () => void handleDuplicate(v) },
                         { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `Vessel: ${v.name}`, data: v }) },
                         { label: 'Delete', danger: true, onClick: () => handleDelete(v.id, v.name) },
                       ]} />

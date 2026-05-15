@@ -15,11 +15,15 @@ namespace Armada.Core.Database.SqlServer.Implementations
     {
         private readonly SqlServerDatabaseDriver _Driver;
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="ObjectiveRefinementMessageMethods"/> class.
+        /// </summary>
         public ObjectiveRefinementMessageMethods(SqlServerDatabaseDriver driver, Settings.DatabaseSettings settings, SyslogLogging.LoggingModule logging)
         {
             _Driver = driver ?? throw new ArgumentNullException(nameof(driver));
         }
 
+        /// <inheritdoc />
         public async Task<ObjectiveRefinementMessage> CreateAsync(ObjectiveRefinementMessage message, CancellationToken token = default)
         {
             if (message == null) throw new ArgumentNullException(nameof(message));
@@ -40,6 +44,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
             return message;
         }
 
+        /// <inheritdoc />
         public async Task<ObjectiveRefinementMessage> UpdateAsync(ObjectiveRefinementMessage message, CancellationToken token = default)
         {
             if (message == null) throw new ArgumentNullException(nameof(message));
@@ -68,6 +73,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
             return message;
         }
 
+        /// <inheritdoc />
         public async Task<ObjectiveRefinementMessage?> ReadAsync(string id, CancellationToken token = default)
         {
             if (String.IsNullOrWhiteSpace(id)) throw new ArgumentNullException(nameof(id));
@@ -89,6 +95,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
             return null;
         }
 
+        /// <inheritdoc />
         public async Task DeleteAsync(string id, CancellationToken token = default)
         {
             if (String.IsNullOrWhiteSpace(id)) throw new ArgumentNullException(nameof(id));
@@ -104,6 +111,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
             }
         }
 
+        /// <inheritdoc />
         public async Task DeleteBySessionAsync(string objectiveRefinementSessionId, CancellationToken token = default)
         {
             if (String.IsNullOrWhiteSpace(objectiveRefinementSessionId)) throw new ArgumentNullException(nameof(objectiveRefinementSessionId));
@@ -119,6 +127,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
             }
         }
 
+        /// <inheritdoc />
         public async Task<List<ObjectiveRefinementMessage>> EnumerateBySessionAsync(string objectiveRefinementSessionId, CancellationToken token = default)
         {
             if (String.IsNullOrWhiteSpace(objectiveRefinementSessionId)) throw new ArgumentNullException(nameof(objectiveRefinementSessionId));
@@ -128,6 +137,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 token).ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
         public async Task<List<ObjectiveRefinementMessage>> EnumerateByObjectiveAsync(string objectiveId, CancellationToken token = default)
         {
             if (String.IsNullOrWhiteSpace(objectiveId)) throw new ArgumentNullException(nameof(objectiveId));

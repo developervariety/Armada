@@ -629,7 +629,10 @@ namespace Armada.Server.Mcp.Tools
                         CreateBacklogPlanningSessionArgs request = JsonSerializer.Deserialize<CreateBacklogPlanningSessionArgs>(args!.Value, _JsonOptions)
                             ?? throw new InvalidOperationException("Could not deserialize CreateBacklogPlanningSessionArgs.");
                         AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
-                        Objective objective = await objectiveService.ReadAsync(auth, request.ObjectiveId).ConfigureAwait(false)
+                        string objectiveId = String.IsNullOrWhiteSpace(request.ObjectiveId)
+                            ? throw new InvalidOperationException("Objective ID is required.")
+                            : request.ObjectiveId;
+                        Objective objective = await objectiveService.ReadAsync(auth, objectiveId).ConfigureAwait(false)
                             ?? throw new InvalidOperationException("Backlog item not found.");
                         Captain captain = await ReadCaptainForContextAsync(database, auth, request.CaptainId).ConfigureAwait(false)
                             ?? throw new InvalidOperationException("Captain not found.");
@@ -875,8 +878,6 @@ namespace Armada.Server.Mcp.Tools
 
         private sealed class CreateBacklogPlanningSessionArgs : PlanningSessionCreateRequest
         {
-            public string ObjectiveId { get; set; } = String.Empty;
-
             public PlanningSessionCreateRequest ToPlanningSessionCreateRequest()
             {
                 return new PlanningSessionCreateRequest

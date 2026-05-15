@@ -7,42 +7,81 @@ namespace Armada.Helm.Commands
     using Armada.Core.Models;
     using Armada.Helm.Rendering;
 
+    /// <summary>
+    /// Lists backlog items.
+    /// </summary>
     [Description("List backlog items")]
     public sealed class BacklogListCommand : BaseCommand<BacklogListCommand.Settings>
     {
+        /// <summary>
+        /// Settings for listing backlog items.
+        /// </summary>
         public sealed class Settings : BaseSettings
         {
+            /// <summary>
+            /// Gets or sets the search text used to filter backlog items.
+            /// </summary>
             [CommandOption("--search|-s")]
             public string? Search { get; set; }
 
+            /// <summary>
+            /// Gets or sets the status filter.
+            /// </summary>
             [CommandOption("--status")]
             public string? Status { get; set; }
 
+            /// <summary>
+            /// Gets or sets the objective kind filter.
+            /// </summary>
             [CommandOption("--kind")]
             public string? Kind { get; set; }
 
+            /// <summary>
+            /// Gets or sets the objective priority filter.
+            /// </summary>
             [CommandOption("--priority")]
             public string? Priority { get; set; }
 
+            /// <summary>
+            /// Gets or sets the backlog state filter.
+            /// </summary>
             [CommandOption("--backlog-state")]
             public string? BacklogState { get; set; }
 
+            /// <summary>
+            /// Gets or sets the effort filter.
+            /// </summary>
             [CommandOption("--effort")]
             public string? Effort { get; set; }
 
+            /// <summary>
+            /// Gets or sets the owner filter.
+            /// </summary>
             [CommandOption("--owner")]
             public string? Owner { get; set; }
 
+            /// <summary>
+            /// Gets or sets the target version filter.
+            /// </summary>
             [CommandOption("--target-version")]
             public string? TargetVersion { get; set; }
 
+            /// <summary>
+            /// Gets or sets the fleet filter.
+            /// </summary>
             [CommandOption("--fleet")]
             public string? FleetId { get; set; }
 
+            /// <summary>
+            /// Gets or sets the vessel filter.
+            /// </summary>
             [CommandOption("--vessel")]
             public string? VesselId { get; set; }
         }
 
+        /// <summary>
+        /// Executes the backlog list command.
+        /// </summary>
         public override async Task<int> ExecuteAsync(CommandContext context, Settings settings, CancellationToken cancellationToken)
         {
             await EnsureServerAsync().ConfigureAwait(false);

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { getPipeline, updatePipeline, deletePipeline, listPersonas } from '../api/client';
+import { createPipeline, getPipeline, updatePipeline, deletePipeline, listPersonas } from '../api/client';
 import type { Pipeline } from '../types/models';
 import ActionMenu from '../components/shared/ActionMenu';
 import JsonViewer from '../components/shared/JsonViewer';
@@ -9,6 +9,7 @@ import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
+import { buildPipelineDuplicatePayload } from '../lib/duplicates';
 
 interface StageForm {
   personaName: string;
@@ -135,6 +136,17 @@ export default function PipelineDetail() {
     });
   }
 
+  async function handleDuplicate() {
+    if (!pipeline) return;
+    try {
+      const created = await createPipeline(buildPipelineDuplicatePayload(pipeline));
+      pushToast('success', t('Pipeline "{{name}}" duplicated.', { name: created.name }));
+      navigate(`/pipelines/${encodeURIComponent(created.name)}`);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('Duplicate failed.'));
+    }
+  }
+
   if (loading) return <p className="text-dim">{t('Loading...')}</p>;
   if (error && !pipeline) return <ErrorModal error={error} onClose={() => setError('')} />;
   if (!pipeline) return <p className="text-dim">{t('Pipeline not found.')}</p>;
@@ -152,6 +164,7 @@ export default function PipelineDetail() {
           <ActionMenu id={`pipeline-${pipeline.name}`} items={[
             { label: 'View JSON', onClick: () => setJsonData({ open: true, title: t('Pipeline: {{name}}', { name: pipeline.name }), data: pipeline }) },
             { label: 'Edit', onClick: openEdit },
+            { label: 'Duplicate', onClick: () => void handleDuplicate() },
             { label: 'Delete', danger: true, onClick: handleDelete, disabled: pipeline.isBuiltIn },
           ]} />
         </div>

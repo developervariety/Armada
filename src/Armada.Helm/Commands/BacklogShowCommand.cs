@@ -5,15 +5,27 @@ namespace Armada.Helm.Commands
     using Spectre.Console.Cli;
     using Armada.Core.Models;
 
+    /// <summary>
+    /// Shows backlog item details.
+    /// </summary>
     [Description("Show backlog item details")]
     public sealed class BacklogShowCommand : BaseCommand<BacklogShowCommand.Settings>
     {
+        /// <summary>
+        /// Settings for showing a backlog item.
+        /// </summary>
         public sealed class Settings : BaseSettings
         {
+            /// <summary>
+            /// Gets or sets the backlog item identifier or title.
+            /// </summary>
             [CommandArgument(0, "<backlog>")]
             public string Backlog { get; set; } = String.Empty;
         }
 
+        /// <summary>
+        /// Executes the backlog show command.
+        /// </summary>
         public override async Task<int> ExecuteAsync(CommandContext context, Settings settings, CancellationToken cancellationToken)
         {
             await EnsureServerAsync().ConfigureAwait(false);

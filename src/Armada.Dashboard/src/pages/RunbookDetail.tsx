@@ -32,6 +32,7 @@ import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
 import StatusBadge from '../components/shared/StatusBadge';
+import { buildRunbookDuplicatePayload } from '../lib/duplicates';
 
 const RUNBOOK_EXECUTION_STATUSES: RunbookExecutionStatus[] = ['Running', 'Completed', 'Cancelled'];
 const RUNBOOK_CHECK_TYPES: CheckRunType[] = [
@@ -287,6 +288,20 @@ export default function RunbookDetail() {
     });
   }
 
+  async function handleDuplicate() {
+    if (!runbook || !canManage) return;
+    try {
+      setSaving(true);
+      const created = await createRunbook(buildRunbookDuplicatePayload(runbook));
+      pushToast('success', t('Runbook "{{title}}" duplicated.', { title: created.title }));
+      navigate(`/runbooks/${created.id}`, { state: pageState });
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('Duplicate failed.'));
+    } finally {
+      setSaving(false);
+    }
+  }
+
   function resetExecutionForm() {
     setExecutionTitle('');
     setExecutionWorkflowProfileId(pageState?.prefillExecution?.workflowProfileId || workflowProfileId);
@@ -453,6 +468,9 @@ export default function RunbookDetail() {
           )}
           {!createMode && runbook && (
             <button className="btn btn-sm" onClick={() => setJsonData({ open: true, title, data: runbook })}>{t('View JSON')}</button>
+          )}
+          {!createMode && canManage && (
+            <button className="btn btn-sm" disabled={saving} onClick={() => void handleDuplicate()}>{t('Duplicate')}</button>
           )}
           {!createMode && canManage && (
             <button className="btn btn-sm btn-danger" onClick={handleDelete}>{t('Delete')}</button>

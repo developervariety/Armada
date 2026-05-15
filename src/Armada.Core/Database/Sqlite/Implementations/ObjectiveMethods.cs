@@ -18,6 +18,9 @@ namespace Armada.Core.Database.Sqlite.Implementations
         private readonly LoggingModule _Logging;
         private static readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web);
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="ObjectiveMethods"/> class.
+        /// </summary>
         public ObjectiveMethods(SqliteDatabaseDriver driver, DatabaseSettings settings, LoggingModule logging)
         {
             _Driver = driver ?? throw new ArgumentNullException(nameof(driver));
@@ -25,6 +28,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
         }
 
+        /// <inheritdoc />
         public async Task<Objective> CreateAsync(Objective objective, CancellationToken token = default)
         {
             if (objective == null) throw new ArgumentNullException(nameof(objective));
@@ -45,6 +49,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             return objective;
         }
 
+        /// <inheritdoc />
         public async Task<Objective> UpdateAsync(Objective objective, CancellationToken token = default)
         {
             if (objective == null) throw new ArgumentNullException(nameof(objective));
@@ -105,12 +110,14 @@ namespace Armada.Core.Database.Sqlite.Implementations
             return objective;
         }
 
+        /// <inheritdoc />
         public async Task<Objective?> ReadAsync(string id, CancellationToken token = default)
         {
             if (String.IsNullOrWhiteSpace(id)) throw new ArgumentNullException(nameof(id));
             return await ReadInternalAsync("SELECT * FROM objectives WHERE id = @id;", cmd => cmd.Parameters.AddWithValue("@id", id), token).ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
         public async Task<Objective?> ReadAsync(string tenantId, string id, CancellationToken token = default)
         {
             if (String.IsNullOrWhiteSpace(tenantId)) throw new ArgumentNullException(nameof(tenantId));
@@ -122,6 +129,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             }, token).ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
         public async Task<Objective?> ReadAsync(string tenantId, string userId, string id, CancellationToken token = default)
         {
             if (String.IsNullOrWhiteSpace(tenantId)) throw new ArgumentNullException(nameof(tenantId));
@@ -135,12 +143,14 @@ namespace Armada.Core.Database.Sqlite.Implementations
             }, token).ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
         public async Task DeleteAsync(string id, CancellationToken token = default)
         {
             if (String.IsNullOrWhiteSpace(id)) throw new ArgumentNullException(nameof(id));
             await ExecuteDeleteAsync("DELETE FROM objectives WHERE id = @id;", cmd => cmd.Parameters.AddWithValue("@id", id), token).ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
         public async Task DeleteAsync(string tenantId, string id, CancellationToken token = default)
         {
             if (String.IsNullOrWhiteSpace(tenantId)) throw new ArgumentNullException(nameof(tenantId));
@@ -152,17 +162,20 @@ namespace Armada.Core.Database.Sqlite.Implementations
             }, token).ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
         public async Task<List<Objective>> EnumerateAsync(CancellationToken token = default)
         {
             return await EnumerateInternalAsync("SELECT * FROM objectives ORDER BY rank ASC, priority ASC, last_update_utc DESC;", null, token).ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
         public async Task<List<Objective>> EnumerateAsync(string tenantId, CancellationToken token = default)
         {
             if (String.IsNullOrWhiteSpace(tenantId)) throw new ArgumentNullException(nameof(tenantId));
             return await EnumerateInternalAsync("SELECT * FROM objectives WHERE tenant_id = @tenant_id ORDER BY rank ASC, priority ASC, last_update_utc DESC;", cmd => cmd.Parameters.AddWithValue("@tenant_id", tenantId), token).ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
         public async Task<List<Objective>> EnumerateAsync(string tenantId, string userId, CancellationToken token = default)
         {
             if (String.IsNullOrWhiteSpace(tenantId)) throw new ArgumentNullException(nameof(tenantId));
@@ -174,6 +187,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             }, token).ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
         public async Task<bool> ExistsAnyAsync(CancellationToken token = default)
         {
             using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
@@ -188,6 +202,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             }
         }
 
+        /// <inheritdoc />
         public async Task<bool> ExistsAsync(string id, CancellationToken token = default)
         {
             if (String.IsNullOrWhiteSpace(id)) throw new ArgumentNullException(nameof(id));

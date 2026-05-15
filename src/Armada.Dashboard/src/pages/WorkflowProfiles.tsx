@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { deleteWorkflowProfile, listWorkflowProfiles } from '../api/client';
+import { createWorkflowProfile, deleteWorkflowProfile, listWorkflowProfiles } from '../api/client';
 import type { WorkflowProfile } from '../types/models';
 import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
@@ -11,6 +11,7 @@ import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
 import RefreshButton from '../components/shared/RefreshButton';
 import StatusBadge from '../components/shared/StatusBadge';
+import { buildWorkflowProfileDuplicatePayload } from '../lib/duplicates';
 
 function countProfileCapabilities(profile: WorkflowProfile): number {
   const commands = [
@@ -105,6 +106,16 @@ export default function WorkflowProfiles() {
         }
       },
     });
+  }
+
+  async function handleDuplicate(profile: WorkflowProfile) {
+    try {
+      const created = await createWorkflowProfile(buildWorkflowProfileDuplicatePayload(profile));
+      pushToast('success', t('Workflow profile "{{name}}" duplicated.', { name: created.name }));
+      navigate(`/workflow-profiles/${created.id}`);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('Duplicate failed.'));
+    }
   }
 
   return (
@@ -221,6 +232,7 @@ export default function WorkflowProfiles() {
                       id={`workflow-profile-${profile.id}`}
                       items={[
                         { label: 'Open', onClick: () => navigate(`/workflow-profiles/${profile.id}`) },
+                        ...(canManage ? [{ label: 'Duplicate', onClick: () => void handleDuplicate(profile) }] : []),
                         { label: 'View JSON', onClick: () => setJsonData({ open: true, title: profile.name, data: profile }) },
                         ...(canManage ? [{ label: 'Delete', danger: true as const, onClick: () => handleDelete(profile) }] : []),
                       ]}

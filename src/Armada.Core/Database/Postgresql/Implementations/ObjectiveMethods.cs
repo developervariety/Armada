@@ -16,11 +16,15 @@ namespace Armada.Core.Database.Postgresql.Implementations
     {
         private readonly PostgresqlDatabaseDriver _Driver;
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="ObjectiveMethods"/> class.
+        /// </summary>
         public ObjectiveMethods(PostgresqlDatabaseDriver driver, Settings.DatabaseSettings settings, SyslogLogging.LoggingModule logging)
         {
             _Driver = driver ?? throw new ArgumentNullException(nameof(driver));
         }
 
+        /// <inheritdoc />
         public async Task<Objective> CreateAsync(Objective objective, CancellationToken token = default)
         {
             if (objective == null) throw new ArgumentNullException(nameof(objective));
@@ -42,6 +46,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
             return objective;
         }
 
+        /// <inheritdoc />
         public async Task<Objective> UpdateAsync(Objective objective, CancellationToken token = default)
         {
             if (objective == null) throw new ArgumentNullException(nameof(objective));
@@ -103,6 +108,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
             return objective;
         }
 
+        /// <inheritdoc />
         public async Task<Objective?> ReadAsync(string id, CancellationToken token = default)
         {
             if (String.IsNullOrWhiteSpace(id)) throw new ArgumentNullException(nameof(id));
@@ -112,6 +118,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 token).ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
         public async Task<Objective?> ReadAsync(string tenantId, string id, CancellationToken token = default)
         {
             if (String.IsNullOrWhiteSpace(tenantId)) throw new ArgumentNullException(nameof(tenantId));
@@ -126,6 +133,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 token).ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
         public async Task<Objective?> ReadAsync(string tenantId, string userId, string id, CancellationToken token = default)
         {
             if (String.IsNullOrWhiteSpace(tenantId)) throw new ArgumentNullException(nameof(tenantId));
@@ -142,6 +150,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 token).ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
         public async Task DeleteAsync(string id, CancellationToken token = default)
         {
             if (String.IsNullOrWhiteSpace(id)) throw new ArgumentNullException(nameof(id));
@@ -151,6 +160,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 token).ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
         public async Task DeleteAsync(string tenantId, string id, CancellationToken token = default)
         {
             if (String.IsNullOrWhiteSpace(tenantId)) throw new ArgumentNullException(nameof(tenantId));
@@ -165,6 +175,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 token).ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
         public async Task<List<Objective>> EnumerateAsync(CancellationToken token = default)
         {
             return await EnumerateInternalAsync(
@@ -173,6 +184,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 token).ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
         public async Task<List<Objective>> EnumerateAsync(string tenantId, CancellationToken token = default)
         {
             if (String.IsNullOrWhiteSpace(tenantId)) throw new ArgumentNullException(nameof(tenantId));
@@ -182,6 +194,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 token).ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
         public async Task<List<Objective>> EnumerateAsync(string tenantId, string userId, CancellationToken token = default)
         {
             if (String.IsNullOrWhiteSpace(tenantId)) throw new ArgumentNullException(nameof(tenantId));
@@ -196,6 +209,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 token).ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
         public async Task<bool> ExistsAnyAsync(CancellationToken token = default)
         {
             using (NpgsqlConnection conn = _Driver.CreateConnection())
@@ -210,6 +224,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
             }
         }
 
+        /// <inheritdoc />
         public async Task<bool> ExistsAsync(string id, CancellationToken token = default)
         {
             if (String.IsNullOrWhiteSpace(id)) throw new ArgumentNullException(nameof(id));

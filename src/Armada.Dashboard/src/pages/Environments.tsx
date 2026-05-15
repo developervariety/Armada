@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { deleteEnvironment, listEnvironments, listVessels } from '../api/client';
+import { createEnvironment, deleteEnvironment, listEnvironments, listVessels } from '../api/client';
 import type { DeploymentEnvironment, EnvironmentKind, Vessel } from '../types/models';
 import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
@@ -10,6 +10,7 @@ import ConfirmDialog from '../components/shared/ConfirmDialog';
 import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
 import RefreshButton from '../components/shared/RefreshButton';
+import { buildEnvironmentDuplicatePayload } from '../lib/duplicates';
 
 const ENVIRONMENT_KINDS: EnvironmentKind[] = ['Development', 'Test', 'Staging', 'Production', 'CustomerHosted', 'Custom'];
 
@@ -98,6 +99,16 @@ export default function Environments() {
         }
       },
     });
+  }
+
+  async function handleDuplicate(environment: DeploymentEnvironment) {
+    try {
+      const created = await createEnvironment(buildEnvironmentDuplicatePayload(environment));
+      pushToast('success', t('Environment "{{name}}" duplicated.', { name: created.name }));
+      navigate(`/environments/${created.id}`);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('Duplicate failed.'));
+    }
   }
 
   return (
@@ -226,6 +237,7 @@ export default function Environments() {
                       id={`environment-${environment.id}`}
                       items={[
                         { label: 'Open', onClick: () => navigate(`/environments/${environment.id}`) },
+                        ...(canManage ? [{ label: 'Duplicate', onClick: () => void handleDuplicate(environment) }] : []),
                         { label: 'View JSON', onClick: () => setJsonData({ open: true, title: environment.name, data: environment }) },
                         ...(canManage ? [{ label: 'Delete', danger: true as const, onClick: () => handleDelete(environment) }] : []),
                       ]}

@@ -47,6 +47,8 @@ namespace Armada.Server.Mcp
         /// <param name="landingService">Landing service for retry landing operations.</param>
         /// <param name="checkRunService">Optional structured check-run service for Delivery checks.</param>
         /// <param name="objectiveService">Optional objective service for scope capture workflows.</param>
+        /// <param name="planningSessionCoordinator">Optional planning session coordinator for scope readiness workflows.</param>
+        /// <param name="objectiveRefinementCoordinator">Optional refinement coordinator for captain-backed backlog refinement workflows.</param>
         /// <param name="releaseService">Optional release service for Delivery release workflows.</param>
         /// <param name="deploymentService">Optional deployment service for Delivery deployment workflows.</param>
         /// <param name="runbookService">Optional runbook service for guided operational workflows.</param>

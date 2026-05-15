@@ -62,6 +62,7 @@ interface PlanningPrefillState {
   fromWorkspace?: boolean;
   fromIncident?: boolean;
   fromObjective?: boolean;
+  fromSetupWizard?: boolean;
   objectiveId?: string;
   vesselId?: string;
   fleetId?: string;
@@ -307,7 +308,7 @@ export default function Planning() {
     if (planningPrefillAppliedRef.current || id || loadingCatalog) return;
 
     const prefill = location.state as PlanningPrefillState | null;
-    if (!prefill?.fromWorkspace && !prefill?.fromIncident && !prefill?.fromObjective) return;
+    if (!prefill?.fromWorkspace && !prefill?.fromIncident && !prefill?.fromObjective && !prefill?.fromSetupWizard) return;
 
     if (prefill.title) setTitle(prefill.title);
     if (prefill.fleetId) setFleetId(prefill.fleetId);
@@ -550,12 +551,14 @@ export default function Planning() {
         </div>
       )}
 
-      {!id && (planningPrefill?.fromWorkspace || planningPrefill?.fromIncident || planningPrefill?.fromObjective) && (
+      {!id && (planningPrefill?.fromWorkspace || planningPrefill?.fromIncident || planningPrefill?.fromObjective || planningPrefill?.fromSetupWizard) && (
         <div className="alert" style={{ marginBottom: '1rem' }}>
           {planningPrefill?.fromObjective
             ? t('Prefilled from a backlog item. Review the vessel and prompt, then start a planning session to turn that scoped work into an execution plan.')
             : planningPrefill?.fromIncident
             ? t('Prefilled from an incident. Review the vessel and prompt, then start a planning session for the hotfix or recovery path.')
+            : planningPrefill?.fromSetupWizard
+            ? t('Prefilled from the setup wizard. Review the vessel and prompt, then start a planning session to turn onboarding follow-up into an execution plan.')
             : t('Prefilled from Workspace. Review the vessel and prompt, then start a planning session.')}
           {objectiveId && (
             <>

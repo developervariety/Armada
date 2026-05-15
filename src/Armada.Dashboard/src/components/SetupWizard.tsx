@@ -90,7 +90,7 @@ const steps: WizardStep[] = [
   { title: 'Vessel', summary: 'Register the git repository that captains will work in.' },
   { title: 'Captain', summary: 'Create or choose an AI runtime so dispatch has capacity.' },
   { title: 'Dispatch', summary: 'Send a low-risk onboarding mission directly to Armada.' },
-  { title: 'Handoff', summary: 'Refresh the mission and continue into onboarding, readiness, and delivery setup.' },
+  { title: 'Handoff', summary: 'Refresh the mission and continue into onboarding, backlog, planning, and delivery setup.' },
 ];
 
 const tooltips = {
@@ -260,6 +260,24 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
 
   const workflowProfileCount = matchingProfiles.length;
   const environmentCount = matchingEnvironments.length;
+  const handoffFleetId = activeFleetId || activeVessel?.fleetId || '';
+  const handoffBacklogPath = useMemo(() => {
+    const params = new URLSearchParams();
+    if (handoffFleetId) params.set('fleetId', handoffFleetId);
+    if (activeVesselId) params.set('vesselId', activeVesselId);
+    const search = params.toString();
+    return search ? `/backlog?${search}` : '/backlog';
+  }, [activeVesselId, handoffFleetId]);
+  const handoffPlanningState = useMemo(() => {
+    if (!activeVesselId) return null;
+    return {
+      fromSetupWizard: true,
+      fleetId: handoffFleetId || undefined,
+      vesselId: activeVesselId,
+      title: t('Repository onboarding follow-up'),
+      initialPrompt: t('Use the onboarding findings for this vessel to produce a safe first execution plan. Summarize the setup gaps, pick one small follow-up task, and outline how Armada should approach it.'),
+    };
+  }, [activeVesselId, handoffFleetId, t]);
 
   const loadResources = useCallback(async () => {
     try {
@@ -304,7 +322,7 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
       2: ['/vessels'],
       3: ['/captains'],
       4: ['/dispatch'],
-      5: ['/vessels', '/workflow-profiles', '/environments', '/checks'],
+      5: ['/vessels', '/workspace', '/backlog', '/planning', '/workflow-profiles', '/environments', '/checks', '/playbooks'],
     };
 
     onHighlightChange?.(highlightsByStep[current] || []);
@@ -600,7 +618,7 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
           </div>
           <div>
             <strong>{t('Hand off into onboarding')}</strong>
-            <span>{t('From there, continue in Vessel Onboarding, Readiness, Workflow Profiles, Environments, and Checks.')}</span>
+            <span>{t('From there, continue in Vessel Onboarding, Backlog, Planning, Workspace, Workflow Profiles, Environments, and Checks.')}</span>
           </div>
         </div>
       </WizardExplanation>
@@ -984,7 +1002,7 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
     <>
       <h2 className="wizard-step-heading">{t('Mission dispatched, handoff ready')}</h2>
       <p className="wizard-text">
-        {t('Armada can dispatch safely now. Use the handoff actions below to move this vessel into readiness, workflow-profile, environment, and first-check setup.')}
+        {t('Armada can dispatch safely now. Use the handoff actions below to move this vessel into onboarding, backlog, planning, workspace, workflow-profile, environment, and first-check setup.')}
       </p>
 
       {dispatchWarning && <div className="wizard-result wizard-result-info">{dispatchWarning}</div>}
@@ -1025,6 +1043,18 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
           <span>{t('Review the readiness checklist, fix blocking issues, and follow the recommended onboarding actions for this vessel.')}</span>
         </div>
         <div>
+          <strong>{t('Backlog')}</strong>
+          <span>{t('Capture the follow-up work uncovered by the onboarding mission and keep it attached to this vessel.')}</span>
+        </div>
+        <div>
+          <strong>{t('Planning')}</strong>
+          <span>{t('Turn one of those follow-up tasks into a captain-backed execution plan before you dispatch code-changing work.')}</span>
+        </div>
+        <div>
+          <strong>{t('Workspace')}</strong>
+          <span>{t('Inspect the repository directly, review the onboarding findings, and continue setup or debugging without leaving Armada.')}</span>
+        </div>
+        <div>
           <strong>{t('Workflow Profiles')}</strong>
           <span>{t('Teach Armada how this repository builds, tests, deploys, rolls back, and verifies itself.')}</span>
         </div>
@@ -1035,6 +1065,10 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
         <div>
           <strong>{t('Checks')}</strong>
           <span>{t('Run the first structured check once readiness and profile setup are in place.')}</span>
+        </div>
+        <div>
+          <strong>{t('Playbooks')}</strong>
+          <span>{t('Optional: capture reusable dispatch and planning guidance if your team wants consistent execution patterns.')}</span>
         </div>
       </div>
 
@@ -1049,6 +1083,24 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
             onClick={() => finishAndNavigate(`/vessels/${activeVessel.id}/onboarding`)}
           >
             {t('Open Vessel Onboarding')}
+          </button>
+        )}
+        {activeVessel && (
+          <button
+            type="button"
+            className="btn"
+            onClick={() => finishAndNavigate(handoffBacklogPath)}
+          >
+            {t('Open Backlog')}
+          </button>
+        )}
+        {activeVessel && handoffPlanningState && (
+          <button
+            type="button"
+            className="btn"
+            onClick={() => finishAndNavigate('/planning', { state: handoffPlanningState })}
+          >
+            {t('Open Planning')}
           </button>
         )}
         {activeVessel && (
@@ -1102,6 +1154,13 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
             {t('Run First Check')}
           </button>
         )}
+        <button
+          type="button"
+          className="btn"
+          onClick={() => finishAndNavigate('/playbooks')}
+        >
+          {t('Open Playbooks')}
+        </button>
         <button type="button" className="btn btn-primary" onClick={finish}>
           {t('Finish Setup')}
         </button>

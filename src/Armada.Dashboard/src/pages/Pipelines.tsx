@@ -12,6 +12,7 @@ import RefreshButton from '../components/shared/RefreshButton';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
+import { buildPipelineDuplicatePayload } from '../lib/duplicates';
 
 type SortDir = 'asc' | 'desc';
 type SortField = 'name' | 'description' | 'stages' | 'isBuiltIn' | 'active' | 'createdUtc';
@@ -204,6 +205,16 @@ export default function Pipelines() {
     });
   }
 
+  async function handleDuplicate(pipeline: Pipeline) {
+    try {
+      const created = await createPipeline(buildPipelineDuplicatePayload(pipeline));
+      pushToast('success', t('Pipeline "{{name}}" duplicated.', { name: created.name }));
+      navigate(`/pipelines/${encodeURIComponent(created.name)}`);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('Duplicate failed.'));
+    }
+  }
+
   return (
     <div>
       <div className="view-header">
@@ -357,6 +368,7 @@ export default function Pipelines() {
                       <ActionMenu id={`pipeline-${p.id}`} items={[
                         { label: 'View Detail', onClick: () => navigate(`/pipelines/${encodeURIComponent(p.name)}`) },
                         { label: 'Edit', onClick: () => openEdit(p) },
+                        { label: 'Duplicate', onClick: () => void handleDuplicate(p) },
                         { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `Pipeline: ${p.name}`, data: p }) },
                         ...(!p.isBuiltIn ? [{ label: 'Delete', danger: true as const, onClick: () => handleDelete(p.name) }] : []),
                       ]} />

@@ -19,6 +19,7 @@ import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
 import StatusBadge from '../components/shared/StatusBadge';
 import WorkflowCommandPreview from '../components/shared/WorkflowCommandPreview';
+import { buildWorkflowProfileDuplicatePayload } from '../lib/duplicates';
 
 function splitList(value: string): string[] {
   return value
@@ -309,6 +310,20 @@ export default function WorkflowProfileDetail() {
     });
   }
 
+  async function handleDuplicate() {
+    if (!profile || !canManage) return;
+    try {
+      setSaving(true);
+      const created = await createWorkflowProfile(buildWorkflowProfileDuplicatePayload(profile));
+      pushToast('success', t('Workflow profile "{{name}}" duplicated.', { name: created.name }));
+      navigate(`/workflow-profiles/${created.id}`);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('Duplicate failed.'));
+    } finally {
+      setSaving(false);
+    }
+  }
+
   function updateEnvironment(index: number, key: keyof WorkflowEnvironmentProfile, value: string) {
     setEnvironments((current) => current.map((environment, currentIndex) => (
       currentIndex === index ? { ...environment, [key]: value || null } : environment
@@ -336,6 +351,11 @@ export default function WorkflowProfileDetail() {
           {!createMode && (
             <button className="btn btn-sm" onClick={() => setJsonData({ open: true, title: name, data: profile })}>
               {t('View JSON')}
+            </button>
+          )}
+          {!createMode && canManage && (
+            <button className="btn btn-sm" disabled={saving} onClick={() => void handleDuplicate()}>
+              {t('Duplicate')}
             </button>
           )}
           {!createMode && canManage && (

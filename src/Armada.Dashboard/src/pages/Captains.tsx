@@ -14,6 +14,7 @@ import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { buildMuxRuntimeOptionsJson, EMPTY_MUX_CAPTAIN_FORM, isMuxRuntime, muxFormFromCaptain, type MuxCaptainFormFields } from '../lib/mux';
+import { buildCaptainDuplicatePayload } from '../lib/duplicates';
 
 type SortDir = 'asc' | 'desc';
 type SortField = 'name' | 'runtime' | 'state' | 'createdUtc';
@@ -282,6 +283,16 @@ export default function Captains() {
     });
   }
 
+  async function handleDuplicate(captain: Captain) {
+    try {
+      const created = await createCaptain(buildCaptainDuplicatePayload(captain));
+      pushToast('success', t('Captain "{{name}}" duplicated.', { name: created.name }));
+      navigate(`/captains/${created.id}`);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('Duplicate failed.'));
+    }
+  }
+
   return (
     <div>
       <div className="view-header">
@@ -421,6 +432,7 @@ export default function Captains() {
                       <ActionMenu id={`captain-${c.id}`} items={[
                         { label: 'View Detail', onClick: () => navigate(`/captains/${c.id}`) },
                         { label: 'Edit', onClick: () => openEdit(c) },
+                        { label: 'Duplicate', onClick: () => void handleDuplicate(c) },
                         { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `${t('Captain')}: ${c.name}`, data: c }) },
                         { label: 'Stop', onClick: () => handleStop(c.id, c.name) },
                         { label: 'Recall', onClick: () => handleRecall(c.id, c.name) },
