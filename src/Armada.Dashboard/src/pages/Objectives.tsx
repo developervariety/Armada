@@ -542,7 +542,16 @@ export default function Objectives() {
       {loading && objectives.length === 0 ? (
         <div className="playbook-empty-state">
           <strong>{t('Loading backlog...')}</strong>
-          <span>{t('Refreshing backlog items, scope links, and the latest captain-backed refinement state.')}</span>
+          <span>{t('Checking for backlog items, scope links, and the latest refinement activity.')}</span>
+        </div>
+      ) : objectives.length === 0 ? (
+        <div className="playbook-empty-state">
+          <strong>{t('No backlog items yet.')}</strong>
+          <span>
+            {canManage
+              ? t('Create a backlog item to start triage, refinement, planning readiness, and delivery lineage inside Armada.')
+              : t('Ask a tenant administrator to create and manage backlog items.')}
+          </span>
         </div>
       ) : orderedObjectives.length === 0 ? (
         <div className="playbook-empty-state">
