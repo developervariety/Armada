@@ -21,7 +21,7 @@ namespace Armada.Test.Unit.Suites.Services
         /// <inheritdoc />
         protected override async Task RunTestsAsync()
         {
-            await RunTest("ArmadaServer wires DeepSeek clients into CodeIndexService", () =>
+            await RunTest("ArmadaServer wires inference-client switch into CodeIndexService", () =>
             {
                 string path = Path.Combine(FindRepositoryRoot(), "src", "Armada.Server", "ArmadaServer.cs");
                 string contents = File.ReadAllText(path);
@@ -37,9 +37,17 @@ namespace Armada.Test.Unit.Suites.Services
                     contents,
                     "ArmadaServer should construct DeepSeekEmbeddingClient with CodeIndex settings");
                 AssertContains(
+                    "string.Equals(_Settings.CodeIndex.InferenceClient, \"OpenCodeServer\", StringComparison.OrdinalIgnoreCase)",
+                    contents,
+                    "ArmadaServer should switch inference client based on CodeIndex.InferenceClient");
+                AssertContains(
+                    "new OpenCodeServerInferenceClient(_Settings, _Logging, codeIndexHttpClient)",
+                    contents,
+                    "ArmadaServer should construct OpenCodeServerInferenceClient for OpenCodeServer mode");
+                AssertContains(
                     "new DeepSeekInferenceClient(_Settings.CodeIndex, _Logging, codeIndexHttpClient)",
                     contents,
-                    "ArmadaServer should construct DeepSeekInferenceClient with CodeIndex settings");
+                    "ArmadaServer should keep DeepSeekInferenceClient for Http mode");
                 AssertContains(
                     "new CodeIndexService(_Logging, _Database, _Settings, _Git, embeddingClient, inferenceClient)",
                     contents,
@@ -47,7 +55,7 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
 
-            await RunTest("McpStdioCommand wires DeepSeek clients into CodeIndexService", () =>
+            await RunTest("McpStdioCommand wires inference-client switch into CodeIndexService", () =>
             {
                 string path = Path.Combine(FindRepositoryRoot(), "src", "Armada.Helm", "Commands", "McpStdioCommand.cs");
                 string contents = File.ReadAllText(path);
@@ -63,9 +71,17 @@ namespace Armada.Test.Unit.Suites.Services
                     contents,
                     "McpStdioCommand should construct DeepSeekEmbeddingClient with CodeIndex settings");
                 AssertContains(
+                    "string.Equals(armadaSettings.CodeIndex.InferenceClient, \"OpenCodeServer\", StringComparison.OrdinalIgnoreCase)",
+                    contents,
+                    "McpStdioCommand should switch inference client based on CodeIndex.InferenceClient");
+                AssertContains(
+                    "new OpenCodeServerInferenceClient(armadaSettings, logging, codeIndexHttpClient)",
+                    contents,
+                    "McpStdioCommand should construct OpenCodeServerInferenceClient for OpenCodeServer mode");
+                AssertContains(
                     "new DeepSeekInferenceClient(armadaSettings.CodeIndex, logging, codeIndexHttpClient)",
                     contents,
-                    "McpStdioCommand should construct DeepSeekInferenceClient with CodeIndex settings");
+                    "McpStdioCommand should keep DeepSeekInferenceClient for Http mode");
                 AssertContains(
                     "new CodeIndexService(logging, database, armadaSettings, git, embeddingClient, inferenceClient)",
                     contents,
@@ -73,7 +89,7 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
 
-            await RunTest("Mirrored production CodeIndexService ctor exposes DeepSeek client instances", async () =>
+            await RunTest("Mirrored production CodeIndexService ctor defaults to DeepSeek inference for Http mode", async () =>
             {
                 string dataRoot = NewTempDirectory("armada-code-index-prod-wire-");
                 try
@@ -108,6 +124,42 @@ namespace Armada.Test.Unit.Suites.Services
 
                         AssertTrue(embValue is DeepSeekEmbeddingClient, "Embedding field should hold DeepSeekEmbeddingClient");
                         AssertTrue(infValue is DeepSeekInferenceClient, "Inference field should hold DeepSeekInferenceClient");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(dataRoot);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Mirrored production CodeIndexService ctor holds OpenCode inference for OpenCodeServer mode", async () =>
+            {
+                string dataRoot = NewTempDirectory("armada-code-index-prod-wire-opencode-");
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    using (HttpClient http = new HttpClient())
+                    {
+                        LoggingModule logging = SilentLogging();
+                        ArmadaSettings settings = BuildMinimalSettings(dataRoot);
+                        settings.CodeIndex.InferenceClient = "OpenCodeServer";
+                        IEmbeddingClient embeddingClient = new DeepSeekEmbeddingClient(settings.CodeIndex, logging, http);
+                        IInferenceClient inferenceClient = new OpenCodeServerInferenceClient(settings, logging, http);
+                        CodeIndexService service = new CodeIndexService(
+                            logging,
+                            testDb.Driver,
+                            settings,
+                            new GitService(logging),
+                            embeddingClient,
+                            inferenceClient);
+
+                        FieldInfo? infField = typeof(CodeIndexService).GetField(
+                            "_InferenceClient",
+                            BindingFlags.Instance | BindingFlags.NonPublic);
+
+                        AssertTrue(infField != null, "_InferenceClient field should exist");
+                        object? infValue = infField!.GetValue(service);
+                        AssertTrue(infValue is OpenCodeServerInferenceClient, "Inference field should hold OpenCodeServerInferenceClient when selected.");
                     }
                 }
                 finally

@@ -421,6 +421,26 @@ Response contains combined markdown from all vessels with `## Vessel: {VesselNam
 
 When `UseSummarizer` is enabled, context-pack chunks are compressed through the inference client before the pack is materialized for dispatch. `ContextPackResponse.Markdown` keeps the raw markdown, while `ContextPackResponse.SummarizedMarkdown` carries the compressed version when summarization succeeds. `prestagedFiles` points at the summarized materialized file when `SummarizedMarkdown` is present, otherwise it falls back to the raw markdown file. Operators can opt out by leaving `UseSummarizer` set to `false` in settings before making the request.
 
+#### OpenCode Server inference mode
+
+Armada can route summarizer and file-signature inference through a local OpenCode daemon instead of direct HTTP chat completions. Set:
+
+- `CodeIndex.InferenceClient = "OpenCodeServer"`
+- `CodeIndex.OpenCodeServer.AutoLaunch = true` (default)
+
+When enabled, Armada probes `GET {BaseUrl}/global/health` and either:
+
+1. Attaches to an already-running daemon when healthy, or
+2. Launches `opencode serve --port {Port} --hostname {Hostname}` and waits for health.
+
+OpenCode credentials are managed by the CLI, not by Armada. On Linux/macOS the auth state is stored in `~/.local/share/opencode/auth.json` (platform equivalents apply on Windows).
+
+To disable daemon auto-launch but keep OpenCode inference available, set:
+
+- `CodeIndex.OpenCodeServer.AutoLaunch = false`
+
+In that mode, operators start `opencode serve` manually before issuing index summarization/signature workflows.
+
 #### File signature behavior
 
 When `UseFileSignatures` is enabled:
