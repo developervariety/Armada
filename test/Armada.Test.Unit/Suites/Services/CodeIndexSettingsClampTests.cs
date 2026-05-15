@@ -26,10 +26,24 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(0.3, settings.LexicalWeight);
 
                 AssertFalse(settings.UseSummarizer, "UseSummarizer default must be false");
+                AssertEqual("Http", settings.InferenceClient);
                 AssertEqual("deepseek-chat", settings.SummarizerModel);
                 AssertEqual(string.Empty, settings.SummarizerApiBaseUrl);
                 AssertEqual(string.Empty, settings.SummarizerApiKey);
                 AssertEqual(2048, settings.MaxSummaryOutputTokens);
+                AssertNotNull(settings.OpenCodeServer);
+                AssertTrue(settings.OpenCodeServer.AutoLaunch, "OpenCodeServer.AutoLaunch default must be true");
+                AssertEqual("http://127.0.0.1:4096", settings.OpenCodeServer.BaseUrl);
+                AssertEqual("127.0.0.1", settings.OpenCodeServer.Hostname);
+                AssertEqual(4096, settings.OpenCodeServer.Port);
+                AssertEqual(string.Empty, settings.OpenCodeServer.ExecutablePath);
+                AssertEqual("opencode", settings.OpenCodeServer.ProviderId);
+                AssertEqual("deepseek-v4-flash-free", settings.OpenCodeServer.ModelId);
+                AssertEqual("summary", settings.OpenCodeServer.Agent);
+                AssertEqual("opencode", settings.OpenCodeServer.Username);
+                AssertEqual(string.Empty, settings.OpenCodeServer.Password);
+                AssertEqual(30, settings.OpenCodeServer.StartupTimeoutSeconds);
+                AssertEqual(60, settings.OpenCodeServer.RequestTimeoutSeconds);
 
                 AssertFalse(settings.UseFileSignatures, "UseFileSignatures default must be false");
                 AssertEqual(string.Empty, settings.SignatureModel);
@@ -153,6 +167,50 @@ namespace Armada.Test.Unit.Suites.Services
                 CodeIndexSettings settings = new CodeIndexSettings();
                 settings.SignatureModel = null!;
                 AssertEqual(string.Empty, settings.SignatureModel);
+            });
+
+            await RunTest("InferenceClientAndOpenCodeServer_NullAssignment_CoalescesToDefaults", () =>
+            {
+                CodeIndexSettings settings = new CodeIndexSettings();
+                settings.InferenceClient = null!;
+                settings.OpenCodeServer = null!;
+                settings.OpenCodeServer.BaseUrl = null!;
+                settings.OpenCodeServer.Hostname = null!;
+                settings.OpenCodeServer.ExecutablePath = null!;
+                settings.OpenCodeServer.ProviderId = null!;
+                settings.OpenCodeServer.ModelId = null!;
+                settings.OpenCodeServer.Agent = null!;
+                settings.OpenCodeServer.Username = null!;
+                settings.OpenCodeServer.Password = null!;
+
+                AssertEqual("Http", settings.InferenceClient);
+                AssertNotNull(settings.OpenCodeServer);
+                AssertEqual("http://127.0.0.1:4096", settings.OpenCodeServer.BaseUrl);
+                AssertEqual("127.0.0.1", settings.OpenCodeServer.Hostname);
+                AssertEqual(string.Empty, settings.OpenCodeServer.ExecutablePath);
+                AssertEqual("opencode", settings.OpenCodeServer.ProviderId);
+                AssertEqual("deepseek-v4-flash-free", settings.OpenCodeServer.ModelId);
+                AssertEqual("summary", settings.OpenCodeServer.Agent);
+                AssertEqual("opencode", settings.OpenCodeServer.Username);
+                AssertEqual(string.Empty, settings.OpenCodeServer.Password);
+            });
+
+            await RunTest("OpenCodeServerClampFields_OutOfRange_ClampToBounds", () =>
+            {
+                CodeIndexSettings settings = new CodeIndexSettings();
+                settings.OpenCodeServer.Port = 5;
+                settings.OpenCodeServer.StartupTimeoutSeconds = 1;
+                settings.OpenCodeServer.RequestTimeoutSeconds = 1;
+                AssertEqual(1024, settings.OpenCodeServer.Port);
+                AssertEqual(5, settings.OpenCodeServer.StartupTimeoutSeconds);
+                AssertEqual(5, settings.OpenCodeServer.RequestTimeoutSeconds);
+
+                settings.OpenCodeServer.Port = 999999;
+                settings.OpenCodeServer.StartupTimeoutSeconds = 999999;
+                settings.OpenCodeServer.RequestTimeoutSeconds = 999999;
+                AssertEqual(65535, settings.OpenCodeServer.Port);
+                AssertEqual(300, settings.OpenCodeServer.StartupTimeoutSeconds);
+                AssertEqual(600, settings.OpenCodeServer.RequestTimeoutSeconds);
             });
 
             await RunTest("ClampBoundaries_ExactEndpointsAreAccepted", () =>

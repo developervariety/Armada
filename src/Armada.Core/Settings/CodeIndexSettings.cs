@@ -151,6 +151,24 @@ namespace Armada.Core.Settings
         public bool UseSummarizer { get; set; } = false;
 
         /// <summary>
+        /// Inference client mode used for summarization and file-signature generation.
+        /// </summary>
+        public string InferenceClient
+        {
+            get => _InferenceClient;
+            set => _InferenceClient = value ?? "Http";
+        }
+
+        /// <summary>
+        /// OpenCode server inference settings.
+        /// </summary>
+        public OpenCodeServerSettings OpenCodeServer
+        {
+            get => _OpenCodeServer;
+            set => _OpenCodeServer = value ?? new OpenCodeServerSettings();
+        }
+
+        /// <summary>
         /// Summarizer model name.
         /// </summary>
         public string SummarizerModel
@@ -334,6 +352,8 @@ namespace Armada.Core.Settings
         private string _EmbeddingApiKey = string.Empty;
         private double _SemanticWeight = 0.7;
         private double _LexicalWeight = 0.3;
+        private string _InferenceClient = "Http";
+        private OpenCodeServerSettings _OpenCodeServer = new OpenCodeServerSettings();
         private string _SummarizerModel = "deepseek-chat";
         private string _SummarizerApiBaseUrl = string.Empty;
         private string _SummarizerApiKey = string.Empty;

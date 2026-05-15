@@ -72,6 +72,7 @@ namespace Armada.Server
         private PersonaSeedService _PersonaSeedService = null!;
         private LogRotationService _LogRotation = null!;
         private DataExpiryService _DataExpiry = null!;
+        private OpenCodeServerLauncher _OpenCodeServerLauncher = null!;
         private RemoteTunnelManager _RemoteTunnel = null!;
         private RemoteControlQueryService _RemoteControlQueries = null!;
         private RemoteControlManagementService _RemoteControlManagement = null!;
@@ -151,8 +152,12 @@ namespace Armada.Server
             _PromptTemplateService = new PromptTemplateService(_Database, _Logging);
             HttpClient codeIndexHttpClient = new HttpClient();
             IEmbeddingClient embeddingClient = new DeepSeekEmbeddingClient(_Settings.CodeIndex, _Logging, codeIndexHttpClient);
-            IInferenceClient inferenceClient = new DeepSeekInferenceClient(_Settings.CodeIndex, _Logging, codeIndexHttpClient);
+            _OpenCodeServerLauncher = new OpenCodeServerLauncher(_Settings, _Logging, codeIndexHttpClient);
+            IInferenceClient inferenceClient = string.Equals(_Settings.CodeIndex.InferenceClient, "OpenCodeServer", StringComparison.OrdinalIgnoreCase)
+                ? new OpenCodeServerInferenceClient(_Settings, _Logging, codeIndexHttpClient)
+                : new DeepSeekInferenceClient(_Settings.CodeIndex, _Logging, codeIndexHttpClient);
             _CodeIndex = new CodeIndexService(_Logging, _Database, _Settings, _Git, embeddingClient, inferenceClient);
+            await _OpenCodeServerLauncher.StartAsync(_TokenSource.Token).ConfigureAwait(false);
 
             IMissionService missionService = new MissionService(_Logging, _Database, _Settings, dockService, captainService, _PromptTemplateService, _Git);
             IVoyageService voyageService = new VoyageService(_Logging, _Database);
@@ -413,6 +418,13 @@ namespace Armada.Server
             catch (Exception ex)
             {
                 _Logging.Warn(_Header + "REST API stop error: " + ex.Message);
+            }
+            try
+            {
+                _OpenCodeServerLauncher?.Dispose();
+            }
+            catch
+            {
             }
             _TokenSource.Cancel();
             _RemoteTunnel?.StopAsync().GetAwaiter().GetResult();

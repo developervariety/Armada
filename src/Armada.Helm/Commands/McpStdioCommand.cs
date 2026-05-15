@@ -75,19 +75,30 @@ namespace Armada.Helm.Commands
             LandingService landingService = new LandingService(logging, database, armadaSettings, git);
             HttpClient codeIndexHttpClient = new HttpClient();
             IEmbeddingClient embeddingClient = new DeepSeekEmbeddingClient(armadaSettings.CodeIndex, logging, codeIndexHttpClient);
-            IInferenceClient inferenceClient = new DeepSeekInferenceClient(armadaSettings.CodeIndex, logging, codeIndexHttpClient);
-            ICodeIndexService codeIndexService = new CodeIndexService(logging, database, armadaSettings, git, embeddingClient, inferenceClient);
-            McpToolRegistrar.RegisterAll(mcpServer.RegisterTool, database, admiral, armadaSettings, gitService, mergeQueueService, dockService, landingService, agentLifecycle: agentLifecycle, templateService: promptTemplateService, logging: logging, codeIndexService: codeIndexService);
-
-            // Run until stdin closes or process is killed
-            using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            Console.CancelKeyPress += (s, e) =>
+            OpenCodeServerLauncher openCodeServerLauncher = new OpenCodeServerLauncher(armadaSettings, logging, codeIndexHttpClient);
+            IInferenceClient inferenceClient = string.Equals(armadaSettings.CodeIndex.InferenceClient, "OpenCodeServer", StringComparison.OrdinalIgnoreCase)
+                ? new OpenCodeServerInferenceClient(armadaSettings, logging, codeIndexHttpClient)
+                : new DeepSeekInferenceClient(armadaSettings.CodeIndex, logging, codeIndexHttpClient);
+            try
             {
-                e.Cancel = true;
-                cts.Cancel();
-            };
+                await openCodeServerLauncher.StartAsync(cancellationToken).ConfigureAwait(false);
+                ICodeIndexService codeIndexService = new CodeIndexService(logging, database, armadaSettings, git, embeddingClient, inferenceClient);
+                McpToolRegistrar.RegisterAll(mcpServer.RegisterTool, database, admiral, armadaSettings, gitService, mergeQueueService, dockService, landingService, agentLifecycle: agentLifecycle, templateService: promptTemplateService, logging: logging, codeIndexService: codeIndexService);
 
-            await mcpServer.RunAsync(cts.Token).ConfigureAwait(false);
+                // Run until stdin closes or process is killed
+                using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                Console.CancelKeyPress += (s, e) =>
+                {
+                    e.Cancel = true;
+                    cts.Cancel();
+                };
+
+                await mcpServer.RunAsync(cts.Token).ConfigureAwait(false);
+            }
+            finally
+            {
+                openCodeServerLauncher.Dispose();
+            }
 
             return 0;
         }

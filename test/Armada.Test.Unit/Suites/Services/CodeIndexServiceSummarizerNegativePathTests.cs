@@ -352,9 +352,9 @@ namespace Armada.Test.Unit.Suites.Services
 
                 string admiralWiring = File.ReadAllText(Path.Combine(repositoryRoot, "src", "Armada.Server", "ArmadaServer.cs"));
                 AssertContains(
-                    "new DeepSeekInferenceClient(_Settings.CodeIndex, _Logging, codeIndexHttpClient)",
+                    "string.Equals(_Settings.CodeIndex.InferenceClient, \"OpenCodeServer\", StringComparison.OrdinalIgnoreCase)",
                     admiralWiring,
-                    "Admiral must construct a DeepSeekInferenceClient backed by CodeIndex settings");
+                    "Admiral must switch inference implementation by CodeIndex.InferenceClient.");
                 AssertContains(
                     "new CodeIndexService(_Logging, _Database, _Settings, _Git, embeddingClient, inferenceClient)",
                     admiralWiring,
@@ -362,9 +362,9 @@ namespace Armada.Test.Unit.Suites.Services
 
                 string helmWiring = File.ReadAllText(Path.Combine(repositoryRoot, "src", "Armada.Helm", "Commands", "McpStdioCommand.cs"));
                 AssertContains(
-                    "new DeepSeekInferenceClient(armadaSettings.CodeIndex, logging, codeIndexHttpClient)",
+                    "string.Equals(armadaSettings.CodeIndex.InferenceClient, \"OpenCodeServer\", StringComparison.OrdinalIgnoreCase)",
                     helmWiring,
-                    "Helm stdio MCP composition must construct a DeepSeekInferenceClient backed by CodeIndex settings");
+                    "Helm stdio MCP composition must switch inference implementation by CodeIndex.InferenceClient.");
                 AssertContains(
                     "new CodeIndexService(logging, database, armadaSettings, git, embeddingClient, inferenceClient)",
                     helmWiring,
