@@ -199,13 +199,16 @@ namespace Armada.Runtimes
                 if (!String.IsNullOrEmpty(e.Data))
                 {
                     _Logging.Debug(_Header + "[stderr] " + e.Data);
-                    try { logWriter?.WriteLine("[stderr] " + e.Data); }
-                    catch (ObjectDisposedException) { }
 
                     if (ForwardStderrAsOutput)
                     {
-                        // Treat stderr as runtime output for heartbeat/progress/output capture.
-                        // Some agent CLIs emit useful diagnostics or status lines on stderr.
+                        // Write to file log and raise output event so the captain log and
+                        // mission log both capture stderr.  Runtimes that emit verbose startup
+                        // diagnostics on stderr (e.g. Codex) override ForwardStderrAsOutput
+                        // to false so those lines don't pollute either log.
+                        try { logWriter?.WriteLine("[stderr] " + e.Data); }
+                        catch (ObjectDisposedException) { }
+
                         try { OnOutputReceived?.Invoke(process.Id, e.Data); }
                         catch { }
                     }
@@ -365,10 +368,11 @@ namespace Armada.Runtimes
         protected virtual bool UsePromptStdin => false;
 
         /// <summary>
-        /// Whether stderr lines should be forwarded to <see cref="OnOutputReceived"/> (and thus the
-        /// mission log and heartbeat tracker). Defaults to true. Override to false for runtimes
-        /// that emit verbose startup diagnostics on stderr unrelated to agent work output.
-        /// Stderr is always written to the file log regardless of this flag.
+        /// Whether stderr lines should be written to the captain log file and forwarded to
+        /// <see cref="OnOutputReceived"/> (mission log and heartbeat tracker). Defaults to true.
+        /// Override to false for runtimes that emit verbose startup diagnostics on stderr that
+        /// are unrelated to agent work output (e.g. Codex session headers).
+        /// The internal debug logger always receives stderr regardless of this flag.
         /// </summary>
         protected virtual bool ForwardStderrAsOutput => true;
 
