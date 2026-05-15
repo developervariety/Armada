@@ -74,8 +74,8 @@ namespace Armada.Runtimes
 
         /// <summary>
         /// Codex exec emits a session header (version, workdir, model, role context, branch)
-        /// to stderr before any real work begins. Suppress those from the mission log and
-        /// heartbeat tracker; they are still written to the file log.
+        /// to stderr before any real work begins. Suppress those from the mission/captain log
+        /// file and OnOutputReceived; _Logging.Debug still captures them.
         /// </summary>
         protected override bool ForwardStderrAsOutput => false;
 
