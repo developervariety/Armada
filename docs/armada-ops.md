@@ -357,6 +357,42 @@ learned playbook with explicit `disableFromVessels` ripples.
 
 ## Codebase index and context packs
 
+The Admiral-owned per-vessel code index supports hybrid lexical + semantic search (Voyage AI `voyage-code-3` embeddings, 1024-dim), cross-vessel fleet queries, and file-level signatures. Embeddings live inline with each chunk in `~/.armada/code-index/<vesselId>/chunks.jsonl`. The index is for repo discovery/evidence -- playbooks, vessel `CLAUDE.md`, and project `CLAUDE.md` win on conflict.
+
+### How to use
+
+**Dispatch-time auto-attach.** `armada_dispatch` defaults `codeContextMode` to `auto`. Every dock gets `_briefing/context-pack.md` staged automatically; captains are instructed (via `proj-corerules-summary` playbook) to read it before any `Grep`/`Glob`. Mode catalog:
+
+- `auto` -- generate pack from title + description (default).
+- `force` -- regenerate even if a captain returned an empty pack; useful when the first pack was thin.
+- `off` -- skip entirely. Reserve for intentionally code-blind missions (pure docs, pure ops).
+
+**`armada_code_search`** -- inspect the index directly when you want raw results, cross-vessel discovery, or to verify a captain's evidence. Filters narrow scope: `pathPrefix` clips to a directory, `language` filters by detected language (`csharp`, `markdown`, etc.). `Score` interpretation:
+
+- Lexical-only baseline clusters in the 60-200 range.
+- Hybrid (semantic + lexical) lifts conceptually relevant hits into the 300-700+ range.
+- `EmbeddingVector` is redacted from JSON responses (vectors stay on disk).
+
+Phrase queries by intent (`"seed/key challenge response algorithm"`) rather than single common tokens (`"voyage"` gets swamped by domain noise -- "Voyage" is the orchestrator's dispatch-batch concept and dominates a lexical search).
+
+**`armada_context_pack`** -- build a dispatch-ready markdown briefing for a specific goal. Returns `Markdown`, `MaterializedPath`, and a `prestagedFiles` entry pointing at `_briefing/context-pack.md`. Pass the entry straight into `armada_dispatch` to override the auto pack with a tighter goal. Always list `_briefing/context-pack.md` in the mission's **Reads** section so the captain knows it is authoritative repo evidence.
+
+**Semantic vs lexical activation.** Semantic ranking only kicks in when **both** `CodeIndex.UseSemanticSearch = true` and `CodeIndex.EmbeddingApiKey` are populated in settings. Without both, search silently degrades to lexical-only -- check this first when semantic results look weak.
+
+**Captain-side note.** Captains running inside dock worktrees consume the pre-attached `_briefing/context-pack.md` but do not currently have direct access to `armada_code_search` / `armada_context_pack` MCP tools themselves. Orchestrate pack quality at dispatch time; if a captain reports a thin pack, re-dispatch with `codeContextMode=force` or build a custom pack with a tighter goal.
+
+### Operator gotchas
+
+These are the operationally-painful lessons encountered in the field. Treat them as the checklist when something feels wrong.
+
+1. **`Armada.Server.exe` survives `dotnet` kill.** Stopping the orchestrator with `Get-Process -Name dotnet | Stop-Process` leaves the published binary running on port 7890. Always also run `Get-Process -Name "Armada.Server" -ErrorAction SilentlyContinue | Stop-Process -Force`. If the port stays bound, the Admin restart fails with a binding error.
+2. **MCP HTTP host: `localhost`, not `127.0.0.1`.** Use `http://localhost:7891`. HTTP.sys URL ACLs are registered only for `localhost`; the loopback IP returns `400 Invalid Hostname`.
+3. **`UseSemanticSearch=false` is a silent-fallback footgun.** Embeddings are generated only when the flag is `true`. If the flag is false, `armada_index_update` writes `chunks.jsonl` with `embeddingVector=null` and burns no API quota -- but search silently drops to lexical-only with no warning. Check the flag first when semantic results look wrong.
+4. **MCP client timeout vs Admin progress.** An MCP client (e.g. Claude Code) can hit its own response timeout on a long `armada_index_update` call and report failure, while the Admin keeps running the indexing job to completion. Don't re-dispatch on timeout -- re-check `armada_index_status` first; the job may already be done.
+5. **Captain dock MCP surface is narrower than the orchestrator's.** `armada_code_search` and `armada_context_pack` are orchestrator-side only; captains read the prestaged pack. Don't ask a captain to "search for X" -- generate the pack with a tighter goal yourself and re-stage.
+
+Notable misses, wins, and miss-class taxonomy live in `project/docs/armada-code-index-feedback.md`. When `armada_code_search` or a context pack misses badly enough to change the workflow, append an entry there per the templates at the top of that doc; captain-sourced feedback (the `[CONTEXT-PACK-FEEDBACK]` block in a final report) is transcribed by the orchestrator into the same log.
+
 ### Semantic index, fleet tools, and V2 settings surface
 
 The V2 index surface (shipped in M1-M5) adds semantic search, cross-vessel fleet queries, and file-level signatures to the original lexical index.
