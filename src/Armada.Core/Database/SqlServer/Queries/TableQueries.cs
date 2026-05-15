@@ -345,10 +345,7 @@ namespace Armada.Core.Database.SqlServer.Queries
                 ),
                 new SchemaMigration(
                     31,
-                    "Add preferred_captain_id and preferred_model columns to missions",
-                    @"
-                    IF COL_LENGTH('missions', 'preferred_captain_id') IS NULL
-                        ALTER TABLE missions ADD preferred_captain_id NVARCHAR(450);",
+                    "Add preferred_model column to missions",
                     @"
                     IF COL_LENGTH('missions', 'preferred_model') IS NULL
                         ALTER TABLE missions ADD preferred_model NVARCHAR(450);"
@@ -709,7 +706,6 @@ namespace Armada.Core.Database.SqlServer.Queries
                 diff_snapshot NVARCHAR(MAX),
                 agent_output NVARCHAR(MAX),
                 prestaged_files NVARCHAR(MAX),
-                preferred_captain_id NVARCHAR(450),
                 preferred_model NVARCHAR(450),
                 created_utc NVARCHAR(450) NOT NULL,
                 started_utc NVARCHAR(450),

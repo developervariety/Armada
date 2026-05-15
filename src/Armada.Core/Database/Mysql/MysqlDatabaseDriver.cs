@@ -445,7 +445,7 @@ namespace Armada.Core.Database.Mysql
                 ),
                 new SchemaMigration(
                     31,
-                    "Add preferred_captain_id and preferred_model columns to missions",
+                    "Add preferred_model column to missions",
                     TableQueries.MigrationV31Statements
                 ),
                 new SchemaMigration(

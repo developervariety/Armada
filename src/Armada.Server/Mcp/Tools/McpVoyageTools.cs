@@ -65,7 +65,7 @@ namespace Armada.Server.Mcp.Tools
         {
             register(
                 "armada_dispatch",
-                "Dispatch a new voyage with missions to a vessel. Each mission may include an optional prestagedFiles array of {sourcePath, destPath} entries; the Admiral copies sourcePath (absolute, on the Admiral host) into destPath (relative, inside the dock worktree) after the dock is created and before the captain spawns. Code-index context packs are attached by default when available; set codeContextMode to off to opt out or force to require generation. Each mission may also pin a specific captain via preferredCaptainId or use preferredModel with a complexity tier: low, mid, or high.",
+                "Dispatch a new voyage with missions to a vessel. Each mission may include an optional prestagedFiles array of {sourcePath, destPath} entries; the Admiral copies sourcePath (absolute, on the Admiral host) into destPath (relative, inside the dock worktree) after the dock is created and before the captain spawns. Code-index context packs are attached by default when available; set codeContextMode to off to opt out or force to require generation. Each mission may use preferredModel with a complexity tier: low, mid, or high.",
                 new
                 {
                     type = "object",
@@ -101,7 +101,6 @@ namespace Armada.Server.Mcp.Tools
                                     },
                                     codeContextMode = new { type = "string", description = "Optional per-mission code context mode: auto, off, or force. Overrides the dispatch-level codeContextMode." },
                                     codeContextQuery = new { type = "string", description = "Optional per-mission code search query. Defaults to mission title plus description." },
-                                    preferredCaptainId = new { type = "string", description = "Optional captain ID (cap_ prefix) to pin this mission to. If the pinned captain is busy at dispatch time, the mission stays Pending until the next dispatch tick when that captain is idle." },
                                     preferredModel = new { type = "string", description = "Optional complexity tier. Use 'low', 'mid', or 'high'; Armada picks an available model within that tier. Omit when default routing is sufficient." },
                                     dependsOnMissionId = new { type = "string", description = "Optional mission ID (msn_ prefix) this mission must wait for. The dependent mission stays Pending until the referenced mission reaches a completion state." },
                                     alias = new { type = "string", description = "Optional logical alias for this mission within this dispatch batch (e.g. 'M1', 'resolver'). Other missions in the same batch may reference it via dependsOnMissionAlias. Must be unique within the batch." },
@@ -734,7 +733,6 @@ namespace Armada.Server.Mcp.Tools
                     mission.VoyageId = voyage.Id;
                     mission.VesselId = vesselId;
                     mission.PrestagedFiles = ClonePrestagedFilesLocal(md.PrestagedFiles);
-                    mission.PreferredCaptainId = md.PreferredCaptainId;
                     mission.PreferredModel = md.PreferredModel;
                     mission.SelectedPlaybooks = ClonePlaybookSelectionsLocal(mergedForMission);
                     mission.DependsOnMissionId = externalDep;
@@ -777,20 +775,6 @@ namespace Armada.Server.Mcp.Tools
                         stageMission.VesselId = vesselId;
                         stageMission.Persona = stage.PersonaName;
                         stageMission.DependsOnMissionId = groupDependencyId;
-                        // Captain pin applies across stages only when compatible with each stage's
-                        // persona and model. Stage-level PreferredModel can force dropping the pin so
-                        // the pool routes Judge to Opus while Worker keeps a Mid-tier pin, etc.
-                        string? stagePreferredCaptainId = md.PreferredCaptainId;
-                        if (!String.IsNullOrWhiteSpace(md.PreferredCaptainId) && !String.IsNullOrWhiteSpace(stage.PreferredModel))
-                        {
-                            Captain? pinnedCaptain = await database.Captains.ReadAsync(md.PreferredCaptainId).ConfigureAwait(false);
-                            stagePreferredCaptainId = MissionService.ResolvePipelineStagePreferredCaptainId(
-                                md.PreferredCaptainId,
-                                pinnedCaptain,
-                                stage.PersonaName,
-                                stage.PreferredModel);
-                        }
-                        stageMission.PreferredCaptainId = stagePreferredCaptainId;
                         stageMission.PreferredModel = stage.PreferredModel ?? md.PreferredModel;
                         stageMission.SelectedPlaybooks = ClonePlaybookSelectionsLocal(mergedForMission);
 

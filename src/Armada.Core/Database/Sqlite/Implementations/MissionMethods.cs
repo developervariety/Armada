@@ -29,7 +29,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             "id, tenant_id, user_id, voyage_id, vessel_id, captain_id, title, " +
             "NULL AS description, status, priority, parent_mission_id, branch_name, dock_id, process_id, " +
             "pr_url, commit_hash, NULL AS diff_snapshot, NULL AS agent_output, persona, depends_on_mission_id, " +
-            "failure_reason, total_runtime_ms, prestaged_files, preferred_captain_id, preferred_model, " +
+            "failure_reason, total_runtime_ms, prestaged_files, preferred_model, " +
             "recovery_attempts, last_recovery_action_utc, created_utc, started_utc, completed_utc, last_update_utc";
 
         #endregion
@@ -64,8 +64,8 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = @"INSERT INTO missions (id, tenant_id, user_id, voyage_id, vessel_id, captain_id, title, description, status, priority, parent_mission_id, branch_name, dock_id, process_id, pr_url, commit_hash, diff_snapshot, agent_output, persona, depends_on_mission_id, failure_reason, total_runtime_ms, prestaged_files, preferred_captain_id, preferred_model, recovery_attempts, last_recovery_action_utc, created_utc, started_utc, completed_utc, last_update_utc)
-                            VALUES (@id, @tenant_id, @user_id, @voyage_id, @vessel_id, @captain_id, @title, @description, @status, @priority, @parent_mission_id, @branch_name, @dock_id, @process_id, @pr_url, @commit_hash, @diff_snapshot, @agent_output, @persona, @depends_on_mission_id, @failure_reason, @total_runtime_ms, @prestaged_files, @preferred_captain_id, @preferred_model, @recovery_attempts, @last_recovery_action_utc, @created_utc, @started_utc, @completed_utc, @last_update_utc);";
+                    cmd.CommandText = @"INSERT INTO missions (id, tenant_id, user_id, voyage_id, vessel_id, captain_id, title, description, status, priority, parent_mission_id, branch_name, dock_id, process_id, pr_url, commit_hash, diff_snapshot, agent_output, persona, depends_on_mission_id, failure_reason, total_runtime_ms, prestaged_files, preferred_model, recovery_attempts, last_recovery_action_utc, created_utc, started_utc, completed_utc, last_update_utc)
+                            VALUES (@id, @tenant_id, @user_id, @voyage_id, @vessel_id, @captain_id, @title, @description, @status, @priority, @parent_mission_id, @branch_name, @dock_id, @process_id, @pr_url, @commit_hash, @diff_snapshot, @agent_output, @persona, @depends_on_mission_id, @failure_reason, @total_runtime_ms, @prestaged_files, @preferred_model, @recovery_attempts, @last_recovery_action_utc, @created_utc, @started_utc, @completed_utc, @last_update_utc);";
                     cmd.Parameters.AddWithValue("@id", mission.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)mission.TenantId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@user_id", (object?)mission.UserId ?? DBNull.Value);
@@ -89,7 +89,6 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     cmd.Parameters.AddWithValue("@failure_reason", (object?)mission.FailureReason ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@total_runtime_ms", mission.TotalRuntimeMs.HasValue ? (object)mission.TotalRuntimeMs.Value : DBNull.Value);
                     cmd.Parameters.AddWithValue("@prestaged_files", (object?)SerializePrestagedFiles(mission.PrestagedFiles) ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@preferred_captain_id", (object?)mission.PreferredCaptainId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@preferred_model", (object?)mission.PreferredModel ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@recovery_attempts", mission.RecoveryAttempts);
                     cmd.Parameters.AddWithValue("@last_recovery_action_utc", mission.LastRecoveryActionUtc.HasValue ? (object)SqliteDatabaseDriver.ToIso8601(mission.LastRecoveryActionUtc.Value) : DBNull.Value);
@@ -186,7 +185,6 @@ namespace Armada.Core.Database.Sqlite.Implementations
                             failure_reason = @failure_reason,
                             total_runtime_ms = @total_runtime_ms,
                             prestaged_files = @prestaged_files,
-                            preferred_captain_id = @preferred_captain_id,
                             preferred_model = @preferred_model,
                             recovery_attempts = @recovery_attempts,
                             last_recovery_action_utc = @last_recovery_action_utc,
@@ -217,7 +215,6 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     cmd.Parameters.AddWithValue("@failure_reason", (object?)mission.FailureReason ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@total_runtime_ms", mission.TotalRuntimeMs.HasValue ? (object)mission.TotalRuntimeMs.Value : DBNull.Value);
                     cmd.Parameters.AddWithValue("@prestaged_files", (object?)SerializePrestagedFiles(mission.PrestagedFiles) ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@preferred_captain_id", (object?)mission.PreferredCaptainId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@preferred_model", (object?)mission.PreferredModel ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@recovery_attempts", mission.RecoveryAttempts);
                     cmd.Parameters.AddWithValue("@last_recovery_action_utc", mission.LastRecoveryActionUtc.HasValue ? (object)SqliteDatabaseDriver.ToIso8601(mission.LastRecoveryActionUtc.Value) : DBNull.Value);

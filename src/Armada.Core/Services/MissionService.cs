@@ -296,13 +296,12 @@ namespace Armada.Core.Services
             }
 
             // Find an idle captain, preferring those matching the mission's persona,
-            // honouring optional PreferredCaptainId / PreferredModel pins on the mission.
+            // honouring optional PreferredModel pin on the mission.
             Captain? captain = await FindAvailableCaptainAsync(mission, token).ConfigureAwait(false);
             if (captain == null)
             {
                 _Logging.Warn(_Header + "no idle captains available for mission " + mission.Id +
                     (mission.Persona != null ? " (persona: " + mission.Persona + ")" : "") +
-                    (!String.IsNullOrEmpty(mission.PreferredCaptainId) ? " (preferredCaptainId: " + mission.PreferredCaptainId + ")" : "") +
                     (!String.IsNullOrEmpty(mission.PreferredModel) ? " (preferredModel: " + mission.PreferredModel + ")" : ""));
                 return false;
             }
@@ -2953,52 +2952,10 @@ namespace Armada.Core.Services
             return true;
         }
 
-        /// <summary>
-        /// When a pipeline stage sets <see cref="PipelineStage.PreferredModel"/>, the
-        /// dispatch-level captain pin is kept only if that captain satisfies the stage persona and
-        /// that stage model. Otherwise returns null so assignment uses the model pool.
-        /// </summary>
-        /// <param name="dispatchPreferredCaptainId">PreferredCaptainId from the mission description.</param>
-        /// <param name="dispatchPreferredCaptainRow">Loaded captain row for that id, or null.</param>
-        /// <param name="stagePersonaName">Persona name for this pipeline stage.</param>
-        /// <param name="stagePreferredModel">Non-empty stage-level preferred model.</param>
-        /// <returns>The pin id to store on the stage mission, or null when the pin must be dropped.</returns>
-        public static string? ResolvePipelineStagePreferredCaptainId(
-            string? dispatchPreferredCaptainId,
-            Captain? dispatchPreferredCaptainRow,
-            string stagePersonaName,
-            string? stagePreferredModel)
-        {
-            if (String.IsNullOrWhiteSpace(dispatchPreferredCaptainId))
-                return null;
-            if (String.IsNullOrWhiteSpace(stagePreferredModel))
-                return dispatchPreferredCaptainId;
-            if (dispatchPreferredCaptainRow == null)
-                return null;
-            if (CaptainSatisfiesPreferredRouting(dispatchPreferredCaptainRow, stagePersonaName, stagePreferredModel))
-                return dispatchPreferredCaptainId;
-            return null;
-        }
-
         private async Task<Captain?> FindAvailableCaptainAsync(Mission mission, CancellationToken token)
         {
             string? persona = mission?.Persona;
-            string? preferredCaptainId = mission?.PreferredCaptainId;
             string? preferredModel = mission?.PreferredModel;
-
-            // Hard pin: a specific captain was requested. Read that one row directly;
-            // if it isn't idle (or the optional model filter rejects it), return null
-            // so the dispatcher waits for the next tick rather than falling back to
-            // some other captain the caller didn't ask for.
-            if (!String.IsNullOrEmpty(preferredCaptainId))
-            {
-                Captain? pinned = await _Database.Captains.ReadAsync(preferredCaptainId, token).ConfigureAwait(false);
-                if (pinned == null) return null;
-                if (pinned.State != CaptainStateEnum.Idle) return null;
-                if (!CaptainSatisfiesPreferredRouting(pinned, persona, preferredModel))
-                    return null;
-                return pinned;
-            }
 
             // Only idle captains are eligible for assignment
             List<Captain> idleCaptains = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Idle, token).ConfigureAwait(false);

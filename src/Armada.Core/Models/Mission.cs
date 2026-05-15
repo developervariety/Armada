@@ -133,14 +133,6 @@ namespace Armada.Core.Models
         public string? DependsOnMissionId { get; set; } = null;
 
         /// <summary>
-        /// Optional captain identifier this mission must be assigned to.
-        /// When set, dispatch will only assign this mission to the captain with this ID
-        /// when that captain is idle; if busy, the mission stays pending until the next
-        /// dispatch tick. Hard pin -- never falls back to other captains.
-        /// </summary>
-        public string? PreferredCaptainId { get; set; } = null;
-
-        /// <summary>
         /// Optional captain Model filter for mission assignment. When set, dispatch
         /// considers only idle captains whose <see cref="Captain.Model"/> matches this
         /// value (case-insensitive) before applying persona-preference logic.

@@ -185,7 +185,6 @@ namespace Armada.Core.Services
                 mission.VoyageId = voyage.Id;
                 mission.VesselId = vesselId;
                 mission.PrestagedFiles = ClonePrestagedFiles(md.PrestagedFiles);
-                mission.PreferredCaptainId = md.PreferredCaptainId;
                 mission.PreferredModel = md.PreferredModel;
                 if (!String.IsNullOrEmpty(md.DependsOnMissionId))
                     mission.DependsOnMissionId = md.DependsOnMissionId;
@@ -310,20 +309,6 @@ namespace Armada.Core.Services
                         mission.VesselId = vesselId;
                         mission.Persona = stage.PersonaName;
                         mission.DependsOnMissionId = groupDependencyId;
-                        // Per-mission captain pin runs the whole chain when each stage is compatible.
-                        // A stage-level PreferredModel can require a different model than the pinned
-                        // captain; drop the pin for that stage so the pool can satisfy the stage model.
-                        string? stagePreferredCaptainId = md.PreferredCaptainId;
-                        if (!String.IsNullOrWhiteSpace(md.PreferredCaptainId) && !String.IsNullOrWhiteSpace(stage.PreferredModel))
-                        {
-                            Captain? pinnedCaptain = await _Database.Captains.ReadAsync(md.PreferredCaptainId, token).ConfigureAwait(false);
-                            stagePreferredCaptainId = MissionService.ResolvePipelineStagePreferredCaptainId(
-                                md.PreferredCaptainId,
-                                pinnedCaptain,
-                                stage.PersonaName,
-                                stage.PreferredModel);
-                        }
-                        mission.PreferredCaptainId = stagePreferredCaptainId;
                         mission.PreferredModel = stage.PreferredModel ?? md.PreferredModel;
 
                         // The very first mission of the chain (first stage of the first order group)

@@ -40,12 +40,6 @@ namespace Armada.Core.Models
         public string? CodeContextQuery { get; set; } = null;
 
         /// <summary>
-        /// Optional captain identifier this mission must be assigned to. Plumbed
-        /// through to <see cref="Mission.PreferredCaptainId"/> on the created mission.
-        /// </summary>
-        public string? PreferredCaptainId { get; set; } = null;
-
-        /// <summary>
         /// Optional captain Model filter for assignment. Plumbed through to
         /// <see cref="Mission.PreferredModel"/> on the created mission.
         /// </summary>
