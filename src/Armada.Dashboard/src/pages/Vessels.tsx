@@ -276,6 +276,15 @@ export default function Vessels() {
     });
   }
 
+  function manageObjectives(vessel: Vessel) {
+    const params = new URLSearchParams({ vesselId: vessel.id });
+    if (vessel.fleetId) {
+      params.set('fleetId', vessel.fleetId);
+    }
+
+    navigate(`/backlog?${params.toString()}`);
+  }
+
   return (
     <div>
       <div className="view-header">
@@ -530,6 +539,8 @@ export default function Vessels() {
                     </td>
                     <td className="text-right" onClick={e => e.stopPropagation()}>
                       <ActionMenu id={`vessel-${v.id}`} items={[
+                        { label: 'Manage Objectives', onClick: () => manageObjectives(v) },
+                        { label: 'Manage Fleet', onClick: () => navigate(`/fleets/${v.fleetId}`), disabled: !v.fleetId },
                         { label: 'Open Workspace', onClick: () => navigate(`/workspace/${v.id}`) },
                         { label: 'View Detail', onClick: () => navigate(`/vessels/${v.id}`) },
                         { label: 'Edit', onClick: () => openEdit(v) },

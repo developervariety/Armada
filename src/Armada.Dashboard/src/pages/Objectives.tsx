@@ -1,21 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   deleteBacklogItem,
-  getObjectiveRefinementSession,
   importObjectiveFromGitHub,
   listBacklog,
-  listCaptains,
   listFleets,
   listVessels,
   reorderBacklog,
 } from '../api/client';
 import type {
-  Captain,
   Fleet,
   GitHubObjectiveSourceType,
   Objective,
-  ObjectiveRefinementSessionDetail,
   Vessel,
 } from '../types/models';
 import { useAuth } from '../context/AuthContext';
@@ -25,7 +21,6 @@ import BacklogGroupPills from '../components/backlog/BacklogGroupPills';
 import {
   BACKLOG_GROUPS,
   getBacklogGroup,
-  getLatestRefinementSessionId,
   getPriorityWeight,
   OBJECTIVE_BACKLOG_STATES,
   OBJECTIVE_EFFORTS,
@@ -44,6 +39,7 @@ import StatusBadge from '../components/shared/StatusBadge';
 
 export default function Objectives() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { isAdmin, isTenantAdmin } = useAuth();
   const { t, formatDateTime, formatRelativeTime } = useLocale();
   const { pushToast } = useNotifications();
@@ -51,8 +47,6 @@ export default function Objectives() {
   const [objectives, setObjectives] = useState<Objective[]>([]);
   const [fleets, setFleets] = useState<Fleet[]>([]);
   const [vessels, setVessels] = useState<Vessel[]>([]);
-  const [captains, setCaptains] = useState<Captain[]>([]);
-  const [latestRefinements, setLatestRefinements] = useState<Record<string, ObjectiveRefinementSessionDetail>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
@@ -82,55 +76,19 @@ export default function Objectives() {
 
   const canManage = isAdmin || isTenantAdmin;
 
-  async function loadLatestRefinementDetails(items: Objective[]) {
-    const sessionIds = Array.from(new Set(
-      items
-        .map((objective) => getLatestRefinementSessionId(objective))
-        .filter((value): value is string => !!value),
-    ));
-
-    if (sessionIds.length < 1) {
-      setLatestRefinements({});
-      return;
-    }
-
-    const detailResults = await Promise.all(
-      sessionIds.map(async (sessionId) => {
-        try {
-          return await getObjectiveRefinementSession(sessionId);
-        } catch {
-          return null;
-        }
-      }),
-    );
-
-    const next: Record<string, ObjectiveRefinementSessionDetail> = {};
-    detailResults.forEach((detail) => {
-      if (!detail?.objective?.id) return;
-      const existing = next[detail.objective.id];
-      if (!existing || new Date(detail.session.lastUpdateUtc).getTime() > new Date(existing.session.lastUpdateUtc).getTime()) {
-        next[detail.objective.id] = detail;
-      }
-    });
-    setLatestRefinements(next);
-  }
-
   async function load() {
     try {
       setLoading(true);
-      const [objectiveResult, fleetResult, vesselResult, captainResult] = await Promise.all([
+      const [objectiveResult, fleetResult, vesselResult] = await Promise.all([
         listBacklog({ pageSize: 9999 }),
         listFleets({ pageSize: 9999 }),
         listVessels({ pageSize: 9999 }),
-        listCaptains({ pageSize: 9999 }),
       ]);
 
       const loadedObjectives = objectiveResult.objects || [];
       setObjectives(loadedObjectives);
       setFleets(fleetResult.objects || []);
       setVessels(vesselResult.objects || []);
-      setCaptains(captainResult.objects || []);
-      await loadLatestRefinementDetails(loadedObjectives);
       setError('');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t('Failed to load backlog.'));
@@ -143,10 +101,15 @@ export default function Objectives() {
     void load();
   }, []);
 
-  const captainNameById = useMemo(
-    () => new Map(captains.map((captain) => [captain.id, captain.name])),
-    [captains],
-  );
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const nextFleetId = params.get('fleetId');
+    const nextVesselId = params.get('vesselId');
+
+    setFleetFilter(nextFleetId || 'all');
+    setVesselFilter(nextVesselId || 'all');
+  }, [location.search]);
+
   const fleetMap = useMemo(() => new Map(fleets.map((fleet) => [fleet.id, fleet.name])), [fleets]);
   const vesselMap = useMemo(() => new Map(vessels.map((vessel) => [vessel.id, vessel.name])), [vessels]);
 
@@ -180,7 +143,6 @@ export default function Objectives() {
       if (targetVersionFilter.trim() && !(objective.targetVersion || '').toLowerCase().includes(targetVersionFilter.trim().toLowerCase())) return false;
       if (!normalizedSearch) return true;
 
-      const refinementCaptain = latestRefinements[objective.id]?.captain?.name || latestRefinements[objective.id]?.session.captainId || '';
       return (
         objective.title.toLowerCase().includes(normalizedSearch)
         || (objective.description || '').toLowerCase().includes(normalizedSearch)
@@ -188,7 +150,6 @@ export default function Objectives() {
         || (objective.category || '').toLowerCase().includes(normalizedSearch)
         || (objective.targetVersion || '').toLowerCase().includes(normalizedSearch)
         || (objective.refinementSummary || '').toLowerCase().includes(normalizedSearch)
-        || refinementCaptain.toLowerCase().includes(normalizedSearch)
         || objective.tags.some((tag) => tag.toLowerCase().includes(normalizedSearch))
         || objective.acceptanceCriteria.some((criteria) => criteria.toLowerCase().includes(normalizedSearch))
         || objective.id.toLowerCase().includes(normalizedSearch)
@@ -200,7 +161,6 @@ export default function Objectives() {
     fleetFilter,
     groupFilter,
     kindFilter,
-    latestRefinements,
     objectives,
     ownerFilter,
     priorityFilter,
@@ -276,6 +236,9 @@ export default function Objectives() {
     setTargetVersionFilter('');
     setGroupFilter('all');
     setSortBy('rank');
+    if (location.search) {
+      navigate(location.pathname, { replace: true });
+    }
   }
 
   async function handleMoveRank(objectiveId: string, direction: -1 | 1) {
@@ -350,13 +313,24 @@ export default function Objectives() {
     }
   }
 
+  const createBacklogRoute = useMemo(() => {
+    const params = new URLSearchParams();
+
+    if (vesselFilter !== 'all') {
+      params.set('vesselId', vesselFilter);
+    }
+
+    const searchParams = params.toString();
+    return searchParams ? `/backlog/new?${searchParams}` : '/backlog/new';
+  }, [vesselFilter]);
+
   return (
     <div>
       <div className="view-header">
         <div>
           <h2>{t('Backlog')}</h2>
           <p className="text-dim view-subtitle">
-            {t('Capture future work, refine it with a selected captain, and carry the same record through planning, dispatch, release, deployment, and incident follow-through.')}
+            {t('Capture future work, refine it, and carry the same record through planning, dispatch, release, deployment, and incident follow-through.')}
           </p>
         </div>
         <div className="view-actions">
@@ -367,7 +341,7 @@ export default function Objectives() {
             </button>
           )}
           {canManage && (
-            <button className="btn btn-primary" onClick={() => navigate('/backlog/new')}>
+            <button className="btn btn-primary" onClick={() => navigate(createBacklogRoute)}>
               + {t('Backlog Item')}
             </button>
           )}
@@ -542,7 +516,7 @@ export default function Objectives() {
       {loading && objectives.length === 0 ? (
         <div className="playbook-empty-state">
           <strong>{t('Loading backlog...')}</strong>
-          <span>{t('Checking for backlog items, scope links, and the latest refinement activity.')}</span>
+          <span>{t('Checking for backlog items and scope links.')}</span>
         </div>
       ) : objectives.length === 0 ? (
         <div className="playbook-empty-state">
@@ -579,18 +553,12 @@ export default function Objectives() {
                 <th>{t('Shape')}</th>
                 <th>{t('State')}</th>
                 <th>{t('Scope')}</th>
-                <th>{t('Refinement')}</th>
-                <th>{t('Delivery')}</th>
                 <th>{t('Due / Updated')}</th>
                 <th className="text-right">{t('Actions')}</th>
               </tr>
             </thead>
             <tbody>
               {orderedObjectives.map((objective) => {
-                const refinement = latestRefinements[objective.id];
-                const refinementCaptain = refinement?.captain?.name || (refinement ? captainNameById.get(refinement.session.captainId) || refinement.session.captainId : null);
-                const refinementStatus = refinement?.session.status || null;
-
                 return (
                   <tr key={objective.id} className="clickable" onClick={() => navigate(`/backlog/${objective.id}`)}>
                     <td onClick={(event) => event.stopPropagation()}>
@@ -646,42 +614,6 @@ export default function Objectives() {
                           {t('Needs a vessel before planning, dispatch, or release drafting can start.')}
                         </div>
                       )}
-                    </td>
-                    <td className="text-dim">
-                      {refinement ? (
-                        <>
-                          <div>{refinementCaptain || t('Selected captain')}</div>
-                          <div style={{ marginTop: '0.25rem' }}>
-                            {refinementStatus ? <StatusBadge status={refinementStatus} /> : null}
-                          </div>
-                        </>
-                      ) : (
-                        <span>{t('No refinement yet')}</span>
-                      )}
-                    </td>
-                    <td className="text-dim">
-                      <div className="backlog-delivery-metrics">
-                        <div className="backlog-delivery-metric">
-                          <strong>{objective.planningSessionIds.length}</strong>
-                          <span>{t('Planning')}</span>
-                        </div>
-                        <div className="backlog-delivery-metric">
-                          <strong>{objective.voyageIds.length}</strong>
-                          <span>{t('Voyages')}</span>
-                        </div>
-                        <div className="backlog-delivery-metric">
-                          <strong>{objective.releaseIds.length}</strong>
-                          <span>{t('Releases')}</span>
-                        </div>
-                        <div className="backlog-delivery-metric">
-                          <strong>{objective.deploymentIds.length}</strong>
-                          <span>{t('Deployments')}</span>
-                        </div>
-                        <div className="backlog-delivery-metric">
-                          <strong>{objective.incidentIds.length}</strong>
-                          <span>{t('Incidents')}</span>
-                        </div>
-                      </div>
                     </td>
                     <td className="text-dim">
                       <div title={objective.dueUtc ? formatDateTime(objective.dueUtc) : undefined}>

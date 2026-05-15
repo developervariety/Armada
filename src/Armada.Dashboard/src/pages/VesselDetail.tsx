@@ -182,6 +182,16 @@ export default function VesselDetail() {
     });
   }
 
+  function handleManageObjectives() {
+    if (!vessel) return;
+    const params = new URLSearchParams({ vesselId: vessel.id });
+    if (vessel.fleetId) {
+      params.set('fleetId', vessel.fleetId);
+    }
+
+    navigate(`/backlog?${params.toString()}`);
+  }
+
   if (loading) return <p className="text-dim">{t('Loading...')}</p>;
   if (error && !vessel) return <ErrorModal error={error} onClose={() => setError('')} />;
   if (!vessel) return <p className="text-dim">{t('Vessel not found.')}</p>;
@@ -196,6 +206,14 @@ export default function VesselDetail() {
       <div className="detail-header">
         <h2>{vessel.name}</h2>
         <div className="inline-actions">
+          <button type="button" className="btn btn-sm" onClick={handleManageObjectives}>
+            {t('Manage Objectives')}
+          </button>
+          {vessel.fleetId && (
+            <button type="button" className="btn btn-sm" onClick={() => navigate(`/fleets/${vessel.fleetId}`)}>
+              {t('Manage Fleet')}
+            </button>
+          )}
           <button type="button" className="btn btn-sm" onClick={() => navigate(`/vessels/${vessel.id}/onboarding`)}>
             {t('Onboarding')}
           </button>
@@ -206,6 +224,8 @@ export default function VesselDetail() {
             {t('Open Workspace')}
           </button>
           <ActionMenu id={`vessel-${vessel.id}`} items={[
+            { label: 'Manage Objectives', onClick: handleManageObjectives },
+            { label: 'Manage Fleet', onClick: () => navigate(`/fleets/${vessel.fleetId}`), disabled: !vessel.fleetId },
             { label: 'Run Check', onClick: () => navigate('/checks', { state: { prefill: { vesselId: vessel.id, branchName: vessel.defaultBranch || '' } } }) },
             { label: 'Open Workspace', onClick: () => navigate(`/workspace/${vessel.id}`) },
             { label: 'Edit', onClick: openEdit },

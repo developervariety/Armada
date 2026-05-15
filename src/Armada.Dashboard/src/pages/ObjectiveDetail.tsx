@@ -9,6 +9,7 @@ import {
   getBacklogItem,
   getObjectiveRefinementSession,
   importObjectiveFromGitHub,
+  listBacklog,
   listBacklogRefinementSessions,
   listCaptains,
   listFleets,
@@ -86,6 +87,59 @@ function toIsoOrNull(value: string): string | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
 }
 
+interface TagEntry {
+  key: string;
+  value: string;
+}
+
+function createEmptyTagEntry(): TagEntry {
+  return { key: '', value: '' };
+}
+
+function parseTagEntry(raw: string): TagEntry {
+  const trimmed = raw.trim();
+  if (!trimmed) return createEmptyTagEntry();
+
+  const separatorIndex = [trimmed.indexOf(':'), trimmed.indexOf('=')]
+    .filter((index) => index > 0)
+    .sort((left, right) => left - right)[0] ?? -1;
+  if (separatorIndex < 1) {
+    return { key: trimmed, value: '' };
+  }
+
+  return {
+    key: trimmed.slice(0, separatorIndex).trim(),
+    value: trimmed.slice(separatorIndex + 1).trim(),
+  };
+}
+
+function parseTagEntries(tags: string[]): TagEntry[] {
+  const rows = tags
+    .map(parseTagEntry)
+    .filter((entry) => entry.key || entry.value);
+
+  return rows.length > 0 ? rows : [createEmptyTagEntry()];
+}
+
+function serializeTagEntries(entries: TagEntry[]): string[] {
+  return entries
+    .map((entry) => {
+      const key = entry.key.trim();
+      const value = entry.value.trim();
+      if (!key && !value) return '';
+      if (!value) return key;
+      return `${key}:${value}`;
+    })
+    .filter((entry): entry is string => entry.length > 0);
+}
+
+function replacePrimaryLinkedId(currentValue: string, nextId: string): string {
+  if (!nextId) return '';
+
+  const existing = splitList(currentValue).filter((id, index) => index > 0 && id !== nextId);
+  return joinList([nextId, ...existing]);
+}
+
 function renderRouteLinks(ids: string[], prefix: string | ((id: string) => string), labelMap?: Map<string, string>) {
   if (ids.length < 1) return <span className="text-dim">None</span>;
   return (
@@ -119,7 +173,8 @@ export default function ObjectiveDetail() {
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [captains, setCaptains] = useState<Captain[]>([]);
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
-  const [title, setTitle] = useState('Backlog Item');
+  const [availableObjectives, setAvailableObjectives] = useState<Objective[]>([]);
+  const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [status, setStatus] = useState<ObjectiveStatus>('Draft');
   const [kind, setKind] = useState<ObjectiveKind>('Feature');
@@ -132,11 +187,11 @@ export default function ObjectiveDetail() {
   const [targetVersion, setTargetVersion] = useState('');
   const [dueUtc, setDueUtc] = useState('');
   const [parentObjectiveId, setParentObjectiveId] = useState('');
-  const [blockedByObjectiveIds, setBlockedByObjectiveIds] = useState('');
+  const [blockedByObjectiveIds, setBlockedByObjectiveIds] = useState<string[]>([]);
   const [refinementSummary, setRefinementSummary] = useState('');
   const [suggestedPipelineId, setSuggestedPipelineId] = useState('');
   const [suggestedPlaybooks, setSuggestedPlaybooks] = useState('');
-  const [tags, setTags] = useState('');
+  const [tagEntries, setTagEntries] = useState<TagEntry[]>([createEmptyTagEntry()]);
   const [acceptanceCriteria, setAcceptanceCriteria] = useState('');
   const [nonGoals, setNonGoals] = useState('');
   const [rolloutConstraints, setRolloutConstraints] = useState('');
@@ -186,8 +241,28 @@ export default function ObjectiveDetail() {
   const fleetMap = useMemo(() => new Map(fleets.map((fleet) => [fleet.id, fleet.name])), [fleets]);
   const vesselMap = useMemo(() => new Map(vessels.map((vessel) => [vessel.id, vessel.name])), [vessels]);
   const captainNameById = useMemo(() => new Map(captains.map((captain) => [captain.id, captain.name])), [captains]);
-  const primaryFleetId = objective?.fleetIds[0] || splitList(fleetIds)[0] || '';
-  const primaryVesselId = objective?.vesselIds[0] || splitList(vesselIds)[0] || '';
+  const linkedFleetIds = useMemo(() => splitList(fleetIds), [fleetIds]);
+  const linkedVesselIds = useMemo(() => splitList(vesselIds), [vesselIds]);
+  const primaryFleetId = linkedFleetIds[0] || objective?.fleetIds[0] || '';
+  const primaryVesselId = linkedVesselIds[0] || objective?.vesselIds[0] || '';
+  const currentObjectiveId = objective?.id || (createMode ? '' : id || '');
+  const selectableObjectives = useMemo(() => (
+    availableObjectives
+      .filter((item) => item.id !== currentObjectiveId)
+      .slice()
+      .sort((left, right) => {
+        if (left.rank !== right.rank) return left.rank - right.rank;
+        return left.title.localeCompare(right.title);
+      })
+  ), [availableObjectives, currentObjectiveId]);
+  const selectableObjectiveIdSet = useMemo(
+    () => new Set(selectableObjectives.map((item) => item.id)),
+    [selectableObjectives],
+  );
+  const missingBlockedObjectiveIds = useMemo(
+    () => blockedByObjectiveIds.filter((blockedId) => !selectableObjectiveIdSet.has(blockedId)),
+    [blockedByObjectiveIds, selectableObjectiveIdSet],
+  );
   const requestedRefinementSessionId = useMemo(
     () => new URLSearchParams(location.search).get('refinementSessionId') || '',
     [location.search],
@@ -199,10 +274,75 @@ export default function ObjectiveDetail() {
   }, [objective?.sourceId]);
   const gitHubSourceType = objective?.sourceType === 'PullRequest' ? 'PullRequest' : 'Issue';
   const primaryVesselName = primaryVesselId ? vesselMap.get(primaryVesselId) || primaryVesselId : '';
+  const hasArmadaActivityLinks = useMemo(() => (
+    splitList(planningSessionIds).length > 0
+    || splitList(refinementSessionIds).length > 0
+    || splitList(voyageIds).length > 0
+    || splitList(missionIds).length > 0
+    || splitList(checkRunIds).length > 0
+    || splitList(releaseIds).length > 0
+    || splitList(deploymentIds).length > 0
+    || splitList(incidentIds).length > 0
+  ), [
+    checkRunIds,
+    deploymentIds,
+    incidentIds,
+    missionIds,
+    planningSessionIds,
+    refinementSessionIds,
+    releaseIds,
+    voyageIds,
+  ]);
   const selectedRefinementCaptain = useMemo(
     () => captains.find((captain) => captain.id === refinementCaptainId) || null,
     [captains, refinementCaptainId],
   );
+  const fieldHelp = useMemo(() => ({
+    title: t('Short backlog headline. Armada reuses this in backlog lists, planning, dispatch, and release drafting.'),
+    vessel: t('Primary vessel this backlog item targets. Armada uses the selected vessel to infer fleet context and unlock repository-aware planning and dispatch.'),
+    status: t('High-level lifecycle state for the work item, such as Draft, Planned, InProgress, or Completed.'),
+    owner: t('Person responsible for driving or approving the work. This is for human ownership and reporting.'),
+    description: t('Longer problem statement or implementation summary. Captains and operators use this as the core work description.'),
+    tagKey: t('Tag name or category, such as area, team, or source.'),
+    tagValue: t('Tag value paired with the key. Leave blank if the tag only needs a single label.'),
+    refinementSummary: t('Condensed summary of what refinement sessions discovered. Useful as the handoff into planning or dispatch.'),
+    acceptanceCriteria: t('Concrete conditions that must be true for the backlog item to count as done.'),
+    nonGoals: t('Things this work explicitly should not do. Use this to keep planning and implementation bounded.'),
+    rolloutConstraints: t('Operational, release, or sequencing constraints Armada should preserve while implementing or shipping this work.'),
+    evidenceLinks: t('URLs or references that support the scope, rollout, verification, or release notes for this work item.'),
+    kind: t('Work classification, such as Feature, Bug, Refactor, or Research.'),
+    category: t('Optional grouping label for reporting or backlog organization.'),
+    priority: t('Relative urgency. Higher priority items should generally be planned and dispatched sooner.'),
+    backlogState: t('Backlog workflow phase used to track whether the item is inbox triage, refinement, planning-ready, or dispatch-ready.'),
+    effort: t('Rough size estimate used to communicate complexity and planning weight.'),
+    rank: t('Manual backlog ordering value. Lower ranks appear earlier in the backlog.'),
+    targetVersion: t('Optional target release or milestone name for this work item.'),
+    dueUtc: t('Optional due date used for urgency tracking and delivery planning.'),
+    parentObjectiveId: t('Optional parent backlog item. Use this when the current work is a child of a larger backlog item or initiative.'),
+    suggestedPipeline: t('Pipeline Armada should prefer when this backlog item turns into planning or dispatch.'),
+    blockedByObjectiveIds: t('Other backlog items that must be resolved before this work can move forward. Use Ctrl or Cmd-click to select multiple blockers.'),
+    suggestedPlaybooks: t('Playbooks to carry into planning or dispatch. Use playbook-id:delivery-mode entries.'),
+    refinementCaptain: t('Captain that will run the backlog refinement conversation for this item.'),
+    refinementVessel: t('Optional vessel context for refinement. Use this when repository-specific context will help the captain refine scope.'),
+    refinementFleet: t('Optional fleet context for refinement when the work spans multiple vessels in the same fleet.'),
+    refinementTitle: t('Optional human-readable title for the refinement session transcript.'),
+    refinementInitialMessage: t('Optional kickoff prompt that tells the captain what to focus on first in the refinement session.'),
+    refinementComposer: t('Follow-up refinement message to the selected captain. Use this to sharpen scope, acceptance criteria, rollout, or non-goals.'),
+  }), [t]);
+  const actionHelp = useMemo(() => ({
+    planning: t('Open a planning session for this backlog item using the linked vessel and suggested context.'),
+    dispatch: t('Create dispatch-ready implementation work from this backlog item.'),
+    release: t('Draft release notes and release metadata from this backlog item.'),
+    deleteBacklog: t('Delete this backlog item while leaving downstream linked records intact.'),
+    back: t('Return to the backlog list without changing the current page.'),
+    save: t('Save the current backlog item changes.'),
+    startRefinement: t('Start a new captain-backed refinement session for this backlog item.'),
+    stopRefinement: t('Ask Armada to stop the current refinement session.'),
+    deleteRefinement: t('Delete the current refinement session and transcript.'),
+    sendRefinement: t('Send the drafted refinement message to the active captain session.'),
+    summarizeRefinement: t('Generate a structured summary from the selected transcript message.'),
+    applyRefinement: t('Apply the structured refinement summary back into this backlog item.'),
+  }), [t]);
 
   function hydrateObjectiveForm(next: Objective) {
     setObjective(next);
@@ -219,11 +359,11 @@ export default function ObjectiveDetail() {
     setTargetVersion(next.targetVersion || '');
     setDueUtc(toDateTimeLocalValue(next.dueUtc));
     setParentObjectiveId(next.parentObjectiveId || '');
-    setBlockedByObjectiveIds(joinList(next.blockedByObjectiveIds));
+    setBlockedByObjectiveIds(next.blockedByObjectiveIds || []);
     setRefinementSummary(next.refinementSummary || '');
     setSuggestedPipelineId(next.suggestedPipelineId || '');
     setSuggestedPlaybooks(joinSuggestedPlaybooks(next.suggestedPlaybooks));
-    setTags(joinList(next.tags));
+    setTagEntries(parseTagEntries(next.tags));
     setAcceptanceCriteria(joinList(next.acceptanceCriteria));
     setNonGoals(joinList(next.nonGoals));
     setRolloutConstraints(joinList(next.rolloutConstraints));
@@ -258,11 +398,11 @@ export default function ObjectiveDetail() {
       targetVersion: targetVersion.trim() || null,
       dueUtc: toIsoOrNull(dueUtc),
       parentObjectiveId: parentObjectiveId.trim() || null,
-      blockedByObjectiveIds: splitList(blockedByObjectiveIds),
+      blockedByObjectiveIds,
       refinementSummary: refinementSummary.trim() || null,
       suggestedPipelineId: suggestedPipelineId.trim() || null,
       suggestedPlaybooks: parseSuggestedPlaybooks(suggestedPlaybooks),
-      tags: splitList(tags),
+      tags: serializeTagEntries(tagEntries),
       acceptanceCriteria: splitList(acceptanceCriteria),
       nonGoals: splitList(nonGoals),
       rolloutConstraints: splitList(rolloutConstraints),
@@ -278,6 +418,48 @@ export default function ObjectiveDetail() {
       deploymentIds: splitList(deploymentIds),
       incidentIds: splitList(incidentIds),
     };
+  }
+
+  function updateTagEntry(index: number, field: keyof TagEntry, value: string) {
+    setTagEntries((current) => current.map((entry, entryIndex) => (
+      entryIndex === index ? { ...entry, [field]: value } : entry
+    )));
+  }
+
+  function addTagEntry() {
+    setTagEntries((current) => [...current, createEmptyTagEntry()]);
+  }
+
+  function formatObjectiveOptionLabel(item: Objective): string {
+    const linkedVesselId = item.vesselIds[0] || '';
+    const linkedVesselName = linkedVesselId ? vesselMap.get(linkedVesselId) || linkedVesselId : '';
+    return linkedVesselName
+      ? `${item.title} - ${linkedVesselName} (${item.id})`
+      : `${item.title} (${item.id})`;
+  }
+
+  function removeTagEntry(index: number) {
+    setTagEntries((current) => {
+      const next = current.filter((_entry, entryIndex) => entryIndex !== index);
+      return next.length > 0 ? next : [createEmptyTagEntry()];
+    });
+  }
+
+  function handleVesselScopeChange(nextVesselId: string) {
+    if (!nextVesselId) {
+      setVesselIds('');
+      setFleetIds('');
+      return;
+    }
+
+    setVesselIds(replacePrimaryLinkedId(vesselIds, nextVesselId));
+    const selectedVessel = vessels.find((vessel) => vessel.id === nextVesselId);
+    if (selectedVessel?.fleetId) {
+      setFleetIds(replacePrimaryLinkedId(fleetIds, selectedVessel.fleetId));
+      return;
+    }
+
+    setFleetIds('');
   }
 
   async function loadRefinementSessions(objectiveId: string, preferredSessionId?: string) {
@@ -304,18 +486,36 @@ export default function ObjectiveDetail() {
       listVessels({ pageSize: 9999 }),
       listCaptains({ pageSize: 9999 }),
       listPipelines({ pageSize: 9999 }),
-    ]).then(([fleetResult, vesselResult, captainResult, pipelineResult]) => {
+      listBacklog({ pageSize: 9999 }),
+    ]).then(([fleetResult, vesselResult, captainResult, pipelineResult, objectiveResult]) => {
       if (cancelled) return;
       setFleets(fleetResult.objects || []);
       setVessels(vesselResult.objects || []);
       setCaptains(captainResult.objects || []);
       setPipelines(pipelineResult.objects || []);
+      setAvailableObjectives(objectiveResult.objects || []);
     }).catch((err: unknown) => {
       if (!cancelled) setError(err instanceof Error ? err.message : t('Failed to load backlog reference data.'));
     });
 
     return () => { cancelled = true; };
   }, [t]);
+
+  useEffect(() => {
+    if (!createMode) return;
+
+    const params = new URLSearchParams(location.search);
+    const prefillVesselId = params.get('vesselId') || '';
+    const prefillFleetId = vessels.find((vessel) => vessel.id === prefillVesselId)?.fleetId || '';
+
+    if (prefillVesselId) {
+      setVesselIds((current) => current || replacePrimaryLinkedId('', prefillVesselId));
+    }
+
+    if (prefillFleetId) {
+      setFleetIds((current) => current || replacePrimaryLinkedId('', prefillFleetId));
+    }
+  }, [createMode, location.search, vessels]);
 
   useEffect(() => {
     if (createMode || !id) return;
@@ -455,6 +655,10 @@ export default function ObjectiveDetail() {
 
   async function handleSave() {
     if (!canManage) return;
+    if (!title.trim()) {
+      setError(t('Backlog item title is required.'));
+      return;
+    }
 
     try {
       setSaving(true);
@@ -669,17 +873,17 @@ export default function ObjectiveDetail() {
         </div>
         <div className="inline-actions">
           {!createMode && (
-            <button className="btn btn-sm" onClick={() => setJsonData({ open: true, title, data: objective })}>
+            <button className="btn btn-sm" onClick={() => setJsonData({ open: true, title, data: objective })} title={t('Open the raw backlog item JSON payload.')}>
               {t('View JSON')}
             </button>
           )}
           {!createMode && objective && (
-            <button className="btn btn-sm" onClick={() => navigate(`/history?objectiveId=${encodeURIComponent(objective.id)}`)}>
+            <button className="btn btn-sm" onClick={() => navigate(`/history?objectiveId=${encodeURIComponent(objective.id)}`)} title={t('Open the historical timeline filtered to this backlog item.')}>
               {t('History')}
             </button>
           )}
           {!createMode && objective?.sourceProvider === 'GitHub' && primaryVesselId && gitHubSourceNumber && (
-            <button className="btn btn-sm" disabled={refreshingGitHub} onClick={() => void handleRefreshGitHub()}>
+            <button className="btn btn-sm" disabled={refreshingGitHub} onClick={() => void handleRefreshGitHub()} title={t('Refresh this backlog item from its GitHub source issue or pull request.')}>
               {refreshingGitHub ? t('Refreshing...') : t('Refresh GitHub')}
             </button>
           )}
@@ -687,6 +891,7 @@ export default function ObjectiveDetail() {
             <button
               className="btn btn-sm"
               disabled={!primaryVesselId}
+              title={actionHelp.planning}
               onClick={() => navigate('/planning', {
                 state: {
                   fromObjective: true,
@@ -706,6 +911,7 @@ export default function ObjectiveDetail() {
             <button
               className="btn btn-sm"
               disabled={!primaryVesselId}
+              title={actionHelp.dispatch}
               onClick={() => navigate('/dispatch', {
                 state: {
                   fromObjective: true,
@@ -725,6 +931,7 @@ export default function ObjectiveDetail() {
             <button
               className="btn btn-sm"
               disabled={!primaryVesselId}
+              title={actionHelp.release}
               onClick={() => navigate('/releases/new', {
                 state: {
                   prefill: {
@@ -742,7 +949,7 @@ export default function ObjectiveDetail() {
             </button>
           )}
           {!createMode && canManage && (
-            <button className="btn btn-sm btn-danger" onClick={handleDelete}>
+            <button className="btn btn-sm btn-danger" onClick={handleDelete} title={actionHelp.deleteBacklog}>
               {t('Delete')}
             </button>
           )}
@@ -848,205 +1055,252 @@ export default function ObjectiveDetail() {
           <div className="detail-section-header">
             <h3>{t('Backlog Item')}</h3>
           </div>
-          <div className="detail-form-grid">
-            <div className="form-field">
-              <label>{t('Title')}</label>
-              <input value={title} onChange={(event) => setTitle(event.target.value)} disabled={!canManage} />
+          <div className="detail-form-grid backlog-item-grid">
+            <div className="form-field detail-field-full">
+              <label title={fieldHelp.title}>{t('Title')}</label>
+              <input
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+                disabled={!canManage}
+                placeholder={t('Add feature to improve login')}
+                title={fieldHelp.title}
+              />
             </div>
             <div className="form-field">
-              <label>{t('Owner')}</label>
-              <input value={owner} onChange={(event) => setOwner(event.target.value)} disabled={!canManage} />
-            </div>
-            <div className="form-field">
-              <label>{t('Kind')}</label>
-              <select value={kind} onChange={(event) => setKind(event.target.value as ObjectiveKind)} disabled={!canManage}>
-                {OBJECTIVE_KINDS.map((value) => (
-                  <option key={value} value={value}>{value}</option>
+              <label title={fieldHelp.vessel}>{t('Vessel')}</label>
+              <select value={primaryVesselId} onChange={(event) => handleVesselScopeChange(event.target.value)} disabled={!canManage} title={fieldHelp.vessel}>
+                <option value="">{t('No vessel selected')}</option>
+                {vessels.map((vessel) => (
+                  <option key={vessel.id} value={vessel.id}>
+                    {vessel.fleetId ? `${vessel.name} (${fleetMap.get(vessel.fleetId) || vessel.fleetId})` : vessel.name}
+                  </option>
                 ))}
               </select>
             </div>
             <div className="form-field">
-              <label>{t('Category')}</label>
-              <input value={category} onChange={(event) => setCategory(event.target.value)} disabled={!canManage} />
-            </div>
-            <div className="form-field">
-              <label>{t('Priority')}</label>
-              <select value={priority} onChange={(event) => setPriority(event.target.value as ObjectivePriority)} disabled={!canManage}>
-                {OBJECTIVE_PRIORITIES.map((value) => (
-                  <option key={value} value={value}>{value}</option>
-                ))}
-              </select>
-            </div>
-            <div className="form-field">
-              <label>{t('Rank')}</label>
-              <input type="number" value={rank} onChange={(event) => setRank(event.target.value)} disabled={!canManage} />
-            </div>
-            <div className="form-field">
-              <label>{t('Backlog State')}</label>
-              <select value={backlogState} onChange={(event) => setBacklogState(event.target.value as ObjectiveBacklogState)} disabled={!canManage}>
-                {OBJECTIVE_BACKLOG_STATES.map((value) => (
-                  <option key={value} value={value}>{value}</option>
-                ))}
-              </select>
-            </div>
-            <div className="form-field">
-              <label>{t('Lifecycle Status')}</label>
-              <select value={status} onChange={(event) => setStatus(event.target.value as ObjectiveStatus)} disabled={!canManage}>
+              <label title={fieldHelp.status}>{t('Status')}</label>
+              <select value={status} onChange={(event) => setStatus(event.target.value as ObjectiveStatus)} disabled={!canManage} title={fieldHelp.status}>
                 {OBJECTIVE_STATUSES.map((value) => (
                   <option key={value} value={value}>{value}</option>
                 ))}
               </select>
             </div>
             <div className="form-field">
-              <label>{t('Effort')}</label>
-              <select value={effort} onChange={(event) => setEffort(event.target.value as ObjectiveEffort)} disabled={!canManage}>
+              <label title={fieldHelp.owner}>{t('Owner')}</label>
+              <input value={owner} onChange={(event) => setOwner(event.target.value)} disabled={!canManage} title={fieldHelp.owner} />
+            </div>
+            <div className="form-field detail-field-full">
+              <label title={fieldHelp.description}>{t('Description')}</label>
+              <textarea rows={5} value={description} onChange={(event) => setDescription(event.target.value)} disabled={!canManage} title={fieldHelp.description} />
+            </div>
+            <div className="form-field detail-field-full">
+              <label title={`${fieldHelp.tagKey} ${fieldHelp.tagValue}`}>{t('Tags')}</label>
+              <div className="tag-entry-list">
+                {tagEntries.map((entry, index) => (
+                  <div key={`tag-entry-${index}`} className="tag-entry-row">
+                    <input
+                      value={entry.key}
+                      onChange={(event) => updateTagEntry(index, 'key', event.target.value)}
+                      disabled={!canManage}
+                      placeholder={t('Key')}
+                      title={fieldHelp.tagKey}
+                    />
+                    <input
+                      value={entry.value}
+                      onChange={(event) => updateTagEntry(index, 'value', event.target.value)}
+                      disabled={!canManage}
+                      placeholder={t('Value')}
+                      title={fieldHelp.tagValue}
+                    />
+                    <div className="tag-entry-actions">
+                      {index === tagEntries.length - 1 ? (
+                        <button
+                          type="button"
+                          className="icon-btn icon-btn-add"
+                          onClick={addTagEntry}
+                          disabled={!canManage}
+                          aria-label={t('Add tag')}
+                          title={t('Add tag')}
+                        />
+                      ) : (
+                        <span className="icon-btn icon-btn-placeholder" aria-hidden="true" />
+                      )}
+                      <button
+                        type="button"
+                        className="icon-btn icon-btn-delete"
+                        onClick={() => removeTagEntry(index)}
+                        disabled={!canManage}
+                        aria-label={t('Delete tag')}
+                        title={t('Delete tag')}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="card detail-section">
+          <div className="detail-section-header">
+            <h3>{t('Scope')}</h3>
+          </div>
+          <div className="text-dim backlog-section-note">
+            {t('Attach a fleet or vessel above to unlock repository-aware planning, dispatch, and release drafting from this backlog item. Armada adds downstream planning, mission, release, deployment, and incident links later.')}
+          </div>
+          <div className="detail-form-grid">
+            {!createMode && objective && (
+              <>
+                <div>
+                  <h4>{t('Linked Fleets')}</h4>
+                  {renderRouteLinks(linkedFleetIds, '/fleets/', fleetMap)}
+                </div>
+                <div>
+                  <h4>{t('Linked Vessels')}</h4>
+                  {renderRouteLinks(linkedVesselIds, '/vessels/', vesselMap)}
+                </div>
+              </>
+            )}
+            <div className="form-field detail-field-full">
+              <label title={fieldHelp.refinementSummary}>{t('Refinement Summary')}</label>
+              <textarea rows={4} value={refinementSummary} onChange={(event) => setRefinementSummary(event.target.value)} disabled={!canManage} title={fieldHelp.refinementSummary} />
+            </div>
+            <div className="form-field">
+              <label title={fieldHelp.acceptanceCriteria}>{t('Acceptance Criteria')}</label>
+              <textarea rows={6} value={acceptanceCriteria} onChange={(event) => setAcceptanceCriteria(event.target.value)} disabled={!canManage} title={fieldHelp.acceptanceCriteria} />
+            </div>
+            <div className="form-field">
+              <label title={fieldHelp.nonGoals}>{t('Non-Goals')}</label>
+              <textarea rows={6} value={nonGoals} onChange={(event) => setNonGoals(event.target.value)} disabled={!canManage} title={fieldHelp.nonGoals} />
+            </div>
+            <div className="form-field detail-field-full">
+              <label title={fieldHelp.rolloutConstraints}>{t('Rollout Constraints')}</label>
+              <textarea rows={4} value={rolloutConstraints} onChange={(event) => setRolloutConstraints(event.target.value)} disabled={!canManage} title={fieldHelp.rolloutConstraints} />
+            </div>
+            <div className="form-field detail-field-full">
+              <label title={fieldHelp.evidenceLinks}>{t('Evidence Links')}</label>
+              <textarea rows={4} value={evidenceLinks} onChange={(event) => setEvidenceLinks(event.target.value)} disabled={!canManage} title={fieldHelp.evidenceLinks} />
+            </div>
+          </div>
+        </div>
+
+        <div className="card detail-section">
+          <div className="detail-section-header">
+            <h3>{t('Workflow Metadata')}</h3>
+          </div>
+          <div className="detail-form-grid">
+            <div className="form-field">
+              <label title={fieldHelp.kind}>{t('Kind')}</label>
+              <select value={kind} onChange={(event) => setKind(event.target.value as ObjectiveKind)} disabled={!canManage} title={fieldHelp.kind}>
+                {OBJECTIVE_KINDS.map((value) => (
+                  <option key={value} value={value}>{value}</option>
+                ))}
+              </select>
+            </div>
+            <div className="form-field">
+              <label title={fieldHelp.category}>{t('Category')}</label>
+              <input value={category} onChange={(event) => setCategory(event.target.value)} disabled={!canManage} title={fieldHelp.category} />
+            </div>
+            <div className="form-field">
+              <label title={fieldHelp.priority}>{t('Priority')}</label>
+              <select value={priority} onChange={(event) => setPriority(event.target.value as ObjectivePriority)} disabled={!canManage} title={fieldHelp.priority}>
+                {OBJECTIVE_PRIORITIES.map((value) => (
+                  <option key={value} value={value}>{value}</option>
+                ))}
+              </select>
+            </div>
+            <div className="form-field">
+              <label title={fieldHelp.backlogState}>{t('Backlog State')}</label>
+              <select value={backlogState} onChange={(event) => setBacklogState(event.target.value as ObjectiveBacklogState)} disabled={!canManage} title={fieldHelp.backlogState}>
+                {OBJECTIVE_BACKLOG_STATES.map((value) => (
+                  <option key={value} value={value}>{value}</option>
+                ))}
+              </select>
+            </div>
+            <div className="form-field">
+              <label title={fieldHelp.effort}>{t('Effort')}</label>
+              <select value={effort} onChange={(event) => setEffort(event.target.value as ObjectiveEffort)} disabled={!canManage} title={fieldHelp.effort}>
                 {OBJECTIVE_EFFORTS.map((value) => (
                   <option key={value} value={value}>{value}</option>
                 ))}
               </select>
             </div>
             <div className="form-field">
-              <label>{t('Target Version')}</label>
-              <input value={targetVersion} onChange={(event) => setTargetVersion(event.target.value)} disabled={!canManage} />
+              <label title={fieldHelp.rank}>{t('Rank')}</label>
+              <input type="number" value={rank} onChange={(event) => setRank(event.target.value)} disabled={!canManage} title={fieldHelp.rank} />
             </div>
             <div className="form-field">
-              <label>{t('Due UTC')}</label>
-              <input type="datetime-local" value={dueUtc} onChange={(event) => setDueUtc(event.target.value)} disabled={!canManage} />
+              <label title={fieldHelp.targetVersion}>{t('Target Version')}</label>
+              <input value={targetVersion} onChange={(event) => setTargetVersion(event.target.value)} disabled={!canManage} title={fieldHelp.targetVersion} />
             </div>
             <div className="form-field">
-              <label>{t('Parent Objective ID')}</label>
-              <input value={parentObjectiveId} onChange={(event) => setParentObjectiveId(event.target.value)} disabled={!canManage} />
-            </div>
-            <div className="form-field" style={{ gridColumn: '1 / -1' }}>
-              <label>{t('Description')}</label>
-              <textarea rows={5} value={description} onChange={(event) => setDescription(event.target.value)} disabled={!canManage} />
-            </div>
-            <div className="form-field" style={{ gridColumn: '1 / -1' }}>
-              <label>{t('Blocked By Objective IDs')}</label>
-              <textarea rows={3} value={blockedByObjectiveIds} onChange={(event) => setBlockedByObjectiveIds(event.target.value)} disabled={!canManage} placeholder={t('One per line or comma-separated')} />
-            </div>
-          </div>
-        </div>
-
-        <div className="card detail-section">
-          <div className="detail-section-header">
-            <h3>{t('Scope And Suggestions')}</h3>
-          </div>
-          <div className="detail-form-grid">
-            <div className="form-field" style={{ gridColumn: '1 / -1' }}>
-              <label>{t('Refinement Summary')}</label>
-              <textarea rows={4} value={refinementSummary} onChange={(event) => setRefinementSummary(event.target.value)} disabled={!canManage} />
+              <label title={fieldHelp.dueUtc}>{t('Due UTC')}</label>
+              <input type="datetime-local" value={dueUtc} onChange={(event) => setDueUtc(event.target.value)} disabled={!canManage} title={fieldHelp.dueUtc} />
             </div>
             <div className="form-field">
-              <label>{t('Acceptance Criteria')}</label>
-              <textarea rows={6} value={acceptanceCriteria} onChange={(event) => setAcceptanceCriteria(event.target.value)} disabled={!canManage} />
+              <label title={fieldHelp.parentObjectiveId}>{t('Parent Objective')}</label>
+              <select value={parentObjectiveId} onChange={(event) => setParentObjectiveId(event.target.value)} disabled={!canManage} title={fieldHelp.parentObjectiveId}>
+                <option value="">{t('No parent objective')}</option>
+                {parentObjectiveId && !selectableObjectiveIdSet.has(parentObjectiveId) && (
+                  <option value={parentObjectiveId}>{t('Unavailable backlog item ({{id}})', { id: parentObjectiveId })}</option>
+                )}
+                {selectableObjectives.map((item) => (
+                  <option key={item.id} value={item.id}>{formatObjectiveOptionLabel(item)}</option>
+                ))}
+              </select>
             </div>
             <div className="form-field">
-              <label>{t('Non-Goals')}</label>
-              <textarea rows={6} value={nonGoals} onChange={(event) => setNonGoals(event.target.value)} disabled={!canManage} />
-            </div>
-            <div className="form-field" style={{ gridColumn: '1 / -1' }}>
-              <label>{t('Rollout Constraints')}</label>
-              <textarea rows={4} value={rolloutConstraints} onChange={(event) => setRolloutConstraints(event.target.value)} disabled={!canManage} />
-            </div>
-            <div className="form-field" style={{ gridColumn: '1 / -1' }}>
-              <label>{t('Evidence Links')}</label>
-              <textarea rows={4} value={evidenceLinks} onChange={(event) => setEvidenceLinks(event.target.value)} disabled={!canManage} />
-            </div>
-            <div className="form-field">
-              <label>{t('Suggested Pipeline')}</label>
-              <select value={suggestedPipelineId} onChange={(event) => setSuggestedPipelineId(event.target.value)} disabled={!canManage}>
+              <label title={fieldHelp.suggestedPipeline}>{t('Suggested Pipeline')}</label>
+              <select value={suggestedPipelineId} onChange={(event) => setSuggestedPipelineId(event.target.value)} disabled={!canManage} title={fieldHelp.suggestedPipeline}>
                 <option value="">{t('None')}</option>
                 {pipelines.map((pipeline) => (
                   <option key={pipeline.id} value={pipeline.id}>{pipeline.name}</option>
                 ))}
               </select>
             </div>
-            <div className="form-field">
-              <label>{t('Tags')}</label>
-              <textarea rows={3} value={tags} onChange={(event) => setTags(event.target.value)} disabled={!canManage} placeholder={t('One per line or comma-separated')} />
+            <div className="form-field detail-field-full">
+              <label title={fieldHelp.blockedByObjectiveIds}>{t('Blocked By Objectives')}</label>
+              <select
+                multiple
+                size={Math.min(Math.max(selectableObjectives.length + missingBlockedObjectiveIds.length, 4), 8)}
+                value={blockedByObjectiveIds}
+                onChange={(event) => setBlockedByObjectiveIds(Array.from(event.target.selectedOptions, (option) => option.value))}
+                disabled={!canManage || (selectableObjectives.length === 0 && missingBlockedObjectiveIds.length === 0)}
+                title={fieldHelp.blockedByObjectiveIds}
+              >
+                {missingBlockedObjectiveIds.map((blockedId) => (
+                  <option key={`blocked-missing-${blockedId}`} value={blockedId}>
+                    {t('Unavailable backlog item ({{id}})', { id: blockedId })}
+                  </option>
+                ))}
+                {selectableObjectives.map((item) => (
+                  <option key={item.id} value={item.id}>{formatObjectiveOptionLabel(item)}</option>
+                ))}
+              </select>
             </div>
-            <div className="form-field" style={{ gridColumn: '1 / -1' }}>
-              <label>{t('Suggested Playbooks')}</label>
-              <textarea rows={4} value={suggestedPlaybooks} onChange={(event) => setSuggestedPlaybooks(event.target.value)} disabled={!canManage} placeholder={t('playbook-id:InlineFullContent')} />
+            <div className="form-field detail-field-full">
+              <label title={fieldHelp.suggestedPlaybooks}>{t('Suggested Playbooks')}</label>
+              <textarea rows={4} value={suggestedPlaybooks} onChange={(event) => setSuggestedPlaybooks(event.target.value)} disabled={!canManage} placeholder={t('playbook-id:InlineFullContent')} title={fieldHelp.suggestedPlaybooks} />
             </div>
           </div>
         </div>
 
-        <div className="card detail-section">
-          <div className="detail-section-header">
-            <h3>{t('Backlog Scope Links')}</h3>
-          </div>
-          <div className="text-dim backlog-section-note">
-            {t('Link at least one vessel here to unlock repository-aware planning, dispatch, and release drafting from this backlog item.')}
-          </div>
-          <div className="detail-form-grid">
-            <div className="form-field">
-              <label>{t('Fleet IDs')}</label>
-              <textarea rows={4} value={fleetIds} onChange={(event) => setFleetIds(event.target.value)} disabled={!canManage} />
+        {!createMode && objective && hasArmadaActivityLinks && (
+          <div className="card detail-section">
+            <div className="detail-section-header">
+              <h3>{t('Armada Links')}</h3>
             </div>
-            <div className="form-field">
-              <label>{t('Vessel IDs')}</label>
-              <textarea rows={4} value={vesselIds} onChange={(event) => setVesselIds(event.target.value)} disabled={!canManage} />
+            <div className="text-dim backlog-section-note">
+              {t('Armada records these automatically as planning, execution, release, deployment, and incident work references this backlog item.')}
             </div>
-            {!createMode && objective && (
-              <>
-                <div>
-                  <h4>{t('Linked Fleets')}</h4>
-                  {renderRouteLinks(objective.fleetIds, '/fleets/', fleetMap)}
-                </div>
-                <div>
-                  <h4>{t('Linked Vessels')}</h4>
-                  {renderRouteLinks(objective.vesselIds, '/vessels/', vesselMap)}
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-
-        <div className="card detail-section">
-          <div className="detail-section-header">
-            <h3>{t('Execution And Delivery Links')}</h3>
-          </div>
-          <div className="detail-form-grid">
-            <div className="form-field">
-              <label>{t('Planning Session IDs')}</label>
-              <textarea rows={3} value={planningSessionIds} onChange={(event) => setPlanningSessionIds(event.target.value)} disabled={!canManage} />
-            </div>
-            <div className="form-field">
-              <label>{t('Refinement Session IDs')}</label>
-              <textarea rows={3} value={refinementSessionIds} onChange={(event) => setRefinementSessionIds(event.target.value)} disabled={!canManage} />
-            </div>
-            <div className="form-field">
-              <label>{t('Voyage IDs')}</label>
-              <textarea rows={3} value={voyageIds} onChange={(event) => setVoyageIds(event.target.value)} disabled={!canManage} />
-            </div>
-            <div className="form-field">
-              <label>{t('Mission IDs')}</label>
-              <textarea rows={3} value={missionIds} onChange={(event) => setMissionIds(event.target.value)} disabled={!canManage} />
-            </div>
-            <div className="form-field">
-              <label>{t('Check Run IDs')}</label>
-              <textarea rows={3} value={checkRunIds} onChange={(event) => setCheckRunIds(event.target.value)} disabled={!canManage} />
-            </div>
-            <div className="form-field">
-              <label>{t('Release IDs')}</label>
-              <textarea rows={3} value={releaseIds} onChange={(event) => setReleaseIds(event.target.value)} disabled={!canManage} />
-            </div>
-            <div className="form-field">
-              <label>{t('Deployment IDs')}</label>
-              <textarea rows={3} value={deploymentIds} onChange={(event) => setDeploymentIds(event.target.value)} disabled={!canManage} />
-            </div>
-            <div className="form-field">
-              <label>{t('Incident IDs')}</label>
-              <textarea rows={3} value={incidentIds} onChange={(event) => setIncidentIds(event.target.value)} disabled={!canManage} />
-            </div>
-            {!createMode && objective && (
-              <>
+            <div className="detail-form-grid">
+              {objective.planningSessionIds.length > 0 && (
                 <div>
                   <h4>{t('Planning Sessions')}</h4>
                   {renderRouteLinks(objective.planningSessionIds, '/planning/')}
                 </div>
+              )}
+              {objective.refinementSessionIds.length > 0 && (
                 <div>
                   <h4>{t('Refinement Sessions')}</h4>
                   {renderRouteLinks(
@@ -1054,34 +1308,46 @@ export default function ObjectiveDetail() {
                     (sessionId) => `/backlog/${objective.id}?refinementSessionId=${encodeURIComponent(sessionId)}`,
                   )}
                 </div>
+              )}
+              {objective.voyageIds.length > 0 && (
                 <div>
                   <h4>{t('Voyages')}</h4>
                   {renderRouteLinks(objective.voyageIds, '/voyages/')}
                 </div>
+              )}
+              {objective.missionIds.length > 0 && (
                 <div>
                   <h4>{t('Missions')}</h4>
                   {renderRouteLinks(objective.missionIds, '/missions/')}
                 </div>
+              )}
+              {objective.checkRunIds.length > 0 && (
                 <div>
                   <h4>{t('Checks')}</h4>
                   {renderRouteLinks(objective.checkRunIds, '/checks/')}
                 </div>
+              )}
+              {objective.releaseIds.length > 0 && (
                 <div>
                   <h4>{t('Releases')}</h4>
                   {renderRouteLinks(objective.releaseIds, '/releases/')}
                 </div>
+              )}
+              {objective.deploymentIds.length > 0 && (
                 <div>
                   <h4>{t('Deployments')}</h4>
                   {renderRouteLinks(objective.deploymentIds, '/deployments/')}
                 </div>
+              )}
+              {objective.incidentIds.length > 0 && (
                 <div>
                   <h4>{t('Incidents')}</h4>
                   {renderRouteLinks(objective.incidentIds, '/incidents/')}
                 </div>
-              </>
-            )}
+              )}
+            </div>
           </div>
-        </div>
+        )}
 
         {!createMode && objective && (
           <div className="card detail-section">
@@ -1095,8 +1361,8 @@ export default function ObjectiveDetail() {
                 </div>
                 <div className="detail-form-grid">
                   <div className="form-field">
-                    <label>{t('Captain')}</label>
-                    <select value={refinementCaptainId} onChange={(event) => setRefinementCaptainId(event.target.value)} disabled={!canManage || creatingRefinement}>
+                    <label title={fieldHelp.refinementCaptain}>{t('Captain')}</label>
+                    <select value={refinementCaptainId} onChange={(event) => setRefinementCaptainId(event.target.value)} disabled={!canManage || creatingRefinement} title={fieldHelp.refinementCaptain}>
                       <option value="">{t('Select a captain')}</option>
                       {captains.map((captain) => (
                         <option key={captain.id} value={captain.id}>
@@ -1106,8 +1372,8 @@ export default function ObjectiveDetail() {
                     </select>
                   </div>
                   <div className="form-field">
-                    <label>{t('Vessel Context')}</label>
-                    <select value={refinementVesselId} onChange={(event) => setRefinementVesselId(event.target.value)} disabled={!canManage || creatingRefinement}>
+                    <label title={fieldHelp.refinementVessel}>{t('Vessel Context')}</label>
+                    <select value={refinementVesselId} onChange={(event) => setRefinementVesselId(event.target.value)} disabled={!canManage || creatingRefinement} title={fieldHelp.refinementVessel}>
                       <option value="">{t('No vessel context')}</option>
                       {vessels.map((vessel) => (
                         <option key={vessel.id} value={vessel.id}>{vessel.name}</option>
@@ -1115,8 +1381,8 @@ export default function ObjectiveDetail() {
                     </select>
                   </div>
                   <div className="form-field">
-                    <label>{t('Fleet Context')}</label>
-                    <select value={refinementFleetId} onChange={(event) => setRefinementFleetId(event.target.value)} disabled={!canManage || creatingRefinement}>
+                    <label title={fieldHelp.refinementFleet}>{t('Fleet Context')}</label>
+                    <select value={refinementFleetId} onChange={(event) => setRefinementFleetId(event.target.value)} disabled={!canManage || creatingRefinement} title={fieldHelp.refinementFleet}>
                       <option value="">{t('No fleet context')}</option>
                       {fleets.map((fleet) => (
                         <option key={fleet.id} value={fleet.id}>{fleet.name}</option>
@@ -1124,12 +1390,12 @@ export default function ObjectiveDetail() {
                     </select>
                   </div>
                   <div className="form-field">
-                    <label>{t('Session Title')}</label>
-                    <input value={refinementTitle} onChange={(event) => setRefinementTitle(event.target.value)} disabled={!canManage || creatingRefinement} placeholder={t('Optional refinement session title')} />
+                    <label title={fieldHelp.refinementTitle}>{t('Session Title')}</label>
+                    <input value={refinementTitle} onChange={(event) => setRefinementTitle(event.target.value)} disabled={!canManage || creatingRefinement} placeholder={t('Optional refinement session title')} title={fieldHelp.refinementTitle} />
                   </div>
                   <div className="form-field" style={{ gridColumn: '1 / -1' }}>
-                    <label>{t('Initial Refinement Prompt')}</label>
-                    <textarea rows={4} value={refinementInitialMessage} onChange={(event) => setRefinementInitialMessage(event.target.value)} disabled={!canManage || creatingRefinement} placeholder={t('Optional kickoff prompt for the selected captain')} />
+                    <label title={fieldHelp.refinementInitialMessage}>{t('Initial Refinement Prompt')}</label>
+                    <textarea rows={4} value={refinementInitialMessage} onChange={(event) => setRefinementInitialMessage(event.target.value)} disabled={!canManage || creatingRefinement} placeholder={t('Optional kickoff prompt for the selected captain')} title={fieldHelp.refinementInitialMessage} />
                   </div>
                 </div>
                 {selectedRefinementCaptain && (
@@ -1146,6 +1412,7 @@ export default function ObjectiveDetail() {
                       type="button"
                       className="btn btn-primary"
                       disabled={creatingRefinement || !refinementCaptainId}
+                      title={actionHelp.startRefinement}
                       onClick={() => void handleCreateRefinementSession()}
                     >
                       {creatingRefinement ? t('Starting...') : t('Start Refinement')}
@@ -1183,10 +1450,10 @@ export default function ObjectiveDetail() {
                         </div>
                         <div className="inline-actions">
                           <StatusBadge status={refinementDetail.session.status} />
-                          <button type="button" className="btn btn-sm" disabled={stoppingRefinement} onClick={() => void handleStopRefinementSession()}>
+                          <button type="button" className="btn btn-sm" disabled={stoppingRefinement} onClick={() => void handleStopRefinementSession()} title={actionHelp.stopRefinement}>
                             {stoppingRefinement ? t('Stopping...') : t('Stop Session')}
                           </button>
-                          <button type="button" className="btn btn-sm" disabled={deletingRefinement} onClick={() => void handleDeleteRefinementSession()}>
+                          <button type="button" className="btn btn-sm" disabled={deletingRefinement} onClick={() => void handleDeleteRefinementSession()} title={actionHelp.deleteRefinement}>
                             {deletingRefinement ? t('Deleting...') : t('Delete Session')}
                           </button>
                         </div>
@@ -1218,6 +1485,7 @@ export default function ObjectiveDetail() {
                             type="button"
                             className={`backlog-refinement-message${selectedRefinementMessageId === message.id ? ' selected' : ''}`}
                             onClick={() => setSelectedRefinementMessageId(message.id)}
+                            title={t('Select this transcript message for summarizing or applying refinement back to the backlog item.')}
                           >
                             <div className="backlog-refinement-message-head">
                               <strong>{message.role}</strong>
@@ -1229,18 +1497,18 @@ export default function ObjectiveDetail() {
                       </div>
 
                       <div className="form-field" style={{ marginTop: '1rem' }}>
-                        <label>{t('Send Refinement Message')}</label>
-                        <textarea rows={4} value={refinementComposer} onChange={(event) => setRefinementComposer(event.target.value)} disabled={!canManage || sendingRefinement} placeholder={t('Ask the selected captain to sharpen scope, acceptance criteria, non-goals, or rollout constraints.')} />
+                        <label title={fieldHelp.refinementComposer}>{t('Send Refinement Message')}</label>
+                        <textarea rows={4} value={refinementComposer} onChange={(event) => setRefinementComposer(event.target.value)} disabled={!canManage || sendingRefinement} placeholder={t('Ask the selected captain to sharpen scope, acceptance criteria, non-goals, or rollout constraints.')} title={fieldHelp.refinementComposer} />
                       </div>
 
                       <div className="form-actions">
-                        <button type="button" className="btn btn-primary" disabled={!canManage || sendingRefinement || !refinementComposer.trim()} onClick={() => void handleSendRefinementMessage()}>
+                        <button type="button" className="btn btn-primary" disabled={!canManage || sendingRefinement || !refinementComposer.trim()} onClick={() => void handleSendRefinementMessage()} title={actionHelp.sendRefinement}>
                           {sendingRefinement ? t('Sending...') : t('Send')}
                         </button>
-                        <button type="button" className="btn" disabled={!canManage || summarizingRefinement || !selectedRefinementMessageId} onClick={() => void handleSummarizeRefinement()}>
+                        <button type="button" className="btn" disabled={!canManage || summarizingRefinement || !selectedRefinementMessageId} onClick={() => void handleSummarizeRefinement()} title={actionHelp.summarizeRefinement}>
                           {summarizingRefinement ? t('Summarizing...') : t('Summarize')}
                         </button>
-                        <button type="button" className="btn" disabled={!canManage || applyingRefinement || !selectedRefinementMessageId} onClick={() => void handleApplyRefinementSummary()}>
+                        <button type="button" className="btn" disabled={!canManage || applyingRefinement || !selectedRefinementMessageId} onClick={() => void handleApplyRefinementSummary()} title={actionHelp.applyRefinement}>
                           {applyingRefinement ? t('Applying...') : t('Apply To Backlog Item')}
                         </button>
                       </div>
@@ -1307,11 +1575,11 @@ export default function ObjectiveDetail() {
       </div>
 
       <div className="detail-footer">
-        <button className="btn btn-secondary" onClick={() => navigate(canonicalListPath)}>
+        <button className="btn btn-secondary" onClick={() => navigate(canonicalListPath)} title={actionHelp.back}>
           {t('Back')}
         </button>
         {canManage && (
-          <button className="btn btn-primary" disabled={saving} onClick={() => void handleSave()}>
+          <button className="btn btn-primary" disabled={saving} onClick={() => void handleSave()} title={actionHelp.save}>
             {saving ? t('Saving...') : createMode ? t('Create Backlog Item') : t('Save Changes')}
           </button>
         )}
