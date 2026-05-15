@@ -24,6 +24,16 @@ namespace Armada.Core.Models
         public string? Owner { get; set; } = null;
 
         /// <summary>
+        /// Optional category filter.
+        /// </summary>
+        public string? Category { get; set; } = null;
+
+        /// <summary>
+        /// Optional parent objective filter.
+        /// </summary>
+        public string? ParentObjectiveId { get; set; } = null;
+
+        /// <summary>
         /// Optional vessel filter.
         /// </summary>
         public string? VesselId { get; set; } = null;
@@ -77,6 +87,31 @@ namespace Armada.Core.Models
         /// Optional state filter.
         /// </summary>
         public ObjectiveStatusEnum? Status { get; set; } = null;
+
+        /// <summary>
+        /// Optional backlog-state filter.
+        /// </summary>
+        public ObjectiveBacklogStateEnum? BacklogState { get; set; } = null;
+
+        /// <summary>
+        /// Optional kind filter.
+        /// </summary>
+        public ObjectiveKindEnum? Kind { get; set; } = null;
+
+        /// <summary>
+        /// Optional priority filter.
+        /// </summary>
+        public ObjectivePriorityEnum? Priority { get; set; } = null;
+
+        /// <summary>
+        /// Optional effort filter.
+        /// </summary>
+        public ObjectiveEffortEnum? Effort { get; set; } = null;
+
+        /// <summary>
+        /// Optional target-version filter.
+        /// </summary>
+        public string? TargetVersion { get; set; } = null;
 
         /// <summary>
         /// Optional free-text search.

@@ -9,6 +9,7 @@ namespace Armada.Test.Automated.Suites
     using System.Text;
     using System.Text.Json;
     using System.Threading.Tasks;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Test.Common;
 
@@ -252,6 +253,81 @@ namespace Armada.Test.Automated.Suites
                 AssertToolResultValid(enumerateResult);
                 string enumerateText = GetToolResultText(enumerateResult);
                 AssertContains(release.Id, enumerateText);
+            }).ConfigureAwait(false);
+
+            await RunTest("BacklogTools_CreateListUpdateReorderAndDelete", async () =>
+            {
+                JsonElement createResult = await CallToolAsync("create_backlog_item", new
+                {
+                    title = "MCP Backlog Coverage",
+                    description = "Exercise backlog CRUD through MCP.",
+                    kind = "Feature",
+                    priority = "P1",
+                    rank = 25,
+                    backlogState = "Inbox",
+                    effort = "M"
+                }).ConfigureAwait(false);
+                AssertToolResultValid(createResult);
+                Objective created = JsonHelper.Deserialize<Objective>(GetToolResultText(createResult));
+                AssertStartsWith("obj_", created.Id);
+                AssertEqual(ObjectiveKindEnum.Feature, created.Kind);
+                AssertEqual(ObjectivePriorityEnum.P1, created.Priority);
+                AssertEqual(ObjectiveBacklogStateEnum.Inbox, created.BacklogState);
+
+                JsonElement listResult = await CallToolAsync("list_backlog", new
+                {
+                    search = "MCP Backlog Coverage",
+                    pageSize = 25
+                }).ConfigureAwait(false);
+                AssertToolResultValid(listResult);
+                AssertContains(created.Id, GetToolResultText(listResult));
+
+                JsonElement updateResult = await CallToolAsync("update_objective", new
+                {
+                    objectiveId = created.Id,
+                    backlogState = "ReadyForPlanning",
+                    rank = 10,
+                    targetVersion = "0.8.0"
+                }).ConfigureAwait(false);
+                AssertToolResultValid(updateResult);
+                Objective updated = JsonHelper.Deserialize<Objective>(GetToolResultText(updateResult));
+                AssertEqual(ObjectiveBacklogStateEnum.ReadyForPlanning, updated.BacklogState);
+                AssertEqual(10, updated.Rank);
+                AssertEqual("0.8.0", updated.TargetVersion);
+
+                JsonElement reorderResult = await CallToolAsync("reorder_backlog_items", new
+                {
+                    items = new[]
+                    {
+                        new
+                        {
+                            objectiveId = created.Id,
+                            rank = 5
+                        }
+                    }
+                }).ConfigureAwait(false);
+                AssertToolResultValid(reorderResult);
+                List<Objective> reordered = JsonHelper.Deserialize<List<Objective>>(GetToolResultText(reorderResult));
+                AssertEqual(1, reordered.Count);
+                AssertEqual(5, reordered[0].Rank);
+
+                JsonElement getResult = await CallToolAsync("get_backlog_item", new
+                {
+                    objectiveId = created.Id
+                }).ConfigureAwait(false);
+                AssertToolResultValid(getResult);
+                Objective fetched = JsonHelper.Deserialize<Objective>(GetToolResultText(getResult));
+                AssertEqual(created.Id, fetched.Id);
+                AssertEqual(5, fetched.Rank);
+                AssertEqual(ObjectiveBacklogStateEnum.ReadyForPlanning, fetched.BacklogState);
+
+                JsonElement deleteResult = await CallToolAsync("delete_backlog_item", new
+                {
+                    objectiveId = created.Id
+                }).ConfigureAwait(false);
+                AssertToolResultValid(deleteResult);
+                string deleteText = GetToolResultText(deleteResult);
+                AssertContains(created.Id, deleteText);
             }).ConfigureAwait(false);
 
             // ArmadaStatus

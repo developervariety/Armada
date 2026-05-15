@@ -61,6 +61,7 @@ namespace Armada.Server.Routes
                 .WithParameter(OpenApiParameterMetadata.Query("environmentId", "Optional environment filter", false))
                 .WithParameter(OpenApiParameterMetadata.Query("deploymentId", "Optional deployment filter", false))
                 .WithParameter(OpenApiParameterMetadata.Query("incidentId", "Optional incident filter", false))
+                .WithParameter(OpenApiParameterMetadata.Query("postmortemOnly", "Optional flag that narrows results to incidents with postmortem data and directly linked lifecycle entries", false))
                 .WithParameter(OpenApiParameterMetadata.Query("missionId", "Optional mission filter", false))
                 .WithParameter(OpenApiParameterMetadata.Query("voyageId", "Optional voyage filter", false))
                 .WithParameter(OpenApiParameterMetadata.Query("actor", "Optional actor or principal filter", false))
@@ -108,6 +109,8 @@ namespace Armada.Server.Routes
                 query.FromUtc = fromUtc.ToUniversalTime();
             if (DateTime.TryParse(req.Query.GetValueOrDefault("toUtc"), out DateTime toUtc))
                 query.ToUtc = toUtc.ToUniversalTime();
+            if (Boolean.TryParse(req.Query.GetValueOrDefault("postmortemOnly"), out bool postmortemOnly))
+                query.PostmortemOnly = postmortemOnly;
 
             query.ObjectiveId = NormalizeEmpty(req.Query.GetValueOrDefault("objectiveId")) ?? query.ObjectiveId;
             query.VesselId = NormalizeEmpty(req.Query.GetValueOrDefault("vesselId")) ?? query.VesselId;

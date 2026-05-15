@@ -12,6 +12,7 @@ import {
   listVessels,
   listWorkflowProfiles,
   rollbackDeployment,
+  syncGitHubActions,
   updateDeployment,
   verifyDeployment,
 } from '../api/client';
@@ -73,6 +74,7 @@ export default function DeploymentDetail() {
   const [autoExecute, setAutoExecute] = useState(true);
   const [loading, setLoading] = useState(!createMode);
   const [saving, setSaving] = useState(false);
+  const [syncingGitHub, setSyncingGitHub] = useState(false);
   const [error, setError] = useState('');
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({
@@ -383,6 +385,32 @@ export default function DeploymentDetail() {
     });
   }
 
+  async function handleSyncGitHubActions(currentDeployment: Deployment) {
+    if (!currentDeployment.vesselId) return;
+
+    try {
+      setSyncingGitHub(true);
+      const syncResult = await syncGitHubActions({
+        vesselId: currentDeployment.vesselId,
+        workflowProfileId: currentDeployment.workflowProfileId || null,
+        deploymentId: currentDeployment.id,
+        environmentName: currentDeployment.environmentName || null,
+        branchName: currentDeployment.sourceRef || null,
+        runCount: 20,
+      });
+      const refreshed = await getDeployment(currentDeployment.id);
+      setDeployment(refreshed);
+      pushToast('success', t('GitHub Actions sync complete: {{created}} created, {{updated}} updated.', {
+        created: syncResult.createdCount,
+        updated: syncResult.updatedCount,
+      }));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('GitHub Actions sync failed.'));
+    } finally {
+      setSyncingGitHub(false);
+    }
+  }
+
   if (loading) return <p className="text-dim">{t('Loading...')}</p>;
 
   return (
@@ -404,6 +432,11 @@ export default function DeploymentDetail() {
           {!createMode && deployment && (
             <button className="btn btn-sm" onClick={() => openRunCheck(deployment)}>
               {t('Run Check')}
+            </button>
+          )}
+          {!createMode && deployment?.vesselId && (
+            <button className="btn btn-sm" disabled={syncingGitHub} onClick={() => void handleSyncGitHubActions(deployment)}>
+              {syncingGitHub ? t('Syncing GitHub...') : t('Sync GitHub Actions')}
             </button>
           )}
           {!createMode && deployment && (

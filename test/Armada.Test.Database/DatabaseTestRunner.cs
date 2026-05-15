@@ -92,9 +92,12 @@ namespace Armada.Test.Database
             await RunTest("Environment_Create_Read_Update_Enumerate", "Operational", () => TestEnvironmentCrudAsync(token), token);
             await RunTest("Release_Create_Read_Update_Enumerate", "Operational", () => TestReleaseCrudAsync(token), token);
             await RunTest("Deployment_Create_Read_Update_Enumerate", "Operational", () => TestDeploymentCrudAsync(token), token);
+            await RunTest("Objective_Create_Read_Update_Enumerate", "Operational", () => TestObjectiveCrudAsync(token), token);
+            await RunTest("ObjectiveRefinementSession_Message_Create_Read_Update_Enumerate", "Operational", () => TestObjectiveRefinementCrudAsync(token), token);
 
             Console.WriteLine();
             Console.WriteLine("--- Cascade Verification ---");
+            await RunTest("Objective_ForeignKeys_And_Refinement_Cascade", "Cascade", () => TestObjectiveForeignKeysAsync(token), token);
             await RunTest("Tenant_Delete_Cascades_Auth_Data", "Cascade", () => TestTenantAuthCascadeDeleteAsync(token), token);
             await RunTest("Tenant_Delete_With_Operational_Subordinates_Is_FK_Fenced", "Cascade", () => TestTenantDeleteFencedByOperationalDataAsync(token), token);
 
@@ -996,6 +999,159 @@ namespace Armada.Test.Database
                 }, token).ConfigureAwait(false);
                 DatabaseAssert.True(page.TotalRecords >= 2, "Deployment enumeration should include created deployments");
                 DatabaseAssert.ContainsIds(page.Objects, item => item.Id, deploymentA.Id, deploymentB.Id);
+            }
+            finally
+            {
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
+        private async Task TestObjectiveCrudAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            try
+            {
+                TenantMetadata tenant = await fixture.CreateTenantAsync("objective-tenant", token: token).ConfigureAwait(false);
+                UserMaster user = await fixture.CreateUserAsync(tenant.Id, "objective-user", token: token).ConfigureAwait(false);
+                Fleet fleet = await fixture.CreateFleetAsync(tenant.Id, user.Id, "objective-fleet", token).ConfigureAwait(false);
+                Vessel vessel = await fixture.CreateVesselAsync(tenant.Id, user.Id, fleet.Id, "objective-vessel", token).ConfigureAwait(false);
+
+                Objective parent = await fixture.CreateObjectiveAsync(tenant.Id, user.Id, "objective-parent", null, new[] { vessel.Id }, token).ConfigureAwait(false);
+                Objective objectiveA = await fixture.CreateObjectiveAsync(tenant.Id, user.Id, "objective-a", parent.Id, new[] { vessel.Id }, token).ConfigureAwait(false);
+                Objective objectiveB = await fixture.CreateObjectiveAsync(tenant.Id, user.Id, "objective-b", null, null, token).ConfigureAwait(false);
+
+                objectiveA.BlockedByObjectiveIds.Add(parent.Id);
+                objectiveA.RefinementSessionIds.Add("ors_seed");
+                objectiveA = await _Driver.Objectives.UpdateAsync(objectiveA, token).ConfigureAwait(false);
+
+                Objective? read = await _Driver.Objectives.ReadAsync(tenant.Id, user.Id, objectiveA.Id, token).ConfigureAwait(false);
+                read = DatabaseAssert.NotNull(read, "Objective read returned null");
+                DatabaseAssert.HasPrefix(read.Id, "obj_", "Objective.Id");
+                DatabaseAssert.Equal(tenant.Id, read.TenantId, "Objective.TenantId");
+                DatabaseAssert.Equal(user.Id, read.UserId, "Objective.UserId");
+                DatabaseAssert.Equal(parent.Id, read.ParentObjectiveId, "Objective.ParentObjectiveId");
+                DatabaseAssert.Equal(1, read.BlockedByObjectiveIds.Count, "Objective.BlockedByObjectiveIds.Count");
+                DatabaseAssert.Equal(1, read.RefinementSessionIds.Count, "Objective.RefinementSessionIds.Count");
+                DatabaseAssert.Equal(vessel.Id, read.VesselIds[0], "Objective.VesselIds[0]");
+
+                read.Priority = ObjectivePriorityEnum.P0;
+                read.Rank = 3;
+                read.BacklogState = ObjectiveBacklogStateEnum.ReadyForPlanning;
+                read.RefinementSummary = "Updated objective summary";
+                read.AcceptanceCriteria.Add("Persist refinement transcript");
+                Objective updated = await _Driver.Objectives.UpdateAsync(read, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(ObjectivePriorityEnum.P0, updated.Priority, "Updated Objective.Priority");
+                DatabaseAssert.Equal(3, updated.Rank, "Updated Objective.Rank");
+                DatabaseAssert.Equal(ObjectiveBacklogStateEnum.ReadyForPlanning, updated.BacklogState, "Updated Objective.BacklogState");
+                DatabaseAssert.Equal("Updated objective summary", updated.RefinementSummary, "Updated Objective.RefinementSummary");
+                DatabaseAssert.Equal(4, updated.AcceptanceCriteria.Count, "Updated Objective.AcceptanceCriteria.Count");
+
+                List<Objective> tenantObjectives = await _Driver.Objectives.EnumerateAsync(tenant.Id, token).ConfigureAwait(false);
+                DatabaseAssert.ContainsIds(tenantObjectives, item => item.Id, parent.Id, objectiveA.Id, objectiveB.Id);
+
+                List<Objective> scopedObjectives = await _Driver.Objectives.EnumerateAsync(tenant.Id, user.Id, token).ConfigureAwait(false);
+                DatabaseAssert.ContainsIds(scopedObjectives, item => item.Id, parent.Id, objectiveA.Id, objectiveB.Id);
+
+                DatabaseAssert.True(await _Driver.Objectives.ExistsAnyAsync(token).ConfigureAwait(false), "Objective ExistsAnyAsync should return true");
+                DatabaseAssert.True(await _Driver.Objectives.ExistsAsync(objectiveA.Id, token).ConfigureAwait(false), "Objective ExistsAsync should return true");
+            }
+            finally
+            {
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
+        private async Task TestObjectiveRefinementCrudAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            try
+            {
+                TenantMetadata tenant = await fixture.CreateTenantAsync("refinement-tenant", token: token).ConfigureAwait(false);
+                UserMaster user = await fixture.CreateUserAsync(tenant.Id, "refinement-user", token: token).ConfigureAwait(false);
+                Captain captain = await fixture.CreateCaptainAsync(tenant.Id, user.Id, "refinement-captain", token).ConfigureAwait(false);
+                Objective objective = await fixture.CreateObjectiveAsync(tenant.Id, user.Id, "refinement-objective", null, null, token).ConfigureAwait(false);
+
+                ObjectiveRefinementSession sessionA = await fixture.CreateObjectiveRefinementSessionAsync(
+                    tenant.Id, user.Id, objective.Id, captain.Id, null, ObjectiveRefinementSessionStatusEnum.Active, token).ConfigureAwait(false);
+                ObjectiveRefinementSession sessionB = await fixture.CreateObjectiveRefinementSessionAsync(
+                    tenant.Id, user.Id, objective.Id, captain.Id, null, ObjectiveRefinementSessionStatusEnum.Created, token).ConfigureAwait(false);
+
+                ObjectiveRefinementMessage messageA = await fixture.CreateObjectiveRefinementMessageAsync(
+                    sessionA.Id, objective.Id, tenant.Id, user.Id, "User", 1, "Clarify rollback criteria", false, token).ConfigureAwait(false);
+                ObjectiveRefinementMessage messageB = await fixture.CreateObjectiveRefinementMessageAsync(
+                    sessionA.Id, objective.Id, tenant.Id, user.Id, "Assistant", 2, "Use staged rollout and verify alerts.", false, token).ConfigureAwait(false);
+
+                ObjectiveRefinementSession? readSession = await _Driver.ObjectiveRefinementSessions.ReadAsync(tenant.Id, user.Id, sessionA.Id, token).ConfigureAwait(false);
+                readSession = DatabaseAssert.NotNull(readSession, "Objective refinement session read returned null");
+                DatabaseAssert.HasPrefix(readSession.Id, "ors_", "ObjectiveRefinementSession.Id");
+                DatabaseAssert.Equal(objective.Id, readSession.ObjectiveId, "ObjectiveRefinementSession.ObjectiveId");
+                DatabaseAssert.Equal(captain.Id, readSession.CaptainId, "ObjectiveRefinementSession.CaptainId");
+
+                readSession.Status = ObjectiveRefinementSessionStatusEnum.Completed;
+                readSession.CompletedUtc = DateTime.UtcNow;
+                ObjectiveRefinementSession updatedSession = await _Driver.ObjectiveRefinementSessions.UpdateAsync(readSession, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(ObjectiveRefinementSessionStatusEnum.Completed, updatedSession.Status, "Updated ObjectiveRefinementSession.Status");
+                DatabaseAssert.True(updatedSession.CompletedUtc.HasValue, "Updated ObjectiveRefinementSession.CompletedUtc should have a value");
+
+                messageB.IsSelected = true;
+                messageB.Content = "Use staged rollout, verify alerts, and preserve request replay.";
+                ObjectiveRefinementMessage updatedMessage = await _Driver.ObjectiveRefinementMessages.UpdateAsync(messageB, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(true, updatedMessage.IsSelected, "Updated ObjectiveRefinementMessage.IsSelected");
+                DatabaseAssert.Equal("Use staged rollout, verify alerts, and preserve request replay.", updatedMessage.Content, "Updated ObjectiveRefinementMessage.Content");
+
+                List<ObjectiveRefinementSession> byObjective = await _Driver.ObjectiveRefinementSessions.EnumerateByObjectiveAsync(objective.Id, token).ConfigureAwait(false);
+                DatabaseAssert.ContainsIds(byObjective, item => item.Id, sessionA.Id, sessionB.Id);
+
+                List<ObjectiveRefinementSession> byCaptain = await _Driver.ObjectiveRefinementSessions.EnumerateByCaptainAsync(captain.Id, token).ConfigureAwait(false);
+                DatabaseAssert.ContainsIds(byCaptain, item => item.Id, sessionA.Id, sessionB.Id);
+
+                List<ObjectiveRefinementSession> byStatus = await _Driver.ObjectiveRefinementSessions.EnumerateByStatusAsync(ObjectiveRefinementSessionStatusEnum.Completed, token).ConfigureAwait(false);
+                DatabaseAssert.ContainsIds(byStatus, item => item.Id, sessionA.Id);
+
+                List<ObjectiveRefinementMessage> messagesBySession = await _Driver.ObjectiveRefinementMessages.EnumerateBySessionAsync(sessionA.Id, token).ConfigureAwait(false);
+                DatabaseAssert.ContainsIds(messagesBySession, item => item.Id, messageA.Id, messageB.Id);
+
+                List<ObjectiveRefinementMessage> messagesByObjective = await _Driver.ObjectiveRefinementMessages.EnumerateByObjectiveAsync(objective.Id, token).ConfigureAwait(false);
+                DatabaseAssert.ContainsIds(messagesByObjective, item => item.Id, messageA.Id, messageB.Id);
+            }
+            finally
+            {
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
+        private async Task TestObjectiveForeignKeysAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            try
+            {
+                TenantMetadata tenant = await fixture.CreateTenantAsync("objective-fk-tenant", token: token).ConfigureAwait(false);
+                UserMaster user = await fixture.CreateUserAsync(tenant.Id, "objective-fk-user", token: token).ConfigureAwait(false);
+                Captain captain = await fixture.CreateCaptainAsync(tenant.Id, user.Id, "objective-fk-captain", token).ConfigureAwait(false);
+
+                Objective parent = await fixture.CreateObjectiveAsync(tenant.Id, user.Id, "objective-parent-fk", null, null, token).ConfigureAwait(false);
+                Objective child = await fixture.CreateObjectiveAsync(tenant.Id, user.Id, "objective-child-fk", parent.Id, null, token).ConfigureAwait(false);
+                await _Driver.Objectives.DeleteAsync(parent.Id, token).ConfigureAwait(false);
+
+                Objective? reloadedChild = await _Driver.Objectives.ReadAsync(child.Id, token).ConfigureAwait(false);
+                reloadedChild = DatabaseAssert.NotNull(reloadedChild, "Child objective should remain after parent delete");
+                DatabaseAssert.True(String.IsNullOrWhiteSpace(reloadedChild.ParentObjectiveId), "Child objective parent link should be nulled by FK");
+
+                Objective objective = await fixture.CreateObjectiveAsync(tenant.Id, user.Id, "objective-cascade", null, null, token).ConfigureAwait(false);
+                ObjectiveRefinementSession session = await fixture.CreateObjectiveRefinementSessionAsync(
+                    tenant.Id, user.Id, objective.Id, captain.Id, null, ObjectiveRefinementSessionStatusEnum.Active, token).ConfigureAwait(false);
+                ObjectiveRefinementMessage message = await fixture.CreateObjectiveRefinementMessageAsync(
+                    session.Id, objective.Id, tenant.Id, user.Id, "Assistant", 1, "Cascade this transcript", true, token).ConfigureAwait(false);
+
+                await _Driver.Objectives.DeleteAsync(objective.Id, token).ConfigureAwait(false);
+
+                ObjectiveRefinementSession? deletedSession = await _Driver.ObjectiveRefinementSessions.ReadAsync(session.Id, token).ConfigureAwait(false);
+                ObjectiveRefinementMessage? deletedMessage = await _Driver.ObjectiveRefinementMessages.ReadAsync(message.Id, token).ConfigureAwait(false);
+                List<ObjectiveRefinementMessage> remainingMessages = await _Driver.ObjectiveRefinementMessages.EnumerateBySessionAsync(session.Id, token).ConfigureAwait(false);
+
+                DatabaseAssert.True(deletedSession == null, "Refinement session should be deleted by objective cascade");
+                DatabaseAssert.True(deletedMessage == null, "Refinement message should be deleted by objective cascade");
+                DatabaseAssert.Equal(0, remainingMessages.Count, "Refinement messages by session should be empty after cascade");
             }
             finally
             {

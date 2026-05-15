@@ -1,6 +1,7 @@
 namespace Armada.Server.Routes
 {
     using System;
+    using System.Collections.Generic;
     using System.Text.Json;
     using System.Text.Json.Serialization;
     using WatsonWebserver;
@@ -18,6 +19,7 @@ namespace Armada.Server.Routes
     public class IncidentRoutes
     {
         private readonly IncidentService _Incidents;
+        private readonly ObjectiveService _Objectives;
         private static readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions
         {
             PropertyNameCaseInsensitive = true,
@@ -28,9 +30,10 @@ namespace Armada.Server.Routes
         /// <summary>
         /// Instantiate.
         /// </summary>
-        public IncidentRoutes(IncidentService incidents)
+        public IncidentRoutes(IncidentService incidents, ObjectiveService objectives)
         {
             _Incidents = incidents ?? throw new ArgumentNullException(nameof(incidents));
+            _Objectives = objectives ?? throw new ArgumentNullException(nameof(objectives));
         }
 
         /// <summary>
@@ -113,7 +116,9 @@ namespace Armada.Server.Routes
 
                 try
                 {
+                    await ValidateObjectivesAsync(ctx, request.ObjectiveIds).ConfigureAwait(false);
                     Incident incident = await _Incidents.CreateAsync(ctx, request).ConfigureAwait(false);
+                    await LinkObjectivesAsync(ctx, incident, request.ObjectiveIds).ConfigureAwait(false);
                     req.Http.Response.StatusCode = 201;
                     return incident;
                 }
@@ -140,7 +145,10 @@ namespace Armada.Server.Routes
 
                 try
                 {
-                    return await _Incidents.UpdateAsync(ctx, req.Parameters["id"], request).ConfigureAwait(false);
+                    await ValidateObjectivesAsync(ctx, request.ObjectiveIds).ConfigureAwait(false);
+                    Incident incident = await _Incidents.UpdateAsync(ctx, req.Parameters["id"], request).ConfigureAwait(false);
+                    await LinkObjectivesAsync(ctx, incident, request.ObjectiveIds).ConfigureAwait(false);
+                    return incident;
                 }
                 catch (InvalidOperationException ex)
                 {
@@ -214,6 +222,99 @@ namespace Armada.Server.Routes
             query.MissionId = NormalizeEmpty(req.Query.GetValueOrDefault("missionId")) ?? query.MissionId;
             query.VoyageId = NormalizeEmpty(req.Query.GetValueOrDefault("voyageId")) ?? query.VoyageId;
             query.Search = NormalizeEmpty(req.Query.GetValueOrDefault("search")) ?? query.Search;
+        }
+
+        private async Task ValidateObjectivesAsync(AuthContext auth, IEnumerable<string>? objectiveIds)
+        {
+            if (objectiveIds == null) return;
+
+            foreach (string objectiveId in objectiveIds)
+            {
+                string? normalized = NormalizeEmpty(objectiveId);
+                if (String.IsNullOrWhiteSpace(normalized))
+                    continue;
+
+                Objective? objective = await _Objectives.ReadAsync(auth, normalized).ConfigureAwait(false);
+                if (objective == null)
+                    throw new InvalidOperationException("Objective not found: " + normalized);
+            }
+        }
+
+        private async Task LinkObjectivesAsync(AuthContext auth, Incident incident, IEnumerable<string>? explicitObjectiveIds)
+        {
+            HashSet<string> objectiveIds = await ResolveObjectiveIdsAsync(
+                auth,
+                explicitObjectiveIds,
+                incident.DeploymentId,
+                incident.ReleaseId,
+                incident.MissionId,
+                incident.VoyageId,
+                incident.RollbackDeploymentId).ConfigureAwait(false);
+
+            foreach (string objectiveId in objectiveIds)
+            {
+                await _Objectives.LinkIncidentAsync(auth, objectiveId, incident.Id).ConfigureAwait(false);
+            }
+        }
+
+        private async Task<HashSet<string>> ResolveObjectiveIdsAsync(
+            AuthContext auth,
+            IEnumerable<string>? explicitObjectiveIds,
+            string? deploymentId,
+            string? releaseId,
+            string? missionId,
+            string? voyageId,
+            string? rollbackDeploymentId)
+        {
+            HashSet<string> objectiveIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            if (explicitObjectiveIds != null)
+            {
+                foreach (string objectiveId in explicitObjectiveIds)
+                {
+                    string? normalized = NormalizeEmpty(objectiveId);
+                    if (!String.IsNullOrWhiteSpace(normalized))
+                        objectiveIds.Add(normalized);
+                }
+            }
+
+            await AddObjectivesForQueryAsync(auth, objectiveIds, query => query.DeploymentId = NormalizeEmpty(deploymentId)).ConfigureAwait(false);
+            await AddObjectivesForQueryAsync(auth, objectiveIds, query => query.DeploymentId = NormalizeEmpty(rollbackDeploymentId)).ConfigureAwait(false);
+            await AddObjectivesForQueryAsync(auth, objectiveIds, query => query.ReleaseId = NormalizeEmpty(releaseId)).ConfigureAwait(false);
+            await AddObjectivesForQueryAsync(auth, objectiveIds, query => query.MissionId = NormalizeEmpty(missionId)).ConfigureAwait(false);
+            await AddObjectivesForQueryAsync(auth, objectiveIds, query => query.VoyageId = NormalizeEmpty(voyageId)).ConfigureAwait(false);
+            return objectiveIds;
+        }
+
+        private async Task AddObjectivesForQueryAsync(
+            AuthContext auth,
+            HashSet<string> objectiveIds,
+            Action<ObjectiveQuery> configure)
+        {
+            ObjectiveQuery query = new ObjectiveQuery
+            {
+                PageNumber = 1,
+                PageSize = 200
+            };
+            configure(query);
+
+            if (String.IsNullOrWhiteSpace(query.DeploymentId)
+                && String.IsNullOrWhiteSpace(query.ReleaseId)
+                && String.IsNullOrWhiteSpace(query.MissionId)
+                && String.IsNullOrWhiteSpace(query.VoyageId))
+                return;
+
+            while (true)
+            {
+                EnumerationResult<Objective> results = await _Objectives.EnumerateAsync(auth, query).ConfigureAwait(false);
+                foreach (Objective objective in results.Objects)
+                    objectiveIds.Add(objective.Id);
+
+                if (results.PageNumber >= results.TotalPages || results.Objects.Count == 0)
+                    return;
+
+                query.PageNumber++;
+            }
         }
 
         private static ApiErrorResponse BuildAuthError(ApiRequest req)

@@ -87,6 +87,8 @@ export default function App() {
                   <Route path="planning" element={<Planning />} />
                   <Route path="planning/:id" element={<Planning />} />
                   <Route path="dispatch" element={<Dispatch />} />
+                  <Route path="backlog" element={<Objectives />} />
+                  <Route path="backlog/:id" element={<ObjectiveDetail />} />
                   <Route path="objectives" element={<Objectives />} />
                   <Route path="objectives/:id" element={<ObjectiveDetail />} />
 
@@ -142,6 +144,7 @@ export default function App() {
                   <Route path="deployments" element={<Deployments />} />
                   <Route path="deployments/:id" element={<DeploymentDetail />} />
                   <Route path="releases" element={<Releases />} />
+                  <Route path="releases/new" element={<ReleaseDetail />} />
                   <Route path="releases/:id" element={<ReleaseDetail />} />
                   <Route path="incidents" element={<Incidents />} />
                   <Route path="incidents/:id" element={<IncidentDetail />} />

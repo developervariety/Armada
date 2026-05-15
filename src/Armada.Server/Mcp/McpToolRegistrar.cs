@@ -66,6 +66,8 @@ namespace Armada.Server.Mcp
             ILandingService? landingService = null,
             CheckRunService? checkRunService = null,
             ObjectiveService? objectiveService = null,
+            PlanningSessionCoordinator? planningSessionCoordinator = null,
+            ObjectiveRefinementCoordinator? objectiveRefinementCoordinator = null,
             ReleaseService? releaseService = null,
             DeploymentService? deploymentService = null,
             RunbookService? runbookService = null,
@@ -88,7 +90,7 @@ namespace Armada.Server.Mcp
             if (logging != null) McpPlaybookTools.Register(register, database, logging);
             if (mergeQueue != null) McpMergeQueueTools.Register(register, mergeQueue);
             if (checkRunService != null) McpCheckRunTools.Register(register, database, checkRunService);
-            if (objectiveService != null) McpObjectiveTools.Register(register, objectiveService);
+            if (objectiveService != null) McpObjectiveTools.Register(register, database, objectiveService, planningSessionCoordinator, objectiveRefinementCoordinator);
             if (releaseService != null) McpReleaseTools.Register(register, releaseService);
             if (deploymentService != null) McpDeploymentTools.Register(register, deploymentService);
             if (runbookService != null) McpRunbookTools.Register(register, runbookService);

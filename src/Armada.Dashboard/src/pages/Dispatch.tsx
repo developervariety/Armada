@@ -163,15 +163,15 @@ export default function Dispatch() {
             || (location.state as DispatchPrefillState | null)?.fromObjective) && (
             <div className="alert" style={{ marginBottom: '1rem' }}>
               {(location.state as DispatchPrefillState | null)?.fromObjective
-                ? t('Prefilled from an objective. Review the scoped draft below and dispatch when ready.')
+                ? t('Prefilled from a backlog item. Review the scoped draft below and dispatch when ready.')
                 : (location.state as DispatchPrefillState | null)?.fromPlanning
                 ? t('Prefilled from a planning session. Review the draft below and dispatch when ready.')
                 : (location.state as DispatchPrefillState | null)?.fromIncident
                   ? t('Prefilled from an incident. Review the hotfix draft below and dispatch when ready.')
                   : t('Prefilled from Workspace selection. Review the scoped draft below and dispatch when ready.')}
               {objectiveId && (
-                <button type="button" className="btn btn-sm" style={{ marginLeft: '0.75rem' }} onClick={() => navigate(`/objectives/${objectiveId}`)}>
-                  {t('Open Objective')}
+                <button type="button" className="btn btn-sm" style={{ marginLeft: '0.75rem' }} onClick={() => navigate(`/backlog/${objectiveId}`)}>
+                  {t('Open Backlog Item')}
                 </button>
               )}
             </div>

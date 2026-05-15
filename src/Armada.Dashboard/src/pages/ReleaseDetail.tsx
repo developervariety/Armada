@@ -4,6 +4,7 @@ import {
   createRelease,
   deleteRelease,
   getRelease,
+  getReleaseGitHubPullRequests,
   listCheckRuns,
   listDeployments,
   listObjectives,
@@ -13,7 +14,7 @@ import {
   refreshRelease,
   updateRelease,
 } from '../api/client';
-import type { CheckRun, Deployment, Objective, Release, ReleaseStatus, ReleaseUpsertRequest, Vessel, Voyage, WorkflowProfile } from '../types/models';
+import type { CheckRun, Deployment, GitHubPullRequestDetail, Objective, Release, ReleaseStatus, ReleaseUpsertRequest, Vessel, Voyage, WorkflowProfile } from '../types/models';
 import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -59,6 +60,7 @@ export default function ReleaseDetail() {
   const [checkRuns, setCheckRuns] = useState<CheckRun[]>([]);
   const [deployments, setDeployments] = useState<Deployment[]>([]);
   const [objectives, setObjectives] = useState<Objective[]>([]);
+  const [gitHubPullRequests, setGitHubPullRequests] = useState<GitHubPullRequestDetail[]>([]);
   const [vesselId, setVesselId] = useState('');
   const [workflowProfileId, setWorkflowProfileId] = useState('');
   const [title, setTitle] = useState('Draft Release');
@@ -72,6 +74,7 @@ export default function ReleaseDetail() {
   const [checkRunIds, setCheckRunIds] = useState('');
   const [prefillObjectiveIds, setPrefillObjectiveIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(!createMode);
+  const [loadingGitHubPullRequests, setLoadingGitHubPullRequests] = useState(false);
   const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
@@ -182,6 +185,26 @@ export default function ReleaseDetail() {
 
     return () => { cancelled = true; };
   }, [createMode, id, t]);
+
+  useEffect(() => {
+    if (createMode || !id) {
+      setGitHubPullRequests([]);
+      setLoadingGitHubPullRequests(false);
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingGitHubPullRequests(true);
+    getReleaseGitHubPullRequests(id).then((result) => {
+      if (!cancelled) setGitHubPullRequests(result || []);
+    }).catch(() => {
+      if (!cancelled) setGitHubPullRequests([]);
+    }).finally(() => {
+      if (!cancelled) setLoadingGitHubPullRequests(false);
+    });
+
+    return () => { cancelled = true; };
+  }, [createMode, id]);
 
   function buildPayload(): ReleaseUpsertRequest {
     return {
@@ -382,9 +405,9 @@ export default function ReleaseDetail() {
 
       {createMode && prefillObjectiveIds.length > 0 && (
         <div className="alert" style={{ marginBottom: '1rem', display: 'flex', justifyContent: 'space-between', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
-          <span>{t('Prefilled from {{count}} objective(s). Armada will link this release back to those scoped work records when you create it.', { count: prefillObjectiveIds.length })}</span>
-          <button type="button" className="btn btn-sm" onClick={() => navigate(`/objectives/${prefillObjectiveIds[0]}`)}>
-            {t('Open Objective')}
+          <span>{t('Prefilled from {{count}} backlog item(s). Armada will link this release back to those scoped work records when you create it.', { count: prefillObjectiveIds.length })}</span>
+          <button type="button" className="btn btn-sm" onClick={() => navigate(`/backlog/${prefillObjectiveIds[0]}`)}>
+            {t('Open Backlog Item')}
           </button>
         </div>
       )}
@@ -512,21 +535,21 @@ export default function ReleaseDetail() {
 
           <div className="card" style={{ marginBottom: '1rem' }}>
             <div className="detail-header" style={{ marginBottom: '0.75rem' }}>
-              <h3>{t('Linked Objectives')}</h3>
+              <h3>{t('Linked Backlog Items')}</h3>
               <div className="text-dim">
-                {relatedObjectives.length} {t('linked objectives')}
+                {relatedObjectives.length} {t('linked backlog items')}
               </div>
             </div>
 
             {relatedObjectives.length === 0 ? (
-              <p className="text-dim">{t('No objectives currently reference this release.')}</p>
+              <p className="text-dim">{t('No backlog items currently reference this release.')}</p>
             ) : (
               <div style={{ display: 'grid', gap: '0.75rem' }}>
                 {relatedObjectives.map((objective) => (
                   <div key={objective.id} className="card" style={{ padding: '0.85rem' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', alignItems: 'center' }}>
                       <div>
-                        <strong><Link to={`/objectives/${objective.id}`}>{objective.title}</Link></strong>
+                        <strong><Link to={`/backlog/${objective.id}`}>{objective.title}</Link></strong>
                         <div className="mono text-dim" style={{ fontSize: '0.78rem' }}>{objective.id}</div>
                       </div>
                       <StatusBadge status={objective.status} />
@@ -538,8 +561,8 @@ export default function ReleaseDetail() {
                       <button className="btn btn-sm" onClick={() => navigate(`/history?objectiveId=${encodeURIComponent(objective.id)}`)}>
                         {t('View History')}
                       </button>
-                      <button className="btn btn-sm" onClick={() => navigate(`/objectives/${objective.id}`)}>
-                        {t('Open Objective')}
+                      <button className="btn btn-sm" onClick={() => navigate(`/backlog/${objective.id}`)}>
+                        {t('Open Backlog Item')}
                       </button>
                     </div>
                   </div>
@@ -625,6 +648,44 @@ export default function ReleaseDetail() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+            )}
+          </div>
+
+          <div className="card" style={{ marginBottom: '1rem' }}>
+            <div className="detail-header" style={{ marginBottom: '0.75rem' }}>
+              <h3>{t('GitHub Pull Requests')}</h3>
+              <div className="text-dim">
+                {gitHubPullRequests.length} {t('linked pull requests')}
+              </div>
+            </div>
+
+            {loadingGitHubPullRequests ? (
+              <p className="text-dim">{t('Loading GitHub pull-request evidence...')}</p>
+            ) : gitHubPullRequests.length === 0 ? (
+              <p className="text-dim">{t('No linked GitHub pull requests were found for this release yet.')}</p>
+            ) : (
+              <div style={{ display: 'grid', gap: '0.75rem' }}>
+                {gitHubPullRequests.map((pullRequest) => (
+                  <div key={`${pullRequest.repository}-${pullRequest.number}`} className="card" style={{ padding: '0.85rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                      <div>
+                        <strong><a href={pullRequest.url} target="_blank" rel="noreferrer">{pullRequest.title}</a></strong>
+                        <div className="text-dim">{pullRequest.repository} #{pullRequest.number}</div>
+                      </div>
+                      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                        <StatusBadge status={pullRequest.state} />
+                        <StatusBadge status={pullRequest.reviewStatus} />
+                      </div>
+                    </div>
+                    <div className="detail-grid" style={{ marginTop: '0.75rem' }}>
+                      <div className="detail-field"><span className="detail-label">{t('Checks')}</span><span>{pullRequest.checks.length}</span></div>
+                      <div className="detail-field"><span className="detail-label">{t('Reviews')}</span><span>{pullRequest.reviews.length}</span></div>
+                      <div className="detail-field"><span className="detail-label">{t('Reviewers')}</span><span>{pullRequest.requestedReviewers.length > 0 ? pullRequest.requestedReviewers.join(', ') : '-'}</span></div>
+                      <div className="detail-field"><span className="detail-label">{t('Updated')}</span><span>{pullRequest.updatedUtc ? formatRelativeTime(pullRequest.updatedUtc) : '-'}</span></div>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>

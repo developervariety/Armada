@@ -44,6 +44,12 @@ namespace Armada.Core.Models
         public string? IncidentId { get; set; } = null;
 
         /// <summary>
+        /// Optional filter that narrows results to incidents with postmortem data
+        /// and the current Armada-side lifecycle entries directly linked to them.
+        /// </summary>
+        public bool PostmortemOnly { get; set; } = false;
+
+        /// <summary>
         /// Optional mission filter.
         /// </summary>
         public string? MissionId { get; set; } = null;

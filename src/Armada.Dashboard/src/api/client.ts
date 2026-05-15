@@ -14,7 +14,12 @@ import type {
   Mission,
   Voyage,
   Objective,
+  GitHubActionsSyncRequest,
+  GitHubActionsSyncResult,
+  GitHubObjectiveImportRequest,
+  GitHubPullRequestDetail,
   ObjectiveQuery,
+  ObjectiveReorderRequest,
   ObjectiveUpsertRequest,
   ArmadaEvent,
   MergeEntry,
@@ -32,6 +37,14 @@ import type {
   PlanningSessionMessageRequest,
   PlanningSessionSummaryRequest,
   PlanningSessionSummaryResponse,
+  ObjectiveRefinementApplyRequest,
+  ObjectiveRefinementApplyResponse,
+  ObjectiveRefinementMessageRequest,
+  ObjectiveRefinementSession,
+  ObjectiveRefinementSessionCreateRequest,
+  ObjectiveRefinementSessionDetail,
+  ObjectiveRefinementSummaryRequest,
+  ObjectiveRefinementSummaryResponse,
   TransitionRequest,
   SendSignalRequest,
   SettingsData,
@@ -231,10 +244,11 @@ function buildHistoryQuery(params?: HistoricalTimelineQuery): string {
   if (params.pageSize) search.set('pageSize', String(params.pageSize));
   if (params.objectiveId) search.set('objectiveId', params.objectiveId);
   if (params.vesselId) search.set('vesselId', params.vesselId);
-  if (params.environmentId) search.set('environmentId', params.environmentId);
-  if (params.deploymentId) search.set('deploymentId', params.deploymentId);
-  if (params.incidentId) search.set('incidentId', params.incidentId);
-  if (params.missionId) search.set('missionId', params.missionId);
+    if (params.environmentId) search.set('environmentId', params.environmentId);
+    if (params.deploymentId) search.set('deploymentId', params.deploymentId);
+    if (params.incidentId) search.set('incidentId', params.incidentId);
+    if (params.postmortemOnly) search.set('postmortemOnly', String(params.postmortemOnly));
+    if (params.missionId) search.set('missionId', params.missionId);
   if (params.voyageId) search.set('voyageId', params.voyageId);
   if (params.actor) search.set('actor', params.actor);
   if (params.text) search.set('text', params.text);
@@ -253,6 +267,8 @@ function buildObjectiveQuery(params?: ObjectiveQuery): string {
   if (params.pageNumber) search.set('pageNumber', String(params.pageNumber));
   if (params.pageSize) search.set('pageSize', String(params.pageSize));
   if (params.owner) search.set('owner', params.owner);
+  if (params.category) search.set('category', params.category);
+  if (params.parentObjectiveId) search.set('parentObjectiveId', params.parentObjectiveId);
   if (params.vesselId) search.set('vesselId', params.vesselId);
   if (params.fleetId) search.set('fleetId', params.fleetId);
   if (params.planningSessionId) search.set('planningSessionId', params.planningSessionId);
@@ -264,6 +280,11 @@ function buildObjectiveQuery(params?: ObjectiveQuery): string {
   if (params.incidentId) search.set('incidentId', params.incidentId);
   if (params.tag) search.set('tag', params.tag);
   if (params.status) search.set('status', params.status);
+  if (params.backlogState) search.set('backlogState', params.backlogState);
+  if (params.kind) search.set('kind', params.kind);
+  if (params.priority) search.set('priority', params.priority);
+  if (params.effort) search.set('effort', params.effort);
+  if (params.targetVersion) search.set('targetVersion', params.targetVersion);
   if (params.search) search.set('search', params.search);
   if (params.fromUtc) search.set('fromUtc', params.fromUtc);
   if (params.toUtc) search.set('toUtc', params.toUtc);
@@ -490,10 +511,41 @@ export const listObjectives = (params?: ObjectiveQuery) =>
   get<EnumerationResult<Objective>>(`/api/v1/objectives${buildObjectiveQuery(params)}`);
 export const enumerateObjectives = (query?: ObjectiveQuery) =>
   post<EnumerationResult<Objective>>('/api/v1/objectives/enumerate', query || {});
+export const reorderObjectives = (data: ObjectiveReorderRequest) => post<Objective[]>('/api/v1/objectives/reorder', data);
 export const getObjective = (id: string) => get<Objective>(`/api/v1/objectives/${encodeURIComponent(id)}`);
 export const createObjective = (data: ObjectiveUpsertRequest) => post<Objective>('/api/v1/objectives', data);
 export const updateObjective = (id: string, data: ObjectiveUpsertRequest) => put<Objective>(`/api/v1/objectives/${encodeURIComponent(id)}`, data);
 export const deleteObjective = (id: string) => del<void>(`/api/v1/objectives/${encodeURIComponent(id)}`);
+export const importObjectiveFromGitHub = (data: GitHubObjectiveImportRequest) => post<Objective>('/api/v1/objectives/import/github', data);
+export const listBacklog = (params?: ObjectiveQuery) =>
+  get<EnumerationResult<Objective>>(`/api/v1/backlog${buildObjectiveQuery(params)}`);
+export const enumerateBacklog = (query?: ObjectiveQuery) =>
+  post<EnumerationResult<Objective>>('/api/v1/backlog/enumerate', query || {});
+export const reorderBacklog = (data: ObjectiveReorderRequest) => post<Objective[]>('/api/v1/backlog/reorder', data);
+export const getBacklogItem = (id: string) => get<Objective>(`/api/v1/backlog/${encodeURIComponent(id)}`);
+export const createBacklogItem = (data: ObjectiveUpsertRequest) => post<Objective>('/api/v1/backlog', data);
+export const updateBacklogItem = (id: string, data: ObjectiveUpsertRequest) => put<Objective>(`/api/v1/backlog/${encodeURIComponent(id)}`, data);
+export const deleteBacklogItem = (id: string) => del<void>(`/api/v1/backlog/${encodeURIComponent(id)}`);
+export const listObjectiveRefinementSessions = (objectiveId: string) =>
+  get<ObjectiveRefinementSession[]>(`/api/v1/objectives/${encodeURIComponent(objectiveId)}/refinement-sessions`);
+export const listBacklogRefinementSessions = (objectiveId: string) =>
+  get<ObjectiveRefinementSession[]>(`/api/v1/backlog/${encodeURIComponent(objectiveId)}/refinement-sessions`);
+export const createObjectiveRefinementSession = (objectiveId: string, data: ObjectiveRefinementSessionCreateRequest) =>
+  post<ObjectiveRefinementSessionDetail>(`/api/v1/objectives/${encodeURIComponent(objectiveId)}/refinement-sessions`, data, { timeout: PLANNING_CREATE_TIMEOUT_MS });
+export const createBacklogRefinementSession = (objectiveId: string, data: ObjectiveRefinementSessionCreateRequest) =>
+  post<ObjectiveRefinementSessionDetail>(`/api/v1/backlog/${encodeURIComponent(objectiveId)}/refinement-sessions`, data, { timeout: PLANNING_CREATE_TIMEOUT_MS });
+export const getObjectiveRefinementSession = (sessionId: string) =>
+  get<ObjectiveRefinementSessionDetail>(`/api/v1/objective-refinement-sessions/${encodeURIComponent(sessionId)}`);
+export const sendObjectiveRefinementMessage = (sessionId: string, data: ObjectiveRefinementMessageRequest) =>
+  post<ObjectiveRefinementSessionDetail>(`/api/v1/objective-refinement-sessions/${encodeURIComponent(sessionId)}/messages`, data);
+export const summarizeObjectiveRefinementSession = (sessionId: string, data?: ObjectiveRefinementSummaryRequest) =>
+  post<ObjectiveRefinementSummaryResponse>(`/api/v1/objective-refinement-sessions/${encodeURIComponent(sessionId)}/summarize`, data || {}, { timeout: PLANNING_SUMMARIZE_TIMEOUT_MS });
+export const applyObjectiveRefinementSummary = (sessionId: string, data?: ObjectiveRefinementApplyRequest) =>
+  post<ObjectiveRefinementApplyResponse>(`/api/v1/objective-refinement-sessions/${encodeURIComponent(sessionId)}/apply`, data || {}, { timeout: PLANNING_SUMMARIZE_TIMEOUT_MS });
+export const stopObjectiveRefinementSession = (sessionId: string) =>
+  post<ObjectiveRefinementSessionDetail>(`/api/v1/objective-refinement-sessions/${encodeURIComponent(sessionId)}/stop`);
+export const deleteObjectiveRefinementSession = (sessionId: string) =>
+  del<void>(`/api/v1/objective-refinement-sessions/${encodeURIComponent(sessionId)}`);
 
 // ==================== Captains ====================
 export const listCaptains = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
@@ -531,6 +583,7 @@ export const listMissions = (params?: { pageNumber?: number; pageSize?: number; 
   get<EnumerationResult<Mission>>(`/api/v1/missions${buildQuery(params)}`);
 export const getMission = (id: string) => get<Mission>(`/api/v1/missions/${id}`);
 export const getMissionLandingPreview = (id: string) => get<LandingPreviewResult>(`/api/v1/missions/${encodeURIComponent(id)}/landing-preview`);
+export const getMissionGitHubPullRequest = (id: string) => get<GitHubPullRequestDetail>(`/api/v1/missions/${encodeURIComponent(id)}/github/pull-request`);
 export const createMission = (data: Partial<Mission>) => post<Mission>('/api/v1/missions', data);
 export const updateMission = (id: string, data: Partial<Mission>) => put<Mission>(`/api/v1/missions/${id}`, data);
 export const deleteMission = (id: string) => del<void>(`/api/v1/missions/${id}`);
@@ -628,6 +681,7 @@ export const enumerateDeployments = (query?: DeploymentQuery) =>
 export const getDeployment = (id: string) => get<Deployment>(`/api/v1/deployments/${encodeURIComponent(id)}`);
 export const createDeployment = (data: DeploymentUpsertRequest) => post<Deployment>('/api/v1/deployments', data);
 export const updateDeployment = (id: string, data: DeploymentUpsertRequest) => put<Deployment>(`/api/v1/deployments/${encodeURIComponent(id)}`, data);
+export const syncGitHubActions = (data: GitHubActionsSyncRequest) => post<GitHubActionsSyncResult>('/api/v1/check-runs/sync/github-actions', data);
 export const approveDeployment = (id: string, comment?: string | null) => post<Deployment>(`/api/v1/deployments/${encodeURIComponent(id)}/approve`, comment ? { comment } : {});
 export const denyDeployment = (id: string, comment?: string | null) => post<Deployment>(`/api/v1/deployments/${encodeURIComponent(id)}/deny`, comment ? { comment } : {});
 export const verifyDeployment = (id: string) => post<Deployment>(`/api/v1/deployments/${encodeURIComponent(id)}/verify`, {});
@@ -674,6 +728,7 @@ export const createRelease = (data: ReleaseUpsertRequest) => post<Release>('/api
 export const updateRelease = (id: string, data: ReleaseUpsertRequest) => put<Release>(`/api/v1/releases/${encodeURIComponent(id)}`, data);
 export const refreshRelease = (id: string) => post<Release>(`/api/v1/releases/${encodeURIComponent(id)}/refresh`, {});
 export const deleteRelease = (id: string) => del<void>(`/api/v1/releases/${encodeURIComponent(id)}`);
+export const getReleaseGitHubPullRequests = (id: string) => get<GitHubPullRequestDetail[]>(`/api/v1/releases/${encodeURIComponent(id)}/github/pull-requests`);
 
 // ==================== Check Runs ====================
 export const listCheckRuns = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>

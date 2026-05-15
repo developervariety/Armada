@@ -243,7 +243,7 @@ namespace Armada.Core.Database.Mysql.Queries
             // New tables
             Tenants,
             Users,
-            @"CREATE UNIQUE INDEX idx_users_tenant_email ON users(tenant_id, email);",
+            @"CREATE UNIQUE INDEX idx_users_tenant_email ON users(tenant_id(191), email(191));",
             @"CREATE INDEX idx_users_tenant ON users(tenant_id);",
             @"CREATE INDEX idx_users_email ON users(email);",
             Credentials,
@@ -254,15 +254,15 @@ namespace Armada.Core.Database.Mysql.Queries
             @"INSERT IGNORE INTO tenants (id, name, active, created_utc, last_update_utc)
               VALUES ('default', 'Default Tenant', 1, UTC_TIMESTAMP(6), UTC_TIMESTAMP(6));",
             // Add tenant_id to existing tables
-            @"ALTER TABLE fleets ADD COLUMN tenant_id VARCHAR(450);",
-            @"ALTER TABLE vessels ADD COLUMN tenant_id VARCHAR(450);",
-            @"ALTER TABLE captains ADD COLUMN tenant_id VARCHAR(450);",
-            @"ALTER TABLE voyages ADD COLUMN tenant_id VARCHAR(450);",
-            @"ALTER TABLE missions ADD COLUMN tenant_id VARCHAR(450);",
-            @"ALTER TABLE docks ADD COLUMN tenant_id VARCHAR(450);",
-            @"ALTER TABLE signals ADD COLUMN tenant_id VARCHAR(450);",
-            @"ALTER TABLE events ADD COLUMN tenant_id VARCHAR(450);",
-            @"ALTER TABLE merge_entries ADD COLUMN tenant_id VARCHAR(450);",
+            @"ALTER TABLE fleets ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(450);",
+            @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(450);",
+            @"ALTER TABLE captains ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(450);",
+            @"ALTER TABLE voyages ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(450);",
+            @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(450);",
+            @"ALTER TABLE docks ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(450);",
+            @"ALTER TABLE signals ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(450);",
+            @"ALTER TABLE events ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(450);",
+            @"ALTER TABLE merge_entries ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(450);",
             // Backfill existing rows with default tenant
             @"UPDATE fleets SET tenant_id = 'default' WHERE tenant_id IS NULL;",
             @"UPDATE vessels SET tenant_id = 'default' WHERE tenant_id IS NULL;",
@@ -275,50 +275,50 @@ namespace Armada.Core.Database.Mysql.Queries
             @"UPDATE merge_entries SET tenant_id = 'default' WHERE tenant_id IS NULL;",
             // Indexes on new tables
             @"CREATE INDEX idx_tenants_active ON tenants(active);",
-            @"CREATE INDEX idx_credentials_tenant_user ON credentials(tenant_id, user_id);",
+            @"CREATE INDEX idx_credentials_tenant_user ON credentials(tenant_id(191), user_id(191));",
             @"CREATE INDEX idx_credentials_active ON credentials(active);",
             // Tenant indexes on operational tables
             @"CREATE INDEX idx_fleets_tenant ON fleets(tenant_id);",
-            @"CREATE INDEX idx_fleets_tenant_name ON fleets(tenant_id, name);",
+            @"CREATE INDEX idx_fleets_tenant_name ON fleets(tenant_id(191), name(191));",
             @"CREATE INDEX idx_fleets_created_utc ON fleets(created_utc);",
             @"CREATE INDEX idx_vessels_tenant ON vessels(tenant_id);",
-            @"CREATE INDEX idx_vessels_tenant_fleet ON vessels(tenant_id, fleet_id);",
-            @"CREATE INDEX idx_vessels_tenant_name ON vessels(tenant_id, name);",
+            @"CREATE INDEX idx_vessels_tenant_fleet ON vessels(tenant_id(191), fleet_id(191));",
+            @"CREATE INDEX idx_vessels_tenant_name ON vessels(tenant_id(191), name(191));",
             @"CREATE INDEX idx_vessels_created_utc ON vessels(created_utc);",
             @"CREATE INDEX idx_captains_tenant ON captains(tenant_id);",
-            @"CREATE INDEX idx_captains_tenant_state ON captains(tenant_id, state);",
+            @"CREATE INDEX idx_captains_tenant_state ON captains(tenant_id(191), state(191));",
             @"CREATE INDEX idx_captains_created_utc ON captains(created_utc);",
             @"CREATE INDEX idx_missions_tenant ON missions(tenant_id);",
-            @"CREATE INDEX idx_missions_tenant_status ON missions(tenant_id, status);",
-            @"CREATE INDEX idx_missions_tenant_vessel ON missions(tenant_id, vessel_id);",
-            @"CREATE INDEX idx_missions_tenant_voyage ON missions(tenant_id, voyage_id);",
-            @"CREATE INDEX idx_missions_tenant_captain ON missions(tenant_id, captain_id);",
-            @"CREATE INDEX idx_missions_tenant_status_priority ON missions(tenant_id, status, priority ASC, created_utc ASC);",
+            @"CREATE INDEX idx_missions_tenant_status ON missions(tenant_id(191), status(191));",
+            @"CREATE INDEX idx_missions_tenant_vessel ON missions(tenant_id(191), vessel_id(191));",
+            @"CREATE INDEX idx_missions_tenant_voyage ON missions(tenant_id(191), voyage_id(191));",
+            @"CREATE INDEX idx_missions_tenant_captain ON missions(tenant_id(191), captain_id(191));",
+            @"CREATE INDEX idx_missions_tenant_status_priority ON missions(tenant_id(191), status(191), priority ASC, created_utc ASC);",
             @"CREATE INDEX idx_voyages_tenant ON voyages(tenant_id);",
-            @"CREATE INDEX idx_voyages_tenant_status ON voyages(tenant_id, status);",
+            @"CREATE INDEX idx_voyages_tenant_status ON voyages(tenant_id(191), status(191));",
             @"CREATE INDEX idx_voyages_created_utc ON voyages(created_utc);",
             @"CREATE INDEX idx_docks_tenant ON docks(tenant_id);",
-            @"CREATE INDEX idx_docks_tenant_vessel ON docks(tenant_id, vessel_id);",
-            @"CREATE INDEX idx_docks_tenant_vessel_available ON docks(tenant_id, vessel_id, active, captain_id);",
-            @"CREATE INDEX idx_docks_tenant_captain ON docks(tenant_id, captain_id);",
+            @"CREATE INDEX idx_docks_tenant_vessel ON docks(tenant_id(191), vessel_id(191));",
+            @"CREATE INDEX idx_docks_tenant_vessel_available ON docks(tenant_id(191), vessel_id(191), active, captain_id(191));",
+            @"CREATE INDEX idx_docks_tenant_captain ON docks(tenant_id(191), captain_id(191));",
             @"CREATE INDEX idx_docks_created_utc ON docks(created_utc);",
             @"CREATE INDEX idx_signals_tenant ON signals(tenant_id);",
-            @"CREATE INDEX idx_signals_tenant_to_captain ON signals(tenant_id, to_captain_id);",
-            @"CREATE INDEX idx_signals_tenant_to_captain_read ON signals(tenant_id, to_captain_id, `read`);",
+            @"CREATE INDEX idx_signals_tenant_to_captain ON signals(tenant_id(191), to_captain_id(191));",
+            @"CREATE INDEX idx_signals_tenant_to_captain_read ON signals(tenant_id(191), to_captain_id(191), `read`);",
             @"CREATE INDEX idx_signals_tenant_created ON signals(tenant_id, created_utc DESC);",
             @"CREATE INDEX idx_events_tenant ON events(tenant_id);",
-            @"CREATE INDEX idx_events_tenant_type ON events(tenant_id, event_type);",
-            @"CREATE INDEX idx_events_tenant_entity ON events(tenant_id, entity_type, entity_id);",
-            @"CREATE INDEX idx_events_tenant_vessel ON events(tenant_id, vessel_id);",
-            @"CREATE INDEX idx_events_tenant_voyage ON events(tenant_id, voyage_id);",
-            @"CREATE INDEX idx_events_tenant_captain ON events(tenant_id, captain_id);",
-            @"CREATE INDEX idx_events_tenant_mission ON events(tenant_id, mission_id);",
+            @"CREATE INDEX idx_events_tenant_type ON events(tenant_id(191), event_type(191));",
+            @"CREATE INDEX idx_events_tenant_entity ON events(tenant_id(191), entity_type(191), entity_id(191));",
+            @"CREATE INDEX idx_events_tenant_vessel ON events(tenant_id(191), vessel_id(191));",
+            @"CREATE INDEX idx_events_tenant_voyage ON events(tenant_id(191), voyage_id(191));",
+            @"CREATE INDEX idx_events_tenant_captain ON events(tenant_id(191), captain_id(191));",
+            @"CREATE INDEX idx_events_tenant_mission ON events(tenant_id(191), mission_id(191));",
             @"CREATE INDEX idx_events_tenant_created ON events(tenant_id, created_utc DESC);",
             @"CREATE INDEX idx_merge_entries_tenant ON merge_entries(tenant_id);",
-            @"CREATE INDEX idx_merge_entries_tenant_status ON merge_entries(tenant_id, status);",
-            @"CREATE INDEX idx_merge_entries_tenant_status_priority ON merge_entries(tenant_id, status, priority ASC, created_utc ASC);",
-            @"CREATE INDEX idx_merge_entries_tenant_vessel ON merge_entries(tenant_id, vessel_id);",
-            @"CREATE INDEX idx_merge_entries_tenant_mission ON merge_entries(tenant_id, mission_id);"
+            @"CREATE INDEX idx_merge_entries_tenant_status ON merge_entries(tenant_id(191), status(191));",
+            @"CREATE INDEX idx_merge_entries_tenant_status_priority ON merge_entries(tenant_id(191), status(191), priority ASC, created_utc ASC);",
+            @"CREATE INDEX idx_merge_entries_tenant_vessel ON merge_entries(tenant_id(191), vessel_id(191));",
+            @"CREATE INDEX idx_merge_entries_tenant_mission ON merge_entries(tenant_id(191), mission_id(191));"
         };
 
         /// <summary>
@@ -326,21 +326,21 @@ namespace Armada.Core.Database.Mysql.Queries
         /// </summary>
         public static readonly string[] MigrationV4Statements = new string[]
         {
-            @"ALTER TABLE tenants ADD COLUMN is_protected TINYINT(1) NOT NULL DEFAULT 0;",
-            @"ALTER TABLE users ADD COLUMN is_protected TINYINT(1) NOT NULL DEFAULT 0;",
-            @"ALTER TABLE credentials ADD COLUMN is_protected TINYINT(1) NOT NULL DEFAULT 0;",
+            @"ALTER TABLE tenants ADD COLUMN IF NOT EXISTS is_protected TINYINT(1) NOT NULL DEFAULT 0;",
+            @"ALTER TABLE users ADD COLUMN IF NOT EXISTS is_protected TINYINT(1) NOT NULL DEFAULT 0;",
+            @"ALTER TABLE credentials ADD COLUMN IF NOT EXISTS is_protected TINYINT(1) NOT NULL DEFAULT 0;",
             @"UPDATE tenants SET is_protected = 1 WHERE id IN ('default', 'ten_system');",
             @"UPDATE users SET is_protected = 1 WHERE id IN ('default', 'usr_system');",
             @"UPDATE credentials SET is_protected = 1 WHERE user_id IN ('default', 'usr_system');",
-            @"ALTER TABLE fleets ADD COLUMN user_id VARCHAR(450);",
-            @"ALTER TABLE vessels ADD COLUMN user_id VARCHAR(450);",
-            @"ALTER TABLE captains ADD COLUMN user_id VARCHAR(450);",
-            @"ALTER TABLE voyages ADD COLUMN user_id VARCHAR(450);",
-            @"ALTER TABLE missions ADD COLUMN user_id VARCHAR(450);",
-            @"ALTER TABLE docks ADD COLUMN user_id VARCHAR(450);",
-            @"ALTER TABLE signals ADD COLUMN user_id VARCHAR(450);",
-            @"ALTER TABLE events ADD COLUMN user_id VARCHAR(450);",
-            @"ALTER TABLE merge_entries ADD COLUMN user_id VARCHAR(450);",
+            @"ALTER TABLE fleets ADD COLUMN IF NOT EXISTS user_id VARCHAR(450);",
+            @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS user_id VARCHAR(450);",
+            @"ALTER TABLE captains ADD COLUMN IF NOT EXISTS user_id VARCHAR(450);",
+            @"ALTER TABLE voyages ADD COLUMN IF NOT EXISTS user_id VARCHAR(450);",
+            @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS user_id VARCHAR(450);",
+            @"ALTER TABLE docks ADD COLUMN IF NOT EXISTS user_id VARCHAR(450);",
+            @"ALTER TABLE signals ADD COLUMN IF NOT EXISTS user_id VARCHAR(450);",
+            @"ALTER TABLE events ADD COLUMN IF NOT EXISTS user_id VARCHAR(450);",
+            @"ALTER TABLE merge_entries ADD COLUMN IF NOT EXISTS user_id VARCHAR(450);",
             @"UPDATE fleets f SET user_id = COALESCE((SELECT u.id FROM users u WHERE u.tenant_id = f.tenant_id ORDER BY u.created_utc LIMIT 1), 'default') WHERE user_id IS NULL;",
             @"UPDATE vessels v SET user_id = COALESCE((SELECT u.id FROM users u WHERE u.tenant_id = v.tenant_id ORDER BY u.created_utc LIMIT 1), 'default') WHERE user_id IS NULL;",
             @"UPDATE captains c SET user_id = COALESCE((SELECT u.id FROM users u WHERE u.tenant_id = c.tenant_id ORDER BY u.created_utc LIMIT 1), 'default') WHERE user_id IS NULL;",
@@ -360,23 +360,23 @@ namespace Armada.Core.Database.Mysql.Queries
             @"ALTER TABLE events ADD CONSTRAINT fk_events_user FOREIGN KEY (user_id) REFERENCES users(id);",
             @"ALTER TABLE merge_entries ADD CONSTRAINT fk_merge_entries_user FOREIGN KEY (user_id) REFERENCES users(id);",
             @"CREATE INDEX idx_fleets_user ON fleets(user_id);",
-            @"CREATE INDEX idx_fleets_tenant_user ON fleets(tenant_id, user_id);",
+            @"CREATE INDEX idx_fleets_tenant_user ON fleets(tenant_id(191), user_id(191));",
             @"CREATE INDEX idx_vessels_user ON vessels(user_id);",
-            @"CREATE INDEX idx_vessels_tenant_user ON vessels(tenant_id, user_id);",
+            @"CREATE INDEX idx_vessels_tenant_user ON vessels(tenant_id(191), user_id(191));",
             @"CREATE INDEX idx_captains_user ON captains(user_id);",
-            @"CREATE INDEX idx_captains_tenant_user ON captains(tenant_id, user_id);",
+            @"CREATE INDEX idx_captains_tenant_user ON captains(tenant_id(191), user_id(191));",
             @"CREATE INDEX idx_voyages_user ON voyages(user_id);",
-            @"CREATE INDEX idx_voyages_tenant_user ON voyages(tenant_id, user_id);",
+            @"CREATE INDEX idx_voyages_tenant_user ON voyages(tenant_id(191), user_id(191));",
             @"CREATE INDEX idx_missions_user ON missions(user_id);",
-            @"CREATE INDEX idx_missions_tenant_user ON missions(tenant_id, user_id);",
+            @"CREATE INDEX idx_missions_tenant_user ON missions(tenant_id(191), user_id(191));",
             @"CREATE INDEX idx_docks_user ON docks(user_id);",
-            @"CREATE INDEX idx_docks_tenant_user ON docks(tenant_id, user_id);",
+            @"CREATE INDEX idx_docks_tenant_user ON docks(tenant_id(191), user_id(191));",
             @"CREATE INDEX idx_signals_user ON signals(user_id);",
-            @"CREATE INDEX idx_signals_tenant_user ON signals(tenant_id, user_id);",
+            @"CREATE INDEX idx_signals_tenant_user ON signals(tenant_id(191), user_id(191));",
             @"CREATE INDEX idx_events_user ON events(user_id);",
-            @"CREATE INDEX idx_events_tenant_user ON events(tenant_id, user_id);",
+            @"CREATE INDEX idx_events_tenant_user ON events(tenant_id(191), user_id(191));",
             @"CREATE INDEX idx_merge_entries_user ON merge_entries(user_id);",
-            @"CREATE INDEX idx_merge_entries_tenant_user ON merge_entries(tenant_id, user_id);"
+            @"CREATE INDEX idx_merge_entries_tenant_user ON merge_entries(tenant_id(191), user_id(191));"
         };
 
         /// <summary>
@@ -400,7 +400,7 @@ namespace Armada.Core.Database.Mysql.Queries
         /// </summary>
         public static readonly string[] MigrationV6Statements = new string[]
         {
-            @"ALTER TABLE users ADD COLUMN is_tenant_admin TINYINT(1) NOT NULL DEFAULT 0;",
+            @"ALTER TABLE users ADD COLUMN IF NOT EXISTS is_tenant_admin TINYINT(1) NOT NULL DEFAULT 0;",
             @"UPDATE users SET is_tenant_admin = 1 WHERE is_admin = 1;"
         };
 
@@ -409,8 +409,8 @@ namespace Armada.Core.Database.Mysql.Queries
         /// </summary>
         public static readonly string[] MigrationV7Statements = new string[]
         {
-            @"ALTER TABLE vessels ADD COLUMN enable_model_context TINYINT(1) NOT NULL DEFAULT 1;",
-            @"ALTER TABLE vessels ADD COLUMN model_context LONGTEXT;"
+            @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS enable_model_context TINYINT(1) NOT NULL DEFAULT 1;",
+            @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS model_context LONGTEXT;"
         };
 
         /// <summary>
@@ -418,7 +418,7 @@ namespace Armada.Core.Database.Mysql.Queries
         /// </summary>
         public static readonly string[] MigrationV8Statements = new string[]
         {
-            @"ALTER TABLE captains ADD COLUMN system_instructions LONGTEXT;"
+            @"ALTER TABLE captains ADD COLUMN IF NOT EXISTS system_instructions LONGTEXT;"
         };
 
         /// <summary>
@@ -488,7 +488,7 @@ namespace Armada.Core.Database.Mysql.Queries
         public static readonly string[] MigrationV9Statements = new string[]
         {
             PromptTemplates,
-            @"CREATE UNIQUE INDEX idx_prompt_templates_tenant_name ON prompt_templates(tenant_id, name);",
+            @"CREATE UNIQUE INDEX idx_prompt_templates_tenant_name ON prompt_templates(tenant_id(191), name(191));",
             @"CREATE INDEX idx_prompt_templates_category ON prompt_templates(category);",
             @"CREATE INDEX idx_prompt_templates_active ON prompt_templates(active);"
         };
@@ -499,7 +499,7 @@ namespace Armada.Core.Database.Mysql.Queries
         public static readonly string[] MigrationV10Statements = new string[]
         {
             Personas,
-            @"CREATE UNIQUE INDEX idx_personas_tenant_name ON personas(tenant_id, name);",
+            @"CREATE UNIQUE INDEX idx_personas_tenant_name ON personas(tenant_id(191), name(191));",
             @"CREATE INDEX idx_personas_active ON personas(active);",
             @"CREATE INDEX idx_personas_prompt_template ON personas(prompt_template_name);"
         };
@@ -509,8 +509,8 @@ namespace Armada.Core.Database.Mysql.Queries
         /// </summary>
         public static readonly string[] MigrationV11Statements = new string[]
         {
-            @"ALTER TABLE captains ADD COLUMN allowed_personas LONGTEXT;",
-            @"ALTER TABLE captains ADD COLUMN preferred_persona VARCHAR(450);",
+            @"ALTER TABLE captains ADD COLUMN IF NOT EXISTS allowed_personas LONGTEXT;",
+            @"ALTER TABLE captains ADD COLUMN IF NOT EXISTS preferred_persona VARCHAR(450);",
             @"CREATE INDEX idx_captains_preferred_persona ON captains(preferred_persona);"
         };
 
@@ -519,8 +519,8 @@ namespace Armada.Core.Database.Mysql.Queries
         /// </summary>
         public static readonly string[] MigrationV12Statements = new string[]
         {
-            @"ALTER TABLE missions ADD COLUMN persona VARCHAR(450);",
-            @"ALTER TABLE missions ADD COLUMN depends_on_mission_id VARCHAR(450);",
+            @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS persona VARCHAR(450);",
+            @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS depends_on_mission_id VARCHAR(450);",
             @"CREATE INDEX idx_missions_persona ON missions(persona);",
             @"CREATE INDEX idx_missions_depends_on ON missions(depends_on_mission_id);"
         };
@@ -532,13 +532,13 @@ namespace Armada.Core.Database.Mysql.Queries
         {
             Pipelines,
             PipelineStages,
-            @"CREATE UNIQUE INDEX idx_pipelines_tenant_name ON pipelines(tenant_id, name);",
+            @"CREATE UNIQUE INDEX idx_pipelines_tenant_name ON pipelines(tenant_id(191), name(191));",
             @"CREATE INDEX idx_pipelines_active ON pipelines(active);",
             @"CREATE INDEX idx_pipeline_stages_pipeline ON pipeline_stages(pipeline_id);",
             @"CREATE UNIQUE INDEX idx_pipeline_stages_order ON pipeline_stages(pipeline_id, stage_order);",
             @"CREATE INDEX idx_pipeline_stages_persona ON pipeline_stages(persona_name);",
-            @"ALTER TABLE fleets ADD COLUMN default_pipeline_id VARCHAR(450);",
-            @"ALTER TABLE vessels ADD COLUMN default_pipeline_id VARCHAR(450);",
+            @"ALTER TABLE fleets ADD COLUMN IF NOT EXISTS default_pipeline_id VARCHAR(450);",
+            @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS default_pipeline_id VARCHAR(450);",
             @"CREATE INDEX idx_fleets_default_pipeline ON fleets(default_pipeline_id);",
             @"CREATE INDEX idx_vessels_default_pipeline ON vessels(default_pipeline_id);"
         };
@@ -548,7 +548,7 @@ namespace Armada.Core.Database.Mysql.Queries
         /// </summary>
         public static readonly string[] MigrationV14Statements = new string[]
         {
-            @"ALTER TABLE missions ADD COLUMN failure_reason LONGTEXT;"
+            @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS failure_reason LONGTEXT;"
         };
 
         /// <summary>
@@ -556,7 +556,7 @@ namespace Armada.Core.Database.Mysql.Queries
         /// </summary>
         public static readonly string[] MigrationV15Statements = new string[]
         {
-            @"ALTER TABLE missions ADD COLUMN agent_output LONGTEXT;"
+            @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS agent_output LONGTEXT;"
         };
 
         /// <summary>
@@ -564,7 +564,7 @@ namespace Armada.Core.Database.Mysql.Queries
         /// </summary>
         public static readonly string[] MigrationV26Statements = new string[]
         {
-            @"ALTER TABLE captains ADD COLUMN model TEXT NULL;"
+            @"ALTER TABLE captains ADD COLUMN IF NOT EXISTS model TEXT NULL;"
         };
 
         /// <summary>
@@ -572,7 +572,7 @@ namespace Armada.Core.Database.Mysql.Queries
         /// </summary>
         public static readonly string[] MigrationV27Statements = new string[]
         {
-            @"ALTER TABLE missions ADD COLUMN total_runtime_ms BIGINT NULL;"
+            @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS total_runtime_ms BIGINT NULL;"
         };
 
         /// <summary>
@@ -593,7 +593,7 @@ namespace Armada.Core.Database.Mysql.Queries
                 FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
             );",
-            @"CREATE UNIQUE INDEX idx_playbooks_tenant_file_name ON playbooks(tenant_id, file_name);",
+            @"CREATE UNIQUE INDEX idx_playbooks_tenant_file_name ON playbooks(tenant_id(191), file_name(191));",
             @"CREATE INDEX idx_playbooks_tenant ON playbooks(tenant_id);",
             @"CREATE INDEX idx_playbooks_user ON playbooks(user_id);",
             @"CREATE INDEX idx_playbooks_active ON playbooks(active);",
@@ -795,8 +795,8 @@ namespace Armada.Core.Database.Mysql.Queries
         public static readonly string[] MigrationV34Statements = new string[]
         {
             @"ALTER TABLE check_runs
-                ADD COLUMN test_summary_json LONGTEXT NULL,
-                ADD COLUMN coverage_summary_json LONGTEXT NULL;"
+                ADD COLUMN IF NOT EXISTS test_summary_json LONGTEXT NULL,
+                ADD COLUMN IF NOT EXISTS coverage_summary_json LONGTEXT NULL;"
         };
 
         /// <summary>
@@ -805,13 +805,13 @@ namespace Armada.Core.Database.Mysql.Queries
         public static readonly string[] MigrationV35Statements = new string[]
         {
             @"ALTER TABLE workflow_profiles
-                ADD COLUMN migration_command LONGTEXT NULL,
-                ADD COLUMN security_scan_command LONGTEXT NULL,
-                ADD COLUMN performance_command LONGTEXT NULL,
-                ADD COLUMN deployment_verification_command LONGTEXT NULL,
-                ADD COLUMN rollback_verification_command LONGTEXT NULL;",
+                ADD COLUMN IF NOT EXISTS migration_command LONGTEXT NULL,
+                ADD COLUMN IF NOT EXISTS security_scan_command LONGTEXT NULL,
+                ADD COLUMN IF NOT EXISTS performance_command LONGTEXT NULL,
+                ADD COLUMN IF NOT EXISTS deployment_verification_command LONGTEXT NULL,
+                ADD COLUMN IF NOT EXISTS rollback_verification_command LONGTEXT NULL;",
             @"ALTER TABLE vessels
-                ADD COLUMN require_passing_checks_to_land TINYINT(1) NOT NULL DEFAULT 0;"
+                ADD COLUMN IF NOT EXISTS require_passing_checks_to_land TINYINT(1) NOT NULL DEFAULT 0;"
         };
 
         /// <summary>
@@ -820,16 +820,16 @@ namespace Armada.Core.Database.Mysql.Queries
         public static readonly string[] MigrationV36Statements = new string[]
         {
             @"ALTER TABLE check_runs
-                ADD COLUMN source VARCHAR(64) NOT NULL DEFAULT 'Armada',
-                ADD COLUMN provider_name VARCHAR(450) NULL,
-                ADD COLUMN external_id VARCHAR(450) NULL,
-                ADD COLUMN external_url LONGTEXT NULL;",
+                ADD COLUMN IF NOT EXISTS source VARCHAR(64) NOT NULL DEFAULT 'Armada',
+                ADD COLUMN IF NOT EXISTS provider_name VARCHAR(450) NULL,
+                ADD COLUMN IF NOT EXISTS external_id VARCHAR(450) NULL,
+                ADD COLUMN IF NOT EXISTS external_url LONGTEXT NULL;",
             @"ALTER TABLE vessels
-                ADD COLUMN protected_branch_patterns_json LONGTEXT NULL,
-                ADD COLUMN release_branch_prefix VARCHAR(450) NOT NULL DEFAULT 'release/',
-                ADD COLUMN hotfix_branch_prefix VARCHAR(450) NOT NULL DEFAULT 'hotfix/',
-                ADD COLUMN require_pull_request_for_protected_branches TINYINT(1) NOT NULL DEFAULT 0,
-                ADD COLUMN require_merge_queue_for_release_branches TINYINT(1) NOT NULL DEFAULT 0;"
+                ADD COLUMN IF NOT EXISTS protected_branch_patterns_json LONGTEXT NULL,
+                ADD COLUMN IF NOT EXISTS release_branch_prefix VARCHAR(450) NOT NULL DEFAULT 'release/',
+                ADD COLUMN IF NOT EXISTS hotfix_branch_prefix VARCHAR(450) NOT NULL DEFAULT 'hotfix/',
+                ADD COLUMN IF NOT EXISTS require_pull_request_for_protected_branches TINYINT(1) NOT NULL DEFAULT 0,
+                ADD COLUMN IF NOT EXISTS require_merge_queue_for_release_branches TINYINT(1) NOT NULL DEFAULT 0;"
         };
 
         /// <summary>
@@ -898,7 +898,7 @@ namespace Armada.Core.Database.Mysql.Queries
             );",
             @"CREATE INDEX idx_environments_tenant_created ON environments(tenant_id, created_utc DESC);",
             @"CREATE INDEX idx_environments_user_created ON environments(user_id, created_utc DESC);",
-            @"CREATE INDEX idx_environments_vessel_name ON environments(vessel_id, name);",
+            @"CREATE INDEX idx_environments_vessel_name ON environments(vessel_id(191), name(191));",
             @"CREATE INDEX idx_environments_kind ON environments(kind);",
             @"CREATE INDEX idx_environments_default ON environments(is_default);",
             @"CREATE INDEX idx_environments_active ON environments(active);"
@@ -968,17 +968,17 @@ namespace Armada.Core.Database.Mysql.Queries
         /// </summary>
         public static readonly string[] MigrationV40Statements = new string[]
         {
-            @"ALTER TABLE check_runs ADD COLUMN deployment_id VARCHAR(450) NULL;",
+            @"ALTER TABLE check_runs ADD COLUMN IF NOT EXISTS deployment_id VARCHAR(450) NULL;",
             @"CREATE INDEX idx_check_runs_deployment_created ON check_runs(deployment_id, created_utc DESC);",
-            @"ALTER TABLE environments ADD COLUMN verification_definitions_json LONGTEXT NULL;",
-            @"ALTER TABLE environments ADD COLUMN rollout_monitoring_window_minutes INT NOT NULL DEFAULT 0;",
-            @"ALTER TABLE environments ADD COLUMN rollout_monitoring_interval_seconds INT NOT NULL DEFAULT 300;",
-            @"ALTER TABLE environments ADD COLUMN alert_on_regression TINYINT(1) NOT NULL DEFAULT 1;",
-            @"ALTER TABLE deployments ADD COLUMN monitoring_window_ends_utc DATETIME(6) NULL;",
-            @"ALTER TABLE deployments ADD COLUMN last_monitored_utc DATETIME(6) NULL;",
-            @"ALTER TABLE deployments ADD COLUMN last_regression_alert_utc DATETIME(6) NULL;",
-            @"ALTER TABLE deployments ADD COLUMN latest_monitoring_summary LONGTEXT NULL;",
-            @"ALTER TABLE deployments ADD COLUMN monitoring_failure_count INT NOT NULL DEFAULT 0;"
+            @"ALTER TABLE environments ADD COLUMN IF NOT EXISTS verification_definitions_json LONGTEXT NULL;",
+            @"ALTER TABLE environments ADD COLUMN IF NOT EXISTS rollout_monitoring_window_minutes INT NOT NULL DEFAULT 0;",
+            @"ALTER TABLE environments ADD COLUMN IF NOT EXISTS rollout_monitoring_interval_seconds INT NOT NULL DEFAULT 300;",
+            @"ALTER TABLE environments ADD COLUMN IF NOT EXISTS alert_on_regression TINYINT(1) NOT NULL DEFAULT 1;",
+            @"ALTER TABLE deployments ADD COLUMN IF NOT EXISTS monitoring_window_ends_utc DATETIME(6) NULL;",
+            @"ALTER TABLE deployments ADD COLUMN IF NOT EXISTS last_monitored_utc DATETIME(6) NULL;",
+            @"ALTER TABLE deployments ADD COLUMN IF NOT EXISTS last_regression_alert_utc DATETIME(6) NULL;",
+            @"ALTER TABLE deployments ADD COLUMN IF NOT EXISTS latest_monitoring_summary LONGTEXT NULL;",
+            @"ALTER TABLE deployments ADD COLUMN IF NOT EXISTS monitoring_failure_count INT NOT NULL DEFAULT 0;"
         };
 
         /// <summary>
@@ -986,7 +986,115 @@ namespace Armada.Core.Database.Mysql.Queries
         /// </summary>
         public static readonly string[] MigrationV41Statements = new string[]
         {
-            @"ALTER TABLE vessels ADD COLUMN github_token_override LONGTEXT NULL;"
+            @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS github_token_override LONGTEXT NULL;"
+        };
+
+        /// <summary>
+        /// Migration v42 statements for normalized objectives backlog tables.
+        /// </summary>
+        public static readonly string[] MigrationV42Statements = new string[]
+        {
+            @"CREATE TABLE IF NOT EXISTS objectives (
+                id VARCHAR(450) NOT NULL PRIMARY KEY,
+                tenant_id VARCHAR(450),
+                user_id VARCHAR(450),
+                title VARCHAR(450) NOT NULL,
+                description LONGTEXT,
+                status VARCHAR(64) NOT NULL DEFAULT 'Draft',
+                kind VARCHAR(64) NOT NULL DEFAULT 'Feature',
+                category VARCHAR(450),
+                priority VARCHAR(64) NOT NULL DEFAULT 'P2',
+                `rank` INT NOT NULL DEFAULT 0,
+                backlog_state VARCHAR(64) NOT NULL DEFAULT 'Inbox',
+                effort VARCHAR(64) NOT NULL DEFAULT 'M',
+                owner VARCHAR(450),
+                target_version VARCHAR(450),
+                due_utc DATETIME(6) NULL,
+                parent_objective_id VARCHAR(450),
+                blocked_by_objective_ids_json LONGTEXT,
+                refinement_summary LONGTEXT,
+                suggested_pipeline_id VARCHAR(450),
+                suggested_playbooks_json LONGTEXT,
+                tags_json LONGTEXT,
+                acceptance_criteria_json LONGTEXT,
+                non_goals_json LONGTEXT,
+                rollout_constraints_json LONGTEXT,
+                evidence_links_json LONGTEXT,
+                fleet_ids_json LONGTEXT,
+                vessel_ids_json LONGTEXT,
+                planning_session_ids_json LONGTEXT,
+                refinement_session_ids_json LONGTEXT,
+                voyage_ids_json LONGTEXT,
+                mission_ids_json LONGTEXT,
+                check_run_ids_json LONGTEXT,
+                release_ids_json LONGTEXT,
+                deployment_ids_json LONGTEXT,
+                incident_ids_json LONGTEXT,
+                source_provider VARCHAR(450),
+                source_type VARCHAR(450),
+                source_id VARCHAR(450),
+                source_url LONGTEXT,
+                source_updated_utc DATETIME(6) NULL,
+                created_utc DATETIME(6) NOT NULL,
+                last_update_utc DATETIME(6) NOT NULL,
+                completed_utc DATETIME(6) NULL,
+                FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
+                FOREIGN KEY (parent_objective_id) REFERENCES objectives(id) ON DELETE SET NULL,
+                FOREIGN KEY (suggested_pipeline_id) REFERENCES pipelines(id) ON DELETE SET NULL
+            );",
+            @"CREATE INDEX idx_objectives_tenant_status_updated ON objectives(tenant_id, status, last_update_utc DESC);",
+            @"CREATE INDEX idx_objectives_tenant_backlog_priority_rank ON objectives(tenant_id, backlog_state, priority, `rank`);",
+            @"CREATE INDEX idx_objectives_tenant_kind_priority ON objectives(tenant_id, kind, priority);",
+            @"CREATE INDEX idx_objectives_tenant_owner ON objectives(tenant_id(128), owner(128));",
+            @"CREATE INDEX idx_objectives_tenant_due ON objectives(tenant_id, due_utc);",
+            @"CREATE INDEX idx_objectives_tenant_target_version ON objectives(tenant_id(128), target_version(128));",
+            @"CREATE INDEX idx_objectives_tenant_parent ON objectives(tenant_id(128), parent_objective_id(128));",
+            @"CREATE INDEX idx_objectives_tenant_source ON objectives(tenant_id(128), source_provider(64), source_type(64), source_id(128));",
+            @"CREATE TABLE IF NOT EXISTS objective_refinement_sessions (
+                id VARCHAR(450) NOT NULL PRIMARY KEY,
+                objective_id VARCHAR(450) NOT NULL,
+                tenant_id VARCHAR(450),
+                user_id VARCHAR(450),
+                captain_id VARCHAR(450),
+                fleet_id VARCHAR(450),
+                vessel_id VARCHAR(450),
+                title VARCHAR(450) NOT NULL,
+                status VARCHAR(64) NOT NULL DEFAULT 'Created',
+                process_id INT NULL,
+                failure_reason LONGTEXT,
+                created_utc DATETIME(6) NOT NULL,
+                started_utc DATETIME(6) NULL,
+                completed_utc DATETIME(6) NULL,
+                last_update_utc DATETIME(6) NOT NULL,
+                FOREIGN KEY (objective_id) REFERENCES objectives(id) ON DELETE CASCADE,
+                FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
+                FOREIGN KEY (captain_id) REFERENCES captains(id) ON DELETE SET NULL,
+                FOREIGN KEY (fleet_id) REFERENCES fleets(id) ON DELETE SET NULL,
+                FOREIGN KEY (vessel_id) REFERENCES vessels(id) ON DELETE SET NULL
+            );",
+            @"CREATE INDEX idx_objective_refinement_sessions_tenant_objective_created ON objective_refinement_sessions(tenant_id(128), objective_id(128), created_utc DESC);",
+            @"CREATE INDEX idx_objective_refinement_sessions_tenant_captain_status ON objective_refinement_sessions(tenant_id(128), captain_id(128), status);",
+            @"CREATE TABLE IF NOT EXISTS objective_refinement_messages (
+                id VARCHAR(450) NOT NULL PRIMARY KEY,
+                objective_refinement_session_id VARCHAR(450) NOT NULL,
+                objective_id VARCHAR(450) NOT NULL,
+                tenant_id VARCHAR(450),
+                user_id VARCHAR(450),
+                role VARCHAR(64) NOT NULL,
+                sequence INT NOT NULL,
+                content LONGTEXT NOT NULL,
+                is_selected TINYINT(1) NOT NULL DEFAULT 0,
+                created_utc DATETIME(6) NOT NULL,
+                last_update_utc DATETIME(6) NOT NULL,
+                FOREIGN KEY (objective_refinement_session_id) REFERENCES objective_refinement_sessions(id) ON DELETE CASCADE,
+                FOREIGN KEY (objective_id) REFERENCES objectives(id) ON DELETE CASCADE,
+                FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+            );",
+            @"CREATE INDEX idx_objective_refinement_messages_session_sequence ON objective_refinement_messages(objective_refinement_session_id, sequence);",
+            @"CREATE INDEX idx_objective_refinement_messages_objective_created ON objective_refinement_messages(objective_id, created_utc DESC);"
         };
 
         /// <summary>
@@ -1001,10 +1109,10 @@ namespace Armada.Core.Database.Mysql.Queries
             "CREATE INDEX idx_missions_captain ON missions(captain_id);",
             "CREATE INDEX idx_missions_status ON missions(status);",
             "CREATE INDEX idx_missions_status_priority ON missions(status, priority ASC, created_utc ASC);",
-            "CREATE INDEX idx_missions_vessel_status ON missions(vessel_id, status);",
+            "CREATE INDEX idx_missions_vessel_status ON missions(vessel_id(191), status(191));",
             "CREATE INDEX idx_voyages_status ON voyages(status);",
             "CREATE INDEX idx_docks_vessel ON docks(vessel_id);",
-            "CREATE INDEX idx_docks_vessel_available ON docks(vessel_id, active, captain_id);",
+            "CREATE INDEX idx_docks_vessel_available ON docks(vessel_id(191), active, captain_id(191));",
             "CREATE INDEX idx_signals_to_captain ON signals(to_captain_id);",
             "CREATE INDEX idx_signals_to_captain_read ON signals(to_captain_id, `read`);",
             "CREATE INDEX idx_signals_created ON signals(created_utc DESC);",
@@ -1013,7 +1121,7 @@ namespace Armada.Core.Database.Mysql.Queries
             "CREATE INDEX idx_events_mission ON events(mission_id);",
             "CREATE INDEX idx_events_vessel ON events(vessel_id);",
             "CREATE INDEX idx_events_voyage ON events(voyage_id);",
-            "CREATE INDEX idx_events_entity ON events(entity_type, entity_id);",
+            "CREATE INDEX idx_events_entity ON events(entity_type(191), entity_id(191));",
             "CREATE INDEX idx_events_created ON events(created_utc DESC);",
             "CREATE INDEX idx_merge_entries_status ON merge_entries(status);",
             "CREATE INDEX idx_merge_entries_status_priority ON merge_entries(status, priority ASC, created_utc ASC);",

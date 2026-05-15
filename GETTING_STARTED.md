@@ -104,6 +104,50 @@ Current planning-session constraints:
 
 ---
 
+## Backlog Workflow
+
+If you want to capture and refine future work before repository-aware planning starts, use the backlog surface:
+
+```text
+Dashboard Backlog UI
+    |
+    +--> Capture title, priority, rank, kind, and vessel links
+    +--> Start captain-backed refinement (optional vessel)
+    +--> Summarize and apply refinement output
+    +--> Start repository-aware planning when vessel/captain are chosen
+    +--> Dispatch implementation or draft a release from the same backlog item
+```
+
+1. Start Armada and open `http://localhost:7890/dashboard`
+2. Go to `Backlog`
+3. Create a backlog item with the title, description, and any known metadata
+4. Optionally start `Refinement` from the backlog detail page and explicitly choose the captain that should refine the work
+5. Send refinement messages until you have a scoped summary you want to keep
+6. Apply the refinement summary back to the backlog item to update acceptance criteria, non-goals, rollout constraints, and backlog readiness
+7. Start `Planning` once you are ready to choose the repository-aware vessel, captain, pipeline, and playbooks
+8. Dispatch from planning or draft a release from the same backlog item without copy/paste
+
+Important backlog rules:
+
+- Backlog refinement is lighter than planning: it records a captain-backed transcript but does not provision a dock or mutate a repository by default.
+- A backlog item does not need a vessel to start refinement, but it does need a vessel before repository-aware planning or dispatch can begin.
+- The same backlog item stays linked to refinement sessions, planning sessions, voyages, releases, deployments, incidents, and history entries.
+- The legacy `/api/v1/objectives/...` routes still work, but the dashboard and user-facing docs prefer `Backlog`.
+
+CLI examples:
+
+```bash
+armada backlog list
+armada backlog create --title "Stabilize release rollout" --priority P1 --backlog-state Inbox
+armada backlog update obj_abc123 --kind Feature --target-version 0.8.0
+armada backlog reorder obj_abc123 --rank 10
+armada backlog show obj_abc123
+```
+
+See `docs/BACKLOG.md` for the full backlog, refinement, planning, REST, MCP, and Helm guide.
+
+---
+
 ## Create a project
 
 We'll create an empty repo and let Armada's agents build the whole thing.

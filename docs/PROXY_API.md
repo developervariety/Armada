@@ -1,10 +1,10 @@
 # Proxy API
 
-**Version:** 0.7.0
+**Version:** 0.8.0
 
-This document describes the first shipped Armada proxy API surface in `v0.7.0`.
+This document describes the first shipped Armada proxy API surface in `v0.8.0`.
 
-`v0.7.0` includes:
+`v0.8.0` includes:
 
 - websocket tunnel termination at `/tunnel`
 - challenge-based browser login using the shared proxy password
@@ -16,7 +16,7 @@ This document describes the first shipped Armada proxy API surface in `v0.7.0`.
 - live request/response forwarding for Armada health, status, detail snapshots, and management actions
 - tunnel handshake validation using shared-password proofs plus optional enrollment-token validation
 
-`v0.7.0` does not yet include:
+`v0.8.0` does not yet include:
 
 - SaaS user accounts
 - enrollment workflows beyond static token validation
@@ -119,7 +119,7 @@ Invalidates the current browser session identified by `X-Armada-Proxy-Session`.
 
 Serves the proxy remote operations shell.
 
-The shell is designed for quick remote triage rather than full local-dashboard parity. In `v0.7.0` it includes:
+The shell is designed for quick remote triage rather than full local-dashboard parity. In `v0.8.0` it includes:
 
 - instance list
 - instance summary cards
@@ -142,7 +142,7 @@ Returns proxy process health and instance counts.
 {
   "healthy": true,
   "product": "Armada.Proxy",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "protocolVersion": "2026-04-04",
   "port": 7893,
   "startedUtc": "2026-04-03T21:00:00Z",
@@ -166,7 +166,7 @@ Returns summary rows for all known instances.
     {
       "instanceId": "armada-1f2e3d4c5b6a",
       "state": "connected",
-      "armadaVersion": "0.7.0",
+      "armadaVersion": "0.8.0",
       "protocolVersion": "2026-04-04",
       "capabilities": [
         "remoteControl.handshake",
@@ -206,7 +206,7 @@ Returns the current summary plus recent inbound event history for an instance.
   "summary": {
     "instanceId": "armada-1f2e3d4c5b6a",
     "state": "connected",
-    "armadaVersion": "0.7.0",
+    "armadaVersion": "0.8.0",
     "protocolVersion": "2026-04-04",
     "capabilities": [
       "remoteControl.handshake",
@@ -251,7 +251,7 @@ Returns the aggregated remote-shell summary for a connected instance by issuing 
   "generatedUtc": "2026-04-03T21:05:00Z",
   "health": {
     "status": "healthy",
-    "version": "0.7.0"
+    "version": "0.8.0"
   },
   "status": {
     "activeVoyages": 1,
@@ -358,7 +358,7 @@ Example voyage dispatch request:
 ```json
 {
   "title": "Remote release hardening",
-  "description": "Ship the v0.7.0 proxy management surface.",
+  "description": "Ship the v0.8.0 proxy management surface.",
   "vesselId": "vsl_abc123",
   "pipeline": "FullPipeline",
   "selectedPlaybooks": [
@@ -446,7 +446,7 @@ Sends a live tunnel request to the connected Armada instance using method `armad
     "timestamp": "2026-04-03T21:02:00Z",
     "startUtc": "2026-04-03T20:00:00Z",
     "uptime": "0.01:02:00",
-    "version": "0.7.0",
+    "version": "0.8.0",
     "ports": {
       "admiral": 7890,
       "mcp": 7891

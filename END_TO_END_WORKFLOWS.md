@@ -1,6 +1,6 @@
 # End-to-End Workflows Plan
 
-Last updated: 2026-05-04
+Last updated: 2026-05-14
 
 This document tracks the proposed expansion of Armada from a strong agent-orchestration platform into a fuller developer-lifecycle platform. It is intentionally actionable: work is grouped into concrete workflow areas, checklists are explicit, and developers should be able to annotate progress directly in this file.
 
@@ -41,6 +41,7 @@ Armada already ships pieces of this lifecycle:
 - [x] Configurable stage-level review gates with approve and deny flows
 - [x] Workflow profiles for vessel- and fleet-aware build, test, release, deploy, and verification commands
 - [x] Structured check runs with logs, artifacts, retry, parsed test and coverage summaries, and workflow-profile-backed execution
+- [x] Pull-based GitHub objective import, GitHub Actions sync, and GitHub pull-request evidence with global and per-vessel token resolution
 - [x] Vessel readiness and workflow-input preflight for Workspace, vessel detail, planning, dispatch, and checks
 - [x] First-class release records with versions, tags, linked work, derived notes, and artifact aggregation
 - [x] First-class deployment environments with startup default seeding from workflow profiles or fallback development records
@@ -78,6 +79,34 @@ The full developer lifecycle Armada should eventually cover can be thought of as
 14. Historical reporting and learning
 
 The workstreams below are organized around this map.
+
+## Shipped Backlog Workflow
+
+Armada now ships a backlog-first workflow that covers the intake-to-dispatch path inside the product instead of treating intake as an external prerequisite.
+
+Current shipped flow:
+
+1. Capture a backlog item from the React dashboard, REST API, MCP, Helm, or Postman.
+2. Set backlog metadata such as kind, category, priority, rank, backlog state, effort, target version, and linked vessels or fleets.
+3. Start a captain-backed refinement session directly from the backlog item and explicitly choose the captain that will perform the refinement.
+4. Keep the transcript, summarize a selected or latest assistant turn, and apply the summary back to the backlog item.
+5. Start a repository-aware planning session once a vessel, captain, and optional pipeline are chosen.
+6. Dispatch from the planning session while preserving the same backlog/objective linkage.
+7. Draft releases, link deployments, attach incidents, and trace the lineage from `Activity > History`.
+
+Important behavior:
+
+- Refinement is intentionally lighter than planning and does not provision a dock or imply repository mutation by default.
+- A vessel is optional for refinement but required before repository-aware planning or dispatch can begin.
+- The internal domain record remains `Objective`, but user-facing surfaces prefer `Backlog`.
+- Legacy `/api/v1/objectives/...` routes remain supported alongside `/api/v1/backlog/...` aliases.
+
+Reference surfaces:
+
+- Dashboard: `Backlog`, backlog detail, refinement transcript, planning handoff, release drafting, and `Activity > History`
+- REST: `/api/v1/backlog`, `/api/v1/objectives/reorder`, `/api/v1/backlog/reorder`, `/api/v1/objective-refinement-sessions/...`
+- MCP: backlog CRUD, reorder, refinement, planning handoff, and dispatch handoff tools
+- Helm: `armada backlog list|show|create|update|delete|reorder`
 
 ## Recommended New Core Concepts
 
@@ -168,7 +197,8 @@ Armada should better support the workflow before planning starts: understanding 
 ### Capability Target
 
 - [x] Create intake records manually from the dashboard
-- [ ] Import work from external systems such as GitHub Issues, GitHub PR comments, Jira, Linear, or service-desk sources
+- [x] Import work from GitHub Issues and GitHub-backed pull-request context into objectives
+- [ ] Import work from Jira, Linear, service-desk sources, and additional providers
 - [x] Link intake items to one or more vessels
 - [x] Capture acceptance criteria, non-goals, rollout constraints, and evidence links
 - [x] Convert intake items into planning sessions, objectives, or voyages
@@ -185,7 +215,8 @@ Armada should better support the workflow before planning starts: understanding 
 - [x] Add REST CRUD routes and query/filter support
 - [x] Add dashboard pages for list, detail, create, edit, and link management
 - [x] Add objective handoff actions into Planning, Dispatch, and Release drafting with prefilled context and server-backed linkage
-- [ ] Add import adapters or import stubs for external systems
+- [x] Add a GitHub import adapter for issue- and pull-request-backed objectives
+- [ ] Add adapters or import stubs for additional external systems
 
 Acceptance criteria:
 
@@ -382,22 +413,25 @@ Armada should integrate with CI/CD providers rather than assume it must execute 
 
 ### Capability Target
 
-- [ ] Ingest build/test/deploy status from GitHub Actions
+- [x] Ingest build/test/deploy status from GitHub Actions
 - [ ] Ingest from other systems later such as Azure DevOps, Jenkins, Buildkite, GitLab CI, or CircleCI
-- [ ] Link provider runs to missions, PRs, releases, and deployments
-- [ ] Show provider artifacts and logs or deep links to them
+- [x] Link provider runs to deployments and current linked mission/voyage context
+- [ ] Link provider runs to first-class PR and release records when those entities exist
+- [x] Show provider deep links and imported provider output on synced runs
+- [ ] Show provider-hosted artifacts and richer provider log surfaces where available
 
 ### Concrete Work
 
-- [ ] Define external run adapter interfaces
-- [ ] Add provider connection configuration
-- [ ] Add polling or webhook ingestion surfaces
-- [ ] Normalize external runs into `CheckRun` and `Deployment` records
+- [x] Add an initial pull-based GitHub Actions adapter surface
+- [x] Add provider connection configuration with global `GitHubToken` plus per-vessel override fallback
+- [x] Add on-demand pull-based sync surfaces
+- [x] Normalize external runs into `CheckRun` and `Deployment` records
 - [ ] Expose inbound webhook or scheduled sync infrastructure
 
 Acceptance criteria:
 
-- Armada can present a unified view whether a check ran inside Armada or in external CI
+- [x] Armada can present a unified current view for GitHub Actions runs alongside Armada-executed checks
+- [ ] Armada can present the same unified view across additional CI providers
 
 ## Workstream F: Pull Request and Review Workflow
 
@@ -415,16 +449,18 @@ The remaining work in this section is about expanding beyond stage-level mission
 ### Capability Target
 
 - [ ] Create or update PRs as first-class linked records
-- [ ] Capture PR status, approvals, review comments, change requests, and required checks
+- [x] Capture GitHub PR status, approvals, review comments, change requests, and required checks as linked evidence
 - [ ] Link review comments back to missions and Workspace files
 - [ ] Support replaying review feedback into planning or follow-up dispatches
 
 ### Concrete Work
 
-- [ ] Define a PR/review domain model or integration abstraction
+- [x] Define an initial GitHub-backed PR/review integration abstraction and normalized detail model
 - [ ] Extend merge-queue integration with richer review state
-- [ ] Add review panels to mission, voyage, objective, and release pages
-- [ ] Add comment ingestion or sync from provider APIs
+- [x] Add review panels to mission and release pages
+- [ ] Add review panels to voyage and objective pages
+- [x] Add comment ingestion or sync from GitHub APIs
+- [ ] Add comment ingestion or sync from additional provider APIs
 
 Acceptance criteria:
 
@@ -475,6 +511,7 @@ Acceptance criteria:
 - [x] `Delivery > Releases` ships as a first-class dashboard list/detail surface
 - [x] Voyages and checks can draft releases directly from existing work
 - [x] Objectives can now launch draft-release creation with server-backed release linkage
+- [x] Release detail can surface linked GitHub pull-request evidence derived from related mission PR URLs
 
 
 ### Capability Target
@@ -495,7 +532,8 @@ Acceptance criteria:
 - [x] Add artifact-linkage hooks via workflow profiles and structured checks
 - [x] Add release detail pages with linked voyages, missions, and checks
 - [x] Add linked deployment views for current internal release records
-- [ ] Add linked PR views once those entities exist
+- [x] Add linked GitHub pull-request evidence views for current mission-linked PR URLs
+- [ ] Add linked first-class PR views once those entities exist
 
 Acceptance criteria:
 
@@ -645,7 +683,7 @@ This is the area that best fits Armada’s core identity as a memory layer.
 - [x] Show historical timelines that connect current Armada entities such as releases, planning, dispatch, checks, merge queue, requests, and events
 - [x] Allow filtering by vessel, user/actor, source type, free text, and time range
 - [x] Allow filtering by objective and incident for current lifecycle history
-- [ ] Add postmortem-specific timeline filters where incident workflows need them
+- [x] Add postmortem-specific timeline filters where incident workflows need them
 - [x] Allow filtering by environment and deployment for current lifecycle history
 - [x] Support "show me everything that happened for this launch" and similar questions for the current release/deployment history surface
 
@@ -659,7 +697,7 @@ This is the area that best fits Armada’s core identity as a memory layer.
 - [x] Extend the timeline for incidents, runbook executions, and the current deployment lifecycle
 - [x] Extend the timeline once objectives exist
 
-The remaining unchecked items in this workstream are now limited to future postmortem-specific filtering rather than missing objective, incident, deployment, or environment history support.
+The remaining unchecked items in this workstream are now limited to future entity expansion rather than missing objective, incident, deployment, environment, or postmortem-aware history support.
 
 Acceptance criteria:
 
@@ -793,7 +831,7 @@ The plan adds multiple first-class lifecycle entities. Persistence work should s
 
 - [x] Workflow profiles, check runs, and releases now ship across SQLite, PostgreSQL, SQL Server, and MySQL
 - [x] Ensure later lifecycle entities keep the same backend-neutral coverage
-- [ ] Add versioned migrations for all new lifecycle concepts
+- [x] Add versioned migrations for all new lifecycle concepts
 - [ ] Define retention strategies for noisy entities like check logs and deployment logs
 - [ ] Separate durable metadata from bulky artifacts where appropriate
 
@@ -819,7 +857,7 @@ Each workstream should ship with both backend and dashboard coverage where appli
 - [x] role and tenant scoping works correctly for workflow profiles and check runs
 - [x] artifacts and logs are queryable after execution for workflow-profile-backed check runs
 - [x] linked timelines remain consistent across entities
-- [ ] rollback and incident flows do not silently lose context
+- [x] rollback and incident flows do not silently lose context
 
 ## Documentation Work
 
@@ -830,9 +868,9 @@ As these workflows ship, documentation will need to stay synchronized.
 - [x] MCP API docs
 - [x] WebSocket API docs
 - [x] testing docs
-- [ ] deployment and remote-management docs
+- [x] deployment and remote-management docs
 - [x] Postman collection
-- [ ] new operator guides for release, deploy, rollback, and incident workflows
+- [x] new operator guides for release, deploy, rollback, and incident workflows
 
 Acceptance criteria:
 
@@ -843,8 +881,8 @@ Acceptance criteria:
 This plan should be considered fulfilled only when Armada can reasonably support the complete software-delivery loop across at least one realistic stack:
 
 - [x] work is captured and scoped for the current internal-first objective/intake surface
-- [ ] repositories are prepared with workflow metadata
-- [ ] planning and dispatch produce implementation work
+- [x] repositories are prepared with workflow metadata
+- [x] planning and dispatch produce implementation work
 - [x] build/test checks are tracked as first-class records
 - [x] review and landing status are visible
 - [x] releases are assembled and documented

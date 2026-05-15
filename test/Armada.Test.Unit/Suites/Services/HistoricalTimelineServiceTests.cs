@@ -207,6 +207,222 @@ namespace Armada.Test.Unit.Suites.Services
                     TryDeleteDirectory(workingDirectory);
                 }
             }).ConfigureAwait(false);
+
+            await RunTest("EnumerateAsync can narrow to postmortem-linked incident context", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+
+                string tenantId = "ten_history_postmortem";
+                string userId = "usr_history_postmortem";
+                string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-history-postmortem-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(workingDirectory);
+
+                try
+                {
+                    await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+
+                    Vessel vessel = CreateVessel(tenantId, userId, workingDirectory);
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Voyage voyage = new Voyage
+                    {
+                        TenantId = tenantId,
+                        UserId = userId,
+                        Title = "Postmortem Voyage",
+                        Description = "Shared voyage",
+                        Status = VoyageStatusEnum.Open
+                    };
+                    await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+
+                    Mission mission = new Mission
+                    {
+                        TenantId = tenantId,
+                        UserId = userId,
+                        VesselId = vessel.Id,
+                        VoyageId = voyage.Id,
+                        Title = "Postmortem Mission",
+                        Description = "Shared mission",
+                        Status = MissionStatusEnum.WorkProduced
+                    };
+                    await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    DeploymentEnvironment environment = new DeploymentEnvironment
+                    {
+                        TenantId = tenantId,
+                        UserId = userId,
+                        VesselId = vessel.Id,
+                        Name = "production",
+                        Kind = EnvironmentKindEnum.Production,
+                        Active = true,
+                        IsDefault = true
+                    };
+                    await testDb.Driver.Environments.CreateAsync(environment).ConfigureAwait(false);
+
+                    Release releaseWithPostmortem = new Release
+                    {
+                        TenantId = tenantId,
+                        UserId = userId,
+                        VesselId = vessel.Id,
+                        Title = "Release With Postmortem",
+                        Version = "1.0.0",
+                        TagName = "v1.0.0",
+                        Status = ReleaseStatusEnum.Candidate,
+                        MissionIds = new List<string> { mission.Id },
+                        VoyageIds = new List<string> { voyage.Id }
+                    };
+                    await testDb.Driver.Releases.CreateAsync(releaseWithPostmortem).ConfigureAwait(false);
+
+                    Release releaseWithoutPostmortem = new Release
+                    {
+                        TenantId = tenantId,
+                        UserId = userId,
+                        VesselId = vessel.Id,
+                        Title = "Release Without Postmortem",
+                        Version = "1.0.1",
+                        TagName = "v1.0.1",
+                        Status = ReleaseStatusEnum.Candidate
+                    };
+                    await testDb.Driver.Releases.CreateAsync(releaseWithoutPostmortem).ConfigureAwait(false);
+
+                    Deployment deploymentWithPostmortem = new Deployment
+                    {
+                        TenantId = tenantId,
+                        UserId = userId,
+                        VesselId = vessel.Id,
+                        EnvironmentId = environment.Id,
+                        EnvironmentName = environment.Name,
+                        ReleaseId = releaseWithPostmortem.Id,
+                        MissionId = mission.Id,
+                        VoyageId = voyage.Id,
+                        Title = "Deploy With Postmortem",
+                        Status = DeploymentStatusEnum.RolledBack,
+                        VerificationStatus = DeploymentVerificationStatusEnum.Passed
+                    };
+                    await testDb.Driver.Deployments.CreateAsync(deploymentWithPostmortem).ConfigureAwait(false);
+
+                    Deployment deploymentWithoutPostmortem = new Deployment
+                    {
+                        TenantId = tenantId,
+                        UserId = userId,
+                        VesselId = vessel.Id,
+                        EnvironmentId = environment.Id,
+                        EnvironmentName = environment.Name,
+                        ReleaseId = releaseWithoutPostmortem.Id,
+                        Title = "Deploy Without Postmortem",
+                        Status = DeploymentStatusEnum.Succeeded,
+                        VerificationStatus = DeploymentVerificationStatusEnum.Passed
+                    };
+                    await testDb.Driver.Deployments.CreateAsync(deploymentWithoutPostmortem).ConfigureAwait(false);
+
+                    IncidentService incidentService = new IncidentService(testDb.Driver);
+                    AuthContext auth = AuthContext.Authenticated(tenantId, userId, false, true, "UnitTest");
+
+                    Incident incidentWithPostmortem = await incidentService.CreateAsync(auth, new IncidentUpsertRequest
+                    {
+                        Title = "Incident With Postmortem",
+                        Summary = "Rollback and review required",
+                        Status = IncidentStatusEnum.Closed,
+                        Severity = IncidentSeverityEnum.Critical,
+                        EnvironmentId = environment.Id,
+                        EnvironmentName = environment.Name,
+                        DeploymentId = deploymentWithPostmortem.Id,
+                        ReleaseId = releaseWithPostmortem.Id,
+                        VesselId = vessel.Id,
+                        MissionId = mission.Id,
+                        VoyageId = voyage.Id,
+                        RollbackDeploymentId = deploymentWithPostmortem.Id,
+                        Postmortem = "Confirmed root cause and follow-up actions"
+                    }).ConfigureAwait(false);
+
+                    Incident incidentWithoutPostmortem = await incidentService.CreateAsync(auth, new IncidentUpsertRequest
+                    {
+                        Title = "Incident Without Postmortem",
+                        Summary = "Still under investigation",
+                        Status = IncidentStatusEnum.Open,
+                        Severity = IncidentSeverityEnum.High,
+                        EnvironmentId = environment.Id,
+                        EnvironmentName = environment.Name,
+                        DeploymentId = deploymentWithoutPostmortem.Id,
+                        ReleaseId = releaseWithoutPostmortem.Id,
+                        VesselId = vessel.Id
+                    }).ConfigureAwait(false);
+
+                    HistoricalTimelineService service = new HistoricalTimelineService(testDb.Driver);
+                    EnumerationResult<HistoricalTimelineEntry> result = await service.EnumerateAsync(auth, new HistoricalTimelineQuery
+                    {
+                        PageNumber = 1,
+                        PageSize = 100,
+                        PostmortemOnly = true
+                    }).ConfigureAwait(false);
+
+                    AssertTrue(result.Objects.Exists(entry => entry.SourceType == "Incident" && entry.SourceId == incidentWithPostmortem.Id));
+                    AssertTrue(result.Objects.Exists(entry => entry.SourceType == "Deployment" && entry.SourceId == deploymentWithPostmortem.Id));
+                    AssertTrue(result.Objects.Exists(entry => entry.SourceType == "Release" && entry.SourceId == releaseWithPostmortem.Id));
+                    AssertFalse(result.Objects.Exists(entry => entry.SourceType == "Incident" && entry.SourceId == incidentWithoutPostmortem.Id));
+                    AssertFalse(result.Objects.Exists(entry => entry.SourceType == "Deployment" && entry.SourceId == deploymentWithoutPostmortem.Id));
+                    AssertFalse(result.Objects.Exists(entry => entry.SourceType == "Release" && entry.SourceId == releaseWithoutPostmortem.Id));
+                }
+                finally
+                {
+                    TryDeleteDirectory(workingDirectory);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("EnumerateAsync includes backlog refinement sessions and routes them to backlog detail", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+
+                string tenantId = "ten_history_refinement";
+                string userId = "usr_history_refinement";
+                await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+
+                AuthContext auth = AuthContext.Authenticated(tenantId, userId, false, true, "UnitTest");
+                ObjectiveService objectives = new ObjectiveService(testDb.Driver);
+                Objective objective = await objectives.CreateAsync(auth, new ObjectiveUpsertRequest
+                {
+                    Title = "History backlog item",
+                    Status = ObjectiveStatusEnum.Scoped
+                }).ConfigureAwait(false);
+                Captain captain = new Captain("history-refinement-captain")
+                {
+                    TenantId = tenantId,
+                    UserId = userId
+                };
+                await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                DateTime startedUtc = DateTime.UtcNow.AddMinutes(-5);
+                ObjectiveRefinementSession session = new ObjectiveRefinementSession
+                {
+                    TenantId = tenantId,
+                    UserId = userId,
+                    ObjectiveId = objective.Id,
+                    CaptainId = captain.Id,
+                    Title = "Refine history coverage",
+                    Status = ObjectiveRefinementSessionStatusEnum.Completed,
+                    CreatedUtc = startedUtc.AddMinutes(-1),
+                    StartedUtc = startedUtc,
+                    CompletedUtc = startedUtc.AddMinutes(2),
+                    LastUpdateUtc = startedUtc.AddMinutes(2)
+                };
+                await testDb.Driver.ObjectiveRefinementSessions.CreateAsync(session).ConfigureAwait(false);
+
+                HistoricalTimelineService service = new HistoricalTimelineService(testDb.Driver);
+                EnumerationResult<HistoricalTimelineEntry> result = await service.EnumerateAsync(auth, new HistoricalTimelineQuery
+                {
+                    PageNumber = 1,
+                    PageSize = 25,
+                    ObjectiveId = objective.Id,
+                    SourceTypes = new List<string> { "ObjectiveRefinementSession" }
+                }).ConfigureAwait(false);
+
+                AssertEqual(1, result.Objects.Count);
+                HistoricalTimelineEntry entry = result.Objects[0];
+                AssertEqual("ObjectiveRefinementSession", entry.SourceType);
+                AssertEqual(session.Id, entry.SourceId);
+                AssertEqual(objective.Id, entry.ObjectiveId);
+                AssertEqual("/backlog/" + objective.Id, entry.Route);
+                AssertEqual(ObjectiveRefinementSessionStatusEnum.Completed.ToString(), entry.Status);
+            }).ConfigureAwait(false);
         }
 
         private static async Task EnsureTenantAndUserAsync(TestDatabase testDb, string tenantId, string userId)

@@ -854,6 +854,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
             Captain captain = new Captain();
             captain.Id = reader["id"].ToString()!;
             captain.TenantId = NullableString(reader["tenant_id"]);
+            captain.UserId = NullableString(reader["user_id"]);
             captain.Name = reader["name"].ToString()!;
             captain.Runtime = Enum.Parse<AgentRuntimeEnum>(reader["runtime"].ToString()!);
             try { captain.Model = NullableString(reader["model"]); } catch { }

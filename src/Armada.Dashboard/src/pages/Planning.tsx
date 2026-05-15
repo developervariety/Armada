@@ -553,15 +553,15 @@ export default function Planning() {
       {!id && (planningPrefill?.fromWorkspace || planningPrefill?.fromIncident || planningPrefill?.fromObjective) && (
         <div className="alert" style={{ marginBottom: '1rem' }}>
           {planningPrefill?.fromObjective
-            ? t('Prefilled from an objective. Review the vessel and prompt, then start a planning session to turn that scoped work into an execution plan.')
+            ? t('Prefilled from a backlog item. Review the vessel and prompt, then start a planning session to turn that scoped work into an execution plan.')
             : planningPrefill?.fromIncident
             ? t('Prefilled from an incident. Review the vessel and prompt, then start a planning session for the hotfix or recovery path.')
             : t('Prefilled from Workspace. Review the vessel and prompt, then start a planning session.')}
           {objectiveId && (
             <>
               {' '}
-              <button type="button" className="btn btn-sm" style={{ marginLeft: '0.75rem' }} onClick={() => navigate(`/objectives/${objectiveId}`)}>
-                {t('Open Objective')}
+              <button type="button" className="btn btn-sm" style={{ marginLeft: '0.75rem' }} onClick={() => navigate(`/backlog/${objectiveId}`)}>
+                {t('Open Backlog Item')}
               </button>
             </>
           )}

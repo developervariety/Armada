@@ -294,6 +294,137 @@ namespace Armada.Test.Automated.Suites
 
             #endregion
 
+            #region Backlog-And-Refinement-Isolation
+
+            string objectiveAId = null!;
+            string refinementSessionAId = null!;
+
+            await RunTest("Backlog_CreateInTenantA_Returns201", async () =>
+            {
+                HttpResponseMessage response = await _ClientA!.PostAsync("/api/v1/backlog",
+                    JsonHelper.ToJsonContent(new
+                    {
+                        Title = "xt-backlog-A-" + Guid.NewGuid().ToString("N").Substring(0, 8),
+                        Description = "Cross-tenant backlog isolation coverage.",
+                        Status = "Scoped",
+                        Kind = "Feature",
+                        Priority = "P1",
+                        Rank = 10,
+                        BacklogState = "Inbox",
+                        Effort = "M"
+                    })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Created, response.StatusCode);
+
+                Objective objective = await JsonHelper.DeserializeAsync<Objective>(response).ConfigureAwait(false);
+                AssertNotNull(objective.Id, "Backlog objective ID");
+                objectiveAId = objective.Id;
+            }).ConfigureAwait(false);
+
+            await RunTest("Backlog_ListFromTenantA_ContainsObjective", async () =>
+            {
+                HttpResponseMessage response = await _ClientA!.GetAsync("/api/v1/backlog?pageSize=100").ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, response.StatusCode);
+
+                EnumerationResult<Objective> result = await JsonHelper.DeserializeAsync<EnumerationResult<Objective>>(response).ConfigureAwait(false);
+                AssertTrue(result.Objects.Any(objective => objective.Id == objectiveAId), "Expected backlog item in tenant-A list");
+            }).ConfigureAwait(false);
+
+            await RunTest("Backlog_ListFromTenantB_DoesNotContainObjective", async () =>
+            {
+                HttpResponseMessage response = await _ClientB!.GetAsync("/api/v1/backlog?pageSize=100").ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, response.StatusCode);
+
+                EnumerationResult<Objective> result = await JsonHelper.DeserializeAsync<EnumerationResult<Objective>>(response).ConfigureAwait(false);
+                AssertFalse(result.Objects.Any(objective => objective.Id == objectiveAId), "Expected backlog item to be hidden from tenant-B list");
+            }).ConfigureAwait(false);
+
+            await RunTest("Backlog_ReadFromTenantB_Returns404", async () =>
+            {
+                HttpResponseMessage response = await _ClientB!.GetAsync("/api/v1/backlog/" + objectiveAId).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.NotFound, response.StatusCode);
+            }).ConfigureAwait(false);
+
+            await RunTest("Backlog_DeleteFromTenantB_Returns404", async () =>
+            {
+                HttpResponseMessage response = await _ClientB!.DeleteAsync("/api/v1/backlog/" + objectiveAId).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.NotFound, response.StatusCode);
+            }).ConfigureAwait(false);
+
+            await RunTest("Backlog_StillExistsInTenantA_AfterTenantBDeleteAttempt", async () =>
+            {
+                HttpResponseMessage response = await _ClientA!.GetAsync("/api/v1/backlog/" + objectiveAId).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, response.StatusCode);
+
+                Objective objective = await JsonHelper.DeserializeAsync<Objective>(response).ConfigureAwait(false);
+                AssertEqual(objectiveAId, objective.Id);
+            }).ConfigureAwait(false);
+
+            await RunTest("BacklogRefinement_CreateInTenantA_Returns201", async () =>
+            {
+                HttpResponseMessage response = await _ClientA!.PostAsync("/api/v1/backlog/" + objectiveAId + "/refinement-sessions",
+                    JsonHelper.ToJsonContent(new
+                    {
+                        CaptainId = captainAId,
+                        Title = "xt-refinement-A-" + Guid.NewGuid().ToString("N").Substring(0, 8)
+                    })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Created, response.StatusCode);
+
+                ObjectiveRefinementSessionDetail detail = await JsonHelper.DeserializeAsync<ObjectiveRefinementSessionDetail>(response).ConfigureAwait(false);
+                AssertNotNull(detail.Session.Id, "Refinement session ID");
+                refinementSessionAId = detail.Session.Id;
+                AssertEqual(objectiveAId, detail.Session.ObjectiveId);
+            }).ConfigureAwait(false);
+
+            await RunTest("BacklogRefinement_ListFromTenantA_ContainsSession", async () =>
+            {
+                HttpResponseMessage response = await _ClientA!.GetAsync("/api/v1/backlog/" + objectiveAId + "/refinement-sessions").ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, response.StatusCode);
+
+                List<ObjectiveRefinementSession> sessions = await JsonHelper.DeserializeAsync<List<ObjectiveRefinementSession>>(response).ConfigureAwait(false);
+                AssertTrue(sessions.Any(session => session.Id == refinementSessionAId), "Expected refinement session in tenant-A list");
+            }).ConfigureAwait(false);
+
+            await RunTest("BacklogRefinement_ListFromTenantB_Returns404", async () =>
+            {
+                HttpResponseMessage response = await _ClientB!.GetAsync("/api/v1/backlog/" + objectiveAId + "/refinement-sessions").ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.NotFound, response.StatusCode);
+            }).ConfigureAwait(false);
+
+            await RunTest("BacklogRefinement_ReadFromTenantB_Returns404", async () =>
+            {
+                HttpResponseMessage response = await _ClientB!.GetAsync("/api/v1/objective-refinement-sessions/" + refinementSessionAId).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.NotFound, response.StatusCode);
+            }).ConfigureAwait(false);
+
+            await RunTest("BacklogRefinement_DeleteFromTenantB_Returns404", async () =>
+            {
+                HttpResponseMessage response = await _ClientB!.DeleteAsync("/api/v1/objective-refinement-sessions/" + refinementSessionAId).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.NotFound, response.StatusCode);
+            }).ConfigureAwait(false);
+
+            await RunTest("BacklogRefinement_StillExistsInTenantA_AfterTenantBDeleteAttempt", async () =>
+            {
+                HttpResponseMessage response = await _ClientA!.GetAsync("/api/v1/objective-refinement-sessions/" + refinementSessionAId).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, response.StatusCode);
+
+                ObjectiveRefinementSessionDetail detail = await JsonHelper.DeserializeAsync<ObjectiveRefinementSessionDetail>(response).ConfigureAwait(false);
+                AssertEqual(refinementSessionAId, detail.Session.Id);
+            }).ConfigureAwait(false);
+
+            await RunTest("BacklogRefinement_DeleteFromTenantA_Returns204", async () =>
+            {
+                HttpResponseMessage response = await _ClientA!.DeleteAsync("/api/v1/objective-refinement-sessions/" + refinementSessionAId).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.NoContent, response.StatusCode);
+            }).ConfigureAwait(false);
+
+            await RunTest("Backlog_DeleteFromTenantA_Returns204", async () =>
+            {
+                HttpResponseMessage response = await _ClientA!.DeleteAsync("/api/v1/backlog/" + objectiveAId).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.NoContent, response.StatusCode);
+            }).ConfigureAwait(false);
+
+            #endregion
+
             #region Vessel-Isolation
 
             string vesselAId = null!;

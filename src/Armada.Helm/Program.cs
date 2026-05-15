@@ -147,6 +147,31 @@ namespace Armada.Helm
                         .WithDescription("Delete a playbook (accepts ID or file name)");
                 });
 
+                config.AddBranch("backlog", backlog =>
+                {
+                    backlog.SetDescription("Manage backlog items");
+                    backlog.AddCommand<BacklogListCommand>("list")
+                        .WithDescription("List backlog items")
+                        .WithExample("backlog", "list")
+                        .WithExample("backlog", "list", "--backlog-state", "ReadyForPlanning");
+                    backlog.AddCommand<BacklogShowCommand>("show")
+                        .WithDescription("Show backlog item details (accepts ID or title)")
+                        .WithExample("backlog", "show", "obj_abc123");
+                    backlog.AddCommand<BacklogCreateCommand>("create")
+                        .WithDescription("Create a backlog item")
+                        .WithExample("backlog", "create", "--title", "\"Improve release rollback\"")
+                        .WithExample("backlog", "create", "--title", "\"Import customer incidents\"", "--priority", "P1", "--backlog-state", "ReadyForPlanning");
+                    backlog.AddCommand<BacklogUpdateCommand>("update")
+                        .WithDescription("Update a backlog item")
+                        .WithExample("backlog", "update", "obj_abc123", "--owner", "\"delivery-team\"", "--target-version", "\"0.8.1\"");
+                    backlog.AddCommand<BacklogDeleteCommand>("delete")
+                        .WithDescription("Delete a backlog item")
+                        .WithExample("backlog", "delete", "obj_abc123");
+                    backlog.AddCommand<BacklogReorderCommand>("reorder")
+                        .WithDescription("Update the rank of a backlog item")
+                        .WithExample("backlog", "reorder", "obj_abc123", "--rank", "10");
+                });
+
                 config.AddBranch("vessel", vessel =>
                 {
                     vessel.SetDescription("Manage vessels (repositories)");

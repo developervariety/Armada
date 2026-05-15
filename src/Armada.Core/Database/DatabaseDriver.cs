@@ -45,6 +45,21 @@ namespace Armada.Core.Database
         public IPlanningSessionMessageMethods PlanningSessionMessages { get; protected set; } = null!;
 
         /// <summary>
+        /// Objective/backlog operations.
+        /// </summary>
+        public IObjectiveMethods Objectives { get; protected set; } = null!;
+
+        /// <summary>
+        /// Objective refinement session operations.
+        /// </summary>
+        public IObjectiveRefinementSessionMethods ObjectiveRefinementSessions { get; protected set; } = null!;
+
+        /// <summary>
+        /// Objective refinement transcript message operations.
+        /// </summary>
+        public IObjectiveRefinementMessageMethods ObjectiveRefinementMessages { get; protected set; } = null!;
+
+        /// <summary>
         /// Dock operations.
         /// </summary>
         public IDockMethods Docks { get; protected set; } = null!;

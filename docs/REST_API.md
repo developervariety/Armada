@@ -1,6 +1,6 @@
 # Armada REST API Reference
 
-**Version:** 0.7.0
+**Version:** 0.8.0
 **Base URL:** `http://localhost:7890`
 **Content-Type:** `application/json`
 
@@ -130,16 +130,37 @@ Operational entities persist both `TenantId` and `UserId`. Those ownership colum
 | `/api/v1/voyages` | ALL | Authenticated | Tenant-scoped |
 | `/api/v1/docks` | ALL | Authenticated | Tenant-scoped |
 | `/api/v1/workspace/vessels/{vesselId}/...` | ALL | Authenticated | Vessel-scoped workspace browsing/editing rooted at the vessel working directory |
-| `/api/v1/planning-sessions` | GET/POST | Authenticated | Planning-session list/create in caller scope |
-| `/api/v1/planning-sessions/{id}` | GET/DELETE | Authenticated | Read or delete one planning session in caller scope |
-| `/api/v1/planning-sessions/{id}/messages` | POST | Authenticated | Send one planning turn |
-| `/api/v1/planning-sessions/{id}/summarize` | POST | Authenticated | Generate a dispatch draft without launching |
-| `/api/v1/planning-sessions/{id}/dispatch` | POST | Authenticated | Launch a voyage from planning output |
-| `/api/v1/planning-sessions/{id}/stop` | POST | Authenticated | Stop an active planning session |
+| `/api/v1/planning-sessions` | GET | Authenticated | Planning-session list in caller scope |
+| `/api/v1/planning-sessions` | POST | TenantAdmin | Create one planning session in caller scope |
+| `/api/v1/planning-sessions/{id}` | GET | Authenticated | Read one planning session in caller scope |
+| `/api/v1/planning-sessions/{id}` | DELETE | TenantAdmin | Delete one planning session in caller scope |
+| `/api/v1/planning-sessions/{id}/messages` | POST | TenantAdmin | Send one planning turn |
+| `/api/v1/planning-sessions/{id}/summarize` | POST | TenantAdmin | Generate a dispatch draft without launching |
+| `/api/v1/planning-sessions/{id}/dispatch` | POST | TenantAdmin | Launch a voyage from planning output |
+| `/api/v1/planning-sessions/{id}/stop` | POST | TenantAdmin | Stop an active planning session |
 | `/api/v1/objectives` | GET | Authenticated | List scoped objective/intake records |
-| `/api/v1/objectives` | POST | Authenticated | Create one scoped objective/intake record |
-| `/api/v1/objectives/enumerate` | POST | Authenticated | Body/query-driven objective enumeration |
-| `/api/v1/objectives/{id}` | GET/PUT/DELETE | Authenticated | Read, update, or delete one objective in scope |
+| `/api/v1/objectives` | POST | TenantAdmin | Create one scoped objective/intake record |
+| `/api/v1/objectives/enumerate` | POST | TenantAdmin | Body/query-driven objective enumeration |
+| `/api/v1/objectives/reorder` | POST | TenantAdmin | Apply explicit ranked backlog updates |
+| `/api/v1/objectives/import/github` | POST | TenantAdmin | Import or refresh one objective from GitHub issue or pull-request metadata |
+| `/api/v1/objectives/{id}` | GET | Authenticated | Read one objective in scope |
+| `/api/v1/objectives/{id}` | PUT/DELETE | TenantAdmin | Update or delete one objective in scope |
+| `/api/v1/backlog` | GET | Authenticated | List backlog items using the user-facing backlog alias |
+| `/api/v1/backlog` | POST | TenantAdmin | Create one backlog item using the user-facing backlog alias |
+| `/api/v1/backlog/enumerate` | POST | TenantAdmin | Body/query-driven backlog enumeration |
+| `/api/v1/backlog/reorder` | POST | TenantAdmin | Apply explicit ranked backlog updates using backlog terminology |
+| `/api/v1/backlog/{id}` | GET | Authenticated | Read one backlog item in scope |
+| `/api/v1/backlog/{id}` | PUT/DELETE | TenantAdmin | Update or delete one backlog item in scope |
+| `/api/v1/objectives/{id}/refinement-sessions` | GET | Authenticated | List refinement sessions linked to one objective |
+| `/api/v1/objectives/{id}/refinement-sessions` | POST | TenantAdmin | Create one refinement session for one objective |
+| `/api/v1/backlog/{id}/refinement-sessions` | GET | Authenticated | List refinement sessions linked to one backlog item |
+| `/api/v1/backlog/{id}/refinement-sessions` | POST | TenantAdmin | Create one refinement session for one backlog item |
+| `/api/v1/objective-refinement-sessions/{id}` | GET | Authenticated | Read one refinement session with transcript detail |
+| `/api/v1/objective-refinement-sessions/{id}/messages` | POST | TenantAdmin | Append one refinement transcript message |
+| `/api/v1/objective-refinement-sessions/{id}/summarize` | POST | TenantAdmin | Generate a structured refinement summary |
+| `/api/v1/objective-refinement-sessions/{id}/apply` | POST | TenantAdmin | Apply a refinement summary back to the linked backlog item |
+| `/api/v1/objective-refinement-sessions/{id}/stop` | POST | TenantAdmin | Stop an active refinement session |
+| `/api/v1/objective-refinement-sessions/{id}` | DELETE | TenantAdmin | Delete one refinement session and its transcript |
 | `/api/v1/signals` | ALL | Authenticated | Tenant-scoped |
 | `/api/v1/events` | ALL | Authenticated | Tenant-scoped |
 | `/api/v1/merge-queue` | ALL | Authenticated | Tenant-scoped |
@@ -149,6 +170,7 @@ Operational entities persist both `TenantId` and `UserId`. Those ownership colum
 | `/api/v1/workflow-profiles/preview/vessels/{vesselId}` | GET | Authenticated | Preview the resolved workflow commands for one vessel |
 | `/api/v1/check-runs` | GET/POST | Authenticated | List or execute structured checks within caller scope |
 | `/api/v1/check-runs/import` | POST | Authenticated | Import an externally executed/provider check into Armada history |
+| `/api/v1/check-runs/sync/github-actions` | POST | Authenticated | Pull recent GitHub Actions workflow runs into Armada check history |
 | `/api/v1/check-runs/{id}` | GET/DELETE | Authenticated | Read or delete one structured check run within scope |
 | `/api/v1/check-runs/{id}/retry` | POST | Authenticated | Re-run a prior structured check |
 | `/api/v1/environments` | GET | Authenticated | List deployment environments in caller scope |
@@ -165,6 +187,7 @@ Operational entities persist both `TenantId` and `UserId`. Those ownership colum
 | `/api/v1/releases` | GET | Authenticated | List release records in caller scope |
 | `/api/v1/releases` | POST | AdminOnly | Tenant admin or global admin only |
 | `/api/v1/releases/{id}` | GET | Authenticated | Read one release in scope |
+| `/api/v1/releases/{id}/github/pull-requests` | GET | Authenticated | Read GitHub PR evidence derived from linked mission PR URLs |
 | `/api/v1/releases/{id}` | PUT/DELETE | AdminOnly | Tenant admin or global admin only |
 | `/api/v1/releases/{id}/refresh` | POST | AdminOnly | Tenant admin or global admin only |
 | `/api/v1/incidents` | GET/POST | Authenticated | List or create incident records in caller scope |
@@ -185,6 +208,7 @@ Operational entities persist both `TenantId` and `UserId`. Those ownership colum
 | `/api/v1/request-history/delete/multiple` | POST | AdminOnly | Tenant admin or global admin only |
 | `/api/v1/request-history/delete/by-filter` | POST | AdminOnly | Tenant admin or global admin only |
 | `/api/v1/request-history/summary` | GET | Authenticated | Summary cards/charts for visible request history |
+| `/api/v1/missions/{id}/github/pull-request` | GET | Authenticated | Read GitHub PR review, comment, and required-check evidence for one mission |
 | `/api/v1/runtimes/mux/endpoints` | GET | Authenticated | List saved Mux endpoints, optionally from `configDirectory` |
 | `/api/v1/runtimes/mux/endpoints/{name}` | GET | Authenticated | Show one saved Mux endpoint |
 | `/api/v1/playbooks` | GET/POST/PUT/DELETE | Authenticated / TenantAdmin | Reads are tenant-scoped for any authenticated user. Mutations require tenant admin. |
@@ -754,7 +778,7 @@ Returns aggregate status including captain counts, mission breakdown, active voy
     "LatencyMs": null,
     "CapabilityManifest": {
       "ProtocolVersion": "2026-04-03",
-      "ArmadaVersion": "0.7.0",
+      "ArmadaVersion": "0.8.0",
       "Features": [
         "remoteControl.handshake",
         "remoteControl.heartbeat",
@@ -782,7 +806,7 @@ Health check endpoint. **Does not require authentication.**
   "Timestamp": "2026-03-07T12:00:00Z",
   "StartUtc": "2026-03-07T08:00:00Z",
   "Uptime": "0.04:00:00",
-  "Version": "0.7.0",
+  "Version": "0.8.0",
   "Ports": {
     "Admiral": 7890,
     "Mcp": 7891
@@ -1423,6 +1447,23 @@ Get a single mission by ID.
 **Error:** `404` - Mission not found
 
 > **Note:** The `DiffSnapshot` field is excluded from responses to keep payloads compact. Use `GET /api/v1/missions/{id}/diff` to retrieve the full diff.
+
+---
+
+#### GET /api/v1/missions/{id}/github/pull-request
+
+Read normalized GitHub pull-request evidence for one mission when that mission has a `PrUrl`.
+
+**Path Parameters:**
+| Parameter | Description |
+|---|---|
+| `id` | Mission ID (`msn_` prefix) |
+
+**Response:** `200 OK` - `GitHubPullRequestDetail`
+**Error:** `400` - Mission is missing a PR URL or GitHub repository context
+**Error:** `404` - Mission not found
+
+> **Note:** The response includes PR state, requested reviewers, reviews, issue comments, and commit check-run evidence. Token resolution follows `GitHubTokenOverride` first, then the global `GitHubToken`.
 
 ---
 
@@ -2934,61 +2975,213 @@ Delete a planning session and its transcript. Active sessions are stopped first.
 
 ### Objectives
 
-Objective records provide an internal-first intake and scoping surface so acceptance criteria, non-goals, linked repositories, and evidence remain queryable before and during execution.
+Backlog is the primary user-facing label for future work in Armada. The persisted domain record remains `Objective`, so the legacy `/api/v1/objectives/...` routes remain supported while `/api/v1/backlog/...` exposes the same record shape using backlog-first terminology.
 
-#### GET /api/v1/objectives
+Important shared `Objective` fields now include:
 
-List objective records in the caller scope.
+- `Kind`, `Category`, `Priority`, `Rank`, `BacklogState`, `Effort`
+- `TargetVersion`, `DueUtc`
+- `ParentObjectiveId`, `BlockedByObjectiveIds`
+- `RefinementSummary`, `SuggestedPipelineId`, `RefinementSessionIds`
+- all existing linkage fields for fleets, vessels, planning sessions, voyages, missions, checks, releases, deployments, and incidents
 
-- Query: `pageNumber`, `pageSize`, `owner`, `vesselId`, `fleetId`, `planningSessionId`, `voyageId`, `missionId`, `checkRunId`, `releaseId`, `deploymentId`, `incidentId`, `tag`, `status`, `search`, `fromUtc`, `toUtc`
+#### GET /api/v1/objectives and GET /api/v1/backlog
+
+List objective or backlog records in the caller scope.
+
+- Query: `pageNumber`, `pageSize`, `owner`, `category`, `parentObjectiveId`, `vesselId`, `fleetId`, `planningSessionId`, `voyageId`, `missionId`, `checkRunId`, `releaseId`, `deploymentId`, `incidentId`, `tag`, `status`, `backlogState`, `kind`, `priority`, `effort`, `targetVersion`, `search`, `fromUtc`, `toUtc`
 - Response: `200 OK` - `EnumerationResult<Objective>`
 
-#### POST /api/v1/objectives/enumerate
+#### POST /api/v1/objectives/enumerate and POST /api/v1/backlog/enumerate
 
-Enumerate objectives using a JSON body and optional querystring overrides.
+Enumerate objectives or backlog items using a JSON body and optional querystring overrides.
 
 - Request body: `ObjectiveQuery`
 - Response: `200 OK` - `EnumerationResult<Objective>`
 
-#### POST /api/v1/objectives
+#### POST /api/v1/objectives and POST /api/v1/backlog
 
-Create one scoped objective or intake-style record.
+Create one scoped objective or backlog item.
 
 ```json
 {
   "Title": "Stabilize May rollout",
   "Description": "Track the full rollout objective across the API and dashboard vessels.",
   "Status": "Scoped",
+  "Kind": "Feature",
+  "Category": "Delivery",
+  "Priority": "P1",
+  "Rank": 10,
+  "BacklogState": "ReadyForPlanning",
+  "Effort": "M",
   "Owner": "Delivery",
+  "TargetVersion": "0.8.0",
   "AcceptanceCriteria": ["Deployment verified in staging", "Incident rollback documented"],
+  "NonGoals": ["Do not change release cadence"],
+  "RolloutConstraints": ["Keep existing rollback path intact"],
   "VesselIds": ["vsl_abc123"],
   "ReleaseIds": ["rel_def456"]
 }
 ```
 
+- Request body: `ObjectiveUpsertRequest`
 - Response: `201 Created` - `Objective`
+- Notes: `POST /api/v1/backlog` is the preferred user-facing alias; both routes persist the same underlying `Objective`
 
-#### GET /api/v1/objectives/{id}
+#### POST /api/v1/objectives/reorder and POST /api/v1/backlog/reorder
 
-Read one objective.
+Apply one or more explicit backlog rank updates.
+
+```json
+{
+  "Items": [
+    { "ObjectiveId": "obj_abc123", "Rank": 10 },
+    { "ObjectiveId": "obj_def456", "Rank": 20 }
+  ]
+}
+```
+
+- Request body: `ObjectiveReorderRequest`
+- Response: `200 OK` - `List<Objective>`
+
+#### POST /api/v1/objectives/import/github
+
+Import or refresh one objective from GitHub issue or pull-request metadata using the selected vessel's GitHub repository mapping.
+
+Credential resolution order:
+
+1. `Vessel.GitHubTokenOverride`
+2. global `GitHubToken` from Armada configuration
+
+```json
+{
+  "VesselId": "vsl_abc123",
+  "SourceType": "Issue",
+  "Number": 123
+}
+```
+
+- Request body: `GitHubObjectiveImportRequest`
+- Response: `201 Created` when a new objective is created, `200 OK` when an existing objective is refreshed
+- Errors: `400 Bad Request`, `404 Not Found`
+- Notes:
+  - Set `SourceType` to `Issue` or `PullRequest`
+  - Include `ObjectiveId` to refresh an already-linked objective in place
+  - Reads never return the resolved GitHub token value
+
+#### GET /api/v1/objectives/{id} and GET /api/v1/backlog/{id}
+
+Read one objective or backlog item.
 
 - Response: `200 OK` - `Objective`
 - Errors: `404 Not Found`
 
-#### PUT /api/v1/objectives/{id}
+#### PUT /api/v1/objectives/{id} and PUT /api/v1/backlog/{id}
 
-Update one objective and its linked lifecycle scope.
+Update one objective or backlog item and its linked lifecycle scope.
 
 - Request body: `ObjectiveUpsertRequest`
 - Response: `200 OK` - `Objective`
 - Errors: `400 Bad Request`, `404 Not Found`
 
-#### DELETE /api/v1/objectives/{id}
+#### DELETE /api/v1/objectives/{id} and DELETE /api/v1/backlog/{id}
 
-Delete one objective.
+Delete one objective or backlog item.
 
 - Response: `204 No Content`
 - Errors: `404 Not Found`
+
+#### GET /api/v1/objectives/{id}/refinement-sessions and GET /api/v1/backlog/{id}/refinement-sessions
+
+List refinement sessions linked to one objective or backlog item.
+
+- Response: `200 OK` - `List<ObjectiveRefinementSession>`
+- Notes: backlog refinement reads are authenticated and scoped like other backlog reads
+
+#### POST /api/v1/objectives/{id}/refinement-sessions and POST /api/v1/backlog/{id}/refinement-sessions
+
+Create one captain-backed refinement session for an objective or backlog item.
+
+```json
+{
+  "CaptainId": "cpt_abc123",
+  "VesselId": "vsl_abc123",
+  "Title": "Refine rollout stabilization plan"
+}
+```
+
+- Request body: `ObjectiveRefinementSessionCreateRequest`
+- Response: `201 Created` - `ObjectiveRefinementSessionDetail`
+- Errors: `400 Bad Request`, `404 Not Found`, `409 Conflict`, `501 Not Implemented`
+- Notes:
+  - `CaptainId` is required
+  - `VesselId` is optional for refinement and falls back to the first linked vessel when available
+  - refinement is lighter than planning and does not provision a dock/worktree by default
+
+#### GET /api/v1/objective-refinement-sessions/{id}
+
+Read one refinement session with transcript, captain, vessel, and linked objective/backlog detail.
+
+- Response: `200 OK` - `ObjectiveRefinementSessionDetail`
+- Errors: `404 Not Found`, `501 Not Implemented`
+
+#### POST /api/v1/objective-refinement-sessions/{id}/messages
+
+Append one user message to the refinement transcript and launch the next captain turn.
+
+```json
+{
+  "Content": "Focus on rollback safety and the release verification sequence."
+}
+```
+
+- Request body: `ObjectiveRefinementMessageRequest`
+- Response: `200 OK` - `ObjectiveRefinementSessionDetail`
+- Errors: `400 Bad Request`, `404 Not Found`, `409 Conflict`, `501 Not Implemented`
+
+#### POST /api/v1/objective-refinement-sessions/{id}/summarize
+
+Generate a structured refinement summary from a selected or inferred assistant message.
+
+```json
+{
+  "MessageId": "orm_abc123"
+}
+```
+
+- Request body: `ObjectiveRefinementSummaryRequest`
+- Response: `200 OK` - `ObjectiveRefinementSummaryResponse`
+- Errors: `404 Not Found`, `409 Conflict`, `501 Not Implemented`
+
+#### POST /api/v1/objective-refinement-sessions/{id}/apply
+
+Summarize and apply a refinement result back to the linked backlog item.
+
+```json
+{
+  "MessageId": "orm_abc123",
+  "MarkMessageSelected": true,
+  "PromoteBacklogState": true
+}
+```
+
+- Request body: `ObjectiveRefinementApplyRequest`
+- Response: `200 OK` - `ObjectiveRefinementApplyResponse`
+- Errors: `404 Not Found`, `409 Conflict`, `501 Not Implemented`
+
+#### POST /api/v1/objective-refinement-sessions/{id}/stop
+
+Stop an active refinement session and release the selected captain.
+
+- Response: `200 OK` - `ObjectiveRefinementSessionDetail`
+- Errors: `404 Not Found`, `501 Not Implemented`
+
+#### DELETE /api/v1/objective-refinement-sessions/{id}
+
+Delete a refinement session and its transcript. Active sessions are stopped first.
+
+- Response: `204 No Content`
+- Errors: `404 Not Found`, `409 Conflict`, `501 Not Implemented`
 
 ---
 
@@ -3074,7 +3267,7 @@ Structured check runs are the delivery-memory record for build, test, packaging,
 
 List structured check runs in the caller scope.
 
-- Query: `pageNumber`, `pageSize`, `workflowProfileId`, `vesselId`, `missionId`, `voyageId`, `type`, `status`, `source`, `providerName`, `environmentName`
+- Query: `pageNumber`, `pageSize`, `workflowProfileId`, `vesselId`, `missionId`, `voyageId`, `type`, `status`, `source`, `providerName`, `environmentName`, `externalId`
 - Response: `200 OK` - `EnumerationResult<CheckRun>`
 
 #### POST /api/v1/check-runs/enumerate
@@ -3119,6 +3312,33 @@ Import an externally executed or provider-hosted check run into Armada history.
 ```
 
 - Response: `201 Created` - `CheckRun`
+
+#### POST /api/v1/check-runs/sync/github-actions
+
+Pull recent GitHub Actions workflow runs for one vessel into Armada check history. This is an on-demand pull surface; it does not require a webhook listener.
+
+Credential resolution order:
+
+1. `Vessel.GitHubTokenOverride`
+2. global `GitHubToken` from Armada configuration
+
+```json
+{
+  "VesselId": "vsl_abc123",
+  "WorkflowProfileId": "wfp_def456",
+  "DeploymentId": "dep_ghi789",
+  "EnvironmentName": "staging",
+  "BranchName": "main",
+  "RunCount": 10
+}
+```
+
+- Request body: `GitHubActionsSyncRequest`
+- Response: `200 OK` - `GitHubActionsSyncResult`
+- Notes:
+  - Imported runs are normalized into `CheckRun` records with `Source = External` and `ProviderName = GitHubActions`
+  - When `DeploymentId` is supplied, synced runs are linked back to that deployment
+  - Sync is idempotent by provider external run ID
 
 #### GET /api/v1/check-runs/{id}
 
@@ -3336,6 +3556,16 @@ Read one release.
 - Response: `200 OK` - `Release`
 - Errors: `404 Not Found`
 
+#### GET /api/v1/releases/{id}/github/pull-requests
+
+Read normalized GitHub pull-request evidence derived from the `PrUrl` values on missions linked to one release.
+
+- Response: `200 OK` - `List<GitHubPullRequestDetail>`
+- Errors: `400 Bad Request`, `404 Not Found`
+- Notes:
+  - Duplicate repository/PR combinations are de-duplicated before the response is returned
+  - This is evidence-only today; Armada does not yet persist first-class PR entities
+
 #### PUT /api/v1/releases/{id}
 
 Update one release and revalidate its linked work.
@@ -3526,7 +3756,7 @@ Enumerate historical timeline entries using a JSON body and optional querystring
 
 ### Runtime Helpers
 
-These helper routes support runtime-specific UX and validation. As of `v0.7.0`, the shipped runtime-helper surface is focused on Mux endpoint discovery for captain setup and editing.
+These helper routes support runtime-specific UX and validation. As of `v0.8.0`, the shipped runtime-helper surface is focused on Mux endpoint discovery for captain setup and editing.
 
 #### GET /api/v1/runtimes/mux/endpoints
 
@@ -4217,7 +4447,7 @@ Aggregate status summary returned by the status endpoint.
     "LatencyMs": null,
     "CapabilityManifest": {
       "ProtocolVersion": "2026-04-03",
-      "ArmadaVersion": "0.7.0",
+      "ArmadaVersion": "0.8.0",
       "Features": [
         "remoteControl.handshake",
         "remoteControl.heartbeat",

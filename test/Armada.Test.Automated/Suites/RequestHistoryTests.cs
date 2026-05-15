@@ -354,6 +354,84 @@ namespace Armada.Test.Automated.Suites
                 AssertNotNull(historyEntry, "Captured history route entry");
             }).ConfigureAwait(false);
 
+            await RunTest("RequestHistory_CapturesBacklogAndRefinementRoutes", async () =>
+            {
+                string backlogTrace = "backlog-route-" + Guid.NewGuid().ToString("N").Substring(0, 10);
+                string refinementTrace = "refinement-route-" + Guid.NewGuid().ToString("N").Substring(0, 10);
+                string objectiveId = String.Empty;
+                string captainId = String.Empty;
+                string sessionId = String.Empty;
+
+                try
+                {
+                    HttpResponseMessage backlogResponse = await _TenantAAdminClient!.PostAsync(
+                        "/api/v1/backlog?trace=" + Uri.EscapeDataString(backlogTrace),
+                        JsonHelper.ToJsonContent(new
+                        {
+                            Title = "RequestHistory Backlog",
+                            Description = "Track backlog route capture."
+                        })).ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.Created, backlogResponse.StatusCode);
+                    Objective objective = await JsonHelper.DeserializeAsync<Objective>(backlogResponse).ConfigureAwait(false);
+                    objectiveId = objective.Id;
+
+                    HttpResponseMessage captainResponse = await _TenantAAdminClient.PostAsync(
+                        "/api/v1/captains",
+                        JsonHelper.ToJsonContent(new
+                        {
+                            Name = "RequestHistoryRefinement-" + Guid.NewGuid().ToString("N").Substring(0, 8),
+                            Runtime = "ClaudeCode"
+                        })).ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.Created, captainResponse.StatusCode);
+                    Captain captain = await JsonHelper.DeserializeAsync<Captain>(captainResponse).ConfigureAwait(false);
+                    captainId = captain.Id;
+
+                    HttpResponseMessage refinementResponse = await _TenantAAdminClient.PostAsync(
+                        "/api/v1/backlog/" + objectiveId + "/refinement-sessions?trace=" + Uri.EscapeDataString(refinementTrace),
+                        JsonHelper.ToJsonContent(new
+                        {
+                            CaptainId = captainId,
+                            Title = "Request history refinement"
+                        })).ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.Created, refinementResponse.StatusCode);
+                    ObjectiveRefinementSessionDetail detail = await JsonHelper.DeserializeAsync<ObjectiveRefinementSessionDetail>(refinementResponse).ConfigureAwait(false);
+                    sessionId = detail.Session.Id;
+
+                    RequestHistoryEntry? backlogEntry = await FindEntryByTraceAsync(
+                        _TenantAAdminClient,
+                        "/api/v1/backlog",
+                        backlogTrace,
+                        "POST").ConfigureAwait(false);
+                    RequestHistoryEntry? refinementEntry = await FindEntryByTraceAsync(
+                        _TenantAAdminClient,
+                        "/api/v1/backlog/" + objectiveId + "/refinement-sessions",
+                        refinementTrace,
+                        "POST").ConfigureAwait(false);
+
+                    AssertNotNull(backlogEntry, "Captured backlog-create request");
+                    AssertNotNull(refinementEntry, "Captured backlog-refinement request");
+
+                    RequestHistoryRecord record = await ReadEntryAsync(_TenantAAdminClient, refinementEntry!.Id).ConfigureAwait(false);
+                    AssertNotNull(record.Detail, "Backlog-refinement detail");
+                    AssertNotNull(record.Detail!.RequestHeadersJson, "Backlog-refinement request headers");
+                    AssertNotNull(record.Detail.RequestBodyText, "Backlog-refinement request body");
+
+                    Dictionary<string, string?> headers =
+                        JsonHelper.Deserialize<Dictionary<string, string?>>(record.Detail.RequestHeadersJson!);
+                    AssertEqual("[REDACTED]", headers["Authorization"], "Authorization header redaction");
+                    AssertContains(captainId, record.Detail.RequestBodyText!);
+                }
+                finally
+                {
+                    if (!String.IsNullOrWhiteSpace(sessionId))
+                        await _TenantAAdminClient!.DeleteAsync("/api/v1/objective-refinement-sessions/" + sessionId).ConfigureAwait(false);
+                    if (!String.IsNullOrWhiteSpace(objectiveId))
+                        await _TenantAAdminClient!.DeleteAsync("/api/v1/backlog/" + objectiveId).ConfigureAwait(false);
+                    if (!String.IsNullOrWhiteSpace(captainId))
+                        await _TenantAAdminClient!.DeleteAsync("/api/v1/captains/" + captainId).ConfigureAwait(false);
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("RequestHistory_RedactsGitHubTokenOverrideInVesselPayload", async () =>
             {
                 string fleetName = "rqh-github-fleet-" + Guid.NewGuid().ToString("N").Substring(0, 8);

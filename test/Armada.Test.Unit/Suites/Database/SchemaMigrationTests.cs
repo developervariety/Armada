@@ -69,7 +69,7 @@ namespace Armada.Test.Unit.Suites.Database
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
                     int version = await testDb.Driver.GetSchemaVersionAsync();
-                    AssertTrue(version >= 27, "Schema version should include migrations 26 and 27 after initialization");
+                    AssertTrue(version >= 43, "Schema version should include the backlog/objective migration after initialization");
                 }
             });
 
@@ -115,16 +115,67 @@ namespace Armada.Test.Unit.Suites.Database
                 AssertContains("VALUES ^(27, 'Add total_runtime_ms to missions'", batchScript, "Batch script migration version 27");
             });
 
-            await RunTest("Versioned migration scripts include v070 no-op release handoff", async () =>
+            await RunTest("Versioned migration scripts include v080 backlog release handoff", async () =>
             {
                 string repoRoot = FindRepositoryRoot();
-                string shellScript = await File.ReadAllTextAsync(Path.Combine(repoRoot, "migrations", "migrate_v0.6.0_to_v0.7.0.sh")).ConfigureAwait(false);
-                string batchScript = await File.ReadAllTextAsync(Path.Combine(repoRoot, "migrations", "migrate_v0.6.0_to_v0.7.0.bat")).ConfigureAwait(false);
+                string shellScript = await File.ReadAllTextAsync(Path.Combine(repoRoot, "migrations", "migrate_v0.7.0_to_v0.8.0.sh")).ConfigureAwait(false);
+                string batchScript = await File.ReadAllTextAsync(Path.Combine(repoRoot, "migrations", "migrate_v0.7.0_to_v0.8.0.bat")).ConfigureAwait(false);
+                string sqliteSql = await File.ReadAllTextAsync(Path.Combine(repoRoot, "migrations", "migrate_v0.7.0_to_v0.8.0_sqlite.sql")).ConfigureAwait(false);
+                string postgresqlSql = await File.ReadAllTextAsync(Path.Combine(repoRoot, "migrations", "migrate_v0.7.0_to_v0.8.0_postgresql.sql")).ConfigureAwait(false);
+                string mysqlSql = await File.ReadAllTextAsync(Path.Combine(repoRoot, "migrations", "migrate_v0.7.0_to_v0.8.0_mysql.sql")).ConfigureAwait(false);
+                string sqlServerSql = await File.ReadAllTextAsync(Path.Combine(repoRoot, "migrations", "migrate_v0.7.0_to_v0.8.0_sqlserver.sql")).ConfigureAwait(false);
 
-                AssertContains("does not require any database schema changes", shellScript, "Shell script should explain the no-op release migration");
-                AssertContains("No SQL migration steps are necessary", shellScript, "Shell script should explain the no-op release migration");
-                AssertContains("does not require any database schema changes", batchScript, "Batch script should explain the no-op release migration");
-                AssertContains("No SQL migration steps are necessary", batchScript, "Batch script should explain the no-op release migration");
+                AssertContains("Back up the database", shellScript, "Shell script should require a backup precheck");
+                AssertContains("automatically on first startup after upgrade", shellScript, "Shell script should explain automatic startup migration");
+                AssertContains("controlled DBA-managed pre-stage", shellScript, "Shell script should explain the manual-use case");
+                AssertContains("Back up the database", batchScript, "Batch script should require a backup precheck");
+                AssertContains("automatically on first startup after upgrade", batchScript, "Batch script should explain automatic startup migration");
+                AssertContains("controlled DBA-managed pre-stage", batchScript, "Batch script should explain the manual-use case");
+
+                AssertContains("CREATE TABLE IF NOT EXISTS objectives", sqliteSql, "SQLite SQL should create objectives");
+                AssertContains("CREATE TABLE IF NOT EXISTS objective_refinement_sessions", sqliteSql, "SQLite SQL should create refinement sessions");
+                AssertContains("CREATE TABLE IF NOT EXISTS objective_refinement_messages", sqliteSql, "SQLite SQL should create refinement messages");
+                AssertContains("VALUES (43, 'Add normalized objectives backlog tables'", sqliteSql, "SQLite SQL should record schema migration 43");
+
+                AssertContains("CREATE TABLE IF NOT EXISTS objectives", postgresqlSql, "PostgreSQL SQL should create objectives");
+                AssertContains("CREATE TABLE IF NOT EXISTS objective_refinement_sessions", postgresqlSql, "PostgreSQL SQL should create refinement sessions");
+                AssertContains("CREATE TABLE IF NOT EXISTS objective_refinement_messages", postgresqlSql, "PostgreSQL SQL should create refinement messages");
+                AssertContains("VALUES (42, 'Add normalized objectives backlog tables'", postgresqlSql, "PostgreSQL SQL should record schema migration 42");
+
+                AssertContains("CREATE TABLE IF NOT EXISTS objectives", mysqlSql, "MySQL SQL should create objectives");
+                AssertContains("CREATE TABLE IF NOT EXISTS objective_refinement_sessions", mysqlSql, "MySQL SQL should create refinement sessions");
+                AssertContains("CREATE TABLE IF NOT EXISTS objective_refinement_messages", mysqlSql, "MySQL SQL should create refinement messages");
+                AssertContains("VALUES (42, 'Add normalized objectives backlog tables'", mysqlSql, "MySQL SQL should record schema migration 42");
+
+                AssertContains("CREATE TABLE objectives", sqlServerSql, "SQL Server SQL should create objectives");
+                AssertContains("CREATE TABLE objective_refinement_sessions", sqlServerSql, "SQL Server SQL should create refinement sessions");
+                AssertContains("CREATE TABLE objective_refinement_messages", sqlServerSql, "SQL Server SQL should create refinement messages");
+                AssertContains("VALUES (42, 'Add normalized objectives backlog tables'", sqlServerSql, "SQL Server SQL should record schema migration 42");
+            });
+
+            await RunTest("InitializeAsync applies backlog objective migrations", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    using (SqliteConnection conn = new SqliteConnection(testDb.ConnectionString))
+                    {
+                        await conn.OpenAsync();
+
+                        using (SqliteCommand versionCmd = conn.CreateCommand())
+                        {
+                            versionCmd.CommandText = "SELECT COUNT(*) FROM schema_migrations WHERE version = 43;";
+                            long appliedCount = (long)(await versionCmd.ExecuteScalarAsync() ?? 0L);
+                            AssertEqual(1L, appliedCount);
+                        }
+
+                        AssertTrue(await TableExistsAsync(conn, "objectives").ConfigureAwait(false), "objectives table should exist");
+                        AssertTrue(await TableExistsAsync(conn, "objective_refinement_sessions").ConfigureAwait(false), "objective_refinement_sessions table should exist");
+                        AssertTrue(await TableExistsAsync(conn, "objective_refinement_messages").ConfigureAwait(false), "objective_refinement_messages table should exist");
+                        AssertTrue(await ColumnExistsAsync(conn, "objectives", "backlog_state").ConfigureAwait(false), "objectives.backlog_state should exist");
+                        AssertTrue(await ColumnExistsAsync(conn, "objectives", "deployment_ids_json").ConfigureAwait(false), "objectives.deployment_ids_json should exist");
+                        AssertTrue(await ColumnExistsAsync(conn, "objectives", "incident_ids_json").ConfigureAwait(false), "objectives.incident_ids_json should exist");
+                    }
+                }
             });
 
             await RunTest("InitializeAsync idempotent run twice", async () =>
@@ -198,6 +249,17 @@ namespace Armada.Test.Unit.Suites.Database
                     try { File.Delete(tempFile); } catch { }
                 }
             });
+        }
+
+        private static async Task<bool> TableExistsAsync(SqliteConnection conn, string tableName)
+        {
+            using (SqliteCommand cmd = conn.CreateCommand())
+            {
+                cmd.CommandText = "SELECT name FROM sqlite_master WHERE type='table' AND name=@name;";
+                cmd.Parameters.AddWithValue("@name", tableName);
+                object? result = await cmd.ExecuteScalarAsync().ConfigureAwait(false);
+                return String.Equals(result?.ToString(), tableName, StringComparison.OrdinalIgnoreCase);
+            }
         }
 
         private static async Task<bool> ColumnExistsAsync(SqliteConnection conn, string tableName, string columnName)

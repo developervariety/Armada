@@ -1,5 +1,7 @@
 namespace Armada.Core.Models
 {
+    using System.Collections.Generic;
+
     /// <summary>
     /// Request payload for creating or updating a deployment.
     /// </summary>
@@ -39,6 +41,11 @@ namespace Armada.Core.Models
         /// Optional linked voyage identifier.
         /// </summary>
         public string? VoyageId { get; set; } = null;
+
+        /// <summary>
+        /// Optional backlog/objective identifiers that should remain linked to this deployment.
+        /// </summary>
+        public List<string>? ObjectiveIds { get; set; } = null;
 
         /// <summary>
         /// Optional title override.

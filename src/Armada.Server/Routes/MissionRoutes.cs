@@ -29,6 +29,7 @@ namespace Armada.Server.Routes
         private readonly IGitService _git;
         private readonly ILandingService _landingService;
         private readonly LandingPreviewService _landingPreview;
+        private readonly GitHubIntegrationService _gitHub;
         private readonly Func<string, string, string?, string?, string?, string?, string?, string?, Task> _emitEvent;
         private readonly Func<Mission, Dock, Task> _handleMissionComplete;
         private readonly ArmadaWebSocketHub? _webSocketHub;
@@ -51,6 +52,7 @@ namespace Armada.Server.Routes
         /// <param name="git">Git operations service.</param>
         /// <param name="landingService">Mission landing service.</param>
         /// <param name="landingPreview">Mission landing-preview service.</param>
+        /// <param name="gitHub">GitHub integration service.</param>
         /// <param name="emitEvent">Event broadcast callback.</param>
         /// <param name="handleMissionComplete">Mission completion callback.</param>
         /// <param name="webSocketHub">WebSocket hub for real-time notifications.</param>
@@ -64,6 +66,7 @@ namespace Armada.Server.Routes
             IGitService git,
             ILandingService landingService,
             LandingPreviewService landingPreview,
+            GitHubIntegrationService gitHub,
             Func<string, string, string?, string?, string?, string?, string?, string?, Task> emitEvent,
             Func<Mission, Dock, Task> handleMissionComplete,
             ArmadaWebSocketHub? webSocketHub,
@@ -77,6 +80,7 @@ namespace Armada.Server.Routes
             _git = git;
             _landingService = landingService;
             _landingPreview = landingPreview ?? throw new ArgumentNullException(nameof(landingPreview));
+            _gitHub = gitHub ?? throw new ArgumentNullException(nameof(gitHub));
             _emitEvent = emitEvent;
             _handleMissionComplete = handleMissionComplete;
             _webSocketHub = webSocketHub;
@@ -333,6 +337,45 @@ namespace Armada.Server.Routes
                 .WithDescription("Returns a single mission by ID.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Mission ID (msn_ prefix)"))
                 .WithResponse(200, OpenApiJson.For<Mission>("Mission details"))
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithSecurity("ApiKey"));
+
+            app.Get("/api/v1/missions/{id}/github/pull-request", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                {
+                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
+                    return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
+                }
+                string missionId = req.Parameters["id"];
+                Mission? mission = ctx.IsAdmin
+                    ? await _database.Missions.ReadAsync(missionId).ConfigureAwait(false)
+                    : ctx.IsTenantAdmin
+                        ? await _database.Missions.ReadAsync(ctx.TenantId!, missionId).ConfigureAwait(false)
+                        : await _database.Missions.ReadAsync(ctx.TenantId!, ctx.UserId!, missionId).ConfigureAwait(false);
+                if (mission == null)
+                {
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found" };
+                }
+
+                try
+                {
+                    return await _gitHub.GetMissionPullRequestAsync(ctx, mission).ConfigureAwait(false);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message };
+                }
+            },
+            api => api
+                .WithTag("Missions")
+                .WithSummary("Get GitHub pull-request evidence for a mission")
+                .WithDescription("Returns normalized GitHub pull-request review and check evidence for the mission pull request.")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Mission ID (msn_ prefix)"))
+                .WithResponse(200, OpenApiJson.For<GitHubPullRequestDetail>("GitHub pull-request evidence"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 

@@ -227,6 +227,15 @@ namespace Armada.Core.Services
                     }
                 }
 
+                if (UsesSharedLocalAndWorkingDirectory(vessel))
+                {
+                    _Logging.Warn(_Header + "vessel " + vessel.Id +
+                        " uses the same path for LocalPath and WorkingDirectory (" +
+                        (vessel.WorkingDirectory ?? vessel.LocalPath ?? "unknown") +
+                        ") -- skipping mission assignment because dock provisioning requires a separate bare repository path");
+                    return false;
+                }
+
             // Check pipeline dependency -- skip if the mission depends on another that hasn't completed
             // or if the downstream handoff has not yet populated the mission's branch/context.
             if (!String.IsNullOrEmpty(mission.DependsOnMissionId))
@@ -2998,6 +3007,26 @@ namespace Armada.Core.Services
 
             // No preferred match -- return first eligible
             return eligible[0];
+        }
+
+        private static bool UsesSharedLocalAndWorkingDirectory(Vessel vessel)
+        {
+            if (vessel == null) return false;
+            if (String.IsNullOrWhiteSpace(vessel.LocalPath) || String.IsNullOrWhiteSpace(vessel.WorkingDirectory))
+                return false;
+
+            try
+            {
+                string localPath = Path.GetFullPath(vessel.LocalPath)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                string workingDirectory = Path.GetFullPath(vessel.WorkingDirectory)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                return String.Equals(localPath, workingDirectory, StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return String.Equals(vessel.LocalPath.Trim(), vessel.WorkingDirectory.Trim(), StringComparison.OrdinalIgnoreCase);
+            }
         }
 
         /// <summary>

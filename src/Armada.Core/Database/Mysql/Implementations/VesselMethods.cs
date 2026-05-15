@@ -19,7 +19,7 @@ namespace Armada.Core.Database.Mysql.Implementations
         #region Private-Members
 
         private string _ConnectionString;
-        private static readonly string _Iso8601Format = "yyyy-MM-ddTHH:mm:ss.fffffffZ";
+        private static readonly string _Iso8601Format = "yyyy-MM-dd HH:mm:ss.ffffff";
 
         #endregion
 
@@ -739,7 +739,7 @@ namespace Armada.Core.Database.Mysql.Implementations
 
         private static DateTime FromIso8601(string value)
         {
-            return DateTime.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind).ToUniversalTime();
+            return DateTime.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
         }
 
         private static string? NullableString(object value)
@@ -754,6 +754,7 @@ namespace Armada.Core.Database.Mysql.Implementations
             Vessel vessel = new Vessel();
             vessel.Id = reader["id"].ToString()!;
             vessel.TenantId = NullableString(reader["tenant_id"]);
+            vessel.UserId = NullableString(reader["user_id"]);
             vessel.FleetId = NullableString(reader["fleet_id"]);
             vessel.Name = reader["name"].ToString()!;
             vessel.RepoUrl = NullableString(reader["repo_url"]);

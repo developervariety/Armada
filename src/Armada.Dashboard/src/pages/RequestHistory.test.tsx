@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import RequestHistory from './RequestHistory';
 import {
@@ -9,6 +9,16 @@ import {
   getRequestHistorySummary,
   listRequestHistory,
 } from '../api/client';
+
+const mockNavigate = vi.fn();
+
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
+  return {
+    ...actual,
+    useNavigate: () => mockNavigate,
+  };
+});
 
 const translate = (text: string, params?: Record<string, string | number | null | undefined>) => {
   if (!params) return text;
@@ -50,6 +60,7 @@ vi.mock('../context/AuthContext', () => ({
 
 describe('RequestHistory', () => {
   beforeEach(() => {
+    mockNavigate.mockReset();
     vi.mocked(listRequestHistory).mockResolvedValue({
       success: true,
       pageNumber: 1,
@@ -211,5 +222,72 @@ describe('RequestHistory', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Request Body/i }));
     expect(screen.queryByText('request-body-value')).not.toBeInTheDocument();
+  });
+
+  it('replays backlog refinement request details into API Explorer route state', async () => {
+    vi.mocked(getRequestHistoryEntry).mockResolvedValue({
+      entry: {
+        id: 'req_123',
+        tenantId: 'ten_123',
+        userId: 'usr_123',
+        credentialId: 'crd_123',
+        principalDisplay: 'captain@armada',
+        authMethod: 'Bearer',
+        method: 'POST',
+        route: '/api/v1/backlog/obj_123/refinement-sessions',
+        routeTemplate: '/api/v1/backlog/{id}/refinement-sessions',
+        queryString: null,
+        statusCode: 202,
+        durationMs: 18.25,
+        requestSizeBytes: 128,
+        responseSizeBytes: 512,
+        requestContentType: 'application/json',
+        responseContentType: 'application/json',
+        isSuccess: true,
+        clientIp: '127.0.0.1',
+        correlationId: 'corr_123',
+        createdUtc: '2026-05-01T12:00:00Z',
+      },
+      detail: {
+        requestHistoryId: 'req_123',
+        pathParamsJson: '{"id":"obj_123"}',
+        queryParamsJson: '{"trace":"replay-trace"}',
+        requestHeadersJson: '{"x-correlation-id":"corr_123"}',
+        responseHeadersJson: '{}',
+        requestBodyText: '{"captainId":"cpt_123","title":"Replay refinement"}',
+        responseBodyText: '{}',
+        requestBodyTruncated: false,
+        responseBodyTruncated: false,
+      },
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/requests/req_123']}>
+        <Routes>
+          <Route path="/requests" element={<RequestHistory />} />
+          <Route path="/requests/:id" element={<RequestHistory />} />
+          <Route path="/api-explorer" element={<div>API Explorer Route</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText('{"captainId":"cpt_123","title":"Replay refinement"}')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Replay' }));
+
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith('/api-explorer', {
+        state: {
+          replayRequest: {
+            method: 'POST',
+            route: '/api/v1/backlog/obj_123/refinement-sessions',
+            routeTemplate: '/api/v1/backlog/{id}/refinement-sessions',
+            pathValues: { id: 'obj_123' },
+            queryValues: { trace: 'replay-trace' },
+            headerValues: { 'x-correlation-id': 'corr_123' },
+            bodyValue: '{"captainId":"cpt_123","title":"Replay refinement"}',
+          },
+        },
+      });
+    });
   });
 });

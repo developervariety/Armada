@@ -64,6 +64,11 @@ namespace Armada.Core.Models
         public string? ProviderName { get; set; } = null;
 
         /// <summary>
+        /// External provider identifier filter.
+        /// </summary>
+        public string? ExternalId { get; set; } = null;
+
+        /// <summary>
         /// Environment-name filter.
         /// </summary>
         public string? EnvironmentName { get; set; } = null;

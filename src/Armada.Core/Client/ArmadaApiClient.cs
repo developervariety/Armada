@@ -581,6 +581,14 @@ namespace Armada.Core.Client
         }
 
         /// <summary>
+        /// Read GitHub pull-request evidence for one mission.
+        /// </summary>
+        public async Task<GitHubPullRequestDetail?> GetMissionGitHubPullRequestAsync(string id, CancellationToken token = default)
+        {
+            return await GetAsync<GitHubPullRequestDetail>("/api/v1/missions/" + id + "/github/pull-request", token).ConfigureAwait(false);
+        }
+
+        /// <summary>
         /// Restart a failed or cancelled mission, resetting it to Pending for re-dispatch.
         /// Optionally update the title and description before restarting.
         /// </summary>
@@ -974,6 +982,14 @@ namespace Armada.Core.Client
         }
 
         /// <summary>
+        /// Read GitHub pull-request evidence derived from the missions linked to one release.
+        /// </summary>
+        public async Task<List<GitHubPullRequestDetail>?> GetReleaseGitHubPullRequestsAsync(string id, CancellationToken token = default)
+        {
+            return await GetAsync<List<GitHubPullRequestDetail>>("/api/v1/releases/" + id + "/github/pull-requests", token).ConfigureAwait(false);
+        }
+
+        /// <summary>
         /// Create a release.
         /// </summary>
         public async Task<Release?> CreateReleaseAsync(ReleaseUpsertRequest request, CancellationToken token = default)
@@ -1044,6 +1060,14 @@ namespace Armada.Core.Client
         }
 
         /// <summary>
+        /// Pull recent GitHub Actions workflow runs into Armada check history.
+        /// </summary>
+        public async Task<GitHubActionsSyncResult?> SyncGitHubActionsAsync(GitHubActionsSyncRequest request, CancellationToken token = default)
+        {
+            return await PostAsync<GitHubActionsSyncResult, GitHubActionsSyncRequest>("/api/v1/check-runs/sync/github-actions", request, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
         /// Retry a structured check run.
         /// </summary>
         public async Task<CheckRun?> RetryCheckRunAsync(string id, CancellationToken token = default)
@@ -1057,6 +1081,233 @@ namespace Armada.Core.Client
         public async Task DeleteCheckRunAsync(string id, CancellationToken token = default)
         {
             await DeleteAsync("/api/v1/check-runs/" + id, token).ConfigureAwait(false);
+        }
+
+        #endregion
+
+        #region Public-Methods-Objectives
+
+        /// <summary>
+        /// Enumerate objectives/backlog entries with optional filters.
+        /// </summary>
+        public async Task<EnumerationResult<Objective>?> ListObjectivesAsync(ObjectiveQuery? query = null, CancellationToken token = default)
+        {
+            if (query == null)
+                return await GetAsync<EnumerationResult<Objective>>("/api/v1/objectives", token).ConfigureAwait(false);
+
+            return await PostAsync<EnumerationResult<Objective>, ObjectiveQuery>("/api/v1/objectives/enumerate", query, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Apply one or more explicit objective/backlog rank updates.
+        /// </summary>
+        public async Task<List<Objective>?> ReorderObjectivesAsync(ObjectiveReorderRequest request, CancellationToken token = default)
+        {
+            return await PostAsync<List<Objective>, ObjectiveReorderRequest>("/api/v1/objectives/reorder", request, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Get one objective/backlog entry by identifier.
+        /// </summary>
+        public async Task<Objective?> GetObjectiveAsync(string id, CancellationToken token = default)
+        {
+            return await GetAsync<Objective>("/api/v1/objectives/" + id, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Create one objective/backlog entry.
+        /// </summary>
+        public async Task<Objective?> CreateObjectiveAsync(ObjectiveUpsertRequest request, CancellationToken token = default)
+        {
+            return await PostAsync<Objective, ObjectiveUpsertRequest>("/api/v1/objectives", request, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Update one objective/backlog entry.
+        /// </summary>
+        public async Task<Objective?> UpdateObjectiveAsync(string id, ObjectiveUpsertRequest request, CancellationToken token = default)
+        {
+            return await PutAsync<Objective, ObjectiveUpsertRequest>("/api/v1/objectives/" + id, request, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Delete one objective/backlog entry.
+        /// </summary>
+        public async Task DeleteObjectiveAsync(string id, CancellationToken token = default)
+        {
+            await DeleteAsync("/api/v1/objectives/" + id, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Import or refresh one objective from GitHub issue or pull-request metadata.
+        /// </summary>
+        public async Task<Objective?> ImportObjectiveFromGitHubAsync(GitHubObjectiveImportRequest request, CancellationToken token = default)
+        {
+            return await PostAsync<Objective, GitHubObjectiveImportRequest>("/api/v1/objectives/import/github", request, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Enumerate backlog items using the user-facing backlog alias surface.
+        /// </summary>
+        public async Task<EnumerationResult<Objective>?> ListBacklogAsync(ObjectiveQuery? query = null, CancellationToken token = default)
+        {
+            if (query == null)
+                return await GetAsync<EnumerationResult<Objective>>("/api/v1/backlog", token).ConfigureAwait(false);
+
+            return await PostAsync<EnumerationResult<Objective>, ObjectiveQuery>("/api/v1/backlog/enumerate", query, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Apply one or more explicit backlog rank updates using the backlog alias surface.
+        /// </summary>
+        public async Task<List<Objective>?> ReorderBacklogAsync(ObjectiveReorderRequest request, CancellationToken token = default)
+        {
+            return await PostAsync<List<Objective>, ObjectiveReorderRequest>("/api/v1/backlog/reorder", request, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Get one backlog item by identifier.
+        /// </summary>
+        public async Task<Objective?> GetBacklogItemAsync(string id, CancellationToken token = default)
+        {
+            return await GetAsync<Objective>("/api/v1/backlog/" + id, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Create one backlog item.
+        /// </summary>
+        public async Task<Objective?> CreateBacklogItemAsync(ObjectiveUpsertRequest request, CancellationToken token = default)
+        {
+            return await PostAsync<Objective, ObjectiveUpsertRequest>("/api/v1/backlog", request, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Update one backlog item.
+        /// </summary>
+        public async Task<Objective?> UpdateBacklogItemAsync(string id, ObjectiveUpsertRequest request, CancellationToken token = default)
+        {
+            return await PutAsync<Objective, ObjectiveUpsertRequest>("/api/v1/backlog/" + id, request, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Delete one backlog item.
+        /// </summary>
+        public async Task DeleteBacklogItemAsync(string id, CancellationToken token = default)
+        {
+            await DeleteAsync("/api/v1/backlog/" + id, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// List refinement sessions linked to one objective.
+        /// </summary>
+        public async Task<List<ObjectiveRefinementSession>?> ListObjectiveRefinementSessionsAsync(string objectiveId, CancellationToken token = default)
+        {
+            return await GetAsync<List<ObjectiveRefinementSession>>("/api/v1/objectives/" + objectiveId + "/refinement-sessions", token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// List refinement sessions linked to one backlog item through the backlog alias surface.
+        /// </summary>
+        public async Task<List<ObjectiveRefinementSession>?> ListBacklogRefinementSessionsAsync(string objectiveId, CancellationToken token = default)
+        {
+            return await GetAsync<List<ObjectiveRefinementSession>>("/api/v1/backlog/" + objectiveId + "/refinement-sessions", token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Create a refinement session for one objective.
+        /// </summary>
+        public async Task<ObjectiveRefinementSessionDetail?> CreateObjectiveRefinementSessionAsync(
+            string objectiveId,
+            ObjectiveRefinementSessionCreateRequest request,
+            CancellationToken token = default)
+        {
+            return await PostAsync<ObjectiveRefinementSessionDetail, ObjectiveRefinementSessionCreateRequest>(
+                "/api/v1/objectives/" + objectiveId + "/refinement-sessions",
+                request,
+                token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Create a refinement session for one backlog item using the backlog alias surface.
+        /// </summary>
+        public async Task<ObjectiveRefinementSessionDetail?> CreateBacklogRefinementSessionAsync(
+            string objectiveId,
+            ObjectiveRefinementSessionCreateRequest request,
+            CancellationToken token = default)
+        {
+            return await PostAsync<ObjectiveRefinementSessionDetail, ObjectiveRefinementSessionCreateRequest>(
+                "/api/v1/backlog/" + objectiveId + "/refinement-sessions",
+                request,
+                token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Read one refinement session and its transcript detail.
+        /// </summary>
+        public async Task<ObjectiveRefinementSessionDetail?> GetObjectiveRefinementSessionAsync(string sessionId, CancellationToken token = default)
+        {
+            return await GetAsync<ObjectiveRefinementSessionDetail>("/api/v1/objective-refinement-sessions/" + sessionId, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Append one message to a refinement session transcript.
+        /// </summary>
+        public async Task<ObjectiveRefinementSessionDetail?> SendObjectiveRefinementMessageAsync(
+            string sessionId,
+            ObjectiveRefinementMessageRequest request,
+            CancellationToken token = default)
+        {
+            return await PostAsync<ObjectiveRefinementSessionDetail, ObjectiveRefinementMessageRequest>(
+                "/api/v1/objective-refinement-sessions/" + sessionId + "/messages",
+                request,
+                token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Generate or select a structured summary from a refinement session.
+        /// </summary>
+        public async Task<ObjectiveRefinementSummaryResponse?> SummarizeObjectiveRefinementSessionAsync(
+            string sessionId,
+            ObjectiveRefinementSummaryRequest? request = null,
+            CancellationToken token = default)
+        {
+            return await PostAsync<ObjectiveRefinementSummaryResponse, ObjectiveRefinementSummaryRequest>(
+                "/api/v1/objective-refinement-sessions/" + sessionId + "/summarize",
+                request ?? new ObjectiveRefinementSummaryRequest(),
+                token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Apply a structured refinement summary back to the linked backlog item.
+        /// </summary>
+        public async Task<ObjectiveRefinementApplyResponse?> ApplyObjectiveRefinementSummaryAsync(
+            string sessionId,
+            ObjectiveRefinementApplyRequest? request = null,
+            CancellationToken token = default)
+        {
+            return await PostAsync<ObjectiveRefinementApplyResponse, ObjectiveRefinementApplyRequest>(
+                "/api/v1/objective-refinement-sessions/" + sessionId + "/apply",
+                request ?? new ObjectiveRefinementApplyRequest(),
+                token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Stop one refinement session and return the latest session detail.
+        /// </summary>
+        public async Task<ObjectiveRefinementSessionDetail?> StopObjectiveRefinementSessionAsync(string sessionId, CancellationToken token = default)
+        {
+            return await PostAsync<ObjectiveRefinementSessionDetail>(
+                "/api/v1/objective-refinement-sessions/" + sessionId + "/stop",
+                new { },
+                token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Delete one refinement session and its transcript.
+        /// </summary>
+        public async Task DeleteObjectiveRefinementSessionAsync(string sessionId, CancellationToken token = default)
+        {
+            await DeleteAsync("/api/v1/objective-refinement-sessions/" + sessionId, token).ConfigureAwait(false);
         }
 
         #endregion

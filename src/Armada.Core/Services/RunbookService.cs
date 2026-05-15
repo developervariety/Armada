@@ -450,7 +450,7 @@ namespace Armada.Core.Services
                     continue;
 
                 if (!latestByExecutionId.TryGetValue(snapshot.EntityId, out ArmadaEvent? existing)
-                    || existing.CreatedUtc < snapshot.CreatedUtc)
+                    || IsSnapshotNewer(snapshot, existing))
                 {
                     latestByExecutionId[snapshot.EntityId] = snapshot;
                 }
@@ -564,6 +564,18 @@ namespace Armada.Core.Services
             execution.UserId = execution.UserId ?? snapshot.UserId;
             execution.LastUpdateUtc = execution.LastUpdateUtc == default ? snapshot.CreatedUtc : execution.LastUpdateUtc;
             return execution;
+        }
+
+        private static bool IsSnapshotNewer(ArmadaEvent candidate, ArmadaEvent existing)
+        {
+            if (candidate.CreatedUtc > existing.CreatedUtc)
+                return true;
+            if (candidate.CreatedUtc < existing.CreatedUtc)
+                return false;
+
+            string candidateId = candidate.Id ?? String.Empty;
+            string existingId = existing.Id ?? String.Empty;
+            return StringComparer.Ordinal.Compare(candidateId, existingId) > 0;
         }
 
         private static RunbookMetadataDocument ParseMetadataDocument(string content, out string overviewMarkdown)

@@ -1,6 +1,7 @@
 namespace Armada.Server.Routes
 {
     using System;
+    using System.Collections.Generic;
     using System.Text.Json;
     using WatsonWebserver;
     using WatsonWebserver.Core;
@@ -17,14 +18,16 @@ namespace Armada.Server.Routes
     public class DeploymentRoutes
     {
         private readonly DeploymentService _Deployments;
+        private readonly ObjectiveService _Objectives;
         private readonly JsonSerializerOptions _JsonOptions;
 
         /// <summary>
         /// Instantiate.
         /// </summary>
-        public DeploymentRoutes(DeploymentService deployments, JsonSerializerOptions jsonOptions)
+        public DeploymentRoutes(DeploymentService deployments, ObjectiveService objectives, JsonSerializerOptions jsonOptions)
         {
             _Deployments = deployments ?? throw new ArgumentNullException(nameof(deployments));
+            _Objectives = objectives ?? throw new ArgumentNullException(nameof(objectives));
             _JsonOptions = jsonOptions ?? throw new ArgumentNullException(nameof(jsonOptions));
         }
 
@@ -91,7 +94,9 @@ namespace Armada.Server.Routes
 
                 try
                 {
+                    await ValidateObjectivesAsync(ctx, request.ObjectiveIds).ConfigureAwait(false);
                     Deployment deployment = await _Deployments.CreateAsync(ctx, request).ConfigureAwait(false);
+                    await LinkObjectivesAsync(ctx, deployment, request.ObjectiveIds).ConfigureAwait(false);
                     req.Http.Response.StatusCode = 201;
                     return deployment;
                 }
@@ -142,7 +147,10 @@ namespace Armada.Server.Routes
 
                 try
                 {
-                    return await _Deployments.UpdateAsync(ctx, req.Parameters["id"], request).ConfigureAwait(false);
+                    await ValidateObjectivesAsync(ctx, request.ObjectiveIds).ConfigureAwait(false);
+                    Deployment deployment = await _Deployments.UpdateAsync(ctx, req.Parameters["id"], request).ConfigureAwait(false);
+                    await LinkObjectivesAsync(ctx, deployment, request.ObjectiveIds).ConfigureAwait(false);
+                    return deployment;
                 }
                 catch (InvalidOperationException ex)
                 {
@@ -336,6 +344,92 @@ namespace Armada.Server.Routes
             query.VoyageId = NormalizeEmpty(req.Query.GetValueOrDefault("voyageId")) ?? query.VoyageId;
             query.CheckRunId = NormalizeEmpty(req.Query.GetValueOrDefault("checkRunId")) ?? query.CheckRunId;
             query.Search = NormalizeEmpty(req.Query.GetValueOrDefault("search")) ?? query.Search;
+        }
+
+        private async Task ValidateObjectivesAsync(AuthContext auth, IEnumerable<string>? objectiveIds)
+        {
+            if (objectiveIds == null) return;
+
+            foreach (string objectiveId in objectiveIds)
+            {
+                string? normalized = NormalizeEmpty(objectiveId);
+                if (String.IsNullOrWhiteSpace(normalized))
+                    continue;
+
+                Objective? objective = await _Objectives.ReadAsync(auth, normalized).ConfigureAwait(false);
+                if (objective == null)
+                    throw new InvalidOperationException("Objective not found: " + normalized);
+            }
+        }
+
+        private async Task LinkObjectivesAsync(AuthContext auth, Deployment deployment, IEnumerable<string>? explicitObjectiveIds)
+        {
+            HashSet<string> objectiveIds = await ResolveObjectiveIdsAsync(
+                auth,
+                explicitObjectiveIds,
+                deployment.ReleaseId,
+                deployment.MissionId,
+                deployment.VoyageId).ConfigureAwait(false);
+
+            foreach (string objectiveId in objectiveIds)
+            {
+                await _Objectives.LinkDeploymentAsync(auth, objectiveId, deployment.Id).ConfigureAwait(false);
+            }
+        }
+
+        private async Task<HashSet<string>> ResolveObjectiveIdsAsync(
+            AuthContext auth,
+            IEnumerable<string>? explicitObjectiveIds,
+            string? releaseId,
+            string? missionId,
+            string? voyageId)
+        {
+            HashSet<string> objectiveIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            if (explicitObjectiveIds != null)
+            {
+                foreach (string objectiveId in explicitObjectiveIds)
+                {
+                    string? normalized = NormalizeEmpty(objectiveId);
+                    if (!String.IsNullOrWhiteSpace(normalized))
+                        objectiveIds.Add(normalized);
+                }
+            }
+
+            await AddObjectivesForQueryAsync(auth, objectiveIds, query => query.ReleaseId = NormalizeEmpty(releaseId)).ConfigureAwait(false);
+            await AddObjectivesForQueryAsync(auth, objectiveIds, query => query.MissionId = NormalizeEmpty(missionId)).ConfigureAwait(false);
+            await AddObjectivesForQueryAsync(auth, objectiveIds, query => query.VoyageId = NormalizeEmpty(voyageId)).ConfigureAwait(false);
+            return objectiveIds;
+        }
+
+        private async Task AddObjectivesForQueryAsync(
+            AuthContext auth,
+            HashSet<string> objectiveIds,
+            Action<ObjectiveQuery> configure)
+        {
+            ObjectiveQuery query = new ObjectiveQuery
+            {
+                PageNumber = 1,
+                PageSize = 200
+            };
+            configure(query);
+
+            if (String.IsNullOrWhiteSpace(query.ReleaseId)
+                && String.IsNullOrWhiteSpace(query.MissionId)
+                && String.IsNullOrWhiteSpace(query.VoyageId))
+                return;
+
+            while (true)
+            {
+                EnumerationResult<Objective> results = await _Objectives.EnumerateAsync(auth, query).ConfigureAwait(false);
+                foreach (Objective objective in results.Objects)
+                    objectiveIds.Add(objective.Id);
+
+                if (results.PageNumber >= results.TotalPages || results.Objects.Count == 0)
+                    return;
+
+                query.PageNumber++;
+            }
         }
 
         private static ApiErrorResponse BuildAuthError(ApiRequest req)

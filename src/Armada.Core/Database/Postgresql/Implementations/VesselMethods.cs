@@ -668,6 +668,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
             Vessel vessel = new Vessel();
             vessel.Id = reader["id"].ToString()!;
             vessel.TenantId = NullableString(reader["tenant_id"]);
+            vessel.UserId = NullableString(reader["user_id"]);
             vessel.FleetId = NullableString(reader["fleet_id"]);
             vessel.Name = reader["name"].ToString()!;
             vessel.RepoUrl = NullableString(reader["repo_url"]);

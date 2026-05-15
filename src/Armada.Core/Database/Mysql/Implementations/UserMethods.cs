@@ -18,7 +18,7 @@ namespace Armada.Core.Database.Mysql.Implementations
         #region Private-Members
 
         private string _ConnectionString;
-        private static readonly string _Iso8601Format = "yyyy-MM-ddTHH:mm:ss.fffffffZ";
+        private static readonly string _Iso8601Format = "yyyy-MM-dd HH:mm:ss.ffffff";
 
         #endregion
 

@@ -66,6 +66,7 @@ namespace Armada.Server
         private RemoteControlQueryService _RemoteControlQueries = null!;
         private RemoteControlManagementService _RemoteControlManagement = null!;
         private PlanningSessionCoordinator _PlanningSessions = null!;
+        private ObjectiveRefinementCoordinator _ObjectiveRefinementSessions = null!;
         private IWorkspaceService _Workspace = null!;
         private RequestHistoryCaptureService _RequestHistoryCapture = null!;
         private WorkflowProfileService _WorkflowProfileService = null!;
@@ -77,6 +78,7 @@ namespace Armada.Server
         private DeploymentService _DeploymentService = null!;
         private IncidentService _IncidentService = null!;
         private RunbookService _RunbookService = null!;
+        private GitHubIntegrationService _GitHubIntegrationService = null!;
         private LandingPreviewService _LandingPreviewService = null!;
         private HistoricalTimelineService _HistoricalTimelineService = null!;
 
@@ -160,6 +162,7 @@ namespace Armada.Server
             _DeploymentService = new DeploymentService(_Database, _WorkflowProfileService, _EnvironmentService, _CheckRunService, _Logging);
             _IncidentService = new IncidentService(_Database);
             _RunbookService = new RunbookService(_Database, _Logging);
+            _GitHubIntegrationService = new GitHubIntegrationService(_Database, _ObjectiveService, _CheckRunService, _DeploymentService, _Settings, _Logging);
             _LandingPreviewService = new LandingPreviewService(_Database, _Logging);
             _HistoricalTimelineService = new HistoricalTimelineService(_Database);
             _RemoteTunnel = new RemoteTunnelManager(_Logging, _Settings);
@@ -333,6 +336,13 @@ namespace Armada.Server
                 _RuntimeFactory,
                 EmitEventAsync,
                 _WebSocketHub);
+            _ObjectiveRefinementSessions = new ObjectiveRefinementCoordinator(
+                _Logging,
+                _Database,
+                _Settings,
+                _RuntimeFactory,
+                EmitEventAsync,
+                _WebSocketHub);
 
             RegisterRoutes();
             InitializeDashboard();
@@ -376,6 +386,26 @@ namespace Armada.Server
             catch (Exception ex)
             {
                 _Logging.Warn(_Header + "planning session maintenance error: " + ex.Message);
+            }
+
+            try
+            {
+                await _ObjectiveRefinementSessions.RecoverSessionsAsync(_TokenSource.Token).ConfigureAwait(false);
+                _Logging.Info(_Header + "objective refinement session recovery completed");
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "objective refinement session recovery error: " + ex.Message);
+            }
+
+            try
+            {
+                await _ObjectiveRefinementSessions.MaintainSessionsAsync(_TokenSource.Token).ConfigureAwait(false);
+                _Logging.Info(_Header + "objective refinement session maintenance completed");
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "objective refinement session maintenance error: " + ex.Message);
             }
 
             // Start health check loop
@@ -485,7 +515,10 @@ namespace Armada.Server
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Objectives
-            new ObjectiveRoutes(_ObjectiveService)
+            new ObjectiveRoutes(_ObjectiveService, _GitHubIntegrationService)
+                .Register(_App, authenticate, _AuthorizationService);
+
+            new ObjectiveRefinementRoutes(_Database, _ObjectiveRefinementSessions, _ObjectiveService, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Environments
@@ -493,19 +526,19 @@ namespace Armada.Server
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Structured check runs
-            new CheckRunRoutes(_Database, _CheckRunService, _JsonOptions)
+            new CheckRunRoutes(_Database, _CheckRunService, _GitHubIntegrationService, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Releases
-            new ReleaseRoutes(_ReleaseService, _ObjectiveService)
+            new ReleaseRoutes(_ReleaseService, _ObjectiveService, _GitHubIntegrationService)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Deployments
-            new DeploymentRoutes(_DeploymentService, _JsonOptions)
+            new DeploymentRoutes(_DeploymentService, _ObjectiveService, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Incidents
-            new IncidentRoutes(_IncidentService)
+            new IncidentRoutes(_IncidentService, _ObjectiveService)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Runbooks
@@ -525,11 +558,11 @@ namespace Armada.Server
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Missions
-            new MissionRoutes(_Database, _Admiral, _MissionService, _Settings, _Git, _LandingService, _LandingPreviewService, EmitEventAsync, _MissionLanding.HandleMissionCompleteAsync, _WebSocketHub, _Logging, _JsonOptions)
+            new MissionRoutes(_Database, _Admiral, _MissionService, _Settings, _Git, _LandingService, _LandingPreviewService, _GitHubIntegrationService, EmitEventAsync, _MissionLanding.HandleMissionCompleteAsync, _WebSocketHub, _Logging, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Captains
-            new CaptainRoutes(_Database, _Admiral, _Settings, _RuntimeFactory, _AgentLifecycle, EmitEventAsync, _JsonOptions, _PlanningSessions)
+            new CaptainRoutes(_Database, _Admiral, _Settings, _RuntimeFactory, _AgentLifecycle, EmitEventAsync, _JsonOptions, _PlanningSessions, _ObjectiveRefinementSessions)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Runtime helpers
@@ -887,6 +920,8 @@ namespace Armada.Server
                 _LandingService,
                 _CheckRunService,
                 _ObjectiveService,
+                _PlanningSessions,
+                _ObjectiveRefinementSessions,
                 _ReleaseService,
                 _DeploymentService,
                 _RunbookService,
@@ -990,6 +1025,7 @@ namespace Armada.Server
                         _LogRotation.RotateAllInDirectory(captainLogDir);
                         _LogRotation.RotateIfNeeded(Path.Combine(_Settings.LogDirectory, "admiral.log"));
                         await _PlanningSessions.MaintainSessionsAsync(token).ConfigureAwait(false);
+                        await _ObjectiveRefinementSessions.MaintainSessionsAsync(token).ConfigureAwait(false);
                     }
 
                     // Run data expiry every 100 health check cycles (~50 min at default interval)

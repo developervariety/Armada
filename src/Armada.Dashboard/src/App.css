@@ -2896,6 +2896,415 @@ tr.clickable { cursor: pointer; }
     color: var(--text);
 }
 
+.info-card {
+    display: grid;
+    gap: 0.25rem;
+    padding: 0.95rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--bg-card) 94%, var(--accent)), var(--bg-card));
+}
+
+.info-card span {
+    color: var(--text-dim);
+    font-size: 0.76rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.info-card strong {
+    color: var(--text);
+    font-size: 1.1rem;
+}
+
+.backlog-group-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.backlog-group-pill {
+    min-width: 150px;
+    display: grid;
+    gap: 0.18rem;
+    padding: 0.8rem 0.95rem;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--bg-card) 92%, var(--bg-hover)), var(--bg-card));
+    color: var(--text);
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.backlog-group-pill:hover {
+    border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+    transform: translateY(-1px);
+}
+
+.backlog-group-pill.active {
+    border-color: color-mix(in srgb, var(--accent) 72%, var(--border));
+    box-shadow: 0 12px 28px color-mix(in srgb, var(--accent) 12%, transparent);
+    background: linear-gradient(160deg, color-mix(in srgb, var(--accent) 12%, var(--bg-card)), var(--bg-card));
+}
+
+.backlog-group-pill span {
+    color: var(--text-dim);
+    font-size: 0.74rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.backlog-group-pill strong {
+    color: var(--text);
+    font-size: 1.1rem;
+}
+
+.backlog-filter-card {
+    margin-bottom: 1rem;
+}
+
+.backlog-filter-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 0.75rem;
+}
+
+.backlog-filter-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-top: 0.9rem;
+}
+
+.backlog-filter-actions,
+.backlog-empty-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.backlog-rank-cell {
+    display: grid;
+    gap: 0.45rem;
+    justify-items: start;
+}
+
+.backlog-rank-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+}
+
+.backlog-chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+}
+
+.backlog-scope-note {
+    margin-top: 0.35rem;
+    font-size: 0.78rem;
+}
+
+.backlog-delivery-metrics {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.45rem;
+}
+
+.backlog-delivery-metric {
+    display: grid;
+    gap: 0.12rem;
+    padding: 0.45rem 0.55rem;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--bg-hover) 86%, var(--bg-card));
+}
+
+.backlog-delivery-metric strong {
+    color: var(--text);
+    font-size: 0.95rem;
+}
+
+.backlog-delivery-metric span {
+    color: var(--text-dim);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.detail-sections {
+    display: grid;
+    gap: 1rem;
+}
+
+.detail-section {
+    display: grid;
+    gap: 1rem;
+}
+
+.detail-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+.detail-section-header h3 {
+    margin: 0;
+}
+
+.backlog-section-note {
+    margin-top: -0.25rem;
+}
+
+.detail-footer {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-top: 1rem;
+}
+
+.form-field {
+    display: grid;
+    gap: 0.35rem;
+    min-width: 0;
+}
+
+.form-field label {
+    color: var(--text-dim);
+    font-size: 0.76rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.backlog-session-list {
+    display: grid;
+    gap: 0.65rem;
+}
+
+.backlog-session-item {
+    width: 100%;
+    display: grid;
+    gap: 0.5rem;
+    padding: 0.9rem;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--bg-card) 92%, var(--bg-hover)), var(--bg-card));
+    color: var(--text);
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.backlog-session-item:hover {
+    border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+    transform: translateY(-1px);
+}
+
+.backlog-session-item.active {
+    border-color: color-mix(in srgb, var(--accent) 72%, var(--border));
+    box-shadow: 0 12px 28px color-mix(in srgb, var(--accent) 12%, transparent);
+    background: linear-gradient(160deg, color-mix(in srgb, var(--accent) 12%, var(--bg-card)), var(--bg-card));
+}
+
+.backlog-session-item-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+.backlog-session-item-head strong {
+    margin: 0;
+}
+
+.backlog-session-item-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem 0.85rem;
+    color: var(--text-dim);
+    font-size: 0.8rem;
+}
+
+.backlog-refinement-layout {
+    display: grid;
+    grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+    gap: 1rem;
+    align-items: start;
+}
+
+.backlog-refinement-column {
+    display: grid;
+    gap: 1rem;
+    min-width: 0;
+}
+
+.backlog-refinement-main {
+    min-width: 0;
+}
+
+.backlog-refinement-note {
+    padding: 0.95rem 1rem;
+    border: 1px solid color-mix(in srgb, var(--accent) 26%, var(--border));
+    border-radius: 14px;
+    background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 10%, transparent), transparent), var(--bg-hover);
+    color: var(--text);
+}
+
+.backlog-action-note {
+    margin-top: 0;
+}
+
+.backlog-refinement-helper {
+    font-size: 0.82rem;
+    line-height: 1.45;
+}
+
+.backlog-refinement-card {
+    display: grid;
+    gap: 1rem;
+}
+
+.backlog-refinement-transcript {
+    max-height: 460px;
+    overflow-y: auto;
+    display: grid;
+    gap: 0.75rem;
+    padding-right: 0.2rem;
+}
+
+.backlog-refinement-message {
+    width: 100%;
+    display: grid;
+    gap: 0.55rem;
+    padding: 0.95rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: var(--bg-hover);
+    color: var(--text);
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+.backlog-refinement-message:hover {
+    border-color: color-mix(in srgb, var(--accent) 34%, var(--border));
+}
+
+.backlog-refinement-message.selected {
+    border-color: color-mix(in srgb, var(--accent) 72%, var(--border));
+    background: linear-gradient(160deg, color-mix(in srgb, var(--accent) 10%, var(--bg-card)), var(--bg-card));
+    box-shadow: 0 10px 24px color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.backlog-refinement-message-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    align-items: center;
+}
+
+.backlog-refinement-message-body {
+    white-space: pre-wrap;
+    line-height: 1.55;
+}
+
+.backlog-summary-list {
+    margin: 0;
+    padding-left: 1.2rem;
+    display: grid;
+    gap: 0.35rem;
+}
+
+.tag.feature,
+.tag.initiative {
+    background: color-mix(in srgb, var(--accent) 12%, var(--bg-card));
+    color: color-mix(in srgb, var(--accent-hover) 85%, var(--text));
+}
+
+.tag.bug {
+    background: color-mix(in srgb, var(--red) 12%, var(--bg-card));
+    color: color-mix(in srgb, var(--red) 82%, var(--text));
+}
+
+.tag.refactor,
+.tag.chore {
+    background: color-mix(in srgb, var(--yellow) 12%, var(--bg-card));
+    color: color-mix(in srgb, var(--yellow) 82%, var(--text));
+}
+
+.tag.research {
+    background: color-mix(in srgb, var(--green) 12%, var(--bg-card));
+    color: color-mix(in srgb, var(--green) 82%, var(--text));
+}
+
+.tag.p0 {
+    background: color-mix(in srgb, var(--red) 18%, var(--bg-card));
+    color: color-mix(in srgb, var(--red) 88%, var(--text));
+}
+
+.tag.p1 {
+    background: color-mix(in srgb, var(--yellow) 18%, var(--bg-card));
+    color: color-mix(in srgb, var(--yellow) 88%, var(--text));
+}
+
+.tag.p2 {
+    background: color-mix(in srgb, var(--accent) 14%, var(--bg-card));
+    color: color-mix(in srgb, var(--accent-hover) 88%, var(--text));
+}
+
+.tag.p3 {
+    background: color-mix(in srgb, var(--text-dim) 10%, var(--bg-card));
+    color: var(--text-dim);
+}
+
+.tag.inbox,
+.tag.triaged {
+    background: color-mix(in srgb, var(--text-dim) 12%, var(--bg-card));
+    color: var(--text-dim);
+}
+
+.tag.refining {
+    background: color-mix(in srgb, var(--yellow) 14%, var(--bg-card));
+    color: color-mix(in srgb, var(--yellow) 88%, var(--text));
+}
+
+.tag.readyforplanning {
+    background: color-mix(in srgb, var(--accent) 14%, var(--bg-card));
+    color: color-mix(in srgb, var(--accent-hover) 88%, var(--text));
+}
+
+.tag.readyfordispatch,
+.tag.dispatched {
+    background: color-mix(in srgb, var(--green) 14%, var(--bg-card));
+    color: color-mix(in srgb, var(--green) 88%, var(--text));
+}
+
+.tag.xs,
+.tag.s {
+    background: color-mix(in srgb, var(--green) 10%, var(--bg-card));
+    color: color-mix(in srgb, var(--green) 82%, var(--text));
+}
+
+.tag.m {
+    background: color-mix(in srgb, var(--accent) 10%, var(--bg-card));
+    color: color-mix(in srgb, var(--accent-hover) 82%, var(--text));
+}
+
+.tag.l,
+.tag.xl {
+    background: color-mix(in srgb, var(--yellow) 12%, var(--bg-card));
+    color: color-mix(in srgb, var(--yellow) 82%, var(--text));
+}
+
 .check-run-comparison-line {
     margin-top: 0.28rem;
     display: flex;
@@ -5720,6 +6129,40 @@ thead tr.column-filter-row td input.col-filter::placeholder {
 }
 
 @media (max-width: 900px) {
+    .backlog-filter-grid,
+    .backlog-refinement-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .backlog-filter-meta {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .backlog-filter-actions,
+    .backlog-empty-actions {
+        width: 100%;
+    }
+
+    .backlog-filter-actions .btn,
+    .backlog-empty-actions .btn {
+        width: 100%;
+    }
+
+    .backlog-delivery-metrics {
+        grid-template-columns: 1fr;
+    }
+
+    .backlog-group-pill {
+        min-width: 0;
+        flex: 1 1 180px;
+    }
+
+    .detail-footer {
+        align-items: stretch;
+        flex-direction: column-reverse;
+    }
+
     .detail-form-grid,
     .detail-meta-grid {
         grid-template-columns: 1fr;

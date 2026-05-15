@@ -65,6 +65,9 @@ namespace Armada.Core.Database.Sqlite
             Voyages = new VoyageMethods(this, _Settings, _Logging);
             PlanningSessions = new PlanningSessionMethods(this, _Settings, _Logging);
             PlanningSessionMessages = new PlanningSessionMessageMethods(this, _Settings, _Logging);
+            Objectives = new ObjectiveMethods(this, _Settings, _Logging);
+            ObjectiveRefinementSessions = new ObjectiveRefinementSessionMethods(this, _Settings, _Logging);
+            ObjectiveRefinementMessages = new ObjectiveRefinementMessageMethods(this, _Settings, _Logging);
             Docks = new DockMethods(this, _Settings, _Logging);
             Signals = new SignalMethods(this, _Settings, _Logging);
             Events = new EventMethods(this, _Settings, _Logging);
@@ -102,6 +105,9 @@ namespace Armada.Core.Database.Sqlite
             Voyages = new VoyageMethods(this, _Settings, _Logging);
             PlanningSessions = new PlanningSessionMethods(this, _Settings, _Logging);
             PlanningSessionMessages = new PlanningSessionMessageMethods(this, _Settings, _Logging);
+            Objectives = new ObjectiveMethods(this, _Settings, _Logging);
+            ObjectiveRefinementSessions = new ObjectiveRefinementSessionMethods(this, _Settings, _Logging);
+            ObjectiveRefinementMessages = new ObjectiveRefinementMessageMethods(this, _Settings, _Logging);
             Docks = new DockMethods(this, _Settings, _Logging);
             Signals = new SignalMethods(this, _Settings, _Logging);
             Events = new EventMethods(this, _Settings, _Logging);

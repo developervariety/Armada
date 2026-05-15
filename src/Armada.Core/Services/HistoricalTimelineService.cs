@@ -45,6 +45,7 @@ namespace Armada.Core.Services
 
             List<HistoricalTimelineEntry> entries = new List<HistoricalTimelineEntry>();
             entries.AddRange(await BuildObjectiveEntriesAsync(auth, token).ConfigureAwait(false));
+            entries.AddRange(await BuildObjectiveRefinementEntriesAsync(auth, token).ConfigureAwait(false));
             entries.AddRange(await BuildMissionEntriesAsync(auth, token).ConfigureAwait(false));
             entries.AddRange(await BuildVoyageEntriesAsync(auth, token).ConfigureAwait(false));
             entries.AddRange(await BuildPlanningEntriesAsync(auth, token).ConfigureAwait(false));
@@ -76,6 +77,50 @@ namespace Armada.Core.Services
                 filtered = filtered.Where(entry => String.Equals(entry.DeploymentId, query.DeploymentId, StringComparison.OrdinalIgnoreCase));
             if (!String.IsNullOrWhiteSpace(query.IncidentId))
                 filtered = filtered.Where(entry => String.Equals(entry.IncidentId, query.IncidentId, StringComparison.OrdinalIgnoreCase));
+            if (query.PostmortemOnly)
+            {
+                List<Incident> postmortemIncidents = (await ReadIncidentsAsync(auth, token).ConfigureAwait(false))
+                    .Where(item => !String.IsNullOrWhiteSpace(item.Postmortem))
+                    .ToList();
+
+                if (postmortemIncidents.Count == 0)
+                {
+                    filtered = Enumerable.Empty<HistoricalTimelineEntry>();
+                }
+                else
+                {
+                    HashSet<string> incidentIds = new HashSet<string>(
+                        postmortemIncidents.Select(item => item.Id),
+                        StringComparer.OrdinalIgnoreCase);
+                    HashSet<string> deploymentIds = new HashSet<string>(
+                        postmortemIncidents
+                            .Where(item => !String.IsNullOrWhiteSpace(item.DeploymentId))
+                            .Select(item => item.DeploymentId!),
+                        StringComparer.OrdinalIgnoreCase);
+                    HashSet<string> releaseIds = new HashSet<string>(
+                        postmortemIncidents
+                            .Where(item => !String.IsNullOrWhiteSpace(item.ReleaseId))
+                            .Select(item => item.ReleaseId!),
+                        StringComparer.OrdinalIgnoreCase);
+                    HashSet<string> missionIds = new HashSet<string>(
+                        postmortemIncidents
+                            .Where(item => !String.IsNullOrWhiteSpace(item.MissionId))
+                            .Select(item => item.MissionId!),
+                        StringComparer.OrdinalIgnoreCase);
+                    HashSet<string> voyageIds = new HashSet<string>(
+                        postmortemIncidents
+                            .Where(item => !String.IsNullOrWhiteSpace(item.VoyageId))
+                            .Select(item => item.VoyageId!),
+                        StringComparer.OrdinalIgnoreCase);
+                    filtered = filtered.Where(entry => MatchesPostmortemContext(
+                        entry,
+                        incidentIds,
+                        deploymentIds,
+                        releaseIds,
+                        missionIds,
+                        voyageIds));
+                }
+            }
             if (!String.IsNullOrWhiteSpace(query.MissionId))
                 filtered = filtered.Where(entry => String.Equals(entry.MissionId, query.MissionId, StringComparison.OrdinalIgnoreCase));
             if (!String.IsNullOrWhiteSpace(query.VoyageId))
@@ -150,7 +195,7 @@ namespace Armada.Core.Services
                 Description = objective.Description,
                 Status = objective.Status.ToString(),
                 Severity = ObjectiveSeverity(objective),
-                Route = "/objectives/" + objective.Id,
+                Route = "/backlog/" + objective.Id,
                 OccurredUtc = objective.CompletedUtc ?? objective.LastUpdateUtc,
                 MetadataJson = JsonSerializer.Serialize(new
                 {
@@ -165,6 +210,45 @@ namespace Armada.Core.Services
                     releaseCount = objective.ReleaseIds.Count,
                     deploymentCount = objective.DeploymentIds.Count,
                     incidentCount = objective.IncidentIds.Count
+                })
+            }).ToList();
+        }
+
+        private async Task<List<HistoricalTimelineEntry>> BuildObjectiveRefinementEntriesAsync(AuthContext auth, CancellationToken token)
+        {
+            List<ObjectiveRefinementSession> sessions = await ReadObjectiveRefinementSessionsAsync(auth, token).ConfigureAwait(false);
+            return sessions.Select(session => new HistoricalTimelineEntry
+            {
+                Id = "timeline-objective-refinement-" + session.Id,
+                SourceType = "ObjectiveRefinementSession",
+                SourceId = session.Id,
+                EntityType = "objective-refinement-session",
+                EntityId = session.Id,
+                ObjectiveId = session.ObjectiveId,
+                VesselId = session.VesselId,
+                ActorId = session.CaptainId,
+                ActorDisplay = session.CaptainId,
+                Title = session.Title,
+                Description = !String.IsNullOrWhiteSpace(session.FailureReason)
+                    ? session.FailureReason
+                    : "Backlog refinement session",
+                Status = session.Status.ToString(),
+                Severity = session.Status == ObjectiveRefinementSessionStatusEnum.Failed ? "error"
+                    : session.Status == ObjectiveRefinementSessionStatusEnum.Stopped ? "warning"
+                    : session.Status == ObjectiveRefinementSessionStatusEnum.Completed ? "success"
+                    : "info",
+                Route = "/backlog/" + session.ObjectiveId,
+                OccurredUtc = session.CompletedUtc ?? session.LastUpdateUtc,
+                MetadataJson = JsonSerializer.Serialize(new
+                {
+                    session.ObjectiveId,
+                    session.CaptainId,
+                    session.FleetId,
+                    session.VesselId,
+                    session.ProcessId,
+                    session.FailureReason,
+                    session.StartedUtc,
+                    session.CompletedUtc
                 })
             }).ToList();
         }
@@ -428,6 +512,7 @@ namespace Armada.Core.Services
                     incident.RollbackDeploymentId,
                     incident.Severity,
                     incident.Impact,
+                    HasPostmortem = !String.IsNullOrWhiteSpace(incident.Postmortem),
                     incident.DetectedUtc,
                     incident.MitigatedUtc,
                     incident.ClosedUtc
@@ -573,6 +658,15 @@ namespace Armada.Core.Services
             return await _Database.PlanningSessions.EnumerateAsync(auth.TenantId!, auth.UserId!, token).ConfigureAwait(false);
         }
 
+        private async Task<List<ObjectiveRefinementSession>> ReadObjectiveRefinementSessionsAsync(AuthContext auth, CancellationToken token)
+        {
+            if (auth.IsAdmin)
+                return await _Database.ObjectiveRefinementSessions.EnumerateAsync(token).ConfigureAwait(false);
+            if (auth.IsTenantAdmin)
+                return await _Database.ObjectiveRefinementSessions.EnumerateAsync(auth.TenantId!, token).ConfigureAwait(false);
+            return await _Database.ObjectiveRefinementSessions.EnumerateAsync(auth.TenantId!, auth.UserId!, token).ConfigureAwait(false);
+        }
+
         private async Task<List<MergeEntry>> ReadMergeEntriesAsync(AuthContext auth, CancellationToken token)
         {
             if (auth.IsAdmin)
@@ -688,41 +782,20 @@ namespace Armada.Core.Services
 
         private async Task<List<Objective>> ReadObjectivesAsync(AuthContext auth, CancellationToken token)
         {
-            List<ArmadaEvent> snapshots = await ReadEventSnapshotsByEntityTypeAsync(auth, "objective", token).ConfigureAwait(false);
-            Dictionary<string, ArmadaEvent> latestById = new Dictionary<string, ArmadaEvent>(StringComparer.OrdinalIgnoreCase);
-
-            foreach (ArmadaEvent snapshot in snapshots)
-            {
-                if (String.IsNullOrWhiteSpace(snapshot.EntityId))
-                    continue;
-
-                if (!latestById.TryGetValue(snapshot.EntityId, out ArmadaEvent? existing)
-                    || existing.CreatedUtc < snapshot.CreatedUtc)
-                {
-                    latestById[snapshot.EntityId] = snapshot;
-                }
-            }
-
-            List<Objective> objectives = new List<Objective>();
-            foreach (ArmadaEvent snapshot in latestById.Values)
-            {
-                Objective? objective = DeserializeEventPayload<Objective>(snapshot.Payload);
-                if (objective != null)
-                    objectives.Add(objective);
-            }
-
-            return objectives;
+            if (auth.IsAdmin)
+                return await _Database.Objectives.EnumerateAsync(token).ConfigureAwait(false);
+            if (auth.IsTenantAdmin)
+                return await _Database.Objectives.EnumerateAsync(auth.TenantId!, token).ConfigureAwait(false);
+            return await _Database.Objectives.EnumerateAsync(auth.TenantId!, auth.UserId!, token).ConfigureAwait(false);
         }
 
         private async Task<Objective?> ReadObjectiveAsync(AuthContext auth, string id, CancellationToken token)
         {
-            List<ArmadaEvent> snapshots = await ReadEventSnapshotsByEntityTypeAsync(auth, "objective", token).ConfigureAwait(false);
-            Objective? objective = snapshots
-                .Where(snapshot => String.Equals(snapshot.EntityId, id, StringComparison.OrdinalIgnoreCase))
-                .OrderByDescending(snapshot => snapshot.CreatedUtc)
-                .Select(snapshot => DeserializeEventPayload<Objective>(snapshot.Payload))
-                .FirstOrDefault(candidate => candidate != null);
-            return objective;
+            if (auth.IsAdmin)
+                return await _Database.Objectives.ReadAsync(id, token).ConfigureAwait(false);
+            if (auth.IsTenantAdmin)
+                return await _Database.Objectives.ReadAsync(auth.TenantId!, id, token).ConfigureAwait(false);
+            return await _Database.Objectives.ReadAsync(auth.TenantId!, auth.UserId!, id, token).ConfigureAwait(false);
         }
 
         private async Task<List<Incident>> ReadIncidentsAsync(AuthContext auth, CancellationToken token)
@@ -736,7 +809,7 @@ namespace Armada.Core.Services
                     continue;
 
                 if (!latestById.TryGetValue(snapshot.EntityId, out ArmadaEvent? existing)
-                    || existing.CreatedUtc < snapshot.CreatedUtc)
+                    || IsSnapshotNewer(snapshot, existing))
                 {
                     latestById[snapshot.EntityId] = snapshot;
                 }
@@ -764,7 +837,7 @@ namespace Armada.Core.Services
                     continue;
 
                 if (!latestById.TryGetValue(snapshot.EntityId, out ArmadaEvent? existing)
-                    || existing.CreatedUtc < snapshot.CreatedUtc)
+                    || IsSnapshotNewer(snapshot, existing))
                 {
                     latestById[snapshot.EntityId] = snapshot;
                 }
@@ -914,6 +987,61 @@ namespace Armada.Core.Services
             return value.IndexOf(search, StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
+        private static bool MatchesPostmortemContext(
+            HistoricalTimelineEntry entry,
+            HashSet<string> incidentIds,
+            HashSet<string> deploymentIds,
+            HashSet<string> releaseIds,
+            HashSet<string> missionIds,
+            HashSet<string> voyageIds)
+        {
+            if (!String.IsNullOrWhiteSpace(entry.IncidentId) && incidentIds.Contains(entry.IncidentId))
+                return true;
+            if (SourceIdMatches(entry, "Incident", incidentIds))
+                return true;
+
+            if (!String.IsNullOrWhiteSpace(entry.DeploymentId) && deploymentIds.Contains(entry.DeploymentId))
+                return true;
+            if (SourceIdMatches(entry, "Deployment", deploymentIds))
+                return true;
+
+            if (SourceIdMatches(entry, "Release", releaseIds))
+                return true;
+
+            if (!String.IsNullOrWhiteSpace(entry.MissionId) && missionIds.Contains(entry.MissionId))
+                return true;
+            if (SourceIdMatches(entry, "Mission", missionIds))
+                return true;
+
+            if (!String.IsNullOrWhiteSpace(entry.VoyageId) && voyageIds.Contains(entry.VoyageId))
+                return true;
+            if (SourceIdMatches(entry, "Voyage", voyageIds))
+                return true;
+
+            return false;
+        }
+
+        private static bool IsSnapshotNewer(ArmadaEvent candidate, ArmadaEvent existing)
+        {
+            if (candidate.CreatedUtc > existing.CreatedUtc)
+                return true;
+            if (candidate.CreatedUtc < existing.CreatedUtc)
+                return false;
+
+            string candidateId = candidate.Id ?? String.Empty;
+            string existingId = existing.Id ?? String.Empty;
+            return StringComparer.Ordinal.Compare(candidateId, existingId) > 0;
+        }
+
+        private static bool SourceIdMatches(HistoricalTimelineEntry entry, string sourceType, HashSet<string> ids)
+        {
+            if (!String.Equals(entry.SourceType, sourceType, StringComparison.OrdinalIgnoreCase))
+                return false;
+            if (String.IsNullOrWhiteSpace(entry.SourceId))
+                return false;
+            return ids.Contains(entry.SourceId);
+        }
+
         private static bool MatchesObjective(HistoricalTimelineEntry entry, Objective objective)
         {
             if (String.Equals(entry.ObjectiveId, objective.Id, StringComparison.OrdinalIgnoreCase))
@@ -941,6 +1069,12 @@ namespace Armada.Core.Services
                 return true;
             if (!String.IsNullOrWhiteSpace(entry.EntityId)
                 && objective.PlanningSessionIds.Contains(entry.EntityId, StringComparer.OrdinalIgnoreCase))
+                return true;
+            if (!String.IsNullOrWhiteSpace(entry.EntityId)
+                && objective.RefinementSessionIds.Contains(entry.EntityId, StringComparer.OrdinalIgnoreCase))
+                return true;
+            if (!String.IsNullOrWhiteSpace(entry.SourceId)
+                && objective.RefinementSessionIds.Contains(entry.SourceId, StringComparer.OrdinalIgnoreCase))
                 return true;
             return false;
         }

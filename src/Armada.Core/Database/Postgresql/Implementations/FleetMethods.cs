@@ -598,6 +598,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
             Fleet fleet = new Fleet();
             fleet.Id = reader["id"].ToString()!;
             fleet.TenantId = NullableString(reader["tenant_id"]);
+            fleet.UserId = NullableString(reader["user_id"]);
             fleet.Name = reader["name"].ToString()!;
             fleet.Description = NullableString(reader["description"]);
             try { fleet.DefaultPipelineId = NullableString(reader["default_pipeline_id"]); } catch { }

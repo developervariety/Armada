@@ -216,6 +216,11 @@ export type ObjectiveStatus =
   | 'Blocked'
   | 'Cancelled';
 
+export type ObjectiveKind = 'Feature' | 'Bug' | 'Refactor' | 'Research' | 'Chore' | 'Initiative';
+export type ObjectivePriority = 'P0' | 'P1' | 'P2' | 'P3';
+export type ObjectiveBacklogState = 'Inbox' | 'Triaged' | 'Refining' | 'ReadyForPlanning' | 'ReadyForDispatch' | 'Dispatched';
+export type ObjectiveEffort = 'XS' | 'S' | 'M' | 'L' | 'XL';
+
 export interface Objective {
   id: string;
   tenantId: string | null;
@@ -223,7 +228,26 @@ export interface Objective {
   title: string;
   description: string | null;
   status: ObjectiveStatus;
+  kind: ObjectiveKind;
+  category: string | null;
+  priority: ObjectivePriority;
+  rank: number;
+  backlogState: ObjectiveBacklogState;
+  effort: ObjectiveEffort;
   owner: string | null;
+  targetVersion: string | null;
+  dueUtc: string | null;
+  parentObjectiveId: string | null;
+  blockedByObjectiveIds: string[];
+  refinementSummary: string | null;
+  suggestedPipelineId: string | null;
+  suggestedPlaybooks: SelectedPlaybook[];
+  refinementSessionIds: string[];
+  sourceProvider: string | null;
+  sourceType: string | null;
+  sourceId: string | null;
+  sourceUrl: string | null;
+  sourceUpdatedUtc: string | null;
   tags: string[];
   acceptanceCriteria: string[];
   nonGoals: string[];
@@ -247,6 +271,8 @@ export interface ObjectiveQuery {
   tenantId?: string | null;
   userId?: string | null;
   owner?: string | null;
+  category?: string | null;
+  parentObjectiveId?: string | null;
   vesselId?: string | null;
   fleetId?: string | null;
   planningSessionId?: string | null;
@@ -258,6 +284,11 @@ export interface ObjectiveQuery {
   incidentId?: string | null;
   tag?: string | null;
   status?: ObjectiveStatus | null;
+  backlogState?: ObjectiveBacklogState | null;
+  kind?: ObjectiveKind | null;
+  priority?: ObjectivePriority | null;
+  effort?: ObjectiveEffort | null;
+  targetVersion?: string | null;
   search?: string | null;
   fromUtc?: string | null;
   toUtc?: string | null;
@@ -269,7 +300,20 @@ export interface ObjectiveUpsertRequest {
   title?: string | null;
   description?: string | null;
   status?: ObjectiveStatus | null;
+  kind?: ObjectiveKind | null;
+  category?: string | null;
+  priority?: ObjectivePriority | null;
+  rank?: number | null;
+  backlogState?: ObjectiveBacklogState | null;
+  effort?: ObjectiveEffort | null;
   owner?: string | null;
+  targetVersion?: string | null;
+  dueUtc?: string | null;
+  parentObjectiveId?: string | null;
+  blockedByObjectiveIds?: string[] | null;
+  refinementSummary?: string | null;
+  suggestedPipelineId?: string | null;
+  suggestedPlaybooks?: SelectedPlaybook[] | null;
   tags?: string[] | null;
   acceptanceCriteria?: string[] | null;
   nonGoals?: string[] | null;
@@ -278,12 +322,106 @@ export interface ObjectiveUpsertRequest {
   fleetIds?: string[] | null;
   vesselIds?: string[] | null;
   planningSessionIds?: string[] | null;
+  refinementSessionIds?: string[] | null;
   voyageIds?: string[] | null;
   missionIds?: string[] | null;
   checkRunIds?: string[] | null;
   releaseIds?: string[] | null;
   deploymentIds?: string[] | null;
   incidentIds?: string[] | null;
+}
+
+export interface ObjectiveReorderItem {
+  objectiveId: string;
+  rank: number;
+}
+
+export interface ObjectiveReorderRequest {
+  items: ObjectiveReorderItem[];
+}
+
+export type GitHubObjectiveSourceType = 'Issue' | 'PullRequest';
+
+export interface GitHubObjectiveImportRequest {
+  vesselId?: string | null;
+  objectiveId?: string | null;
+  sourceType: GitHubObjectiveSourceType;
+  number: number;
+  statusOverride?: ObjectiveStatus | null;
+}
+
+export interface GitHubActionsSyncRequest {
+  vesselId?: string | null;
+  workflowProfileId?: string | null;
+  deploymentId?: string | null;
+  environmentName?: string | null;
+  branchName?: string | null;
+  commitHash?: string | null;
+  workflowName?: string | null;
+  runStatus?: string | null;
+  typeOverride?: CheckRunType | null;
+  runCount?: number;
+}
+
+export interface GitHubActionsSyncResult {
+  providerName: string;
+  vesselId: string | null;
+  deploymentId: string | null;
+  createdCount: number;
+  updatedCount: number;
+  checkRuns: CheckRun[];
+}
+
+export interface GitHubPullRequestReview {
+  reviewerLogin: string | null;
+  state: string;
+  body: string | null;
+  submittedUtc: string | null;
+}
+
+export interface GitHubPullRequestComment {
+  authorLogin: string | null;
+  body: string | null;
+  url: string | null;
+  createdUtc: string | null;
+}
+
+export interface GitHubPullRequestCheck {
+  name: string;
+  status: string;
+  conclusion: string | null;
+  detailsUrl: string | null;
+}
+
+export interface GitHubPullRequestDetail {
+  repository: string;
+  number: number;
+  missionId: string | null;
+  url: string;
+  title: string;
+  body: string | null;
+  state: string;
+  isDraft: boolean;
+  isMerged: boolean;
+  mergeableState: string | null;
+  reviewStatus: string;
+  baseRefName: string;
+  headRefName: string;
+  headSha: string | null;
+  authorLogin: string | null;
+  mergedByLogin: string | null;
+  requestedReviewers: string[];
+  labels: string[];
+  changedFiles: number;
+  additions: number;
+  deletions: number;
+  commitCount: number;
+  reviews: GitHubPullRequestReview[];
+  comments: GitHubPullRequestComment[];
+  checks: GitHubPullRequestCheck[];
+  createdUtc: string | null;
+  updatedUtc: string | null;
+  mergedUtc: string | null;
 }
 
 export interface PlanningSession {
@@ -325,6 +463,93 @@ export interface PlanningSessionDetail {
   messages: PlanningSessionMessage[];
   captain: Captain | null;
   vessel: Vessel | null;
+}
+
+export type ObjectiveRefinementSessionStatus =
+  | 'Created'
+  | 'Active'
+  | 'Responding'
+  | 'Stopping'
+  | 'Stopped'
+  | 'Completed'
+  | 'Failed';
+
+export interface ObjectiveRefinementSession {
+  id: string;
+  objectiveId: string;
+  tenantId: string | null;
+  userId: string | null;
+  captainId: string;
+  fleetId: string | null;
+  vesselId: string | null;
+  title: string;
+  status: ObjectiveRefinementSessionStatus;
+  processId: number | null;
+  failureReason: string | null;
+  createdUtc: string;
+  startedUtc: string | null;
+  completedUtc: string | null;
+  lastUpdateUtc: string;
+}
+
+export interface ObjectiveRefinementMessage {
+  id: string;
+  objectiveRefinementSessionId: string;
+  objectiveId: string;
+  tenantId: string | null;
+  userId: string | null;
+  role: string;
+  sequence: number;
+  content: string;
+  isSelected: boolean;
+  createdUtc: string;
+  lastUpdateUtc: string;
+}
+
+export interface ObjectiveRefinementSessionDetail {
+  session: ObjectiveRefinementSession;
+  messages: ObjectiveRefinementMessage[];
+  captain: Captain | null;
+  vessel: Vessel | null;
+  objective: Objective | null;
+}
+
+export interface ObjectiveRefinementSessionCreateRequest {
+  captainId: string;
+  fleetId?: string | null;
+  vesselId?: string | null;
+  title?: string | null;
+  initialMessage?: string | null;
+}
+
+export interface ObjectiveRefinementMessageRequest {
+  content: string;
+}
+
+export interface ObjectiveRefinementSummaryRequest {
+  messageId?: string | null;
+}
+
+export interface ObjectiveRefinementSummaryResponse {
+  sessionId: string;
+  messageId: string | null;
+  summary: string;
+  acceptanceCriteria: string[];
+  nonGoals: string[];
+  rolloutConstraints: string[];
+  suggestedPipelineId: string | null;
+  method: string;
+}
+
+export interface ObjectiveRefinementApplyRequest {
+  messageId?: string | null;
+  markMessageSelected?: boolean;
+  promoteBacklogState?: boolean;
+}
+
+export interface ObjectiveRefinementApplyResponse {
+  summary: ObjectiveRefinementSummaryResponse;
+  objective: Objective;
 }
 
 export interface PlanningSessionSummaryRequest {
@@ -745,6 +970,7 @@ export interface DeploymentUpsertRequest {
   releaseId?: string | null;
   missionId?: string | null;
   voyageId?: string | null;
+  objectiveIds?: string[];
   title?: string | null;
   sourceRef?: string | null;
   summary?: string | null;
@@ -870,6 +1096,7 @@ export interface IncidentUpsertRequest {
   missionId?: string | null;
   voyageId?: string | null;
   rollbackDeploymentId?: string | null;
+  objectiveIds?: string[];
   impact?: string | null;
   rootCause?: string | null;
   recoveryNotes?: string | null;

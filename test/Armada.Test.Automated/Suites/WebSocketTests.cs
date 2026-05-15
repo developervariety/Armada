@@ -8,6 +8,7 @@ namespace Armada.Test.Automated.Suites
     using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Test.Common;
 
@@ -140,6 +141,145 @@ namespace Armada.Test.Automated.Suites
                 AssertEqual(missionId, evt.GetProperty("data").GetProperty("missionId").GetString());
                 AssertEqual("mission", evt.GetProperty("data").GetProperty("entityType").GetString());
                 AssertEqual("Review", evt.GetProperty("data").GetProperty("status").GetString());
+            }).ConfigureAwait(false);
+
+            await RunTest("Subscribe_BacklogCreate_BroadcastsObjectiveChanged", async () =>
+            {
+                string objectiveId = String.Empty;
+
+                try
+                {
+                    using ClientWebSocket ws = await ConnectAsync().ConfigureAwait(false);
+                    await SubscribeAsync(ws).ConfigureAwait(false);
+
+                    HttpResponseMessage createResponse = await _AuthClient.PostAsync(
+                        "/api/v1/backlog",
+                        JsonHelper.ToJsonContent(new
+                        {
+                            Title = "WebSocket backlog coverage",
+                            Description = "Broadcast objective.changed for backlog routes."
+                        })).ConfigureAwait(false);
+                    createResponse.EnsureSuccessStatusCode();
+                    Objective created = await JsonHelper.DeserializeAsync<Objective>(createResponse).ConfigureAwait(false);
+                    objectiveId = created.Id;
+
+                    JsonElement evt = await WaitForEventAsync(ws, root =>
+                    {
+                        return root.GetProperty("type").GetString() == "objective.changed"
+                            && root.GetProperty("data").GetProperty("id").GetString() == objectiveId;
+                    }).ConfigureAwait(false);
+
+                    AssertEqual("objective.changed", evt.GetProperty("type").GetString());
+                    AssertEqual(objectiveId, evt.GetProperty("data").GetProperty("id").GetString());
+                    AssertEqual("Inbox", evt.GetProperty("data").GetProperty("backlogState").GetString());
+                }
+                finally
+                {
+                    if (!String.IsNullOrWhiteSpace(objectiveId))
+                        await _AuthClient.DeleteAsync("/api/v1/backlog/" + objectiveId).ConfigureAwait(false);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Subscribe_BacklogRefinementLifecycle_BroadcastsRefinementEvents", async () =>
+            {
+                string objectiveId = String.Empty;
+                string captainId = String.Empty;
+                string sessionId = String.Empty;
+
+                try
+                {
+                    using ClientWebSocket ws = await ConnectAsync().ConfigureAwait(false);
+                    await SubscribeAsync(ws).ConfigureAwait(false);
+
+                    Objective objective = await CreateObjectiveViaRestAsync("WebSocket refinement objective").ConfigureAwait(false);
+                    objectiveId = objective.Id;
+
+                    Captain captain = await CreateCaptainRecordViaRestAsync("ws-refinement-captain").ConfigureAwait(false);
+                    captainId = captain.Id;
+
+                    HttpResponseMessage createSessionResponse = await _AuthClient.PostAsync(
+                        "/api/v1/backlog/" + objectiveId + "/refinement-sessions",
+                        JsonHelper.ToJsonContent(new
+                        {
+                            CaptainId = captainId,
+                            Title = "WebSocket refinement lifecycle"
+                        })).ConfigureAwait(false);
+                    createSessionResponse.EnsureSuccessStatusCode();
+                    ObjectiveRefinementSessionDetail createdSession = await JsonHelper.DeserializeAsync<ObjectiveRefinementSessionDetail>(createSessionResponse).ConfigureAwait(false);
+                    sessionId = createdSession.Session.Id;
+
+                    JsonElement createdEvent = await WaitForEventAsync(ws, root =>
+                    {
+                        return root.GetProperty("type").GetString() == "objective-refinement-session.changed"
+                            && root.GetProperty("data").GetProperty("session").GetProperty("id").GetString() == sessionId
+                            && root.GetProperty("data").GetProperty("session").GetProperty("status").GetString() == "Active";
+                    }).ConfigureAwait(false);
+                    AssertEqual(sessionId, createdEvent.GetProperty("data").GetProperty("session").GetProperty("id").GetString());
+
+                    await UpdateCaptainRuntimeAsync(captainId, "Custom").ConfigureAwait(false);
+
+                    HttpResponseMessage sendResponse = await _AuthClient.PostAsync(
+                        "/api/v1/objective-refinement-sessions/" + sessionId + "/messages",
+                        JsonHelper.ToJsonContent(new
+                        {
+                            Content = "Clarify acceptance criteria for the backlog item."
+                        })).ConfigureAwait(false);
+                    sendResponse.EnsureSuccessStatusCode();
+
+                    JsonElement userMessageEvent = await WaitForEventAsync(ws, root =>
+                    {
+                        return root.GetProperty("type").GetString() == "objective-refinement-session.message.created"
+                            && root.GetProperty("data").GetProperty("sessionId").GetString() == sessionId
+                            && root.GetProperty("data").GetProperty("message").GetProperty("role").GetString() == "User";
+                    }).ConfigureAwait(false);
+                    AssertEqual(sessionId, userMessageEvent.GetProperty("data").GetProperty("sessionId").GetString());
+
+                    JsonElement assistantCreatedEvent = await WaitForEventAsync(ws, root =>
+                    {
+                        return root.GetProperty("type").GetString() == "objective-refinement-session.message.created"
+                            && root.GetProperty("data").GetProperty("sessionId").GetString() == sessionId
+                            && root.GetProperty("data").GetProperty("message").GetProperty("role").GetString() == "Assistant";
+                    }).ConfigureAwait(false);
+                    string assistantMessageId = assistantCreatedEvent.GetProperty("data").GetProperty("message").GetProperty("id").GetString()
+                        ?? throw new Exception("Assistant refinement message id not found in WebSocket payload");
+
+                    JsonElement assistantUpdatedEvent = await WaitForEventAsync(ws, root =>
+                    {
+                        return root.GetProperty("type").GetString() == "objective-refinement-session.message.updated"
+                            && root.GetProperty("data").GetProperty("sessionId").GetString() == sessionId
+                            && root.GetProperty("data").GetProperty("message").GetProperty("id").GetString() == assistantMessageId
+                            && !String.IsNullOrWhiteSpace(root.GetProperty("data").GetProperty("message").GetProperty("content").GetString());
+                    }).ConfigureAwait(false);
+                    AssertContains("Refinement response failed", assistantUpdatedEvent.GetProperty("data").GetProperty("message").GetProperty("content").GetString() ?? String.Empty);
+
+                    JsonElement activeEvent = await WaitForEventAsync(ws, root =>
+                    {
+                        return root.GetProperty("type").GetString() == "objective-refinement-session.changed"
+                            && root.GetProperty("data").GetProperty("session").GetProperty("id").GetString() == sessionId
+                            && root.GetProperty("data").GetProperty("session").GetProperty("status").GetString() == "Active";
+                    }).ConfigureAwait(false);
+                    AssertEqual(sessionId, activeEvent.GetProperty("data").GetProperty("session").GetProperty("id").GetString());
+
+                    HttpResponseMessage deleteSessionResponse = await _AuthClient.DeleteAsync("/api/v1/objective-refinement-sessions/" + sessionId).ConfigureAwait(false);
+                    AssertEqual(System.Net.HttpStatusCode.NoContent, deleteSessionResponse.StatusCode);
+
+                    JsonElement deletedEvent = await WaitForEventAsync(ws, root =>
+                    {
+                        return root.GetProperty("type").GetString() == "objective-refinement-session.deleted"
+                            && root.GetProperty("data").GetProperty("sessionId").GetString() == sessionId;
+                    }).ConfigureAwait(false);
+                    AssertEqual(sessionId, deletedEvent.GetProperty("data").GetProperty("sessionId").GetString());
+                    sessionId = String.Empty;
+                }
+                finally
+                {
+                    if (!String.IsNullOrWhiteSpace(sessionId))
+                        await _AuthClient.DeleteAsync("/api/v1/objective-refinement-sessions/" + sessionId).ConfigureAwait(false);
+                    if (!String.IsNullOrWhiteSpace(objectiveId))
+                        await _AuthClient.DeleteAsync("/api/v1/backlog/" + objectiveId).ConfigureAwait(false);
+                    if (!String.IsNullOrWhiteSpace(captainId))
+                        await _AuthClient.DeleteAsync("/api/v1/captains/" + captainId).ConfigureAwait(false);
+                }
             }).ConfigureAwait(false);
 
             // Status Tests
@@ -1045,7 +1185,7 @@ namespace Armada.Test.Automated.Suites
         private async Task<ClientWebSocket> ConnectAsync()
         {
             ClientWebSocket ws = new ClientWebSocket();
-            Uri uri = new Uri("ws://localhost:" + _RestPort + "/ws");
+            Uri uri = new Uri("ws://127.0.0.1:" + _RestPort + "/ws");
             await ws.ConnectAsync(uri, CancellationToken.None).ConfigureAwait(false);
             return ws;
         }
@@ -1156,6 +1296,38 @@ namespace Armada.Test.Automated.Suites
             resp.EnsureSuccessStatusCode();
             Captain captain = await JsonHelper.DeserializeAsync<Captain>(resp).ConfigureAwait(false);
             return captain.Id;
+        }
+
+        private async Task<Captain> CreateCaptainRecordViaRestAsync(string name)
+        {
+            HttpResponseMessage resp = await _AuthClient.PostAsync("/api/v1/captains",
+                JsonHelper.ToJsonContent(new { Name = name, Runtime = "ClaudeCode" })).ConfigureAwait(false);
+            resp.EnsureSuccessStatusCode();
+            return await JsonHelper.DeserializeAsync<Captain>(resp).ConfigureAwait(false);
+        }
+
+        private async Task<Objective> CreateObjectiveViaRestAsync(string title)
+        {
+            HttpResponseMessage resp = await _AuthClient.PostAsync("/api/v1/backlog",
+                JsonHelper.ToJsonContent(new { Title = title, Description = "WebSocket objective coverage" })).ConfigureAwait(false);
+            resp.EnsureSuccessStatusCode();
+            return await JsonHelper.DeserializeAsync<Objective>(resp).ConfigureAwait(false);
+        }
+
+        private async Task UpdateCaptainRuntimeAsync(string captainId, string runtime)
+        {
+            HttpResponseMessage getResp = await _AuthClient.GetAsync("/api/v1/captains/" + captainId).ConfigureAwait(false);
+            getResp.EnsureSuccessStatusCode();
+            Captain captain = await JsonHelper.DeserializeAsync<Captain>(getResp).ConfigureAwait(false);
+
+            HttpResponseMessage updateResp = await _AuthClient.PutAsync(
+                "/api/v1/captains/" + captainId,
+                JsonHelper.ToJsonContent(new
+                {
+                    Name = captain.Name,
+                    Runtime = runtime
+                })).ConfigureAwait(false);
+            updateResp.EnsureSuccessStatusCode();
         }
 
         private async Task<string> CreateMissionViaRestAsync(string title)

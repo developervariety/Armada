@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { getRequestHistoryEntry, listRequestHistory } from '../api/client';
 import type { RequestHistoryEntry, RequestHistoryRecord } from '../types/models';
@@ -327,20 +327,33 @@ function buildPathRegex(template: string) {
   return { regex: new RegExp(`^${pattern}$`), keys };
 }
 
+function resolveReplayPathValues(template: string, route: string, initialValues?: Record<string, string | null>) {
+  const { regex, keys } = buildPathRegex(template);
+  const match = regex.exec(route);
+  const pathValues: Record<string, string | null> = { ...(initialValues || {}) };
+  if (!match) return pathValues;
+
+  keys.forEach((key, index) => {
+    if (!(key in pathValues) || pathValues[key] == null || pathValues[key] === '') {
+      pathValues[key] = decodeURIComponent(match[index + 1]);
+    }
+  });
+
+  return pathValues;
+}
+
 function findOperationForReplay(operations: ExplorerOperation[], replay: ReplayRequest) {
-  const normalizedRoute = replay.routeTemplate || replay.route;
   for (const operation of operations) {
     if (operation.method.toLowerCase() !== replay.method.toLowerCase()) continue;
-    const { regex, keys } = buildPathRegex(operation.path);
-    const match = regex.exec(normalizedRoute);
-    if (!match) continue;
+    if (replay.routeTemplate && replay.routeTemplate === operation.path) {
+      return {
+        operationId: operation.id,
+        pathValues: resolveReplayPathValues(operation.path, replay.route, replay.pathValues),
+      };
+    }
 
-    const pathValues: Record<string, string | null> = { ...(replay.pathValues || {}) };
-    keys.forEach((key, index) => {
-      if (!(key in pathValues)) {
-        pathValues[key] = decodeURIComponent(match[index + 1]);
-      }
-    });
+    const pathValues = resolveReplayPathValues(operation.path, replay.route, replay.pathValues);
+    if (Object.keys(pathValues).length === 0 && operation.path !== replay.route) continue;
 
     return {
       operationId: operation.id,
@@ -480,6 +493,7 @@ export default function ApiExplorer() {
   const [abortController, setAbortController] = useState<AbortController | null>(null);
   const [pendingReplay, setPendingReplay] = useState<ReplayRequest | null>(null);
   const [responseCopied, setResponseCopied] = useState(false);
+  const skipDefaultInitializationForOperationId = useRef<string | null>(null);
 
   const operations = useMemo<ExplorerOperation[]>(() => {
     if (!spec?.paths) return [];
@@ -665,8 +679,14 @@ export default function ApiExplorer() {
       );
       setHeaderValues(nextHeaders);
       setBodyValue(pendingReplay.bodyValue || '');
+      skipDefaultInitializationForOperationId.current = selectedOperation.id;
       setPendingReplay(null);
     } else {
+      if (skipDefaultInitializationForOperationId.current === selectedOperation.id) {
+        skipDefaultInitializationForOperationId.current = null;
+        return;
+      }
+
       const nextPath: Record<string, string> = {};
       const nextQuery: Record<string, string> = {};
       const nextHeaders: Record<string, string> = {};

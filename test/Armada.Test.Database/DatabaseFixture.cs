@@ -432,6 +432,106 @@ namespace Armada.Test.Database
             return deployment;
         }
 
+        public async Task<Objective> CreateObjectiveAsync(
+            string tenantId,
+            string userId,
+            string titlePrefix,
+            string? parentObjectiveId = null,
+            IEnumerable<string>? vesselIds = null,
+            CancellationToken token = default)
+        {
+            Objective objective = new Objective
+            {
+                TenantId = tenantId,
+                UserId = userId,
+                Title = titlePrefix + "-" + Token(),
+                Description = "Objective fixture for " + titlePrefix,
+                Status = ObjectiveStatusEnum.Scoped,
+                Kind = ObjectiveKindEnum.Feature,
+                Category = "Fixture",
+                Priority = ObjectivePriorityEnum.P1,
+                Rank = 25,
+                BacklogState = ObjectiveBacklogStateEnum.Triaged,
+                Effort = ObjectiveEffortEnum.M,
+                Owner = "fixture-owner",
+                TargetVersion = "0.8.0",
+                ParentObjectiveId = parentObjectiveId,
+                BlockedByObjectiveIds = new List<string>(),
+                RefinementSummary = "Fixture summary",
+                SuggestedPipelineId = null,
+                Tags = new List<string> { "fixture", "objective" },
+                AcceptanceCriteria = new List<string> { "Create", "Read", "Update" },
+                NonGoals = new List<string> { "No legacy API changes" },
+                RolloutConstraints = new List<string> { "Validate in staging" },
+                EvidenceLinks = new List<string> { "https://example.test/objective-fixture" },
+                VesselIds = vesselIds?.ToList() ?? new List<string>(),
+                CreatedUtc = DateTime.UtcNow.AddMinutes(-2),
+                LastUpdateUtc = DateTime.UtcNow.AddMinutes(-1)
+            };
+
+            await _Driver.Objectives.CreateAsync(objective, token).ConfigureAwait(false);
+            RegisterCleanup(async ct => await _Driver.Objectives.DeleteAsync(objective.Id, ct).ConfigureAwait(false));
+            return objective;
+        }
+
+        public async Task<ObjectiveRefinementSession> CreateObjectiveRefinementSessionAsync(
+            string tenantId,
+            string userId,
+            string objectiveId,
+            string captainId,
+            string? vesselId = null,
+            ObjectiveRefinementSessionStatusEnum status = ObjectiveRefinementSessionStatusEnum.Active,
+            CancellationToken token = default)
+        {
+            ObjectiveRefinementSession session = new ObjectiveRefinementSession
+            {
+                ObjectiveId = objectiveId,
+                TenantId = tenantId,
+                UserId = userId,
+                CaptainId = captainId,
+                VesselId = vesselId,
+                Title = "Refine " + Token(),
+                Status = status,
+                StartedUtc = DateTime.UtcNow.AddMinutes(-1),
+                CreatedUtc = DateTime.UtcNow.AddMinutes(-2),
+                LastUpdateUtc = DateTime.UtcNow
+            };
+
+            await _Driver.ObjectiveRefinementSessions.CreateAsync(session, token).ConfigureAwait(false);
+            RegisterCleanup(async ct => await _Driver.ObjectiveRefinementSessions.DeleteAsync(session.Id, ct).ConfigureAwait(false));
+            return session;
+        }
+
+        public async Task<ObjectiveRefinementMessage> CreateObjectiveRefinementMessageAsync(
+            string sessionId,
+            string objectiveId,
+            string tenantId,
+            string userId,
+            string role,
+            int sequence,
+            string content,
+            bool isSelected = false,
+            CancellationToken token = default)
+        {
+            ObjectiveRefinementMessage message = new ObjectiveRefinementMessage
+            {
+                ObjectiveRefinementSessionId = sessionId,
+                ObjectiveId = objectiveId,
+                TenantId = tenantId,
+                UserId = userId,
+                Role = role,
+                Sequence = sequence,
+                Content = content,
+                IsSelected = isSelected,
+                CreatedUtc = DateTime.UtcNow.AddMinutes(-1),
+                LastUpdateUtc = DateTime.UtcNow
+            };
+
+            await _Driver.ObjectiveRefinementMessages.CreateAsync(message, token).ConfigureAwait(false);
+            RegisterCleanup(async ct => await _Driver.ObjectiveRefinementMessages.DeleteAsync(message.Id, ct).ConfigureAwait(false));
+            return message;
+        }
+
         public async Task CleanupAsync(CancellationToken token = default)
         {
             if (_NoCleanup) return;

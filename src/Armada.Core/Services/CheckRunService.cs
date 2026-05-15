@@ -157,59 +157,41 @@ namespace Armada.Core.Services
             Vessel vessel = await ReadAccessibleVesselAsync(auth, request.VesselId, token).ConfigureAwait(false)
                 ?? throw new InvalidOperationException("Vessel not found or not accessible.");
 
-            WorkflowProfile? profile = null;
-            if (!String.IsNullOrWhiteSpace(request.WorkflowProfileId))
+            WorkflowProfile? profile = await ResolveImportProfileAsync(auth, vessel, request.WorkflowProfileId, token).ConfigureAwait(false);
+            CheckRun run = BuildImportedRun(auth, vessel, profile, request);
+            run = await _Database.CheckRuns.CreateAsync(run, token).ConfigureAwait(false);
+            OnCheckRunChanged?.Invoke(run);
+            return run;
+        }
+
+        /// <summary>
+        /// Import an externally-executed check run, updating an existing record when provider and external ID match.
+        /// </summary>
+        public async Task<CheckRun> ImportOrUpdateAsync(AuthContext auth, CheckRunImportRequest request, CancellationToken token = default)
+        {
+            if (auth == null) throw new ArgumentNullException(nameof(auth));
+            if (request == null) throw new ArgumentNullException(nameof(request));
+            if (String.IsNullOrWhiteSpace(request.VesselId)) throw new ArgumentNullException(nameof(request.VesselId));
+
+            Vessel vessel = await ReadAccessibleVesselAsync(auth, request.VesselId, token).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("Vessel not found or not accessible.");
+
+            WorkflowProfile? profile = await ResolveImportProfileAsync(auth, vessel, request.WorkflowProfileId, token).ConfigureAwait(false);
+            CheckRun run = BuildImportedRun(auth, vessel, profile, request);
+
+            CheckRun? existing = await FindImportedRunAsync(auth, vessel.Id, run.ProviderName, run.ExternalId, token).ConfigureAwait(false);
+            if (existing == null)
             {
-                profile = await _WorkflowProfiles.ResolveForVesselAsync(auth, vessel, request.WorkflowProfileId, token).ConfigureAwait(false);
-                if (profile == null)
-                    throw new InvalidOperationException("The supplied workflow profile is not accessible for this vessel.");
+                run = await _Database.CheckRuns.CreateAsync(run, token).ConfigureAwait(false);
+            }
+            else
+            {
+                run.Id = existing.Id;
+                run.CreatedUtc = existing.CreatedUtc;
+                run.LastUpdateUtc = DateTime.UtcNow;
+                run = await _Database.CheckRuns.UpdateAsync(run, token).ConfigureAwait(false);
             }
 
-            DateTime timestamp = request.CompletedUtc?.ToUniversalTime()
-                ?? request.StartedUtc?.ToUniversalTime()
-                ?? DateTime.UtcNow;
-            string command = !String.IsNullOrWhiteSpace(request.Command)
-                ? request.Command.Trim()
-                : request.Type + " (external)";
-
-            CheckRun run = new CheckRun
-            {
-                TenantId = vessel.TenantId,
-                UserId = auth.UserId,
-                WorkflowProfileId = profile?.Id,
-                VesselId = vessel.Id,
-                MissionId = request.MissionId,
-                VoyageId = request.VoyageId,
-                DeploymentId = request.DeploymentId,
-                Label = request.Label,
-                Type = request.Type,
-                Source = CheckRunSourceEnum.External,
-                Status = request.Status,
-                ProviderName = NormalizeValue(request.ProviderName),
-                ExternalId = NormalizeValue(request.ExternalId),
-                ExternalUrl = NormalizeValue(request.ExternalUrl),
-                EnvironmentName = NormalizeValue(request.EnvironmentName),
-                Command = command,
-                WorkingDirectory = vessel.WorkingDirectory,
-                BranchName = NormalizeValue(request.BranchName),
-                CommitHash = NormalizeValue(request.CommitHash),
-                ExitCode = request.ExitCode,
-                Output = request.Output,
-                Summary = NormalizeValue(request.Summary),
-                TestSummary = request.TestSummary ?? CheckRunParsingService.ParseTestSummary(request.Output),
-                CoverageSummary = request.CoverageSummary,
-                Artifacts = request.Artifacts ?? new List<CheckRunArtifact>(),
-                DurationMs = request.DurationMs,
-                StartedUtc = request.StartedUtc?.ToUniversalTime(),
-                CompletedUtc = request.CompletedUtc?.ToUniversalTime(),
-                CreatedUtc = timestamp,
-                LastUpdateUtc = DateTime.UtcNow
-            };
-
-            if (String.IsNullOrWhiteSpace(run.Summary))
-                run.Summary = BuildSummary(run, profile);
-
-            run = await _Database.CheckRuns.CreateAsync(run, token).ConfigureAwait(false);
             OnCheckRunChanged?.Invoke(run);
             return run;
         }
@@ -277,6 +259,94 @@ namespace Armada.Core.Services
                 TenantId = auth.IsAdmin ? null : auth.TenantId,
                 UserId = auth.IsAdmin || auth.IsTenantAdmin ? null : auth.UserId
             };
+        }
+
+        private async Task<WorkflowProfile?> ResolveImportProfileAsync(
+            AuthContext auth,
+            Vessel vessel,
+            string? workflowProfileId,
+            CancellationToken token)
+        {
+            WorkflowProfile? profile = null;
+            if (!String.IsNullOrWhiteSpace(workflowProfileId))
+            {
+                profile = await _WorkflowProfiles.ResolveForVesselAsync(auth, vessel, workflowProfileId, token).ConfigureAwait(false);
+                if (profile == null)
+                    throw new InvalidOperationException("The supplied workflow profile is not accessible for this vessel.");
+            }
+
+            return profile;
+        }
+
+        private CheckRun BuildImportedRun(AuthContext auth, Vessel vessel, WorkflowProfile? profile, CheckRunImportRequest request)
+        {
+            DateTime timestamp = request.CompletedUtc?.ToUniversalTime()
+                ?? request.StartedUtc?.ToUniversalTime()
+                ?? DateTime.UtcNow;
+            string command = !String.IsNullOrWhiteSpace(request.Command)
+                ? request.Command.Trim()
+                : request.Type + " (external)";
+
+            CheckRun run = new CheckRun
+            {
+                TenantId = vessel.TenantId,
+                UserId = auth.UserId,
+                WorkflowProfileId = profile?.Id,
+                VesselId = vessel.Id,
+                MissionId = request.MissionId,
+                VoyageId = request.VoyageId,
+                DeploymentId = request.DeploymentId,
+                Label = request.Label,
+                Type = request.Type,
+                Source = CheckRunSourceEnum.External,
+                Status = request.Status,
+                ProviderName = NormalizeValue(request.ProviderName),
+                ExternalId = NormalizeValue(request.ExternalId),
+                ExternalUrl = NormalizeValue(request.ExternalUrl),
+                EnvironmentName = NormalizeValue(request.EnvironmentName),
+                Command = command,
+                WorkingDirectory = vessel.WorkingDirectory,
+                BranchName = NormalizeValue(request.BranchName),
+                CommitHash = NormalizeValue(request.CommitHash),
+                ExitCode = request.ExitCode,
+                Output = request.Output,
+                Summary = NormalizeValue(request.Summary),
+                TestSummary = request.TestSummary ?? CheckRunParsingService.ParseTestSummary(request.Output),
+                CoverageSummary = request.CoverageSummary,
+                Artifacts = request.Artifacts ?? new List<CheckRunArtifact>(),
+                DurationMs = request.DurationMs,
+                StartedUtc = request.StartedUtc?.ToUniversalTime(),
+                CompletedUtc = request.CompletedUtc?.ToUniversalTime(),
+                CreatedUtc = timestamp,
+                LastUpdateUtc = DateTime.UtcNow
+            };
+
+            if (String.IsNullOrWhiteSpace(run.Summary))
+                run.Summary = BuildSummary(run, profile);
+
+            return run;
+        }
+
+        private async Task<CheckRun?> FindImportedRunAsync(
+            AuthContext auth,
+            string vesselId,
+            string? providerName,
+            string? externalId,
+            CancellationToken token)
+        {
+            if (String.IsNullOrWhiteSpace(providerName) || String.IsNullOrWhiteSpace(externalId))
+                return null;
+
+            CheckRunQuery query = BuildScopeQuery(auth);
+            query.VesselId = vesselId;
+            query.Source = CheckRunSourceEnum.External;
+            query.ProviderName = providerName;
+            query.ExternalId = externalId;
+            query.PageNumber = 1;
+            query.PageSize = 5;
+
+            EnumerationResult<CheckRun> results = await _Database.CheckRuns.EnumerateAsync(query, token).ConfigureAwait(false);
+            return results.Objects.FirstOrDefault();
         }
 
         private async Task<Vessel?> ReadAccessibleVesselAsync(AuthContext auth, string vesselId, CancellationToken token)

@@ -4,6 +4,7 @@ namespace Armada.Core.Database.Mysql
     using System.Collections.Generic;
     using System.Data;
     using System.Globalization;
+    using System.Text.RegularExpressions;
     using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
@@ -34,7 +35,8 @@ namespace Armada.Core.Database.Mysql
         private LoggingModule _Logging;
         private bool _Disposed = false;
 
-        private static readonly string _Iso8601Format = "yyyy-MM-ddTHH:mm:ss.fffffffZ";
+        private static readonly string _Iso8601Format = "yyyy-MM-dd HH:mm:ss.ffffff";
+        private static readonly Regex _AddColumnIfNotExistsRegex = new Regex(@"\bADD\s+COLUMN\s+IF\s+NOT\s+EXISTS\s+", RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
         #endregion
 
@@ -58,6 +60,9 @@ namespace Armada.Core.Database.Mysql
             Voyages = new VoyageMethods(_ConnectionString);
             PlanningSessions = new PlanningSessionMethods(_ConnectionString);
             PlanningSessionMessages = new PlanningSessionMessageMethods(_ConnectionString);
+            Objectives = new ObjectiveMethods(_ConnectionString);
+            ObjectiveRefinementSessions = new ObjectiveRefinementSessionMethods(_ConnectionString);
+            ObjectiveRefinementMessages = new ObjectiveRefinementMessageMethods(_ConnectionString);
             Docks = new DockMethods(_ConnectionString);
             Signals = new SignalMethods(_ConnectionString);
             Events = new EventMethods(_ConnectionString);
@@ -123,12 +128,7 @@ namespace Armada.Core.Database.Mysql
                     {
                         foreach (string sql in migration.Statements)
                         {
-                            using (MySqlCommand cmd = conn.CreateCommand())
-                            {
-                                cmd.Transaction = tx;
-                                cmd.CommandText = sql;
-                                await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
-                            }
+                            await ExecuteMigrationStatementAsync(conn, tx, sql, token).ConfigureAwait(false);
                         }
 
                         // Record migration
@@ -503,6 +503,11 @@ namespace Armada.Core.Database.Mysql
                     41,
                     "Add vessel GitHub token overrides",
                     TableQueries.MigrationV41Statements
+                ),
+                new SchemaMigration(
+                    42,
+                    "Add normalized objectives backlog tables",
+                    TableQueries.MigrationV42Statements
                 )
             };
         }
@@ -514,7 +519,7 @@ namespace Armada.Core.Database.Mysql
 
         internal static DateTime FromIso8601(string value)
         {
-            return DateTime.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind).ToUniversalTime();
+            return DateTime.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
         }
 
         internal static DateTime? FromIso8601Nullable(object value)
@@ -722,6 +727,41 @@ namespace Armada.Core.Database.Mysql
             entry.TestStartedUtc = FromIso8601Nullable(reader["test_started_utc"]);
             entry.CompletedUtc = FromIso8601Nullable(reader["completed_utc"]);
             return entry;
+        }
+
+        private async Task ExecuteMigrationStatementAsync(
+            MySqlConnection conn,
+            MySqlTransaction tx,
+            string sql,
+            CancellationToken token)
+        {
+            using (MySqlCommand cmd = conn.CreateCommand())
+            {
+                cmd.Transaction = tx;
+                cmd.CommandText = NormalizeMigrationStatement(sql);
+
+                try
+                {
+                    await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                }
+                catch (MySqlException ex) when (IsIgnorableReplayError(ex))
+                {
+                    _Logging.Info(_Header + "ignoring duplicate schema artifact while replaying migration: " + ex.Message);
+                }
+            }
+        }
+
+        private static string NormalizeMigrationStatement(string sql)
+        {
+            if (string.IsNullOrEmpty(sql)) return sql;
+            return _AddColumnIfNotExistsRegex.Replace(sql, "ADD COLUMN ");
+        }
+
+        private static bool IsIgnorableReplayError(MySqlException ex)
+        {
+            return ex.Number == 1060   // Duplicate column name
+                || ex.Number == 1061   // Duplicate key name
+                || ex.Number == 1826;  // Duplicate foreign key constraint name
         }
 
         #endregion

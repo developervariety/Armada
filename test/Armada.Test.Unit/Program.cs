@@ -59,6 +59,8 @@ namespace Armada.Test.Unit
             runner.AddSuite(new UserMasterTests());
             runner.AddSuite(new CredentialTests());
             runner.AddSuite(new AuthContextTests());
+            runner.AddSuite(new ObjectiveModelTests());
+            runner.AddSuite(new ObjectiveRefinementModelTests());
 
             // Service tests
             runner.AddSuite(new AdmiralServiceTests());
@@ -99,6 +101,8 @@ namespace Armada.Test.Unit
             runner.AddSuite(new RequestHistoryCaptureServiceTests());
             runner.AddSuite(new HistoricalTimelineServiceTests());
             runner.AddSuite(new ObjectiveServiceTests());
+            runner.AddSuite(new ObjectiveRefinementCoordinatorTests());
+            runner.AddSuite(new IncidentServiceTests());
             runner.AddSuite(new WorkflowProfileCheckRunServiceTests());
             runner.AddSuite(new DeploymentEnvironmentServiceTests());
             runner.AddSuite(new DeploymentServiceTests());

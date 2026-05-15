@@ -230,6 +230,9 @@ namespace Armada.Core.Database.Postgresql
             Voyages = new VoyageMethods(this, _Settings, _Logging);
             PlanningSessions = new PlanningSessionMethods(this, _Settings, _Logging);
             PlanningSessionMessages = new PlanningSessionMessageMethods(this, _Settings, _Logging);
+            Objectives = new ObjectiveMethods(this, _Settings, _Logging);
+            ObjectiveRefinementSessions = new ObjectiveRefinementSessionMethods(this, _Settings, _Logging);
+            ObjectiveRefinementMessages = new ObjectiveRefinementMessageMethods(this, _Settings, _Logging);
             Docks = new DockMethods(this, _Settings, _Logging);
             Signals = new SignalMethods(_DataSource);
             Events = new EventMethods(_DataSource);

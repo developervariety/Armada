@@ -7,7 +7,7 @@
 <p align="center">
   <strong>Reduce context switching across projects. Keep agent work in queryable memory.</strong>
   <br />
-  <em>v0.7.0 alpha -- APIs and schemas may change</em>
+  <em>v0.8.0 alpha -- APIs and schemas may change</em>
 </p>
 
 <p align="center">
@@ -50,6 +50,7 @@ Everything else in Armada exists to support that: isolated worktrees, parallel d
 - **Project-specific delivery profiles.** `Delivery > Workflow Profiles` lets each vessel or fleet declare how it lints, builds, tests, packages, versions, deploys, rolls back, and verifies itself.
 - **Structured check execution.** `Delivery > Checks` turns build, test, deploy, and verification runs into queryable records with logs, artifacts, retry, branch/commit metadata, and links back to missions and voyages.
 - **Scoped objectives and delivery memory.** `Operations > Objectives` captures acceptance criteria, non-goals, linked vessels, and evidence so work can be scoped before dispatch without falling back to external notes.
+- **Pull-based GitHub delivery context.** Objectives can import GitHub issue or PR scope, deployments can sync GitHub Actions into `Delivery > Checks`, and mission or release detail can show GitHub PR review/check evidence without exposing raw tokens on reads.
 - **First-class delivery records and timeline history.** `Delivery > Environments`, `Deployments`, and `Releases` group rollout targets, approvals, verification evidence, linked voyages, missions, checks, versions, notes, and artifacts, while `Activity > History` lets you reconstruct the current cross-entity delivery story from one place.
 - **Operational incident and runbook support.** `Activity > Incidents` and `System > Runbooks` carry rollback context, hotfix handoff, step-by-step execution, and deployment-linked operational guidance inside Armada itself.
 - **Persistent vessel context.** Models can maintain repository-specific context, hints, and working notes on each vessel to speed up future dispatches.
@@ -636,6 +637,12 @@ Settings live in `~/.armada/settings.json` and are created on first use.
 
 For GitHub-backed integrations, Armada supports a server-global `GitHubToken` in `settings.json` (or `docker/server/armada.json` in Docker) plus an optional per-vessel `GitHubTokenOverride`. Vessel reads return `hasGitHubTokenOverride`, but the raw token is never returned through REST, MCP, WebSocket, or dashboard reads.
 
+Armada currently uses that token resolution for three pull-based GitHub workflows:
+
+- importing a GitHub issue or pull request into `Operations > Objectives`
+- syncing recent GitHub Actions workflow runs into `Delivery > Checks`
+- loading GitHub pull-request review, comment, and required-check evidence for mission and release detail views
+
 ```bash
 armada config show              # View current settings
 armada config set MaxCaptains 8 # Change a setting
@@ -1074,6 +1081,20 @@ v0.5.0 is focused on dispatch and pipeline stability. It adds captain model sele
 - React dashboard captain detail now exposes the captain model field and shows validation errors in a modal
 - Mission detail now shows total runtime, and dispatch cleanup removes the redundant parsed-task UI
 - Docker image tags, release metadata, and API documentation are updated for `v0.5.0`
+
+### v0.7.0 to v0.8.0
+
+v0.8.0 is focused on backlog-first delivery management. This release adds normalized objective storage, explicit backlog refinement sessions with captain selection, ranked backlog management, and end-to-end linkage from backlog items into release, deployment, and incident records. The Armada server applies the required schema migrations automatically on first startup (SQLite schema version 43, PostgreSQL/MySQL/SQL Server schema version 42).
+
+Key changes:
+
+- New normalized `objectives`, `objective_refinement_sessions`, and `objective_refinement_messages` persistence across SQLite, MySQL, PostgreSQL, and SQL Server
+- Objective/backlog CRUD, filtering, ranking, reorder, and backlog alias routes under `/api/v1/backlog`
+- Backlog refinement sessions with explicit captain selection, transcript persistence, summary generation, and objective apply-back support
+- MCP backlog CRUD and reorder coverage, plus backlog-named aliases for first-class backlog operations
+- Release, deployment, and incident flows now preserve linkage back to the same objective record
+- Shared version metadata, Postman examples, and current-version API docs are updated for `v0.8.0`
+- Versioned migration handoff scripts are available in `migrations/` for `v0.7.0 -> v0.8.0`
 
 ### v0.6.0 to v0.7.0
 

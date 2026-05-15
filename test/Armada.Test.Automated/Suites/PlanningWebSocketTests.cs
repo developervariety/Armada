@@ -161,7 +161,7 @@ namespace Armada.Test.Automated.Suites
         private async Task<ClientWebSocket> ConnectAsync()
         {
             ClientWebSocket ws = new ClientWebSocket();
-            await ws.ConnectAsync(new Uri("ws://localhost:" + _RestPort + "/ws"), CancellationToken.None).ConfigureAwait(false);
+            await ws.ConnectAsync(new Uri("ws://127.0.0.1:" + _RestPort + "/ws"), CancellationToken.None).ConfigureAwait(false);
             return ws;
         }
 

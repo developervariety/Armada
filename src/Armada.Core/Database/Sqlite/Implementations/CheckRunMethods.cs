@@ -237,6 +237,11 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 conditions.Add("provider_name = @provider_name");
                 parameters.Add(new SqliteParameter("@provider_name", query.ProviderName));
             }
+            if (!String.IsNullOrWhiteSpace(query.ExternalId))
+            {
+                conditions.Add("external_id = @external_id");
+                parameters.Add(new SqliteParameter("@external_id", query.ExternalId));
+            }
             if (!String.IsNullOrWhiteSpace(query.EnvironmentName))
             {
                 conditions.Add("environment_name = @environment_name");

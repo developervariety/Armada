@@ -1,6 +1,6 @@
 # Armada Remote Management
 
-**Version:** 0.7.0
+**Version:** 0.8.0
 
 This guide is the operator-focused setup path for connecting an Armada instance to `Armada.Proxy` and then using the proxy app for remote management.
 
@@ -12,7 +12,7 @@ If you want protocol details, see:
 
 ## Scope
 
-`v0.7.0` supports:
+`v0.8.0` supports:
 
 - outbound Armada-to-proxy tunnel connection with shared-password handshake and optional enrollment-token validation
 - challenge-based proxy browser login and connected-deployment discovery
@@ -22,11 +22,12 @@ If you want protocol details, see:
 - remote captain stop
 - remote recent activity, mission logs, diffs, and focused detail views
 
-`v0.7.0` does not yet provide:
+`v0.8.0` does not yet provide:
 
 - SaaS user accounts
 - delegated identity or local-session brokerage
 - notification inbox/read state
+- remote delivery lifecycle surfaces for releases, environments, deployments, incidents, or runbooks
 - server-side remote action policy beyond current UI confirmation prompts
 
 Treat the current proxy as an operator service, not a hardened internet-facing SaaS product.
@@ -217,7 +218,7 @@ The current proxy shell login flow is:
 2. Choose a connected deployment.
 3. Enter the deployment password prompt and open the deployment.
 
-In `v0.7.0`, that deployment password prompt reuses the same shared password used by the proxy and the connected Armada instance. It is not yet a distinct per-deployment user-auth model.
+In `v0.8.0`, that deployment password prompt reuses the same shared password used by the proxy and the connected Armada instance. It is not yet a distinct per-deployment user-auth model.
 
 If your Armada instance uses a custom remote-control password, the proxy `ArmadaProxy.password` value must match it or the tunnel handshake will fail and the deployment will not appear as connected.
 

@@ -43,7 +43,7 @@ const navSections: NavSection[] = [
   {
     key: 'operations',
     label: 'OPERATIONS',
-    matchers: ['/dispatch', '/planning', '/objectives', '/voyages', '/missions', '/merge-queue'],
+    matchers: ['/dispatch', '/planning', '/backlog', '/objectives', '/voyages', '/missions', '/merge-queue'],
     items: [
       {
         to: '/planning',
@@ -69,9 +69,9 @@ const navSections: NavSection[] = [
         ),
       },
       {
-        to: '/objectives',
-        label: 'Objectives',
-        tooltip: 'Capture scoped work, acceptance criteria, constraints, and linked delivery evidence before or alongside execution',
+        to: '/backlog',
+        label: 'Backlog',
+        tooltip: 'Capture future work, refine it with a selected captain, and carry the same record through planning, dispatch, release, deployment, and incident follow-through',
         icon: (
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M4 4h16v16H4z" />

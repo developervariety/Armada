@@ -108,6 +108,7 @@ function buildMarkdown(query: HistoricalTimelineQuery, entries: HistoricalTimeli
   if (query.text) activeFilters.push(`text=\`${query.text}\``);
   if (query.actor) activeFilters.push(`actor=\`${query.actor}\``);
   if (query.vesselId) activeFilters.push(`vessel=\`${query.vesselId}\``);
+  if (query.postmortemOnly) activeFilters.push('postmortemOnly=`true`');
   if (query.sourceTypes && query.sourceTypes.length > 0) activeFilters.push(`sourceTypes=\`${query.sourceTypes.join(', ')}\``);
 
   const lines: string[] = [
@@ -156,6 +157,7 @@ export default function History() {
   const [actorFilter, setActorFilter] = useState(initialQuery.get('actor') || '');
   const [vesselFilter, setVesselFilter] = useState(initialQuery.get('vesselId') || 'all');
   const [sourceTypeFilter, setSourceTypeFilter] = useState(initialQuery.get('sourceType') || 'all');
+  const [postmortemOnly, setPostmortemOnly] = useState(initialQuery.get('postmortemOnly') === 'true');
   const [savedViews, setSavedViews] = useState<SavedHistoryView[]>(() => loadSavedViews());
   const [saveViewOpen, setSaveViewOpen] = useState(false);
   const [saveViewName, setSaveViewName] = useState('');
@@ -175,6 +177,7 @@ export default function History() {
       actor: actorFilter || null,
       vesselId: vesselFilter === 'all' ? null : vesselFilter,
       sourceTypes: sourceTypeFilter === 'all' ? [] : [sourceTypeFilter],
+      postmortemOnly: postmortemOnly || undefined,
     };
   }
 
@@ -205,12 +208,14 @@ export default function History() {
     const objectiveId = query.get('objectiveId');
     const vesselId = query.get('vesselId');
     const sourceType = query.get('sourceType');
+    const postmortemOnlyValue = query.get('postmortemOnly');
     const text = query.get('text');
     const actor = query.get('actor');
 
     if (objectiveId) setObjectiveFilter(objectiveId);
     if (vesselId) setVesselFilter(vesselId);
     if (sourceType) setSourceTypeFilter(sourceType);
+    if (postmortemOnlyValue !== null) setPostmortemOnly(postmortemOnlyValue === 'true');
     if (text) setTextFilter(text);
     if (actor) setActorFilter(actor);
   }, [location.search]);
@@ -291,6 +296,7 @@ export default function History() {
     setActorFilter(view.query.actor || '');
     setVesselFilter(view.query.vesselId || 'all');
     setSourceTypeFilter(view.query.sourceTypes && view.query.sourceTypes.length > 0 ? view.query.sourceTypes[0] : 'all');
+    setPostmortemOnly(view.query.postmortemOnly === true);
   }
 
   function deleteSavedView(id: string) {
@@ -337,7 +343,7 @@ export default function History() {
         <div>
           <h2>{t('History')}</h2>
           <p className="text-dim view-subtitle">
-            {t('Unified operational memory across releases, missions, voyages, planning, checks, merge queue, requests, and events.')}
+            {t('Unified operational memory across backlog refinement, planning, dispatch, releases, deployments, incidents, requests, and events.')}
           </p>
         </div>
         <div className="view-actions">
@@ -408,7 +414,7 @@ export default function History() {
             placeholder={t('Search title, status, route, or metadata...')}
           />
           <select value={objectiveFilter} onChange={(event) => setObjectiveFilter(event.target.value)}>
-            <option value="all">{t('All objectives')}</option>
+            <option value="all">{t('All backlog items')}</option>
             {objectives.map((objective) => (
               <option key={objective.id} value={objective.id}>{objective.title}</option>
             ))}
@@ -431,6 +437,14 @@ export default function History() {
               <option key={sourceType} value={sourceType}>{sourceType}</option>
             ))}
           </select>
+          <label className="checkbox-label" style={{ marginBottom: 0, whiteSpace: 'nowrap' }}>
+            <input
+              type="checkbox"
+              checked={postmortemOnly}
+              onChange={(event) => setPostmortemOnly(event.target.checked)}
+            />
+            {t('Postmortem context only')}
+          </label>
           <button className="btn btn-primary" onClick={load}>{t('Apply')}</button>
         </div>
 
@@ -499,7 +513,7 @@ export default function History() {
                       )}
 
                       <div className="history-entry-details">
-                        {entry.objectiveId && <span>{t('Objective')}: {objectiveMap.get(entry.objectiveId) || entry.objectiveId}</span>}
+                        {entry.objectiveId && <span>{t('Backlog')}: {objectiveMap.get(entry.objectiveId) || entry.objectiveId}</span>}
                         {entry.actorDisplay && <span>{t('Actor')}: <strong>{entry.actorDisplay}</strong></span>}
                         {entry.vesselId && <span>{t('Vessel')}: {vesselMap.get(entry.vesselId) || entry.vesselId}</span>}
                         {entry.environmentId && <span>{t('Environment')}: <span className="mono">{entry.environmentId}</span></span>}

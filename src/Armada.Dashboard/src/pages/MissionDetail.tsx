@@ -7,6 +7,7 @@ import {
   deleteMission,
   purgeMission,
   getMissionDiff,
+  getMissionGitHubPullRequest,
   getMissionLog,
   getMissionInstructions,
   getMissionLandingPreview,
@@ -20,7 +21,7 @@ import {
   listCaptains,
   listDeployments,
 } from '../api/client';
-import type { Captain, CheckRun, Deployment, LandingPreviewResult, Mission, Vessel } from '../types/models';
+import type { Captain, CheckRun, Deployment, GitHubPullRequestDetail, LandingPreviewResult, Mission, Vessel } from '../types/models';
 import ErrorModal from '../components/shared/ErrorModal';
 import StatusBadge from '../components/shared/StatusBadge';
 import ActionMenu from '../components/shared/ActionMenu';
@@ -46,6 +47,8 @@ export default function MissionDetail() {
   const [landingPreview, setLandingPreview] = useState<LandingPreviewResult | null>(null);
   const [linkedCheckRuns, setLinkedCheckRuns] = useState<CheckRun[]>([]);
   const [linkedDeployments, setLinkedDeployments] = useState<Deployment[]>([]);
+  const [gitHubPullRequest, setGitHubPullRequest] = useState<GitHubPullRequestDetail | null>(null);
+  const [loadingGitHubPullRequest, setLoadingGitHubPullRequest] = useState(false);
   const [loadingLandingPreview, setLoadingLandingPreview] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -162,6 +165,26 @@ export default function MissionDetail() {
       cancelled = true;
     };
   }, [id]);
+
+  useEffect(() => {
+    if (!mission?.id || !mission.prUrl) {
+      setGitHubPullRequest(null);
+      setLoadingGitHubPullRequest(false);
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingGitHubPullRequest(true);
+    getMissionGitHubPullRequest(mission.id).then((result) => {
+      if (!cancelled) setGitHubPullRequest(result);
+    }).catch(() => {
+      if (!cancelled) setGitHubPullRequest(null);
+    }).finally(() => {
+      if (!cancelled) setLoadingGitHubPullRequest(false);
+    });
+
+    return () => { cancelled = true; };
+  }, [mission?.id, mission?.prUrl]);
 
   async function handleViewDiff() {
     if (!id) return;
@@ -548,6 +571,63 @@ export default function MissionDetail() {
               <button className="btn" onClick={() => setReviewDecision(null)}>{t('Cancel')}</button>
             </div>
           </div>
+        </div>
+      )}
+
+      {mission.prUrl && (
+        <div className="card" style={{ marginTop: '1rem', marginBottom: '1rem' }}>
+          <div className="detail-header" style={{ marginBottom: '0.75rem' }}>
+            <h3>{t('GitHub Pull Request')}</h3>
+            <div className="inline-actions">
+              <a className="btn btn-sm" href={mission.prUrl} target="_blank" rel="noreferrer">{t('Open GitHub')}</a>
+              <button className="btn btn-sm" disabled={loadingGitHubPullRequest} onClick={() => mission.id && void getMissionGitHubPullRequest(mission.id).then(setGitHubPullRequest).catch(() => setGitHubPullRequest(null))}>
+                {loadingGitHubPullRequest ? t('Refreshing...') : t('Refresh')}
+              </button>
+            </div>
+          </div>
+          {loadingGitHubPullRequest ? (
+            <div className="text-dim">{t('Loading GitHub pull-request evidence...')}</div>
+          ) : !gitHubPullRequest ? (
+            <div className="text-dim">{t('GitHub pull-request evidence is unavailable for this mission.')}</div>
+          ) : (
+            <>
+              <div className="detail-grid" style={{ marginBottom: '0.75rem' }}>
+                <div className="detail-field"><span className="detail-label">{t('Repository')}</span><span>{gitHubPullRequest.repository}</span></div>
+                <div className="detail-field"><span className="detail-label">{t('Review Status')}</span><span>{gitHubPullRequest.reviewStatus}</span></div>
+                <div className="detail-field"><span className="detail-label">{t('State')}</span><span>{gitHubPullRequest.state}</span></div>
+                <div className="detail-field"><span className="detail-label">{t('Mergeability')}</span><span>{gitHubPullRequest.mergeableState || '-'}</span></div>
+              </div>
+              <div className="text-dim" style={{ marginBottom: '0.75rem' }}>
+                {gitHubPullRequest.title}
+              </div>
+              <div className="detail-grid">
+                <div className="card">
+                  <h4>{t('Reviews')}</h4>
+                  {gitHubPullRequest.reviews.length === 0 ? <div className="text-dim">{t('No reviews')}</div> : (
+                    <div style={{ display: 'grid', gap: '0.45rem' }}>
+                      {gitHubPullRequest.reviews.map((review, index) => (
+                        <div key={`review-${index}`}>
+                          <strong>{review.reviewerLogin || t('Unknown')}</strong> <span className="text-dim">{review.state}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="card">
+                  <h4>{t('Checks')}</h4>
+                  {gitHubPullRequest.checks.length === 0 ? <div className="text-dim">{t('No provider checks')}</div> : (
+                    <div style={{ display: 'grid', gap: '0.45rem' }}>
+                      {gitHubPullRequest.checks.map((check, index) => (
+                        <div key={`check-${index}`}>
+                          <strong>{check.name}</strong> <span className="text-dim">{check.status}{check.conclusion ? ` / ${check.conclusion}` : ''}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
         </div>
       )}
 

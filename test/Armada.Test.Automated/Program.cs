@@ -102,7 +102,7 @@ namespace Armada.Test.Automated
             await server.StartAsync().ConfigureAwait(false);
             await Task.Delay(500).ConfigureAwait(false);
 
-            string baseUrl = "http://localhost:" + restPort;
+            string baseUrl = "http://127.0.0.1:" + restPort;
 
             // Create shared HttpClient instances
             HttpClient authClient = new HttpClient();
@@ -140,9 +140,11 @@ namespace Armada.Test.Automated
                     new RequestHistoryTests(authClient, unauthClient, baseUrl),
                     new WorkflowProfileCheckRunTests(authClient, unauthClient),
                     new ObjectiveTests(authClient, unauthClient),
+                    new GitHubIntegrationTests(authClient, unauthClient, baseUrl),
                     new EnvironmentTests(authClient, unauthClient),
                     new DeploymentTests(authClient, unauthClient, baseUrl),
                     new ReleaseTests(authClient, unauthClient),
+                    new IncidentTests(authClient, unauthClient, baseUrl),
                     new McpToolTests(mcpClient),
                     new WebSocketTests(authClient, unauthClient, restPort, apiKey),
                     new PlanningSessionTests(authClient, unauthClient),

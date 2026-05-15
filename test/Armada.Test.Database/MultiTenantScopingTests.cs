@@ -6,6 +6,7 @@ namespace Armada.Test.Database
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Database;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
 
     /// <summary>
@@ -111,6 +112,51 @@ namespace Armada.Test.Database
             await _Driver.Missions.CreateAsync(mission1b, token);
             await _Driver.Missions.CreateAsync(mission2a, token);
 
+            Captain captain1 = new Captain("Captain1-" + Guid.NewGuid().ToString("N").Substring(0, 6))
+            {
+                TenantId = tenant1.Id
+            };
+            Captain captain2 = new Captain("Captain2-" + Guid.NewGuid().ToString("N").Substring(0, 6))
+            {
+                TenantId = tenant2.Id
+            };
+            await _Driver.Captains.CreateAsync(captain1, token);
+            await _Driver.Captains.CreateAsync(captain2, token);
+
+            Objective objective1 = new Objective
+            {
+                TenantId = tenant1.Id,
+                Title = "Objective1-" + Guid.NewGuid().ToString("N").Substring(0, 6),
+                Status = ObjectiveStatusEnum.Scoped
+            };
+            Objective objective2 = new Objective
+            {
+                TenantId = tenant2.Id,
+                Title = "Objective2-" + Guid.NewGuid().ToString("N").Substring(0, 6),
+                Status = ObjectiveStatusEnum.Scoped
+            };
+            await _Driver.Objectives.CreateAsync(objective1, token);
+            await _Driver.Objectives.CreateAsync(objective2, token);
+
+            ObjectiveRefinementSession refinement1 = new ObjectiveRefinementSession
+            {
+                ObjectiveId = objective1.Id,
+                TenantId = tenant1.Id,
+                CaptainId = captain1.Id,
+                Title = "Refinement1",
+                Status = ObjectiveRefinementSessionStatusEnum.Active
+            };
+            ObjectiveRefinementSession refinement2 = new ObjectiveRefinementSession
+            {
+                ObjectiveId = objective2.Id,
+                TenantId = tenant2.Id,
+                CaptainId = captain2.Id,
+                Title = "Refinement2",
+                Status = ObjectiveRefinementSessionStatusEnum.Active
+            };
+            await _Driver.ObjectiveRefinementSessions.CreateAsync(refinement1, token);
+            await _Driver.ObjectiveRefinementSessions.CreateAsync(refinement2, token);
+
             // ── Fleet scoping ──────────────────────────────────────────────
 
             await RunTest("Fleet", "Enumerate with tenantId=tenant1 returns only tenant1 fleets", async () =>
@@ -172,6 +218,38 @@ namespace Armada.Test.Database
                     throw new Exception("Expected null when reading tenant2 mission via tenant1 scope, but got mission " + crossRead.Id);
             });
 
+            await RunTest("Objective", "Enumerate with tenantId=tenant1 returns only tenant1 objectives", async () =>
+            {
+                List<Objective> t1Objectives = await _Driver.Objectives.EnumerateAsync(tenant1.Id, token);
+                if (t1Objectives.Count != 1)
+                    throw new Exception("Expected 1 objective for tenant1 but got " + t1Objectives.Count);
+                if (t1Objectives[0].TenantId != tenant1.Id)
+                    throw new Exception("Objective TenantId mismatch: expected " + tenant1.Id + " got " + t1Objectives[0].TenantId);
+            });
+
+            await RunTest("Objective", "Read objective from tenant2 using tenant1 scope returns null", async () =>
+            {
+                Objective? crossRead = await _Driver.Objectives.ReadAsync(tenant1.Id, objective2.Id, token);
+                if (crossRead != null)
+                    throw new Exception("Expected null when reading tenant2 objective via tenant1 scope, but got objective " + crossRead.Id);
+            });
+
+            await RunTest("ObjectiveRefinementSession", "Enumerate with tenantId=tenant1 returns only tenant1 refinement sessions", async () =>
+            {
+                List<ObjectiveRefinementSession> t1Sessions = await _Driver.ObjectiveRefinementSessions.EnumerateAsync(tenant1.Id, token);
+                if (t1Sessions.Count != 1)
+                    throw new Exception("Expected 1 refinement session for tenant1 but got " + t1Sessions.Count);
+                if (t1Sessions[0].TenantId != tenant1.Id)
+                    throw new Exception("Refinement session TenantId mismatch: expected " + tenant1.Id + " got " + t1Sessions[0].TenantId);
+            });
+
+            await RunTest("ObjectiveRefinementSession", "Read refinement session from tenant2 using tenant1 scope returns null", async () =>
+            {
+                ObjectiveRefinementSession? crossRead = await _Driver.ObjectiveRefinementSessions.ReadAsync(tenant1.Id, refinement2.Id, token);
+                if (crossRead != null)
+                    throw new Exception("Expected null when reading tenant2 refinement session via tenant1 scope, but got session " + crossRead.Id);
+            });
+
             // ── Admin (unscoped) enumeration ───────────────────────────────
 
             await RunTest("Fleet", "Admin enumerate (no tenant filter) sees all fleets", async () =>
@@ -203,12 +281,44 @@ namespace Armada.Test.Database
                     throw new Exception("Admin enumerate did not return all expected missions: found1a=" + found1a + " found1b=" + found1b + " found2a=" + found2a);
             });
 
+            await RunTest("Objective", "Admin enumerate (no tenant filter) sees all objectives", async () =>
+            {
+                List<Objective> allObjectives = await _Driver.Objectives.EnumerateAsync(token);
+                bool found1 = false, found2 = false;
+                foreach (Objective objective in allObjectives)
+                {
+                    if (objective.Id == objective1.Id) found1 = true;
+                    if (objective.Id == objective2.Id) found2 = true;
+                }
+                if (!found1 || !found2)
+                    throw new Exception("Admin enumerate did not return all expected objectives: found1=" + found1 + " found2=" + found2);
+            });
+
+            await RunTest("ObjectiveRefinementSession", "Admin enumerate (no tenant filter) sees all refinement sessions", async () =>
+            {
+                List<ObjectiveRefinementSession> allSessions = await _Driver.ObjectiveRefinementSessions.EnumerateAsync(token);
+                bool found1 = false, found2 = false;
+                foreach (ObjectiveRefinementSession session in allSessions)
+                {
+                    if (session.Id == refinement1.Id) found1 = true;
+                    if (session.Id == refinement2.Id) found2 = true;
+                }
+                if (!found1 || !found2)
+                    throw new Exception("Admin enumerate did not return all expected refinement sessions: found1=" + found1 + " found2=" + found2);
+            });
+
             // ── Cleanup ────────────────────────────────────────────────────
 
             if (!_NoCleanup)
             {
                 try
                 {
+                    await _Driver.ObjectiveRefinementSessions.DeleteAsync(refinement1.Id, token);
+                    await _Driver.ObjectiveRefinementSessions.DeleteAsync(refinement2.Id, token);
+                    await _Driver.Objectives.DeleteAsync(objective1.Id, token);
+                    await _Driver.Objectives.DeleteAsync(objective2.Id, token);
+                    await _Driver.Captains.DeleteAsync(captain1.Id, token);
+                    await _Driver.Captains.DeleteAsync(captain2.Id, token);
                     await _Driver.Missions.DeleteAsync(mission1a.Id, token);
                     await _Driver.Missions.DeleteAsync(mission1b.Id, token);
                     await _Driver.Missions.DeleteAsync(mission2a.Id, token);

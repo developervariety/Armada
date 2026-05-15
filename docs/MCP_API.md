@@ -1,6 +1,6 @@
 # Armada MCP API Reference
 
-**Version:** 0.7.0
+**Version:** 0.8.0
 **Default URL:** `http://localhost:7891`
 **Protocol:** [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) over HTTP
 **Server Library:** Voltaic (McpHttpServer)
@@ -8,7 +8,7 @@
 
 ## Remote Control Note
 
-`v0.7.0` does not proxy Armada MCP traffic through the new remote-control tunnel or `Armada.Proxy`.
+`v0.8.0` does not proxy Armada MCP traffic through the new remote-control tunnel or `Armada.Proxy`.
 
 Remote control in this release is limited to:
 
@@ -103,6 +103,7 @@ If/when MCP-over-tunnel is added, this document will gain explicit routed-tool s
   - **Objectives**
     - [get_objective](#get_objective)
     - [create_objective](#create_objective)
+    - [backlog and objective tools](#backlog-and-objective-tools)
   - **Delivery**
     - [get_check_run](#get_check_run)
     - [run_check](#run_check)
@@ -158,7 +159,7 @@ Armada exposes a full MCP server that allows AI agents and MCP-compatible client
 - List and inspect docks (worktrees)
 - Manage reusable markdown playbooks and attach them to dispatches
 - Run and inspect structured delivery checks
-- Inspect and create scoped objectives or intake-style records
+- Manage backlog/objective records, reorder them, refine them with explicit captain selection, and hand them off into planning and dispatch
 - Inspect, create, approve, verify, and roll back deployments
 - Draft and inspect release records linked to voyages, missions, and checks
 - Inspect and execute guided runbooks
@@ -169,8 +170,9 @@ Armada exposes a full MCP server that allows AI agents and MCP-compatible client
 MCP does **not** currently expose the newer dashboard/system helper REST surfaces such as:
 
 - vessel Workspace file browsing and editing
-- planning-session transcript workflows
+- standalone planning-session transcript workflows outside the backlog handoff surface
 - request-history capture and replay
+- GitHub objective import, GitHub Actions sync, or GitHub PR evidence helper routes
 - Mux runtime endpoint discovery helpers
 - OpenAPI and Swagger discovery endpoints
 
@@ -300,7 +302,7 @@ No parameters required.
     "latencyMs": null,
     "capabilityManifest": {
       "protocolVersion": "2026-04-03",
-      "armadaVersion": "0.7.0",
+      "armadaVersion": "0.8.0",
       "features": [
         "remoteControl.handshake",
         "remoteControl.heartbeat",
@@ -2295,7 +2297,7 @@ Returns `{ "Error": "entryIds is required and must not be empty" }` if no IDs ar
 
 ### get_objective
 
-Inspect one scoped objective or intake-style record, including linked vessels, planning sessions, voyages, checks, releases, deployments, incidents, and acceptance criteria.
+Inspect one scoped objective or intake-style record, including linked vessels, planning sessions, refinement sessions, voyages, checks, releases, deployments, incidents, and acceptance criteria.
 
 **Input Schema:**
 
@@ -2309,7 +2311,7 @@ Inspect one scoped objective or intake-style record, including linked vessels, p
 }
 ```
 
-**Response:** serialized `Objective` object, or `{ "Error": "Objective not found" }`.
+**Response:** serialized `Objective` object with the expanded backlog fields (`kind`, `category`, `priority`, `rank`, `backlogState`, `effort`, `targetVersion`, `dueUtc`, `parentObjectiveId`, `blockedByObjectiveIds`, `refinementSummary`, `suggestedPipelineId`, `refinementSessionIds`), or `{ "Error": "Objective not found" }`.
 
 ---
 
@@ -2326,7 +2328,20 @@ Create an internal-first objective or intake record that can link repositories, 
     "title": { "type": "string", "description": "Objective title" },
     "description": { "type": "string", "description": "Optional long-form description" },
     "status": { "type": "string", "description": "Optional objective status such as Draft, Scoped, Planned, or InProgress" },
+    "kind": { "type": "string", "description": "Optional backlog kind such as Feature, Bug, Refactor, Research, Chore, or Initiative" },
+    "category": { "type": "string", "description": "Optional category such as Frontend, Backend, DevEx, or Ops" },
+    "priority": { "type": "string", "description": "Optional priority such as P0, P1, P2, or P3" },
+    "rank": { "type": "integer", "description": "Optional deterministic backlog rank" },
+    "backlogState": { "type": "string", "description": "Optional backlog state such as Inbox, ReadyForPlanning, or ReadyForDispatch" },
+    "effort": { "type": "string", "description": "Optional effort such as XS, S, M, L, or XL" },
     "owner": { "type": "string", "description": "Optional owner display label" },
+    "targetVersion": { "type": "string", "description": "Optional target release version" },
+    "dueUtc": { "type": "string", "description": "Optional due timestamp in UTC" },
+    "parentObjectiveId": { "type": "string", "description": "Optional parent objective identifier" },
+    "blockedByObjectiveIds": { "type": "array", "items": { "type": "string" }, "description": "Blocking objective identifiers" },
+    "refinementSummary": { "type": "string", "description": "Optional captain-generated refinement summary" },
+    "suggestedPipelineId": { "type": "string", "description": "Optional suggested pipeline identifier" },
+    "refinementSessionIds": { "type": "array", "items": { "type": "string" }, "description": "Linked refinement-session IDs" },
     "tags": { "type": "array", "items": { "type": "string" }, "description": "Optional tags" },
     "acceptanceCriteria": { "type": "array", "items": { "type": "string" }, "description": "Acceptance criteria" },
     "nonGoals": { "type": "array", "items": { "type": "string" }, "description": "Explicit non-goals" },
@@ -2347,6 +2362,89 @@ Create an internal-first objective or intake record that can link repositories, 
 ```
 
 **Response:** serialized `Objective` object.
+
+---
+
+### Backlog And Objective Tools
+
+Backlog is the user-facing label, but MCP keeps both objective-compatible and backlog-named tools for the same normalized `Objective` entity.
+
+Core CRUD and reorder tools:
+
+| Tool | Purpose | Notes |
+|---|---|---|
+| `list_objectives` | Enumerate objective/backlog records | Same filters as `list_backlog` |
+| `list_backlog` | Enumerate backlog items | Preferred user-facing alias |
+| `get_objective` | Read one objective | Returns the expanded backlog shape |
+| `get_backlog_item` | Read one backlog item | Alias over the same objective-backed record |
+| `create_objective` | Create one objective | Accepts the expanded backlog metadata fields |
+| `create_backlog_item` | Create one backlog item | Preferred user-facing alias |
+| `update_objective` | Update one objective/backlog entry | Requires `objectiveId` plus any fields to mutate |
+| `reorder_objectives` | Apply explicit rank updates | Uses `{ items: [{ objectiveId, rank }] }` |
+| `reorder_backlog_items` | Apply explicit rank updates | Preferred user-facing alias |
+| `delete_objective` | Delete one objective | Removes the normalized row and snapshot-backed current-state chain |
+| `delete_backlog_item` | Delete one backlog item | Preferred user-facing alias |
+
+Refinement tools:
+
+| Tool | Purpose | Notes |
+|---|---|---|
+| `list_backlog_refinement_sessions` | List refinement sessions for one backlog item | Requires `objectiveId` |
+| `create_backlog_refinement_session` | Start captain-backed refinement | Requires explicit `captainId`; `vesselId` is optional |
+| `get_backlog_refinement_session` | Read one refinement transcript | Returns session, messages, captain, vessel, and linked backlog item |
+| `send_backlog_refinement_message` | Append one user message | Launches the next refinement turn |
+| `summarize_backlog_refinement_session` | Create/select a structured summary | Optional `messageId` |
+| `apply_backlog_refinement_summary` | Apply the summary back to the backlog item | Optional `markMessageSelected` and `promoteBacklogState` |
+| `stop_backlog_refinement_session` | Stop one active refinement session | Releases the selected captain |
+
+Planning handoff tools:
+
+| Tool | Purpose | Notes |
+|---|---|---|
+| `create_backlog_planning_session` | Start a repository-aware planning session from one backlog item | Requires `objectiveId`, `captainId`, and `vesselId` |
+| `get_backlog_planning_session` | Inspect one planning session created from backlog work | Returns transcript plus linked backlog items |
+| `dispatch_backlog_planning_session` | Dispatch a voyage from the planning session | Keeps the backlog/objective linkage on the resulting voyage |
+
+Shared input notes:
+
+- `update_objective` accepts the same expanded backlog fields as `create_objective`, plus the required `objectiveId`
+- `create_backlog_item` mirrors `create_objective` but uses backlog terminology in the tool name and descriptions
+- refinement sessions are lighter than planning and do not provision a dock/worktree by default
+- planning handoff tools are repository-aware and require an explicit vessel
+
+Example `reorder_backlog_items` input:
+
+```json
+{
+  "items": [
+    { "objectiveId": "obj_abc123", "rank": 10 },
+    { "objectiveId": "obj_def456", "rank": 20 }
+  ]
+}
+```
+
+Example `create_backlog_refinement_session` input:
+
+```json
+{
+  "objectiveId": "obj_abc123",
+  "captainId": "cpt_abc123",
+  "vesselId": "vsl_abc123",
+  "title": "Refine release rollback work"
+}
+```
+
+Example `create_backlog_planning_session` input:
+
+```json
+{
+  "objectiveId": "obj_abc123",
+  "captainId": "cpt_abc123",
+  "vesselId": "vsl_abc123",
+  "pipelineId": "pln_abc123",
+  "title": "Plan release rollback implementation"
+}
+```
 
 ---
 

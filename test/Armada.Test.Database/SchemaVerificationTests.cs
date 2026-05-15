@@ -27,13 +27,16 @@ namespace Armada.Test.Database
             await conn.OpenAsync(token).ConfigureAwait(false);
 
             DatabaseAssert.True(await TableExistsAsync(conn, "schema_migrations", token).ConfigureAwait(false), "schema_migrations table missing");
-            DatabaseAssert.True(await GetMaxSchemaVersionAsync(conn, token).ConfigureAwait(false) >= 41, "Expected schema version >= 41");
+            DatabaseAssert.True(await GetMaxSchemaVersionAsync(conn, token).ConfigureAwait(false) >= GetExpectedMinimumSchemaVersion(), "Expected schema version >= backlog baseline");
 
             DatabaseAssert.True(await TableExistsAsync(conn, "releases", token).ConfigureAwait(false), "releases table missing");
             DatabaseAssert.True(await TableExistsAsync(conn, "environments", token).ConfigureAwait(false), "environments table missing");
             DatabaseAssert.True(await TableExistsAsync(conn, "deployments", token).ConfigureAwait(false), "deployments table missing");
             DatabaseAssert.True(await TableExistsAsync(conn, "workflow_profiles", token).ConfigureAwait(false), "workflow_profiles table missing");
             DatabaseAssert.True(await TableExistsAsync(conn, "check_runs", token).ConfigureAwait(false), "check_runs table missing");
+            DatabaseAssert.True(await TableExistsAsync(conn, "objectives", token).ConfigureAwait(false), "objectives table missing");
+            DatabaseAssert.True(await TableExistsAsync(conn, "objective_refinement_sessions", token).ConfigureAwait(false), "objective_refinement_sessions table missing");
+            DatabaseAssert.True(await TableExistsAsync(conn, "objective_refinement_messages", token).ConfigureAwait(false), "objective_refinement_messages table missing");
 
             await AssertColumnAsync(conn, "tenants", "is_protected", token).ConfigureAwait(false);
             await AssertColumnAsync(conn, "users", "is_protected", token).ConfigureAwait(false);
@@ -73,6 +76,14 @@ namespace Armada.Test.Database
             await AssertColumnAsync(conn, "deployments", "last_regression_alert_utc", token).ConfigureAwait(false);
             await AssertColumnAsync(conn, "deployments", "latest_monitoring_summary", token).ConfigureAwait(false);
             await AssertColumnAsync(conn, "deployments", "monitoring_failure_count", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "objectives", "backlog_state", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "objectives", "rank", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "objectives", "deployment_ids_json", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "objectives", "incident_ids_json", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "objective_refinement_sessions", "captain_id", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "objective_refinement_sessions", "status", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "objective_refinement_messages", "sequence", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "objective_refinement_messages", "is_selected", token).ConfigureAwait(false);
 
             foreach (string table in new[] { "fleets", "vessels", "captains", "voyages", "missions", "docks", "signals", "events", "merge_entries" })
             {
@@ -91,11 +102,19 @@ namespace Armada.Test.Database
                 "idx_merge_entries_tenant_user",
                 "idx_check_runs_deployment_created",
                 "idx_deployments_tenant_created",
-                "idx_deployments_status_created"
+                "idx_deployments_status_created",
+                "idx_objectives_tenant_backlog_priority_rank",
+                "idx_objective_refinement_sessions_tenant_objective_created",
+                "idx_objective_refinement_messages_session_sequence"
             })
             {
                 DatabaseAssert.True(await IndexExistsAsync(conn, indexName, token).ConfigureAwait(false), "Missing index " + indexName);
             }
+        }
+
+        private long GetExpectedMinimumSchemaVersion()
+        {
+            return _Settings.Type == DatabaseTypeEnum.Sqlite ? 43 : 42;
         }
 
         private DbConnection CreateConnection()

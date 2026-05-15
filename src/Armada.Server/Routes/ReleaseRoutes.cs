@@ -19,6 +19,7 @@ namespace Armada.Server.Routes
     {
         private readonly ReleaseService _Releases;
         private readonly ObjectiveService _Objectives;
+        private readonly GitHubIntegrationService _GitHub;
         private static readonly JsonSerializerOptions _BodyJsonOptions = new JsonSerializerOptions
         {
             PropertyNameCaseInsensitive = true,
@@ -29,10 +30,11 @@ namespace Armada.Server.Routes
         /// <summary>
         /// Instantiate.
         /// </summary>
-        public ReleaseRoutes(ReleaseService releases, ObjectiveService objectives)
+        public ReleaseRoutes(ReleaseService releases, ObjectiveService objectives, GitHubIntegrationService gitHub)
         {
             _Releases = releases ?? throw new ArgumentNullException(nameof(releases));
             _Objectives = objectives ?? throw new ArgumentNullException(nameof(objectives));
+            _GitHub = gitHub ?? throw new ArgumentNullException(nameof(gitHub));
         }
 
         /// <summary>
@@ -135,6 +137,37 @@ namespace Armada.Server.Routes
                 .WithDescription("Returns one release by ID.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Release ID (rel_ prefix)"))
                 .WithResponse(200, OpenApiJson.For<Release>("Release"))
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithSecurity("ApiKey"));
+
+            app.Get("/api/v1/releases/{id}/github/pull-requests", async (ApiRequest req) =>
+            {
+                AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
+                if (ctx == null) return BuildAuthError(req);
+
+                Release? release = await _Releases.ReadAsync(ctx, req.Parameters["id"]).ConfigureAwait(false);
+                if (release == null)
+                {
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Release not found" };
+                }
+
+                try
+                {
+                    return await _GitHub.GetReleasePullRequestsAsync(ctx, release).ConfigureAwait(false);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message };
+                }
+            },
+            api => api
+                .WithTag("Releases")
+                .WithSummary("Get GitHub pull-request evidence for a release")
+                .WithDescription("Returns normalized GitHub pull-request review and check evidence for the missions linked to a release.")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Release ID (rel_ prefix)"))
+                .WithResponse(200, OpenApiJson.For<List<GitHubPullRequestDetail>>("GitHub pull-request evidence"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 

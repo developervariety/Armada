@@ -76,11 +76,44 @@ namespace Armada.Helm.Commands
             VesselReadinessService vesselReadinessService = new VesselReadinessService(database, workflowProfileService, logging);
             CheckRunService checkRunService = new CheckRunService(database, workflowProfileService, vesselReadinessService, logging);
             ObjectiveService objectiveService = new ObjectiveService(database);
+            Func<string, string, string?, string?, string?, string?, string?, string?, Task> emitNoopAsync =
+                (_, _, _, _, _, _, _, _) => Task.CompletedTask;
+            PlanningSessionCoordinator planningSessionCoordinator = new PlanningSessionCoordinator(
+                logging,
+                database,
+                armadaSettings,
+                dockService,
+                admiral,
+                runtimeFactory,
+                emitNoopAsync);
+            ObjectiveRefinementCoordinator objectiveRefinementCoordinator = new ObjectiveRefinementCoordinator(
+                logging,
+                database,
+                armadaSettings,
+                runtimeFactory,
+                emitNoopAsync);
             ReleaseService releaseService = new ReleaseService(database, workflowProfileService, logging);
             DeploymentEnvironmentService environmentService = new DeploymentEnvironmentService(database, workflowProfileService, logging);
             DeploymentService deploymentService = new DeploymentService(database, workflowProfileService, environmentService, checkRunService, logging);
             RunbookService runbookService = new RunbookService(database, logging);
-            McpToolRegistrar.RegisterAll(mcpServer.RegisterTool, database, admiral, armadaSettings, gitService, mergeQueueService, dockService, landingService, checkRunService, objectiveService, releaseService, deploymentService, runbookService, agentLifecycle: agentLifecycle, templateService: promptTemplateService);
+            McpToolRegistrar.RegisterAll(
+                mcpServer.RegisterTool,
+                database,
+                admiral,
+                armadaSettings,
+                gitService,
+                mergeQueueService,
+                dockService,
+                landingService,
+                checkRunService,
+                objectiveService,
+                planningSessionCoordinator,
+                objectiveRefinementCoordinator,
+                releaseService,
+                deploymentService,
+                runbookService,
+                agentLifecycle: agentLifecycle,
+                templateService: promptTemplateService);
 
             // Run until stdin closes or process is killed
             using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);

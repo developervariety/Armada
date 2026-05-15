@@ -261,6 +261,11 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 conditions.Add("provider_name = @provider_name");
                 parameters.Add(new NpgsqlParameter("@provider_name", query.ProviderName));
             }
+            if (!String.IsNullOrWhiteSpace(query.ExternalId))
+            {
+                conditions.Add("external_id = @external_id");
+                parameters.Add(new NpgsqlParameter("@external_id", query.ExternalId));
+            }
             if (!String.IsNullOrWhiteSpace(query.EnvironmentName))
             {
                 conditions.Add("environment_name = @environment_name");

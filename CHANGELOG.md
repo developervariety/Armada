@@ -4,6 +4,26 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## v0.8.0
+
+Focus: backlog-first delivery management.
+
+### Backlog and Objectives
+- Added normalized first-class objective storage with ranked backlog metadata, lifecycle fields, source lineage, and continued `objective.snapshot` event emission
+- Added backlog alias REST routes, ranked reorder support, dashboard/.NET client request models, and MCP backlog CRUD plus reorder aliases
+- Added objective refinement sessions and transcript messages with explicit captain selection, captain availability checks, summary generation, apply-to-objective support, and server startup wiring
+
+### Delivery Lineage
+- Added automatic objective linkage through deployment and incident create/update flows, including inference from linked release, mission, voyage, and deployment context
+- Added deployment and incident objective-link helpers so the same objective remains the record of truth as work moves from release into rollout and response
+
+### Release and Migration
+- Bumped shared product/package metadata to `0.8.0` across .NET, Helm, dashboard, Postman, and current-version API/documentation surfaces
+- Added versioned `v0.7.0 -> v0.8.0` migration handoff scripts with backlog/objective and refinement table guidance for all supported backends
+- Updated schema/version verification coverage for the new backlog schema baseline
+
+---
+
 ## v0.7.0
 
 Focus: remote access.
@@ -72,6 +92,7 @@ Focus: remote access.
 - Added first-class environments and deployments with approval, verification, rollback, request-history evidence, and default-environment seeding on startup
 - Added first-class incidents, hotfix handoff, and playbook-backed runbooks with execution history
 - Added optional server-global `GitHubToken` configuration plus per-vessel `GitHubTokenOverride` fallback with write-only update semantics, request-history redaction, and `hasGitHubTokenOverride` read models across REST, MCP, WebSocket, and dashboard surfaces
+- Added pull-based GitHub delivery integration for objective import from issues or PR scope, GitHub Actions sync into structured checks, and GitHub PR review/check evidence on mission and release detail surfaces
 - Added MCP enumeration support for `workflow_profiles`, `check_runs`, `releases`, `objectives`, `deployments`, `incidents`, `runbooks`, and `runbook_executions`
 - Added MCP delivery and operations tools for `run_check`, `get_check_run`, `retry_check_run`, `create_release`, `get_release`, `create_objective`, `get_objective`, `create_deployment`, `get_deployment`, `approve_deployment`, `verify_deployment`, `rollback_deployment`, `get_runbook`, `get_runbook_execution`, and `start_runbook_execution`
 - Added WebSocket delivery and operations events for `check-run.changed`, `objective.changed`, `deployment.changed`, `deployment.progress`, `environment.health`, and `approval-needed`

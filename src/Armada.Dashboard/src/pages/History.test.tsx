@@ -158,4 +158,29 @@ describe('History', () => {
     expect(anchorClickSpy).toHaveBeenCalled();
     expect(localStorage.getItem('armada_history_saved_views')).toContain('Deploy view');
   });
+
+  it('applies the postmortem-only filter to history queries', async () => {
+    render(
+      <MemoryRouter initialEntries={['/history']}>
+        <Routes>
+          <Route path="/history" element={<History />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText('Deploy finished')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText('Postmortem context only'));
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+
+    await waitFor(() => {
+      expect(enumerateHistoryTimeline).toHaveBeenCalledTimes(2);
+    });
+
+    expect(vi.mocked(enumerateHistoryTimeline).mock.calls[1][0]).toMatchObject({
+      pageNumber: 1,
+      pageSize: 250,
+      postmortemOnly: true,
+    });
+  });
 });

@@ -20,6 +20,7 @@ namespace Armada.Server.Routes
     {
         private readonly DatabaseDriver _database;
         private readonly CheckRunService _checkRuns;
+        private readonly GitHubIntegrationService _gitHub;
         private readonly JsonSerializerOptions _jsonOptions;
         private static readonly JsonSerializerOptions _bodyJsonOptions = new JsonSerializerOptions
         {
@@ -34,10 +35,12 @@ namespace Armada.Server.Routes
         public CheckRunRoutes(
             DatabaseDriver database,
             CheckRunService checkRuns,
+            GitHubIntegrationService gitHub,
             JsonSerializerOptions jsonOptions)
         {
             _database = database ?? throw new ArgumentNullException(nameof(database));
             _checkRuns = checkRuns ?? throw new ArgumentNullException(nameof(checkRuns));
+            _gitHub = gitHub ?? throw new ArgumentNullException(nameof(gitHub));
             _jsonOptions = jsonOptions ?? throw new ArgumentNullException(nameof(jsonOptions));
         }
 
@@ -77,6 +80,7 @@ namespace Armada.Server.Routes
                 .WithParameter(OpenApiParameterMetadata.Query("status", "Optional check status filter", false))
                 .WithParameter(OpenApiParameterMetadata.Query("source", "Optional check source filter", false))
                 .WithParameter(OpenApiParameterMetadata.Query("providerName", "Optional provider-name filter", false))
+                .WithParameter(OpenApiParameterMetadata.Query("externalId", "Optional provider external ID filter", false))
                 .WithParameter(OpenApiParameterMetadata.Query("environmentName", "Optional environment-name filter", false))
                 .WithResponse(200, OpenApiJson.For<EnumerationResult<CheckRun>>("Paginated check runs"))
                 .WithSecurity("ApiKey"));
@@ -158,6 +162,32 @@ namespace Armada.Server.Routes
                 .WithDescription("Persists a structured check run that was executed outside Armada, such as CI or provider-hosted validation.")
                 .WithRequestBody(OpenApiJson.BodyFor<CheckRunImportRequest>("Imported check-run payload", true))
                 .WithResponse(201, OpenApiJson.For<CheckRun>("Created imported check run"))
+                .WithSecurity("ApiKey"));
+
+            app.Post("/api/v1/check-runs/sync/github-actions", async (ApiRequest req) =>
+            {
+                AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
+                if (ctx == null) return BuildAuthError(req);
+
+                GitHubActionsSyncRequest request = JsonSerializer.Deserialize<GitHubActionsSyncRequest>(req.Http.Request.DataAsString, _bodyJsonOptions)
+                    ?? throw new InvalidOperationException("Request body could not be deserialized as GitHubActionsSyncRequest.");
+
+                try
+                {
+                    return await _gitHub.SyncGitHubActionsAsync(ctx, request).ConfigureAwait(false);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message };
+                }
+            },
+            api => api
+                .WithTag("CheckRuns")
+                .WithSummary("Sync GitHub Actions runs")
+                .WithDescription("Pulls recent GitHub Actions workflow runs into Armada check history and optionally links them to a deployment.")
+                .WithRequestBody(OpenApiJson.BodyFor<GitHubActionsSyncRequest>("GitHub Actions sync request", true))
+                .WithResponse(200, OpenApiJson.For<GitHubActionsSyncResult>("GitHub Actions sync result"))
                 .WithSecurity("ApiKey"));
 
             app.Get("/api/v1/check-runs/{id}", async (ApiRequest req) =>
@@ -293,6 +323,7 @@ namespace Armada.Server.Routes
             query.DeploymentId = NormalizeEmpty(req.Query.GetValueOrDefault("deploymentId")) ?? query.DeploymentId;
             query.EnvironmentName = NormalizeEmpty(req.Query.GetValueOrDefault("environmentName")) ?? query.EnvironmentName;
             query.ProviderName = NormalizeEmpty(req.Query.GetValueOrDefault("providerName")) ?? query.ProviderName;
+            query.ExternalId = NormalizeEmpty(req.Query.GetValueOrDefault("externalId")) ?? query.ExternalId;
         }
 
         private static void ApplyScope(AuthContext ctx, CheckRunQuery query)

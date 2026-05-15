@@ -76,6 +76,11 @@ namespace Armada.Server.Mcp.Tools
                     {
                         case "objectives":
                         case "objective":
+                        case "backlog":
+                        case "backlog_item":
+                        case "backlog-item":
+                        case "backlog_items":
+                        case "backlog-items":
                             ObjectiveService objectives = new ObjectiveService(database);
                             EnumerationResult<Objective> objectiveResult = await objectives.EnumerateAsync(
                                 McpToolHelpers.CreateDefaultTenantAdminContext(),

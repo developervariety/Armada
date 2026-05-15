@@ -367,6 +367,42 @@ namespace Armada.Core.Services
             _Logging.Info(_Header + "deleted deployment " + id);
         }
 
+        /// <summary>
+        /// Append existing check runs to a deployment when external systems provide additional evidence.
+        /// </summary>
+        public async Task<Deployment> LinkCheckRunsAsync(
+            AuthContext auth,
+            string deploymentId,
+            IEnumerable<string> checkRunIds,
+            CancellationToken token = default)
+        {
+            if (auth == null) throw new ArgumentNullException(nameof(auth));
+            if (String.IsNullOrWhiteSpace(deploymentId)) throw new ArgumentNullException(nameof(deploymentId));
+            if (checkRunIds == null) throw new ArgumentNullException(nameof(checkRunIds));
+
+            Deployment deployment = await ReadAsync(auth, deploymentId, token).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("Deployment not found.");
+
+            bool changed = false;
+            foreach (string checkRunId in checkRunIds)
+            {
+                string? normalized = Normalize(checkRunId);
+                if (String.IsNullOrWhiteSpace(normalized))
+                    continue;
+
+                AppendCheckRun(deployment, normalized);
+                changed = true;
+            }
+
+            if (!changed)
+                return deployment;
+
+            deployment.LastUpdateUtc = DateTime.UtcNow;
+            deployment = await _Database.Deployments.UpdateAsync(deployment, token).ConfigureAwait(false);
+            EmitChanged(deployment);
+            return deployment;
+        }
+
         private async Task<Deployment> ExecuteAsync(
             AuthContext auth,
             Deployment deployment,

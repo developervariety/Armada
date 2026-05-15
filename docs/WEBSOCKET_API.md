@@ -1,13 +1,13 @@
 # Armada WebSocket API Reference
 
-**Version:** 0.7.0
+**Version:** 0.8.0
 **Default URL:** `ws://localhost:7890/ws`
 **Protocol:** WebSocket (RFC 6455) via Watson7
 **Transport:** JSON text frames
 
 ## Remote Control Note
 
-`v0.7.0` does not expose the local Armada dashboard websocket API through `Armada.Proxy`.
+`v0.8.0` does not expose the local Armada dashboard websocket API through `Armada.Proxy`.
 
 The new remote-control tunnel forwards Armada server events to the proxy for instance activity tracking, but it does not provide dashboard-websocket compatibility mode yet. When that changes, this document will be updated with the proxied event and auth model.
 
@@ -29,6 +29,11 @@ The new remote-control tunnel forwards Armada server events to the proxy for ins
   - [voyage.changed](#voyagechanged)
   - [captain.changed](#captainchanged)
   - [objective.changed](#objectivechanged)
+  - [objective-refinement-session.changed](#objective-refinement-sessionchanged)
+  - [objective-refinement-session.message.created](#objective-refinement-sessionmessagecreated)
+  - [objective-refinement-session.message.updated](#objective-refinement-sessionmessageupdated)
+  - [objective-refinement-session.summary.created](#objective-refinement-sessionsummarycreated)
+  - [objective-refinement-session.applied](#objective-refinement-sessionapplied)
   - [check-run.changed](#check-runchanged)
   - [deployment.changed](#deploymentchanged)
   - [deployment.progress](#deploymentprogress)
@@ -150,7 +155,7 @@ Subscribe to real-time event broadcasts. Upon connection with this route, the se
 
 **Server responds with:** a [`status.snapshot`](#statussnapshot) message.
 
-After the initial snapshot, the client will receive all broadcast events ([`mission.changed`](#missionchanged), [`voyage.changed`](#voyagechanged), [`captain.changed`](#captainchanged), [`objective.changed`](#objectivechanged), [`check-run.changed`](#check-runchanged), [`deployment.changed`](#deploymentchanged), [`deployment.progress`](#deploymentprogress), [`environment.health`](#environmenthealth), [`approval-needed`](#approval-needed), and [generic events](#generic-events)) as they occur.
+After the initial snapshot, the client will receive all broadcast events ([`mission.changed`](#missionchanged), [`voyage.changed`](#voyagechanged), [`captain.changed`](#captainchanged), [`objective.changed`](#objectivechanged), [`objective-refinement-session.changed`](#objective-refinement-sessionchanged), [`objective-refinement-session.message.created`](#objective-refinement-sessionmessagecreated), [`objective-refinement-session.message.updated`](#objective-refinement-sessionmessageupdated), [`objective-refinement-session.summary.created`](#objective-refinement-sessionsummarycreated), [`objective-refinement-session.applied`](#objective-refinement-sessionapplied), [`check-run.changed`](#check-runchanged), [`deployment.changed`](#deploymentchanged), [`deployment.progress`](#deploymentprogress), [`environment.health`](#environmenthealth), [`approval-needed`](#approval-needed), and [generic events](#generic-events)) as they occur.
 
 ---
 
@@ -170,7 +175,7 @@ Send a command to the Admiral for execution. The `action` field determines which
 
 **Server responds with:** a `command.result` or `command.error` message.
 
-See [Command Actions](#command-actions) for the current operational action set. This WebSocket surface focuses on real-time monitoring and core orchestration commands; newer REST-only helpers such as Workspace, planning sessions, request history, and runtime discovery remain HTTP-only.
+See [Command Actions](#command-actions) for the current operational action set. This WebSocket surface focuses on real-time monitoring and core orchestration commands; newer REST-only helpers such as Workspace, planning sessions, request history, GitHub objective import, GitHub Actions sync, GitHub PR evidence, and runtime discovery remain HTTP-only.
 
 ---
 
@@ -332,7 +337,7 @@ Broadcast when a structured check run is created, imported, updated, or retried.
 
 ### objective.changed
 
-Broadcast when an objective or intake-style record is created or updated.
+Broadcast when an objective or backlog record is created or updated.
 
 ```json
 {
@@ -349,7 +354,162 @@ Broadcast when an objective or intake-style record is created or updated.
 | Field | Type | Description |
 |---|---|---|
 | `type` | string | Always `"objective.changed"` |
-| `data` | object | Full serialized `Objective` payload with enum values emitted as strings |
+| `data` | object | Full serialized `Objective` payload with enum values emitted as strings, including backlog metadata and linkage fields |
+| `timestamp` | string | ISO 8601 UTC timestamp |
+
+---
+
+### objective-refinement-session.changed
+
+Broadcast when a backlog refinement session changes state.
+
+```json
+{
+  "type": "objective-refinement-session.changed",
+  "message": "Objective refinement session updated",
+  "data": {
+    "session": {
+      "id": "ors_abc123def456ghi789jk",
+      "objectiveId": "obj_abc123def456ghi789jk",
+      "captainId": "cpt_abc123def456ghi789jk",
+      "status": "Active"
+    }
+  },
+  "timestamp": "2026-03-07T12:35:00.000Z"
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `type` | string | Always `"objective-refinement-session.changed"` |
+| `message` | string | Human-readable event label |
+| `data.session` | object | Full serialized `ObjectiveRefinementSession` payload |
+| `timestamp` | string | ISO 8601 UTC timestamp |
+
+---
+
+### objective-refinement-session.message.created
+
+Broadcast when a refinement transcript message is created.
+
+```json
+{
+  "type": "objective-refinement-session.message.created",
+  "message": "Objective refinement message created",
+  "data": {
+    "sessionId": "ors_abc123def456ghi789jk",
+    "objectiveId": "obj_abc123def456ghi789jk",
+    "message": {
+      "id": "orm_abc123def456ghi789jk",
+      "role": "User",
+      "sequence": 1,
+      "content": "Focus on rollback safety."
+    }
+  },
+  "timestamp": "2026-03-07T12:35:00.000Z"
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `type` | string | Always `"objective-refinement-session.message.created"` |
+| `message` | string | Human-readable event label |
+| `data.sessionId` | string | Refinement session ID (prefix `ors_`) |
+| `data.objectiveId` | string | Linked backlog/objective ID (prefix `obj_`) |
+| `data.message` | object | Full serialized `ObjectiveRefinementMessage` payload |
+| `timestamp` | string | ISO 8601 UTC timestamp |
+
+---
+
+### objective-refinement-session.message.updated
+
+Broadcast when a refinement transcript message is updated, for example when an assistant turn finishes or selection state changes.
+
+```json
+{
+  "type": "objective-refinement-session.message.updated",
+  "message": "Objective refinement message updated",
+  "data": {
+    "sessionId": "ors_abc123def456ghi789jk",
+    "objectiveId": "obj_abc123def456ghi789jk",
+    "message": {
+      "id": "orm_def456ghi789jkl012mn",
+      "role": "Assistant",
+      "sequence": 2,
+      "isSelected": true
+    }
+  },
+  "timestamp": "2026-03-07T12:35:00.000Z"
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `type` | string | Always `"objective-refinement-session.message.updated"` |
+| `message` | string | Human-readable event label |
+| `data.sessionId` | string | Refinement session ID (prefix `ors_`) |
+| `data.objectiveId` | string | Linked backlog/objective ID (prefix `obj_`) |
+| `data.message` | object | Full serialized `ObjectiveRefinementMessage` payload |
+| `timestamp` | string | ISO 8601 UTC timestamp |
+
+---
+
+### objective-refinement-session.summary.created
+
+Broadcast when Armada creates a structured refinement summary from the transcript.
+
+```json
+{
+  "type": "objective-refinement-session.summary.created",
+  "message": "Objective refinement summary created",
+  "data": {
+    "sessionId": "ors_abc123def456ghi789jk",
+    "messageId": "orm_def456ghi789jkl012mn",
+    "summary": {
+      "summary": "Stabilize rollback and verification sequencing."
+    }
+  },
+  "timestamp": "2026-03-07T12:35:00.000Z"
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `type` | string | Always `"objective-refinement-session.summary.created"` |
+| `message` | string | Human-readable event label |
+| `data.sessionId` | string | Refinement session ID (prefix `ors_`) |
+| `data.messageId` | string | Source transcript message ID (prefix `orm_`) |
+| `data.summary` | object | Serialized `ObjectiveRefinementSummaryResponse` payload |
+| `timestamp` | string | ISO 8601 UTC timestamp |
+
+---
+
+### objective-refinement-session.applied
+
+Broadcast when Armada applies a refinement summary back to the linked backlog item.
+
+```json
+{
+  "type": "objective-refinement-session.applied",
+  "message": "Objective refinement summary applied",
+  "data": {
+    "sessionId": "ors_abc123def456ghi789jk",
+    "objectiveId": "obj_abc123def456ghi789jk",
+    "summary": {
+      "summary": "Stabilize rollback and verification sequencing."
+    }
+  },
+  "timestamp": "2026-03-07T12:35:00.000Z"
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `type` | string | Always `"objective-refinement-session.applied"` |
+| `message` | string | Human-readable event label |
+| `data.sessionId` | string | Refinement session ID (prefix `ors_`) |
+| `data.objectiveId` | string | Linked backlog/objective ID (prefix `obj_`) |
+| `data.summary` | object | Serialized `ObjectiveRefinementSummaryResponse` payload |
 | `timestamp` | string | ISO 8601 UTC timestamp |
 
 ---
@@ -495,7 +655,7 @@ Broadcast for general system events (e.g., escalation triggers, merge queue upda
 
 ## Command Actions
 
-Commands are sent via the `command` route. Each command returns a `command.result` message on success or a `command.error` message on failure. The WebSocket command surface covers Armada's real-time and core operational flows; it does not currently expose the REST-only Workspace, planning-session, request-history, runtime-helper, or OpenAPI discovery surfaces.
+Commands are sent via the `command` route. Each command returns a `command.result` message on success or a `command.error` message on failure. The WebSocket command surface covers Armada's real-time and core operational flows; it does not currently expose the REST-only Workspace, planning-session, request-history, GitHub objective import, GitHub Actions sync, GitHub PR evidence, runtime-helper, or OpenAPI discovery surfaces.
 
 ### Command Actions Summary
 

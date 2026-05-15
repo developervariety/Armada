@@ -218,7 +218,7 @@ namespace Armada.Core.Services
                     continue;
 
                 if (!latestByIncidentId.TryGetValue(snapshot.EntityId, out ArmadaEvent? existing)
-                    || existing.CreatedUtc < snapshot.CreatedUtc)
+                    || IsSnapshotNewer(snapshot, existing))
                 {
                     latestByIncidentId[snapshot.EntityId] = snapshot;
                 }
@@ -335,6 +335,18 @@ namespace Armada.Core.Services
             incident.UserId = incident.UserId ?? snapshot.UserId;
             incident.LastUpdateUtc = incident.LastUpdateUtc == default ? snapshot.CreatedUtc : incident.LastUpdateUtc;
             return incident;
+        }
+
+        private static bool IsSnapshotNewer(ArmadaEvent candidate, ArmadaEvent existing)
+        {
+            if (candidate.CreatedUtc > existing.CreatedUtc)
+                return true;
+            if (candidate.CreatedUtc < existing.CreatedUtc)
+                return false;
+
+            string candidateId = candidate.Id ?? String.Empty;
+            string existingId = existing.Id ?? String.Empty;
+            return StringComparer.Ordinal.Compare(candidateId, existingId) > 0;
         }
 
         private static void ApplyLifecycleTimestamps(Incident incident)

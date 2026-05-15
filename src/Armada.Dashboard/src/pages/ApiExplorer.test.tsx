@@ -95,6 +95,50 @@ describe('ApiExplorer', () => {
                   },
                 },
               },
+              '/api/v1/backlog/{id}/refinement-sessions': {
+                post: {
+                  operationId: 'createBacklogRefinementSession',
+                  summary: 'Create backlog refinement session',
+                  description: 'Create a captain-backed backlog refinement session.',
+                  tags: ['Objectives'],
+                  parameters: [
+                    {
+                      name: 'id',
+                      in: 'path',
+                      required: true,
+                      schema: { type: 'string' },
+                    },
+                    {
+                      name: 'trace',
+                      in: 'query',
+                      required: false,
+                      schema: { type: 'string' },
+                    },
+                    {
+                      name: 'x-correlation-id',
+                      in: 'header',
+                      required: false,
+                      schema: { type: 'string' },
+                    },
+                  ],
+                  requestBody: {
+                    content: {
+                      'application/json': {
+                        schema: {
+                          type: 'object',
+                          properties: {
+                            captainId: { type: 'string' },
+                            title: { type: 'string' },
+                          },
+                        },
+                      },
+                    },
+                  },
+                  responses: {
+                    201: {},
+                  },
+                },
+              },
             },
           }),
         } as Response;
@@ -131,5 +175,38 @@ describe('ApiExplorer', () => {
     expect((await screen.findAllByText('/api/v1/fleets')).length).toBeGreaterThan(0);
     expect(screen.getByText('List fleets')).toBeInTheDocument();
     expect(screen.getByText('Recent Captured')).toBeInTheDocument();
+  });
+
+  it('hydrates replay state for parameterized backlog refinement routes', async () => {
+    render(
+      <MemoryRouter initialEntries={[
+        {
+          pathname: '/api-explorer',
+          state: {
+            replayRequest: {
+              method: 'POST',
+              route: '/api/v1/backlog/obj_123/refinement-sessions',
+              routeTemplate: '/api/v1/backlog/{id}/refinement-sessions',
+              pathValues: {},
+              queryValues: { trace: 'replay-trace' },
+              headerValues: { 'x-correlation-id': 'corr_123' },
+              bodyValue: '{"captainId":"cpt_123","title":"Replay refinement"}',
+            },
+          },
+        } as never,
+      ]}>
+        <Routes>
+          <Route path="/api-explorer" element={<ApiExplorer />} />
+          <Route path="/api-explorer/:operationId" element={<ApiExplorer />} />
+          <Route path="/requests" element={<div>Requests Route</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText('Create backlog refinement session')).toBeInTheDocument();
+    expect(await screen.findByDisplayValue('obj_123')).toBeInTheDocument();
+    expect(await screen.findByDisplayValue('replay-trace')).toBeInTheDocument();
+    expect(await screen.findByDisplayValue('corr_123')).toBeInTheDocument();
+    expect(await screen.findByDisplayValue('{"captainId":"cpt_123","title":"Replay refinement"}')).toBeInTheDocument();
   });
 });

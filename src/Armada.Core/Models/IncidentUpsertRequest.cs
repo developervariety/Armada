@@ -1,6 +1,7 @@
 namespace Armada.Core.Models
 {
     using System;
+    using System.Collections.Generic;
     using Armada.Core.Enums;
 
     /// <summary>
@@ -67,6 +68,11 @@ namespace Armada.Core.Models
         /// Optional rollback deployment identifier.
         /// </summary>
         public string? RollbackDeploymentId { get; set; } = null;
+
+        /// <summary>
+        /// Optional backlog/objective identifiers that should remain linked to this incident.
+        /// </summary>
+        public List<string>? ObjectiveIds { get; set; } = null;
 
         /// <summary>
         /// Optional impact summary.
