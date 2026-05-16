@@ -269,13 +269,16 @@ body {
     transition: color 0.15s ease, transform 0.15s ease;
 }
 
-.captain-tool-viewer {
-    width: min(960px, calc(100vw - 2rem));
-    max-height: calc(100vh - 4rem);
-    overflow: hidden;
+.modal.captain-tool-viewer {
+    width: 95vw !important;
+    max-width: 95vw !important;
+    height: 95vh;
+    max-height: 95vh;
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    overflow-x: hidden;
+    overflow-y: auto;
+    gap: 1.1rem;
 }
 
 .captain-tool-viewer-header {
@@ -285,8 +288,17 @@ body {
     gap: 1rem;
 }
 
+.captain-tool-viewer-header h3 {
+    margin: 0 0 0.2rem;
+}
+
+.captain-tool-viewer-header p {
+    margin: 0;
+}
+
 .captain-tool-viewer-summary {
-    margin-top: -0.25rem;
+    margin: 0;
+    line-height: 1.45;
 }
 
 .captain-tool-viewer-meta {
@@ -295,9 +307,86 @@ body {
     gap: 0.5rem;
 }
 
+.captain-tool-viewer-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+}
+
+.captain-tool-viewer-section h4 {
+    margin: 0;
+    font-size: 0.95rem;
+}
+
+.captain-tool-viewer-section > p {
+    margin: 0;
+}
+
 .captain-tool-viewer-table {
-    flex: 1;
-    overflow: auto;
+    overflow-x: auto;
+    overflow-y: visible;
+}
+
+.captain-tool-viewer-table table {
+    min-width: 1040px;
+    table-layout: fixed;
+}
+
+.captain-tool-viewer-table th:nth-child(1) {
+    width: 20%;
+}
+
+.captain-tool-viewer-table th:nth-child(2) {
+    width: 9%;
+}
+
+.captain-tool-viewer-tool-name,
+.captain-tool-viewer-source {
+    vertical-align: top;
+}
+
+.captain-tool-viewer-source .tag {
+    white-space: normal;
+    word-break: break-word;
+}
+
+.captain-tool-viewer-server-table table {
+    min-width: 1240px;
+}
+
+.captain-tool-viewer-server-table th,
+.captain-tool-viewer-server-table td {
+    vertical-align: top;
+}
+
+.captain-tool-viewer-server-table th:nth-child(1) {
+    width: 15%;
+}
+
+.captain-tool-viewer-server-table th:nth-child(2) {
+    width: 9%;
+}
+
+.captain-tool-viewer-server-table th:nth-child(3) {
+    width: 24%;
+}
+
+.captain-tool-viewer-server-table th:nth-child(4) {
+    width: 12%;
+}
+
+.captain-tool-viewer-server-table th:nth-child(5) {
+    width: 8%;
+}
+
+.captain-tool-viewer-server-table th:nth-child(6) {
+    width: 32%;
+}
+
+.captain-tool-viewer-endpoint-cell,
+.captain-tool-viewer-notes-cell {
+    vertical-align: top;
+    word-break: break-word;
 }
 
 .sidebar-group-toggle:hover {

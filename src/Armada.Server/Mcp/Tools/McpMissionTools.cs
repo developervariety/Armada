@@ -70,7 +70,7 @@ namespace Armada.Server.Mcp.Tools
                         description = new { type = "string", description = "Mission description/instructions" },
                         vesselId = new { type = "string", description = "Target vessel ID (vsl_ prefix)" },
                         voyageId = new { type = "string", description = "Optional voyage ID to associate with (vyg_ prefix)" },
-                        persona = new { type = "string", description = "Persona for this mission (e.g. Worker, Architect, Judge, TestEngineer)" },
+                        persona = new { type = "string", description = "Persona for this mission (e.g. Worker, Architect, Judge, Test Engineer)" },
                         selectedPlaybooks = new
                         {
                             type = "array",
@@ -130,7 +130,7 @@ namespace Armada.Server.Mcp.Tools
                         branchName = new { type = "string", description = "Git branch name for this mission" },
                         prUrl = new { type = "string", description = "Pull request URL" },
                         parentMissionId = new { type = "string", description = "Parent mission ID for sub-tasks (msn_ prefix)" },
-                        persona = new { type = "string", description = "Persona for this mission (e.g. Worker, Architect, Judge, TestEngineer)" }
+                        persona = new { type = "string", description = "Persona for this mission (e.g. Worker, Architect, Judge, Test Engineer)" }
                     },
                     required = new[] { "missionId" }
                 },

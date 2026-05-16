@@ -26,7 +26,7 @@ This document covers the complete pipeline implementation in Armada v0.8.0: data
 
 ## 1. Overview
 
-A **pipeline** is an ordered sequence of **persona stages** that a dispatch goes through. Without pipelines, every dispatch creates Worker missions that run independently. With pipelines, a single dispatch can flow through planning (Architect), implementation (Worker), testing (TestEngineer), and review (Judge) stages automatically.
+A **pipeline** is an ordered sequence of **persona stages** that a dispatch goes through. Without pipelines, every dispatch creates Worker missions that run independently. With pipelines, a single dispatch can flow through planning (Architect), implementation (Worker), testing (Test Engineer), and review (Judge) stages automatically.
 
 Key design decisions:
 - **Option B**: Persona is a property of the mission, not the captain. Any captain can fill any role.
@@ -100,7 +100,7 @@ Key design decisions:
 | Worker | `persona.worker` | Standard mission executor -- writes code, makes changes, commits |
 | Architect | `persona.architect` | Plans work, decomposes goals into missions using `[ARMADA:MISSION]` markers |
 | Judge | `persona.judge` | Reviews diffs for correctness, completeness, scope, and style |
-| TestEngineer | `persona.test_engineer` | Writes tests for changes, follows existing test patterns |
+| Test Engineer | `persona.test_engineer` | Writes tests for changes, follows existing test patterns |
 
 ### Pipelines (seeded on startup by `PersonaSeedService`)
 
@@ -108,8 +108,8 @@ Key design decisions:
 |------|--------|-------------|
 | WorkerOnly | Worker | Backward-compatible default |
 | Reviewed | Worker -> Judge | Implementation + review |
-| Tested | Worker -> TestEngineer -> Judge | Implementation + testing + review |
-| FullPipeline | Architect -> Worker -> TestEngineer -> Judge | Planning + implementation + testing + review |
+| Tested | Worker -> Test Engineer -> Judge | Implementation + testing + review |
+| FullPipeline | Architect -> Worker -> Test Engineer -> Judge | Planning + implementation + testing + review |
 
 **Source:** `src/Armada.Core/Services/PersonaSeedService.cs`
 
@@ -329,7 +329,7 @@ When an Architect stage completes with parseable markers:
 2. Update the existing Worker mission (next stage) with the first definition
 3. Create N-1 additional Worker missions for the remaining definitions
 4. For each additional Worker:
-   - Clone the post-Worker stages (TestEngineer, Judge) as new missions
+   - Clone the post-Worker stages (Test Engineer, Judge) as new missions
    - Chain dependencies: additional Worker depends on Architect,
      cloned stages depend on their Worker
 5. Assign the first Worker mission
@@ -341,9 +341,9 @@ Result for an Architect that produces 2 mission definitions in a FullPipeline:
 ```
 [Architect] (completed)
   |
-  +-- [Worker 1] "Add CacheService" --> [TestEngineer 1] --> [Judge 1]
+  +-- [Worker 1] "Add CacheService" --> [Test Engineer 1] --> [Judge 1]
   |
-  +-- [Worker 2] "Add middleware"    --> [TestEngineer 2] --> [Judge 2]
+  +-- [Worker 2] "Add middleware"    --> [Test Engineer 2] --> [Judge 2]
 ```
 
 If no `[ARMADA:MISSION]` markers are found, the Architect's output falls through to normal stage handoff (context injection).
@@ -559,7 +559,7 @@ Assign captains to specific roles:
 
 // Sonnet captains for implementation and testing
 // update_captain
-{ "captainId": "cpt_sonnet", "allowedPersonas": "[\"Worker\",\"TestEngineer\"]" }
+{ "captainId": "cpt_sonnet", "allowedPersonas": "[\"Worker\",\"Test Engineer\"]" }
 ```
 
 ---

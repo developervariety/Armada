@@ -156,6 +156,29 @@ export interface CaptainToolSummary {
   name: string;
   description: string;
   inputSchemaJson: string | null;
+  registrationSource: string | null;
+  sourceKind: string | null;
+}
+
+export interface CaptainToolServerSummary {
+  name: string;
+  sourceKind: string;
+  transport: string;
+  target: string;
+  url: string | null;
+  command: string | null;
+  workingDirectory: string | null;
+  enabled: boolean;
+  reachable: boolean;
+  toolCount: number;
+  headerCount: number;
+  environmentVariableCount: number;
+  enabledToolFilterCount: number;
+  disabledToolFilterCount: number;
+  startupTimeoutSeconds: number;
+  toolTimeoutSeconds: number;
+  status: string;
+  errorMessage: string | null;
 }
 
 export interface CaptainToolAccessResult {
@@ -170,6 +193,9 @@ export interface CaptainToolAccessResult {
   toolsEnabled: boolean | null;
   effectiveToolCount: number | null;
   armadaToolCount: number;
+  configuredServerCount: number;
+  reachableServerCount: number;
+  servers: CaptainToolServerSummary[];
   tools: CaptainToolSummary[];
 }
 

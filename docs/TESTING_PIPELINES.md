@@ -17,7 +17,7 @@ Verify setup:
 // MCP: check built-in personas exist
 enumerate({ entityType: "personas" })
 
-// Expected: Worker, Architect, Judge, TestEngineer
+// Expected: Worker, Architect, Judge, Test Engineer
 
 // MCP: check built-in pipelines exist
 enumerate({ entityType: "pipelines" })
@@ -99,7 +99,7 @@ enumerate({
 
 ---
 
-## Example 3: FullPipeline (Architect + Worker + TestEngineer + Judge)
+## Example 3: FullPipeline (Architect + Worker + Test Engineer + Judge)
 
 This tests the complete four-stage pipeline, including the Architect's special handling.
 
@@ -123,8 +123,8 @@ dispatch({
 1. Four missions are created initially:
    - `"Add caching... [Architect]"` -- no dependency, assigned immediately
    - `"Add caching... [Worker]"` -- depends on Architect
-   - `"Add caching... [TestEngineer]"` -- depends on Worker
-   - `"Add caching... [Judge]"` -- depends on TestEngineer
+   - `"Add caching... [Test Engineer]"` -- depends on Worker
+   - `"Add caching... [Judge]"` -- depends on Test Engineer
 2. Only the Architect mission is assigned
 
 **After the Architect completes (with [ARMADA:MISSION] markers):**
@@ -144,13 +144,13 @@ Files: src/Middleware/CacheMiddleware.cs, src/Startup.cs
 
 3. The original Worker mission is updated with the first parsed mission's title and description
 4. A second Worker mission is created for the second parsed mission
-5. Each Worker mission gets its own TestEngineer and Judge stages chained after it
+5. Each Worker mission gets its own Test Engineer and Judge stages chained after it
 6. Worker missions are assigned to idle captains
 
 **After each Worker completes:**
-7. The corresponding TestEngineer mission receives the Worker's diff and branch
-8. TestEngineer writes tests, commits to the same branch
-9. After TestEngineer, the Judge reviews the combined diff
+7. The corresponding Test Engineer mission receives the Worker's diff and branch
+8. Test Engineer writes tests, commits to the same branch
+9. After Test Engineer, the Judge reviews the combined diff
 
 ```
 // Monitor the full pipeline
@@ -244,7 +244,7 @@ update_captain({
 // Restrict a captain to Worker only
 update_captain({
   captainId: "<captain_2_id>",
-  allowedPersonas: "[\"Worker\", \"TestEngineer\"]"
+  allowedPersonas: "[\"Worker\", \"Test Engineer\"]"
 })
 
 // Leave a third captain unrestricted (can fill any role)

@@ -64,7 +64,7 @@ namespace Armada.Server.Mcp.Tools
             {
                 register(
                     "get_captain_tools",
-                    "Describe the Armada MCP tools available to a specific captain.",
+                    "Describe the runtime-visible tool sources and named tools available to a specific captain.",
                     new
                     {
                         type = "object",

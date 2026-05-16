@@ -6,6 +6,7 @@ namespace Armada.Core.Services
     using System.Threading;
     using System.Threading.Tasks;
     using SyslogLogging;
+    using Armada.Core;
     using Armada.Core.Database;
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
@@ -124,6 +125,8 @@ namespace Armada.Core.Services
                     _Logging.Info(_Header + "seeded built-in template '" + name + "'");
                 }
             }
+
+            await UpgradeLegacyPersonaTemplateReferencesAsync(token).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -199,6 +202,29 @@ namespace Armada.Core.Services
         #endregion
 
         #region Private-Methods
+
+        private async Task UpgradeLegacyPersonaTemplateReferencesAsync(CancellationToken token)
+        {
+            List<PromptTemplate> templates = await _Database.PromptTemplates.EnumerateAsync(token).ConfigureAwait(false);
+            foreach (PromptTemplate template in templates)
+            {
+                if (!template.IsBuiltIn) continue;
+
+                string? updatedDescription = PersonaCatalog.ReplaceLegacyTestEngineer(template.Description);
+                string updatedContent = PersonaCatalog.ReplaceLegacyTestEngineer(template.Content) ?? template.Content;
+                bool changed =
+                    !String.Equals(updatedDescription, template.Description, StringComparison.Ordinal) ||
+                    !String.Equals(updatedContent, template.Content, StringComparison.Ordinal);
+
+                if (!changed) continue;
+
+                template.Description = updatedDescription;
+                template.Content = updatedContent;
+                template.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.PromptTemplates.UpdateAsync(template, token).ConfigureAwait(false);
+                _Logging.Info(_Header + "updated built-in template references: '" + template.Name + "'");
+            }
+        }
 
         private Dictionary<string, EmbeddedTemplate> BuildEmbeddedDefaults()
         {
@@ -404,7 +430,7 @@ namespace Armada.Core.Services
                     "7. **Output structured mission definitions.** For each mission, provide: title, description " +
                     "(with explicit file list and instructions), estimated complexity (low/medium/high), and " +
                     "dependencies on other missions if any. If a mission must wait for another mission's full " +
-                    "Worker -> TestEngineer -> Judge chain, include a standalone line in the description exactly " +
+                    "Worker -> Test Engineer -> Judge chain, include a standalone line in the description exactly " +
                     "like `Depends on: Mission N` or `Depends on: <exact earlier title>`.\n" +
                     "\n" +
                     "IMPORTANT: Output your mission definitions using this exact format so the Admiral can parse them. " +

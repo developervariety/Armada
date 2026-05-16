@@ -132,36 +132,43 @@ namespace Armada.Server.Mcp
         {
             List<CaptainToolSummary> tools = new List<CaptainToolSummary>();
 
-            RegisterAll(
-                (name, description, inputSchema, handler) =>
-                {
-                    tools.Add(new CaptainToolSummary
+            void RegisterCatalogGroup(string registrationSource, Action<RegisterToolDelegate> registerGroup)
+            {
+                registerGroup(
+                    (name, description, inputSchema, handler) =>
                     {
-                        Name = name,
-                        Description = description,
-                        InputSchemaJson = inputSchema == null ? null : JsonSerializer.Serialize(inputSchema, _JsonOptions)
+                        tools.Add(new CaptainToolSummary
+                        {
+                            Name = name,
+                            Description = description,
+                            InputSchemaJson = inputSchema == null ? null : JsonSerializer.Serialize(inputSchema, _JsonOptions),
+                            RegistrationSource = registrationSource
+                        });
                     });
-                },
-                database,
-                admiral,
-                settings,
-                git,
-                mergeQueue,
-                dockService,
-                landingService,
-                checkRunService,
-                objectiveService,
-                planningSessionCoordinator,
-                objectiveRefinementCoordinator,
-                releaseService,
-                deploymentService,
-                runbookService,
-                onStop,
-                onStopCaptain,
-                agentLifecycle,
-                templateService,
-                logging,
-                null);
+            }
+
+            RegisterCatalogGroup("Armada MCP / Status", register => McpStatusTools.Register(register, admiral, onStop));
+            RegisterCatalogGroup("Armada MCP / Enumeration", register => McpEnumerateTools.Register(register, database, mergeQueue));
+            RegisterCatalogGroup("Armada MCP / Fleets", register => McpFleetTools.Register(register, database));
+            RegisterCatalogGroup("Armada MCP / Vessels", register => McpVesselTools.Register(register, database, dockService));
+            RegisterCatalogGroup("Armada MCP / Voyages", register => McpVoyageTools.Register(register, database, admiral, settings));
+            RegisterCatalogGroup("Armada MCP / Missions", register => McpMissionTools.Register(register, database, admiral, settings, git, landingService));
+            RegisterCatalogGroup("Armada MCP / Captains", register => McpCaptainTools.Register(register, database, admiral, settings, onStopCaptain, agentLifecycle));
+            RegisterCatalogGroup("Armada MCP / Signals", register => McpSignalTools.Register(register, database));
+            RegisterCatalogGroup("Armada MCP / Events", register => McpEventTools.Register(register, database));
+            RegisterCatalogGroup("Armada MCP / Docks", register => McpDockTools.Register(register, database, dockService));
+
+            if (logging != null) RegisterCatalogGroup("Armada MCP / Playbooks", register => McpPlaybookTools.Register(register, database, logging));
+            if (mergeQueue != null) RegisterCatalogGroup("Armada MCP / Merge Queue", register => McpMergeQueueTools.Register(register, mergeQueue));
+            if (checkRunService != null) RegisterCatalogGroup("Armada MCP / Check Runs", register => McpCheckRunTools.Register(register, database, checkRunService));
+            if (objectiveService != null) RegisterCatalogGroup("Armada MCP / Objectives", register => McpObjectiveTools.Register(register, database, objectiveService, planningSessionCoordinator, objectiveRefinementCoordinator));
+            if (releaseService != null) RegisterCatalogGroup("Armada MCP / Releases", register => McpReleaseTools.Register(register, releaseService));
+            if (deploymentService != null) RegisterCatalogGroup("Armada MCP / Deployments", register => McpDeploymentTools.Register(register, deploymentService));
+            if (runbookService != null) RegisterCatalogGroup("Armada MCP / Runbooks", register => McpRunbookTools.Register(register, runbookService));
+            if (templateService != null) RegisterCatalogGroup("Armada MCP / Prompt Templates", register => McpPromptTemplateTools.Register(register, database, templateService));
+            RegisterCatalogGroup("Armada MCP / Personas", register => McpPersonaTools.Register(register, database));
+            RegisterCatalogGroup("Armada MCP / Pipelines", register => McpPipelineTools.Register(register, database));
+            if (settings != null) RegisterCatalogGroup("Armada MCP / Backup", register => McpBackupTools.Register(register, database, settings));
 
             return tools
                 .OrderBy(t => t.Name, StringComparer.OrdinalIgnoreCase)

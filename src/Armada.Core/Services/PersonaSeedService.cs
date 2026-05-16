@@ -2,9 +2,11 @@ namespace Armada.Core.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
     using SyslogLogging;
+    using Armada.Core;
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -44,6 +46,7 @@ namespace Armada.Core.Services
         /// </summary>
         public async Task SeedAsync(CancellationToken token = default)
         {
+            await UpgradeLegacyPersonaReferencesAsync(token).ConfigureAwait(false);
             await SeedPersonasAsync(token).ConfigureAwait(false);
             await SeedPipelinesAsync(token).ConfigureAwait(false);
         }
@@ -52,14 +55,20 @@ namespace Armada.Core.Services
 
         #region Private-Methods
 
+        private async Task UpgradeLegacyPersonaReferencesAsync(CancellationToken token)
+        {
+            await UpgradeLegacyBuiltInPersonaAsync(token).ConfigureAwait(false);
+            await UpgradeCaptainPersonaReferencesAsync(token).ConfigureAwait(false);
+        }
+
         private async Task SeedPersonasAsync(CancellationToken token)
         {
-            await SeedPersonaAsync("Worker", "Standard mission executor -- writes code, makes changes, commits work.", "persona.worker", token).ConfigureAwait(false);
-            await SeedPersonaAsync("Architect", "Plans voyages and decomposes work into right-sized missions.", "persona.architect", token).ConfigureAwait(false);
-            await SeedPersonaAsync("Product Manager", "Shapes the whole product picture, clarifies user outcomes, and turns dispatched work into durable requirements.", "persona.product_manager", token).ConfigureAwait(false);
-            await SeedPersonaAsync("Usability Engineer", "Improves usability, edge-case experience, and consistency with the surrounding product.", "persona.usability_engineer", token).ConfigureAwait(false);
-            await SeedPersonaAsync("Judge", "Reviews completed mission diffs for correctness and completeness.", "persona.judge", token).ConfigureAwait(false);
-            await SeedPersonaAsync("TestEngineer", "Writes and updates tests for mission changes.", "persona.test_engineer", token).ConfigureAwait(false);
+            await SeedPersonaAsync(PersonaCatalog.Worker, "Standard mission executor -- writes code, makes changes, commits work.", "persona.worker", token).ConfigureAwait(false);
+            await SeedPersonaAsync(PersonaCatalog.Architect, "Plans voyages and decomposes work into right-sized missions.", "persona.architect", token).ConfigureAwait(false);
+            await SeedPersonaAsync(PersonaCatalog.ProductManager, "Shapes the whole product picture, clarifies user outcomes, and turns dispatched work into durable requirements.", "persona.product_manager", token).ConfigureAwait(false);
+            await SeedPersonaAsync(PersonaCatalog.UsabilityEngineer, "Improves usability, edge-case experience, and consistency with the surrounding product.", "persona.usability_engineer", token).ConfigureAwait(false);
+            await SeedPersonaAsync(PersonaCatalog.Judge, "Reviews completed mission diffs for correctness and completeness.", "persona.judge", token).ConfigureAwait(false);
+            await SeedPersonaAsync(PersonaCatalog.TestEngineer, "Writes and updates tests for mission changes.", "persona.test_engineer", token).ConfigureAwait(false);
         }
 
         private async Task SeedPersonaAsync(string name, string description, string templateName, CancellationToken token)
@@ -83,7 +92,7 @@ namespace Armada.Core.Services
             await SeedPipelineAsync(
                 "WorkerOnly",
                 "Single worker stage -- backward compatible default.",
-                new List<PipelineStage> { new PipelineStage(1, "Worker") },
+                new List<PipelineStage> { new PipelineStage(1, PersonaCatalog.Worker) },
                 token).ConfigureAwait(false);
 
             await SeedPipelineAsync(
@@ -91,33 +100,33 @@ namespace Armada.Core.Services
                 "Worker then Judge review.",
                 new List<PipelineStage>
                 {
-                    new PipelineStage(1, "Worker") { RequiresReview = true },
-                    new PipelineStage(2, "Judge") { RequiresReview = true, ReviewDenyAction = ReviewDenyActionEnum.FailPipeline }
+                    new PipelineStage(1, PersonaCatalog.Worker) { RequiresReview = true },
+                    new PipelineStage(2, PersonaCatalog.Judge) { RequiresReview = true, ReviewDenyAction = ReviewDenyActionEnum.FailPipeline }
                 },
                 token).ConfigureAwait(false);
 
             await SeedPipelineAsync(
                 "Tested",
-                "Worker then TestEngineer then Judge.",
+                "Worker then Test Engineer then Judge.",
                 new List<PipelineStage>
                 {
-                    new PipelineStage(1, "Worker") { RequiresReview = true },
-                    new PipelineStage(2, "TestEngineer") { RequiresReview = true },
-                    new PipelineStage(3, "Judge") { RequiresReview = true, ReviewDenyAction = ReviewDenyActionEnum.FailPipeline }
+                    new PipelineStage(1, PersonaCatalog.Worker) { RequiresReview = true },
+                    new PipelineStage(2, PersonaCatalog.TestEngineer) { RequiresReview = true },
+                    new PipelineStage(3, PersonaCatalog.Judge) { RequiresReview = true, ReviewDenyAction = ReviewDenyActionEnum.FailPipeline }
                 },
                 token).ConfigureAwait(false);
 
             await SeedPipelineAsync(
                 "FullPipeline",
-                "Product Manager then Architect then Worker then Usability Engineer then TestEngineer then Judge.",
+                "Product Manager then Architect then Worker then Usability Engineer then Test Engineer then Judge.",
                 new List<PipelineStage>
                 {
-                    new PipelineStage(1, "Product Manager") { RequiresReview = true },
-                    new PipelineStage(2, "Architect") { RequiresReview = true },
-                    new PipelineStage(3, "Worker") { RequiresReview = true },
-                    new PipelineStage(4, "Usability Engineer") { RequiresReview = true },
-                    new PipelineStage(5, "TestEngineer") { RequiresReview = true },
-                    new PipelineStage(6, "Judge") { RequiresReview = true, ReviewDenyAction = ReviewDenyActionEnum.FailPipeline }
+                    new PipelineStage(1, PersonaCatalog.ProductManager) { RequiresReview = true },
+                    new PipelineStage(2, PersonaCatalog.Architect) { RequiresReview = true },
+                    new PipelineStage(3, PersonaCatalog.Worker) { RequiresReview = true },
+                    new PipelineStage(4, PersonaCatalog.UsabilityEngineer) { RequiresReview = true },
+                    new PipelineStage(5, PersonaCatalog.TestEngineer) { RequiresReview = true },
+                    new PipelineStage(6, PersonaCatalog.Judge) { RequiresReview = true, ReviewDenyAction = ReviewDenyActionEnum.FailPipeline }
                 },
                 token).ConfigureAwait(false);
         }
@@ -127,7 +136,7 @@ namespace Armada.Core.Services
             Pipeline? existing = await _Database.Pipelines.ReadByNameAsync(name, token).ConfigureAwait(false);
             if (existing != null)
             {
-                if (ShouldUpgradeBuiltInPipeline(existing))
+                if (ShouldUpgradeBuiltInPipeline(existing, stages))
                 {
                     existing.Description = description;
                     existing.Stages = CloneStages(existing.Id, stages);
@@ -167,21 +176,79 @@ namespace Armada.Core.Services
             return clones;
         }
 
-        private static bool ShouldUpgradeBuiltInPipeline(Pipeline existing)
+        private async Task UpgradeLegacyBuiltInPersonaAsync(CancellationToken token)
+        {
+            Persona? existingCanonical = await _Database.Personas.ReadByNameAsync(PersonaCatalog.TestEngineer, token).ConfigureAwait(false);
+            Persona? legacy = await _Database.Personas.ReadByNameAsync(PersonaCatalog.LegacyTestEngineer, token).ConfigureAwait(false);
+            if (legacy == null || !legacy.IsBuiltIn) return;
+            if (existingCanonical != null) return;
+
+            legacy.Name = PersonaCatalog.TestEngineer;
+            legacy.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.Personas.UpdateAsync(legacy, token).ConfigureAwait(false);
+            _Logging.Info(_Header + "renamed built-in persona: " + PersonaCatalog.LegacyTestEngineer + " -> " + PersonaCatalog.TestEngineer);
+        }
+
+        private async Task UpgradeCaptainPersonaReferencesAsync(CancellationToken token)
+        {
+            List<Captain> captains = await _Database.Captains.EnumerateAsync(token).ConfigureAwait(false);
+            foreach (Captain captain in captains)
+            {
+                bool changed = false;
+                string? updatedAllowedPersonas = PersonaCatalog.ReplaceLegacyTestEngineer(captain.AllowedPersonas);
+                if (!String.Equals(updatedAllowedPersonas, captain.AllowedPersonas, StringComparison.Ordinal))
+                {
+                    captain.AllowedPersonas = updatedAllowedPersonas;
+                    changed = true;
+                }
+
+                string normalizedPreferredPersona = PersonaCatalog.NormalizeName(captain.PreferredPersona);
+                string? updatedPreferredPersona = String.IsNullOrEmpty(normalizedPreferredPersona) ? null : normalizedPreferredPersona;
+                if (!String.Equals(updatedPreferredPersona, captain.PreferredPersona, StringComparison.Ordinal))
+                {
+                    captain.PreferredPersona = updatedPreferredPersona;
+                    changed = true;
+                }
+
+                if (!changed) continue;
+
+                captain.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.Captains.UpdateAsync(captain, token).ConfigureAwait(false);
+                _Logging.Info(_Header + "updated captain persona references: " + captain.Name);
+            }
+        }
+
+        private static bool ShouldUpgradeBuiltInPipeline(Pipeline existing, IEnumerable<PipelineStage> desiredStages)
         {
             if (existing == null) throw new ArgumentNullException(nameof(existing));
             if (!existing.IsBuiltIn) return false;
-            if (!String.Equals(existing.Name, "FullPipeline", StringComparison.Ordinal)) return false;
             if (existing.Stages == null || existing.Stages.Count == 0) return false;
 
-            List<string> personaOrder = existing.Stages
+            List<string> existingPersonaOrder = existing.Stages
                 .OrderBy(stage => stage.Order)
-                .Select(stage => stage.PersonaName)
+                .Select(stage => PersonaCatalog.NormalizeName(stage.PersonaName))
                 .ToList();
 
-            return personaOrder.SequenceEqual(
-                new[] { "Architect", "Worker", "TestEngineer", "Judge" },
-                StringComparer.Ordinal);
+            List<string> desiredPersonaOrder = desiredStages
+                .OrderBy(stage => stage.Order)
+                .Select(stage => PersonaCatalog.NormalizeName(stage.PersonaName))
+                .ToList();
+
+            bool containsLegacyAlias = existing.Stages.Any(stage =>
+                PersonaCatalog.Matches(stage.PersonaName, PersonaCatalog.TestEngineer) &&
+                !String.Equals(stage.PersonaName, PersonaCatalog.TestEngineer, StringComparison.Ordinal));
+
+            if (containsLegacyAlias && existingPersonaOrder.SequenceEqual(desiredPersonaOrder, StringComparer.Ordinal))
+                return true;
+
+            if (String.Equals(existing.Name, "FullPipeline", StringComparison.Ordinal))
+            {
+                return existingPersonaOrder.SequenceEqual(
+                    new[] { PersonaCatalog.Architect, PersonaCatalog.Worker, PersonaCatalog.TestEngineer, PersonaCatalog.Judge },
+                    StringComparer.Ordinal);
+            }
+
+            return false;
         }
 
         #endregion

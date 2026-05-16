@@ -555,7 +555,7 @@ namespace Armada.Test.Unit.Suites.Services
                         Mission testMission = new Mission();
                         testMission.Title = "Test coverage structure test";
                         testMission.Description = "Verify test engineer requirements.";
-                        testMission.Persona = "TestEngineer";
+                        testMission.Persona = "Test Engineer";
 
                         await service.GenerateClaudeMdAsync(tempDir, testMission, vessel);
 
@@ -832,7 +832,7 @@ namespace Armada.Test.Unit.Suites.Services
                     captain.SystemInstructions = "Be concise and careful.";
 
                     Mission mission = new Mission("Write tests", "Add unit tests for the service layer.");
-                    mission.Persona = "TestEngineer";
+                    mission.Persona = "Test Engineer";
                     mission.BranchName = "armada/prompt-captain/msn_test";
 
                     Dock dock = new Dock(vessel.Id);

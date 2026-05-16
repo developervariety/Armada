@@ -1,7 +1,7 @@
 namespace Armada.Core.Models
 {
     /// <summary>
-    /// Summary of one Armada MCP tool exposed to captains.
+    /// Summary of one named tool visible from a captain runtime.
     /// </summary>
     public class CaptainToolSummary
     {
@@ -19,5 +19,15 @@ namespace Armada.Core.Models
         /// Serialized JSON input schema, when available.
         /// </summary>
         public string? InputSchemaJson { get; set; } = null;
+
+        /// <summary>
+        /// Registration origin for the tool, such as an MCP server name or the internal runtime.
+        /// </summary>
+        public string RegistrationSource { get; set; } = "Internal";
+
+        /// <summary>
+        /// Source kind for the tool, such as MCP server or internal runtime support.
+        /// </summary>
+        public string SourceKind { get; set; } = "Internal";
     }
 }

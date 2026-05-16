@@ -3,6 +3,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Collections.Generic;
     using System.Linq;
     using System.Threading.Tasks;
+    using Armada.Core;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -41,12 +42,14 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertNotNull(usabilityEngineer, "Usability Engineer persona should be seeded");
                     AssertEqual("persona.product_manager", productManager!.PromptTemplateName, "Product Manager prompt template");
                     AssertEqual("persona.usability_engineer", usabilityEngineer!.PromptTemplateName, "Usability Engineer prompt template");
+                    Persona? testEngineer = await testDb.Driver.Personas.ReadByNameAsync(PersonaCatalog.TestEngineer).ConfigureAwait(false);
+                    AssertNotNull(testEngineer, "Test Engineer persona should be seeded");
 
                     Pipeline? fullPipeline = await testDb.Driver.Pipelines.ReadByNameAsync("FullPipeline").ConfigureAwait(false);
                     AssertNotNull(fullPipeline, "FullPipeline should be seeded");
                     string seededOrder = String.Join(" | ", fullPipeline!.Stages.OrderBy(s => s.Order).Select(s => s.PersonaName));
                     AssertEqual(
-                        "Product Manager | Architect | Worker | Usability Engineer | TestEngineer | Judge",
+                        "Product Manager | Architect | Worker | Usability Engineer | Test Engineer | Judge",
                         seededOrder,
                         "FullPipeline persona order");
                 }
@@ -66,7 +69,7 @@ namespace Armada.Test.Unit.Suites.Services
                     {
                         new PipelineStage(1, "Architect") { PipelineId = legacy.Id, RequiresReview = true },
                         new PipelineStage(2, "Worker") { PipelineId = legacy.Id, RequiresReview = true },
-                        new PipelineStage(3, "TestEngineer") { PipelineId = legacy.Id, RequiresReview = true },
+                        new PipelineStage(3, PersonaCatalog.LegacyTestEngineer) { PipelineId = legacy.Id, RequiresReview = true },
                         new PipelineStage(4, "Judge") { PipelineId = legacy.Id, RequiresReview = true, ReviewDenyAction = ReviewDenyActionEnum.FailPipeline }
                     };
 
@@ -79,9 +82,31 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertNotNull(upgraded, "FullPipeline should still exist");
                     string upgradedOrder = String.Join(" | ", upgraded!.Stages.OrderBy(s => s.Order).Select(s => s.PersonaName));
                     AssertEqual(
-                        "Product Manager | Architect | Worker | Usability Engineer | TestEngineer | Judge",
+                        "Product Manager | Architect | Worker | Usability Engineer | Test Engineer | Judge",
                         upgradedOrder,
                         "Legacy FullPipeline should be upgraded in place");
+                }
+            });
+
+            await RunTest("SeedAsync renames the legacy built-in TestEngineer persona", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+
+                    Persona legacy = new Persona(PersonaCatalog.LegacyTestEngineer, "persona.test_engineer");
+                    legacy.TenantId = Armada.Core.Constants.DefaultTenantId;
+                    legacy.Description = "Writes and updates tests for mission changes.";
+                    legacy.IsBuiltIn = true;
+                    await testDb.Driver.Personas.CreateAsync(legacy).ConfigureAwait(false);
+
+                    PersonaSeedService service = new PersonaSeedService(testDb.Driver, logging);
+                    await service.SeedAsync().ConfigureAwait(false);
+
+                    Persona? canonical = await testDb.Driver.Personas.ReadByNameAsync(PersonaCatalog.TestEngineer).ConfigureAwait(false);
+                    Persona? legacyRecord = await testDb.Driver.Personas.ReadByNameAsync(PersonaCatalog.LegacyTestEngineer).ConfigureAwait(false);
+                    AssertNotNull(canonical, "Canonical Test Engineer persona should exist");
+                    AssertNull(legacyRecord, "Legacy TestEngineer persona should be renamed away");
                 }
             });
         }

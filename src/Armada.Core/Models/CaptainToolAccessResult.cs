@@ -1,7 +1,7 @@
 namespace Armada.Core.Models
 {
     /// <summary>
-    /// Describes the Armada tool catalog available to a specific captain runtime.
+    /// Describes the tool sources and named tools visible from a specific captain runtime.
     /// </summary>
     public class CaptainToolAccessResult
     {
@@ -56,12 +56,27 @@ namespace Armada.Core.Models
         public int? EffectiveToolCount { get; set; } = null;
 
         /// <summary>
-        /// Number of Armada MCP tools in the catalog.
+        /// Number of Armada tools reported from sources named "armada".
         /// </summary>
         public int ArmadaToolCount { get; set; } = 0;
 
         /// <summary>
-        /// Armada MCP tools currently described for this captain.
+        /// Number of configured external or internal tool sources Armada inspected.
+        /// </summary>
+        public int ConfiguredServerCount { get; set; } = 0;
+
+        /// <summary>
+        /// Number of configured sources that Armada successfully reached.
+        /// </summary>
+        public int ReachableServerCount { get; set; } = 0;
+
+        /// <summary>
+        /// Source summaries discovered for this captain runtime.
+        /// </summary>
+        public List<CaptainToolServerSummary> Servers { get; set; } = new List<CaptainToolServerSummary>();
+
+        /// <summary>
+        /// Tools currently described for this captain runtime.
         /// </summary>
         public List<CaptainToolSummary> Tools { get; set; } = new List<CaptainToolSummary>();
     }

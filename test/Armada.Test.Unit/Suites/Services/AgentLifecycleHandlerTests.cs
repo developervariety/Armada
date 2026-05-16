@@ -140,7 +140,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                         Mission mission = new Mission("Launch mission")
                         {
-                            Persona = "TestEngineer",
+                            Persona = "Test Engineer",
                             BranchName = "feature/model-pass"
                         };
 

@@ -51,7 +51,7 @@ namespace Armada.Server.Mcp
         public string? ParentMissionId { get; set; }
 
         /// <summary>
-        /// Persona for this mission (e.g. Worker, Architect, Judge, TestEngineer).
+        /// Persona for this mission (e.g. Worker, Architect, Judge, Test Engineer).
         /// </summary>
         public string? Persona { get; set; }
     }

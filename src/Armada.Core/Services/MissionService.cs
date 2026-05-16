@@ -1,6 +1,8 @@
 namespace Armada.Core.Services
 {
+    using System.Text.Json;
     using SyslogLogging;
+    using Armada.Core;
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -1609,7 +1611,7 @@ namespace Armada.Core.Services
                     await _Database.Missions.UpdateAsync(nextMission, token).ConfigureAwait(false);
                     await RetitleDependentChainAsync(voyageMissions, nextMission, first.Title, first.Description, token).ConfigureAwait(false);
 
-                    // Find what depends on this worker mission (Judge, TestEngineer stages)
+                    // Find what depends on this worker mission (Judge, Test Engineer stages)
                     // Create additional worker missions for remaining parsed items
                     for (int i = 1; i < parsed.Count; i++)
                     {
@@ -1656,30 +1658,30 @@ namespace Armada.Core.Services
             {
                 // Build persona-specific preamble for the next stage
                 string personaPreamble = "";
-                switch (nextMission.Persona)
+                switch (PersonaCatalog.NormalizeName(nextMission.Persona))
                 {
-                    case "Product Manager":
+                    case PersonaCatalog.ProductManager:
                         personaPreamble = "## Your Role: Product Manager (Frame the Product)\n\n" +
                             "You are turning the dispatched work into a concrete product picture before implementation. " +
                             "Clarify user value, experience expectations, validation signals, and future-facing constraints.\n\n";
                         break;
-                    case "Architect":
+                    case PersonaCatalog.Architect:
                         personaPreamble = "## Your Role: Architect (Decompose)\n\n" +
                             "You are translating the dispatched work and prior product framing into right-sized missions. " +
                             "Carry forward the user outcomes, validation plan, and future-readiness constraints from the prior stage.\n\n";
                         break;
-                    case "Worker":
+                    case PersonaCatalog.Worker:
                         personaPreamble = "## Your Role: Worker (Implement)\n\n" +
                             "You are implementing code changes based on the Architect's plan. " +
                             "Review the prior stage output below and implement the described changes.\n\n";
                         break;
-                    case "Usability Engineer":
+                    case PersonaCatalog.UsabilityEngineer:
                         personaPreamble = "## Your Role: Usability Engineer (Refine Experience)\n\n" +
                             "You are improving the completed implementation for user experience, consistency, and edge-case handling. " +
                             "Review the prior diff below and make the capability easier and safer to use.\n\n";
                         break;
-                    case "TestEngineer":
-                        personaPreamble = "## Your Role: TestEngineer (Write Tests)\n\n" +
+                    case PersonaCatalog.TestEngineer:
+                        personaPreamble = "## Your Role: Test Engineer (Write Tests)\n\n" +
                             "You are writing tests for code changes made by the Worker. " +
                             "Review the diff below and write unit tests, integration tests, or test harness updates " +
                             "that cover the changes. Follow existing test patterns in the repository. " +
@@ -1689,7 +1691,7 @@ namespace Armada.Core.Services
                             "`## Coverage Added`, `## Negative Paths`, and `## Residual Risks` sections. " +
                             "End with a standalone `[ARMADA:RESULT] COMPLETE` line and a short summary.\n\n";
                         break;
-                    case "Judge":
+                    case PersonaCatalog.Judge:
                         personaPreamble = "## Your Role: Judge (Review)\n\n" +
                             "You are reviewing the completed work for correctness, completeness, scope compliance, " +
                             "test adequacy, and failure-mode safety. Examine the diff below against the current mission " +
@@ -1705,7 +1707,7 @@ namespace Armada.Core.Services
                 // Inject context from the completed stage into the next stage's description
                 string handoffContext = "\n\n---\n" +
                     "## Prior Stage Output\n" +
-                    "The previous pipeline stage (" + (completedMission.Persona ?? "Worker") + ") " +
+                    "The previous pipeline stage (" + PersonaCatalog.NormalizeName(completedMission.Persona ?? PersonaCatalog.Worker) + ") " +
                     "completed mission \"" + completedMission.Title + "\" (" + completedMission.Id + ").\n" +
                     "Branch: " + (completedMission.BranchName ?? "unknown") + "\n";
 
@@ -1722,7 +1724,7 @@ namespace Armada.Core.Services
                         // the plan/structure) rather than the beginning
                         agentOutput = agentOutput.Substring(0, maxOutputChars) + "\n...(truncated)";
                     }
-                    handoffContext += "\n### Agent Output (from " + completedMission.Persona + " stage)\n```\n" + agentOutput + "\n```\n";
+                    handoffContext += "\n### Agent Output (from " + PersonaCatalog.NormalizeName(completedMission.Persona) + " stage)\n```\n" + agentOutput + "\n```\n";
                 }
 
                 // Include the diff snapshot if available
@@ -1833,14 +1835,17 @@ namespace Armada.Core.Services
 
             foreach (Mission templateChild in directDependents)
             {
+                string childPersona = PersonaCatalog.NormalizeName(templateChild.Persona);
+                if (String.IsNullOrEmpty(childPersona)) childPersona = templateChild.Persona ?? PersonaCatalog.Worker;
+
                 Mission clonedStage = new Mission(
-                    parsedTitle + " [" + templateChild.Persona + "]",
+                    parsedTitle + " [" + childPersona + "]",
                     parsedDescription);
                 clonedStage.TenantId = templateChild.TenantId;
                 clonedStage.UserId = templateChild.UserId;
                 clonedStage.VoyageId = templateChild.VoyageId;
                 clonedStage.VesselId = templateChild.VesselId;
-                clonedStage.Persona = templateChild.Persona;
+                clonedStage.Persona = childPersona;
                 clonedStage.DependsOnMissionId = newDependency.Id;
                 clonedStage.RequiresReview = templateChild.RequiresReview;
                 clonedStage.ReviewDenyAction = templateChild.ReviewDenyAction;
@@ -1866,7 +1871,11 @@ namespace Armada.Core.Services
 
             foreach (Mission dependent in directDependents)
             {
-                dependent.Title = parsedTitle + " [" + dependent.Persona + "]";
+                string dependentPersona = PersonaCatalog.NormalizeName(dependent.Persona);
+                if (String.IsNullOrEmpty(dependentPersona)) dependentPersona = dependent.Persona ?? PersonaCatalog.Worker;
+
+                dependent.Persona = dependentPersona;
+                dependent.Title = parsedTitle + " [" + dependentPersona + "]";
                 dependent.Description = parsedDescription;
                 dependent.BranchName = null;
                 dependent.LastUpdateUtc = DateTime.UtcNow;
@@ -2994,14 +3003,9 @@ namespace Armada.Core.Services
                     // No restriction -- captain can fill any persona
                     eligible.Add(captain);
                 }
-                else
+                else if (CaptainAllowsPersona(captain, persona))
                 {
-                    // Check if the persona is in the allowed list
-                    // AllowedPersonas is a JSON array string, e.g. '["Worker","Judge"]'
-                    if (captain.AllowedPersonas.Contains("\"" + persona + "\"", StringComparison.OrdinalIgnoreCase))
-                    {
-                        eligible.Add(captain);
-                    }
+                    eligible.Add(captain);
                 }
             }
 
@@ -3014,7 +3018,7 @@ namespace Armada.Core.Services
             foreach (Captain captain in eligible)
             {
                 if (!String.IsNullOrEmpty(captain.PreferredPersona) &&
-                    String.Equals(captain.PreferredPersona, persona, StringComparison.OrdinalIgnoreCase))
+                    PersonaCatalog.Matches(captain.PreferredPersona, persona))
                 {
                     return captain;
                 }
@@ -3022,6 +3026,41 @@ namespace Armada.Core.Services
 
             // No preferred match -- return first eligible
             return eligible[0];
+        }
+
+        private static bool CaptainAllowsPersona(Captain captain, string persona)
+        {
+            if (captain == null) throw new ArgumentNullException(nameof(captain));
+            if (String.IsNullOrEmpty(persona)) return true;
+            if (String.IsNullOrEmpty(captain.AllowedPersonas)) return true;
+
+            try
+            {
+                List<string>? allowedPersonas = JsonSerializer.Deserialize<List<string>>(captain.AllowedPersonas);
+                if (allowedPersonas != null)
+                {
+                    foreach (string allowedPersona in allowedPersonas)
+                    {
+                        if (PersonaCatalog.Matches(allowedPersona, persona))
+                            return true;
+                    }
+
+                    return false;
+                }
+            }
+            catch
+            {
+            }
+
+            string normalizedPersona = PersonaCatalog.NormalizeName(persona);
+            if (captain.AllowedPersonas.Contains("\"" + normalizedPersona + "\"", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            if (PersonaCatalog.Matches(persona, PersonaCatalog.TestEngineer) &&
+                captain.AllowedPersonas.Contains("\"" + PersonaCatalog.LegacyTestEngineer + "\"", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            return false;
         }
 
         private static bool UsesSharedLocalAndWorkingDirectory(Vessel vessel)

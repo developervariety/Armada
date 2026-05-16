@@ -79,9 +79,9 @@ Reviews completed work for correctness and completeness.
   completeness, correctness, scope, and style. Produce a verdict: PASS, FAIL, or
   NEEDS_REVISION.
 - **Prompt template:** `persona.judge`
-- **When to use:** Quality gate after Worker and/or TestEngineer stages.
+- **When to use:** Quality gate after Worker and/or Test Engineer stages.
 
-### TestEngineer
+### Test Engineer
 
 Writes tests for the changes produced by a Worker.
 
@@ -107,8 +107,8 @@ previous one.
 |---|---|---|
 | **WorkerOnly** | Worker | The default. Single-stage, backward-compatible behavior. |
 | **Reviewed** | Worker -> Judge | Work is implemented, then reviewed. |
-| **Tested** | Worker -> TestEngineer -> Judge | Work is implemented, tests are written, then everything is reviewed. |
-| **FullPipeline** | Architect -> Worker -> TestEngineer -> Judge | Full lifecycle: plan, implement, test, review. |
+| **Tested** | Worker -> Test Engineer -> Judge | Work is implemented, tests are written, then everything is reviewed. |
+| **FullPipeline** | Architect -> Worker -> Test Engineer -> Judge | Full lifecycle: plan, implement, test, review. |
 
 ### Pipeline Resolution Order (Precedence)
 
@@ -231,7 +231,7 @@ restrict a captain to specific personas:
 // update_captain
 {
   "captainId": "cpt_abc123",
-  "allowedPersonas": ["Worker", "TestEngineer"]
+  "allowedPersonas": ["Worker", "Test Engineer"]
 }
 ```
 
@@ -271,7 +271,7 @@ Dedicate a powerful model for Architect work and faster models for Worker tasks:
 {
   "name": "sonnet-worker-1",
   "runtime": "ClaudeCode",
-  "allowedPersonas": ["Worker", "TestEngineer"],
+  "allowedPersonas": ["Worker", "Test Engineer"],
   "preferredPersona": "Worker"
 }
 ```

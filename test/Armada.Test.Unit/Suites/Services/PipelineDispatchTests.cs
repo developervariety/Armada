@@ -562,10 +562,10 @@ namespace Armada.Test.Unit.Suites.Services
                     worker.DependsOnMissionId = architect.Id;
                     worker = await testDb.Driver.Missions.CreateAsync(worker).ConfigureAwait(false);
 
-                    Mission testEngineer = new Mission("[TestEngineer] Placeholder", "Initial tests");
+                    Mission testEngineer = new Mission("[Test Engineer] Placeholder", "Initial tests");
                     testEngineer.VesselId = vessel.Id;
                     testEngineer.VoyageId = voyage.Id;
-                    testEngineer.Persona = "TestEngineer";
+                    testEngineer.Persona = "Test Engineer";
                     testEngineer.Status = MissionStatusEnum.Pending;
                     testEngineer.DependsOnMissionId = worker.Id;
                     testEngineer = await testDb.Driver.Missions.CreateAsync(testEngineer).ConfigureAwait(false);
@@ -597,7 +597,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     List<Mission> afterArchitect = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
                     List<Mission> workerMissions = afterArchitect.Where(m => String.Equals(m.Persona, "Worker", StringComparison.OrdinalIgnoreCase)).ToList();
-                    List<Mission> testMissions = afterArchitect.Where(m => String.Equals(m.Persona, "TestEngineer", StringComparison.OrdinalIgnoreCase)).ToList();
+                    List<Mission> testMissions = afterArchitect.Where(m => String.Equals(m.Persona, "Test Engineer", StringComparison.OrdinalIgnoreCase)).ToList();
                     List<Mission> judgeMissions = afterArchitect.Where(m => String.Equals(m.Persona, "Judge", StringComparison.OrdinalIgnoreCase)).ToList();
 
                     AssertEqual(22, afterArchitect.Count, "Architect numbered summary should fan out the entire downstream chain");
@@ -670,10 +670,10 @@ namespace Armada.Test.Unit.Suites.Services
                     worker.DependsOnMissionId = architect.Id;
                     worker = await testDb.Driver.Missions.CreateAsync(worker).ConfigureAwait(false);
 
-                    Mission testEngineer = new Mission("[TestEngineer] Placeholder", "Initial tests");
+                    Mission testEngineer = new Mission("[Test Engineer] Placeholder", "Initial tests");
                     testEngineer.VesselId = vessel.Id;
                     testEngineer.VoyageId = voyage.Id;
-                    testEngineer.Persona = "TestEngineer";
+                    testEngineer.Persona = "Test Engineer";
                     testEngineer.Status = MissionStatusEnum.Pending;
                     testEngineer.DependsOnMissionId = worker.Id;
                     testEngineer = await testDb.Driver.Missions.CreateAsync(testEngineer).ConfigureAwait(false);
@@ -701,7 +701,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     List<Mission> afterArchitect = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
                     List<Mission> workerMissions = afterArchitect.Where(m => String.Equals(m.Persona, "Worker", StringComparison.OrdinalIgnoreCase)).ToList();
-                    List<Mission> testMissions = afterArchitect.Where(m => String.Equals(m.Persona, "TestEngineer", StringComparison.OrdinalIgnoreCase)).ToList();
+                    List<Mission> testMissions = afterArchitect.Where(m => String.Equals(m.Persona, "Test Engineer", StringComparison.OrdinalIgnoreCase)).ToList();
                     List<Mission> judgeMissions = afterArchitect.Where(m => String.Equals(m.Persona, "Judge", StringComparison.OrdinalIgnoreCase)).ToList();
 
                     AssertEqual(7, afterArchitect.Count, "Markdown architect summary should fan out two downstream chains");
@@ -786,10 +786,10 @@ namespace Armada.Test.Unit.Suites.Services
                     worker.DependsOnMissionId = architect.Id;
                     worker = await testDb.Driver.Missions.CreateAsync(worker).ConfigureAwait(false);
 
-                    Mission testEngineer = new Mission("[TestEngineer] Placeholder", "Initial tests");
+                    Mission testEngineer = new Mission("[Test Engineer] Placeholder", "Initial tests");
                     testEngineer.VesselId = vessel.Id;
                     testEngineer.VoyageId = voyage.Id;
-                    testEngineer.Persona = "TestEngineer";
+                    testEngineer.Persona = "Test Engineer";
                     testEngineer.Status = MissionStatusEnum.Pending;
                     testEngineer.DependsOnMissionId = worker.Id;
                     testEngineer = await testDb.Driver.Missions.CreateAsync(testEngineer).ConfigureAwait(false);
@@ -819,10 +819,10 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertTrue(git.DeletedRemoteBranches.Contains(architect.BranchName), "Architect branch should be deleted remotely after successful handoff");
 
                     Mission? apiWorker = afterArchitect.FirstOrDefault(m => m.Title == "Add API endpoint [Worker]");
-                    Mission? apiTest = afterArchitect.FirstOrDefault(m => m.Title == "Add API endpoint [TestEngineer]");
+                    Mission? apiTest = afterArchitect.FirstOrDefault(m => m.Title == "Add API endpoint [Test Engineer]");
                     Mission? apiJudge = afterArchitect.FirstOrDefault(m => m.Title == "Add API endpoint [Judge]");
                     Mission? docsWorker = afterArchitect.FirstOrDefault(m => m.Title == "Update docs [Worker]");
-                    Mission? docsTest = afterArchitect.FirstOrDefault(m => m.Title == "Update docs [TestEngineer]");
+                    Mission? docsTest = afterArchitect.FirstOrDefault(m => m.Title == "Update docs [Test Engineer]");
                     Mission? docsJudge = afterArchitect.FirstOrDefault(m => m.Title == "Update docs [Judge]");
 
                     AssertNotNull(apiWorker, "Primary worker should exist");
@@ -858,9 +858,9 @@ namespace Armada.Test.Unit.Suites.Services
 
                     apiTest = await testDb.Driver.Missions.ReadAsync(apiTest.Id).ConfigureAwait(false);
                     apiJudge = await testDb.Driver.Missions.ReadAsync(apiJudge!.Id).ConfigureAwait(false);
-                    AssertEqual(MissionStatusEnum.WorkProduced, apiTest!.Status, "TestEngineer should remain WorkProduced until judge completes");
-                    AssertEqual(0, landingCalls, "TestEngineer completion should not trigger landing");
-                    AssertEqual(MissionStatusEnum.InProgress, apiJudge!.Status, "Judge should start after TestEngineer completion");
+                    AssertEqual(MissionStatusEnum.WorkProduced, apiTest!.Status, "Test Engineer should remain WorkProduced until judge completes");
+                    AssertEqual(0, landingCalls, "Test Engineer completion should not trigger landing");
+                    AssertEqual(MissionStatusEnum.InProgress, apiJudge!.Status, "Judge should start after Test Engineer completion");
 
                     Captain? judgeCaptain = await testDb.Driver.Captains.ReadAsync(apiJudge.CaptainId!).ConfigureAwait(false);
                     missionService.OnGetMissionOutput = _ =>
@@ -955,10 +955,10 @@ namespace Armada.Test.Unit.Suites.Services
                     worker.DependsOnMissionId = architect.Id;
                     worker = await testDb.Driver.Missions.CreateAsync(worker).ConfigureAwait(false);
 
-                    Mission testEngineer = new Mission("[TestEngineer] Placeholder", "Initial tests");
+                    Mission testEngineer = new Mission("[Test Engineer] Placeholder", "Initial tests");
                     testEngineer.VesselId = vessel.Id;
                     testEngineer.VoyageId = voyage.Id;
-                    testEngineer.Persona = "TestEngineer";
+                    testEngineer.Persona = "Test Engineer";
                     testEngineer.Status = MissionStatusEnum.Pending;
                     testEngineer.DependsOnMissionId = worker.Id;
                     testEngineer = await testDb.Driver.Missions.CreateAsync(testEngineer).ConfigureAwait(false);
@@ -986,10 +986,10 @@ namespace Armada.Test.Unit.Suites.Services
 
                     List<Mission> afterArchitect = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
                     Mission? coreWorker = afterArchitect.FirstOrDefault(m => m.Title == "Add core model properties [Worker]");
-                    Mission? coreTest = afterArchitect.FirstOrDefault(m => m.Title == "Add core model properties [TestEngineer]");
+                    Mission? coreTest = afterArchitect.FirstOrDefault(m => m.Title == "Add core model properties [Test Engineer]");
                     Mission? coreJudge = afterArchitect.FirstOrDefault(m => m.Title == "Add core model properties [Judge]");
                     Mission? backendWorker = afterArchitect.FirstOrDefault(m => m.Title == "Extend secondary backends [Worker]");
-                    Mission? backendTest = afterArchitect.FirstOrDefault(m => m.Title == "Extend secondary backends [TestEngineer]");
+                    Mission? backendTest = afterArchitect.FirstOrDefault(m => m.Title == "Extend secondary backends [Test Engineer]");
                     Mission? backendJudge = afterArchitect.FirstOrDefault(m => m.Title == "Extend secondary backends [Judge]");
 
                     AssertNotNull(coreWorker, "Primary worker should exist");
@@ -1101,10 +1101,10 @@ namespace Armada.Test.Unit.Suites.Services
                     worker.DependsOnMissionId = architect.Id;
                     worker = await testDb.Driver.Missions.CreateAsync(worker).ConfigureAwait(false);
 
-                    Mission testEngineer = new Mission("[TestEngineer] Placeholder", "Initial tests");
+                    Mission testEngineer = new Mission("[Test Engineer] Placeholder", "Initial tests");
                     testEngineer.VesselId = vessel.Id;
                     testEngineer.VoyageId = voyage.Id;
-                    testEngineer.Persona = "TestEngineer";
+                    testEngineer.Persona = "Test Engineer";
                     testEngineer.Status = MissionStatusEnum.Pending;
                     testEngineer.DependsOnMissionId = worker.Id;
                     testEngineer = await testDb.Driver.Missions.CreateAsync(testEngineer).ConfigureAwait(false);
@@ -1135,7 +1135,7 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(4, afterArchitect.Count, "Repeated architect blocks should not create duplicate downstream missions");
 
                     int workerCount = afterArchitect.Count(m => m.Persona == "Worker");
-                    int testCount = afterArchitect.Count(m => m.Persona == "TestEngineer");
+                    int testCount = afterArchitect.Count(m => m.Persona == "Test Engineer");
                     int judgeCount = afterArchitect.Count(m => m.Persona == "Judge");
                     AssertEqual(1, workerCount, "Expected a single worker mission after de-duplication");
                     AssertEqual(1, testCount, "Expected a single test mission after de-duplication");
@@ -1205,10 +1205,10 @@ namespace Armada.Test.Unit.Suites.Services
                     worker.DependsOnMissionId = architect.Id;
                     worker = await testDb.Driver.Missions.CreateAsync(worker).ConfigureAwait(false);
 
-                    Mission testEngineer = new Mission("[TestEngineer] Placeholder", "Initial tests");
+                    Mission testEngineer = new Mission("[Test Engineer] Placeholder", "Initial tests");
                     testEngineer.VesselId = vessel.Id;
                     testEngineer.VoyageId = voyage.Id;
-                    testEngineer.Persona = "TestEngineer";
+                    testEngineer.Persona = "Test Engineer";
                     testEngineer.Status = MissionStatusEnum.Pending;
                     testEngineer.DependsOnMissionId = worker.Id;
                     testEngineer = await testDb.Driver.Missions.CreateAsync(testEngineer).ConfigureAwait(false);
@@ -1298,10 +1298,10 @@ namespace Armada.Test.Unit.Suites.Services
                     worker.DependsOnMissionId = architect.Id;
                     worker = await testDb.Driver.Missions.CreateAsync(worker).ConfigureAwait(false);
 
-                    Mission testEngineer = new Mission("[TestEngineer] Placeholder", "Initial tests");
+                    Mission testEngineer = new Mission("[Test Engineer] Placeholder", "Initial tests");
                     testEngineer.VesselId = vessel.Id;
                     testEngineer.VoyageId = voyage.Id;
-                    testEngineer.Persona = "TestEngineer";
+                    testEngineer.Persona = "Test Engineer";
                     testEngineer.Status = MissionStatusEnum.Pending;
                     testEngineer.DependsOnMissionId = worker.Id;
                     testEngineer = await testDb.Driver.Missions.CreateAsync(testEngineer).ConfigureAwait(false);
@@ -1388,10 +1388,10 @@ namespace Armada.Test.Unit.Suites.Services
                     worker.DependsOnMissionId = architect.Id;
                     worker = await testDb.Driver.Missions.CreateAsync(worker).ConfigureAwait(false);
 
-                    Mission testEngineer = new Mission("[TestEngineer] Placeholder", "Initial tests");
+                    Mission testEngineer = new Mission("[Test Engineer] Placeholder", "Initial tests");
                     testEngineer.VesselId = vessel.Id;
                     testEngineer.VoyageId = voyage.Id;
-                    testEngineer.Persona = "TestEngineer";
+                    testEngineer.Persona = "Test Engineer";
                     testEngineer.Status = MissionStatusEnum.Pending;
                     testEngineer.DependsOnMissionId = worker.Id;
                     testEngineer = await testDb.Driver.Missions.CreateAsync(testEngineer).ConfigureAwait(false);
@@ -1482,10 +1482,10 @@ namespace Armada.Test.Unit.Suites.Services
                     worker.DependsOnMissionId = architect.Id;
                     worker = await testDb.Driver.Missions.CreateAsync(worker).ConfigureAwait(false);
 
-                    Mission testEngineer = new Mission("[TestEngineer] Template test", "Template");
+                    Mission testEngineer = new Mission("[Test Engineer] Template test", "Template");
                     testEngineer.VesselId = vessel.Id;
                     testEngineer.VoyageId = voyage.Id;
-                    testEngineer.Persona = "TestEngineer";
+                    testEngineer.Persona = "Test Engineer";
                     testEngineer.Status = MissionStatusEnum.Pending;
                     testEngineer.DependsOnMissionId = worker.Id;
                     testEngineer = await testDb.Driver.Missions.CreateAsync(testEngineer).ConfigureAwait(false);
@@ -2155,10 +2155,10 @@ namespace Armada.Test.Unit.Suites.Services
                     workerCaptain.CurrentDockId = workerDock.Id;
                     await testDb.Driver.Captains.UpdateAsync(workerCaptain).ConfigureAwait(false);
 
-                    Mission testEngineer = new Mission("[TestEngineer] Review branch handoff", "Write tests");
+                    Mission testEngineer = new Mission("[Test Engineer] Review branch handoff", "Write tests");
                     testEngineer.VesselId = vessel.Id;
                     testEngineer.VoyageId = voyage.Id;
-                    testEngineer.Persona = "TestEngineer";
+                    testEngineer.Persona = "Test Engineer";
                     testEngineer.Status = MissionStatusEnum.Pending;
                     testEngineer.DependsOnMissionId = worker.Id;
                     testEngineer = await testDb.Driver.Missions.CreateAsync(testEngineer).ConfigureAwait(false);
@@ -2242,10 +2242,10 @@ namespace Armada.Test.Unit.Suites.Services
                     workerCaptain.CurrentDockId = workerDock.Id;
                     await testDb.Driver.Captains.UpdateAsync(workerCaptain).ConfigureAwait(false);
 
-                    Mission dependent = new Mission("[TestEngineer] Downstream should be cancelled", "Write tests");
+                    Mission dependent = new Mission("[Test Engineer] Downstream should be cancelled", "Write tests");
                     dependent.VesselId = vessel.Id;
                     dependent.VoyageId = voyage.Id;
-                    dependent.Persona = "TestEngineer";
+                    dependent.Persona = "Test Engineer";
                     dependent.Status = MissionStatusEnum.Pending;
                     dependent.DependsOnMissionId = worker.Id;
                     dependent = await testDb.Driver.Missions.CreateAsync(dependent).ConfigureAwait(false);

@@ -347,31 +347,7 @@ namespace Armada.Server
 
             _CaptainTools = new CaptainToolService(
                 _Logging,
-                McpToolRegistrar.DescribeAll(
-                    _Database,
-                    _Admiral,
-                    _Settings,
-                    _Git,
-                    _MergeQueue,
-                    _Docks,
-                    _LandingService,
-                    _CheckRunService,
-                    _ObjectiveService,
-                    _PlanningSessions,
-                    _ObjectiveRefinementSessions,
-                    _ReleaseService,
-                    _DeploymentService,
-                    _RunbookService,
-                    () => Stop(),
-                    async (captainId) =>
-                    {
-                        Captain? captain = await _Database.Captains.ReadAsync(captainId).ConfigureAwait(false);
-                        if (captain != null)
-                            await _AgentLifecycle.HandleStopAgentAsync(captain).ConfigureAwait(false);
-                    },
-                    _AgentLifecycle,
-                    _PromptTemplateService,
-                    _Logging));
+                _Database);
 
             RegisterRoutes();
             InitializeDashboard();

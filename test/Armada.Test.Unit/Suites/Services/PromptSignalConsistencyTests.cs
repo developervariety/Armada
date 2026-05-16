@@ -265,7 +265,7 @@ namespace Armada.Test.Unit.Suites.Services
                     await AssertResultPersonaSignalsAsync(templates, "Worker", "persona.worker").ConfigureAwait(false);
                     await AssertResultPersonaSignalsAsync(templates, "Product Manager", "persona.product_manager").ConfigureAwait(false);
                     await AssertResultPersonaSignalsAsync(templates, "Usability Engineer", "persona.usability_engineer").ConfigureAwait(false);
-                    await AssertResultPersonaSignalsAsync(templates, "TestEngineer", "persona.test_engineer").ConfigureAwait(false);
+                    await AssertResultPersonaSignalsAsync(templates, "Test Engineer", "persona.test_engineer").ConfigureAwait(false);
                     await AssertJudgeSignalsAsync(templates).ConfigureAwait(false);
                 }
             });

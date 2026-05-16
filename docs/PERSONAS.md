@@ -2,7 +2,7 @@
 
 This plan covers two interrelated features:
 
-1. **Personas** -- Named agent roles (Architect, Worker, Judge, TestEngineer, etc.) that define what a captain does during a mission, with user-extensible persona definitions and per-captain capability constraints.
+1. **Personas** -- Named agent roles (Architect, Worker, Judge, Test Engineer, etc.) that define what a captain does during a mission, with user-extensible persona definitions and per-captain capability constraints.
 2. **Prompt Templates** -- Extracting all hardcoded prompts from C# code into user-editable, database-stored templates with embedded resource defaults as fallbacks.
 
 Design choices:
@@ -188,7 +188,7 @@ Goal: every string that forms part of a prompt to an agent must be resolvable fr
 - [x] Create `src/Armada.Core/Models/Persona.cs`
   - `Id` (string, `prs_` prefix)
   - `TenantId` (string?)
-  - `Name` (string, unique, e.g. `"Worker"`, `"Architect"`, `"Judge"`, `"TestEngineer"`)
+  - `Name` (string, unique, e.g. `"Worker"`, `"Architect"`, `"Judge"`, `"Test Engineer"`)
   - `Description` (string?, what this persona does)
   - `PromptTemplateName` (string, references a PromptTemplate by name, e.g. `"persona.worker"`)
   - `IsBuiltIn` (bool, true for system-shipped personas)
@@ -243,7 +243,7 @@ CREATE INDEX idx_personas_prompt_template ON personas(prompt_template_name);
   - `Worker` -- standard mission executor (current behavior)
   - `Architect` -- plans voyages and decomposes work into missions
   - `Judge` -- reviews completed mission diffs for correctness and completeness
-  - `TestEngineer` -- writes/updates tests for mission changes
+  - `Test Engineer` -- writes/updates tests for mission changes
 - [x] Built-in personas reference built-in prompt templates (`persona.worker`, etc.)
 
 ### 2.4 Captain Persona Capabilities
@@ -388,8 +388,8 @@ CREATE INDEX idx_pipeline_stages_persona ON pipeline_stages(persona_name);
 - [x] Seed default pipelines on startup:
   - `WorkerOnly` -- `[Worker]` (backward compatible, current behavior)
   - `Reviewed` -- `[Worker, Judge]`
-  - `FullPipeline` -- `[Architect, Worker, TestEngineer, Judge]`
-  - `Tested` -- `[Worker, TestEngineer, Judge]`
+  - `FullPipeline` -- `[Architect, Worker, Test Engineer, Judge]`
+  - `Tested` -- `[Worker, Test Engineer, Judge]`
 
 ### 3.4 Fleet/Vessel Pipeline Configuration
 
@@ -469,7 +469,7 @@ CREATE INDEX idx_missions_depends_on ON missions(depends_on_mission_id);
   2. Injects prior stage context (persona, title, branch, diff snapshot) into next mission's description
   3. Sets the same branch name so the next stage works on the same branch
   4. Automatically attempts to assign the next stage mission
-- [x] Architect stage special handling: parses [ARMADA:MISSION] markers from output, creates Worker missions, clones post-worker stages (Judge, TestEngineer) for each additional worker
+- [x] Architect stage special handling: parses [ARMADA:MISSION] markers from output, creates Worker missions, clones post-worker stages (Judge, Test Engineer) for each additional worker
 
 ### 4.4 Captain Dispatch Routing
 
@@ -501,7 +501,7 @@ CREATE INDEX idx_missions_depends_on ON missions(depends_on_mission_id);
 
 ### 5.4 Test Engineer Persona Template (`persona.test_engineer`)
 
-- [x] TestEngineer persona template embedded in PromptTemplateService
+- [x] Test Engineer persona template embedded in PromptTemplateService
 
 ---
 
@@ -753,7 +753,7 @@ All placeholders available for template rendering:
 | `{PipelineName}` | `pipeline.Name` | Pipeline name |
 | `{StageNumber}` | stage order | Current stage number |
 | `{TotalStages}` | pipeline stage count | Total stages in pipeline |
-| `{PreviousStageDiff}` | git diff from prior stage | Diff output from the previous stage (for Judge/TestEngineer) |
+| `{PreviousStageDiff}` | git diff from prior stage | Diff output from the previous stage (for Judge/Test Engineer) |
 | `{PreviousStageOutput}` | prior mission output | Structured output from the previous stage (for Architect output) |
 
 ### System

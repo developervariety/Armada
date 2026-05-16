@@ -3,6 +3,7 @@ namespace Armada.Core.Services
     using System.IO;
     using System.Linq;
     using SyslogLogging;
+    using Armada.Core;
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -287,14 +288,17 @@ namespace Armada.Core.Services
 
                 foreach (PipelineStage stage in pipeline.Stages.OrderBy(s => s.Order))
                 {
+                    string stagePersonaName = PersonaCatalog.NormalizeName(stage.PersonaName);
+                    if (String.IsNullOrEmpty(stagePersonaName)) stagePersonaName = stage.PersonaName;
+
                     Mission mission = new Mission(
-                        "[" + stage.PersonaName + "] " + baseTitle,
+                        "[" + stagePersonaName + "] " + baseTitle,
                         md.Description);
                     mission.TenantId = vessel.TenantId;
                     mission.UserId = vessel.UserId;
                     mission.VoyageId = voyage.Id;
                     mission.VesselId = vesselId;
-                    mission.Persona = stage.PersonaName;
+                    mission.Persona = stagePersonaName;
                     mission.DependsOnMissionId = previousMissionId;
                     mission.RequiresReview = stage.RequiresReview;
                     mission.ReviewDenyAction = stage.ReviewDenyAction;
@@ -304,7 +308,7 @@ namespace Armada.Core.Services
                     mission = await _Database.Missions.CreateAsync(mission, token).ConfigureAwait(false);
                     await PersistMissionPlaybooksAsync(mission, voyage.SelectedPlaybooks, token).ConfigureAwait(false);
                     _Logging.Info(_Header + "created pipeline mission " + mission.Id + ": " + mission.Title +
-                        " (stage " + stage.Order + "/" + pipeline.Stages.Count + ", persona: " + stage.PersonaName +
+                        " (stage " + stage.Order + "/" + pipeline.Stages.Count + ", persona: " + stagePersonaName +
                         (previousMissionId != null ? ", depends on: " + previousMissionId : "") + ")");
 
                     // Try to auto-assign only if no dependency (first stage)
