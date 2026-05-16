@@ -153,6 +153,19 @@ select {
   border-color: var(--accent-hover);
 }
 
+.button-danger,
+.btn-danger {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.35);
+  color: var(--red);
+}
+
+.button-danger:hover,
+.btn-danger:hover {
+  background: rgba(239, 68, 68, 0.14);
+  border-color: var(--red);
+}
+
 .theme-toggle-button {
   min-width: 40px;
   width: 40px;
@@ -189,6 +202,9 @@ select {
 .tag,
 .badge,
 .pill,
+.tag.inactive,
+.badge.inactive,
+.pill.inactive,
 .tag.idle,
 .badge.unknown,
 .pill.unknown {
@@ -710,6 +726,10 @@ select {
   padding: 1rem;
 }
 
+.panel-full {
+  grid-column: 1 / -1;
+}
+
 .panel-header {
   display: flex;
   justify-content: space-between;
@@ -921,6 +941,13 @@ select {
   gap: 1rem;
 }
 
+.resource-grid,
+.summary-inline-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
 .feed-item {
   padding-bottom: 0.8rem;
   border-bottom: 1px solid var(--border);
@@ -969,6 +996,10 @@ select {
 
 .field-row-triple {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.field-span-2 {
+  grid-column: span 2;
 }
 
 .field {
@@ -1026,6 +1057,17 @@ select {
   flex-wrap: wrap;
 }
 
+.form-actions-inline {
+  display: flex;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.form-actions-spread {
+  align-items: center;
+  justify-content: space-between;
+}
+
 .form-status {
   min-height: 1.2rem;
   font-size: 0.84rem;
@@ -1051,6 +1093,10 @@ select {
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 0.95rem;
+}
+
+.detail-card-compact {
+  padding: 0.85rem;
 }
 
 .detail-card h3 {
@@ -1092,6 +1138,116 @@ select {
   gap: 0.85rem;
 }
 
+.subform-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg);
+}
+
+.resource-card {
+  min-height: 100%;
+}
+
+.resource-card-wide {
+  grid-column: 1 / -1;
+}
+
+.compact-stack {
+  gap: 0.6rem;
+}
+
+.compact-stack .entity-card {
+  padding: 0.8rem;
+}
+
+.subform-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.subform-card-head h3 {
+  font-size: 0.98rem;
+  margin-bottom: 0.2rem;
+}
+
+.playbook-selection-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.playbook-selection-card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.95rem;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg-card);
+}
+
+.playbook-selection-card.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.16);
+}
+
+.playbook-selection-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.8rem;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.playbook-selection-toggle {
+  display: flex;
+  align-items: flex-start;
+  padding-top: 0.1rem;
+}
+
+.playbook-selection-toggle input {
+  width: 18px;
+  height: 18px;
+}
+
+.playbook-selection-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.playbook-selection-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.playbook-selection-title-row strong {
+  word-break: break-word;
+}
+
+.playbook-selection-meta {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.playbook-selection-mode {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  flex: 0 0 260px;
+}
+
 .tab-strip {
   display: flex;
   gap: 0.75rem;
@@ -1120,6 +1276,7 @@ select {
 
 .detail-card-full {
   width: 100%;
+  grid-column: 1 / -1;
 }
 
 .detail-prose {
@@ -1154,6 +1311,16 @@ select {
   background: var(--bg-hover);
 }
 
+.detail-list-item-static {
+  cursor: default;
+  align-items: flex-start;
+}
+
+.detail-list-item-static:hover {
+  border-color: var(--border);
+  background: var(--bg-card);
+}
+
 .detail-list-copy {
   display: flex;
   flex-direction: column;
@@ -1182,9 +1349,22 @@ select {
   overflow-x: auto;
 }
 
+.code-view-tall {
+  min-height: 320px;
+  max-height: 520px;
+  overflow: auto;
+}
+
 .empty-state,
 .detail-empty {
   color: var(--text-dim);
+}
+
+.detail-empty {
+  padding: 0.9rem;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  background: var(--bg);
 }
 
 .empty-state {
@@ -1268,7 +1448,9 @@ select {
 @media (max-width: 960px) {
   .content-grid,
   .management-grid,
-  .detail-grid {
+  .detail-grid,
+  .resource-grid,
+  .summary-inline-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -1358,11 +1540,17 @@ select {
 
   .summary-cards,
   .field-row,
-  .field-row-triple {
+  .field-row-triple,
+  .summary-inline-grid {
     grid-template-columns: 1fr;
   }
 
   .summary-card-wide {
+    grid-column: span 1;
+  }
+
+  .field-span-2,
+  .resource-card-wide {
     grid-column: span 1;
   }
 
@@ -1371,7 +1559,14 @@ select {
     flex-direction: column;
   }
 
+  .form-actions-inline,
+  .form-actions-spread {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
   .form-actions .button,
+  .form-actions-inline .button,
   .detail-actions .button {
     width: 100%;
   }
@@ -1388,6 +1583,16 @@ select {
   .detail-list-item {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .playbook-selection-card,
+  .playbook-selection-main {
+    flex-direction: column;
+  }
+
+  .playbook-selection-mode {
+    flex-basis: auto;
+    width: 100%;
   }
 
   .modal-shell {

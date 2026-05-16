@@ -17,8 +17,12 @@ If you want protocol details, see:
 - outbound Armada-to-proxy tunnel connection with shared-password handshake and optional enrollment-token validation
 - challenge-based proxy browser login and connected-deployment discovery
 - remote fleet, vessel, and playbook management, including default pipeline selection
+- remote backlog/objective intake, captain-backed refinement, planning sessions, and dispatch handoff
 - remote voyage dispatch and cancellation, including playbook selection with delivery-mode control
 - remote mission create, update, cancel, and restart
+- remote workflow-profile, check, environment, release, deployment, incident, and runbook management
+- remote captain-tool inspection, request-history diagnostics, and bounded API Explorer access
+- read-only workspace, pipeline, persona, and prompt-template reference views
 - remote captain stop
 - remote recent activity, mission logs, diffs, and focused detail views
 
@@ -27,8 +31,8 @@ If you want protocol details, see:
 - SaaS user accounts
 - delegated identity or local-session brokerage
 - notification inbox/read state
-- remote delivery lifecycle surfaces for releases, environments, deployments, incidents, or runbooks
 - server-side remote action policy beyond current UI confirmation prompts
+- secret-bearing settings editing such as credential administration or vessel token overrides
 
 Treat the current proxy as an operator service, not a hardened internet-facing SaaS product.
 
@@ -232,6 +236,11 @@ The shell is organized around:
 - fleets
 - vessels
 - playbooks
+- backlog
+- planning
+- delivery
+- diagnostics
+- reference
 - focused detail
 - management forms
 
@@ -280,6 +289,22 @@ Use `Playbook Studio` to:
 - delete a playbook when it is no longer needed
 - prepare reusable instruction sets before attaching them during dispatch
 
+### Manage Backlog And Planning
+
+Use `Backlog` to:
+
+- capture or update future work remotely
+- launch captain-backed refinement
+- inspect refinement summaries and transcript history
+- promote an objective into planning
+
+Use `Planning` to:
+
+- create a planning session for a backlog item or directly against a vessel
+- continue the planning transcript
+- summarize planning state
+- dispatch the selected plan into a voyage
+
 ### Manage Missions
 
 Use `Mission Studio` to:
@@ -307,7 +332,32 @@ From focused voyage detail you can:
 From focused captain detail you can:
 
 - inspect the captain log
+- inspect accessible MCP/runtime tools
 - stop the captain
+
+### Manage Delivery
+
+Use `Delivery` to:
+
+- manage workflow profiles and check runs
+- create and inspect environments
+- create, refresh, and inspect releases
+- create and operate deployments, including approve, deny, verify, and rollback
+- create and inspect incidents
+- create runbooks and launch runbook executions
+
+### Use Diagnostics And Reference Views
+
+Use `Diagnostics` to:
+
+- inspect captain tool visibility and runtime source state
+- browse request-history summaries and recent records
+- issue bounded instance-scoped API Explorer calls through the proxy route family
+
+Use `Reference` to:
+
+- inspect read-only vessel workspace status, tree, file preview, search, and local changes
+- inspect live pipelines, personas, and prompt templates without leaving the tunnel shell
 
 ## 8. Browse Beyond Recent Items
 

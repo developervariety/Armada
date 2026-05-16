@@ -4,14 +4,14 @@
 
 This document describes the shipped tunnel contract between `Armada.Server` and `Armada.Proxy` in `v0.8.0`.
 
-`v0.8.0` now ships:
+The shipped contract now includes:
 
 - outbound websocket tunnel initiation from Armada
 - proxy websocket termination at `/tunnel`
 - handshake with protocol version, instance ID, shared-password proof, optional enrollment token, and capability manifest
 - request/response correlation IDs
 - event forwarding from Armada to the proxy
-- bounded proxy management routing for fleets, vessels, voyages, missions, and captain control
+- bounded remote request routing for summary, work intake, planning, delivery, diagnostics, and reference views
 - `ping` / `pong` heartbeat handling
 - reconnect with capped exponential backoff and jitter
 - proxy stale/offline instance semantics
@@ -22,7 +22,7 @@ Not yet shipped:
 - resumable subscriptions
 - chunked streaming for large payloads
 - delegated remote identity
-- general-purpose remote action routing or policy evaluation
+- unbounded arbitrary remote action routing or policy evaluation
 
 ---
 
@@ -87,40 +87,20 @@ The first message from Armada must be:
       "remoteControl.events",
       "remoteControl.requests",
       "instance.summary",
-      "fleets.list",
-      "fleet.detail",
-      "fleet.create",
-      "fleet.update",
-      "vessels.list",
-      "vessel.detail",
-      "vessel.create",
-      "vessel.update",
-      "activity.recent",
-      "missions.recent",
-      "missions.list",
-      "mission.create",
-      "mission.update",
-      "mission.cancel",
-      "mission.restart",
-      "voyages.recent",
-      "voyages.list",
-      "voyage.dispatch",
-      "voyage.cancel",
-      "captains.recent",
-      "captain.stop",
-      "mission.detail",
-      "mission.log",
-      "mission.diff",
-      "voyage.detail",
-      "captain.detail",
-      "captain.log",
+      "objectives.list",
+      "planning-session.dispatch",
+      "workflow-profile.create",
+      "deployment.rollback",
+      "captain.tools",
+      "workspace.search",
       "status.health",
-      "status.snapshot",
-      "settings.remoteControl"
+      "status.snapshot"
     ]
   }
 }
 ```
+
+The `capabilities` array above is representative, not exhaustive. The live manifest now also advertises the wider mission, playbook, backlog, refinement, planning, delivery, diagnostics, and reference route families implemented by the proxy/server pair.
 
 The proxy validates:
 
@@ -155,39 +135,20 @@ Accepted handshake response:
       "instances.summary",
       "instances.detail",
       "instances.shell.summary",
-      "instances.fleets.list",
-      "instances.fleet.detail",
-      "instances.fleet.create",
-      "instances.fleet.update",
-      "instances.vessels.list",
-      "instances.vessel.detail",
-      "instances.vessel.create",
-      "instances.vessel.update",
-      "instances.activity",
-      "instances.missions.list",
-      "instances.missions.recent",
-      "instances.mission.create",
-      "instances.mission.update",
-      "instances.mission.cancel",
-      "instances.mission.restart",
-      "instances.voyages.list",
-      "instances.voyages.recent",
-      "instances.voyage.dispatch",
-      "instances.voyage.cancel",
-      "instances.captains.recent",
-      "instances.mission.detail",
-      "instances.mission.log",
-      "instances.mission.diff",
-      "instances.voyage.detail",
-      "instances.captain.detail",
-      "instances.captain.log",
-      "instances.captain.stop",
+      "instances.backlog.list",
+      "instances.planning.dispatch",
+      "instances.workflowprofile.create",
+      "instances.deployment.rollback",
+      "instances.captain.tools",
+      "instances.workspace.search",
       "armada.status.snapshot",
       "armada.status.health"
     ]
   }
 }
 ```
+
+The proxy capability list above is also representative. The live proxy handshake now advertises the expanded Phase 1-4 route families implemented by `Armada.Proxy`.
 
 Rejected handshake response:
 
@@ -235,38 +196,48 @@ Armada also responds to inbound `ping` messages with a matching `pong`.
 
 ## Routed Requests
 
-The proxy currently issues these live requests:
+The proxy currently issues requests across these method families:
 
-- `armada.instance.summary`
-- `armada.fleets.list`
-- `armada.fleet.detail`
-- `armada.fleet.create`
-- `armada.fleet.update`
-- `armada.vessels.list`
-- `armada.vessel.detail`
-- `armada.vessel.create`
-- `armada.vessel.update`
-- `armada.activity.recent`
-- `armada.missions.list`
-- `armada.missions.recent`
-- `armada.mission.create`
-- `armada.mission.update`
-- `armada.mission.cancel`
-- `armada.mission.restart`
-- `armada.voyages.list`
-- `armada.voyages.recent`
-- `armada.voyage.dispatch`
-- `armada.voyage.cancel`
-- `armada.captains.recent`
-- `armada.captain.stop`
-- `armada.mission.detail`
-- `armada.mission.log`
-- `armada.mission.diff`
-- `armada.voyage.detail`
-- `armada.captain.detail`
-- `armada.captain.log`
-- `armada.status.snapshot`
-- `armada.status.health`
+- summary and status:
+  - `armada.instance.summary`
+  - `armada.status.snapshot`
+  - `armada.status.health`
+- core inspection and management:
+  - fleets, vessels, pipelines, playbooks
+  - missions, voyages, captains
+  - mission log and diff
+- work intake:
+  - `armada.objectives.*`
+  - `armada.backlog.*`
+  - `armada.objective-refinement-sessions.*`
+  - `armada.objective-refinement-session.*`
+  - `armada.planning-sessions.*`
+  - `armada.planning-session.*`
+- delivery:
+  - `armada.workflow-profiles.*`
+  - `armada.workflow-profile.*`
+  - `armada.check-runs.*`
+  - `armada.check-run.*`
+  - `armada.environments.*`
+  - `armada.environment.*`
+  - `armada.releases.*`
+  - `armada.release.*`
+  - `armada.deployments.*`
+  - `armada.deployment.*`
+  - `armada.incidents.*`
+  - `armada.incident.*`
+  - `armada.runbooks.*`
+  - `armada.runbook.*`
+  - `armada.runbook-executions.*`
+  - `armada.runbook-execution.*`
+- diagnostics and reference:
+  - `armada.captain.tools`
+  - `armada.request-history.*`
+  - `armada.workspace.*`
+  - `armada.personas.*`
+  - `armada.persona.*`
+  - `armada.prompt-templates.*`
+  - `armada.prompt-template.*`
 
 Example request:
 
@@ -274,8 +245,15 @@ Example request:
 {
   "type": "request",
   "correlationId": "62cf28fa232f49a5aab48debe031eb89",
-  "method": "armada.status.snapshot",
-  "timestampUtc": "2026-04-03T18:32:00Z"
+  "method": "armada.planning-session.dispatch",
+  "timestampUtc": "2026-04-03T18:32:00Z",
+  "payload": {
+    "id": "pls_abc123",
+    "body": {
+      "messageId": "psm_abc123",
+      "title": "Proxy backlog dispatch"
+    }
+  }
 }
 ```
 
@@ -288,11 +266,11 @@ Example response:
   "timestampUtc": "2026-04-03T18:32:00Z",
   "statusCode": 200,
   "success": true,
-  "message": "Armada status snapshot captured.",
+  "message": "Planning session dispatched.",
   "payload": {
-    "totalCaptains": 2,
-    "workingCaptains": 1,
-    "activeVoyages": 1
+    "id": "vyg_abc123",
+    "title": "Proxy backlog dispatch",
+    "sourcePlanningSessionId": "pls_abc123"
   }
 }
 ```

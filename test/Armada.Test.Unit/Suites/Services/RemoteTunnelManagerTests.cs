@@ -60,6 +60,12 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("remoteControl.handshake", String.Join(",", manifest.Features), "Handshake capability should be advertised");
                 AssertContains("remoteControl.requests", String.Join(",", manifest.Features), "Request capability should be advertised");
                 AssertContains("status.health", String.Join(",", manifest.Features), "Health capability should be advertised");
+                AssertContains("objective.create", String.Join(",", manifest.Features), "Objective capability should be advertised");
+                AssertContains("planning-session.dispatch", String.Join(",", manifest.Features), "Planning dispatch capability should be advertised");
+                AssertContains("workflow-profile.create", String.Join(",", manifest.Features), "Workflow-profile capability should be advertised");
+                AssertContains("deployment.rollback", String.Join(",", manifest.Features), "Deployment rollback capability should be advertised");
+                AssertContains("captain.tools", String.Join(",", manifest.Features), "Captain tools capability should be advertised");
+                AssertContains("workspace.search", String.Join(",", manifest.Features), "Workspace search capability should be advertised");
             });
 
             await RunTest("GetStatus DefaultsToDisabledWhenFeatureDisabled", () =>

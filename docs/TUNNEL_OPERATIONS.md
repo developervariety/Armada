@@ -18,8 +18,8 @@ For a step-by-step operator setup path, see [REMOTE_MGMT.md](REMOTE_MGMT.md).
 - a proxy-hosted remote operations shell served at `/`
 - live forwarded status/health requests from the proxy into a connected Armada instance
 - focused remote inspection requests for recent activity, missions, voyages, captains, logs, and diffs
-- bounded remote management requests for fleets, vessels, voyages, missions, and captain control
-- shell workflows for fleet and vessel editing, voyage dispatch and cancellation, mission create/update/cancel/restart, and captain stop
+- bounded remote management requests for fleets, vessels, playbooks, backlog/objectives, refinement sessions, planning sessions, workflow profiles, checks, environments, releases, deployments, incidents, runbooks, runbook executions, and captain control
+- shell workflows for fleet and vessel editing, voyage dispatch and cancellation, mission create/update/cancel/restart, backlog/planning handoff, delivery operations, diagnostics, and read-only reference inspection
 
 Still not included:
 
@@ -27,8 +27,8 @@ Still not included:
 - delegated identity or local-session brokerage
 - notification delivery
 - persistent proxy storage
-- remote release, environment, deployment, incident, or runbook operator workflows
 - server-side remote action policy evaluation beyond current shell confirmation prompts
+- secret-bearing admin editing such as credentials or token overrides
 
 Treat the current proxy as an implementation-stage operator service, not a hardened public SaaS surface.
 
@@ -280,6 +280,8 @@ Fix:
 The proxy currently supports live requests for:
 
 - `armada.instance.summary`
+- `armada.instance.status`
+- `armada.instance.health`
 - `armada.fleets.list`
 - `armada.fleet.detail`
 - `armada.fleet.create`
@@ -298,6 +300,96 @@ The proxy currently supports live requests for:
 - `armada.voyages.list`
 - `armada.voyages.recent`
 - `armada.voyage.dispatch`
+- `armada.voyage.detail`
+- `armada.voyage.cancel`
+- `armada.captain.detail`
+- `armada.captain.stop`
+- `armada.playbooks.list`
+- `armada.playbook.detail`
+- `armada.playbook.create`
+- `armada.playbook.update`
+- `armada.playbook.delete`
+- `armada.backlog.list`
+- `armada.backlog.detail`
+- `armada.backlog.create`
+- `armada.backlog.update`
+- `armada.backlog.delete`
+- `armada.objective-refinement-sessions.list`
+- `armada.objective-refinement-sessions.create`
+- `armada.objective-refinement-session.detail`
+- `armada.objective-refinement-session.message`
+- `armada.objective-refinement-session.summarize`
+- `armada.objective-refinement-session.apply`
+- `armada.objective-refinement-session.stop`
+- `armada.objective-refinement-session.delete`
+- `armada.planning-sessions.list`
+- `armada.planning-session.detail`
+- `armada.planning-session.create`
+- `armada.planning-session.message`
+- `armada.planning-session.summarize`
+- `armada.planning-session.dispatch`
+- `armada.planning-session.stop`
+- `armada.planning-session.delete`
+- `armada.workflow-profiles.list`
+- `armada.workflow-profile.detail`
+- `armada.workflow-profile.create`
+- `armada.workflow-profile.update`
+- `armada.workflow-profile.delete`
+- `armada.check-runs.list`
+- `armada.check-run.detail`
+- `armada.check-run.create`
+- `armada.check-run.retry`
+- `armada.check-run.delete`
+- `armada.environments.list`
+- `armada.environment.detail`
+- `armada.environment.create`
+- `armada.environment.update`
+- `armada.environment.delete`
+- `armada.releases.list`
+- `armada.release.detail`
+- `armada.release.create`
+- `armada.release.update`
+- `armada.release.refresh`
+- `armada.release.delete`
+- `armada.deployments.list`
+- `armada.deployment.detail`
+- `armada.deployment.create`
+- `armada.deployment.update`
+- `armada.deployment.approve`
+- `armada.deployment.deny`
+- `armada.deployment.verify`
+- `armada.deployment.rollback`
+- `armada.deployment.delete`
+- `armada.incidents.list`
+- `armada.incident.detail`
+- `armada.incident.create`
+- `armada.incident.update`
+- `armada.incident.delete`
+- `armada.runbooks.list`
+- `armada.runbook.detail`
+- `armada.runbook.create`
+- `armada.runbook.update`
+- `armada.runbook.delete`
+- `armada.runbook-executions.list`
+- `armada.runbook-execution.detail`
+- `armada.runbook-execution.create`
+- `armada.runbook-execution.update`
+- `armada.runbook-execution.delete`
+- `armada.captain.tools`
+- `armada.request-history.list`
+- `armada.request-history.detail`
+- `armada.request-history.summary`
+- `armada.workspace.status`
+- `armada.workspace.tree`
+- `armada.workspace.file`
+- `armada.workspace.search`
+- `armada.workspace.changes`
+- `armada.pipelines.list`
+- `armada.pipeline.detail`
+- `armada.personas.list`
+- `armada.persona.detail`
+- `armada.prompt-templates.list`
+- `armada.prompt-template.detail`
 - `armada.voyage.cancel`
 - `armada.captains.recent`
 - `armada.captain.stop`

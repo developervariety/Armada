@@ -2,28 +2,27 @@
 
 **Version:** 0.8.0
 
-This document describes the first shipped Armada proxy API surface in `v0.8.0`.
+This document describes the currently shipped Armada proxy API surface in `v0.8.0`.
 
-`v0.8.0` includes:
+The proxy is no longer limited to summary, dispatch, and light fleet/vessel management. The shipped surface now includes:
 
-- websocket tunnel termination at `/tunnel`
-- challenge-based browser login using the shared proxy password
-- in-memory instance registration keyed by `instanceId`
-- live instance summary and detail endpoints
-- a mobile-first remote operations shell served at `/`
-- focused remote inspection endpoints for activity, missions, voyages, captains, logs, and diffs
-- bounded remote management endpoints for fleets, vessels, playbooks, voyages, missions, and captain control
-- live request/response forwarding for Armada health, status, detail snapshots, and management actions
-- tunnel handshake validation using shared-password proofs plus optional enrollment-token validation
+- browser auth and instance selection
+- remote shell summary and recent activity
+- fleet, vessel, pipeline, playbook, voyage, mission, and captain inspection/management
+- backlog/objective intake and captain-backed refinement
+- planning-session creation, transcript summary, and dispatch handoff
+- delivery-oriented workflow, check, environment, release, deployment, incident, and runbook routes
+- captain tool inventory and request-history diagnostics
+- bounded workspace, persona, pipeline, and prompt-template reference routes
 
-`v0.8.0` does not yet include:
+The proxy still intentionally does not include:
 
 - SaaS user accounts
-- enrollment workflows beyond static token validation
 - delegated identity or remote authorization mapping
-- notification inboxes
-- persistent proxy storage
-- server-side remote action policy evaluation beyond the current shell confirmation prompts
+- tenant, user, or credential administration
+- setup wizard or local deployment management
+- secret editing
+- full remote workspace editing parity with the main dashboard
 
 ---
 
@@ -64,7 +63,7 @@ Configuration is read from the `ArmadaProxy` section:
 
 ## Authentication Model
 
-The proxy now exposes a small auth surface for the browser app:
+The proxy exposes a small auth surface for the browser app:
 
 - `GET /api/v1/auth/challenge`
 - `POST /api/v1/auth/login`
@@ -72,7 +71,7 @@ The proxy now exposes a small auth surface for the browser app:
 
 `GET /api/v1/status/health` remains unauthenticated.
 
-All other `/api/v1/*` routes require the `X-Armada-Proxy-Session` header, obtained from `POST /api/v1/auth/login`.
+All other `/api/v1/*` routes require the `X-Armada-Proxy-Session` header returned by `POST /api/v1/auth/login`.
 
 The browser does not send the raw shared password. It first requests a nonce from `/api/v1/auth/challenge`, computes a SHA-256 proof in the browser, and submits that proof to `/api/v1/auth/login`.
 
@@ -113,26 +112,28 @@ Invalidates the current browser session identified by `X-Armada-Proxy-Session`.
 
 ---
 
-## REST Endpoints
+## Core Status And Instance Endpoints
 
 ### GET /
 
-Serves the proxy remote operations shell.
+Serves the proxy remote-operations shell.
 
-The shell is designed for quick remote triage rather than full local-dashboard parity. In `v0.8.0` it includes:
+The shipped shell now includes these major sections:
 
-- instance list
-- instance summary cards
-- recent activity feed
-- mission, voyage, captain, fleet, and vessel lists
-- focused mission, voyage, captain, fleet, and vessel detail
-- fleet creation and editing
-- vessel creation and editing
-- playbook creation, editing, deletion, and selection during voyage dispatch
-- voyage dispatch and cancellation
-- mission creation, editing, cancellation, and restart
-- captain stop
-- inline mission log, mission diff, and captain log viewers
+- summary
+- activity
+- missions
+- voyages
+- captains
+- fleets
+- vessels
+- dispatch
+- playbooks
+- backlog
+- planning
+- delivery
+- diagnostics
+- reference
 
 ### GET /api/v1/status/health
 
@@ -159,114 +160,35 @@ Returns proxy process health and instance counts.
 
 Returns summary rows for all known instances.
 
-```json
-{
-  "count": 1,
-  "instances": [
-    {
-      "instanceId": "armada-1f2e3d4c5b6a",
-      "state": "connected",
-      "armadaVersion": "0.8.0",
-      "protocolVersion": "2026-04-04",
-      "capabilities": [
-        "remoteControl.handshake",
-        "remoteControl.heartbeat",
-        "remoteControl.events",
-        "remoteControl.requests",
-        "status.health",
-        "status.snapshot",
-        "settings.remoteControl"
-      ],
-      "remoteAddress": "127.0.0.1",
-      "firstSeenUtc": "2026-04-03T21:00:00Z",
-      "connectedUtc": "2026-04-03T21:00:00Z",
-      "lastSeenUtc": "2026-04-03T21:02:00Z",
-      "lastEventUtc": "2026-04-03T21:01:30Z",
-      "lastDisconnectUtc": null,
-      "lastError": null,
-      "recentEventCount": 3,
-      "pendingRequestCount": 0
-    }
-  ]
-}
-```
-
-`state` can be:
-
-- `connected`
-- `stale`
-- `offline`
-
 ### GET /api/v1/instances/{instanceId}
 
 Returns the current summary plus recent inbound event history for an instance.
-
-```json
-{
-  "summary": {
-    "instanceId": "armada-1f2e3d4c5b6a",
-    "state": "connected",
-    "armadaVersion": "0.8.0",
-    "protocolVersion": "2026-04-04",
-    "capabilities": [
-      "remoteControl.handshake",
-      "remoteControl.heartbeat",
-      "remoteControl.events",
-      "remoteControl.requests",
-      "status.health",
-      "status.snapshot",
-      "settings.remoteControl"
-    ],
-    "remoteAddress": "127.0.0.1",
-    "firstSeenUtc": "2026-04-03T21:00:00Z",
-    "connectedUtc": "2026-04-03T21:00:00Z",
-    "lastSeenUtc": "2026-04-03T21:02:00Z",
-    "lastEventUtc": "2026-04-03T21:01:30Z",
-    "lastDisconnectUtc": null,
-    "lastError": null,
-    "recentEventCount": 3,
-    "pendingRequestCount": 0
-  },
-  "recentEvents": [
-    {
-      "method": "mission.completed",
-      "correlationId": "b0f3d61d59d74e5a855f6b2e3953c64f",
-      "message": null,
-      "timestampUtc": "2026-04-03T21:01:30Z",
-      "payload": {
-        "message": "Mission completed: Update prompt templates",
-        "missionId": "msn_abc123"
-      }
-    }
-  ]
-}
-```
 
 ### GET /api/v1/instances/{instanceId}/summary
 
 Returns the aggregated remote-shell summary for a connected instance by issuing `armada.instance.summary` over the tunnel and unwrapping the successful payload.
 
+### GET /api/v1/instances/{instanceId}/status/snapshot
+
+Issues `armada.status.snapshot` through the tunnel and unwraps the successful payload.
+
+### GET /api/v1/instances/{instanceId}/health
+
+Issues `armada.status.health` through the tunnel and unwraps the successful payload.
+
+If the instance is offline, live instance routes return a `400` response like:
+
 ```json
 {
-  "generatedUtc": "2026-04-03T21:05:00Z",
-  "health": {
-    "status": "healthy",
-    "version": "0.8.0"
-  },
-  "status": {
-    "activeVoyages": 1,
-    "workingCaptains": 1
-  },
-  "recentActivity": [],
-  "recentMissions": [],
-  "recentVoyages": [],
-  "recentCaptains": []
+  "error": "Instance armada-1f2e3d4c5b6a is not connected."
 }
 ```
 
-### Focused Remote Inspection Endpoints
+---
 
-The following proxy routes unwrap the successful payload returned by the instance:
+## Focused Inspection Endpoints
+
+These routes are read-only proxy views over current Armada runtime state:
 
 - `GET /api/v1/instances/{instanceId}/activity?limit=20`
 - `GET /api/v1/instances/{instanceId}/missions/recent?limit=10`
@@ -309,25 +231,30 @@ Example mission detail response:
 }
 ```
 
-### Remote Management Endpoints
+---
 
-The proxy now forwards a bounded management surface into the connected Armada instance.
+## Core Remote Management Endpoints
 
-Fleet management:
+### Fleets
 
 - `GET /api/v1/instances/{instanceId}/fleets?limit=25`
 - `GET /api/v1/instances/{instanceId}/fleets/{fleetId}`
 - `POST /api/v1/instances/{instanceId}/fleets`
 - `PUT /api/v1/instances/{instanceId}/fleets/{fleetId}`
 
-Vessel management:
+### Vessels
 
 - `GET /api/v1/instances/{instanceId}/vessels?limit=25&fleetId={fleetId}`
 - `GET /api/v1/instances/{instanceId}/vessels/{vesselId}`
 - `POST /api/v1/instances/{instanceId}/vessels`
 - `PUT /api/v1/instances/{instanceId}/vessels/{vesselId}`
 
-Playbook management:
+### Pipelines
+
+- `GET /api/v1/instances/{instanceId}/pipelines?limit=25`
+- `GET /api/v1/instances/{instanceId}/pipelines/{name}`
+
+### Playbooks
 
 - `GET /api/v1/instances/{instanceId}/playbooks?limit=25`
 - `GET /api/v1/instances/{instanceId}/playbooks/{playbookId}`
@@ -335,13 +262,13 @@ Playbook management:
 - `PUT /api/v1/instances/{instanceId}/playbooks/{playbookId}`
 - `DELETE /api/v1/instances/{instanceId}/playbooks/{playbookId}`
 
-Voyage management:
+### Voyages
 
 - `GET /api/v1/instances/{instanceId}/voyages?limit=25&status=InProgress`
 - `POST /api/v1/instances/{instanceId}/voyages/dispatch`
 - `DELETE /api/v1/instances/{instanceId}/voyages/{voyageId}`
 
-Mission management:
+### Missions
 
 - `GET /api/v1/instances/{instanceId}/missions?limit=25&status=Review&voyageId={voyageId}&vesselId={vesselId}`
 - `POST /api/v1/instances/{instanceId}/missions`
@@ -349,7 +276,7 @@ Mission management:
 - `DELETE /api/v1/instances/{instanceId}/missions/{missionId}`
 - `POST /api/v1/instances/{instanceId}/missions/{missionId}/restart`
 
-Captain control:
+### Captains
 
 - `POST /api/v1/instances/{instanceId}/captains/{captainId}/stop`
 
@@ -360,10 +287,10 @@ Example voyage dispatch request:
   "title": "Remote release hardening",
   "description": "Ship the v0.8.0 proxy management surface.",
   "vesselId": "vsl_abc123",
-  "pipeline": "FullPipeline",
+  "pipelineId": "FullPipeline",
   "selectedPlaybooks": [
     {
-      "playbookId": "pbk_abc123",
+      "playbookId": "plb_abc123",
       "deliveryMode": "InlineFullContent"
     }
   ],
@@ -380,97 +307,254 @@ Example voyage dispatch request:
 }
 ```
 
-Example mission update request:
+---
+
+## Phase 1: Backlog, Refinement, And Planning
+
+### Objectives And Backlog
+
+Both `/objectives` and `/backlog` map to the same remote objective store. The proxy exposes both because operators may think in either neutral lineage terms or backlog terminology.
+
+- `GET /api/v1/instances/{instanceId}/objectives`
+- `POST /api/v1/instances/{instanceId}/objectives/enumerate`
+- `GET /api/v1/instances/{instanceId}/objectives/{objectiveId}`
+- `POST /api/v1/instances/{instanceId}/objectives`
+- `PUT /api/v1/instances/{instanceId}/objectives/{objectiveId}`
+- `DELETE /api/v1/instances/{instanceId}/objectives/{objectiveId}`
+- `GET /api/v1/instances/{instanceId}/backlog`
+- `POST /api/v1/instances/{instanceId}/backlog/enumerate`
+- `GET /api/v1/instances/{instanceId}/backlog/{objectiveId}`
+- `POST /api/v1/instances/{instanceId}/backlog`
+- `PUT /api/v1/instances/{instanceId}/backlog/{objectiveId}`
+- `DELETE /api/v1/instances/{instanceId}/backlog/{objectiveId}`
+
+Example backlog create request:
 
 ```json
 {
-  "title": "Update proxy docs",
-  "description": "Document the shipped management endpoints and shell workflows.",
-  "persona": "Worker",
-  "priority": 50,
+  "title": "Proxy objective intake",
+  "description": "Add planning and delivery parity to Armada.Proxy.",
+  "status": "Draft",
+  "backlogState": "Inbox",
+  "vesselIds": [
+    "vsl_abc123"
+  ],
+  "fleetIds": [
+    "flt_abc123"
+  ],
+  "tags": [
+    "proxy",
+    "phase1"
+  ]
+}
+```
+
+### Objective Refinement Sessions
+
+- `GET /api/v1/instances/{instanceId}/objectives/{objectiveId}/refinement-sessions`
+- `POST /api/v1/instances/{instanceId}/objectives/{objectiveId}/refinement-sessions`
+- `GET /api/v1/instances/{instanceId}/backlog/{objectiveId}/refinement-sessions`
+- `POST /api/v1/instances/{instanceId}/backlog/{objectiveId}/refinement-sessions`
+- `GET /api/v1/instances/{instanceId}/objective-refinement-sessions/{sessionId}`
+- `POST /api/v1/instances/{instanceId}/objective-refinement-sessions/{sessionId}/messages`
+- `POST /api/v1/instances/{instanceId}/objective-refinement-sessions/{sessionId}/summarize`
+- `POST /api/v1/instances/{instanceId}/objective-refinement-sessions/{sessionId}/apply`
+- `POST /api/v1/instances/{instanceId}/objective-refinement-sessions/{sessionId}/stop`
+- `DELETE /api/v1/instances/{instanceId}/objective-refinement-sessions/{sessionId}`
+
+### Planning Sessions
+
+- `GET /api/v1/instances/{instanceId}/planning-sessions`
+- `POST /api/v1/instances/{instanceId}/planning-sessions/enumerate`
+- `POST /api/v1/instances/{instanceId}/planning-sessions`
+- `GET /api/v1/instances/{instanceId}/planning-sessions/{sessionId}`
+- `POST /api/v1/instances/{instanceId}/planning-sessions/{sessionId}/messages`
+- `POST /api/v1/instances/{instanceId}/planning-sessions/{sessionId}/summarize`
+- `POST /api/v1/instances/{instanceId}/planning-sessions/{sessionId}/dispatch`
+- `POST /api/v1/instances/{instanceId}/planning-sessions/{sessionId}/stop`
+- `DELETE /api/v1/instances/{instanceId}/planning-sessions/{sessionId}`
+
+Example planning dispatch request:
+
+```json
+{
+  "messageId": "psm_abc123",
+  "title": "Proxy backlog dispatch"
+}
+```
+
+---
+
+## Phase 2: Delivery Surfaces
+
+The proxy now exposes compact operator-facing routes for workflow governance and delivery follow-through.
+
+### Workflow Profiles
+
+- `GET /api/v1/instances/{instanceId}/workflow-profiles`
+- `POST /api/v1/instances/{instanceId}/workflow-profiles/enumerate`
+- `POST /api/v1/instances/{instanceId}/workflow-profiles`
+- `GET /api/v1/instances/{instanceId}/workflow-profiles/{id}`
+- `PUT /api/v1/instances/{instanceId}/workflow-profiles/{id}`
+- `DELETE /api/v1/instances/{instanceId}/workflow-profiles/{id}`
+
+### Check Runs
+
+- `GET /api/v1/instances/{instanceId}/check-runs`
+- `POST /api/v1/instances/{instanceId}/check-runs/enumerate`
+- `POST /api/v1/instances/{instanceId}/check-runs`
+- `GET /api/v1/instances/{instanceId}/check-runs/{id}`
+- `POST /api/v1/instances/{instanceId}/check-runs/{id}/retry`
+- `DELETE /api/v1/instances/{instanceId}/check-runs/{id}`
+
+### Environments
+
+- `GET /api/v1/instances/{instanceId}/environments`
+- `POST /api/v1/instances/{instanceId}/environments/enumerate`
+- `POST /api/v1/instances/{instanceId}/environments`
+- `GET /api/v1/instances/{instanceId}/environments/{id}`
+- `PUT /api/v1/instances/{instanceId}/environments/{id}`
+- `DELETE /api/v1/instances/{instanceId}/environments/{id}`
+
+### Releases
+
+- `GET /api/v1/instances/{instanceId}/releases`
+- `POST /api/v1/instances/{instanceId}/releases/enumerate`
+- `POST /api/v1/instances/{instanceId}/releases`
+- `GET /api/v1/instances/{instanceId}/releases/{id}`
+- `PUT /api/v1/instances/{instanceId}/releases/{id}`
+- `POST /api/v1/instances/{instanceId}/releases/{id}/refresh`
+- `DELETE /api/v1/instances/{instanceId}/releases/{id}`
+
+### Deployments
+
+- `GET /api/v1/instances/{instanceId}/deployments`
+- `POST /api/v1/instances/{instanceId}/deployments/enumerate`
+- `POST /api/v1/instances/{instanceId}/deployments`
+- `GET /api/v1/instances/{instanceId}/deployments/{id}`
+- `PUT /api/v1/instances/{instanceId}/deployments/{id}`
+- `POST /api/v1/instances/{instanceId}/deployments/{id}/approve`
+- `POST /api/v1/instances/{instanceId}/deployments/{id}/deny`
+- `POST /api/v1/instances/{instanceId}/deployments/{id}/verify`
+- `POST /api/v1/instances/{instanceId}/deployments/{id}/rollback`
+- `DELETE /api/v1/instances/{instanceId}/deployments/{id}`
+
+### Incidents
+
+- `GET /api/v1/instances/{instanceId}/incidents`
+- `POST /api/v1/instances/{instanceId}/incidents/enumerate`
+- `POST /api/v1/instances/{instanceId}/incidents`
+- `GET /api/v1/instances/{instanceId}/incidents/{id}`
+- `PUT /api/v1/instances/{instanceId}/incidents/{id}`
+- `DELETE /api/v1/instances/{instanceId}/incidents/{id}`
+
+### Runbooks And Runbook Executions
+
+- `GET /api/v1/instances/{instanceId}/runbooks`
+- `POST /api/v1/instances/{instanceId}/runbooks/enumerate`
+- `POST /api/v1/instances/{instanceId}/runbooks`
+- `GET /api/v1/instances/{instanceId}/runbooks/{id}`
+- `PUT /api/v1/instances/{instanceId}/runbooks/{id}`
+- `DELETE /api/v1/instances/{instanceId}/runbooks/{id}`
+- `GET /api/v1/instances/{instanceId}/runbook-executions`
+- `POST /api/v1/instances/{instanceId}/runbook-executions/enumerate`
+- `GET /api/v1/instances/{instanceId}/runbook-executions/{id}`
+- `POST /api/v1/instances/{instanceId}/runbooks/{id}/executions`
+- `PUT /api/v1/instances/{instanceId}/runbook-executions/{id}`
+- `DELETE /api/v1/instances/{instanceId}/runbook-executions/{id}`
+
+Example deployment denial request:
+
+```json
+{
+  "comment": "Hold until the next change window."
+}
+```
+
+---
+
+## Phase 3: Diagnostics
+
+### Captain Tool Inventory
+
+- `GET /api/v1/instances/{instanceId}/captains/{captainId}/tools`
+
+This route surfaces runtime-visible tools, configured MCP servers, runtime-only sources, and reachability metadata when the selected captain runtime exposes them.
+
+Example response summary:
+
+```json
+{
+  "captainId": "cpt_abc123",
+  "captainName": "codex-main",
+  "runtime": "Codex",
+  "toolsAccessible": true,
+  "availabilityVerified": true,
+  "availabilitySource": "runtime-catalog",
+  "summary": "Codex reports 2 configured MCP server(s); 1 responded and exposed 107 tool(s). Remaining configured MCP servers did not respond at query time and may simply be offline.",
+  "configuredServerCount": 2,
+  "reachableServerCount": 1,
+  "effectiveToolCount": 107,
+  "servers": [],
+  "tools": []
+}
+```
+
+### Request History
+
+- `GET /api/v1/instances/{instanceId}/request-history`
+- `POST /api/v1/instances/{instanceId}/request-history/enumerate`
+- `GET /api/v1/instances/{instanceId}/request-history/summary`
+- `POST /api/v1/instances/{instanceId}/request-history/summary`
+- `GET /api/v1/instances/{instanceId}/request-history/{id}`
+
+### API Explorer
+
+There is no dedicated `/api/v1/instances/{instanceId}/api-explorer` endpoint.
+
+The proxy shell's API Explorer is a bounded browser-side tool that issues authenticated requests against existing proxy routes. It is intentionally route-based rather than a second generic server surface.
+
+It only targets the selected deployment route family under /api/v1/instances/{instanceId} and now seeds the UI with safe common GET presets before operators branch into write calls.
+
+---
+
+## Phase 4: Workspace And Reference Views
+
+### Workspace
+
+- `GET /api/v1/instances/{instanceId}/workspace/vessels/{vesselId}/status`
+- `GET /api/v1/instances/{instanceId}/workspace/vessels/{vesselId}/tree?path=...`
+- `GET /api/v1/instances/{instanceId}/workspace/vessels/{vesselId}/file?path=...`
+- `GET /api/v1/instances/{instanceId}/workspace/vessels/{vesselId}/search?query=...&maxResults=...`
+- `GET /api/v1/instances/{instanceId}/workspace/vessels/{vesselId}/changes`
+
+Example workspace file response:
+
+```json
+{
   "vesselId": "vsl_abc123",
-  "voyageId": "vyg_abc123"
+  "path": "notes.txt",
+  "name": "notes.txt",
+  "content": "Proxy workspace token",
+  "contentHash": "2f8f5a0e7c4a1c5d6e0f...",
+  "isEditable": true,
+  "isBinary": false,
+  "isLarge": false,
+  "previewTruncated": false,
+  "sizeBytes": 21,
+  "lastWriteUtc": "2026-05-15T22:15:00Z",
+  "language": "plaintext"
 }
 ```
 
-### GET /api/v1/instances/{instanceId}/status/snapshot
+### Personas And Prompt Templates
 
-Sends a live tunnel request to the connected Armada instance using method `armada.status.snapshot`.
-
-```json
-{
-  "correlationId": "62cf28fa232f49a5aab48debe031eb89",
-  "success": true,
-  "statusCode": 200,
-  "errorCode": null,
-  "message": "Armada status snapshot captured.",
-  "payload": {
-    "totalCaptains": 2,
-    "idleCaptains": 1,
-    "workingCaptains": 1,
-    "stalledCaptains": 0,
-    "activeVoyages": 1,
-    "missionsByStatus": {
-      "Pending": 2,
-      "InProgress": 1
-    },
-    "voyages": [],
-    "recentSignals": [],
-    "remoteTunnel": {
-      "enabled": true,
-      "state": "Connected",
-      "tunnelUrl": "wss://proxy.example.com/tunnel",
-      "instanceId": "armada-1f2e3d4c5b6a",
-      "lastError": null,
-      "reconnectAttempts": 0,
-      "latencyMs": 42
-    },
-    "timestampUtc": "2026-04-03T21:02:00Z"
-  }
-}
-```
-
-### GET /api/v1/instances/{instanceId}/health
-
-Sends a live tunnel request to the connected Armada instance using method `armada.status.health`.
-
-```json
-{
-  "correlationId": "a81ec0a5ee024679b719046d1bf8de85",
-  "success": true,
-  "statusCode": 200,
-  "errorCode": null,
-  "message": "Armada health snapshot captured.",
-  "payload": {
-    "status": "healthy",
-    "timestamp": "2026-04-03T21:02:00Z",
-    "startUtc": "2026-04-03T20:00:00Z",
-    "uptime": "0.01:02:00",
-    "version": "0.8.0",
-    "ports": {
-      "admiral": 7890,
-      "mcp": 7891
-    },
-    "remoteTunnel": {
-      "enabled": true,
-      "state": "Connected",
-      "tunnelUrl": "wss://proxy.example.com/tunnel",
-      "instanceId": "armada-1f2e3d4c5b6a",
-      "lastError": null,
-      "reconnectAttempts": 0,
-      "latencyMs": 42
-    }
-  }
-}
-```
-
-If the instance is offline, the live endpoints return a `400` response with:
-
-```json
-{
-  "error": "Instance armada-1f2e3d4c5b6a is not connected."
-}
-```
+- `GET /api/v1/instances/{instanceId}/personas`
+- `POST /api/v1/instances/{instanceId}/personas/enumerate`
+- `GET /api/v1/instances/{instanceId}/personas/{name}`
+- `GET /api/v1/instances/{instanceId}/prompt-templates`
+- `POST /api/v1/instances/{instanceId}/prompt-templates/enumerate`
+- `GET /api/v1/instances/{instanceId}/prompt-templates/{name}`
 
 ---
 
@@ -494,41 +578,12 @@ See [docs/TUNNEL_PROTOCOL.md](TUNNEL_PROTOCOL.md) for envelope details.
 - the registry is process-local and in-memory
 - browser API access is protected by a shared-password session gate, not a multi-user identity model
 - tunnel registration requires a valid shared-password proof and optional enrollment-token validation
-- routed requests currently support:
-  - `armada.instance.summary`
-  - `armada.fleets.list`
-  - `armada.fleet.detail`
-  - `armada.fleet.create`
-  - `armada.fleet.update`
-  - `armada.vessels.list`
-  - `armada.vessel.detail`
-  - `armada.vessel.create`
-  - `armada.vessel.update`
-  - `armada.playbooks.list`
-  - `armada.playbook.detail`
-  - `armada.playbook.create`
-  - `armada.playbook.update`
-  - `armada.playbook.delete`
-  - `armada.activity.recent`
-  - `armada.missions.list`
-  - `armada.missions.recent`
-  - `armada.mission.create`
-  - `armada.mission.update`
-  - `armada.mission.cancel`
-  - `armada.mission.restart`
-  - `armada.voyages.list`
-  - `armada.voyages.recent`
-  - `armada.voyage.dispatch`
-  - `armada.voyage.cancel`
-  - `armada.captains.recent`
-  - `armada.captain.stop`
-  - `armada.mission.detail`
-  - `armada.mission.log`
-  - `armada.mission.diff`
-  - `armada.voyage.detail`
-  - `armada.captain.detail`
-  - `armada.captain.log`
-  - `armada.status.snapshot`
-  - `armada.status.health`
+- the proxy now supports high-value remote-operations routes for:
+  - summary and live inspection
+  - fleet/vessel/pipeline/playbook/voyage/mission/captain control
+  - backlog, refinement, and planning
+  - workflow, checks, environments, releases, deployments, incidents, and runbooks
+  - captain tools, request history, and bounded API exploration
+  - read-only workspace, pipeline, persona, and prompt-template reference flows
 - recent event history is bounded by `maxRecentEvents`
-- destructive actions are client-confirmed in the remote shell, but there is still no per-user authz or policy engine; this remains an implementation-stage operator service
+- destructive actions are still client-confirmed in the shell, but there is still no per-user authz or policy engine beyond the current proxy session gate

@@ -111,6 +111,12 @@
         <button type="button" class="sidebar-nav-item" data-scroll-target="captainsSection">Captains</button>
         <button type="button" class="sidebar-nav-item" data-scroll-target="fleetsSection">Fleets</button>
         <button type="button" class="sidebar-nav-item" data-scroll-target="vesselsSection">Vessels</button>
+        <button type="button" class="sidebar-nav-item" data-scroll-target="playbooksSection">Playbooks</button>
+        <button type="button" class="sidebar-nav-item" data-scroll-target="backlogSection">Backlog</button>
+        <button type="button" class="sidebar-nav-item" data-scroll-target="planningSection">Planning</button>
+        <button type="button" class="sidebar-nav-item" data-scroll-target="deliverySection">Delivery</button>
+        <button type="button" class="sidebar-nav-item" data-scroll-target="diagnosticsSection">Diagnostics</button>
+        <button type="button" class="sidebar-nav-item" data-scroll-target="referenceSection">Reference</button>
       </nav>
 
       <div class="sidebar-footer">
@@ -286,6 +292,462 @@
               </div>
               <div id="vesselList" class="entity-stack"></div>
             </section>
+
+            <section id="playbooksSection" class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Playbooks</h2>
+                  <p class="text-muted">Manage reusable markdown guidance for dispatch and mission orchestration.</p>
+                </div>
+                <div class="panel-header-actions">
+                  <button id="openPlaybookModalButton" type="button" class="button">Add Playbook</button>
+                </div>
+              </div>
+              <div id="playbookList" class="entity-stack"></div>
+            </section>
+
+            <section id="backlogSection" class="panel panel-full">
+              <div class="panel-header">
+                <div>
+                  <h2>Backlog</h2>
+                  <p class="text-muted">Capture future work, review lineage, and kick off captain-backed refinement.</p>
+                </div>
+                <div class="panel-header-actions">
+                  <button id="refreshBacklogButton" type="button" class="button">Refresh</button>
+                  <button id="openBacklogModalButton" type="button" class="button button-primary">Add Backlog Item</button>
+                </div>
+              </div>
+              <form id="backlogBrowseForm" class="form-stack panel-filters">
+                <div class="field-row field-row-triple">
+                  <label class="field">
+                    <span>Status</span>
+                    <select id="backlogBrowseStatus">
+                      <option value="">All</option>
+                      <option value="Draft">Draft</option>
+                      <option value="Ready">Ready</option>
+                      <option value="InProgress">InProgress</option>
+                      <option value="Complete">Complete</option>
+                      <option value="Cancelled">Cancelled</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>Backlog State</span>
+                    <select id="backlogBrowseBacklogState">
+                      <option value="">All</option>
+                      <option value="Inbox">Inbox</option>
+                      <option value="Triaged">Triaged</option>
+                      <option value="Refined">Refined</option>
+                      <option value="Planned">Planned</option>
+                      <option value="Dispatched">Dispatched</option>
+                      <option value="Delivered">Delivered</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>Limit</span>
+                    <input id="backlogBrowseLimit" type="number" min="1" max="100" value="12">
+                  </label>
+                </div>
+                <div class="field-row">
+                  <label class="field">
+                    <span>Search</span>
+                    <input id="backlogBrowseSearch" type="text" placeholder="login usability">
+                  </label>
+                  <label class="field">
+                    <span>Owner</span>
+                    <input id="backlogBrowseOwner" type="text" placeholder="Product">
+                  </label>
+                </div>
+                <div class="field-row">
+                  <label class="field">
+                    <span>Vessel</span>
+                    <select id="backlogBrowseVesselId"></select>
+                  </label>
+                  <label class="field">
+                    <span>Tag</span>
+                    <input id="backlogBrowseTag" type="text" placeholder="ux">
+                  </label>
+                </div>
+                <div class="form-actions">
+                  <button type="submit" class="button">Browse Backlog</button>
+                  <button id="backlogBrowseRecentButton" type="button" class="button">Load Recent</button>
+                </div>
+                <div id="backlogBrowseStatusText" class="form-status"></div>
+              </form>
+              <div id="backlogList" class="entity-stack"></div>
+            </section>
+
+            <section id="planningSection" class="panel panel-full">
+              <div class="panel-header">
+                <div>
+                  <h2>Planning</h2>
+                  <p class="text-muted">Open planning sessions, continue the transcript, and hand off into dispatch.</p>
+                </div>
+                <div class="panel-header-actions">
+                  <button id="refreshPlanningButton" type="button" class="button">Refresh</button>
+                  <button id="openPlanningModalButton" type="button" class="button button-primary">New Planning Session</button>
+                </div>
+              </div>
+              <form id="planningBrowseForm" class="form-stack panel-filters">
+                <div class="field-row field-row-triple">
+                  <label class="field">
+                    <span>Captain</span>
+                    <select id="planningBrowseCaptainId"></select>
+                  </label>
+                  <label class="field">
+                    <span>Vessel</span>
+                    <select id="planningBrowseVesselId"></select>
+                  </label>
+                  <label class="field">
+                    <span>Status</span>
+                    <input id="planningBrowseStatus" type="text" placeholder="Created">
+                  </label>
+                </div>
+                <div class="field-row">
+                  <label class="field">
+                    <span>Objective Id</span>
+                    <input id="planningBrowseObjectiveId" type="text" placeholder="obj_...">
+                  </label>
+                  <label class="field">
+                    <span>Limit</span>
+                    <input id="planningBrowseLimit" type="number" min="1" max="100" value="12">
+                  </label>
+                </div>
+                <div class="form-actions">
+                  <button type="submit" class="button">Browse Planning Sessions</button>
+                  <button id="planningBrowseRecentButton" type="button" class="button">Load Recent</button>
+                </div>
+                <div id="planningBrowseStatusText" class="form-status"></div>
+              </form>
+              <div id="planningList" class="entity-stack"></div>
+            </section>
+
+            <section id="deliverySection" class="panel panel-full">
+              <div class="panel-header">
+                <div>
+                  <h2>Delivery</h2>
+                  <p class="text-muted">Observe and operate the workflow, check, release, deployment, incident, and runbook surfaces remotely.</p>
+                </div>
+                <div class="panel-header-actions">
+                  <button id="refreshDeliveryButton" type="button" class="button">Refresh Delivery</button>
+                </div>
+              </div>
+              <div class="resource-grid">
+                <section class="subform-card resource-card">
+                  <div class="subform-card-head">
+                    <div>
+                      <h3>Workflow Profiles</h3>
+                      <p class="text-muted">Shared build, test, release, and deploy automation profiles.</p>
+                    </div>
+                    <div class="form-actions-inline">
+                      <button type="button" class="button" data-resource-refresh="workflowProfile">Refresh</button>
+                      <button type="button" class="button" data-resource-create="workflowProfile">Create</button>
+                    </div>
+                  </div>
+                  <div id="workflowProfileList" class="entity-stack compact-stack"></div>
+                </section>
+
+                <section class="subform-card resource-card">
+                  <div class="subform-card-head">
+                    <div>
+                      <h3>Check Runs</h3>
+                      <p class="text-muted">Structured validation runs attached to work, releases, and deployments.</p>
+                    </div>
+                    <div class="form-actions-inline">
+                      <button type="button" class="button" data-resource-refresh="checkRun">Refresh</button>
+                      <button type="button" class="button" data-resource-create="checkRun">Create</button>
+                    </div>
+                  </div>
+                  <div id="checkRunList" class="entity-stack compact-stack"></div>
+                </section>
+
+                <section class="subform-card resource-card">
+                  <div class="subform-card-head">
+                    <div>
+                      <h3>Environments</h3>
+                      <p class="text-muted">Remote deployment targets and rollout-verification definitions.</p>
+                    </div>
+                    <div class="form-actions-inline">
+                      <button type="button" class="button" data-resource-refresh="environment">Refresh</button>
+                      <button type="button" class="button" data-resource-create="environment">Create</button>
+                    </div>
+                  </div>
+                  <div id="environmentList" class="entity-stack compact-stack"></div>
+                </section>
+
+                <section class="subform-card resource-card">
+                  <div class="subform-card-head">
+                    <div>
+                      <h3>Releases</h3>
+                      <p class="text-muted">Versioned release records and linked evidence before deployment.</p>
+                    </div>
+                    <div class="form-actions-inline">
+                      <button type="button" class="button" data-resource-refresh="release">Refresh</button>
+                      <button type="button" class="button" data-resource-create="release">Create</button>
+                    </div>
+                  </div>
+                  <div id="releaseList" class="entity-stack compact-stack"></div>
+                </section>
+
+                <section class="subform-card resource-card">
+                  <div class="subform-card-head">
+                    <div>
+                      <h3>Deployments</h3>
+                      <p class="text-muted">Approval, verification, and rollback-aware remote deploy records.</p>
+                    </div>
+                    <div class="form-actions-inline">
+                      <button type="button" class="button" data-resource-refresh="deployment">Refresh</button>
+                      <button type="button" class="button" data-resource-create="deployment">Create</button>
+                    </div>
+                  </div>
+                  <div id="deploymentList" class="entity-stack compact-stack"></div>
+                </section>
+
+                <section class="subform-card resource-card">
+                  <div class="subform-card-head">
+                    <div>
+                      <h3>Incidents</h3>
+                      <p class="text-muted">Operational incidents, severity, recovery notes, and rollback linkage.</p>
+                    </div>
+                    <div class="form-actions-inline">
+                      <button type="button" class="button" data-resource-refresh="incident">Refresh</button>
+                      <button type="button" class="button" data-resource-create="incident">Create</button>
+                    </div>
+                  </div>
+                  <div id="incidentList" class="entity-stack compact-stack"></div>
+                </section>
+
+                <section class="subform-card resource-card">
+                  <div class="subform-card-head">
+                    <div>
+                      <h3>Runbooks</h3>
+                      <p class="text-muted">Reusable operator runbooks and the execution context around them.</p>
+                    </div>
+                    <div class="form-actions-inline">
+                      <button type="button" class="button" data-resource-refresh="runbook">Refresh</button>
+                      <button type="button" class="button" data-resource-create="runbook">Create</button>
+                    </div>
+                  </div>
+                  <div id="runbookList" class="entity-stack compact-stack"></div>
+                </section>
+
+                <section class="subform-card resource-card">
+                  <div class="subform-card-head">
+                    <div>
+                      <h3>Runbook Executions</h3>
+                      <p class="text-muted">Live or historical execution records for runbook-driven response work.</p>
+                    </div>
+                    <div class="form-actions-inline">
+                      <button type="button" class="button" data-resource-refresh="runbookExecution">Refresh</button>
+                    </div>
+                  </div>
+                  <div id="runbookExecutionList" class="entity-stack compact-stack"></div>
+                </section>
+              </div>
+            </section>
+
+            <section id="diagnosticsSection" class="panel panel-full">
+              <div class="panel-header">
+                <div>
+                  <h2>Diagnostics</h2>
+                  <p class="text-muted">Inspect runtime tool access, request history, and the bounded API surface without leaving the tunnel.</p>
+                </div>
+              </div>
+              <div class="resource-grid">
+                <section class="subform-card resource-card">
+                  <div class="subform-card-head">
+                    <div>
+                      <h3>Captain Tools</h3>
+                      <p class="text-muted">Inspect real MCP and runtime tool visibility for one captain.</p>
+                    </div>
+                  </div>
+                  <div class="field-row">
+                    <label class="field">
+                      <span>Captain</span>
+                      <select id="captainToolsCaptainId"></select>
+                    </label>
+                    <label class="field">
+                      <span>&nbsp;</span>
+                      <button id="captainToolsLoadButton" type="button" class="button">View Tools</button>
+                    </label>
+                  </div>
+                  <div id="captainToolsSummary" class="detail-card detail-card-compact detail-empty">Select a captain to inspect accessible runtime tools.</div>
+                </section>
+
+                <section class="subform-card resource-card">
+                  <div class="subform-card-head">
+                    <div>
+                      <h3>Request History</h3>
+                      <p class="text-muted">Audit recent API behavior and remote route health through the proxy.</p>
+                    </div>
+                  </div>
+                  <form id="requestHistoryForm" class="form-stack">
+                    <div class="field-row field-row-triple">
+                      <label class="field">
+                        <span>Method</span>
+                        <input id="requestHistoryMethod" type="text" placeholder="GET">
+                      </label>
+                      <label class="field">
+                        <span>Status Code</span>
+                        <input id="requestHistoryStatusCode" type="number" min="100" max="599" placeholder="500">
+                      </label>
+                      <label class="field">
+                        <span>Limit</span>
+                        <input id="requestHistoryLimit" type="number" min="1" max="100" value="12">
+                      </label>
+                    </div>
+                    <label class="field">
+                      <span>Route</span>
+                      <input id="requestHistoryRoute" type="text" placeholder="/api/v1/releases">
+                    </label>
+                    <div class="form-actions">
+                      <button type="submit" class="button">Browse Request History</button>
+                      <button id="requestHistoryRecentButton" type="button" class="button">Load Recent</button>
+                    </div>
+                    <div id="requestHistoryStatusText" class="form-status"></div>
+                  </form>
+                  <div id="requestHistorySummary" class="summary-inline-grid"></div>
+                  <div id="requestHistoryList" class="entity-stack compact-stack"></div>
+                </section>
+
+                <section class="subform-card resource-card resource-card-wide">
+                  <div class="subform-card-head">
+                    <div>
+                      <h3>API Explorer</h3>
+                      <p class="text-muted">Issue bounded instance-scoped proxy requests to inspect live remote payloads.</p>
+                      <p class="text-muted">Targets only the selected deployment route family under <span class="mono">/api/v1/instances/{instanceId}</span>. Start with a safe GET preset before issuing write calls.</p>
+                    </div>
+                  </div>
+                  <form id="apiExplorerForm" class="form-stack">
+                    <div class="field-row">
+                      <label class="field">
+                        <span>Safe GET Preset</span>
+                        <select id="apiExplorerPreset"></select>
+                      </label>
+                      <label class="field">
+                        <span>&nbsp;</span>
+                        <button id="apiExplorerUsePresetButton" type="button" class="button">Use Preset</button>
+                      </label>
+                    </div>
+                    <div class="field-row field-row-triple">
+                      <label class="field">
+                        <span>Method</span>
+                        <select id="apiExplorerMethod">
+                          <option value="GET">GET</option>
+                          <option value="POST">POST</option>
+                          <option value="PUT">PUT</option>
+                          <option value="DELETE">DELETE</option>
+                        </select>
+                      </label>
+                      <label class="field field-span-2">
+                        <span>Path</span>
+                        <input id="apiExplorerPath" type="text" placeholder="/backlog">
+                      </label>
+                    </div>
+                    <label class="field">
+                      <span>JSON Body</span>
+                      <textarea id="apiExplorerBody" rows="8" placeholder="{&#10;  &quot;pageSize&quot;: 12&#10;}"></textarea>
+                    </label>
+                    <div class="form-actions">
+                      <button id="apiExplorerSendButton" type="submit" class="button button-primary">Send Request</button>
+                    </div>
+                    <div id="apiExplorerStatusText" class="form-status"></div>
+                  </form>
+                  <pre id="apiExplorerResponse" class="code-view code-view-tall">Choose an instance route and send a request.</pre>
+                </section>
+              </div>
+            </section>
+
+            <section id="referenceSection" class="panel panel-full">
+              <div class="panel-header">
+                <div>
+                  <h2>Reference</h2>
+                  <p class="text-muted">Read-only workspace, pipeline, persona, and prompt-template context for remote operators.</p>
+                </div>
+                <div class="panel-header-actions">
+                  <button id="refreshReferenceButton" type="button" class="button">Refresh Reference</button>
+                </div>
+              </div>
+              <div class="resource-grid">
+                <section class="subform-card resource-card resource-card-wide">
+                  <div class="subform-card-head">
+                    <div>
+                      <h3>Workspace</h3>
+                      <p class="text-muted">Inspect working tree status, browse files, search text, and review local changes for one vessel.</p>
+                    </div>
+                  </div>
+                  <form id="workspaceForm" class="form-stack">
+                    <div class="field-row field-row-triple">
+                      <label class="field">
+                        <span>Vessel</span>
+                        <select id="workspaceVesselId"></select>
+                      </label>
+                      <label class="field field-span-2">
+                        <span>Path</span>
+                        <input id="workspacePath" type="text" placeholder="src">
+                      </label>
+                    </div>
+                    <div class="field-row">
+                      <label class="field">
+                        <span>Search Query</span>
+                        <input id="workspaceSearchQuery" type="text" placeholder="TODO">
+                      </label>
+                      <label class="field">
+                        <span>Max Results</span>
+                        <input id="workspaceSearchLimit" type="number" min="1" max="1000" value="50">
+                      </label>
+                    </div>
+                    <div class="form-actions">
+                      <button id="workspaceLoadStatusButton" type="button" class="button">Status</button>
+                      <button id="workspaceLoadTreeButton" type="button" class="button">Browse Tree</button>
+                      <button id="workspaceSearchButton" type="button" class="button">Search</button>
+                      <button id="workspaceLoadChangesButton" type="button" class="button">Changes</button>
+                    </div>
+                    <div id="workspaceStatusText" class="form-status"></div>
+                  </form>
+                  <div id="workspaceStatusPanel" class="summary-inline-grid"></div>
+                  <div id="workspaceResultList" class="entity-stack compact-stack"></div>
+                </section>
+
+                <section class="subform-card resource-card">
+                  <div class="subform-card-head">
+                    <div>
+                      <h3>Pipelines</h3>
+                      <p class="text-muted">Live remote pipeline definitions, including new persona stages.</p>
+                    </div>
+                    <div class="form-actions-inline">
+                      <button type="button" class="button" data-resource-refresh="pipeline">Refresh</button>
+                    </div>
+                  </div>
+                  <div id="pipelineReferenceList" class="entity-stack compact-stack"></div>
+                </section>
+
+                <section class="subform-card resource-card">
+                  <div class="subform-card-head">
+                    <div>
+                      <h3>Personas</h3>
+                      <p class="text-muted">Read-only persona definitions used by dispatch and planning workflows.</p>
+                    </div>
+                    <div class="form-actions-inline">
+                      <button type="button" class="button" data-resource-refresh="persona">Refresh</button>
+                    </div>
+                  </div>
+                  <div id="personaReferenceList" class="entity-stack compact-stack"></div>
+                </section>
+
+                <section class="subform-card resource-card">
+                  <div class="subform-card-head">
+                    <div>
+                      <h3>Prompt Templates</h3>
+                      <p class="text-muted">Read-only prompt backing used by the remote runtime and persona stack.</p>
+                    </div>
+                    <div class="form-actions-inline">
+                      <button type="button" class="button" data-resource-refresh="promptTemplate">Refresh</button>
+                    </div>
+                  </div>
+                  <div id="promptTemplateReferenceList" class="entity-stack compact-stack"></div>
+                </section>
+              </div>
+            </section>
           </div>
         </div>
       </main>
@@ -350,6 +812,15 @@
           <span>Description</span>
           <textarea id="dispatchDescription" rows="3" placeholder="High-level voyage objective"></textarea>
         </label>
+        <section class="subform-card">
+          <div class="subform-card-head">
+            <div>
+              <h3>Playbooks</h3>
+              <p class="text-muted">Attach reusable guidance to every mission in this dispatch. Order matters.</p>
+            </div>
+          </div>
+          <div id="dispatchPlaybookList" class="playbook-selection-list"></div>
+        </section>
         <label class="field">
           <span>Missions</span>
           <textarea id="dispatchMissions" rows="6" placeholder="One mission per line. Use Title :: Description to provide detailed instructions."></textarea>
@@ -487,7 +958,7 @@
         <div class="field-row">
           <label class="field">
             <span>Persona</span>
-            <input id="missionPersona" type="text" placeholder="Worker">
+            <input id="missionPersona" type="text" placeholder="Test Engineer">
           </label>
           <label class="field">
             <span>Priority</span>
@@ -499,6 +970,259 @@
           <button id="missionResetButton" type="button" class="button">Reset</button>
         </div>
         <div id="missionFormStatus" class="form-status"></div>
+      </form>
+    </div>
+  </div>
+
+  <div id="playbookModal" class="modal-shell hidden">
+    <div class="modal-backdrop" data-close-modal="playbookModal"></div>
+    <div class="modal-card modal-card-wide" role="dialog" aria-modal="true" aria-labelledby="playbookModalTitle">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <h2 id="playbookModalTitle">Add Playbook</h2>
+          <p id="playbookModalSubtitle" class="text-muted">Create reusable markdown guidance for dispatch.</p>
+        </div>
+        <button type="button" class="button modal-close-button" data-close-modal="playbookModal">Close</button>
+      </div>
+      <form id="playbookForm" class="form-stack modal-form">
+        <label class="field">
+          <span>File Name</span>
+          <input id="playbookFileName" type="text" maxlength="256" placeholder="release-hardening.md">
+        </label>
+        <label class="field">
+          <span>Description</span>
+          <textarea id="playbookDescription" rows="3" placeholder="When and why this playbook should be used"></textarea>
+        </label>
+        <label class="field">
+          <span>Content</span>
+          <textarea id="playbookContent" rows="16" placeholder="# Guidance&#10;&#10;Provide the reusable workflow or constraints here in markdown."></textarea>
+        </label>
+        <label class="field field-checkbox">
+          <input id="playbookActive" type="checkbox" checked>
+          <span>Playbook is active</span>
+        </label>
+        <div class="form-actions form-actions-spread">
+          <div class="form-actions-inline">
+            <button type="submit" class="button button-primary">Save Playbook</button>
+            <button id="playbookResetButton" type="button" class="button">Reset</button>
+          </div>
+          <button id="playbookDeleteButton" type="button" class="button button-danger hidden">Delete Playbook</button>
+        </div>
+        <div id="playbookFormStatus" class="form-status"></div>
+      </form>
+    </div>
+  </div>
+
+  <div id="backlogModal" class="modal-shell hidden">
+    <div class="modal-backdrop" data-close-modal="backlogModal"></div>
+    <div class="modal-card modal-card-wide" role="dialog" aria-modal="true" aria-labelledby="backlogModalTitle">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <h2 id="backlogModalTitle">Add Backlog Item</h2>
+          <p id="backlogModalSubtitle" class="text-muted">Capture future work with enough context for refinement and planning.</p>
+        </div>
+        <button type="button" class="button modal-close-button" data-close-modal="backlogModal">Close</button>
+      </div>
+      <form id="backlogForm" class="form-stack modal-form">
+        <label class="field">
+          <span>Title</span>
+          <input id="backlogTitle" type="text" placeholder="Improve login onboarding flow">
+        </label>
+        <label class="field">
+          <span>Description</span>
+          <textarea id="backlogDescription" rows="5" placeholder="Describe the problem, target experience, and any known constraints."></textarea>
+        </label>
+        <div class="field-row field-row-triple">
+          <label class="field">
+            <span>Status</span>
+            <select id="backlogStatus">
+              <option value="Draft">Draft</option>
+              <option value="Ready">Ready</option>
+              <option value="InProgress">InProgress</option>
+              <option value="Complete">Complete</option>
+              <option value="Cancelled">Cancelled</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Backlog State</span>
+            <select id="backlogBacklogState">
+              <option value="Inbox">Inbox</option>
+              <option value="Triaged">Triaged</option>
+              <option value="Refined">Refined</option>
+              <option value="Planned">Planned</option>
+              <option value="Dispatched">Dispatched</option>
+              <option value="Delivered">Delivered</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Kind</span>
+            <select id="backlogKind">
+              <option value="Feature">Feature</option>
+              <option value="Bug">Bug</option>
+              <option value="Maintenance">Maintenance</option>
+              <option value="Research">Research</option>
+              <option value="Spike">Spike</option>
+              <option value="Chore">Chore</option>
+              <option value="IncidentFollowUp">IncidentFollowUp</option>
+            </select>
+          </label>
+        </div>
+        <div class="field-row field-row-triple">
+          <label class="field">
+            <span>Priority</span>
+            <select id="backlogPriority">
+              <option value="P0">P0</option>
+              <option value="P1">P1</option>
+              <option value="P2" selected>P2</option>
+              <option value="P3">P3</option>
+              <option value="P4">P4</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Effort</span>
+            <select id="backlogEffort">
+              <option value="XS">XS</option>
+              <option value="S">S</option>
+              <option value="M" selected>M</option>
+              <option value="L">L</option>
+              <option value="XL">XL</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Owner</span>
+            <input id="backlogOwner" type="text" placeholder="Product">
+          </label>
+        </div>
+        <div class="field-row field-row-triple">
+          <label class="field">
+            <span>Vessel</span>
+            <select id="backlogVesselId"></select>
+          </label>
+          <label class="field">
+            <span>Target Version</span>
+            <input id="backlogTargetVersion" type="text" placeholder="v1.2.0">
+          </label>
+          <label class="field">
+            <span>Due UTC</span>
+            <input id="backlogDueUtc" type="datetime-local">
+          </label>
+        </div>
+        <div class="field-row">
+          <label class="field">
+            <span>Parent Objective Id</span>
+            <input id="backlogParentObjectiveId" type="text" placeholder="obj_...">
+          </label>
+          <label class="field">
+            <span>Blocked By Objective Ids</span>
+            <input id="backlogBlockedByObjectiveIds" type="text" placeholder="obj_123, obj_456">
+          </label>
+        </div>
+        <label class="field">
+          <span>Tags</span>
+          <textarea id="backlogTags" rows="2" placeholder="ux&#10;identity"></textarea>
+        </label>
+        <div class="field-row">
+          <label class="field">
+            <span>Acceptance Criteria</span>
+            <textarea id="backlogAcceptanceCriteria" rows="4" placeholder="User can sign in with SSO&#10;Errors are clearly explained"></textarea>
+          </label>
+          <label class="field">
+            <span>Non-Goals</span>
+            <textarea id="backlogNonGoals" rows="4" placeholder="No passwordless changes in this slice"></textarea>
+          </label>
+        </div>
+        <div class="field-row">
+          <label class="field">
+            <span>Rollout Constraints</span>
+            <textarea id="backlogRolloutConstraints" rows="4" placeholder="Must remain backward compatible for existing tenants"></textarea>
+          </label>
+          <label class="field">
+            <span>Evidence Links</span>
+            <textarea id="backlogEvidenceLinks" rows="4" placeholder="https://tracker/..."></textarea>
+          </label>
+        </div>
+        <div class="form-actions form-actions-spread">
+          <div class="form-actions-inline">
+            <button id="backlogSaveButton" type="submit" class="button button-primary">Save Backlog Item</button>
+            <button id="backlogResetButton" type="button" class="button">Reset</button>
+          </div>
+          <button id="backlogDeleteButton" type="button" class="button button-danger hidden">Delete Backlog Item</button>
+        </div>
+        <div id="backlogFormStatus" class="form-status"></div>
+      </form>
+    </div>
+  </div>
+
+  <div id="planningModal" class="modal-shell hidden">
+    <div class="modal-backdrop" data-close-modal="planningModal"></div>
+    <div class="modal-card modal-card-wide" role="dialog" aria-modal="true" aria-labelledby="planningModalTitle">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <h2 id="planningModalTitle">New Planning Session</h2>
+          <p id="planningModalSubtitle" class="text-muted">Reserve a captain, attach context, and start the planning transcript.</p>
+        </div>
+        <button type="button" class="button modal-close-button" data-close-modal="planningModal">Close</button>
+      </div>
+      <form id="planningForm" class="form-stack modal-form">
+        <label class="field">
+          <span>Title</span>
+          <input id="planningTitle" type="text" placeholder="Plan login onboarding improvements">
+        </label>
+        <div class="field-row field-row-triple">
+          <label class="field">
+            <span>Captain</span>
+            <select id="planningCaptainId"></select>
+          </label>
+          <label class="field">
+            <span>Vessel</span>
+            <select id="planningVesselId"></select>
+          </label>
+          <label class="field">
+            <span>Pipeline</span>
+            <select id="planningPipelineId"></select>
+          </label>
+        </div>
+        <label class="field">
+          <span>Linked Objective Id</span>
+          <input id="planningObjectiveId" type="text" placeholder="obj_...">
+        </label>
+        <label class="field">
+          <span>Initial Message</span>
+          <textarea id="planningInitialMessage" rows="8" placeholder="Help break this objective into a practical remote dispatch plan."></textarea>
+        </label>
+        <div class="form-actions">
+          <button id="planningSaveButton" type="submit" class="button button-primary">Start Planning Session</button>
+          <button id="planningResetButton" type="button" class="button">Reset</button>
+        </div>
+        <div id="planningFormStatus" class="form-status"></div>
+      </form>
+    </div>
+  </div>
+
+  <div id="resourceEditorModal" class="modal-shell hidden">
+    <div class="modal-backdrop" data-close-modal="resourceEditorModal"></div>
+    <div class="modal-card modal-card-wide" role="dialog" aria-modal="true" aria-labelledby="resourceEditorTitle">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <h2 id="resourceEditorTitle">Edit Resource</h2>
+          <p id="resourceEditorSubtitle" class="text-muted">Review and update the JSON payload before saving.</p>
+        </div>
+        <button type="button" class="button modal-close-button" data-close-modal="resourceEditorModal">Close</button>
+      </div>
+      <form id="resourceEditorForm" class="form-stack modal-form">
+        <div id="resourceEditorHelp" class="form-status">Only include fields accepted by the underlying Armada route.</div>
+        <label class="field">
+          <span>JSON Payload</span>
+          <textarea id="resourceEditorPayload" rows="20" class="mono" placeholder="{&#10;  &quot;name&quot;: &quot;Example&quot;&#10;}"></textarea>
+        </label>
+        <div class="form-actions form-actions-spread">
+          <div class="form-actions-inline">
+            <button id="resourceEditorSaveButton" type="submit" class="button button-primary">Save</button>
+            <button id="resourceEditorResetButton" type="button" class="button">Reset</button>
+          </div>
+          <button id="resourceEditorDeleteButton" type="button" class="button button-danger hidden">Delete</button>
+        </div>
+        <div id="resourceEditorStatus" class="form-status"></div>
       </form>
     </div>
   </div>

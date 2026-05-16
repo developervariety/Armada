@@ -25,7 +25,7 @@ Armada does not yet support:
 
 - provider-backed PR release evidence
 - CI/CD provider-ingested deployment status
-- remote proxy-driven deployment, verification, rollback, or incident execution
+- remote proxy-driven PR/review evidence ingestion from external providers
 
 ## 1. Prepare The Delivery Surface
 
@@ -201,4 +201,4 @@ For the cleanest operator experience, treat these as required:
 
 - No provider-backed PR evidence is attached to releases yet.
 - No external CI provider deployment evidence is attached yet.
-- Remote proxy workflows do not yet expose deployments, environments, incidents, releases, or runbooks as first-class remote-managed surfaces.
+- Proxy delivery workflows remain bounded and operator-focused rather than full dashboard parity. They currently expose releases, environments, deployments, incidents, runbooks, and runbook executions through the tunnel shell, but they do not attempt full administrative coverage or secret editing.

@@ -417,6 +417,43 @@ namespace Armada.Proxy
                 return await ForwardPayloadAsync(req, instanceId, "armada.pipelines.list", new RemoteTunnelQueryRequest { Limit = limit }).ConfigureAwait(false);
             });
 
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/playbooks", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                int limit = ParsePositiveInt(req.Query["limit"], 24, 1, 200);
+                return await ForwardPayloadAsync(req, instanceId, "armada.playbooks.list", new RemoteTunnelQueryRequest { Limit = limit }).ConfigureAwait(false);
+            });
+
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/playbooks/{playbookId}", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string playbookId = RequireParameter(req, "playbookId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.playbook.detail", new RemoteTunnelQueryRequest { PlaybookId = playbookId }).ConfigureAwait(false);
+            });
+
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/playbooks", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                JsonElement payload = ReadJsonBody(req);
+                req.Http.Response.StatusCode = 201;
+                return await ForwardPayloadAsync(req, instanceId, "armada.playbook.create", payload).ConfigureAwait(false);
+            });
+
+            MapJsonPut(server, "/api/v1/instances/{instanceId}/playbooks/{playbookId}", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string playbookId = RequireParameter(req, "playbookId");
+                JsonElement playbook = ReadJsonBody(req);
+                return await ForwardPayloadAsync(req, instanceId, "armada.playbook.update", new { playbookId, playbook }).ConfigureAwait(false);
+            });
+
+            MapJsonDelete(server, "/api/v1/instances/{instanceId}/playbooks/{playbookId}", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string playbookId = RequireParameter(req, "playbookId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.playbook.delete", new RemoteTunnelQueryRequest { PlaybookId = playbookId }).ConfigureAwait(false);
+            });
+
             MapJsonPost(server, "/api/v1/instances/{instanceId}/vessels", async (req) =>
             {
                 string instanceId = RequireParameter(req, "instanceId");
@@ -511,6 +548,702 @@ namespace Armada.Proxy
                 string captainId = RequireParameter(req, "captainId");
                 return await ForwardPayloadAsync(req, instanceId, "armada.captain.stop", new RemoteTunnelQueryRequest { CaptainId = captainId }).ConfigureAwait(false);
             });
+
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/objectives", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.objectives.list", null).ConfigureAwait(false);
+            });
+
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/objectives/enumerate", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.objectives.list", ReadJsonBody(req)).ConfigureAwait(false);
+            });
+
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/objectives/{objectiveId}", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string objectiveId = RequireParameter(req, "objectiveId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.objective.detail", BuildIdPayload(objectiveId)).ConfigureAwait(false);
+            });
+
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/objectives", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                req.Http.Response.StatusCode = 201;
+                return await ForwardPayloadAsync(req, instanceId, "armada.objective.create", ReadJsonBody(req)).ConfigureAwait(false);
+            });
+
+            MapJsonPut(server, "/api/v1/instances/{instanceId}/objectives/{objectiveId}", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string objectiveId = RequireParameter(req, "objectiveId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.objective.update", BuildIdBodyPayload(objectiveId, ReadJsonBody(req))).ConfigureAwait(false);
+            });
+
+            MapJsonDelete(server, "/api/v1/instances/{instanceId}/objectives/{objectiveId}", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string objectiveId = RequireParameter(req, "objectiveId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.objective.delete", BuildIdPayload(objectiveId)).ConfigureAwait(false);
+            });
+
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/backlog", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.backlog.list", null).ConfigureAwait(false);
+            });
+
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/backlog/enumerate", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.backlog.list", ReadJsonBody(req)).ConfigureAwait(false);
+            });
+
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/backlog/{objectiveId}", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string objectiveId = RequireParameter(req, "objectiveId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.backlog.detail", BuildIdPayload(objectiveId)).ConfigureAwait(false);
+            });
+
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/backlog", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                req.Http.Response.StatusCode = 201;
+                return await ForwardPayloadAsync(req, instanceId, "armada.backlog.create", ReadJsonBody(req)).ConfigureAwait(false);
+            });
+
+            MapJsonPut(server, "/api/v1/instances/{instanceId}/backlog/{objectiveId}", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string objectiveId = RequireParameter(req, "objectiveId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.backlog.update", BuildIdBodyPayload(objectiveId, ReadJsonBody(req))).ConfigureAwait(false);
+            });
+
+            MapJsonDelete(server, "/api/v1/instances/{instanceId}/backlog/{objectiveId}", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string objectiveId = RequireParameter(req, "objectiveId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.backlog.delete", BuildIdPayload(objectiveId)).ConfigureAwait(false);
+            });
+
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/objectives/{objectiveId}/refinement-sessions", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string objectiveId = RequireParameter(req, "objectiveId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.objective-refinement-sessions.list", BuildIdPayload(objectiveId)).ConfigureAwait(false);
+            });
+
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/objectives/{objectiveId}/refinement-sessions", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string objectiveId = RequireParameter(req, "objectiveId");
+                req.Http.Response.StatusCode = 201;
+                return await ForwardPayloadAsync(req, instanceId, "armada.objective-refinement-sessions.create", BuildIdBodyPayload(objectiveId, ReadJsonBody(req))).ConfigureAwait(false);
+            });
+
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/backlog/{objectiveId}/refinement-sessions", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string objectiveId = RequireParameter(req, "objectiveId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.objective-refinement-sessions.list", BuildIdPayload(objectiveId)).ConfigureAwait(false);
+            });
+
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/backlog/{objectiveId}/refinement-sessions", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string objectiveId = RequireParameter(req, "objectiveId");
+                req.Http.Response.StatusCode = 201;
+                return await ForwardPayloadAsync(req, instanceId, "armada.objective-refinement-sessions.create", BuildIdBodyPayload(objectiveId, ReadJsonBody(req))).ConfigureAwait(false);
+            });
+
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/objective-refinement-sessions/{sessionId}", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string sessionId = RequireParameter(req, "sessionId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.objective-refinement-session.detail", BuildIdPayload(sessionId)).ConfigureAwait(false);
+            });
+
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/objective-refinement-sessions/{sessionId}/messages", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string sessionId = RequireParameter(req, "sessionId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.objective-refinement-session.message", BuildIdBodyPayload(sessionId, ReadJsonBody(req))).ConfigureAwait(false);
+            });
+
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/objective-refinement-sessions/{sessionId}/summarize", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string sessionId = RequireParameter(req, "sessionId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.objective-refinement-session.summarize", BuildIdBodyPayload(sessionId, ReadJsonBody(req))).ConfigureAwait(false);
+            });
+
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/objective-refinement-sessions/{sessionId}/apply", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string sessionId = RequireParameter(req, "sessionId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.objective-refinement-session.apply", BuildIdBodyPayload(sessionId, ReadJsonBody(req))).ConfigureAwait(false);
+            });
+
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/objective-refinement-sessions/{sessionId}/stop", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string sessionId = RequireParameter(req, "sessionId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.objective-refinement-session.stop", BuildIdPayload(sessionId)).ConfigureAwait(false);
+            });
+
+            MapJsonDelete(server, "/api/v1/instances/{instanceId}/objective-refinement-sessions/{sessionId}", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string sessionId = RequireParameter(req, "sessionId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.objective-refinement-session.delete", BuildIdPayload(sessionId)).ConfigureAwait(false);
+            });
+
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/planning-sessions", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.planning-sessions.list", null).ConfigureAwait(false);
+            });
+
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/planning-sessions/enumerate", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.planning-sessions.list", ReadJsonBody(req)).ConfigureAwait(false);
+            });
+
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/planning-sessions", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                req.Http.Response.StatusCode = 201;
+                return await ForwardPayloadAsync(req, instanceId, "armada.planning-session.create", ReadJsonBody(req)).ConfigureAwait(false);
+            });
+
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/planning-sessions/{sessionId}", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string sessionId = RequireParameter(req, "sessionId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.planning-session.detail", BuildIdPayload(sessionId)).ConfigureAwait(false);
+            });
+
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/planning-sessions/{sessionId}/messages", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string sessionId = RequireParameter(req, "sessionId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.planning-session.message", BuildIdBodyPayload(sessionId, ReadJsonBody(req))).ConfigureAwait(false);
+            });
+
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/planning-sessions/{sessionId}/summarize", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string sessionId = RequireParameter(req, "sessionId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.planning-session.summarize", BuildIdBodyPayload(sessionId, ReadJsonBody(req))).ConfigureAwait(false);
+            });
+
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/planning-sessions/{sessionId}/dispatch", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string sessionId = RequireParameter(req, "sessionId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.planning-session.dispatch", BuildIdBodyPayload(sessionId, ReadJsonBody(req))).ConfigureAwait(false);
+            });
+
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/planning-sessions/{sessionId}/stop", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string sessionId = RequireParameter(req, "sessionId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.planning-session.stop", BuildIdPayload(sessionId)).ConfigureAwait(false);
+            });
+
+            MapJsonDelete(server, "/api/v1/instances/{instanceId}/planning-sessions/{sessionId}", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string sessionId = RequireParameter(req, "sessionId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.planning-session.delete", BuildIdPayload(sessionId)).ConfigureAwait(false);
+            });
+
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/workflow-profiles", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.workflow-profiles.list", null).ConfigureAwait(false);
+            });
+
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/workflow-profiles/enumerate", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.workflow-profiles.list", ReadJsonBody(req)).ConfigureAwait(false);
+            });
+
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/workflow-profiles", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                req.Http.Response.StatusCode = 201;
+                return await ForwardPayloadAsync(req, instanceId, "armada.workflow-profile.create", ReadJsonBody(req)).ConfigureAwait(false);
+            });
+
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/workflow-profiles/{id}", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string id = RequireParameter(req, "id");
+                return await ForwardPayloadAsync(req, instanceId, "armada.workflow-profile.detail", BuildIdPayload(id)).ConfigureAwait(false);
+            });
+
+            MapJsonPut(server, "/api/v1/instances/{instanceId}/workflow-profiles/{id}", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string id = RequireParameter(req, "id");
+                return await ForwardPayloadAsync(req, instanceId, "armada.workflow-profile.update", BuildIdBodyPayload(id, ReadJsonBody(req))).ConfigureAwait(false);
+            });
+
+            MapJsonDelete(server, "/api/v1/instances/{instanceId}/workflow-profiles/{id}", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string id = RequireParameter(req, "id");
+                return await ForwardPayloadAsync(req, instanceId, "armada.workflow-profile.delete", BuildIdPayload(id)).ConfigureAwait(false);
+            });
+
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/check-runs", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.check-runs.list", null).ConfigureAwait(false);
+            });
+
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/check-runs/enumerate", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.check-runs.list", ReadJsonBody(req)).ConfigureAwait(false);
+            });
+
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/check-runs", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                req.Http.Response.StatusCode = 201;
+                return await ForwardPayloadAsync(req, instanceId, "armada.check-run.create", ReadJsonBody(req)).ConfigureAwait(false);
+            });
+
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/check-runs/{id}", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string id = RequireParameter(req, "id");
+                return await ForwardPayloadAsync(req, instanceId, "armada.check-run.detail", BuildIdPayload(id)).ConfigureAwait(false);
+            });
+
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/check-runs/{id}/retry", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string id = RequireParameter(req, "id");
+                req.Http.Response.StatusCode = 201;
+                return await ForwardPayloadAsync(req, instanceId, "armada.check-run.retry", BuildIdPayload(id)).ConfigureAwait(false);
+            });
+
+            MapJsonDelete(server, "/api/v1/instances/{instanceId}/check-runs/{id}", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string id = RequireParameter(req, "id");
+                return await ForwardPayloadAsync(req, instanceId, "armada.check-run.delete", BuildIdPayload(id)).ConfigureAwait(false);
+            });
+
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/environments", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.environments.list", null).ConfigureAwait(false);
+            });
+
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/environments/enumerate", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.environments.list", ReadJsonBody(req)).ConfigureAwait(false);
+            });
+
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/environments", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                req.Http.Response.StatusCode = 201;
+                return await ForwardPayloadAsync(req, instanceId, "armada.environment.create", ReadJsonBody(req)).ConfigureAwait(false);
+            });
+
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/environments/{id}", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string id = RequireParameter(req, "id");
+                return await ForwardPayloadAsync(req, instanceId, "armada.environment.detail", BuildIdPayload(id)).ConfigureAwait(false);
+            });
+
+            MapJsonPut(server, "/api/v1/instances/{instanceId}/environments/{id}", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string id = RequireParameter(req, "id");
+                return await ForwardPayloadAsync(req, instanceId, "armada.environment.update", BuildIdBodyPayload(id, ReadJsonBody(req))).ConfigureAwait(false);
+            });
+
+            MapJsonDelete(server, "/api/v1/instances/{instanceId}/environments/{id}", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string id = RequireParameter(req, "id");
+                return await ForwardPayloadAsync(req, instanceId, "armada.environment.delete", BuildIdPayload(id)).ConfigureAwait(false);
+            });
+
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/releases", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.releases.list", null).ConfigureAwait(false);
+            });
+
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/releases/enumerate", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.releases.list", ReadJsonBody(req)).ConfigureAwait(false);
+            });
+
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/releases", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                req.Http.Response.StatusCode = 201;
+                return await ForwardPayloadAsync(req, instanceId, "armada.release.create", ReadJsonBody(req)).ConfigureAwait(false);
+            });
+
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/releases/{id}", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string id = RequireParameter(req, "id");
+                return await ForwardPayloadAsync(req, instanceId, "armada.release.detail", BuildIdPayload(id)).ConfigureAwait(false);
+            });
+
+            MapJsonPut(server, "/api/v1/instances/{instanceId}/releases/{id}", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string id = RequireParameter(req, "id");
+                return await ForwardPayloadAsync(req, instanceId, "armada.release.update", BuildIdBodyPayload(id, ReadJsonBody(req))).ConfigureAwait(false);
+            });
+
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/releases/{id}/refresh", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string id = RequireParameter(req, "id");
+                return await ForwardPayloadAsync(req, instanceId, "armada.release.refresh", BuildIdPayload(id)).ConfigureAwait(false);
+            });
+
+            MapJsonDelete(server, "/api/v1/instances/{instanceId}/releases/{id}", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string id = RequireParameter(req, "id");
+                return await ForwardPayloadAsync(req, instanceId, "armada.release.delete", BuildIdPayload(id)).ConfigureAwait(false);
+            });
+
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/deployments", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.deployments.list", null).ConfigureAwait(false);
+            });
+
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/deployments/enumerate", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.deployments.list", ReadJsonBody(req)).ConfigureAwait(false);
+            });
+
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/deployments", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                req.Http.Response.StatusCode = 201;
+                return await ForwardPayloadAsync(req, instanceId, "armada.deployment.create", ReadJsonBody(req)).ConfigureAwait(false);
+            });
+
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/deployments/{id}", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string id = RequireParameter(req, "id");
+                return await ForwardPayloadAsync(req, instanceId, "armada.deployment.detail", BuildIdPayload(id)).ConfigureAwait(false);
+            });
+
+            MapJsonPut(server, "/api/v1/instances/{instanceId}/deployments/{id}", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string id = RequireParameter(req, "id");
+                return await ForwardPayloadAsync(req, instanceId, "armada.deployment.update", BuildIdBodyPayload(id, ReadJsonBody(req))).ConfigureAwait(false);
+            });
+
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/deployments/{id}/approve", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string id = RequireParameter(req, "id");
+                JsonElement body = ReadJsonBody(req);
+                return await ForwardPayloadAsync(req, instanceId, "armada.deployment.approve", new { id, comment = GetOptionalProperty(body, "comment") }).ConfigureAwait(false);
+            });
+
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/deployments/{id}/deny", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string id = RequireParameter(req, "id");
+                JsonElement body = ReadJsonBody(req);
+                return await ForwardPayloadAsync(req, instanceId, "armada.deployment.deny", new { id, comment = GetOptionalProperty(body, "comment") }).ConfigureAwait(false);
+            });
+
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/deployments/{id}/verify", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string id = RequireParameter(req, "id");
+                return await ForwardPayloadAsync(req, instanceId, "armada.deployment.verify", BuildIdPayload(id)).ConfigureAwait(false);
+            });
+
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/deployments/{id}/rollback", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string id = RequireParameter(req, "id");
+                return await ForwardPayloadAsync(req, instanceId, "armada.deployment.rollback", BuildIdPayload(id)).ConfigureAwait(false);
+            });
+
+            MapJsonDelete(server, "/api/v1/instances/{instanceId}/deployments/{id}", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string id = RequireParameter(req, "id");
+                return await ForwardPayloadAsync(req, instanceId, "armada.deployment.delete", BuildIdPayload(id)).ConfigureAwait(false);
+            });
+
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/incidents", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.incidents.list", null).ConfigureAwait(false);
+            });
+
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/incidents/enumerate", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.incidents.list", ReadJsonBody(req)).ConfigureAwait(false);
+            });
+
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/incidents", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                req.Http.Response.StatusCode = 201;
+                return await ForwardPayloadAsync(req, instanceId, "armada.incident.create", ReadJsonBody(req)).ConfigureAwait(false);
+            });
+
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/incidents/{id}", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string id = RequireParameter(req, "id");
+                return await ForwardPayloadAsync(req, instanceId, "armada.incident.detail", BuildIdPayload(id)).ConfigureAwait(false);
+            });
+
+            MapJsonPut(server, "/api/v1/instances/{instanceId}/incidents/{id}", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string id = RequireParameter(req, "id");
+                return await ForwardPayloadAsync(req, instanceId, "armada.incident.update", BuildIdBodyPayload(id, ReadJsonBody(req))).ConfigureAwait(false);
+            });
+
+            MapJsonDelete(server, "/api/v1/instances/{instanceId}/incidents/{id}", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string id = RequireParameter(req, "id");
+                return await ForwardPayloadAsync(req, instanceId, "armada.incident.delete", BuildIdPayload(id)).ConfigureAwait(false);
+            });
+
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/runbooks", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.runbooks.list", null).ConfigureAwait(false);
+            });
+
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/runbooks/enumerate", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.runbooks.list", ReadJsonBody(req)).ConfigureAwait(false);
+            });
+
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/runbooks", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                req.Http.Response.StatusCode = 201;
+                return await ForwardPayloadAsync(req, instanceId, "armada.runbook.create", ReadJsonBody(req)).ConfigureAwait(false);
+            });
+
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/runbooks/{id}", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string id = RequireParameter(req, "id");
+                return await ForwardPayloadAsync(req, instanceId, "armada.runbook.detail", BuildIdPayload(id)).ConfigureAwait(false);
+            });
+
+            MapJsonPut(server, "/api/v1/instances/{instanceId}/runbooks/{id}", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string id = RequireParameter(req, "id");
+                return await ForwardPayloadAsync(req, instanceId, "armada.runbook.update", BuildIdBodyPayload(id, ReadJsonBody(req))).ConfigureAwait(false);
+            });
+
+            MapJsonDelete(server, "/api/v1/instances/{instanceId}/runbooks/{id}", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string id = RequireParameter(req, "id");
+                return await ForwardPayloadAsync(req, instanceId, "armada.runbook.delete", BuildIdPayload(id)).ConfigureAwait(false);
+            });
+
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/runbook-executions", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.runbook-executions.list", null).ConfigureAwait(false);
+            });
+
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/runbook-executions/enumerate", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.runbook-executions.list", ReadJsonBody(req)).ConfigureAwait(false);
+            });
+
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/runbook-executions/{id}", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string id = RequireParameter(req, "id");
+                return await ForwardPayloadAsync(req, instanceId, "armada.runbook-execution.detail", BuildIdPayload(id)).ConfigureAwait(false);
+            });
+
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/runbooks/{id}/executions", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string id = RequireParameter(req, "id");
+                req.Http.Response.StatusCode = 201;
+                return await ForwardPayloadAsync(req, instanceId, "armada.runbook-execution.create", BuildIdBodyPayload(id, ReadJsonBody(req))).ConfigureAwait(false);
+            });
+
+            MapJsonPut(server, "/api/v1/instances/{instanceId}/runbook-executions/{id}", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string id = RequireParameter(req, "id");
+                return await ForwardPayloadAsync(req, instanceId, "armada.runbook-execution.update", BuildIdBodyPayload(id, ReadJsonBody(req))).ConfigureAwait(false);
+            });
+
+            MapJsonDelete(server, "/api/v1/instances/{instanceId}/runbook-executions/{id}", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string id = RequireParameter(req, "id");
+                return await ForwardPayloadAsync(req, instanceId, "armada.runbook-execution.delete", BuildIdPayload(id)).ConfigureAwait(false);
+            });
+
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/captains/{captainId}/tools", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string captainId = RequireParameter(req, "captainId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.captain.tools", BuildIdPayload(captainId)).ConfigureAwait(false);
+            });
+
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/request-history", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.request-history.list", null).ConfigureAwait(false);
+            });
+
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/request-history/enumerate", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.request-history.list", ReadJsonBody(req)).ConfigureAwait(false);
+            });
+
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/request-history/summary", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.request-history.summary", null).ConfigureAwait(false);
+            });
+
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/request-history/summary", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.request-history.summary", ReadJsonBody(req)).ConfigureAwait(false);
+            });
+
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/request-history/{id}", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string id = RequireParameter(req, "id");
+                return await ForwardPayloadAsync(req, instanceId, "armada.request-history.detail", BuildIdPayload(id)).ConfigureAwait(false);
+            });
+
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/workspace/vessels/{vesselId}/status", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string vesselId = RequireParameter(req, "vesselId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.workspace.status", BuildIdPayload(vesselId)).ConfigureAwait(false);
+            });
+
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/workspace/vessels/{vesselId}/tree", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string vesselId = RequireParameter(req, "vesselId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.workspace.tree", new { id = vesselId, path = GetOptionalValue(req.Query["path"]) }).ConfigureAwait(false);
+            });
+
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/workspace/vessels/{vesselId}/file", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string vesselId = RequireParameter(req, "vesselId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.workspace.file", new { id = vesselId, path = GetOptionalValue(req.Query["path"]) }).ConfigureAwait(false);
+            });
+
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/workspace/vessels/{vesselId}/search", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string vesselId = RequireParameter(req, "vesselId");
+                int maxResults = ParsePositiveInt(req.Query["maxResults"], 200, 1, 1000);
+                return await ForwardPayloadAsync(req, instanceId, "armada.workspace.search", new
+                {
+                    id = vesselId,
+                    query = GetOptionalValue(req.Query["query"]) ?? GetOptionalValue(req.Query["q"]),
+                    maxResults
+                }).ConfigureAwait(false);
+            });
+
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/workspace/vessels/{vesselId}/changes", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string vesselId = RequireParameter(req, "vesselId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.workspace.changes", BuildIdPayload(vesselId)).ConfigureAwait(false);
+            });
+
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/pipelines/{name}", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string name = RequireParameter(req, "name");
+                return await ForwardPayloadAsync(req, instanceId, "armada.pipeline.detail", BuildIdPayload(name)).ConfigureAwait(false);
+            });
+
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/personas", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.personas.list", null).ConfigureAwait(false);
+            });
+
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/personas/enumerate", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.personas.list", ReadJsonBody(req)).ConfigureAwait(false);
+            });
+
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/personas/{name}", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string name = RequireParameter(req, "name");
+                return await ForwardPayloadAsync(req, instanceId, "armada.persona.detail", BuildIdPayload(name)).ConfigureAwait(false);
+            });
+
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/prompt-templates", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.prompt-templates.list", null).ConfigureAwait(false);
+            });
+
+            MapJsonPost(server, "/api/v1/instances/{instanceId}/prompt-templates/enumerate", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                return await ForwardPayloadAsync(req, instanceId, "armada.prompt-templates.list", ReadJsonBody(req)).ConfigureAwait(false);
+            });
+
+            MapJsonGet(server, "/api/v1/instances/{instanceId}/prompt-templates/{name}", async (req) =>
+            {
+                string instanceId = RequireParameter(req, "instanceId");
+                string name = RequireParameter(req, "name");
+                return await ForwardPayloadAsync(req, instanceId, "armada.prompt-template.detail", BuildIdPayload(name)).ConfigureAwait(false);
+            });
         }
 
         private void MapJsonGet(Webserver server, string path, Func<ApiRequest, Task<object>> handler)
@@ -531,6 +1264,16 @@ namespace Armada.Proxy
         private void MapJsonDelete(Webserver server, string path, Func<ApiRequest, Task<object>> handler)
         {
             server.Delete(path, async (req) => await PrepareJsonResponseAsync(req, handler).ConfigureAwait(false));
+        }
+
+        private static object BuildIdPayload(string id)
+        {
+            return new { id };
+        }
+
+        private static object BuildIdBodyPayload(string id, JsonElement body)
+        {
+            return new { id, body };
         }
 
         private static async Task<object> PrepareJsonResponseAsync(ApiRequest req, Func<ApiRequest, Task<object>> handler)
@@ -1030,6 +1773,97 @@ namespace Armada.Proxy
                 "instances.vessel.detail",
                 "instances.vessel.create",
                 "instances.vessel.update",
+                "instances.pipelines.list",
+                "instances.pipeline.detail",
+                "instances.playbooks.list",
+                "instances.playbook.detail",
+                "instances.playbook.create",
+                "instances.playbook.update",
+                "instances.playbook.delete",
+                "instances.backlog.list",
+                "instances.backlog.detail",
+                "instances.backlog.create",
+                "instances.backlog.update",
+                "instances.backlog.delete",
+                "instances.objectives.list",
+                "instances.objective.detail",
+                "instances.objective.create",
+                "instances.objective.update",
+                "instances.objective.delete",
+                "instances.refinement.list",
+                "instances.refinement.detail",
+                "instances.refinement.create",
+                "instances.refinement.message",
+                "instances.refinement.summarize",
+                "instances.refinement.apply",
+                "instances.refinement.stop",
+                "instances.refinement.delete",
+                "instances.planning.list",
+                "instances.planning.detail",
+                "instances.planning.create",
+                "instances.planning.message",
+                "instances.planning.summarize",
+                "instances.planning.dispatch",
+                "instances.planning.stop",
+                "instances.planning.delete",
+                "instances.workflowprofiles.list",
+                "instances.workflowprofile.detail",
+                "instances.workflowprofile.create",
+                "instances.workflowprofile.update",
+                "instances.workflowprofile.delete",
+                "instances.checkruns.list",
+                "instances.checkrun.detail",
+                "instances.checkrun.create",
+                "instances.checkrun.retry",
+                "instances.checkrun.delete",
+                "instances.environments.list",
+                "instances.environment.detail",
+                "instances.environment.create",
+                "instances.environment.update",
+                "instances.environment.delete",
+                "instances.releases.list",
+                "instances.release.detail",
+                "instances.release.create",
+                "instances.release.update",
+                "instances.release.refresh",
+                "instances.release.delete",
+                "instances.deployments.list",
+                "instances.deployment.detail",
+                "instances.deployment.create",
+                "instances.deployment.update",
+                "instances.deployment.approve",
+                "instances.deployment.deny",
+                "instances.deployment.verify",
+                "instances.deployment.rollback",
+                "instances.deployment.delete",
+                "instances.incidents.list",
+                "instances.incident.detail",
+                "instances.incident.create",
+                "instances.incident.update",
+                "instances.incident.delete",
+                "instances.runbooks.list",
+                "instances.runbook.detail",
+                "instances.runbook.create",
+                "instances.runbook.update",
+                "instances.runbook.delete",
+                "instances.runbookexecutions.list",
+                "instances.runbookexecution.detail",
+                "instances.runbookexecution.create",
+                "instances.runbookexecution.update",
+                "instances.runbookexecution.delete",
+                "instances.captain.tools",
+                "instances.requesthistory.list",
+                "instances.requesthistory.detail",
+                "instances.requesthistory.summary",
+                "instances.workspace.status",
+                "instances.workspace.tree",
+                "instances.workspace.file",
+                "instances.workspace.search",
+                "instances.workspace.changes",
+                "instances.personas.list",
+                "instances.persona.detail",
+                "instances.prompttemplates.list",
+                "instances.prompttemplate.detail",
                 "instances.activity",
                 "instances.missions.list",
                 "instances.missions.recent",

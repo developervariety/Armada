@@ -2,13 +2,25 @@ const DEPLOYMENT_STORAGE_KEY = 'armada_proxy_instance_id';
 const PROXY_SESSION_STORAGE_KEY = 'armada_proxy_session_token';
 const THEME_STORAGE_KEY = 'armada_proxy_theme';
 const PROXY_SESSION_HEADER = 'X-Armada-Proxy-Session';
-const BUILT_IN_PIPELINES = [
-  { id: 'WorkerOnly', name: 'WorkerOnly' },
-  { id: 'Reviewed', name: 'Reviewed' },
-  { id: 'Tested', name: 'Tested' },
-  { id: 'FullPipeline', name: 'FullPipeline' },
+const API_EXPLORER_PRESETS = [
+  { key: 'summary', label: 'Summary', method: 'GET', path: '/summary' },
+  { key: 'activity', label: 'Recent Activity', method: 'GET', path: '/activity' },
+  { key: 'missions', label: 'Missions', method: 'GET', path: '/missions' },
+  { key: 'voyages', label: 'Voyages', method: 'GET', path: '/voyages' },
+  { key: 'playbooks', label: 'Playbooks', method: 'GET', path: '/playbooks' },
+  { key: 'backlog', label: 'Backlog', method: 'GET', path: '/backlog' },
+  { key: 'planning', label: 'Planning Sessions', method: 'GET', path: '/planning-sessions' },
+  { key: 'workflow-profiles', label: 'Workflow Profiles', method: 'GET', path: '/workflow-profiles' },
+  { key: 'check-runs', label: 'Check Runs', method: 'GET', path: '/check-runs' },
+  { key: 'environments', label: 'Environments', method: 'GET', path: '/environments' },
+  { key: 'releases', label: 'Releases', method: 'GET', path: '/releases' },
+  { key: 'deployments', label: 'Deployments', method: 'GET', path: '/deployments' },
+  { key: 'incidents', label: 'Incidents', method: 'GET', path: '/incidents' },
+  { key: 'runbooks', label: 'Runbooks', method: 'GET', path: '/runbooks' },
+  { key: 'request-history', label: 'Request History', method: 'GET', path: '/request-history' },
+  { key: 'personas', label: 'Personas', method: 'GET', path: '/personas' },
+  { key: 'prompt-templates', label: 'Prompt Templates', method: 'GET', path: '/prompt-templates' },
 ];
-
 const state = {
   instances: [],
   selectedInstanceId: null,
@@ -21,14 +33,37 @@ const state = {
   fleets: [],
   vessels: [],
   pipelines: [],
+  playbooks: [],
+  objectives: [],
+  planningSessions: [],
+  workflowProfiles: [],
+  checkRuns: [],
+  environments: [],
+  releases: [],
+  deployments: [],
+  incidents: [],
+  runbooks: [],
+  runbookExecutions: [],
+  requestHistory: [],
+  requestHistorySummary: null,
+  personas: [],
+  promptTemplates: [],
+  captainToolAccess: {},
+  workspaceSnapshot: null,
   theme: 'light',
   selectedFleetId: null,
   selectedVesselId: null,
   selectedMissionId: null,
+  selectedPlaybookId: null,
+  selectedObjectiveId: null,
+  editingObjective: null,
   editingFleet: null,
   editingVessel: null,
   editingMission: null,
+  editingPlaybook: null,
+  dispatchSelectedPlaybooks: [],
   detailModal: null,
+  resourceEditor: null,
 };
 
 const elements = {
@@ -80,6 +115,46 @@ const elements = {
   captainList: document.getElementById('captainList'),
   fleetList: document.getElementById('fleetList'),
   vesselList: document.getElementById('vesselList'),
+  playbookList: document.getElementById('playbookList'),
+  backlogList: document.getElementById('backlogList'),
+  planningList: document.getElementById('planningList'),
+  workflowProfileList: document.getElementById('workflowProfileList'),
+  checkRunList: document.getElementById('checkRunList'),
+  environmentList: document.getElementById('environmentList'),
+  releaseList: document.getElementById('releaseList'),
+  deploymentList: document.getElementById('deploymentList'),
+  incidentList: document.getElementById('incidentList'),
+  runbookList: document.getElementById('runbookList'),
+  runbookExecutionList: document.getElementById('runbookExecutionList'),
+  requestHistoryList: document.getElementById('requestHistoryList'),
+  requestHistorySummary: document.getElementById('requestHistorySummary'),
+  captainToolsCaptainId: document.getElementById('captainToolsCaptainId'),
+  captainToolsLoadButton: document.getElementById('captainToolsLoadButton'),
+  captainToolsSummary: document.getElementById('captainToolsSummary'),
+  apiExplorerForm: document.getElementById('apiExplorerForm'),
+  apiExplorerPreset: document.getElementById('apiExplorerPreset'),
+  apiExplorerUsePresetButton: document.getElementById('apiExplorerUsePresetButton'),
+  apiExplorerMethod: document.getElementById('apiExplorerMethod'),
+  apiExplorerPath: document.getElementById('apiExplorerPath'),
+  apiExplorerBody: document.getElementById('apiExplorerBody'),
+  apiExplorerSendButton: document.getElementById('apiExplorerSendButton'),
+  apiExplorerStatusText: document.getElementById('apiExplorerStatusText'),
+  apiExplorerResponse: document.getElementById('apiExplorerResponse'),
+  workspaceForm: document.getElementById('workspaceForm'),
+  workspaceVesselId: document.getElementById('workspaceVesselId'),
+  workspacePath: document.getElementById('workspacePath'),
+  workspaceSearchQuery: document.getElementById('workspaceSearchQuery'),
+  workspaceSearchLimit: document.getElementById('workspaceSearchLimit'),
+  workspaceLoadStatusButton: document.getElementById('workspaceLoadStatusButton'),
+  workspaceLoadTreeButton: document.getElementById('workspaceLoadTreeButton'),
+  workspaceSearchButton: document.getElementById('workspaceSearchButton'),
+  workspaceLoadChangesButton: document.getElementById('workspaceLoadChangesButton'),
+  workspaceStatusText: document.getElementById('workspaceStatusText'),
+  workspaceStatusPanel: document.getElementById('workspaceStatusPanel'),
+  workspaceResultList: document.getElementById('workspaceResultList'),
+  pipelineReferenceList: document.getElementById('pipelineReferenceList'),
+  personaReferenceList: document.getElementById('personaReferenceList'),
+  promptTemplateReferenceList: document.getElementById('promptTemplateReferenceList'),
   missionBrowseForm: document.getElementById('missionBrowseForm'),
   missionBrowseStatus: document.getElementById('missionBrowseStatus'),
   missionBrowseLimit: document.getElementById('missionBrowseLimit'),
@@ -92,8 +167,40 @@ const elements = {
   voyageBrowseLimit: document.getElementById('voyageBrowseLimit'),
   voyageBrowseRecentButton: document.getElementById('voyageBrowseRecentButton'),
   voyageBrowseStatusText: document.getElementById('voyageBrowseStatusText'),
+  backlogBrowseForm: document.getElementById('backlogBrowseForm'),
+  backlogBrowseStatus: document.getElementById('backlogBrowseStatus'),
+  backlogBrowseBacklogState: document.getElementById('backlogBrowseBacklogState'),
+  backlogBrowseLimit: document.getElementById('backlogBrowseLimit'),
+  backlogBrowseSearch: document.getElementById('backlogBrowseSearch'),
+  backlogBrowseOwner: document.getElementById('backlogBrowseOwner'),
+  backlogBrowseVesselId: document.getElementById('backlogBrowseVesselId'),
+  backlogBrowseTag: document.getElementById('backlogBrowseTag'),
+  backlogBrowseRecentButton: document.getElementById('backlogBrowseRecentButton'),
+  backlogBrowseStatusText: document.getElementById('backlogBrowseStatusText'),
+  planningBrowseForm: document.getElementById('planningBrowseForm'),
+  planningBrowseCaptainId: document.getElementById('planningBrowseCaptainId'),
+  planningBrowseVesselId: document.getElementById('planningBrowseVesselId'),
+  planningBrowseStatus: document.getElementById('planningBrowseStatus'),
+  planningBrowseObjectiveId: document.getElementById('planningBrowseObjectiveId'),
+  planningBrowseLimit: document.getElementById('planningBrowseLimit'),
+  planningBrowseRecentButton: document.getElementById('planningBrowseRecentButton'),
+  planningBrowseStatusText: document.getElementById('planningBrowseStatusText'),
+  requestHistoryForm: document.getElementById('requestHistoryForm'),
+  requestHistoryMethod: document.getElementById('requestHistoryMethod'),
+  requestHistoryRoute: document.getElementById('requestHistoryRoute'),
+  requestHistoryStatusCode: document.getElementById('requestHistoryStatusCode'),
+  requestHistoryLimit: document.getElementById('requestHistoryLimit'),
+  requestHistoryRecentButton: document.getElementById('requestHistoryRecentButton'),
+  requestHistoryStatusText: document.getElementById('requestHistoryStatusText'),
   openFleetModalButton: document.getElementById('openFleetModalButton'),
   openVesselModalButton: document.getElementById('openVesselModalButton'),
+  openPlaybookModalButton: document.getElementById('openPlaybookModalButton'),
+  openBacklogModalButton: document.getElementById('openBacklogModalButton'),
+  openPlanningModalButton: document.getElementById('openPlanningModalButton'),
+  refreshBacklogButton: document.getElementById('refreshBacklogButton'),
+  refreshPlanningButton: document.getElementById('refreshPlanningButton'),
+  refreshDeliveryButton: document.getElementById('refreshDeliveryButton'),
+  refreshReferenceButton: document.getElementById('refreshReferenceButton'),
   entityCardTemplate: document.getElementById('entityCardTemplate'),
   detailModal: document.getElementById('detailModal'),
   detailModalTitle: document.getElementById('detailModalTitle'),
@@ -106,6 +213,7 @@ const elements = {
   dispatchPriority: document.getElementById('dispatchPriority'),
   dispatchTitle: document.getElementById('dispatchTitle'),
   dispatchDescription: document.getElementById('dispatchDescription'),
+  dispatchPlaybookList: document.getElementById('dispatchPlaybookList'),
   dispatchMissions: document.getElementById('dispatchMissions'),
   dispatchSubmitButton: document.getElementById('dispatchSubmitButton'),
   dispatchFormStatus: document.getElementById('dispatchFormStatus'),
@@ -145,6 +253,273 @@ const elements = {
   missionPriority: document.getElementById('missionPriority'),
   missionResetButton: document.getElementById('missionResetButton'),
   missionFormStatus: document.getElementById('missionFormStatus'),
+  playbookModal: document.getElementById('playbookModal'),
+  playbookModalTitle: document.getElementById('playbookModalTitle'),
+  playbookModalSubtitle: document.getElementById('playbookModalSubtitle'),
+  playbookForm: document.getElementById('playbookForm'),
+  playbookFileName: document.getElementById('playbookFileName'),
+  playbookDescription: document.getElementById('playbookDescription'),
+  playbookContent: document.getElementById('playbookContent'),
+  playbookActive: document.getElementById('playbookActive'),
+  playbookResetButton: document.getElementById('playbookResetButton'),
+  playbookDeleteButton: document.getElementById('playbookDeleteButton'),
+  playbookFormStatus: document.getElementById('playbookFormStatus'),
+  backlogModal: document.getElementById('backlogModal'),
+  backlogModalTitle: document.getElementById('backlogModalTitle'),
+  backlogModalSubtitle: document.getElementById('backlogModalSubtitle'),
+  backlogForm: document.getElementById('backlogForm'),
+  backlogTitle: document.getElementById('backlogTitle'),
+  backlogDescription: document.getElementById('backlogDescription'),
+  backlogStatus: document.getElementById('backlogStatus'),
+  backlogBacklogState: document.getElementById('backlogBacklogState'),
+  backlogKind: document.getElementById('backlogKind'),
+  backlogPriority: document.getElementById('backlogPriority'),
+  backlogEffort: document.getElementById('backlogEffort'),
+  backlogOwner: document.getElementById('backlogOwner'),
+  backlogVesselId: document.getElementById('backlogVesselId'),
+  backlogTargetVersion: document.getElementById('backlogTargetVersion'),
+  backlogDueUtc: document.getElementById('backlogDueUtc'),
+  backlogParentObjectiveId: document.getElementById('backlogParentObjectiveId'),
+  backlogBlockedByObjectiveIds: document.getElementById('backlogBlockedByObjectiveIds'),
+  backlogTags: document.getElementById('backlogTags'),
+  backlogAcceptanceCriteria: document.getElementById('backlogAcceptanceCriteria'),
+  backlogNonGoals: document.getElementById('backlogNonGoals'),
+  backlogRolloutConstraints: document.getElementById('backlogRolloutConstraints'),
+  backlogEvidenceLinks: document.getElementById('backlogEvidenceLinks'),
+  backlogSaveButton: document.getElementById('backlogSaveButton'),
+  backlogResetButton: document.getElementById('backlogResetButton'),
+  backlogDeleteButton: document.getElementById('backlogDeleteButton'),
+  backlogFormStatus: document.getElementById('backlogFormStatus'),
+  planningModal: document.getElementById('planningModal'),
+  planningModalTitle: document.getElementById('planningModalTitle'),
+  planningModalSubtitle: document.getElementById('planningModalSubtitle'),
+  planningForm: document.getElementById('planningForm'),
+  planningTitle: document.getElementById('planningTitle'),
+  planningCaptainId: document.getElementById('planningCaptainId'),
+  planningVesselId: document.getElementById('planningVesselId'),
+  planningPipelineId: document.getElementById('planningPipelineId'),
+  planningObjectiveId: document.getElementById('planningObjectiveId'),
+  planningInitialMessage: document.getElementById('planningInitialMessage'),
+  planningSaveButton: document.getElementById('planningSaveButton'),
+  planningResetButton: document.getElementById('planningResetButton'),
+  planningFormStatus: document.getElementById('planningFormStatus'),
+  resourceEditorModal: document.getElementById('resourceEditorModal'),
+  resourceEditorTitle: document.getElementById('resourceEditorTitle'),
+  resourceEditorSubtitle: document.getElementById('resourceEditorSubtitle'),
+  resourceEditorForm: document.getElementById('resourceEditorForm'),
+  resourceEditorHelp: document.getElementById('resourceEditorHelp'),
+  resourceEditorPayload: document.getElementById('resourceEditorPayload'),
+  resourceEditorSaveButton: document.getElementById('resourceEditorSaveButton'),
+  resourceEditorResetButton: document.getElementById('resourceEditorResetButton'),
+  resourceEditorDeleteButton: document.getElementById('resourceEditorDeleteButton'),
+  resourceEditorStatus: document.getElementById('resourceEditorStatus'),
+};
+
+const PLAYBOOK_DELIVERY_MODES = [
+  {
+    value: 'InlineFullContent',
+    label: 'Inline full content',
+    description: 'Inject the complete markdown into every dispatched mission instruction.',
+  },
+  {
+    value: 'InstructionWithReference',
+    label: 'Instruction with reference',
+    description: 'Tell the model to read the materialized playbook outside the worktree.',
+  },
+  {
+    value: 'AttachIntoWorktree',
+    label: 'Attach into worktree',
+    description: 'Materialize the playbook in the worktree and instruct the model to use it there.',
+  },
+];
+
+const DEFAULT_RESOURCE_LIMIT = 8;
+
+const RESOURCE_DEFINITIONS = {
+  workflowProfile: {
+    label: 'Workflow Profile',
+    kind: 'workflow-profile',
+    listElementKey: 'workflowProfileList',
+    endpoint: 'workflow-profiles',
+    detailPath: (id) => `/workflow-profiles/${encodeURIComponent(id)}`,
+    enumeratePath: '/workflow-profiles/enumerate',
+    createTemplate: () => ({
+      name: 'New Workflow Profile',
+      description: '',
+      scope: 'Global',
+      isDefault: false,
+      active: true,
+      languageHints: [],
+      lintCommand: '',
+      buildCommand: '',
+      unitTestCommand: '',
+      integrationTestCommand: '',
+      e2eTestCommand: '',
+      deploymentVerificationCommand: '',
+      environments: [],
+    }),
+  },
+  checkRun: {
+    label: 'Check Run',
+    kind: 'check-run',
+    listElementKey: 'checkRunList',
+    endpoint: 'check-runs',
+    detailPath: (id) => `/check-runs/${encodeURIComponent(id)}`,
+    enumeratePath: '/check-runs/enumerate',
+    updateSupported: false,
+    createTemplate: () => ({
+      vesselId: state.vessels?.[0]?.id || '',
+      workflowProfileId: '',
+      type: 'Build',
+      label: '',
+      environmentName: '',
+    }),
+  },
+  environment: {
+    label: 'Environment',
+    kind: 'environment',
+    listElementKey: 'environmentList',
+    endpoint: 'environments',
+    detailPath: (id) => `/environments/${encodeURIComponent(id)}`,
+    enumeratePath: '/environments/enumerate',
+    createTemplate: () => ({
+      vesselId: state.vessels?.[0]?.id || '',
+      name: 'Environment',
+      description: '',
+      kind: 'Development',
+      baseUrl: '',
+      healthEndpoint: '',
+      requiresApproval: false,
+      isDefault: false,
+      active: true,
+      verificationDefinitions: [],
+    }),
+  },
+  release: {
+    label: 'Release',
+    kind: 'release',
+    listElementKey: 'releaseList',
+    endpoint: 'releases',
+    detailPath: (id) => `/releases/${encodeURIComponent(id)}`,
+    enumeratePath: '/releases/enumerate',
+    createTemplate: () => ({
+      vesselId: state.vessels?.[0]?.id || '',
+      title: 'Draft Release',
+      version: '',
+      tagName: '',
+      summary: '',
+      notes: '',
+      status: 'Draft',
+      voyageIds: [],
+      missionIds: [],
+      checkRunIds: [],
+      objectiveIds: [],
+    }),
+  },
+  deployment: {
+    label: 'Deployment',
+    kind: 'deployment',
+    listElementKey: 'deploymentList',
+    endpoint: 'deployments',
+    detailPath: (id) => `/deployments/${encodeURIComponent(id)}`,
+    enumeratePath: '/deployments/enumerate',
+    createTemplate: () => ({
+      vesselId: state.vessels?.[0]?.id || '',
+      environmentId: '',
+      environmentName: '',
+      releaseId: '',
+      title: 'Deployment',
+      sourceRef: '',
+      summary: '',
+      notes: '',
+      autoExecute: false,
+      objectiveIds: [],
+    }),
+  },
+  incident: {
+    label: 'Incident',
+    kind: 'incident',
+    listElementKey: 'incidentList',
+    endpoint: 'incidents',
+    detailPath: (id) => `/incidents/${encodeURIComponent(id)}`,
+    enumeratePath: '/incidents/enumerate',
+    createTemplate: () => ({
+      title: 'Incident',
+      summary: '',
+      status: 'Open',
+      severity: 'High',
+      vesselId: state.vessels?.[0]?.id || '',
+      environmentId: '',
+      environmentName: '',
+      deploymentId: '',
+      releaseId: '',
+      impact: '',
+      rootCause: '',
+      recoveryNotes: '',
+      postmortem: '',
+      objectiveIds: [],
+    }),
+  },
+  runbook: {
+    label: 'Runbook',
+    kind: 'runbook',
+    listElementKey: 'runbookList',
+    endpoint: 'runbooks',
+    detailPath: (id) => `/runbooks/${encodeURIComponent(id)}`,
+    enumeratePath: '/runbooks/enumerate',
+    createTemplate: () => ({
+      fileName: 'runbook.md',
+      title: 'Runbook',
+      description: '',
+      workflowProfileId: '',
+      environmentId: '',
+      environmentName: '',
+      defaultCheckType: 'DeploymentVerification',
+      parameters: [],
+      steps: [],
+      overviewMarkdown: '# Runbook',
+      active: true,
+    }),
+  },
+  runbookExecution: {
+    label: 'Runbook Execution',
+    kind: 'runbook-execution',
+    listElementKey: 'runbookExecutionList',
+    endpoint: 'runbook-executions',
+    detailPath: (id) => `/runbook-executions/${encodeURIComponent(id)}`,
+    enumeratePath: '/runbook-executions/enumerate',
+    createSupported: false,
+  },
+  pipeline: {
+    label: 'Pipeline',
+    kind: 'pipeline',
+    listElementKey: 'pipelineReferenceList',
+    endpoint: 'pipelines',
+    detailPath: (id) => `/pipelines/${encodeURIComponent(id)}`,
+    enumeratePath: '/pipelines',
+    createSupported: false,
+    readOnly: true,
+  },
+  persona: {
+    label: 'Persona',
+    kind: 'persona',
+    listElementKey: 'personaReferenceList',
+    endpoint: 'personas',
+    detailPath: (id) => `/personas/${encodeURIComponent(id)}`,
+    enumeratePath: '/personas/enumerate',
+    createSupported: false,
+    readOnly: true,
+  },
+  promptTemplate: {
+    label: 'Prompt Template',
+    kind: 'prompt-template',
+    listElementKey: 'promptTemplateReferenceList',
+    endpoint: 'prompt-templates',
+    detailPath: (id) => `/prompt-templates/${encodeURIComponent(id)}`,
+    enumeratePath: '/prompt-templates/enumerate',
+    createSupported: false,
+    readOnly: true,
+  },
 };
 
 function escapeHtml(text) {
@@ -284,6 +659,83 @@ function formatTimestamp(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '-';
   return date.toLocaleString();
+}
+
+function parseLineSeparatedValues(raw) {
+  return String(raw || '')
+    .split(/\r?\n/)
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+function joinLineSeparatedValues(values) {
+  return Array.isArray(values) ? values.filter(Boolean).join('\n') : '';
+}
+
+function parseCommaSeparatedValues(raw) {
+  return String(raw || '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+function toLocalDateTimeInputValue(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const pad = (number) => String(number).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function fromLocalDateTimeInputValue(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString();
+}
+
+function safeJsonStringify(value) {
+  return JSON.stringify(value, null, 2);
+}
+
+function parseJsonPayload(raw, fallbackMessage = 'Invalid JSON payload.') {
+  try {
+    return JSON.parse(String(raw || '{}'));
+  } catch (error) {
+    throw new Error(fallbackMessage);
+  }
+}
+
+function pickFirst(values) {
+  return Array.isArray(values) && values.length > 0 ? values[0] : '';
+}
+
+function coerceListPayload(payload, ...keys) {
+  if (Array.isArray(payload)) return payload;
+  for (const key of keys) {
+    if (Array.isArray(payload?.[key])) return payload[key];
+    const pascalKey = key ? `${key.charAt(0).toUpperCase()}${key.slice(1)}` : key;
+    if (Array.isArray(payload?.[pascalKey])) return payload[pascalKey];
+  }
+  return [];
+}
+
+function coerceDetailPayload(payload, key) {
+  if (payload?.[key]) return payload[key];
+  const pascalKey = key ? `${key.charAt(0).toUpperCase()}${key.slice(1)}` : key;
+  return payload?.[pascalKey] || payload;
+}
+
+function extractPrimaryId(payload) {
+  if (!payload || typeof payload !== 'object') return '';
+  if (payload.id) return payload.id;
+  if (payload.Id) return payload.Id;
+  for (const key of ['session', 'Session', 'voyage', 'Voyage', 'runbookExecution', 'RunbookExecution']) {
+    if (payload[key]?.id) return payload[key].id;
+    if (payload[key]?.Id) return payload[key].Id;
+  }
+  return '';
 }
 
 function badgeClass(value) {
@@ -659,6 +1111,85 @@ function pipelineOptionLabel(pipeline) {
   return id && id !== name ? `${name} | ${id}` : name;
 }
 
+function getActivePlaybooks() {
+  return (state.playbooks || [])
+    .filter((playbook) => playbook?.active !== false)
+    .sort((left, right) => String(left.fileName || left.id || '').localeCompare(String(right.fileName || right.id || '')));
+}
+
+function normalizeDispatchPlaybookSelections() {
+  const activeIds = new Set(getActivePlaybooks().map((playbook) => playbook.id));
+  state.dispatchSelectedPlaybooks = (state.dispatchSelectedPlaybooks || [])
+    .filter((selection) => selection?.playbookId && activeIds.has(selection.playbookId))
+    .map((selection) => ({
+      playbookId: selection.playbookId,
+      deliveryMode: PLAYBOOK_DELIVERY_MODES.some((mode) => mode.value === selection.deliveryMode)
+        ? selection.deliveryMode
+        : 'InlineFullContent',
+    }));
+}
+
+function getDispatchPlaybookSelection(playbookId) {
+  return (state.dispatchSelectedPlaybooks || []).find((selection) => selection.playbookId === playbookId) || null;
+}
+
+function renderDispatchPlaybookSelection() {
+  if (!elements.dispatchPlaybookList) return;
+  normalizeDispatchPlaybookSelections();
+
+  const activePlaybooks = getActivePlaybooks();
+  if (activePlaybooks.length === 0) {
+    elements.dispatchPlaybookList.innerHTML = '<div class="text-muted">No active playbooks are available for this deployment.</div>';
+    return;
+  }
+
+  const selectionOrder = new Map(state.dispatchSelectedPlaybooks.map((selection, index) => [selection.playbookId, index + 1]));
+  elements.dispatchPlaybookList.innerHTML = activePlaybooks.map((playbook) => {
+    const selection = getDispatchPlaybookSelection(playbook.id);
+    const selected = Boolean(selection);
+    const order = selectionOrder.get(playbook.id);
+    const modeDescription = selected
+      ? PLAYBOOK_DELIVERY_MODES.find((mode) => mode.value === selection.deliveryMode)?.description || ''
+      : 'Select this playbook to apply it to every mission in the dispatch.';
+
+    return `
+      <label class="playbook-selection-card${selected ? ' selected' : ''}">
+        <div class="playbook-selection-main">
+          <div class="playbook-selection-toggle">
+            <input type="checkbox" data-playbook-toggle value="${escapeHtml(playbook.id)}" ${selected ? 'checked' : ''}>
+          </div>
+          <div class="playbook-selection-copy">
+            <div class="playbook-selection-title-row">
+              <strong>${escapeHtml(playbook.fileName || playbook.id || 'Playbook')}</strong>
+              ${selected ? `<span class="tag working">#${order}</span>` : '<span class="tag idle">Optional</span>'}
+            </div>
+            <div class="text-dim">${escapeHtml(playbook.description || 'No description')}</div>
+            <div class="playbook-selection-meta text-dim">
+              <span>${escapeHtml(`${String(playbook.content || '').length.toLocaleString()} chars`)}</span>
+              <span>${escapeHtml(`Updated ${formatTimestamp(playbook.lastUpdateUtc)}`)}</span>
+            </div>
+          </div>
+        </div>
+        <div class="playbook-selection-mode">
+          <label class="field">
+            <span>Delivery Mode</span>
+            <select data-playbook-mode data-playbook-id="${escapeHtml(playbook.id)}" ${selected ? '' : 'disabled'}>
+              ${PLAYBOOK_DELIVERY_MODES.map((mode) => `
+                <option value="${escapeHtml(mode.value)}" ${selection?.deliveryMode === mode.value ? 'selected' : ''}>${escapeHtml(mode.label)}</option>
+              `).join('')}
+            </select>
+          </label>
+          <div class="text-dim">${escapeHtml(modeDescription)}</div>
+        </div>
+      </label>
+    `;
+  }).join('');
+}
+
+function playbookDeliveryModeLabel(value) {
+  return PLAYBOOK_DELIVERY_MODES.find((mode) => mode.value === value)?.label || value || 'Inline full content';
+}
+
 function fleetOptionLabel(fleet) {
   const name = fleet?.name || fleet?.id || 'Unnamed fleet';
   const id = fleet?.id ? ` | ${fleet.id}` : '';
@@ -697,7 +1228,6 @@ function buildPipelineOptionRows() {
   };
 
   for (const pipeline of state.pipelines || []) addPipeline(pipeline);
-  for (const pipeline of BUILT_IN_PIPELINES) addPipeline(pipeline);
   for (const row of [...(state.fleets || []), ...(state.vessels || [])]) {
     if (row?.defaultPipelineId) addPipeline({ id: row.defaultPipelineId, name: row.defaultPipelineId });
   }
@@ -714,16 +1244,45 @@ function buildPipelineOptionRows() {
 
 function populateFormSelects() {
   const pipelineRows = buildPipelineOptionRows();
+  const captainRows = state.summary?.recentCaptains || [];
   populateSelect(elements.dispatchVesselId, state.vessels, 'Select a vessel', (row) => row.id, vesselOptionLabel, elements.dispatchVesselId.value);
   populateSelect(elements.dispatchPipelineId, pipelineRows, 'Use default pipeline', getPipelineIdValue, pipelineOptionLabel, elements.dispatchPipelineId.value);
   populateSelect(elements.fleetDefaultPipelineId, pipelineRows, 'No default pipeline', getPipelineIdValue, pipelineOptionLabel, elements.fleetDefaultPipelineId.value);
   populateSelect(elements.vesselFleetId, state.fleets, 'No fleet', (row) => row.id, fleetOptionLabel, elements.vesselFleetId.value);
   populateSelect(elements.vesselDefaultPipelineId, pipelineRows, 'No default pipeline', getPipelineIdValue, pipelineOptionLabel, elements.vesselDefaultPipelineId.value);
   populateSelect(elements.missionVesselId, state.vessels, 'Select a vessel', (row) => row.id, vesselOptionLabel, elements.missionVesselId.value);
+  populateSelect(elements.backlogBrowseVesselId, state.vessels, 'All vessels', (row) => row.id, vesselOptionLabel, elements.backlogBrowseVesselId.value);
+  populateSelect(elements.backlogVesselId, state.vessels, 'No vessel', (row) => row.id, vesselOptionLabel, elements.backlogVesselId.value);
+  populateSelect(elements.planningBrowseCaptainId, captainRows, 'All recent captains', (row) => row.id, (row) => `${row.name || row.id || 'Captain'}${row.id ? ` | ${row.id}` : ''}`, elements.planningBrowseCaptainId.value);
+  populateSelect(elements.planningCaptainId, captainRows, 'Select a captain', (row) => row.id, (row) => `${row.name || row.id || 'Captain'}${row.id ? ` | ${row.id}` : ''}`, elements.planningCaptainId.value);
+  populateSelect(elements.planningBrowseVesselId, state.vessels, 'All vessels', (row) => row.id, vesselOptionLabel, elements.planningBrowseVesselId.value);
+  populateSelect(elements.planningVesselId, state.vessels, 'Select a vessel', (row) => row.id, vesselOptionLabel, elements.planningVesselId.value);
+  populateSelect(elements.planningPipelineId, pipelineRows, 'Use vessel default pipeline', getPipelineIdValue, pipelineOptionLabel, elements.planningPipelineId.value);
+  populateSelect(elements.captainToolsCaptainId, captainRows, 'Select a captain', (row) => row.id, (row) => `${row.name || row.id || 'Captain'}${row.id ? ` | ${row.id}` : ''}`, elements.captainToolsCaptainId.value);
+  populateSelect(elements.workspaceVesselId, state.vessels, 'Select a vessel', (row) => row.id, vesselOptionLabel, elements.workspaceVesselId.value);
+  populateSelect(elements.apiExplorerPreset, API_EXPLORER_PRESETS, 'Choose a safe GET route', (row) => row.key, (row) => `${row.label} | ${row.path}`, elements.apiExplorerPreset.value);
+  renderDispatchPlaybookSelection();
+}
+
+function applyApiExplorerPreset() {
+  const presetKey = elements.apiExplorerPreset?.value || '';
+  const preset = API_EXPLORER_PRESETS.find((entry) => entry.key === presetKey);
+  if (!preset) {
+    setFormStatus(elements.apiExplorerStatusText, 'Choose a safe GET preset first.', 'error');
+    return;
+  }
+
+  elements.apiExplorerMethod.value = preset.method;
+  elements.apiExplorerPath.value = preset.path;
+  elements.apiExplorerBody.value = preset.method === 'GET' || preset.method === 'DELETE'
+    ? ''
+    : safeJsonStringify(preset.body || {});
+  setFormStatus(elements.apiExplorerStatusText, `Loaded ${preset.label} preset.`, 'success');
 }
 
 function resetDispatchForm() {
   elements.dispatchForm.reset();
+  state.dispatchSelectedPlaybooks = [];
   populateFormSelects();
   elements.dispatchPriority.value = '100';
   setButtonBusy(elements.dispatchSubmitButton, false, 'Dispatch', 'Dispatching...');
@@ -840,22 +1399,190 @@ function openMissionModal(mission) {
   openModal(elements.missionModal);
 }
 
+function populatePlaybookForm(playbook) {
+  state.selectedPlaybookId = playbook?.id || null;
+  state.editingPlaybook = playbook || null;
+  elements.playbookFileName.value = playbook?.fileName || '';
+  elements.playbookDescription.value = playbook?.description || '';
+  elements.playbookContent.value = playbook?.content || '';
+  elements.playbookActive.checked = playbook?.active !== false;
+  elements.playbookDeleteButton.classList.toggle('hidden', !playbook?.id);
+  setFormStatus(elements.playbookFormStatus, '', null);
+}
+
+function resetPlaybookForm() {
+  if (state.editingPlaybook && state.selectedPlaybookId) {
+    populatePlaybookForm(state.editingPlaybook);
+    return;
+  }
+
+  state.selectedPlaybookId = null;
+  state.editingPlaybook = null;
+  elements.playbookForm.reset();
+  elements.playbookActive.checked = true;
+  elements.playbookDeleteButton.classList.add('hidden');
+  setFormStatus(elements.playbookFormStatus, '', null);
+}
+
+function openPlaybookModal(playbook = null) {
+  populatePlaybookForm(playbook);
+  elements.playbookModalTitle.textContent = playbook ? 'Edit Playbook' : 'Add Playbook';
+  elements.playbookModalSubtitle.textContent = playbook?.id || 'Create reusable markdown guidance for dispatch.';
+  openModal(elements.playbookModal);
+}
+
+function populateBacklogForm(objective) {
+  state.selectedObjectiveId = objective?.id || null;
+  state.editingObjective = objective || null;
+  elements.backlogTitle.value = objective?.title || '';
+  elements.backlogDescription.value = objective?.description || '';
+  elements.backlogStatus.value = objective?.status || 'Draft';
+  elements.backlogBacklogState.value = objective?.backlogState || 'Inbox';
+  elements.backlogKind.value = objective?.kind || 'Feature';
+  elements.backlogPriority.value = objective?.priority || 'P2';
+  elements.backlogEffort.value = objective?.effort || 'M';
+  elements.backlogOwner.value = objective?.owner || '';
+  populateFormSelects();
+  elements.backlogVesselId.value = pickFirst(objective?.vesselIds) || '';
+  elements.backlogTargetVersion.value = objective?.targetVersion || '';
+  elements.backlogDueUtc.value = toLocalDateTimeInputValue(objective?.dueUtc);
+  elements.backlogParentObjectiveId.value = objective?.parentObjectiveId || '';
+  elements.backlogBlockedByObjectiveIds.value = (objective?.blockedByObjectiveIds || []).join(', ');
+  elements.backlogTags.value = joinLineSeparatedValues(objective?.tags);
+  elements.backlogAcceptanceCriteria.value = joinLineSeparatedValues(objective?.acceptanceCriteria);
+  elements.backlogNonGoals.value = joinLineSeparatedValues(objective?.nonGoals);
+  elements.backlogRolloutConstraints.value = joinLineSeparatedValues(objective?.rolloutConstraints);
+  elements.backlogEvidenceLinks.value = joinLineSeparatedValues(objective?.evidenceLinks);
+  elements.backlogDeleteButton.classList.toggle('hidden', !objective?.id);
+  setFormStatus(elements.backlogFormStatus, '', null);
+}
+
+function resetBacklogForm() {
+  if (state.editingObjective && state.selectedObjectiveId) {
+    populateBacklogForm(state.editingObjective);
+    return;
+  }
+
+  state.selectedObjectiveId = null;
+  state.editingObjective = null;
+  elements.backlogForm.reset();
+  populateFormSelects();
+  elements.backlogStatus.value = 'Draft';
+  elements.backlogBacklogState.value = 'Inbox';
+  elements.backlogKind.value = 'Feature';
+  elements.backlogPriority.value = 'P2';
+  elements.backlogEffort.value = 'M';
+  elements.backlogDeleteButton.classList.add('hidden');
+  setFormStatus(elements.backlogFormStatus, '', null);
+}
+
+function openBacklogModal(objective = null) {
+  populateBacklogForm(objective);
+  elements.backlogModalTitle.textContent = objective ? 'Edit Backlog Item' : 'Add Backlog Item';
+  elements.backlogModalSubtitle.textContent = objective?.id || 'Capture future work with enough context for refinement and planning.';
+  openModal(elements.backlogModal);
+}
+
+function resetPlanningForm() {
+  elements.planningForm.reset();
+  populateFormSelects();
+  setFormStatus(elements.planningFormStatus, '', null);
+}
+
+function openPlanningModal(seed = null) {
+  resetPlanningForm();
+  elements.planningModalTitle.textContent = 'New Planning Session';
+  elements.planningModalSubtitle.textContent = 'Reserve a captain, attach context, and start the planning transcript.';
+  if (seed?.title) elements.planningTitle.value = seed.title;
+  if (seed?.objectiveId) elements.planningObjectiveId.value = seed.objectiveId;
+  if (seed?.vesselId) elements.planningVesselId.value = seed.vesselId;
+  if (seed?.pipelineId) elements.planningPipelineId.value = seed.pipelineId;
+  if (seed?.initialMessage) elements.planningInitialMessage.value = seed.initialMessage;
+  openModal(elements.planningModal);
+}
+
+function resetResourceEditor() {
+  if (!state.resourceEditor) {
+    elements.resourceEditorForm.reset();
+    elements.resourceEditorDeleteButton.classList.add('hidden');
+    setFormStatus(elements.resourceEditorStatus, '', null);
+    return;
+  }
+
+  elements.resourceEditorPayload.value = state.resourceEditor.initialPayloadText || '';
+  elements.resourceEditorDeleteButton.classList.toggle('hidden', !state.resourceEditor.id || Boolean(state.resourceEditor.readOnly));
+  setFormStatus(elements.resourceEditorStatus, '', null);
+}
+
+function openResourceEditor(resourceKey, mode, payload = null, id = null) {
+  const definition = RESOURCE_DEFINITIONS[resourceKey];
+  if (!definition) return;
+
+  const editablePayload = payload ?? (definition.createTemplate ? definition.createTemplate() : {});
+  const initialPayloadText = safeJsonStringify(editablePayload);
+  state.resourceEditor = {
+    resourceKey,
+    mode,
+    id,
+    readOnly: Boolean(definition.readOnly),
+    initialPayloadText,
+  };
+  elements.resourceEditorTitle.textContent = `${mode === 'create' ? 'Create' : 'Edit'} ${definition.label}`;
+  elements.resourceEditorSubtitle.textContent = definition.readOnly
+    ? `${definition.label} is exposed read-only in the proxy.`
+    : `Review the ${definition.label.toLowerCase()} payload before saving it remotely.`;
+  elements.resourceEditorHelp.textContent = definition.readOnly
+    ? 'This reference surface is read-only in the proxy shell.'
+    : 'Only include fields accepted by the underlying Armada route.';
+  elements.resourceEditorSaveButton.classList.toggle('hidden', Boolean(definition.readOnly));
+  elements.resourceEditorPayload.readOnly = Boolean(definition.readOnly);
+  resetResourceEditor();
+  openModal(elements.resourceEditorModal);
+}
+
 function resetProxyState() {
   state.summary = null;
   state.fleets = [];
   state.vessels = [];
   state.pipelines = [];
+  state.playbooks = [];
+  state.objectives = [];
+  state.planningSessions = [];
+  state.workflowProfiles = [];
+  state.checkRuns = [];
+  state.environments = [];
+  state.releases = [];
+  state.deployments = [];
+  state.incidents = [];
+  state.runbooks = [];
+  state.runbookExecutions = [];
+  state.requestHistory = [];
+  state.requestHistorySummary = null;
+  state.personas = [];
+  state.promptTemplates = [];
+  state.captainToolAccess = {};
+  state.workspaceSnapshot = null;
   state.selectedFleetId = null;
   state.selectedVesselId = null;
   state.selectedMissionId = null;
+  state.selectedPlaybookId = null;
+  state.selectedObjectiveId = null;
   state.editingFleet = null;
   state.editingVessel = null;
   state.editingMission = null;
+  state.editingPlaybook = null;
+  state.editingObjective = null;
+  state.dispatchSelectedPlaybooks = [];
+  state.resourceEditor = null;
   closeAllModals();
   resetFleetForm();
   resetVesselForm();
   resetDispatchForm();
   resetMissionForm();
+  resetPlaybookForm();
+  resetBacklogForm();
+  resetPlanningForm();
+  resetResourceEditor();
 }
 
 function returnToDeploymentSelection(message = '', prefill = '') {
@@ -1014,17 +1741,19 @@ async function loadSelectedInstance() {
 
   try {
     const base = instanceBaseUrl();
-    const [summary, fleets, vessels, pipelines] = await Promise.all([
+    const [summary, fleets, vessels, pipelines, playbooks] = await Promise.all([
       fetchJson(`${base}/summary`),
       fetchJson(`${base}/fleets?limit=24`),
       fetchJson(`${base}/vessels?limit=48`),
       fetchJson(`${base}/pipelines?limit=48`).catch(() => ({ pipelines: [] })),
+      fetchJson(`${base}/playbooks?limit=48`).catch(() => ({ playbooks: [] })),
     ]);
 
     state.summary = summary;
     state.fleets = fleets.fleets || [];
     state.vessels = vessels.vessels || [];
     state.pipelines = pipelines.pipelines || [];
+    state.playbooks = playbooks.playbooks || [];
     populateFormSelects();
     renderSessionState();
     renderSelectedInstance();
@@ -1180,6 +1909,29 @@ function renderSelectedInstance() {
   renderEntityList(elements.captainList, summary.recentCaptains || [], 'captain');
   renderEntityList(elements.fleetList, state.fleets || [], 'fleet');
   renderEntityList(elements.vesselList, state.vessels || [], 'vessel');
+  renderEntityList(elements.playbookList, state.playbooks || [], 'playbook');
+  renderEntityList(elements.backlogList, state.objectives || [], 'backlog');
+  renderEntityList(elements.planningList, state.planningSessions || [], 'planning');
+  renderEntityList(elements.workflowProfileList, state.workflowProfiles || [], 'workflow-profile');
+  renderEntityList(elements.checkRunList, state.checkRuns || [], 'check-run');
+  renderEntityList(elements.environmentList, state.environments || [], 'environment');
+  renderEntityList(elements.releaseList, state.releases || [], 'release');
+  renderEntityList(elements.deploymentList, state.deployments || [], 'deployment');
+  renderEntityList(elements.incidentList, state.incidents || [], 'incident');
+  renderEntityList(elements.runbookList, state.runbooks || [], 'runbook');
+  renderEntityList(elements.runbookExecutionList, state.runbookExecutions || [], 'runbook-execution');
+  renderEntityList(elements.requestHistoryList, state.requestHistory || [], 'request-history');
+  renderEntityList(elements.pipelineReferenceList, state.pipelines || [], 'pipeline');
+  renderEntityList(elements.personaReferenceList, state.personas || [], 'persona');
+  renderEntityList(elements.promptTemplateReferenceList, state.promptTemplates || [], 'prompt-template');
+  renderRequestHistorySummaryCards(state.requestHistorySummary);
+  renderWorkspaceStatusPanel(state.workspaceSnapshot);
+  renderCaptainToolsSummary();
+  void loadRecentBacklogList();
+  void loadRecentPlanningList();
+  void loadDeliveryResources();
+  void loadRequestHistoryData();
+  void loadReferenceData();
 }
 
 function loadRecentMissionList() {
@@ -1192,6 +1944,409 @@ function loadRecentVoyageList() {
   const rows = state.summary?.recentVoyages || [];
   renderEntityList(elements.voyageList, rows, 'voyage');
   setFormStatus(elements.voyageBrowseStatusText, `Showing ${rows.length} recent voyage${rows.length === 1 ? '' : 's'}.`, null);
+}
+
+function getResourceStateKey(resourceKey) {
+  switch (resourceKey) {
+    case 'workflowProfile': return 'workflowProfiles';
+    case 'checkRun': return 'checkRuns';
+    case 'environment': return 'environments';
+    case 'release': return 'releases';
+    case 'deployment': return 'deployments';
+    case 'incident': return 'incidents';
+    case 'runbook': return 'runbooks';
+    case 'runbookExecution': return 'runbookExecutions';
+    case 'pipeline': return 'pipelines';
+    case 'persona': return 'personas';
+    case 'promptTemplate': return 'promptTemplates';
+    default: return null;
+  }
+}
+
+function getResourceRows(resourceKey) {
+  const stateKey = getResourceStateKey(resourceKey);
+  return stateKey ? (state[stateKey] || []) : [];
+}
+
+function setResourceRows(resourceKey, rows) {
+  const definition = RESOURCE_DEFINITIONS[resourceKey];
+  const stateKey = getResourceStateKey(resourceKey);
+  if (!definition || !stateKey) return;
+  state[stateKey] = rows;
+  renderEntityList(elements[definition.listElementKey], rows, definition.kind);
+}
+
+function renderRequestHistorySummaryCards(summary) {
+  if (!elements.requestHistorySummary) return;
+  if (!summary) {
+    elements.requestHistorySummary.innerHTML = '<div class="detail-empty">Request-history totals will appear after the first load.</div>';
+    return;
+  }
+
+  elements.requestHistorySummary.innerHTML = [
+    makeSummaryCard('Requests', escapeHtml(String(summary.totalCount ?? 0)), escapeHtml(`Window ${summary.bucketMinutes || 15} min buckets`)),
+    makeSummaryCard('Success', escapeHtml(String(summary.successCount ?? 0)), escapeHtml(`Rate ${Number(summary.successRate || 0).toFixed(1)}%`)),
+    makeSummaryCard('Failures', escapeHtml(String(summary.failureCount ?? 0)), escapeHtml(`Average ${Number(summary.averageDurationMs || 0).toFixed(1)} ms`)),
+  ].join('');
+}
+
+function renderCaptainToolsSummary() {
+  if (!elements.captainToolsSummary) return;
+  const captainId = elements.captainToolsCaptainId?.value || '';
+  const summary = captainId ? state.captainToolAccess?.[captainId] : null;
+  if (!summary) {
+    elements.captainToolsSummary.innerHTML = 'Select a captain to inspect accessible runtime tools.';
+    elements.captainToolsSummary.className = 'detail-card detail-card-compact detail-empty';
+    return;
+  }
+
+  elements.captainToolsSummary.className = 'detail-card detail-card-compact';
+  elements.captainToolsSummary.innerHTML = `
+    <div class="detail-row">
+      <span class="detail-key">Runtime</span>
+      <span class="detail-value">${escapeHtml(summary.runtime || '-')}</span>
+    </div>
+    <div class="detail-row">
+      <span class="detail-key">Configured Sources</span>
+      <span class="detail-value">${escapeHtml(String(summary.configuredServerCount ?? 0))}</span>
+    </div>
+    <div class="detail-row">
+      <span class="detail-key">Reachable Sources</span>
+      <span class="detail-value">${escapeHtml(String(summary.reachableServerCount ?? 0))}</span>
+    </div>
+    <div class="detail-row">
+      <span class="detail-key">Summary</span>
+      <span class="detail-value">${escapeHtml(summary.summary || '-')}</span>
+    </div>
+  `;
+}
+
+function renderWorkspaceStatusPanel(snapshot) {
+  if (!elements.workspaceStatusPanel) return;
+  if (!snapshot) {
+    elements.workspaceStatusPanel.innerHTML = '<div class="detail-empty">Load workspace status, tree, search, or changes for a vessel.</div>';
+    return;
+  }
+
+  const status = snapshot.status || {};
+  elements.workspaceStatusPanel.innerHTML = [
+    makeSummaryCard('Working Dir', renderBadge(status.hasWorkingDirectory ? 'Available' : 'Missing'), escapeHtml(status.rootPath || status.error || 'No working directory configured')),
+    makeSummaryCard('Branch', escapeHtml(status.branchName || '-'), escapeHtml(`Dirty ${status.isDirty ? 'yes' : 'no'}`)),
+    makeSummaryCard('Ahead / Behind', escapeHtml(`${status.commitsAhead ?? 0} / ${status.commitsBehind ?? 0}`), escapeHtml(`Active missions ${status.activeMissionCount ?? 0}`)),
+  ].join('');
+}
+
+function renderWorkspaceResultRows(rows, kind) {
+  renderEntityList(elements.workspaceResultList, rows, kind);
+}
+
+async function loadRecentBacklogList(silent = false) {
+  if (!state.selectedInstanceId) return;
+
+  try {
+    const data = await fetchJson(`${instanceBaseUrl()}/backlog/enumerate`, {
+      method: 'POST',
+      body: { pageNumber: 1, pageSize: Number(elements.backlogBrowseLimit?.value || '12') || 12 },
+    });
+    const rows = coerceListPayload(data, 'objectives', 'items');
+    state.objectives = rows;
+    renderEntityList(elements.backlogList, rows, 'backlog');
+    if (!silent) {
+      setFormStatus(elements.backlogBrowseStatusText, `Loaded ${rows.length} backlog item${rows.length === 1 ? '' : 's'}.`, 'success');
+    }
+  } catch (error) {
+    if (!silent) {
+      setFormStatus(elements.backlogBrowseStatusText, error instanceof Error ? error.message : 'Backlog load failed.', 'error');
+    }
+  }
+}
+
+async function submitBacklogBrowseForm(event) {
+  event?.preventDefault?.();
+  if (!state.selectedInstanceId) return;
+
+  try {
+    const data = await fetchJson(`${instanceBaseUrl()}/backlog/enumerate`, {
+      method: 'POST',
+      body: {
+        status: elements.backlogBrowseStatus.value || null,
+        backlogState: elements.backlogBrowseBacklogState.value || null,
+        pageNumber: 1,
+        pageSize: Number(elements.backlogBrowseLimit.value || '12') || 12,
+        search: elements.backlogBrowseSearch.value.trim() || null,
+        owner: elements.backlogBrowseOwner.value.trim() || null,
+        vesselId: elements.backlogBrowseVesselId.value.trim() || null,
+        tag: elements.backlogBrowseTag.value.trim() || null,
+      },
+    });
+    const rows = coerceListPayload(data, 'objectives', 'items');
+    state.objectives = rows;
+    renderEntityList(elements.backlogList, rows, 'backlog');
+    setFormStatus(elements.backlogBrowseStatusText, `Loaded ${rows.length} backlog item${rows.length === 1 ? '' : 's'} from the deployment.`, 'success');
+  } catch (error) {
+    setFormStatus(elements.backlogBrowseStatusText, error instanceof Error ? error.message : 'Backlog browse failed.', 'error');
+  }
+}
+
+async function loadRecentPlanningList(silent = false) {
+  if (!state.selectedInstanceId) return;
+
+  try {
+    const data = await fetchJson(`${instanceBaseUrl()}/planning-sessions/enumerate`, {
+      method: 'POST',
+      body: { limit: Number(elements.planningBrowseLimit?.value || '12') || 12 },
+    });
+    const rows = coerceListPayload(data, 'planningSessions', 'items');
+    state.planningSessions = rows;
+    renderEntityList(elements.planningList, rows, 'planning');
+    if (!silent) {
+      setFormStatus(elements.planningBrowseStatusText, `Loaded ${rows.length} planning session${rows.length === 1 ? '' : 's'}.`, 'success');
+    }
+  } catch (error) {
+    if (!silent) {
+      setFormStatus(elements.planningBrowseStatusText, error instanceof Error ? error.message : 'Planning-session load failed.', 'error');
+    }
+  }
+}
+
+async function submitPlanningBrowseForm(event) {
+  event?.preventDefault?.();
+  if (!state.selectedInstanceId) return;
+
+  try {
+    const data = await fetchJson(`${instanceBaseUrl()}/planning-sessions/enumerate`, {
+      method: 'POST',
+      body: {
+        captainId: elements.planningBrowseCaptainId.value.trim() || null,
+        vesselId: elements.planningBrowseVesselId.value.trim() || null,
+        status: elements.planningBrowseStatus.value.trim() || null,
+        objectiveId: elements.planningBrowseObjectiveId.value.trim() || null,
+        limit: Number(elements.planningBrowseLimit.value || '12') || 12,
+      },
+    });
+    const rows = coerceListPayload(data, 'planningSessions', 'items');
+    state.planningSessions = rows;
+    renderEntityList(elements.planningList, rows, 'planning');
+    setFormStatus(elements.planningBrowseStatusText, `Loaded ${rows.length} planning session${rows.length === 1 ? '' : 's'} from the deployment.`, 'success');
+  } catch (error) {
+    setFormStatus(elements.planningBrowseStatusText, error instanceof Error ? error.message : 'Planning-session browse failed.', 'error');
+  }
+}
+
+async function loadResourceCollection(resourceKey) {
+  if (!state.selectedInstanceId) return;
+  const definition = RESOURCE_DEFINITIONS[resourceKey];
+  if (!definition) return;
+
+  const base = instanceBaseUrl();
+  let data;
+  if (resourceKey === 'pipeline') {
+    data = await fetchJson(`${base}/pipelines?limit=${DEFAULT_RESOURCE_LIMIT}`);
+  } else if (definition.enumeratePath) {
+    data = await fetchJson(`${base}${definition.enumeratePath}`, {
+      method: definition.enumeratePath === '/pipelines' ? 'GET' : 'POST',
+      body: definition.enumeratePath === '/pipelines'
+        ? undefined
+        : { pageNumber: 1, pageSize: DEFAULT_RESOURCE_LIMIT },
+    });
+  } else {
+    data = await fetchJson(`${base}/${definition.endpoint}?limit=${DEFAULT_RESOURCE_LIMIT}`);
+  }
+
+  const rows = coerceListPayload(
+    data,
+    `${resourceKey}s`,
+    definition.endpoint.replace(/-/g, ''),
+    definition.endpoint,
+    'items');
+  setResourceRows(resourceKey, rows);
+}
+
+async function loadDeliveryResources() {
+  const keys = ['workflowProfile', 'checkRun', 'environment', 'release', 'deployment', 'incident', 'runbook', 'runbookExecution'];
+  await Promise.allSettled(keys.map((key) => loadResourceCollection(key)));
+}
+
+async function loadRequestHistorySummary() {
+  if (!state.selectedInstanceId) return;
+  try {
+    const summary = await fetchJson(`${instanceBaseUrl()}/request-history/summary`, {
+      method: 'POST',
+      body: {
+        bucketMinutes: 15,
+        pageNumber: 1,
+        pageSize: Number(elements.requestHistoryLimit?.value || '12') || 12,
+      },
+    });
+    state.requestHistorySummary = summary;
+    renderRequestHistorySummaryCards(summary);
+  } catch {
+    state.requestHistorySummary = null;
+    renderRequestHistorySummaryCards(null);
+  }
+}
+
+async function loadRequestHistoryData(silent = true) {
+  if (!state.selectedInstanceId) return;
+
+  try {
+    const data = await fetchJson(`${instanceBaseUrl()}/request-history/enumerate`, {
+      method: 'POST',
+      body: {
+        pageNumber: 1,
+        pageSize: Number(elements.requestHistoryLimit?.value || '12') || 12,
+        method: elements.requestHistoryMethod?.value?.trim() || null,
+        route: elements.requestHistoryRoute?.value?.trim() || null,
+        statusCode: elements.requestHistoryStatusCode?.value ? Number(elements.requestHistoryStatusCode.value) : null,
+      },
+    });
+    const rows = coerceListPayload(data, 'entries', 'history', 'items');
+    state.requestHistory = rows;
+    renderEntityList(elements.requestHistoryList, rows, 'request-history');
+    await loadRequestHistorySummary();
+    if (!silent) {
+      setFormStatus(elements.requestHistoryStatusText, `Loaded ${rows.length} request-history entr${rows.length === 1 ? 'y' : 'ies'}.`, 'success');
+    }
+  } catch (error) {
+    if (!silent) {
+      setFormStatus(elements.requestHistoryStatusText, error instanceof Error ? error.message : 'Request-history load failed.', 'error');
+    }
+  }
+}
+
+async function loadReferenceData() {
+  const keys = ['pipeline', 'persona', 'promptTemplate'];
+  await Promise.allSettled(keys.map((key) => loadResourceCollection(key)));
+}
+
+async function loadCaptainToolAccess(captainId) {
+  if (!state.selectedInstanceId || !captainId) return null;
+  const result = await fetchJson(`${instanceBaseUrl()}/captains/${encodeURIComponent(captainId)}/tools`);
+  state.captainToolAccess[captainId] = result;
+  renderCaptainToolsSummary();
+  return result;
+}
+
+async function loadWorkspaceStatusView() {
+  if (!state.selectedInstanceId) return;
+  const vesselId = elements.workspaceVesselId.value.trim();
+  if (!vesselId) {
+    setFormStatus(elements.workspaceStatusText, 'Select a vessel first.', 'error');
+    return;
+  }
+
+  try {
+    const status = await fetchJson(`${instanceBaseUrl()}/workspace/vessels/${encodeURIComponent(vesselId)}/status`);
+    state.workspaceSnapshot = { ...(state.workspaceSnapshot || {}), status, vesselId };
+    renderWorkspaceStatusPanel(state.workspaceSnapshot);
+    setFormStatus(elements.workspaceStatusText, 'Workspace status loaded.', 'success');
+  } catch (error) {
+    setFormStatus(elements.workspaceStatusText, error instanceof Error ? error.message : 'Workspace status failed.', 'error');
+  }
+}
+
+async function loadWorkspaceTreeView() {
+  if (!state.selectedInstanceId) return;
+  const vesselId = elements.workspaceVesselId.value.trim();
+  if (!vesselId) {
+    setFormStatus(elements.workspaceStatusText, 'Select a vessel first.', 'error');
+    return;
+  }
+
+  try {
+    const path = elements.workspacePath.value.trim();
+    const query = buildQuery({ path });
+    const result = await fetchJson(`${instanceBaseUrl()}/workspace/vessels/${encodeURIComponent(vesselId)}/tree${query}`);
+    state.workspaceSnapshot = { ...(state.workspaceSnapshot || {}), tree: result, vesselId };
+    const rows = (result.entries || []).map((entry) => ({
+      id: entry.relativePath || entry.name,
+      name: entry.name,
+      title: entry.name,
+      status: entry.isDirectory ? 'Directory' : 'File',
+      relativePath: entry.relativePath,
+      isDirectory: entry.isDirectory,
+      sizeBytes: entry.sizeBytes,
+      lastWriteUtc: entry.lastWriteUtc,
+      vesselId,
+    }));
+    renderWorkspaceResultRows(rows, 'workspace-entry');
+    setFormStatus(elements.workspaceStatusText, `Loaded ${rows.length} workspace entr${rows.length === 1 ? 'y' : 'ies'}.`, 'success');
+  } catch (error) {
+    setFormStatus(elements.workspaceStatusText, error instanceof Error ? error.message : 'Workspace tree load failed.', 'error');
+  }
+}
+
+async function loadWorkspaceSearchView() {
+  if (!state.selectedInstanceId) return;
+  const vesselId = elements.workspaceVesselId.value.trim();
+  const search = elements.workspaceSearchQuery.value.trim();
+  if (!vesselId) {
+    setFormStatus(elements.workspaceStatusText, 'Select a vessel first.', 'error');
+    return;
+  }
+  if (!search) {
+    setFormStatus(elements.workspaceStatusText, 'Enter a search query.', 'error');
+    return;
+  }
+
+  try {
+    const query = buildQuery({
+      query: search,
+      maxResults: Number(elements.workspaceSearchLimit.value || '50') || 50,
+    });
+    const result = await fetchJson(`${instanceBaseUrl()}/workspace/vessels/${encodeURIComponent(vesselId)}/search${query}`);
+    state.workspaceSnapshot = { ...(state.workspaceSnapshot || {}), search: result, vesselId };
+    const rows = (result.matches || []).map((match) => ({
+      id: `${match.path}:${match.lineNumber}`,
+      name: match.path,
+      title: `${match.path}:${match.lineNumber}`,
+      status: 'Match',
+      preview: match.preview,
+      lineNumber: match.lineNumber,
+      path: match.path,
+      vesselId,
+    }));
+    renderWorkspaceResultRows(rows, 'workspace-search');
+    setFormStatus(elements.workspaceStatusText, `Found ${rows.length} match${rows.length === 1 ? '' : 'es'}.`, 'success');
+  } catch (error) {
+    setFormStatus(elements.workspaceStatusText, error instanceof Error ? error.message : 'Workspace search failed.', 'error');
+  }
+}
+
+async function loadWorkspaceChangesView() {
+  if (!state.selectedInstanceId) return;
+  const vesselId = elements.workspaceVesselId.value.trim();
+  if (!vesselId) {
+    setFormStatus(elements.workspaceStatusText, 'Select a vessel first.', 'error');
+    return;
+  }
+
+  try {
+    const result = await fetchJson(`${instanceBaseUrl()}/workspace/vessels/${encodeURIComponent(vesselId)}/changes`);
+    state.workspaceSnapshot = { ...(state.workspaceSnapshot || {}), changes: result, vesselId };
+    const rows = (result.changes || []).map((change) => ({
+      id: change.path,
+      name: change.path,
+      title: change.path,
+      status: change.status || 'Changed',
+      originalPath: change.originalPath,
+      vesselId,
+    }));
+    renderWorkspaceResultRows(rows, 'workspace-change');
+    renderWorkspaceStatusPanel({
+      ...(state.workspaceSnapshot || {}),
+      status: {
+        ...(state.workspaceSnapshot?.status || {}),
+        branchName: result.branchName,
+        isDirty: result.isDirty,
+        commitsAhead: result.commitsAhead,
+        commitsBehind: result.commitsBehind,
+      },
+    });
+    setFormStatus(elements.workspaceStatusText, `Loaded ${rows.length} change${rows.length === 1 ? '' : 's'}.`, 'success');
+  } catch (error) {
+    setFormStatus(elements.workspaceStatusText, error instanceof Error ? error.message : 'Workspace changes failed.', 'error');
+  }
 }
 
 function renderActivity(activity) {
@@ -1216,7 +2371,7 @@ function renderActivity(activity) {
 function buildEntityMeta(kind, row) {
   if (kind === 'mission') {
     return {
-      meta: `${row.persona || 'Worker'} | ${row.id || '-'}`,
+      meta: `${row.persona || 'Unspecified persona'} | ${row.id || '-'}`,
       secondary: `Priority ${row.priority ?? 100} | Updated ${formatTimestamp(row.lastUpdateUtc)}`,
     };
   }
@@ -1246,6 +2401,133 @@ function buildEntityMeta(kind, row) {
     return {
       meta: row.repoUrl || row.id || '-',
       secondary: row.workingDirectory || 'No working directory',
+    };
+  }
+
+  if (kind === 'playbook') {
+    const contentLength = String(row.content || '').length.toLocaleString();
+    return {
+      meta: `${row.id || '-'} | ${contentLength} chars`,
+      secondary: `${row.description || 'No description'} | Updated ${formatTimestamp(row.lastUpdateUtc)}`,
+    };
+  }
+
+  if (kind === 'backlog') {
+    return {
+      meta: `${row.id || '-'} | ${(row.kind || 'Feature')} | ${(row.priority || 'P2')}`,
+      secondary: `${row.owner || 'Unowned'} | ${(row.backlogState || 'Inbox')} | Updated ${formatTimestamp(row.lastUpdateUtc)}`,
+    };
+  }
+
+  if (kind === 'planning') {
+    return {
+      meta: `${row.id || '-'} | Captain ${row.captainId || '-'} | Vessel ${row.vesselId || '-'}`,
+      secondary: `${row.pipelineId || 'Default pipeline'} | Updated ${formatTimestamp(row.lastUpdateUtc)}`,
+    };
+  }
+
+  if (kind === 'workflow-profile') {
+    return {
+      meta: `${row.id || '-'} | ${row.scope || 'Global'}${row.isDefault ? ' | Default' : ''}`,
+      secondary: `${row.description || 'No description'} | Updated ${formatTimestamp(row.lastUpdateUtc)}`,
+    };
+  }
+
+  if (kind === 'check-run') {
+    return {
+      meta: `${row.id || '-'} | ${row.type || 'Check'} | Vessel ${row.vesselId || '-'}`,
+      secondary: `${row.environmentName || 'No environment'} | Updated ${formatTimestamp(row.lastUpdateUtc)}`,
+    };
+  }
+
+  if (kind === 'environment') {
+    return {
+      meta: `${row.id || '-'} | ${row.kind || 'Environment'} | ${row.vesselId || 'Shared'}`,
+      secondary: `${row.baseUrl || row.healthEndpoint || 'No endpoint'} | Updated ${formatTimestamp(row.lastUpdateUtc)}`,
+    };
+  }
+
+  if (kind === 'release') {
+    return {
+      meta: `${row.version || row.id || '-'} | Vessel ${row.vesselId || '-'}`,
+      secondary: `${row.summary || row.notes || 'No summary'} | Updated ${formatTimestamp(row.lastUpdateUtc)}`,
+    };
+  }
+
+  if (kind === 'deployment') {
+    return {
+      meta: `${row.id || '-'} | ${row.environmentName || row.environmentId || '-'} | ${row.releaseId || 'No release'}`,
+      secondary: `${row.summary || row.notes || 'No summary'} | Updated ${formatTimestamp(row.lastUpdateUtc)}`,
+    };
+  }
+
+  if (kind === 'incident') {
+    return {
+      meta: `${row.id || '-'} | ${row.severity || 'High'} | ${row.environmentName || row.environmentId || '-'}`,
+      secondary: `${row.summary || row.impact || 'No summary'} | Updated ${formatTimestamp(row.lastUpdateUtc)}`,
+    };
+  }
+
+  if (kind === 'runbook') {
+    return {
+      meta: `${row.id || '-'} | ${row.fileName || 'No file'} | ${row.environmentName || row.environmentId || '-'}`,
+      secondary: `${row.description || 'No description'} | Updated ${formatTimestamp(row.lastUpdateUtc)}`,
+    };
+  }
+
+  if (kind === 'runbook-execution') {
+    return {
+      meta: `${row.id || '-'} | Runbook ${row.runbookId || '-'} | ${row.environmentName || row.environmentId || '-'}`,
+      secondary: `${row.notes || 'No notes'} | Updated ${formatTimestamp(row.lastUpdateUtc)}`,
+    };
+  }
+
+  if (kind === 'request-history') {
+    return {
+      meta: `${row.method || 'GET'} ${row.route || '-'} | ${row.statusCode || '-'}`,
+      secondary: `${formatTimestamp(row.createdUtc)} | ${Number(row.durationMs || 0).toFixed(1)} ms`,
+    };
+  }
+
+  if (kind === 'pipeline') {
+    return {
+      meta: `${row.id || row.name || '-'} | ${Array.isArray(row.stages) ? row.stages.length : 0} stages`,
+      secondary: row.description || 'No description',
+    };
+  }
+
+  if (kind === 'persona') {
+    return {
+      meta: `${row.id || row.name || '-'} | ${row.category || 'Persona'}`,
+      secondary: row.description || 'No description',
+    };
+  }
+
+  if (kind === 'prompt-template') {
+    return {
+      meta: `${row.id || row.name || '-'} | ${row.category || 'Prompt'}`,
+      secondary: row.description || 'No description',
+    };
+  }
+
+  if (kind === 'workspace-entry') {
+    return {
+      meta: `${row.relativePath || row.id || '-'} | ${row.isDirectory ? 'Directory' : 'File'}`,
+      secondary: `${row.sizeBytes != null ? `${row.sizeBytes} bytes` : 'Unknown size'} | Updated ${formatTimestamp(row.lastWriteUtc)}`,
+    };
+  }
+
+  if (kind === 'workspace-search') {
+    return {
+      meta: `${row.path || '-'} | Line ${row.lineNumber || '-'}`,
+      secondary: row.preview || 'No preview',
+    };
+  }
+
+  if (kind === 'workspace-change') {
+    return {
+      meta: `${row.originalPath ? `${row.originalPath} -> ` : ''}${row.name || row.id || '-'}`,
+      secondary: row.status || 'Changed',
     };
   }
 
@@ -1280,13 +2562,128 @@ async function handleEntitySelection(kind, row) {
 
   if (kind === 'vessel') {
     openVesselModal(row);
+    return;
+  }
+
+  if (kind === 'playbook') {
+    openPlaybookModal(row);
+    return;
+  }
+
+  if (kind === 'backlog') {
+    await openBacklogDetailModal(row.id);
+    return;
+  }
+
+  if (kind === 'planning') {
+    await openPlanningSessionDetailModal(row.id);
+    return;
+  }
+
+  if (kind === 'workflow-profile') {
+    await openResourceDetailModal('workflowProfile', row.id);
+    return;
+  }
+
+  if (kind === 'check-run') {
+    await openResourceDetailModal('checkRun', row.id);
+    return;
+  }
+
+  if (kind === 'environment') {
+    await openResourceDetailModal('environment', row.id);
+    return;
+  }
+
+  if (kind === 'release') {
+    await openResourceDetailModal('release', row.id);
+    return;
+  }
+
+  if (kind === 'deployment') {
+    await openResourceDetailModal('deployment', row.id);
+    return;
+  }
+
+  if (kind === 'incident') {
+    await openResourceDetailModal('incident', row.id);
+    return;
+  }
+
+  if (kind === 'runbook') {
+    await openResourceDetailModal('runbook', row.id);
+    return;
+  }
+
+  if (kind === 'runbook-execution') {
+    await openResourceDetailModal('runbookExecution', row.id);
+    return;
+  }
+
+  if (kind === 'request-history') {
+    await openRequestHistoryDetailModal(row.id);
+    return;
+  }
+
+  if (kind === 'pipeline') {
+    await openResourceDetailModal('pipeline', row.id || row.name);
+    return;
+  }
+
+  if (kind === 'persona') {
+    await openResourceDetailModal('persona', row.name || row.id);
+    return;
+  }
+
+  if (kind === 'prompt-template') {
+    await openResourceDetailModal('promptTemplate', row.name || row.id);
+    return;
+  }
+
+  if (kind === 'workspace-entry') {
+    if (row.isDirectory) {
+      elements.workspacePath.value = row.relativePath || '';
+      await loadWorkspaceTreeView();
+    } else {
+      await openWorkspaceFileDetailModal(row.vesselId, row.relativePath || row.id);
+    }
+    return;
+  }
+
+  if (kind === 'workspace-search') {
+    await openWorkspaceFileDetailModal(row.vesselId, row.path);
+    return;
+  }
+
+  if (kind === 'workspace-change') {
+    await openWorkspaceFileDetailModal(row.vesselId, row.name || row.id);
   }
 }
 
 function renderEntityList(container, rows, kind) {
   container.innerHTML = '';
   if (!rows || rows.length === 0) {
-    container.innerHTML = '<div class="text-muted">Nothing recent to show.</div>';
+    const emptyMessages = {
+      playbook: 'No playbooks are configured for this deployment.',
+      backlog: 'No backlog items are currently visible for this deployment.',
+      planning: 'No planning sessions are currently visible for this deployment.',
+      'workflow-profile': 'No workflow profiles are currently visible.',
+      'check-run': 'No check runs are currently visible.',
+      environment: 'No environments are currently visible.',
+      release: 'No releases are currently visible.',
+      deployment: 'No deployments are currently visible.',
+      incident: 'No incidents are currently visible.',
+      runbook: 'No runbooks are currently visible.',
+      'runbook-execution': 'No runbook executions are currently visible.',
+      'request-history': 'No matching request-history entries are currently visible.',
+      pipeline: 'No pipelines are currently visible.',
+      persona: 'No personas are currently visible.',
+      'prompt-template': 'No prompt templates are currently visible.',
+      'workspace-entry': 'No workspace entries are available for this path.',
+      'workspace-search': 'No workspace search matches were found.',
+      'workspace-change': 'No local workspace changes were found.',
+    };
+    container.innerHTML = `<div class="text-muted">${escapeHtml(emptyMessages[kind] || 'Nothing recent to show.')}</div>`;
     return;
   }
 
@@ -1297,8 +2694,10 @@ function renderEntityList(container, rows, kind) {
     const badge = fragment.querySelector('.badge');
     const meta = fragment.querySelector('.entity-meta');
     const secondary = fragment.querySelector('.entity-meta-secondary');
-    const titleValue = row.title || row.name || row.id;
-    const badgeValue = row.status || row.state || row.persona || 'detail';
+    const titleValue = row.title || row.name || row.fileName || row.id;
+    const badgeValue = kind === 'playbook'
+      ? (row.active === false ? 'Inactive' : 'Active')
+      : (row.status || row.state || row.persona || row.scope || row.kind || row.type || row.severity || 'detail');
     const description = buildEntityMeta(kind, row);
 
     title.textContent = titleValue;
@@ -1367,6 +2766,18 @@ function renderMissionListCard(title, rows) {
   `;
 }
 
+function renderSelectedPlaybooksCard(title, selections) {
+  const rows = (selections || []).map((selection) => {
+    const match = (state.playbooks || []).find((playbook) => playbook.id === selection.playbookId);
+    return [
+      match?.fileName || selection.playbookId || 'Playbook',
+      playbookDeliveryModeLabel(selection.deliveryMode),
+    ];
+  });
+
+  return renderKeyValueCard(title, rows, 'detail-card-full');
+}
+
 function setDetailModalFrame(title, subtitleHtml, bodyHtml) {
   elements.detailModalTitle.textContent = title;
   elements.detailModalSubtitle.innerHTML = subtitleHtml || '';
@@ -1392,7 +2803,7 @@ function renderMissionDetailModal() {
       <div class="detail-grid">
         ${renderKeyValueCard('Mission', [
           ['Status', mission.status],
-          ['Persona', mission.persona || 'Worker'],
+          ['Persona', mission.persona || '-'],
           ['Priority', mission.priority ?? 100],
           ['Branch', mission.branchName || '-'],
           ['Runtime', mission.totalRuntimeMs != null ? `${mission.totalRuntimeMs} ms` : '-'],
@@ -1459,6 +2870,7 @@ function renderVoyageDetailModal() {
   const payload = state.detailModal?.payload || {};
   const voyage = payload.voyage || {};
   const missions = payload.missions || [];
+  const selectedPlaybooks = voyage.selectedPlaybooks || [];
 
   setDetailModalFrame(
     voyage.title || voyage.id || 'Voyage Detail',
@@ -1477,6 +2889,7 @@ function renderVoyageDetailModal() {
             ['Missions', missions.length],
           ])}
           ${renderKeyValueCard('Description', [['Summary', voyage.description || '-']])}
+          ${selectedPlaybooks.length > 0 ? renderSelectedPlaybooksCard('Playbooks', selectedPlaybooks) : ''}
         </div>
         ${renderMissionListCard('Mission Chain', missions)}
       </div>
@@ -1498,6 +2911,7 @@ function renderCaptainDetailModal() {
       <div class="detail-body">
         <div class="detail-actions">
           <button type="button" class="button" data-detail-action="captain-log" data-id="${escapeHtml(captain.id || '')}">Load Captain Log</button>
+          <button type="button" class="button" data-detail-action="captain-tools" data-id="${escapeHtml(captain.id || '')}">View Tools</button>
           <button type="button" class="button" data-detail-action="captain-stop" data-id="${escapeHtml(captain.id || '')}">Stop Captain</button>
         </div>
         <div class="detail-grid">
@@ -1512,6 +2926,457 @@ function renderCaptainDetailModal() {
           ${renderMissionListCard('Recent Work', recentMissions.slice(0, 8))}
         </div>
         <pre class="code-view">${escapeHtml(state.detailModal?.log || 'Select "Load Captain Log" to inspect the active captain session.')}</pre>
+      </div>
+    `,
+  );
+}
+
+function renderJsonCard(title, value) {
+  return `
+    <section class="detail-card detail-card-full">
+      <h3>${escapeHtml(title)}</h3>
+      <pre class="code-view">${escapeHtml(safeJsonStringify(value))}</pre>
+    </section>
+  `;
+}
+
+function renderMessageTranscriptCard(title, messages) {
+  return `
+    <section class="detail-card detail-card-full">
+      <h3>${escapeHtml(title)}</h3>
+      <div class="detail-list">
+        ${(messages || []).length === 0
+          ? '<div class="text-muted">No transcript messages yet.</div>'
+          : messages.map((message) => `
+            <div class="detail-list-item detail-list-item-static">
+              <span class="detail-list-copy">
+                <span class="detail-list-title">${escapeHtml(message.role || 'Message')}</span>
+                <span class="detail-list-meta">${formatTimestamp(message.createdUtc)}${message.isSelected || message.isSelectedForDispatch ? ' | Selected' : ''}</span>
+              </span>
+              <div class="detail-prose">${escapeHtml(message.content || '')}</div>
+            </div>
+          `).join('')}
+      </div>
+    </section>
+  `;
+}
+
+function renderIdListCard(title, ids, action, resourceKey = '') {
+  return `
+    <section class="detail-card">
+      <h3>${escapeHtml(title)}</h3>
+      <div class="detail-list">
+        ${(ids || []).length === 0
+          ? '<div class="text-muted">Nothing linked yet.</div>'
+          : ids.map((id) => `
+            <button type="button" class="detail-list-item" data-detail-action="${escapeHtml(action)}" data-resource-key="${escapeHtml(resourceKey)}" data-id="${escapeHtml(id)}">
+              <span class="detail-list-copy">
+                <span class="detail-list-title mono">${escapeHtml(id)}</span>
+              </span>
+              ${renderBadge('Open')}
+            </button>
+          `).join('')}
+      </div>
+    </section>
+  `;
+}
+
+function renderLinkedResourceSection(title, ids, resourceKey, action = 'open-resource-detail') {
+  const items = (ids || []).filter((id) => Boolean(String(id || '').trim()));
+  if (items.length === 0) {
+    return '';
+  }
+
+  return renderIdListCard(title, items, action, resourceKey);
+}
+
+function renderLinkedSingleResourceSection(title, id, resourceKey, action = 'open-resource-detail') {
+  const normalized = String(id || '').trim();
+  if (!normalized) {
+    return '';
+  }
+
+  return renderIdListCard(title, [normalized], action, resourceKey);
+}
+
+function renderGenericResourceLinkSections(resourceKey, row) {
+  const sections = [];
+
+  if (resourceKey === 'release') {
+    sections.push(renderLinkedResourceSection('Linked Objectives', row.objectiveIds, '', 'open-backlog-item'));
+    sections.push(renderLinkedResourceSection('Linked Check Runs', row.checkRunIds, 'checkRun'));
+    sections.push(renderLinkedResourceSection('Linked Deployments', row.deploymentIds, 'deployment'));
+  }
+
+  if (resourceKey === 'deployment') {
+    sections.push(renderLinkedResourceSection('Linked Objectives', row.objectiveIds, '', 'open-backlog-item'));
+    sections.push(renderLinkedSingleResourceSection('Release', row.releaseId, 'release'));
+    sections.push(renderLinkedSingleResourceSection('Environment', row.environmentId, 'environment'));
+    sections.push(renderLinkedSingleResourceSection('Workflow Profile', row.workflowProfileId, 'workflowProfile'));
+  }
+
+  if (resourceKey === 'incident') {
+    sections.push(renderLinkedResourceSection('Linked Objectives', row.objectiveIds, '', 'open-backlog-item'));
+    sections.push(renderLinkedSingleResourceSection('Deployment', row.deploymentId, 'deployment'));
+    sections.push(renderLinkedSingleResourceSection('Release', row.releaseId, 'release'));
+    sections.push(renderLinkedSingleResourceSection('Environment', row.environmentId, 'environment'));
+  }
+
+  if (resourceKey === 'runbook') {
+    sections.push(renderLinkedSingleResourceSection('Workflow Profile', row.workflowProfileId, 'workflowProfile'));
+    sections.push(renderLinkedSingleResourceSection('Environment', row.environmentId, 'environment'));
+  }
+
+  if (resourceKey === 'runbookExecution') {
+    sections.push(renderLinkedSingleResourceSection('Runbook', row.runbookId, 'runbook'));
+    sections.push(renderLinkedSingleResourceSection('Deployment', row.deploymentId, 'deployment'));
+    sections.push(renderLinkedSingleResourceSection('Incident', row.incidentId, 'incident'));
+    sections.push(renderLinkedSingleResourceSection('Environment', row.environmentId, 'environment'));
+  }
+
+  if (resourceKey === 'persona') {
+    sections.push(renderLinkedSingleResourceSection('Backing Prompt Template', row.promptTemplateId, 'promptTemplate'));
+  }
+
+  return sections.filter(Boolean).join('');
+}
+
+function buildGenericResourceRows(resourceKey, row) {
+  const rows = [
+    ['Id', row.id || row.name || '-'],
+    ['Status', row.status || row.state || '-'],
+    ['Title', row.title || row.name || row.fileName || '-'],
+    ['Description', row.description || row.summary || row.notes || '-'],
+    ['Vessel', row.vesselId || '-'],
+    ['Environment', row.environmentName || row.environmentId || '-'],
+    ['Workflow Profile', row.workflowProfileId || '-'],
+    ['Created', formatTimestamp(row.createdUtc)],
+    ['Updated', formatTimestamp(row.lastUpdateUtc)],
+  ];
+
+  if (resourceKey === 'workflowProfile') {
+    rows.push(['Scope', row.scope || '-']);
+    rows.push(['Default', row.isDefault ? 'Yes' : 'No']);
+  }
+
+  if (resourceKey === 'checkRun') {
+    rows.push(['Type', row.type || '-']);
+    rows.push(['Command', row.command || row.commandOverride || '-']);
+  }
+
+  if (resourceKey === 'release') {
+    rows.push(['Version', row.version || '-']);
+    rows.push(['Tag', row.tagName || '-']);
+  }
+
+  if (resourceKey === 'deployment') {
+    rows.push(['Verification', row.verificationStatus || '-']);
+    rows.push(['Release', row.releaseId || '-']);
+  }
+
+  if (resourceKey === 'incident') {
+    rows.push(['Severity', row.severity || '-']);
+    rows.push(['Impact', row.impact || '-']);
+  }
+
+  if (resourceKey === 'runbook') {
+    rows.push(['File', row.fileName || '-']);
+    rows.push(['Default Check', row.defaultCheckType || '-']);
+  }
+
+  if (resourceKey === 'runbookExecution') {
+    rows.push(['Runbook', row.runbookId || '-']);
+    rows.push(['Execution Status', row.status || '-']);
+  }
+
+  if (resourceKey === 'pipeline') {
+    rows.push(['Stages', Array.isArray(row.stages) ? String(row.stages.length) : '0']);
+  }
+
+  if (resourceKey === 'persona') {
+    rows.push(['Category', row.category || '-']);
+    rows.push(['Prompt Template', row.promptTemplateId || '-']);
+  }
+
+  if (resourceKey === 'promptTemplate') {
+    rows.push(['Category', row.category || '-']);
+  }
+
+  return rows;
+}
+
+function renderResourceActionButtons(resourceKey, row) {
+  const definition = RESOURCE_DEFINITIONS[resourceKey];
+  if (!definition) return '';
+
+  const buttons = [];
+  if (!definition.readOnly && definition.updateSupported !== false) {
+    buttons.push(`<button type="button" class="button" data-detail-action="resource-edit" data-resource-key="${escapeHtml(resourceKey)}" data-id="${escapeHtml(row.id || '')}">Edit</button>`);
+  }
+
+  if (resourceKey === 'checkRun') {
+    buttons.push(`<button type="button" class="button" data-detail-action="check-run-retry" data-resource-key="${escapeHtml(resourceKey)}" data-id="${escapeHtml(row.id || '')}">Retry</button>`);
+  }
+
+  if (resourceKey === 'release') {
+    buttons.push(`<button type="button" class="button" data-detail-action="release-refresh" data-resource-key="${escapeHtml(resourceKey)}" data-id="${escapeHtml(row.id || '')}">Refresh</button>`);
+  }
+
+  if (resourceKey === 'deployment') {
+    buttons.push(`<button type="button" class="button" data-detail-action="deployment-approve" data-resource-key="${escapeHtml(resourceKey)}" data-id="${escapeHtml(row.id || '')}">Approve</button>`);
+    buttons.push(`<button type="button" class="button" data-detail-action="deployment-deny" data-resource-key="${escapeHtml(resourceKey)}" data-id="${escapeHtml(row.id || '')}">Deny</button>`);
+    buttons.push(`<button type="button" class="button" data-detail-action="deployment-verify" data-resource-key="${escapeHtml(resourceKey)}" data-id="${escapeHtml(row.id || '')}">Verify</button>`);
+    buttons.push(`<button type="button" class="button" data-detail-action="deployment-rollback" data-resource-key="${escapeHtml(resourceKey)}" data-id="${escapeHtml(row.id || '')}">Rollback</button>`);
+  }
+
+  if (resourceKey === 'runbook') {
+    buttons.push(`<button type="button" class="button" data-detail-action="runbook-execute" data-resource-key="${escapeHtml(resourceKey)}" data-id="${escapeHtml(row.id || '')}">Start Execution</button>`);
+  }
+
+  if (!definition.readOnly && resourceKey !== 'checkRun') {
+    buttons.push(`<button type="button" class="button button-danger" data-detail-action="resource-delete" data-resource-key="${escapeHtml(resourceKey)}" data-id="${escapeHtml(row.id || '')}">Delete</button>`);
+  }
+
+  return buttons.join('');
+}
+
+function renderBacklogDetailModal() {
+  const objective = coerceDetailPayload(state.detailModal?.payload || {}, 'objective');
+  const latestPlanningId = pickFirst(objective.planningSessionIds);
+  const latestRefinementId = pickFirst(objective.refinementSessionIds);
+  setDetailModalFrame(
+    objective.title || objective.id || 'Backlog Item',
+    `${renderBadge(objective.backlogState || objective.status || 'unknown')} <span class="mono">${escapeHtml(objective.id || '')}</span>`,
+    `
+      <div class="detail-body">
+        <div class="detail-actions">
+          <button type="button" class="button" data-detail-action="objective-edit" data-id="${escapeHtml(objective.id || '')}">Edit</button>
+          <button type="button" class="button" data-detail-action="objective-start-refinement" data-id="${escapeHtml(objective.id || '')}">Start Refinement</button>
+          <button type="button" class="button" data-detail-action="objective-create-planning" data-id="${escapeHtml(objective.id || '')}">Create Planning Session</button>
+          ${latestRefinementId ? `<button type="button" class="button" data-detail-action="open-refinement-session" data-id="${escapeHtml(latestRefinementId)}">Open Latest Refinement</button>` : ''}
+          ${latestPlanningId ? `<button type="button" class="button" data-detail-action="open-planning-session" data-id="${escapeHtml(latestPlanningId)}">Open Latest Planning</button>` : ''}
+          <button type="button" class="button button-danger" data-detail-action="objective-delete" data-id="${escapeHtml(objective.id || '')}">Delete</button>
+        </div>
+        <div class="detail-grid">
+          ${renderKeyValueCard('Backlog Item', [
+            ['Status', objective.status || '-'],
+            ['Backlog State', objective.backlogState || '-'],
+            ['Kind', objective.kind || '-'],
+            ['Priority', objective.priority || '-'],
+            ['Effort', objective.effort || '-'],
+            ['Owner', objective.owner || '-'],
+            ['Target Version', objective.targetVersion || '-'],
+            ['Due', formatTimestamp(objective.dueUtc)],
+          ])}
+          ${renderKeyValueCard('Scope And Lineage', [
+            ['Parent Objective', objective.parentObjectiveId || '-'],
+            ['Vessel', pickFirst(objective.vesselIds) || '-'],
+            ['Fleet', pickFirst(objective.fleetIds) || '-'],
+            ['Planning Sessions', String((objective.planningSessionIds || []).length)],
+            ['Refinement Sessions', String((objective.refinementSessionIds || []).length)],
+            ['Voyages', String((objective.voyageIds || []).length)],
+            ['Missions', String((objective.missionIds || []).length)],
+          ])}
+          ${renderKeyValueCard('Description', [['Summary', objective.description || '-'], ['Refinement Summary', objective.refinementSummary || '-']])}
+          ${renderKeyValueCard('Lists', [
+            ['Tags', (objective.tags || []).join(', ') || '-'],
+            ['Blocked By', (objective.blockedByObjectiveIds || []).join(', ') || '-'],
+            ['Acceptance Criteria', (objective.acceptanceCriteria || []).join(' | ') || '-'],
+            ['Non-Goals', (objective.nonGoals || []).join(' | ') || '-'],
+          ], 'detail-card-full')}
+        </div>
+        ${renderIdListCard('Linked Refinement Sessions', objective.refinementSessionIds || [], 'open-refinement-session')}
+        ${renderIdListCard('Linked Planning Sessions', objective.planningSessionIds || [], 'open-planning-session')}
+        ${renderJsonCard('Raw JSON', objective)}
+      </div>
+    `,
+  );
+}
+
+function renderObjectiveRefinementDetailModal() {
+  const payload = state.detailModal?.payload || {};
+  const session = payload.session || payload.Session || {};
+  const messages = payload.messages || payload.Messages || [];
+  const captain = payload.captain || payload.Captain || {};
+  const vessel = payload.vessel || payload.Vessel || {};
+  const objective = payload.objective || payload.Objective || {};
+
+  setDetailModalFrame(
+    session.title || session.id || 'Refinement Session',
+    `${renderBadge(session.status || 'unknown')} <span class="mono">${escapeHtml(session.id || '')}</span>`,
+    `
+      <div class="detail-body">
+        <div class="detail-actions">
+          <button type="button" class="button" data-detail-action="refinement-message" data-id="${escapeHtml(session.id || '')}">Send Message</button>
+          <button type="button" class="button" data-detail-action="refinement-summarize" data-id="${escapeHtml(session.id || '')}">Summarize</button>
+          <button type="button" class="button" data-detail-action="refinement-apply" data-id="${escapeHtml(session.id || '')}">Apply To Objective</button>
+          <button type="button" class="button" data-detail-action="refinement-stop" data-id="${escapeHtml(session.id || '')}">Stop</button>
+          <button type="button" class="button" data-detail-action="open-backlog-item" data-id="${escapeHtml(objective.id || session.objectiveId || '')}">Open Objective</button>
+          <button type="button" class="button button-danger" data-detail-action="refinement-delete" data-id="${escapeHtml(session.id || '')}">Delete</button>
+        </div>
+        <div class="detail-grid">
+          ${renderKeyValueCard('Session', [
+            ['Captain', captain.name || session.captainId || '-'],
+            ['Vessel', vessel.name || session.vesselId || '-'],
+            ['Objective', objective.title || session.objectiveId || '-'],
+            ['Status', session.status || '-'],
+            ['Created', formatTimestamp(session.createdUtc)],
+            ['Updated', formatTimestamp(session.lastUpdateUtc)],
+          ])}
+          ${renderKeyValueCard('Summary', [
+            ['Selected', String(messages.filter((message) => message.isSelected).length)],
+            ['Failure', session.failureReason || '-'],
+            ['Messages', String(messages.length)],
+            ['Process', session.processId != null ? String(session.processId) : '-'],
+          ])}
+        </div>
+        ${renderMessageTranscriptCard('Transcript', messages)}
+        ${renderJsonCard('Raw JSON', payload)}
+      </div>
+    `,
+  );
+}
+
+function renderPlanningSessionDetailModal() {
+  const payload = state.detailModal?.payload || {};
+  const session = payload.session || payload.Session || {};
+  const messages = payload.messages || payload.Messages || [];
+  const captain = payload.captain || payload.Captain || {};
+  const vessel = payload.vessel || payload.Vessel || {};
+  const linkedObjective = (state.objectives || []).find((objective) => (objective.planningSessionIds || []).includes(session.id));
+
+  setDetailModalFrame(
+    session.title || session.id || 'Planning Session',
+    `${renderBadge(session.status || 'unknown')} <span class="mono">${escapeHtml(session.id || '')}</span>`,
+    `
+      <div class="detail-body">
+        <div class="detail-actions">
+          <button type="button" class="button" data-detail-action="planning-message" data-id="${escapeHtml(session.id || '')}">Send Message</button>
+          <button type="button" class="button" data-detail-action="planning-summarize" data-id="${escapeHtml(session.id || '')}">Summarize</button>
+          <button type="button" class="button" data-detail-action="planning-dispatch" data-id="${escapeHtml(session.id || '')}">Dispatch</button>
+          <button type="button" class="button" data-detail-action="planning-stop" data-id="${escapeHtml(session.id || '')}">Stop</button>
+          ${linkedObjective ? `<button type="button" class="button" data-detail-action="open-backlog-item" data-id="${escapeHtml(linkedObjective.id || '')}">Open Objective</button>` : ''}
+          <button type="button" class="button button-danger" data-detail-action="planning-delete" data-id="${escapeHtml(session.id || '')}">Delete</button>
+        </div>
+        <div class="detail-grid">
+          ${renderKeyValueCard('Session', [
+            ['Captain', captain.name || session.captainId || '-'],
+            ['Vessel', vessel.name || session.vesselId || '-'],
+            ['Pipeline', session.pipelineId || '-'],
+            ['Status', session.status || '-'],
+            ['Created', formatTimestamp(session.createdUtc)],
+            ['Updated', formatTimestamp(session.lastUpdateUtc)],
+          ])}
+          ${renderKeyValueCard('Scope', [
+            ['Fleet', session.fleetId || '-'],
+            ['Dock', session.dockId || '-'],
+            ['Branch', session.branchName || '-'],
+            ['Failure', session.failureReason || '-'],
+            ['Linked Objective', linkedObjective?.title || linkedObjective?.id || '-'],
+            ['Messages', String(messages.length)],
+          ])}
+        </div>
+        ${renderMessageTranscriptCard('Transcript', messages)}
+        ${renderJsonCard('Raw JSON', payload)}
+      </div>
+    `,
+  );
+}
+
+function renderGenericResourceDetailModal() {
+  const payload = state.detailModal?.payload || {};
+  const resourceKey = state.detailModal?.resourceKey || '';
+  const definition = RESOURCE_DEFINITIONS[resourceKey];
+  const row = payload;
+  const title = row.title || row.name || row.fileName || row.id || definition?.label || 'Detail';
+  const subtitle = `${renderBadge(row.status || row.state || row.scope || row.kind || row.type || 'detail')} <span class="mono">${escapeHtml(row.id || row.name || '')}</span>`;
+  setDetailModalFrame(
+    title,
+    subtitle,
+    `
+      <div class="detail-body">
+        <div class="detail-actions">
+          ${renderResourceActionButtons(resourceKey, row)}
+        </div>
+        <div class="detail-grid">
+          ${renderKeyValueCard(definition?.label || 'Resource', buildGenericResourceRows(resourceKey, row))}
+        </div>
+        ${renderGenericResourceLinkSections(resourceKey, row)}
+        ${renderJsonCard('Raw JSON', row)}
+      </div>
+    `,
+  );
+}
+
+function renderCaptainToolsDetailModal() {
+  const payload = state.detailModal?.payload || {};
+  const servers = payload.servers || [];
+  const tools = payload.tools || [];
+  setDetailModalFrame(
+    payload.captainName || payload.captainId || 'Captain Tools',
+    `${renderBadge(payload.toolsAccessible ? 'Accessible' : 'Unavailable')} <span class="mono">${escapeHtml(payload.runtime || '')}</span>`,
+    `
+      <div class="detail-body">
+        <div class="detail-grid">
+          ${renderKeyValueCard('Runtime Summary', [
+            ['Runtime', payload.runtime || '-'],
+            ['Accessible', payload.toolsAccessible ? 'Yes' : 'No'],
+            ['Availability Verified', payload.availabilityVerified ? 'Yes' : 'No'],
+            ['Configured Sources', String(payload.configuredServerCount ?? 0)],
+            ['Reachable Sources', String(payload.reachableServerCount ?? 0)],
+            ['Effective Tool Count', payload.effectiveToolCount != null ? String(payload.effectiveToolCount) : '-'],
+          ])}
+          ${renderKeyValueCard('Notes', [['Summary', payload.summary || '-'], ['Source', payload.availabilitySource || '-']])}
+        </div>
+        ${renderJsonCard('Configured Sources', servers)}
+        ${renderJsonCard('Named Tools', tools)}
+      </div>
+    `,
+  );
+}
+
+function renderRequestHistoryDetailModal() {
+  const payload = state.detailModal?.payload || {};
+  const entry = payload.entry || payload.Entry || payload;
+  setDetailModalFrame(
+    `${entry.method || '-'} ${entry.route || '-'}`,
+    `${renderBadge(entry.isSuccess ? 'Success' : 'Failure')} <span class="mono">${escapeHtml(entry.id || '')}</span>`,
+    `
+      <div class="detail-body">
+        <div class="detail-grid">
+          ${renderKeyValueCard('Request', [
+            ['Method', entry.method || '-'],
+            ['Route', entry.route || '-'],
+            ['Status Code', entry.statusCode != null ? String(entry.statusCode) : '-'],
+            ['Principal', entry.principal || '-'],
+            ['Duration', entry.durationMs != null ? `${Number(entry.durationMs).toFixed(1)} ms` : '-'],
+            ['Created', formatTimestamp(entry.createdUtc)],
+          ])}
+        </div>
+        ${renderJsonCard('Raw JSON', payload)}
+      </div>
+    `,
+  );
+}
+
+function renderWorkspaceFileDetailModal() {
+  const payload = state.detailModal?.payload || {};
+  setDetailModalFrame(
+    payload.name || payload.path || 'Workspace File',
+    `${renderBadge(payload.isBinary ? 'Binary' : (payload.language || 'Text'))} <span class="mono">${escapeHtml(payload.path || '')}</span>`,
+    `
+      <div class="detail-body">
+        <div class="detail-grid">
+          ${renderKeyValueCard('File', [
+            ['Path', payload.path || '-'],
+            ['Language', payload.language || '-'],
+            ['Size', payload.sizeBytes != null ? `${payload.sizeBytes} bytes` : '-'],
+            ['Editable', payload.isEditable ? 'Yes' : 'No'],
+            ['Last Write', formatTimestamp(payload.lastWriteUtc)],
+            ['Preview Truncated', payload.previewTruncated ? 'Yes' : 'No'],
+          ])}
+        </div>
+        <pre class="code-view">${escapeHtml(payload.content || 'No preview content available.')}</pre>
       </div>
     `,
   );
@@ -1544,6 +3409,41 @@ function renderDetailModal() {
 
   if (state.detailModal.type === 'captain') {
     renderCaptainDetailModal();
+    return;
+  }
+
+  if (state.detailModal.type === 'backlog') {
+    renderBacklogDetailModal();
+    return;
+  }
+
+  if (state.detailModal.type === 'refinement') {
+    renderObjectiveRefinementDetailModal();
+    return;
+  }
+
+  if (state.detailModal.type === 'planning') {
+    renderPlanningSessionDetailModal();
+    return;
+  }
+
+  if (state.detailModal.type === 'generic-resource') {
+    renderGenericResourceDetailModal();
+    return;
+  }
+
+  if (state.detailModal.type === 'captain-tools') {
+    renderCaptainToolsDetailModal();
+    return;
+  }
+
+  if (state.detailModal.type === 'request-history') {
+    renderRequestHistoryDetailModal();
+    return;
+  }
+
+  if (state.detailModal.type === 'workspace-file') {
+    renderWorkspaceFileDetailModal();
     return;
   }
 
@@ -1622,7 +3522,130 @@ async function openCaptainDetailModal(id) {
   }
 }
 
-async function performDetailAction(action, id) {
+async function openBacklogDetailModal(id) {
+  showDetailLoading('backlog', 'Backlog Item');
+  try {
+    const payload = await fetchJson(`${instanceBaseUrl()}/backlog/${encodeURIComponent(id)}`);
+    state.detailModal = { type: 'backlog', id, loading: false, payload };
+    renderDetailModal();
+    openModal(elements.detailModal);
+  } catch (error) {
+    setDetailModalFrame(
+      'Backlog Item',
+      '',
+      `<div class="detail-empty">${escapeHtml(error instanceof Error ? error.message : 'Unable to load backlog item.')}</div>`,
+    );
+    openModal(elements.detailModal);
+  }
+}
+
+async function openObjectiveRefinementDetailModal(id) {
+  showDetailLoading('refinement', 'Refinement Session');
+  try {
+    const payload = await fetchJson(`${instanceBaseUrl()}/objective-refinement-sessions/${encodeURIComponent(id)}`);
+    state.detailModal = { type: 'refinement', id, loading: false, payload };
+    renderDetailModal();
+    openModal(elements.detailModal);
+  } catch (error) {
+    setDetailModalFrame(
+      'Refinement Session',
+      '',
+      `<div class="detail-empty">${escapeHtml(error instanceof Error ? error.message : 'Unable to load refinement session.')}</div>`,
+    );
+    openModal(elements.detailModal);
+  }
+}
+
+async function openPlanningSessionDetailModal(id) {
+  showDetailLoading('planning', 'Planning Session');
+  try {
+    const payload = await fetchJson(`${instanceBaseUrl()}/planning-sessions/${encodeURIComponent(id)}`);
+    state.detailModal = { type: 'planning', id, loading: false, payload };
+    renderDetailModal();
+    openModal(elements.detailModal);
+  } catch (error) {
+    setDetailModalFrame(
+      'Planning Session',
+      '',
+      `<div class="detail-empty">${escapeHtml(error instanceof Error ? error.message : 'Unable to load planning session.')}</div>`,
+    );
+    openModal(elements.detailModal);
+  }
+}
+
+async function openResourceDetailModal(resourceKey, id) {
+  const definition = RESOURCE_DEFINITIONS[resourceKey];
+  if (!definition) return;
+  showDetailLoading('generic-resource', `${definition.label} Detail`);
+  try {
+    const payload = await fetchJson(`${instanceBaseUrl()}${definition.detailPath(id)}`);
+    state.detailModal = { type: 'generic-resource', id, resourceKey, loading: false, payload };
+    renderDetailModal();
+    openModal(elements.detailModal);
+  } catch (error) {
+    setDetailModalFrame(
+      `${definition.label} Detail`,
+      '',
+      `<div class="detail-empty">${escapeHtml(error instanceof Error ? error.message : `Unable to load ${definition.label.toLowerCase()}.`)}</div>`,
+    );
+    openModal(elements.detailModal);
+  }
+}
+
+async function openCaptainToolsDetailModal(id) {
+  showDetailLoading('captain-tools', 'Captain Tools');
+  try {
+    const payload = await loadCaptainToolAccess(id);
+    state.detailModal = { type: 'captain-tools', id, loading: false, payload };
+    renderDetailModal();
+    openModal(elements.detailModal);
+  } catch (error) {
+    setDetailModalFrame(
+      'Captain Tools',
+      '',
+      `<div class="detail-empty">${escapeHtml(error instanceof Error ? error.message : 'Unable to inspect captain tools.')}</div>`,
+    );
+    openModal(elements.detailModal);
+  }
+}
+
+async function openRequestHistoryDetailModal(id) {
+  showDetailLoading('request-history', 'Request History');
+  try {
+    const payload = await fetchJson(`${instanceBaseUrl()}/request-history/${encodeURIComponent(id)}`);
+    state.detailModal = { type: 'request-history', id, loading: false, payload };
+    renderDetailModal();
+    openModal(elements.detailModal);
+  } catch (error) {
+    setDetailModalFrame(
+      'Request History',
+      '',
+      `<div class="detail-empty">${escapeHtml(error instanceof Error ? error.message : 'Unable to load request-history detail.')}</div>`,
+    );
+    openModal(elements.detailModal);
+  }
+}
+
+async function openWorkspaceFileDetailModal(vesselId, path) {
+  if (!vesselId || !path) return;
+  showDetailLoading('workspace-file', 'Workspace File');
+  try {
+    const query = buildQuery({ path });
+    const payload = await fetchJson(`${instanceBaseUrl()}/workspace/vessels/${encodeURIComponent(vesselId)}/file${query}`);
+    state.detailModal = { type: 'workspace-file', id: path, loading: false, payload };
+    renderDetailModal();
+    openModal(elements.detailModal);
+  } catch (error) {
+    setDetailModalFrame(
+      'Workspace File',
+      '',
+      `<div class="detail-empty">${escapeHtml(error instanceof Error ? error.message : 'Unable to load workspace file.')}</div>`,
+    );
+    openModal(elements.detailModal);
+  }
+}
+
+async function performDetailAction(action, id, resourceKey = '') {
   const base = instanceBaseUrl();
 
   try {
@@ -1684,11 +3707,267 @@ async function performDetailAction(action, id) {
       return;
     }
 
+    if (action === 'captain-tools') {
+      await openCaptainToolsDetailModal(id);
+      return;
+    }
+
     if (action === 'captain-stop') {
       if (!confirm('Stop this captain?')) return;
       await fetchJson(`${base}/captains/${encodeURIComponent(id)}/stop`, { method: 'POST' });
       await loadSelectedInstance();
       await openCaptainDetailModal(id);
+      return;
+    }
+
+    if (action === 'objective-edit') {
+      const objective = coerceDetailPayload(state.detailModal?.payload || {}, 'objective');
+      openBacklogModal(objective);
+      return;
+    }
+
+    if (action === 'objective-delete') {
+      if (!confirm('Delete this backlog item?')) return;
+      await fetchJson(`${base}/backlog/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      closeModal(elements.detailModal);
+      await loadRecentBacklogList();
+      return;
+    }
+
+    if (action === 'objective-start-refinement') {
+      const objective = coerceDetailPayload(state.detailModal?.payload || {}, 'objective');
+      const defaultCaptainId = state.summary?.recentCaptains?.[0]?.id || '';
+      const captainId = prompt('Captain ID for refinement:', defaultCaptainId);
+      if (!captainId) return;
+      const initialMessage = prompt('Initial refinement prompt (optional):', objective.description || objective.title || '') || '';
+      const payload = {
+        captainId,
+        vesselId: pickFirst(objective.vesselIds) || null,
+        fleetId: pickFirst(objective.fleetIds) || null,
+        title: objective.title || null,
+        initialMessage: initialMessage.trim() || null,
+      };
+      const detail = await fetchJson(`${base}/backlog/${encodeURIComponent(id)}/refinement-sessions`, { method: 'POST', body: payload });
+      await loadRecentBacklogList(true);
+      const sessionId = detail?.session?.id || detail?.Session?.id || detail?.id;
+      if (sessionId) {
+        await openObjectiveRefinementDetailModal(sessionId);
+      }
+      return;
+    }
+
+    if (action === 'objective-create-planning') {
+      const objective = coerceDetailPayload(state.detailModal?.payload || {}, 'objective');
+      openPlanningModal({
+        title: objective.title || '',
+        objectiveId: objective.id || '',
+        vesselId: pickFirst(objective.vesselIds) || '',
+        pipelineId: objective.suggestedPipelineId || '',
+        initialMessage: objective.refinementSummary || objective.description || '',
+      });
+      return;
+    }
+
+    if (action === 'open-refinement-session') {
+      await openObjectiveRefinementDetailModal(id);
+      return;
+    }
+
+    if (action === 'open-planning-session') {
+      await openPlanningSessionDetailModal(id);
+      return;
+    }
+
+    if (action === 'open-backlog-item') {
+      await openBacklogDetailModal(id);
+      return;
+    }
+
+    if (action === 'open-resource-detail') {
+      if (!resourceKey) return;
+      await openResourceDetailModal(resourceKey, id);
+      return;
+    }
+
+    if (action === 'refinement-message') {
+      const content = prompt('Send message to this refinement session:', '');
+      if (!content) return;
+      await fetchJson(`${base}/objective-refinement-sessions/${encodeURIComponent(id)}/messages`, {
+        method: 'POST',
+        body: { content },
+      });
+      await openObjectiveRefinementDetailModal(id);
+      await loadRecentBacklogList(true);
+      return;
+    }
+
+    if (action === 'refinement-summarize') {
+      await fetchJson(`${base}/objective-refinement-sessions/${encodeURIComponent(id)}/summarize`, {
+        method: 'POST',
+        body: {},
+      });
+      await openObjectiveRefinementDetailModal(id);
+      await loadRecentBacklogList(true);
+      return;
+    }
+
+    if (action === 'refinement-apply') {
+      await fetchJson(`${base}/objective-refinement-sessions/${encodeURIComponent(id)}/apply`, {
+        method: 'POST',
+        body: {},
+      });
+      await openObjectiveRefinementDetailModal(id);
+      await loadRecentBacklogList(true);
+      return;
+    }
+
+    if (action === 'refinement-stop') {
+      if (!confirm('Stop this refinement session?')) return;
+      await fetchJson(`${base}/objective-refinement-sessions/${encodeURIComponent(id)}/stop`, { method: 'POST', body: {} });
+      await openObjectiveRefinementDetailModal(id);
+      return;
+    }
+
+    if (action === 'refinement-delete') {
+      if (!confirm('Delete this refinement session?')) return;
+      await fetchJson(`${base}/objective-refinement-sessions/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      closeModal(elements.detailModal);
+      await loadRecentBacklogList(true);
+      return;
+    }
+
+    if (action === 'planning-message') {
+      const content = prompt('Send message to this planning session:', '');
+      if (!content) return;
+      await fetchJson(`${base}/planning-sessions/${encodeURIComponent(id)}/messages`, {
+        method: 'POST',
+        body: { content },
+      });
+      await openPlanningSessionDetailModal(id);
+      await loadRecentPlanningList(true);
+      return;
+    }
+
+    if (action === 'planning-summarize') {
+      const summary = await fetchJson(`${base}/planning-sessions/${encodeURIComponent(id)}/summarize`, {
+        method: 'POST',
+        body: {},
+      });
+      const title = summary?.title || summary?.Title || '';
+      const description = summary?.description || summary?.Description || '';
+      alert(`Draft summary:\n\n${title}\n\n${description}`);
+      await openPlanningSessionDetailModal(id);
+      return;
+    }
+
+    if (action === 'planning-dispatch') {
+      const title = prompt('Voyage title override (optional):', '') || '';
+      const description = prompt('Mission description override (optional):', '') || '';
+      const detail = await fetchJson(`${base}/planning-sessions/${encodeURIComponent(id)}/dispatch`, {
+        method: 'POST',
+        body: {
+          title: title.trim() || null,
+          description: description.trim() || null,
+        },
+      });
+      await loadSelectedInstance();
+      const voyageId = detail?.voyage?.id || detail?.Voyage?.id || detail?.id;
+      if (voyageId) {
+        await openVoyageDetailModal(voyageId);
+      } else {
+        await openPlanningSessionDetailModal(id);
+      }
+      return;
+    }
+
+    if (action === 'planning-stop') {
+      if (!confirm('Stop this planning session?')) return;
+      await fetchJson(`${base}/planning-sessions/${encodeURIComponent(id)}/stop`, { method: 'POST', body: {} });
+      await openPlanningSessionDetailModal(id);
+      return;
+    }
+
+    if (action === 'planning-delete') {
+      if (!confirm('Delete this planning session?')) return;
+      await fetchJson(`${base}/planning-sessions/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      closeModal(elements.detailModal);
+      await loadRecentPlanningList(true);
+      return;
+    }
+
+    if (action === 'resource-edit') {
+      const payload = state.detailModal?.payload || {};
+      openResourceEditor(resourceKey, 'update', payload, id);
+      return;
+    }
+
+    if (action === 'resource-delete') {
+      const definition = RESOURCE_DEFINITIONS[resourceKey];
+      if (!definition) return;
+      if (!confirm(`Delete this ${definition.label.toLowerCase()}?`)) return;
+      await fetchJson(`${base}${definition.detailPath(id)}`, { method: 'DELETE' });
+      closeModal(elements.detailModal);
+      await loadResourceCollection(resourceKey);
+      return;
+    }
+
+    if (action === 'check-run-retry') {
+      await fetchJson(`${base}/check-runs/${encodeURIComponent(id)}/retry`, { method: 'POST', body: {} });
+      await openResourceDetailModal('checkRun', id);
+      await loadResourceCollection('checkRun');
+      return;
+    }
+
+    if (action === 'release-refresh') {
+      await fetchJson(`${base}/releases/${encodeURIComponent(id)}/refresh`, { method: 'POST', body: {} });
+      await openResourceDetailModal('release', id);
+      await loadResourceCollection('release');
+      return;
+    }
+
+    if (action === 'deployment-approve') {
+      const comment = prompt('Approval comment (optional):', '') || '';
+      await fetchJson(`${base}/deployments/${encodeURIComponent(id)}/approve`, { method: 'POST', body: { comment: comment.trim() || null } });
+      await openResourceDetailModal('deployment', id);
+      await loadResourceCollection('deployment');
+      return;
+    }
+
+    if (action === 'deployment-deny') {
+      const comment = prompt('Denial comment (optional):', '') || '';
+      await fetchJson(`${base}/deployments/${encodeURIComponent(id)}/deny`, { method: 'POST', body: { comment: comment.trim() || null } });
+      await openResourceDetailModal('deployment', id);
+      await loadResourceCollection('deployment');
+      return;
+    }
+
+    if (action === 'deployment-verify') {
+      await fetchJson(`${base}/deployments/${encodeURIComponent(id)}/verify`, { method: 'POST', body: {} });
+      await openResourceDetailModal('deployment', id);
+      await loadResourceCollection('deployment');
+      return;
+    }
+
+    if (action === 'deployment-rollback') {
+      if (!confirm('Trigger rollback for this deployment?')) return;
+      await fetchJson(`${base}/deployments/${encodeURIComponent(id)}/rollback`, { method: 'POST', body: {} });
+      await openResourceDetailModal('deployment', id);
+      await loadResourceCollection('deployment');
+      return;
+    }
+
+    if (action === 'runbook-execute') {
+      const title = prompt('Execution title (optional):', '') || '';
+      const detail = await fetchJson(`${base}/runbooks/${encodeURIComponent(id)}/executions`, {
+        method: 'POST',
+        body: { title: title.trim() || null },
+      });
+      await loadResourceCollection('runbookExecution');
+      const executionId = detail?.id || detail?.runbookExecution?.id || detail?.RunbookExecution?.id;
+      if (executionId) {
+        await openResourceDetailModal('runbookExecution', executionId);
+      }
+      return;
     }
   } catch (error) {
     if (state.detailModal?.type === 'mission') {
@@ -1826,6 +4105,217 @@ async function submitVesselForm(event) {
   }
 }
 
+async function submitPlaybookForm(event) {
+  event.preventDefault();
+  if (!state.selectedInstanceId) return;
+
+  const payload = {
+    fileName: elements.playbookFileName.value.trim(),
+    description: elements.playbookDescription.value.trim() || null,
+    content: elements.playbookContent.value,
+    active: elements.playbookActive.checked,
+  };
+
+  if (!payload.fileName || !payload.content.trim()) {
+    setFormStatus(elements.playbookFormStatus, 'Playbook file name and content are required.', 'error');
+    return;
+  }
+
+  try {
+    const base = instanceBaseUrl();
+    if (state.selectedPlaybookId) {
+      await fetchJson(`${base}/playbooks/${encodeURIComponent(state.selectedPlaybookId)}`, { method: 'PUT', body: payload });
+      setFormStatus(elements.playbookFormStatus, 'Playbook updated.', 'success');
+    } else {
+      await fetchJson(`${base}/playbooks`, { method: 'POST', body: payload });
+      setFormStatus(elements.playbookFormStatus, 'Playbook created.', 'success');
+    }
+
+    await loadSelectedInstance();
+    closeModal(elements.playbookModal);
+    state.selectedPlaybookId = null;
+    state.editingPlaybook = null;
+  } catch (error) {
+    setFormStatus(elements.playbookFormStatus, error instanceof Error ? error.message : 'Playbook save failed.', 'error');
+  }
+}
+
+async function deleteSelectedPlaybook() {
+  if (!state.selectedInstanceId || !state.selectedPlaybookId) return;
+  if (!confirm('Delete this playbook?')) return;
+
+  try {
+    const base = instanceBaseUrl();
+    await fetchJson(`${base}/playbooks/${encodeURIComponent(state.selectedPlaybookId)}`, { method: 'DELETE' });
+    await loadSelectedInstance();
+    closeModal(elements.playbookModal);
+    state.selectedPlaybookId = null;
+    state.editingPlaybook = null;
+  } catch (error) {
+    setFormStatus(elements.playbookFormStatus, error instanceof Error ? error.message : 'Playbook delete failed.', 'error');
+  }
+}
+
+async function submitBacklogForm(event) {
+  event.preventDefault();
+  if (!state.selectedInstanceId) return;
+
+  const vesselId = elements.backlogVesselId.value.trim() || null;
+  const selectedVessel = (state.vessels || []).find((vessel) => vessel.id === vesselId) || null;
+  const payload = {
+    title: elements.backlogTitle.value.trim(),
+    description: elements.backlogDescription.value.trim() || null,
+    status: elements.backlogStatus.value || 'Draft',
+    backlogState: elements.backlogBacklogState.value || 'Inbox',
+    kind: elements.backlogKind.value || 'Feature',
+    priority: elements.backlogPriority.value || 'P2',
+    effort: elements.backlogEffort.value || 'M',
+    owner: elements.backlogOwner.value.trim() || null,
+    vesselIds: vesselId ? [vesselId] : [],
+    fleetIds: selectedVessel?.fleetId ? [selectedVessel.fleetId] : [],
+    targetVersion: elements.backlogTargetVersion.value.trim() || null,
+    dueUtc: fromLocalDateTimeInputValue(elements.backlogDueUtc.value),
+    parentObjectiveId: elements.backlogParentObjectiveId.value.trim() || null,
+    blockedByObjectiveIds: parseCommaSeparatedValues(elements.backlogBlockedByObjectiveIds.value),
+    tags: parseLineSeparatedValues(elements.backlogTags.value),
+    acceptanceCriteria: parseLineSeparatedValues(elements.backlogAcceptanceCriteria.value),
+    nonGoals: parseLineSeparatedValues(elements.backlogNonGoals.value),
+    rolloutConstraints: parseLineSeparatedValues(elements.backlogRolloutConstraints.value),
+    evidenceLinks: parseLineSeparatedValues(elements.backlogEvidenceLinks.value),
+  };
+
+  if (!payload.title) {
+    setFormStatus(elements.backlogFormStatus, 'Backlog title is required.', 'error');
+    return;
+  }
+
+  try {
+    const base = instanceBaseUrl();
+    if (state.selectedObjectiveId) {
+      await fetchJson(`${base}/backlog/${encodeURIComponent(state.selectedObjectiveId)}`, { method: 'PUT', body: payload });
+      setFormStatus(elements.backlogFormStatus, 'Backlog item updated.', 'success');
+    } else {
+      await fetchJson(`${base}/backlog`, { method: 'POST', body: payload });
+      setFormStatus(elements.backlogFormStatus, 'Backlog item created.', 'success');
+    }
+
+    await loadRecentBacklogList(true);
+    closeModal(elements.backlogModal);
+    state.selectedObjectiveId = null;
+    state.editingObjective = null;
+  } catch (error) {
+    setFormStatus(elements.backlogFormStatus, error instanceof Error ? error.message : 'Backlog save failed.', 'error');
+  }
+}
+
+async function deleteSelectedBacklog() {
+  if (!state.selectedInstanceId || !state.selectedObjectiveId) return;
+  if (!confirm('Delete this backlog item?')) return;
+
+  try {
+    await fetchJson(`${instanceBaseUrl()}/backlog/${encodeURIComponent(state.selectedObjectiveId)}`, { method: 'DELETE' });
+    await loadRecentBacklogList(true);
+    closeModal(elements.backlogModal);
+    state.selectedObjectiveId = null;
+    state.editingObjective = null;
+  } catch (error) {
+    setFormStatus(elements.backlogFormStatus, error instanceof Error ? error.message : 'Backlog delete failed.', 'error');
+  }
+}
+
+async function submitPlanningForm(event) {
+  event.preventDefault();
+  if (!state.selectedInstanceId) return;
+
+  const payload = {
+    title: elements.planningTitle.value.trim() || null,
+    captainId: elements.planningCaptainId.value.trim(),
+    vesselId: elements.planningVesselId.value.trim(),
+    pipelineId: elements.planningPipelineId.value.trim() || null,
+    objectiveId: elements.planningObjectiveId.value.trim() || null,
+  };
+  const initialMessage = elements.planningInitialMessage.value.trim();
+
+  if (!payload.captainId || !payload.vesselId) {
+    setFormStatus(elements.planningFormStatus, 'Captain and vessel are required.', 'error');
+    return;
+  }
+
+  try {
+    const detail = await fetchJson(`${instanceBaseUrl()}/planning-sessions`, { method: 'POST', body: payload });
+    const sessionId = detail?.session?.id || detail?.Session?.id || detail?.id || '';
+    if (sessionId && initialMessage) {
+      await fetchJson(`${instanceBaseUrl()}/planning-sessions/${encodeURIComponent(sessionId)}/messages`, {
+        method: 'POST',
+        body: { content: initialMessage },
+      });
+    }
+    await loadRecentPlanningList(true);
+    closeModal(elements.planningModal);
+    if (sessionId) {
+      await openPlanningSessionDetailModal(sessionId);
+    }
+  } catch (error) {
+    setFormStatus(elements.planningFormStatus, error instanceof Error ? error.message : 'Planning-session creation failed.', 'error');
+  }
+}
+
+async function submitResourceEditorForm(event) {
+  event.preventDefault();
+  if (!state.selectedInstanceId || !state.resourceEditor) return;
+
+  const definition = RESOURCE_DEFINITIONS[state.resourceEditor.resourceKey];
+  if (!definition || definition.readOnly) return;
+
+  let payload;
+  try {
+    payload = parseJsonPayload(elements.resourceEditorPayload.value, `${definition.label} payload is not valid JSON.`);
+  } catch (error) {
+    setFormStatus(elements.resourceEditorStatus, error instanceof Error ? error.message : 'Invalid JSON payload.', 'error');
+    return;
+  }
+
+  try {
+    const base = instanceBaseUrl();
+    let response = null;
+    if (state.resourceEditor.mode === 'update') {
+      if (definition.updateSupported === false || !state.resourceEditor.id) {
+        throw new Error(`${definition.label} cannot be updated through the proxy editor.`);
+      }
+      response = await fetchJson(`${base}${definition.detailPath(state.resourceEditor.id)}`, { method: 'PUT', body: payload });
+    } else {
+      response = await fetchJson(`${base}/${definition.endpoint}`, { method: 'POST', body: payload });
+    }
+
+    await loadResourceCollection(state.resourceEditor.resourceKey);
+    setFormStatus(elements.resourceEditorStatus, `${definition.label} saved.`, 'success');
+    const nextId = state.resourceEditor.mode === 'update'
+      ? state.resourceEditor.id
+      : extractPrimaryId(response);
+    closeModal(elements.resourceEditorModal);
+    if (nextId) {
+      await openResourceDetailModal(state.resourceEditor.resourceKey, nextId);
+    }
+  } catch (error) {
+    setFormStatus(elements.resourceEditorStatus, error instanceof Error ? error.message : `${definition.label} save failed.`, 'error');
+  }
+}
+
+async function deleteResourceFromEditor() {
+  if (!state.selectedInstanceId || !state.resourceEditor?.id) return;
+  const definition = RESOURCE_DEFINITIONS[state.resourceEditor.resourceKey];
+  if (!definition || definition.readOnly) return;
+  if (!confirm(`Delete this ${definition.label.toLowerCase()}?`)) return;
+
+  try {
+    await fetchJson(`${instanceBaseUrl()}${definition.detailPath(state.resourceEditor.id)}`, { method: 'DELETE' });
+    await loadResourceCollection(state.resourceEditor.resourceKey);
+    closeModal(elements.resourceEditorModal);
+  } catch (error) {
+    setFormStatus(elements.resourceEditorStatus, error instanceof Error ? error.message : `${definition.label} delete failed.`, 'error');
+  }
+}
+
 async function submitDispatchForm(event) {
   event.preventDefault();
   if (!state.selectedInstanceId) return;
@@ -1838,6 +4328,10 @@ async function submitDispatchForm(event) {
     pipelineId: elements.dispatchPipelineId.value.trim() || null,
     missions,
   };
+  const selectedPlaybooks = (state.dispatchSelectedPlaybooks || []).map((selection) => ({
+    playbookId: selection.playbookId,
+    deliveryMode: selection.deliveryMode,
+  }));
   const priority = Number.parseInt(elements.dispatchPriority.value || '100', 10) || 100;
 
   if (!payload.title) {
@@ -1853,6 +4347,10 @@ async function submitDispatchForm(event) {
   if (missions.length === 0) {
     setFormStatus(elements.dispatchFormStatus, 'Provide at least one mission line.', 'error');
     return;
+  }
+
+  if (selectedPlaybooks.length > 0) {
+    payload.selectedPlaybooks = selectedPlaybooks;
   }
 
   setButtonBusy(elements.dispatchSubmitButton, true, 'Dispatch', 'Dispatching...');
@@ -2108,10 +4606,40 @@ elements.openVesselModalButton.addEventListener('click', () => {
   openVesselModal();
 });
 
+elements.openPlaybookModalButton.addEventListener('click', () => {
+  state.selectedPlaybookId = null;
+  state.editingPlaybook = null;
+  resetPlaybookForm();
+  openPlaybookModal();
+});
+
+elements.openBacklogModalButton.addEventListener('click', () => {
+  state.selectedObjectiveId = null;
+  state.editingObjective = null;
+  resetBacklogForm();
+  openBacklogModal();
+});
+
+elements.openPlanningModalButton.addEventListener('click', () => {
+  resetPlanningForm();
+  openPlanningModal();
+});
+
 elements.fleetForm.addEventListener('submit', submitFleetForm);
 elements.fleetResetButton.addEventListener('click', resetFleetForm);
 elements.vesselForm.addEventListener('submit', submitVesselForm);
 elements.vesselResetButton.addEventListener('click', resetVesselForm);
+elements.playbookForm.addEventListener('submit', submitPlaybookForm);
+elements.playbookResetButton.addEventListener('click', resetPlaybookForm);
+elements.playbookDeleteButton.addEventListener('click', deleteSelectedPlaybook);
+elements.backlogForm.addEventListener('submit', submitBacklogForm);
+elements.backlogResetButton.addEventListener('click', resetBacklogForm);
+elements.backlogDeleteButton.addEventListener('click', deleteSelectedBacklog);
+elements.planningForm.addEventListener('submit', submitPlanningForm);
+elements.planningResetButton.addEventListener('click', resetPlanningForm);
+elements.resourceEditorForm.addEventListener('submit', submitResourceEditorForm);
+elements.resourceEditorResetButton.addEventListener('click', resetResourceEditor);
+elements.resourceEditorDeleteButton.addEventListener('click', deleteResourceFromEditor);
 elements.dispatchForm.addEventListener('submit', submitDispatchForm);
 elements.missionForm.addEventListener('submit', submitMissionForm);
 elements.missionResetButton.addEventListener('click', resetMissionForm);
@@ -2119,6 +4647,125 @@ elements.missionBrowseForm.addEventListener('submit', submitMissionBrowseForm);
 elements.missionBrowseRecentButton.addEventListener('click', loadRecentMissionList);
 elements.voyageBrowseForm.addEventListener('submit', submitVoyageBrowseForm);
 elements.voyageBrowseRecentButton.addEventListener('click', loadRecentVoyageList);
+elements.backlogBrowseForm.addEventListener('submit', submitBacklogBrowseForm);
+elements.backlogBrowseRecentButton.addEventListener('click', () => { void loadRecentBacklogList(); });
+elements.refreshBacklogButton.addEventListener('click', () => { void loadRecentBacklogList(); });
+elements.planningBrowseForm.addEventListener('submit', submitPlanningBrowseForm);
+elements.planningBrowseRecentButton.addEventListener('click', () => { void loadRecentPlanningList(); });
+elements.refreshPlanningButton.addEventListener('click', () => { void loadRecentPlanningList(); });
+elements.refreshDeliveryButton.addEventListener('click', () => { void loadDeliveryResources(); });
+elements.requestHistoryForm.addEventListener('submit', async (event) => { event.preventDefault(); await loadRequestHistoryData(false); });
+elements.requestHistoryRecentButton.addEventListener('click', () => { void loadRequestHistoryData(false); });
+elements.captainToolsLoadButton.addEventListener('click', async () => {
+  const captainId = elements.captainToolsCaptainId.value.trim();
+  if (!captainId) {
+    renderCaptainToolsSummary();
+    return;
+  }
+  await openCaptainToolsDetailModal(captainId);
+});
+elements.apiExplorerUsePresetButton.addEventListener('click', () => {
+  applyApiExplorerPreset();
+});
+elements.apiExplorerForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (!state.selectedInstanceId) return;
+
+  const method = elements.apiExplorerMethod.value || 'GET';
+  const path = elements.apiExplorerPath.value.trim();
+  if (!path) {
+    setFormStatus(elements.apiExplorerStatusText, 'Enter an instance-relative path such as /backlog.', 'error');
+    return;
+  }
+
+  let body = undefined;
+  if (method !== 'GET' && method !== 'DELETE') {
+    try {
+      body = parseJsonPayload(elements.apiExplorerBody.value || '{}', 'API Explorer body is not valid JSON.');
+    } catch (error) {
+      setFormStatus(elements.apiExplorerStatusText, error instanceof Error ? error.message : 'Invalid API Explorer JSON.', 'error');
+      return;
+    }
+  }
+
+  try {
+    setButtonBusy(elements.apiExplorerSendButton, true, 'Send Request', 'Sending...');
+    const response = await fetchJson(`${instanceBaseUrl()}${path.startsWith('/') ? path : `/${path}`}`, {
+      method,
+      body,
+    });
+    elements.apiExplorerResponse.textContent = safeJsonStringify(response);
+    setFormStatus(elements.apiExplorerStatusText, `${method} ${path} succeeded.`, 'success');
+  } catch (error) {
+    elements.apiExplorerResponse.textContent = error instanceof Error ? error.message : 'API Explorer request failed.';
+    setFormStatus(elements.apiExplorerStatusText, error instanceof Error ? error.message : 'API Explorer request failed.', 'error');
+  } finally {
+    setButtonBusy(elements.apiExplorerSendButton, false, 'Send Request', 'Sending...');
+  }
+});
+elements.refreshReferenceButton.addEventListener('click', () => { void loadReferenceData(); });
+elements.workspaceLoadStatusButton.addEventListener('click', () => { void loadWorkspaceStatusView(); });
+elements.workspaceLoadTreeButton.addEventListener('click', () => { void loadWorkspaceTreeView(); });
+elements.workspaceSearchButton.addEventListener('click', () => { void loadWorkspaceSearchView(); });
+elements.workspaceLoadChangesButton.addEventListener('click', () => { void loadWorkspaceChangesView(); });
+elements.dispatchPlaybookList.addEventListener('change', (event) => {
+  const toggle = event.target.closest('[data-playbook-toggle]');
+  if (toggle) {
+    const playbookId = toggle.value;
+    const checked = Boolean(toggle.checked);
+    const existing = getDispatchPlaybookSelection(playbookId);
+
+    if (checked && !existing) {
+      state.dispatchSelectedPlaybooks = [
+        ...(state.dispatchSelectedPlaybooks || []),
+        { playbookId, deliveryMode: 'InlineFullContent' },
+      ];
+    } else if (!checked && existing) {
+      state.dispatchSelectedPlaybooks = (state.dispatchSelectedPlaybooks || [])
+        .filter((selection) => selection.playbookId !== playbookId);
+    }
+
+    renderDispatchPlaybookSelection();
+    return;
+  }
+
+  const mode = event.target.closest('[data-playbook-mode]');
+  if (!mode) return;
+
+  const playbookId = mode.getAttribute('data-playbook-id');
+  if (!playbookId) return;
+
+  state.dispatchSelectedPlaybooks = (state.dispatchSelectedPlaybooks || []).map((selection) => (
+    selection.playbookId === playbookId
+      ? { ...selection, deliveryMode: mode.value || 'InlineFullContent' }
+      : selection
+  ));
+  renderDispatchPlaybookSelection();
+});
+
+document.addEventListener('click', async (event) => {
+  const createButton = event.target.closest('[data-resource-create]');
+  if (createButton) {
+    const resourceKey = createButton.getAttribute('data-resource-create');
+    const definition = resourceKey ? RESOURCE_DEFINITIONS[resourceKey] : null;
+    if (definition && !definition.readOnly && definition.createSupported !== false) {
+      openResourceEditor(resourceKey, 'create', definition.createTemplate ? definition.createTemplate() : {}, null);
+    }
+    return;
+  }
+
+  const refreshButton = event.target.closest('[data-resource-refresh]');
+  if (refreshButton) {
+    const resourceKey = refreshButton.getAttribute('data-resource-refresh');
+    if (resourceKey) {
+      if (resourceKey === 'pipeline' || resourceKey === 'persona' || resourceKey === 'promptTemplate') {
+        await loadReferenceData();
+      } else {
+        await loadResourceCollection(resourceKey);
+      }
+    }
+  }
+});
 
 elements.switchDeploymentButton.addEventListener('click', async () => {
   await revokeProxySession();
@@ -2156,8 +4803,9 @@ elements.detailModalBody.addEventListener('click', async (event) => {
 
   const action = actionButton.getAttribute('data-detail-action');
   const id = actionButton.getAttribute('data-id');
+  const resourceKey = actionButton.getAttribute('data-resource-key') || '';
   if (!action || !id) return;
-  await performDetailAction(action, id);
+  await performDetailAction(action, id, resourceKey);
 });
 
 window.addEventListener('keydown', (event) => {
