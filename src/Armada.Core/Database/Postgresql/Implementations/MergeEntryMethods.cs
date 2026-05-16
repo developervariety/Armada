@@ -757,6 +757,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
             MergeEntry entry = new MergeEntry();
             entry.Id = reader["id"].ToString()!;
             entry.TenantId = NullableString(reader["tenant_id"]);
+            entry.UserId = NullableString(reader["user_id"]);
             entry.MissionId = NullableString(reader["mission_id"]);
             entry.VesselId = NullableString(reader["vessel_id"]);
             entry.BranchName = reader["branch_name"].ToString()!;
@@ -798,4 +799,3 @@ namespace Armada.Core.Database.Postgresql.Implementations
         #endregion
     }
 }
-

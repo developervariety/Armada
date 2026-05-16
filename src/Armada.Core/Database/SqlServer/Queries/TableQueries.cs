@@ -532,6 +532,37 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"
                     IF COL_LENGTH('fleets', 'learned_playbook_id') IS NULL
                         ALTER TABLE fleets ADD learned_playbook_id NVARCHAR(450) NULL;"
+                ),
+                new SchemaMigration(
+                    46,
+                    "Add pipeline and mission review gates",
+                    @"
+                    IF COL_LENGTH('pipeline_stages', 'requires_review') IS NULL
+                        ALTER TABLE pipeline_stages ADD requires_review BIT NOT NULL DEFAULT 0;",
+                    @"
+                    IF COL_LENGTH('pipeline_stages', 'review_deny_action') IS NULL
+                        ALTER TABLE pipeline_stages ADD review_deny_action NVARCHAR(64) NOT NULL DEFAULT 'RetryStage';",
+                    @"
+                    IF COL_LENGTH('missions', 'requires_review') IS NULL
+                        ALTER TABLE missions ADD requires_review BIT NOT NULL DEFAULT 0;",
+                    @"
+                    IF COL_LENGTH('missions', 'review_deny_action') IS NULL
+                        ALTER TABLE missions ADD review_deny_action NVARCHAR(64) NOT NULL DEFAULT 'RetryStage';",
+                    @"
+                    IF COL_LENGTH('missions', 'review_comment') IS NULL
+                        ALTER TABLE missions ADD review_comment NVARCHAR(MAX) NULL;",
+                    @"
+                    IF COL_LENGTH('missions', 'reviewed_by_user_id') IS NULL
+                        ALTER TABLE missions ADD reviewed_by_user_id NVARCHAR(450) NULL;",
+                    @"
+                    IF COL_LENGTH('missions', 'review_requested_utc') IS NULL
+                        ALTER TABLE missions ADD review_requested_utc NVARCHAR(450) NULL;",
+                    @"
+                    IF COL_LENGTH('missions', 'reviewed_utc') IS NULL
+                        ALTER TABLE missions ADD reviewed_utc NVARCHAR(450) NULL;",
+                    @"
+                    IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID('missions') AND name = 'idx_missions_requires_review')
+                        CREATE INDEX idx_missions_requires_review ON missions(requires_review);"
                 )
             };
         }

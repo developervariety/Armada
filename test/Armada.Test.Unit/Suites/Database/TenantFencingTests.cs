@@ -16,7 +16,9 @@ namespace Armada.Test.Unit.Suites.Database
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
                     SqliteDatabaseDriver db = testDb.Driver;
-                    (string tenantA, string tenantB) = await CreateTwoTenantsAsync(db);
+                    TenantPairResult tenants = await CreateTwoTenantsAsync(db);
+                    string tenantA = tenants.TenantA;
+                    string tenantB = tenants.TenantB;
 
                     UserMaster user = new UserMaster(tenantA, "alice@a.com", "pass");
                     await db.Users.CreateAsync(user);
@@ -34,7 +36,9 @@ namespace Armada.Test.Unit.Suites.Database
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
                     SqliteDatabaseDriver db = testDb.Driver;
-                    (string tenantA, string tenantB) = await CreateTwoTenantsAsync(db);
+                    TenantPairResult tenants = await CreateTwoTenantsAsync(db);
+                    string tenantA = tenants.TenantA;
+                    string tenantB = tenants.TenantB;
 
                     UserMaster user = new UserMaster(tenantA, "bob@a.com", "pass");
                     await db.Users.CreateAsync(user);
@@ -49,7 +53,9 @@ namespace Armada.Test.Unit.Suites.Database
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
                     SqliteDatabaseDriver db = testDb.Driver;
-                    (string tenantA, string tenantB) = await CreateTwoTenantsAsync(db);
+                    TenantPairResult tenants = await CreateTwoTenantsAsync(db);
+                    string tenantA = tenants.TenantA;
+                    string tenantB = tenants.TenantB;
 
                     UserMaster user = new UserMaster(tenantA, "carol@a.com", "pass");
                     await db.Users.CreateAsync(user);
@@ -64,7 +70,9 @@ namespace Armada.Test.Unit.Suites.Database
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
                     SqliteDatabaseDriver db = testDb.Driver;
-                    (string tenantA, string tenantB) = await CreateTwoTenantsAsync(db);
+                    TenantPairResult tenants = await CreateTwoTenantsAsync(db);
+                    string tenantA = tenants.TenantA;
+                    string tenantB = tenants.TenantB;
 
                     await db.Users.CreateAsync(new UserMaster(tenantA, "a1@a.com", "pass"));
                     await db.Users.CreateAsync(new UserMaster(tenantA, "a2@a.com", "pass"));
@@ -88,7 +96,9 @@ namespace Armada.Test.Unit.Suites.Database
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
                     SqliteDatabaseDriver db = testDb.Driver;
-                    (string tenantA, string tenantB) = await CreateTwoTenantsAsync(db);
+                    TenantPairResult tenants = await CreateTwoTenantsAsync(db);
+                    string tenantA = tenants.TenantA;
+                    string tenantB = tenants.TenantB;
 
                     UserMaster user = new UserMaster(tenantA, "dan@a.com", "pass");
                     await db.Users.CreateAsync(user);
@@ -106,7 +116,9 @@ namespace Armada.Test.Unit.Suites.Database
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
                     SqliteDatabaseDriver db = testDb.Driver;
-                    (string tenantA, string tenantB) = await CreateTwoTenantsAsync(db);
+                    TenantPairResult tenants = await CreateTwoTenantsAsync(db);
+                    string tenantA = tenants.TenantA;
+                    string tenantB = tenants.TenantB;
 
                     UserMaster userA = new UserMaster(tenantA, "cred-user@a.com", "pass");
                     await db.Users.CreateAsync(userA);
@@ -124,7 +136,9 @@ namespace Armada.Test.Unit.Suites.Database
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
                     SqliteDatabaseDriver db = testDb.Driver;
-                    (string tenantA, string tenantB) = await CreateTwoTenantsAsync(db);
+                    TenantPairResult tenants = await CreateTwoTenantsAsync(db);
+                    string tenantA = tenants.TenantA;
+                    string tenantB = tenants.TenantB;
 
                     UserMaster userA = new UserMaster(tenantA, "enum-user@a.com", "pass");
                     await db.Users.CreateAsync(userA);
@@ -152,7 +166,9 @@ namespace Armada.Test.Unit.Suites.Database
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
                     SqliteDatabaseDriver db = testDb.Driver;
-                    (string tenantA, string tenantB) = await CreateTwoTenantsAsync(db);
+                    TenantPairResult tenants = await CreateTwoTenantsAsync(db);
+                    string tenantA = tenants.TenantA;
+                    string tenantB = tenants.TenantB;
 
                     UserMaster userA = new UserMaster(tenantA, "del-cred@a.com", "pass");
                     await db.Users.CreateAsync(userA);
@@ -173,7 +189,8 @@ namespace Armada.Test.Unit.Suites.Database
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
                     SqliteDatabaseDriver db = testDb.Driver;
-                    (string tenantA, _) = await CreateTwoTenantsAsync(db);
+                    TenantPairResult tenants = await CreateTwoTenantsAsync(db);
+                    string tenantA = tenants.TenantA;
 
                     UserMaster userA = new UserMaster(tenantA, "bearer@a.com", "pass");
                     await db.Users.CreateAsync(userA);
@@ -189,13 +206,17 @@ namespace Armada.Test.Unit.Suites.Database
             });
         }
 
-        private async Task<(string tenantA, string tenantB)> CreateTwoTenantsAsync(SqliteDatabaseDriver db)
+        private async Task<TenantPairResult> CreateTwoTenantsAsync(SqliteDatabaseDriver db)
         {
             TenantMetadata tA = new TenantMetadata("Tenant A " + Guid.NewGuid().ToString("N").Substring(0, 6));
             TenantMetadata tB = new TenantMetadata("Tenant B " + Guid.NewGuid().ToString("N").Substring(0, 6));
             await db.Tenants.CreateAsync(tA);
             await db.Tenants.CreateAsync(tB);
-            return (tA.Id, tB.Id);
+            return new TenantPairResult
+            {
+                TenantA = tA.Id,
+                TenantB = tB.Id
+            };
         }
     }
 }

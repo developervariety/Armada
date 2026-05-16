@@ -88,7 +88,7 @@ Review the manifest and trim. Common edits: drop archived/legacy fleets, prune `
 
 ## Step 3 — Create fleets and vessels
 
-Reply with the final fleet/vessel layout in plain text (one fleet per heading, vessels listed below). The agent creates the fleets first via `armada_create_fleet`, then registers vessels in parallel via `armada_add_vessel`. The vessel registration uses:
+Reply with the final fleet/vessel layout in plain text (one fleet per heading, vessels listed below). The agent creates the fleets first via `create_fleet`, then registers vessels in parallel via `add_vessel`. The vessel registration uses:
 
 - **`name`** — the vessel name you give in the list
 - **`repoUrl`** — read from the local repo's `git config --get remote.origin.url`. For non-git directories where the GitHub repo exists but `git init` hasn't run, the agent uses the conventional URL pattern (`https://github.com/<owner>/<name>.git`) and you confirm.
@@ -111,7 +111,7 @@ The cleanest default. The agent embeds your standard style guide on every vessel
 
 More expensive but useful for the active 5-10 repos. The agent reads each vessel's README and sketches a context that names the key files, dependencies, and architectural decisions.
 
-Vessel context updates use `armada_update_vessel_context` (does not touch other fields). Updates dispatch in parallel — ~70 vessels take ~2 minutes.
+Vessel context updates use `update_vessel_context` (does not touch other fields). Updates dispatch in parallel — ~70 vessels take ~2 minutes.
 
 ## Step 5 — Initialize new repos (optional)
 
@@ -140,7 +140,7 @@ The supported runtimes are `ClaudeCode`, `Codex`, `Gemini`, `Cursor`, and `Custo
 
 > Register four captains: Claude Code (Opus), Codex, Gemini, and Cursor. Each gets a system-instructions block that tells the captain to follow the vessel's StyleGuide and ProjectContext, reference the fleet-wide playbooks, and compile clean before reporting complete.
 
-Under the hood the agent calls `armada_create_captain` once per captain. The fields that matter:
+Under the hood the agent calls `create_captain` once per captain. The fields that matter:
 
 | Field | Notes |
 |-------|-------|
@@ -181,7 +181,7 @@ Captains do not require unique runtimes — register as many variants as you nee
 
 ### Verifying
 
-After registration, ask the agent for an `armada_enumerate entityType=captains` summary. You should see one row per captain you registered with the right `Runtime`, `Model`, and a non-empty system-instructions length.
+After registration, ask the agent for an `enumerate entityType=captains` summary. You should see one row per captain you registered with the right `Runtime`, `Model`, and a non-empty system-instructions length.
 
 ## Step 7 — Load playbooks
 
@@ -191,7 +191,7 @@ Point the agent at a folder of markdown files:
 
 > Add every `.md` file in `<playbook-dir>` as an Armada playbook. Use the filename as `fileName` and write a one-line description from the file's heading.
 
-The agent calls `armada_create_playbook` once per file with the markdown content. Skip "header-only" READMEs and any files you'd consider drafts.
+The agent calls `create_playbook` once per file with the markdown content. Skip "header-only" READMEs and any files you'd consider drafts.
 
 After this step you can reference the playbooks in mission descriptions: "Implement the user-management endpoints following the AUTHENTICATION playbook."
 
@@ -215,7 +215,7 @@ If you'd rather hand the whole thing to the agent in one shot, the minimal promp
 
 - **Run the manifest pass first.** Having the agent enumerate 200+ git repos and propose fleets takes a couple of minutes; revising the proposal in plain text takes seconds. Skipping straight to creation makes you fix vessels one at a time later.
 - **Persist your style guides in a known location.** With Claude Code, save them to the auto-memory store (`coding-standards.md`, `user-preferences.md`) once and future sessions inherit them automatically. With Codex (or any agent that lacks built-in memory), keep them at a stable path like `~/.config/coding-standards.md` and reference them in your session prompt.
-- **Set `EnableModelContext: true`** (the default for `armada_add_vessel`) so missions can accumulate per-repo learnings into `ModelContext` over time. The agent will not blow this away when it updates `ProjectContext` and `StyleGuide`.
+- **Set `EnableModelContext: true`** (the default for `add_vessel`) so missions can accumulate per-repo learnings into `ModelContext` over time. The agent will not blow this away when it updates `ProjectContext` and `StyleGuide`.
 - **Keep `ProjectContext` short.** A vessel's project context should be a 1-2 sentence orientation + the repo URL + the local path. Detailed architecture goes in playbooks where it can be reused across vessels.
 - **Don't try to push 60+ vessels' context updates serially.** Parallel registration is fast; sequential is painful.
 - **Watch for repo name vs. package name mismatches.** Some libraries are published under a different name than their repo. Make sure the vessel's `repoUrl` matches the actual git remote, not the published package name. The agent reads `git config --get remote.origin.url` to avoid getting this wrong.
@@ -223,10 +223,10 @@ If you'd rather hand the whole thing to the agent in one shot, the minimal promp
 
 ## What "done" looks like
 
-- `armada_enumerate entityType=fleets` returns your fleets.
-- `armada_enumerate entityType=vessels pageSize=100` returns every vessel with non-zero `ProjectContextLength` and `StyleGuideLength`.
-- `armada_enumerate entityType=captains` returns one row per agent harness you registered (Claude Code, Codex, Gemini, Cursor as appropriate), each with a `Runtime` and non-empty system-instructions length.
-- `armada_enumerate entityType=playbooks` returns the markdown set you loaded.
+- `enumerate entityType=fleets` returns your fleets.
+- `enumerate entityType=vessels pageSize=100` returns every vessel with non-zero `ProjectContextLength` and `StyleGuideLength`.
+- `enumerate entityType=captains` returns one row per agent harness you registered (Claude Code, Codex, Gemini, Cursor as appropriate), each with a `Runtime` and non-empty system-instructions length.
+- `enumerate entityType=playbooks` returns the markdown set you loaded.
 - Any new repos that needed initialization show a `main` branch on GitHub with the initial commit.
 
 From here, you can dispatch missions, open voyages, and route work between captains.

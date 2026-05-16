@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   createPlanningSession,
   deletePlanningSession,
   dispatchPlanningSession,
+  getVesselReadiness,
   getPlanningSession,
   listCaptains,
   listFleets,
@@ -23,6 +24,7 @@ import type {
   PlanningSessionMessage,
   SelectedPlaybook,
   Vessel,
+  VesselReadinessResult,
   WebSocketMessage,
 } from '../types/models';
 import { useLocale } from '../context/LocaleContext';
@@ -34,6 +36,7 @@ import PlanningDispatchCard from '../components/planning/PlanningDispatchCard';
 import PlanningSessionListCard from '../components/planning/PlanningSessionListCard';
 import PlanningStartCard from '../components/planning/PlanningStartCard';
 import PlanningTranscriptCard from '../components/planning/PlanningTranscriptCard';
+import ReadinessPanel from '../components/shared/ReadinessPanel';
 import {
   buildDispatchSeed,
   type DispatchSeedState,
@@ -55,9 +58,23 @@ interface PlanningSummaryEventPayload {
   };
 }
 
+interface PlanningPrefillState {
+  fromWorkspace?: boolean;
+  fromIncident?: boolean;
+  fromObjective?: boolean;
+  fromSetupWizard?: boolean;
+  objectiveId?: string;
+  vesselId?: string;
+  fleetId?: string;
+  pipelineId?: string;
+  title?: string;
+  initialPrompt?: string;
+}
+
 export default function Planning() {
   const { id } = useParams<{ id?: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { t, formatDateTime, formatRelativeTime } = useLocale();
   const { pushToast } = useNotifications();
   const { subscribe } = useWebSocket();
@@ -68,8 +85,10 @@ export default function Planning() {
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [detail, setDetail] = useState<PlanningSessionDetail | null>(null);
+  const [readiness, setReadiness] = useState<VesselReadinessResult | null>(null);
   const [loadingCatalog, setLoadingCatalog] = useState(true);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const [loadingReadiness, setLoadingReadiness] = useState(false);
   const [error, setError] = useState('');
 
   const [title, setTitle] = useState('');
@@ -77,6 +96,7 @@ export default function Planning() {
   const [fleetId, setFleetId] = useState('');
   const [vesselId, setVesselId] = useState('');
   const [pipelineId, setPipelineId] = useState('');
+  const [objectiveId, setObjectiveId] = useState('');
   const [selectedPlaybooks, setSelectedPlaybooks] = useState<SelectedPlaybook[]>([]);
   const [composer, setComposer] = useState('');
   const [selectedMessageId, setSelectedMessageId] = useState('');
@@ -93,6 +113,7 @@ export default function Planning() {
 
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const dispatchSeedRef = useRef<DispatchSeedState | null>(null);
+  const planningPrefillAppliedRef = useRef(false);
 
   const loadCatalog = useCallback(async () => {
     try {
@@ -284,17 +305,61 @@ export default function Planning() {
   }, [detail, dispatchDescription, dispatchTitle, selectedMessageId]);
 
   useEffect(() => {
+    if (planningPrefillAppliedRef.current || id || loadingCatalog) return;
+
+    const prefill = location.state as PlanningPrefillState | null;
+    if (!prefill?.fromWorkspace && !prefill?.fromIncident && !prefill?.fromObjective && !prefill?.fromSetupWizard) return;
+
+    if (prefill.title) setTitle(prefill.title);
+    if (prefill.fleetId) setFleetId(prefill.fleetId);
+    if (prefill.vesselId) setVesselId(prefill.vesselId);
+    if (prefill.pipelineId) setPipelineId(prefill.pipelineId);
+    if (prefill.initialPrompt) setComposer(prefill.initialPrompt);
+    if (prefill.objectiveId) setObjectiveId(prefill.objectiveId);
+
+    planningPrefillAppliedRef.current = true;
+  }, [id, loadingCatalog, location.state]);
+
+  useEffect(() => {
     if (!transcriptRef.current) return;
     transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
   }, [detail?.messages]);
 
   useEffect(() => {
-    if (!fleetId) return;
-    const fleetStillMatches = vessels.some((vessel) => vessel.id === vesselId && vessel.fleetId === fleetId);
-    if (!fleetStillMatches) {
+    if (!fleetId || !vesselId || loadingCatalog) return;
+
+    const selectedVessel = vessels.find((vessel) => vessel.id === vesselId);
+    if (!selectedVessel) return;
+
+    if (selectedVessel.fleetId !== fleetId) {
       setVesselId('');
     }
-  }, [fleetId, vesselId, vessels]);
+  }, [fleetId, loadingCatalog, vesselId, vessels]);
+
+  useEffect(() => {
+    if (!vesselId) {
+      setReadiness(null);
+      setLoadingReadiness(false);
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingReadiness(true);
+    getVesselReadiness(vesselId)
+      .then((value) => {
+        if (!cancelled) setReadiness(value);
+      })
+      .catch(() => {
+        if (!cancelled) setReadiness(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingReadiness(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [vesselId]);
 
   const availableVessels = useMemo(() => {
     return fleetId ? vessels.filter((vessel) => vessel.fleetId === fleetId) : vessels;
@@ -315,6 +380,7 @@ export default function Planning() {
   const canSummarize = !!currentSession && !!selectedMessage?.content.trim() && !summarizing;
   const canOpenInDispatch = !!currentSession && dispatchDescription.trim().length > 0;
   const canDispatch = !!currentSession && !!selectedMessage?.content.trim() && dispatchDescription.trim().length > 0 && !dispatching;
+  const planningPrefill = location.state as PlanningPrefillState | null;
 
   async function handleCreateSession() {
     if (!captainId || !vesselId) return;
@@ -329,11 +395,14 @@ export default function Planning() {
         fleetId: fleetId || undefined,
         pipelineId: pipelineId || undefined,
         selectedPlaybooks,
+        objectiveId: objectiveId || undefined,
       });
 
       setSessions((current) => upsertSession(current, result.session));
       pushToast('success', t('Planning session started.'));
-      navigate(`/planning/${result.session.id}`);
+      navigate(`/planning/${result.session.id}`, {
+        state: composer.trim() ? { fromWorkspace: true, initialPrompt: composer.trim() } : undefined,
+      });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : t('Failed to start planning session.');
       if (message === 'Request timed out') {
@@ -482,6 +551,26 @@ export default function Planning() {
         </div>
       )}
 
+      {!id && (planningPrefill?.fromWorkspace || planningPrefill?.fromIncident || planningPrefill?.fromObjective || planningPrefill?.fromSetupWizard) && (
+        <div className="alert" style={{ marginBottom: '1rem' }}>
+          {planningPrefill?.fromObjective
+            ? t('Prefilled from a backlog item. Review the vessel and prompt, then start a planning session to turn that scoped work into an execution plan.')
+            : planningPrefill?.fromIncident
+            ? t('Prefilled from an incident. Review the vessel and prompt, then start a planning session for the hotfix or recovery path.')
+            : planningPrefill?.fromSetupWizard
+            ? t('Prefilled from the setup wizard. Review the vessel and prompt, then start a planning session to turn onboarding follow-up into an execution plan.')
+            : t('Prefilled from Workspace. Review the vessel and prompt, then start a planning session.')}
+          {objectiveId && (
+            <>
+              {' '}
+              <button type="button" className="btn btn-sm" style={{ marginLeft: '0.75rem' }} onClick={() => navigate(`/backlog/${objectiveId}`)}>
+                {t('Open Backlog Item')}
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
       <PlanningStartCard
         t={t}
         loading={loadingCatalog}
@@ -497,6 +586,7 @@ export default function Planning() {
         availableVessels={availableVessels}
         selectedCaptain={selectedCaptain}
         selectedPlaybooks={selectedPlaybooks}
+        pendingInitialPrompt={composer}
         creating={creating}
         canStartSession={canStartSession}
         onTitleChange={setTitle}
@@ -507,6 +597,16 @@ export default function Planning() {
         onSelectedPlaybooksChange={setSelectedPlaybooks}
         onStart={handleCreateSession}
       />
+
+      {vesselId && (
+        <ReadinessPanel
+          title={t('Vessel Readiness')}
+          readiness={readiness}
+          loading={loadingReadiness}
+          emptyMessage={t('Select a vessel to inspect readiness.')}
+          compact
+        />
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: '360px minmax(0, 1fr)', gap: '1rem', alignItems: 'start' }}>
         <div style={{ display: 'grid', gap: '1rem' }}>

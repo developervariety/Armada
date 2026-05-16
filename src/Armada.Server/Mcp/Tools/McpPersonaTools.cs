@@ -33,7 +33,7 @@ namespace Armada.Server.Mcp.Tools
             IReflectionMemoryBootstrapService? bootstrap = null)
         {
             register(
-                "armada_create_persona",
+                "create_persona",
                 "Create a new persona with a name and prompt template reference",
                 new
                 {
@@ -76,7 +76,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_get_persona",
+                "get_persona",
                 "Get a persona by name",
                 new
                 {
@@ -98,7 +98,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_update_persona",
+                "update_persona",
                 "Update an existing persona's properties",
                 new
                 {
@@ -130,7 +130,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_delete_persona",
+                "delete_persona",
                 "Delete a persona by name. Built-in personas cannot be deleted.",
                 new
                 {

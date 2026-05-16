@@ -17,6 +17,7 @@ interface PlanningStartCardProps {
   availableVessels: Vessel[];
   selectedCaptain: Captain | null;
   selectedPlaybooks: SelectedPlaybook[];
+  pendingInitialPrompt?: string;
   creating: boolean;
   canStartSession: boolean;
   onTitleChange: (value: string) => void;
@@ -44,6 +45,7 @@ export default function PlanningStartCard(props: PlanningStartCardProps) {
     availableVessels,
     selectedCaptain,
     selectedPlaybooks,
+    pendingInitialPrompt,
     creating,
     canStartSession,
     onTitleChange,
@@ -145,6 +147,12 @@ export default function PlanningStartCard(props: PlanningStartCardProps) {
           {selectedCaptain?.supportsPlanningSessions && (
             <div className="text-muted" style={{ marginTop: '-0.25rem', marginBottom: '0.25rem' }}>
               {t('Planning currently supports the built-in ClaudeCode, Codex, Gemini, Cursor, and Mux runtimes through transcript-backed turn relaunches.')}
+            </div>
+          )}
+
+          {!!pendingInitialPrompt?.trim() && (
+            <div className="alert" style={{ marginBottom: '1rem' }}>
+              {t('Workspace prefilled an initial planning brief. Start the session and review the draft message in the transcript composer before sending it to the captain.')}
             </div>
           )}
 

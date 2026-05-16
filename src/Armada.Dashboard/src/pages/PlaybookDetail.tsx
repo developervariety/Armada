@@ -10,6 +10,7 @@ import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
 import StatusBadge from '../components/shared/StatusBadge';
+import { buildPlaybookDuplicatePayload } from '../lib/duplicates';
 
 export default function PlaybookDetail() {
   const { id } = useParams<{ id: string }>();
@@ -130,6 +131,20 @@ export default function PlaybookDetail() {
     });
   }
 
+  async function handleDuplicate() {
+    if (!playbook || !canManage) return;
+    try {
+      setSaving(true);
+      const created = await createPlaybook(buildPlaybookDuplicatePayload(playbook));
+      pushToast('success', t('Playbook "{{name}}" duplicated.', { name: created.fileName }));
+      navigate(`/playbooks/${created.id}`);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('Duplicate failed.'));
+    } finally {
+      setSaving(false);
+    }
+  }
+
   if (loading) return <p className="text-dim">{t('Loading...')}</p>;
 
   return (
@@ -145,6 +160,11 @@ export default function PlaybookDetail() {
           {!createMode && (
             <button className="btn btn-sm" onClick={() => setJsonData({ open: true, title: fileName, data: playbook })}>
               {t('View JSON')}
+            </button>
+          )}
+          {!createMode && canManage && (
+            <button className="btn btn-sm" disabled={saving} onClick={() => void handleDuplicate()}>
+              {t('Duplicate')}
             </button>
           )}
           {!createMode && canManage && (

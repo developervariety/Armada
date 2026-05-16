@@ -363,7 +363,12 @@ namespace Armada.Server
 
             session = await RequireSessionAsync(session.Id, token).ConfigureAwait(false);
             if (!_ActiveTurns.TryAdd(session.Id, new TurnState()))
-                throw new InvalidOperationException("Planning session " + session.Id + " is already generating a response.");
+            {
+                bool available = await WaitForTurnAvailabilityAsync(session.Id, TimeSpan.FromSeconds(10), token).ConfigureAwait(false);
+                session = await RequireSessionAsync(session.Id, token).ConfigureAwait(false);
+                if (!available || !_ActiveTurns.TryAdd(session.Id, new TurnState()))
+                    throw new InvalidOperationException("Planning session " + session.Id + " is already generating a response.");
+            }
             try
             {
                 PlanningSessionMessage sourceMessage = await ResolveSourceMessageAsync(session, request.MessageId, token).ConfigureAwait(false);
@@ -787,6 +792,20 @@ namespace Armada.Server
             {
                 _ActiveTurns.TryRemove(sessionId, out _);
             }
+        }
+
+        private async Task<bool> WaitForTurnAvailabilityAsync(string sessionId, TimeSpan timeout, CancellationToken token)
+        {
+            Stopwatch stopwatch = Stopwatch.StartNew();
+            while (stopwatch.Elapsed < timeout)
+            {
+                if (!_ActiveTurns.ContainsKey(sessionId))
+                    return true;
+
+                await Task.Delay(100, token).ConfigureAwait(false);
+            }
+
+            return !_ActiveTurns.ContainsKey(sessionId);
         }
 
         private async Task<string> WritePromptFileAsync(

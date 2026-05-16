@@ -71,11 +71,22 @@ namespace Armada.Core.Authorization
             if (path.StartsWith("/api/v1/voyages") && method != "GET") return PermissionLevel.TenantAdmin;
             if (path.StartsWith("/api/v1/missions") && method != "GET") return PermissionLevel.TenantAdmin;
             if (path.StartsWith("/api/v1/playbooks") && method != "GET") return PermissionLevel.TenantAdmin;
+            if (path.StartsWith("/api/v1/workflow-profiles") && method != "GET") return PermissionLevel.TenantAdmin;
+            if (path.StartsWith("/api/v1/environments") && method != "GET") return PermissionLevel.TenantAdmin;
+            if (path.StartsWith("/api/v1/releases") && method != "GET") return PermissionLevel.TenantAdmin;
+            if (path.StartsWith("/api/v1/deployments") && method != "GET") return PermissionLevel.TenantAdmin;
+            if (path.StartsWith("/api/v1/incidents") && method != "GET") return PermissionLevel.TenantAdmin;
+            if (path.StartsWith("/api/v1/runbooks") && method != "GET") return PermissionLevel.TenantAdmin;
+            if (path.StartsWith("/api/v1/runbook-executions") && method != "GET") return PermissionLevel.TenantAdmin;
+            if (path.StartsWith("/api/v1/objectives") && method != "GET") return PermissionLevel.TenantAdmin;
+            if (path.StartsWith("/api/v1/backlog") && method != "GET") return PermissionLevel.TenantAdmin;
+            if (path.StartsWith("/api/v1/objective-refinement-sessions") && method != "GET") return PermissionLevel.TenantAdmin;
             if (path.StartsWith("/api/v1/planning-sessions") && method != "GET") return PermissionLevel.TenantAdmin;
             if (path.StartsWith("/api/v1/docks") && method != "GET") return PermissionLevel.TenantAdmin;
             if (path.StartsWith("/api/v1/signals") && method != "GET") return PermissionLevel.TenantAdmin;
             if (path.StartsWith("/api/v1/events") && method != "GET") return PermissionLevel.TenantAdmin;
             if (path.StartsWith("/api/v1/merge-queue") && method != "GET") return PermissionLevel.TenantAdmin;
+            if (path.StartsWith("/api/v1/request-history") && method != "GET") return PermissionLevel.TenantAdmin;
 
             // Everything else requires authentication
             return PermissionLevel.Authenticated;

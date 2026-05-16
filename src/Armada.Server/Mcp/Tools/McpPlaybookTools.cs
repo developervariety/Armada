@@ -29,7 +29,7 @@ namespace Armada.Server.Mcp.Tools
             if (logging == null) throw new ArgumentNullException(nameof(logging));
 
             register(
-                "armada_get_playbook",
+                "get_playbook",
                 "Get a playbook by ID.",
                 new
                 {
@@ -52,7 +52,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_create_playbook",
+                "create_playbook",
                 "Create a new markdown playbook.",
                 new
                 {
@@ -93,7 +93,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_update_playbook",
+                "update_playbook",
                 "Update an existing playbook.",
                 new
                 {
@@ -138,7 +138,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_delete_playbook",
+                "delete_playbook",
                 "Delete a playbook by ID. Existing mission snapshots remain immutable.",
                 new
                 {

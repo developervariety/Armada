@@ -96,6 +96,12 @@ namespace Armada.Test.Unit.Suites.Database
                     mission.Status = MissionStatusEnum.Complete;
                     mission.Priority = 5;
                     mission.BranchName = "feature/test";
+                    mission.RequiresReview = true;
+                    mission.ReviewDenyAction = ReviewDenyActionEnum.FailPipeline;
+                    mission.ReviewComment = "Approved with changes";
+                    mission.ReviewedByUserId = "usr_test";
+                    mission.ReviewRequestedUtc = _BaseTime.AddMinutes(5);
+                    mission.ReviewedUtc = _BaseTime.AddMinutes(10);
                     mission.StartedUtc = _BaseTime;
                     mission.CompletedUtc = _BaseTime.AddMilliseconds(2500);
 
@@ -112,6 +118,12 @@ namespace Armada.Test.Unit.Suites.Database
                     AssertEqual(MissionStatusEnum.Complete, result.Status);
                     AssertEqual(5, result.Priority);
                     AssertEqual("feature/test", result.BranchName);
+                    AssertTrue(read.RequiresReview, "Mission review gate should persist");
+                    AssertEqual(ReviewDenyActionEnum.FailPipeline, read.ReviewDenyAction, "Mission deny action should persist");
+                    AssertEqual("Approved with changes", read.ReviewComment, "Mission review comment should persist");
+                    AssertEqual("usr_test", read.ReviewedByUserId, "Mission reviewer should persist");
+                    AssertEqual(_BaseTime.AddMinutes(5), read.ReviewRequestedUtc, "Mission review-request timestamp should persist");
+                    AssertEqual(_BaseTime.AddMinutes(10), read.ReviewedUtc, "Mission reviewed timestamp should persist");
                     long resultRuntimeMs = result.TotalRuntimeMs ?? throw new InvalidOperationException("Expected result.TotalRuntimeMs to be populated.");
                     long readRuntimeMs = read!.TotalRuntimeMs ?? throw new InvalidOperationException("Expected read.TotalRuntimeMs to be populated.");
                     AssertEqual(2500L, resultRuntimeMs);

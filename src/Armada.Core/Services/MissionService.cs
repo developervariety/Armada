@@ -26,6 +26,11 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         public Func<Mission, bool, Task>? OnMissionOutcome { get; set; }
 
+        /// <summary>
+        /// Optional callback invoked when a mission enters an approval-required review state.
+        /// </summary>
+        public Action<Mission>? OnReviewRequested { get; set; }
+
         #endregion
 
         #region Private-Members
@@ -40,6 +45,7 @@ namespace Armada.Core.Services
         private IPromptTemplateService? _PromptTemplates;
         private PrestagedFileCopier _Prestaging;
         private const string ArchitectHandoffMarker = "<!-- ARMADA:ARCHITECT-HANDOFF -->";
+        private const string ReviewFeedbackMarker = "<!-- ARMADA:REVIEW-FEEDBACK -->";
         private static readonly System.Text.RegularExpressions.Regex _ScopedFilesDirectiveRegex =
             new System.Text.RegularExpressions.Regex(@"^\s*(?:Touch|Edit|Modify)\s+only\s+(?<files>.+)$",
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase |
@@ -571,6 +577,124 @@ namespace Armada.Core.Services
             }
         }
 
+        /// <inheritdoc />
+        public async Task<Mission> ApproveReviewAsync(string missionId, string? reviewedByUserId, string? comment = null, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(missionId)) throw new ArgumentNullException(nameof(missionId));
+
+            Mission mission = await RequireReviewMissionAsync(missionId, token).ConfigureAwait(false);
+            bool hasDependentPipelineStages = await HasDependentPipelineStages(mission.VoyageId, mission.Id, token).ConfigureAwait(false);
+
+            mission.ReviewComment = NormalizeReviewComment(comment);
+            mission.ReviewedByUserId = reviewedByUserId;
+            mission.ReviewedUtc = DateTime.UtcNow;
+
+            if (hasDependentPipelineStages)
+            {
+                mission.Status = MissionStatusEnum.Complete;
+                mission.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+
+                await TryHandoffToNextStageAsync(mission, token).ConfigureAwait(false);
+                await DispatchPendingMissionsAsync(token).ConfigureAwait(false);
+                await UpdateVoyageTerminalStatusAsync(mission.VoyageId, token).ConfigureAwait(false);
+
+                Mission? refreshed = await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);
+                return refreshed ?? mission;
+            }
+
+            Dock? dock = await ReadMissionDockAsync(mission, token).ConfigureAwait(false);
+            mission.Status = MissionStatusEnum.WorkProduced;
+            mission.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+
+            if (dock == null)
+            {
+                mission.Status = MissionStatusEnum.LandingFailed;
+                mission.FailureReason = "Review approved but the mission dock was unavailable for landing.";
+                mission.CompletedUtc = DateTime.UtcNow;
+                mission.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                await UpdateVoyageTerminalStatusAsync(mission.VoyageId, token).ConfigureAwait(false);
+                return mission;
+            }
+
+            if (OnMissionComplete != null)
+            {
+                await OnMissionComplete.Invoke(mission, dock).ConfigureAwait(false);
+            }
+
+            await ReclaimMissionDockAsync(dock.Id, token).ConfigureAwait(false);
+            await DispatchPendingMissionsAsync(token).ConfigureAwait(false);
+            await UpdateVoyageTerminalStatusAsync(mission.VoyageId, token).ConfigureAwait(false);
+
+            Mission? landed = await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);
+            return landed ?? mission;
+        }
+
+        /// <inheritdoc />
+        public async Task<Mission> DenyReviewAsync(string missionId, string? reviewedByUserId, string? comment = null, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(missionId)) throw new ArgumentNullException(nameof(missionId));
+
+            Mission mission = await RequireReviewMissionAsync(missionId, token).ConfigureAwait(false);
+            Dock? dock = await ReadMissionDockAsync(mission, token).ConfigureAwait(false);
+            string reviewComment = NormalizeReviewComment(comment) ?? "Review denied. Rework is required before this stage can continue.";
+
+            mission.ReviewComment = reviewComment;
+            mission.ReviewedByUserId = reviewedByUserId;
+            mission.ReviewedUtc = DateTime.UtcNow;
+
+            if (dock != null)
+            {
+                await ReclaimMissionDockAsync(dock.Id, token).ConfigureAwait(false);
+            }
+
+            if (mission.ReviewDenyAction == ReviewDenyActionEnum.FailPipeline)
+            {
+                mission.Status = MissionStatusEnum.Failed;
+                mission.FailureReason = BuildReviewDeniedFailureReason(reviewComment);
+                mission.CompletedUtc = DateTime.UtcNow;
+                mission.ProcessId = null;
+                mission.DockId = null;
+                mission.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+
+                await CancelDependentPipelineStagesAsync(mission, token).ConfigureAwait(false);
+                await UpdateVoyageTerminalStatusAsync(mission.VoyageId, token).ConfigureAwait(false);
+                return mission;
+            }
+
+            mission.Status = MissionStatusEnum.Pending;
+            mission.Description = ApplyReviewFeedback(mission.Description, reviewComment);
+            mission.CaptainId = null;
+            mission.DockId = null;
+            mission.ProcessId = null;
+            mission.PrUrl = null;
+            mission.CommitHash = null;
+            mission.DiffSnapshot = null;
+            mission.AgentOutput = null;
+            mission.FailureReason = null;
+            mission.StartedUtc = null;
+            mission.CompletedUtc = null;
+            mission.TotalRuntimeMs = null;
+            mission.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+
+            if (!String.IsNullOrEmpty(mission.VesselId))
+            {
+                Vessel? vessel = await _Database.Vessels.ReadAsync(mission.VesselId, token).ConfigureAwait(false);
+                if (vessel != null)
+                {
+                    await TryAssignAsync(mission, vessel, token).ConfigureAwait(false);
+                    Mission? refreshed = await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);
+                    if (refreshed != null) return refreshed;
+                }
+            }
+
+            return mission;
+        }
+
         /// <summary>
         /// Core completion logic, called under in-flight deduplication guard.
         /// </summary>
@@ -697,9 +821,27 @@ namespace Armada.Core.Services
                 }
             }
 
+            bool hasDependentPipelineStages = await HasDependentPipelineStages(mission.VoyageId, mission.Id, token).ConfigureAwait(false);
+            bool awaitingManualReview = false;
+            if (!failedForScopeViolation &&
+                mission.Status == MissionStatusEnum.WorkProduced &&
+                mission.RequiresReview)
+            {
+                mission.Status = MissionStatusEnum.Review;
+                mission.CompletedUtc = DateTime.UtcNow;
+                mission.ReviewRequestedUtc = DateTime.UtcNow;
+                mission.ReviewComment = null;
+                mission.ReviewedByUserId = null;
+                mission.ReviewedUtc = null;
+                mission.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                OnReviewRequested?.Invoke(mission);
+                awaitingManualReview = true;
+            }
+
             // Pipeline handoff: if missions in the same voyage depend on this one, prepare them
             bool preparedDownstreamStages = false;
-            if (!failedForScopeViolation)
+            if (!failedForScopeViolation && !awaitingManualReview)
             {
                 preparedDownstreamStages = await TryHandoffToNextStageAsync(mission, token).ConfigureAwait(false);
             }
@@ -720,7 +862,6 @@ namespace Armada.Core.Services
 
             await EmitMissionOutcomeTelemetryAsync(mission, captain, token).ConfigureAwait(false);
 
-            bool hasDependentPipelineStages = await HasDependentPipelineStages(mission.VoyageId, mission.Id, token).ConfigureAwait(false);
             bool shouldAttemptLanding =
                 !preparedDownstreamStages &&
                 !hasDependentPipelineStages &&
@@ -3091,6 +3232,90 @@ namespace Armada.Core.Services
                 m.Status != MissionStatusEnum.Failed &&
                 m.Status != MissionStatusEnum.Cancelled &&
                 m.Status != MissionStatusEnum.LandingFailed);
+        }
+
+        private async Task<Mission> RequireReviewMissionAsync(string missionId, CancellationToken token)
+        {
+            Mission? mission = await _Database.Missions.ReadAsync(missionId, token).ConfigureAwait(false);
+            if (mission == null) throw new InvalidOperationException("Mission not found: " + missionId);
+            if (mission.Status != MissionStatusEnum.Review || !mission.RequiresReview)
+            {
+                throw new InvalidOperationException("Mission " + missionId + " is not waiting for an explicit review decision.");
+            }
+
+            return mission;
+        }
+
+        private async Task<Dock?> ReadMissionDockAsync(Mission mission, CancellationToken token)
+        {
+            if (mission == null) throw new ArgumentNullException(nameof(mission));
+            if (String.IsNullOrEmpty(mission.DockId)) return null;
+
+            return !String.IsNullOrEmpty(mission.TenantId)
+                ? await _Database.Docks.ReadAsync(mission.TenantId, mission.DockId, token).ConfigureAwait(false)
+                : await _Database.Docks.ReadAsync(mission.DockId, token).ConfigureAwait(false);
+        }
+
+        private async Task ReclaimMissionDockAsync(string dockId, CancellationToken token)
+        {
+            if (String.IsNullOrEmpty(dockId)) return;
+
+            try
+            {
+                await _Docks.ReclaimAsync(dockId, token: token).ConfigureAwait(false);
+            }
+            catch (Exception reclaimEx)
+            {
+                _Logging.Warn(_Header + "error reclaiming dock " + dockId + ": " + reclaimEx.Message);
+            }
+        }
+
+        private async Task DispatchPendingMissionsAsync(CancellationToken token)
+        {
+            List<Mission> pendingMissions = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Pending, token).ConfigureAwait(false);
+            if (!pendingMissions.Any()) return;
+
+            Mission nextMission = pendingMissions.OrderBy(m => m.Priority).ThenBy(m => m.CreatedUtc).First();
+            if (String.IsNullOrEmpty(nextMission.VesselId)) return;
+
+            Vessel? vessel = await _Database.Vessels.ReadAsync(nextMission.VesselId, token).ConfigureAwait(false);
+            if (vessel == null) return;
+
+            await TryAssignAsync(nextMission, vessel, token).ConfigureAwait(false);
+        }
+
+        private static string? NormalizeReviewComment(string? comment)
+        {
+            if (String.IsNullOrWhiteSpace(comment)) return null;
+            return comment.Trim();
+        }
+
+        private static string BuildReviewDeniedFailureReason(string comment)
+        {
+            return "Review denied: " + comment;
+        }
+
+        private static string ApplyReviewFeedback(string? description, string reviewComment)
+        {
+            string existing = description ?? String.Empty;
+            int markerIndex = existing.IndexOf(ReviewFeedbackMarker, StringComparison.Ordinal);
+            if (markerIndex >= 0)
+            {
+                existing = existing.Substring(0, markerIndex).TrimEnd();
+            }
+
+            string feedbackSection =
+                ReviewFeedbackMarker + "\n" +
+                "## Review Feedback\n" +
+                reviewComment.Trim() + "\n\n" +
+                "Address this feedback and continue the mission on the existing branch.\n";
+
+            if (String.IsNullOrWhiteSpace(existing))
+            {
+                return feedbackSection;
+            }
+
+            return existing.TrimEnd() + "\n\n---\n\n" + feedbackSection;
         }
 
         private static string? ResolveGitInfoExcludePath(string worktreePath)

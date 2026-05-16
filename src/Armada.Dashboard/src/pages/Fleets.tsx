@@ -12,6 +12,7 @@ import RefreshButton from '../components/shared/RefreshButton';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
+import { buildFleetDuplicatePayload } from '../lib/duplicates';
 
 type SortDir = 'asc' | 'desc';
 type SortField = 'name' | 'createdUtc' | '_vesselCount' | 'description';
@@ -139,6 +140,16 @@ export default function Fleets() {
   // CRUD
   function openCreate() { setForm({ name: '', description: '', defaultPipelineId: '' }); setEditing(null); setShowForm(true); }
   function openEdit(f: Fleet) { setForm({ name: f.name, description: f.description ?? '', defaultPipelineId: f.defaultPipelineId ?? '' }); setEditing(f); setShowForm(true); }
+
+  async function handleDuplicate(fleet: Fleet) {
+    try {
+      const created = await createFleet(buildFleetDuplicatePayload(fleet));
+      pushToast('success', t('Fleet "{{name}}" duplicated.', { name: created.name }));
+      navigate(`/fleets/${created.id}`);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('Duplicate failed.'));
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -310,6 +321,7 @@ export default function Fleets() {
                       <ActionMenu id={`fleet-${f.id}`} items={[
                         { label: 'View Detail', onClick: () => navigate(`/fleets/${f.id}`) },
                         { label: 'Edit', onClick: () => openEdit(f) },
+                        { label: 'Duplicate', onClick: () => void handleDuplicate(f) },
                         { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `${t('Fleet')}: ${f.name}`, data: f }) },
                         { label: 'Delete', danger: true, onClick: () => handleDelete(f.id, f.name) },
                       ]} />

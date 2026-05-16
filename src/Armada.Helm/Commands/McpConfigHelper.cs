@@ -569,7 +569,7 @@ namespace Armada.Helm.Commands
                 ## How to Behave
 
                 1. **Always use MCP tools** - never search local files or run bash commands. All your work happens through `mcp__armada__*` tools.
-                2. **Start with status** - when asked to check on things, call `armada_status` first for an overview.
+                2. **Start with status** - when asked to check on things, call `status` first for an overview.
                 3. **Be concise** - show results in clean tables or bullet points, not walls of JSON.
                 4. **Confirm destructive actions** - before deleting, cancelling, stopping, or purging, confirm with the user.
                 5. **Proactive monitoring** - when checking on missions/voyages, show progress, any failures, and suggest next steps.
@@ -577,21 +577,21 @@ namespace Armada.Helm.Commands
                 ## Common Workflows
 
                 **Dispatch work:**
-                1. Ensure fleet and vessels exist (`armada_enumerate` with entityType 'fleets' or 'vessels')
-                2. Ensure captains are registered (`armada_enumerate` with entityType 'captains')
-                3. Dispatch a voyage with missions (`armada_dispatch`) or create standalone missions (`armada_create_mission`)
+                1. Ensure fleet and vessels exist (`enumerate` with entityType 'fleets' or 'vessels')
+                2. Ensure captains are registered (`enumerate` with entityType 'captains')
+                3. Dispatch a voyage with missions (`dispatch`) or create standalone missions (`create_mission`)
 
                 **Monitor progress:**
-                1. `armada_status` for overview
-                2. `armada_voyage_status` for voyage summary (returns mission counts by status; set summary=false and includeMissions=true for full mission objects) or `armada_mission_status` for individual mission details
-                3. `armada_get_mission_log` / `armada_get_captain_log` to see what an agent is doing
-                4. `armada_get_mission_diff` to review code changes
+                1. `status` for overview
+                2. `voyage_status` for voyage summary (returns mission counts by status; set summary=false and includeMissions=true for full mission objects) or `mission_status` for individual mission details
+                3. `get_mission_log` / `get_captain_log` to see what an agent is doing
+                4. `get_mission_diff` to review code changes
 
                 **Review and land:**
-                1. Check mission diffs (`armada_get_mission_diff`)
-                2. Transition status (`armada_transition_mission_status` to Review/Complete)
-                3. Enqueue for merge (`armada_enqueue_merge`)
-                4. Process merge queue (`armada_process_merge_queue`)
+                1. Check mission diffs (`get_mission_diff`)
+                2. Transition status (`transition_mission_status` to Review/Complete)
+                3. Enqueue for merge (`enqueue_merge`)
+                4. Process merge queue (`process_merge_queue`)
 
                 ## Mission Status Flow
 
@@ -609,16 +609,16 @@ namespace Armada.Helm.Commands
 
                 ## Primary Rules
 
-                - When the user asks about Armada state or operations, prefer `armada_*` MCP tools over shell commands or local file inspection.
-                - Start with `armada_status` for broad "what is happening?" questions.
-                - Use `armada_enumerate` to browse fleets, vessels, captains, missions, voyages, docks, signals, events, merge queue entries, personas, prompt templates, and pipelines.
-                - Use `armada_voyage_status` and `armada_mission_status` for status checks.
-                - Use `armada_get_mission_log`, `armada_get_captain_log`, and `armada_get_mission_diff` when investigating progress or failures.
+                - When the user asks about Armada state or operations, prefer Armada MCP tools over shell commands or local file inspection.
+                - Start with `status` for broad "what is happening?" questions.
+                - Use `enumerate` to browse fleets, vessels, captains, missions, voyages, docks, signals, events, merge queue entries, personas, prompt templates, and pipelines.
+                - Use `voyage_status` and `mission_status` for status checks.
+                - Use `get_mission_log`, `get_captain_log`, and `get_mission_diff` when investigating progress or failures.
                 - Confirm destructive actions before deleting, purging, cancelling, stopping captains, or stopping the server.
 
                 ## Common Flow
 
-                1. Check `armada_status`.
+                1. Check `status`.
                 2. Drill into the relevant voyage, mission, captain, or vessel.
                 3. Summarize the state clearly.
                 4. Take follow-up actions with MCP tools only when the user has asked for them.
@@ -645,16 +645,16 @@ namespace Armada.Helm.Commands
 
                 ## Primary Rules
 
-                - When the user asks about Armada state or operations, prefer `armada_*` MCP tools over shell commands or local file inspection.
-                - Start with `armada_status` for broad "what is happening?" questions.
-                - Use `armada_enumerate` to browse fleets, vessels, captains, missions, voyages, docks, signals, events, merge queue entries, personas, prompt templates, and pipelines.
-                - Use `armada_voyage_status` and `armada_mission_status` for status checks.
-                - Use `armada_get_mission_log`, `armada_get_captain_log`, and `armada_get_mission_diff` when investigating progress or failures.
+                - When the user asks about Armada state or operations, prefer Armada MCP tools over shell commands or local file inspection.
+                - Start with `status` for broad "what is happening?" questions.
+                - Use `enumerate` to browse fleets, vessels, captains, missions, voyages, docks, signals, events, merge queue entries, personas, prompt templates, and pipelines.
+                - Use `voyage_status` and `mission_status` for status checks.
+                - Use `get_mission_log`, `get_captain_log`, and `get_mission_diff` when investigating progress or failures.
                 - Confirm destructive actions before deleting, purging, cancelling, stopping captains, or stopping the server.
 
                 ## Common Flow
 
-                1. Check `armada_status`.
+                1. Check `status`.
                 2. Drill into the relevant voyage, mission, captain, or vessel.
                 3. Summarize the state clearly.
                 4. Take follow-up actions with MCP tools only when the user has asked for them.

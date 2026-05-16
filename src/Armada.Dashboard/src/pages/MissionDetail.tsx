@@ -7,15 +7,21 @@ import {
   deleteMission,
   purgeMission,
   getMissionDiff,
+  getMissionGitHubPullRequest,
   getMissionLog,
   getMissionInstructions,
+  getMissionLandingPreview,
   restartMission,
   retryMissionLanding,
   transitionMission,
+  approveMissionReview,
+  denyMissionReview,
+  listCheckRuns,
   listVessels,
   listCaptains,
+  listDeployments,
 } from '../api/client';
-import type { Mission, Vessel, Captain } from '../types/models';
+import type { Captain, CheckRun, Deployment, GitHubPullRequestDetail, LandingPreviewResult, Mission, Vessel } from '../types/models';
 import ErrorModal from '../components/shared/ErrorModal';
 import StatusBadge from '../components/shared/StatusBadge';
 import ActionMenu from '../components/shared/ActionMenu';
@@ -38,6 +44,12 @@ export default function MissionDetail() {
   const [mission, setMission] = useState<Mission | null>(null);
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [captains, setCaptains] = useState<Captain[]>([]);
+  const [landingPreview, setLandingPreview] = useState<LandingPreviewResult | null>(null);
+  const [linkedCheckRuns, setLinkedCheckRuns] = useState<CheckRun[]>([]);
+  const [linkedDeployments, setLinkedDeployments] = useState<Deployment[]>([]);
+  const [gitHubPullRequest, setGitHubPullRequest] = useState<GitHubPullRequestDetail | null>(null);
+  const [loadingGitHubPullRequest, setLoadingGitHubPullRequest] = useState(false);
+  const [loadingLandingPreview, setLoadingLandingPreview] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const { pushToast } = useNotifications();
@@ -53,6 +65,7 @@ export default function MissionDetail() {
   // Transition
   const [showTransition, setShowTransition] = useState(false);
   const [transitionStatus, setTransitionStatus] = useState('');
+  const [reviewDecision, setReviewDecision] = useState<{ mode: 'approve' | 'deny'; comment: string } | null>(null);
 
   // Edit form
   const [editModal, setEditModal] = useState(false);
@@ -102,6 +115,11 @@ export default function MissionDetail() {
     try {
       const m = await getMission(id);
       setMission(m);
+      setLoadingLandingPreview(true);
+      getMissionLandingPreview(id)
+        .then((result) => setLandingPreview(result))
+        .catch(() => setLandingPreview(null))
+        .finally(() => setLoadingLandingPreview(false));
       missionLoadedRef.current = true;
       // Only clear error on initial load -- don't dismiss user-facing errors from actions
       if (isInitialLoad) setError('');
@@ -120,6 +138,53 @@ export default function MissionDetail() {
     listVessels({ pageSize: 1000 }).then(r => setVessels(r.objects || [])).catch(() => {});
     listCaptains({ pageSize: 1000 }).then(r => setCaptains(r.objects || [])).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (!id) {
+      setLinkedCheckRuns([]);
+      setLinkedDeployments([]);
+      return;
+    }
+
+    let cancelled = false;
+    Promise.all([
+      listCheckRuns({ pageSize: 1000, filters: { missionId: id } }).catch(() => null),
+      listDeployments({ pageSize: 1000, missionId: id }).catch(() => null),
+    ]).then(([checkResult, deploymentResult]) => {
+      if (cancelled) return;
+      setLinkedCheckRuns(checkResult?.objects || []);
+      setLinkedDeployments(deploymentResult?.objects || []);
+    }).catch(() => {
+      if (!cancelled) {
+        setLinkedCheckRuns([]);
+        setLinkedDeployments([]);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+
+  useEffect(() => {
+    if (!mission?.id || !mission.prUrl) {
+      setGitHubPullRequest(null);
+      setLoadingGitHubPullRequest(false);
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingGitHubPullRequest(true);
+    getMissionGitHubPullRequest(mission.id).then((result) => {
+      if (!cancelled) setGitHubPullRequest(result);
+    }).catch(() => {
+      if (!cancelled) setGitHubPullRequest(null);
+    }).finally(() => {
+      if (!cancelled) setLoadingGitHubPullRequest(false);
+    });
+
+    return () => { cancelled = true; };
+  }, [mission?.id, mission?.prUrl]);
 
   async function handleViewDiff() {
     if (!id) return;
@@ -225,6 +290,25 @@ export default function MissionDetail() {
     }
   }
 
+  async function handleReviewDecision() {
+    if (!mission || !reviewDecision) return;
+
+    try {
+      if (reviewDecision.mode === 'approve') {
+        await approveMissionReview(mission.id, reviewDecision.comment);
+        pushToast('success', t('Review approved for "{{title}}".', { title: mission.title }));
+      } else {
+        await denyMissionReview(mission.id, reviewDecision.comment);
+        pushToast('warning', t('Review denied for "{{title}}".', { title: mission.title }));
+      }
+
+      setReviewDecision(null);
+      loadMission();
+    } catch (e: unknown) {
+      setError(t('Review decision failed: {{message}}', { message: e instanceof Error ? e.message : String(e) }));
+    }
+  }
+
   function handleRestart() {
     if (!mission) return;
     setConfirm({
@@ -284,6 +368,7 @@ export default function MissionDetail() {
 
   if (loading) return <p className="text-dim">{t('Loading...')}</p>;
   if (!mission) return <ErrorModal error={error || t('Mission not found.')} onClose={() => navigate('/missions')} />;
+  const canResolveReview = mission.status === 'Review' && mission.requiresReview;
 
   return (
     <div>
@@ -295,17 +380,33 @@ export default function MissionDetail() {
       <div className="detail-header">
         <h2>{mission.title}</h2>
         <div className="inline-actions">
+          {canResolveReview && (
+            <>
+              <button className="btn btn-sm btn-primary" onClick={() => setReviewDecision({ mode: 'approve', comment: mission.reviewComment || '' })}>{t('Approve')}</button>
+              <button className="btn btn-sm btn-danger" onClick={() => setReviewDecision({ mode: 'deny', comment: mission.reviewComment || '' })}>{t('Deny')}</button>
+            </>
+          )}
           <button className="btn btn-sm" onClick={handleViewDiff} title={t('View mission diff')}>{t('Diff')}</button>
           <button className="btn btn-sm" onClick={handleViewLog} title={t('View mission log')}>{t('Log')}</button>
           <button className="btn btn-sm" onClick={handleViewInstructions} title={t('View mission instructions')}>{t('Instructions')}</button>
+          {mission.vesselId && (
+            <button className="btn btn-sm" onClick={() => navigate('/checks', { state: { prefill: { vesselId: mission.vesselId, missionId: mission.id, voyageId: mission.voyageId || null, branchName: mission.branchName || null, commitHash: mission.commitHash || null, label: mission.title } } })}>
+              {t('Run Check')}
+            </button>
+          )}
           {(mission.status === 'WorkProduced' || mission.status === 'LandingFailed') && (
             <button className="btn btn-sm btn-primary" onClick={async () => { try { await retryMissionLanding(mission.id); pushToast('success', t('Landing succeeded! Mission status updated.')); loadMission(); } catch (e) { setError(e instanceof Error ? e.message : t('Retry landing failed.')); } }} title={t('Rebase the mission branch and re-attempt merge into the target branch')}>{t('Retry Landing')}</button>
           )}
           <ActionMenu id={`mission-action-${mission.id}`} items={[
             { label: 'Edit', onClick: openEdit },
+            ...(canResolveReview ? [
+              { label: 'Approve Review', onClick: () => setReviewDecision({ mode: 'approve', comment: mission.reviewComment || '' }) },
+              { label: 'Deny Review', onClick: () => setReviewDecision({ mode: 'deny', comment: mission.reviewComment || '' }) },
+            ] : []),
             { label: 'View Diff', onClick: handleViewDiff },
             { label: 'View Log', onClick: handleViewLog },
             { label: 'View Instructions', onClick: handleViewInstructions },
+            ...(mission.vesselId ? [{ label: 'Run Check', onClick: () => navigate('/checks', { state: { prefill: { vesselId: mission.vesselId, missionId: mission.id, voyageId: mission.voyageId || null, branchName: mission.branchName || null, commitHash: mission.commitHash || null, label: mission.title } } }) }] : []),
             { label: 'Transition Status', onClick: () => setShowTransition(true) },
             { label: 'View JSON', onClick: () => setJsonData({ open: true, title: t('Mission: {{title}}', { title: mission.title }), data: mission }) },
             { label: 'Restart', onClick: handleRestart },
@@ -321,6 +422,63 @@ export default function MissionDetail() {
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
+
+      <div className="card landing-preview-card">
+        <div className="readiness-panel-header">
+          <div>
+            <h3>{t('Landing Preview')}</h3>
+            <div className="readiness-panel-meta">
+              {landingPreview?.sourceBranch ? `${landingPreview.sourceBranch} -> ${landingPreview.targetBranch}` : mission.branchName || t('No branch selected')}
+            </div>
+          </div>
+          <span className={`readiness-pill ${landingPreview?.isReadyToLand ? 'ready' : 'warning'}`}>
+            {landingPreview?.isReadyToLand ? t('Ready To Land') : t('Needs Review')}
+          </span>
+        </div>
+        {loadingLandingPreview ? (
+          <div className="text-dim">{t('Calculating landing preview...')}</div>
+        ) : !landingPreview ? (
+          <div className="text-dim">{t('Landing preview is not available for this mission yet.')}</div>
+        ) : (
+          <>
+            <div className="readiness-summary-row">
+              <span>{t('Branch category')}: {landingPreview.branchCategory}</span>
+              <span>{t('Landing mode')}: {landingPreview.landingMode || t('Inherited')}</span>
+              <span>{t('Cleanup')}: {landingPreview.branchCleanupPolicy || t('Inherited')}</span>
+              {landingPreview.expectedLandingAction && <span>{t('Action')}: {landingPreview.expectedLandingAction}</span>}
+              <span>{landingPreview.requirePassingChecksToLand ? t('Passing checks required') : t('Passing checks optional')}</span>
+            </div>
+            <div className="readiness-summary-row">
+              <span>{landingPreview.targetBranchProtected ? t('Protected target branch') : t('Target branch not protected')}</span>
+              {landingPreview.protectedBranchMatch && <span>{t('Policy')}: <span className="mono">{landingPreview.protectedBranchMatch}</span></span>}
+              {landingPreview.requirePullRequestForProtectedBranches && <span>{t('PR required for protected branches')}</span>}
+              {landingPreview.requireMergeQueueForReleaseBranches && <span>{t('Merge queue required for release branches')}</span>}
+            </div>
+            {landingPreview.latestCheckSummary && (
+              <div className="landing-preview-latest-check">
+                <strong>{t('Latest check')}</strong>
+                <div className="text-dim">{landingPreview.latestCheckSummary}</div>
+              </div>
+            )}
+            {landingPreview.issues.length > 0 ? (
+              <div className="readiness-issues">
+                {landingPreview.issues.map((issue, index) => (
+                  <div key={`${issue.code}-${index}`} className={`readiness-issue ${issue.severity.toLowerCase()}`}>
+                    <div className="readiness-issue-title-row">
+                      <strong>{issue.title}</strong>
+                      <span className={`readiness-issue-severity ${issue.severity.toLowerCase()}`}>{issue.severity}</span>
+                    </div>
+                    <div className="text-dim">{issue.message}</div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="readiness-success-copy">{t('No landing blockers are currently predicted for this mission.')}</div>
+            )}
+          </>
+        )}
+      </div>
+
       <DiffViewer
         open={diffModal.open}
         title={diffModal.title}
@@ -333,7 +491,7 @@ export default function MissionDetail() {
         title={logModal.title}
         content={logModal.content}
         totalLines={logModal.totalLines}
-        completed={mission != null && ['Complete', 'Failed', 'Cancelled', 'WorkProduced', 'LandingFailed'].includes(mission.status)}
+        completed={mission != null && ['Complete', 'Failed', 'Cancelled', 'WorkProduced', 'LandingFailed', 'Review'].includes(mission.status)}
         onClose={() => setLogModal({ open: false, title: '', missionId: '', content: '', totalLines: 0, lineCount: 200 })}
         onRefresh={handleLogRefresh}
         onLineCountChange={handleLogLineCountChange}
@@ -385,6 +543,94 @@ export default function MissionDetail() {
         </div>
       )}
 
+      {reviewDecision && (
+        <div className="modal-overlay" onClick={() => setReviewDecision(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <h3>{reviewDecision.mode === 'approve' ? t('Approve Review') : t('Deny Review')}</h3>
+            <p className="text-dim">
+              {reviewDecision.mode === 'approve'
+                ? t('Approve this stage and let the pipeline continue.')
+                : t('Deny this stage. Armada will either send it back for rework or fail the pipeline based on the stage policy.')}
+            </p>
+            <label style={{ marginTop: 12 }}>
+              {t('Comment')}
+              <textarea
+                value={reviewDecision.comment}
+                rows={5}
+                onChange={event => setReviewDecision(current => current ? { ...current, comment: event.target.value } : current)}
+                placeholder={t('Add context for the reviewer decision...')}
+              />
+            </label>
+            <div className="modal-actions">
+              <button
+                className={`btn ${reviewDecision.mode === 'approve' ? 'btn-primary' : 'btn-danger'}`}
+                onClick={handleReviewDecision}
+              >
+                {reviewDecision.mode === 'approve' ? t('Approve') : t('Deny')}
+              </button>
+              <button className="btn" onClick={() => setReviewDecision(null)}>{t('Cancel')}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {mission.prUrl && (
+        <div className="card" style={{ marginTop: '1rem', marginBottom: '1rem' }}>
+          <div className="detail-header" style={{ marginBottom: '0.75rem' }}>
+            <h3>{t('GitHub Pull Request')}</h3>
+            <div className="inline-actions">
+              <a className="btn btn-sm" href={mission.prUrl} target="_blank" rel="noreferrer">{t('Open GitHub')}</a>
+              <button className="btn btn-sm" disabled={loadingGitHubPullRequest} onClick={() => mission.id && void getMissionGitHubPullRequest(mission.id).then(setGitHubPullRequest).catch(() => setGitHubPullRequest(null))}>
+                {loadingGitHubPullRequest ? t('Refreshing...') : t('Refresh')}
+              </button>
+            </div>
+          </div>
+          {loadingGitHubPullRequest ? (
+            <div className="text-dim">{t('Loading GitHub pull-request evidence...')}</div>
+          ) : !gitHubPullRequest ? (
+            <div className="text-dim">{t('GitHub pull-request evidence is unavailable for this mission.')}</div>
+          ) : (
+            <>
+              <div className="detail-grid" style={{ marginBottom: '0.75rem' }}>
+                <div className="detail-field"><span className="detail-label">{t('Repository')}</span><span>{gitHubPullRequest.repository}</span></div>
+                <div className="detail-field"><span className="detail-label">{t('Review Status')}</span><span>{gitHubPullRequest.reviewStatus}</span></div>
+                <div className="detail-field"><span className="detail-label">{t('State')}</span><span>{gitHubPullRequest.state}</span></div>
+                <div className="detail-field"><span className="detail-label">{t('Mergeability')}</span><span>{gitHubPullRequest.mergeableState || '-'}</span></div>
+              </div>
+              <div className="text-dim" style={{ marginBottom: '0.75rem' }}>
+                {gitHubPullRequest.title}
+              </div>
+              <div className="detail-grid">
+                <div className="card">
+                  <h4>{t('Reviews')}</h4>
+                  {gitHubPullRequest.reviews.length === 0 ? <div className="text-dim">{t('No reviews')}</div> : (
+                    <div style={{ display: 'grid', gap: '0.45rem' }}>
+                      {gitHubPullRequest.reviews.map((review, index) => (
+                        <div key={`review-${index}`}>
+                          <strong>{review.reviewerLogin || t('Unknown')}</strong> <span className="text-dim">{review.state}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="card">
+                  <h4>{t('Checks')}</h4>
+                  {gitHubPullRequest.checks.length === 0 ? <div className="text-dim">{t('No provider checks')}</div> : (
+                    <div style={{ display: 'grid', gap: '0.45rem' }}>
+                      {gitHubPullRequest.checks.map((check, index) => (
+                        <div key={`check-${index}`}>
+                          <strong>{check.name}</strong> <span className="text-dim">{check.status}{check.conclusion ? ` / ${check.conclusion}` : ''}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
       {/* Mission Info */}
       <div className="detail-grid" style={{ gridTemplateColumns: '1fr 1fr 1fr 1fr' }}>
         <div className="detail-field">
@@ -398,6 +644,30 @@ export default function MissionDetail() {
         <div className="detail-field">
           <span className="detail-label">{t('Status')}</span>
           <StatusBadge status={mission.status} />
+        </div>
+        <div className="detail-field">
+          <span className="detail-label">{t('Review Gate')}</span>
+          <span>
+            {mission.requiresReview
+              ? <StatusBadge status={mission.status === 'Review' ? 'Waiting Review' : 'Required'} />
+              : <span className="text-dim">{t('None')}</span>}
+          </span>
+        </div>
+        <div className="detail-field">
+          <span className="detail-label">{t('On Deny')}</span>
+          <span>{mission.requiresReview ? (mission.reviewDenyAction === 'FailPipeline' ? t('Fail pipeline') : t('Retry stage')) : <span className="text-dim">-</span>}</span>
+        </div>
+        <div className="detail-field">
+          <span className="detail-label">{t('Review Requested')}</span>
+          <span>{mission.reviewRequestedUtc ? formatDateTime(mission.reviewRequestedUtc) : '-'}</span>
+        </div>
+        <div className="detail-field">
+          <span className="detail-label">{t('Reviewed')}</span>
+          <span>{mission.reviewedUtc ? formatDateTime(mission.reviewedUtc) : '-'}</span>
+        </div>
+        <div className="detail-field">
+          <span className="detail-label">{t('Reviewed By')}</span>
+          <span className="mono">{mission.reviewedByUserId || '-'}</span>
         </div>
         {mission.failureReason && (
           <div className="detail-field" style={{ gridColumn: '1 / -1' }}>
@@ -414,6 +684,23 @@ export default function MissionDetail() {
               wordBreak: 'break-word',
               fontFamily: 'monospace'
             }}>{mission.failureReason}</pre>
+          </div>
+        )}
+        {mission.reviewComment && (
+          <div className="detail-field" style={{ gridColumn: '1 / -1' }}>
+            <span className="detail-label">{t('Review Comment')}</span>
+            <pre style={{
+              margin: 0,
+              padding: '0.75rem',
+              background: 'rgba(255, 184, 77, 0.08)',
+              border: '1px solid rgba(255, 184, 77, 0.24)',
+              borderRadius: '4px',
+              color: 'var(--text)',
+              fontSize: '0.85em',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+              fontFamily: 'monospace'
+            }}>{mission.reviewComment}</pre>
           </div>
         )}
         <div className="detail-field"><span className="detail-label">{t('Priority')}</span><span>{mission.priority}</span></div>
@@ -504,7 +791,52 @@ export default function MissionDetail() {
             <span className="text-dim"> ({formatDateTime(mission.lastUpdateUtc)})</span>
           </span>
         </div>
+        <div className="detail-field">
+          <span className="detail-label">{t('Linked Checks')}</span>
+          <span>{linkedCheckRuns.length}</span>
+        </div>
+        <div className="detail-field">
+          <span className="detail-label">{t('Linked Deployments')}</span>
+          <span>{linkedDeployments.length}</span>
+        </div>
       </div>
+
+      {(linkedCheckRuns.length > 0 || linkedDeployments.length > 0) && (
+        <div className="detail-grid" style={{ marginTop: '1rem' }}>
+          <div className="card">
+            <h3>{t('Linked Checks')}</h3>
+            {linkedCheckRuns.length === 0 ? (
+              <p className="text-dim">{t('No checks are linked to this mission yet.')}</p>
+            ) : (
+              <div style={{ display: 'grid', gap: '0.65rem' }}>
+                {linkedCheckRuns.map((checkRun) => (
+                  <div key={checkRun.id}>
+                    <Link to={`/checks/${checkRun.id}`}>{checkRun.label || checkRun.type}</Link>
+                    <span className="mono text-dim" style={{ marginLeft: '0.45rem', fontSize: '0.78rem' }}>{checkRun.id}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="card">
+            <h3>{t('Linked Deployments')}</h3>
+            {linkedDeployments.length === 0 ? (
+              <p className="text-dim">{t('No deployments are linked to this mission yet.')}</p>
+            ) : (
+              <div style={{ display: 'grid', gap: '0.75rem' }}>
+                {linkedDeployments.map((deployment) => (
+                  <div key={deployment.id}>
+                    <Link to={`/deployments/${deployment.id}`}>{deployment.title}</Link>
+                    <div className="text-dim" style={{ marginTop: '0.2rem' }}>
+                      {deployment.environmentName || t('No environment')} • {deployment.status} • {deployment.verificationStatus}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Description */}
       {mission.description && (

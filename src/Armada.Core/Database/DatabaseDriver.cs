@@ -45,6 +45,21 @@ namespace Armada.Core.Database
         public IPlanningSessionMessageMethods PlanningSessionMessages { get; protected set; } = null!;
 
         /// <summary>
+        /// Objective/backlog operations.
+        /// </summary>
+        public IObjectiveMethods Objectives { get; protected set; } = null!;
+
+        /// <summary>
+        /// Objective refinement session operations.
+        /// </summary>
+        public IObjectiveRefinementSessionMethods ObjectiveRefinementSessions { get; protected set; } = null!;
+
+        /// <summary>
+        /// Objective refinement transcript message operations.
+        /// </summary>
+        public IObjectiveRefinementMessageMethods ObjectiveRefinementMessages { get; protected set; } = null!;
+
+        /// <summary>
         /// Dock operations.
         /// </summary>
         public IDockMethods Docks { get; protected set; } = null!;
@@ -58,6 +73,11 @@ namespace Armada.Core.Database
         /// Event operations.
         /// </summary>
         public IEventMethods Events { get; protected set; } = null!;
+
+        /// <summary>
+        /// Request-history operations.
+        /// </summary>
+        public IRequestHistoryMethods RequestHistory { get; protected set; } = null!;
 
         /// <summary>
         /// Merge entry operations.
@@ -98,6 +118,31 @@ namespace Armada.Core.Database
         /// Playbook operations.
         /// </summary>
         public IPlaybookMethods Playbooks { get; protected set; } = null!;
+
+        /// <summary>
+        /// Workflow-profile operations.
+        /// </summary>
+        public IWorkflowProfileMethods WorkflowProfiles { get; protected set; } = null!;
+
+        /// <summary>
+        /// Deployment environment operations.
+        /// </summary>
+        public IDeploymentEnvironmentMethods Environments { get; protected set; } = null!;
+
+        /// <summary>
+        /// Structured check-run operations.
+        /// </summary>
+        public ICheckRunMethods CheckRuns { get; protected set; } = null!;
+
+        /// <summary>
+        /// Release operations.
+        /// </summary>
+        public IReleaseMethods Releases { get; protected set; } = null!;
+
+        /// <summary>
+        /// Deployment operations.
+        /// </summary>
+        public IDeploymentMethods Deployments { get; protected set; } = null!;
 
         /// <summary>
         /// Vessel pack-curate hint operations (v2-F1).

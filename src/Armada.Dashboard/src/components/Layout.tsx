@@ -5,11 +5,12 @@ import { useLocale } from '../context/LocaleContext';
 import { useTheme } from '../context/ThemeContext';
 import { useWebSocket } from '../context/WebSocketContext';
 import { useNotifications } from '../context/NotificationContext';
-import { getHealth } from '../api/client';
+import { getHealth, listCaptains, listFleets, listVessels } from '../api/client';
 import SetupWizard, { isSetupComplete } from './SetupWizard';
 import LanguageSelector from './shared/LanguageSelector';
 
 interface NavItem {
+  key?: string;
   to: string;
   label: string;
   icon: ReactNode;
@@ -42,7 +43,7 @@ const navSections: NavSection[] = [
   {
     key: 'operations',
     label: 'OPERATIONS',
-    matchers: ['/dispatch', '/planning', '/voyages', '/missions', '/merge-queue'],
+    matchers: ['/dispatch', '/planning', '/backlog', '/objectives', '/voyages', '/missions', '/merge-queue'],
     items: [
       {
         to: '/planning',
@@ -64,6 +65,19 @@ const navSections: NavSection[] = [
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M22 2 11 13" />
             <polygon points="22 2 15 22 11 13 2 9 22 2" />
+          </svg>
+        ),
+      },
+      {
+        to: '/backlog',
+        label: 'Backlog',
+        tooltip: 'Capture future work, refine it with a selected captain, and carry the same record through planning, dispatch, release, deployment, and incident follow-through',
+        icon: (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 4h16v16H4z" />
+            <path d="M8 8h8" />
+            <path d="M8 12h8" />
+            <path d="M8 16h5" />
           </svg>
         ),
       },
@@ -106,9 +120,103 @@ const navSections: NavSection[] = [
     ],
   },
   {
+    key: 'delivery',
+    label: 'DELIVERY',
+    matchers: ['/workflow-profiles', '/checks', '/environments', '/deployments', '/releases', '/incidents', '/runbooks'],
+    items: [
+      {
+        to: '/workflow-profiles',
+        label: 'Workflow Profiles',
+        tooltip: 'Project-specific commands for build, test, release, deploy, and verification',
+        icon: (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 7h16" />
+            <path d="M4 12h10" />
+            <path d="M4 17h7" />
+            <rect x="3" y="3" width="18" height="18" rx="2" />
+          </svg>
+        ),
+      },
+      {
+        to: '/checks',
+        label: 'Checks',
+        tooltip: 'Structured build, test, deploy, and verification runs',
+        icon: (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M20 6 9 17l-5-5" />
+          </svg>
+        ),
+      },
+      {
+        to: '/environments',
+        label: 'Environments',
+        tooltip: 'Named deployment targets with environment metadata, URLs, approval rules, and access notes',
+        icon: (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 11h18" />
+            <path d="M6 7h12" />
+            <path d="M8 15h8" />
+            <path d="M10 19h4" />
+            <path d="M12 3v4" />
+          </svg>
+        ),
+      },
+      {
+        to: '/deployments',
+        label: 'Deployments',
+        tooltip: 'Approve, execute, verify, and roll back deployments into named environments',
+        icon: (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 3v12" />
+            <path d="m7 10 5 5 5-5" />
+            <path d="M5 21h14" />
+          </svg>
+        ),
+      },
+      {
+        to: '/releases',
+        label: 'Releases',
+        tooltip: 'Draft, candidate, shipped, failed, and rolled-back release records tied to work, checks, notes, and artifacts',
+        icon: (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M7 3h10l4 4v14H3V3h4" />
+            <path d="M7 3v6h10" />
+            <path d="M9 13h6" />
+            <path d="M9 17h6" />
+          </svg>
+        ),
+      },
+      {
+        to: '/incidents',
+        label: 'Incidents',
+        tooltip: 'Operational incidents tied to deployments, environments, rollback, hotfix planning, and postmortems',
+        icon: (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 9v4" />
+            <path d="M12 17h.01" />
+            <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+          </svg>
+        ),
+      },
+      {
+        to: '/runbooks',
+        label: 'Runbooks',
+        tooltip: 'Playbook-backed operational runbooks with parameters, step tracking, and execution history',
+        icon: (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+            <path d="M8 7h8" />
+            <path d="M8 11h8" />
+          </svg>
+        ),
+      },
+    ],
+  },
+  {
     key: 'fleet',
     label: 'FLEET',
-    matchers: ['/fleets', '/vessels', '/captains', '/docks'],
+    matchers: ['/fleets', '/vessels', '/workspace', '/captains', '/docks'],
     items: [
       {
         to: '/fleets',
@@ -122,12 +230,30 @@ const navSections: NavSection[] = [
         ),
       },
       {
-        to: '/vessels',
-        label: 'Vessels',
-        tooltip: 'Git repositories registered with Armada',
+        to: '/workspace',
+        label: 'Workspace',
+        tooltip: 'Open a vessel as a browsable, editable repository workspace',
         icon: (
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+            <path d="M3 6h18" />
+            <path d="M7 12h10" />
+            <path d="M10 18h4" />
+            <rect x="3" y="3" width="18" height="18" rx="2" />
+          </svg>
+        ),
+      },
+      {
+        to: '/vessels',
+        label: 'Vessels',
+        tooltip: 'Registered git repositories and vessel configuration',
+        icon: (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M8 6h13" />
+            <path d="M8 12h13" />
+            <path d="M8 18h13" />
+            <path d="M3 6h.01" />
+            <path d="M3 12h.01" />
+            <path d="M3 18h.01" />
           </svg>
         ),
       },
@@ -158,8 +284,20 @@ const navSections: NavSection[] = [
   {
     key: 'activity',
     label: 'ACTIVITY',
-    matchers: ['/signals', '/events', '/notifications'],
+    matchers: ['/history', '/signals', '/events', '/notifications'],
     items: [
+      {
+        to: '/history',
+        label: 'History',
+        tooltip: 'Cross-entity timeline spanning missions, checks, requests, planning, merge queue, and events',
+        icon: (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 12h18" />
+            <path d="M12 3v18" />
+            <circle cx="12" cy="12" r="9" />
+          </svg>
+        ),
+      },
       {
         to: '/signals',
         label: 'Signals',
@@ -197,7 +335,7 @@ const navSections: NavSection[] = [
   {
     key: 'system',
     label: 'SYSTEM',
-    matchers: ['/server', '/doctor', '/settings', '/personas', '/pipelines', '/prompt-templates', '/playbooks'],
+    matchers: ['/server', '/doctor', '/settings', '/personas', '/pipelines', '/prompt-templates', '/playbooks', '/requests', '/api-explorer'],
     items: [
       {
         to: '/personas',
@@ -226,7 +364,7 @@ const navSections: NavSection[] = [
       },
       {
         to: '/prompt-templates',
-        label: 'Templates',
+        label: 'Prompts',
         tooltip: 'Customizable prompt templates injected into agent instructions',
         icon: (
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -246,6 +384,31 @@ const navSections: NavSection[] = [
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
             <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+          </svg>
+        ),
+      },
+      {
+        to: '/requests',
+        label: 'Requests',
+        tooltip: 'Captured request history with summaries, replay, and request inspection',
+        icon: (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 12h18" />
+            <path d="M8 7l-5 5 5 5" />
+            <path d="M16 17l5-5-5-5" />
+          </svg>
+        ),
+      },
+      {
+        to: '/api-explorer',
+        label: 'API Explorer',
+        tooltip: 'Browse the live OpenAPI document, execute requests, and inspect responses',
+        icon: (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="11" cy="11" r="8" />
+            <path d="m21 21-4.35-4.35" />
+            <path d="M11 8v6" />
+            <path d="M8 11h6" />
           </svg>
         ),
       },
@@ -275,8 +438,8 @@ const navSections: NavSection[] = [
     ],
   },
   {
-    key: 'admin',
-    label: 'ADMINISTRATION',
+    key: 'security',
+    label: 'SECURITY',
     matchers: ['/admin/tenants', '/admin/users', '/admin/credentials'],
     items: [
       {
@@ -333,7 +496,7 @@ export default function Layout() {
   const { darkMode, toggleTheme } = useTheme();
   const { connected } = useWebSocket();
   const { unreadCount, toasts, dismissToast } = useNotifications();
-  const [showWizard, setShowWizard] = useState(() => !isSetupComplete());
+  const [showWizard, setShowWizard] = useState(false);
   const [wizardHighlights, setWizardHighlights] = useState<string[]>([]);
   const [collapsed, setCollapsed] = useState(() => {
     try {
@@ -342,20 +505,13 @@ export default function Layout() {
       return false;
     }
   });
-  const [sections, setSections] = useState<Record<string, boolean>>(() => {
-    try {
-      const stored = localStorage.getItem('armada_sidebar_sections');
-      if (stored) return JSON.parse(stored) as Record<string, boolean>;
-    } catch {
-      // ignore
-    }
-    return {
-      operations: true,
-      fleet: true,
-      activity: true,
-      system: true,
-      admin: true,
-    };
+  const [sections, setSections] = useState<Record<string, boolean>>({
+    operations: true,
+    delivery: true,
+    fleet: true,
+    activity: true,
+    system: true,
+    security: true,
   });
   const [healthStatus, setHealthStatus] = useState<HealthStatus>('unknown');
 
@@ -366,14 +522,6 @@ export default function Layout() {
       // ignore
     }
   }, [collapsed]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('armada_sidebar_sections', JSON.stringify(sections));
-    } catch {
-      // ignore
-    }
-  }, [sections]);
 
   const toggleSection = useCallback((key: string) => {
     setSections((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -404,9 +552,54 @@ export default function Layout() {
     };
   }, []);
 
+  useEffect(() => {
+    if (isSetupComplete()) {
+      setShowWizard(false);
+      return;
+    }
+
+    let mounted = true;
+    async function evaluateWizardVisibility() {
+      try {
+        const [fleetResult, vesselResult, captainResult] = await Promise.all([
+          listFleets({ pageSize: 1 }),
+          listVessels({ pageSize: 1 }),
+          listCaptains({ pageSize: 1 }),
+        ]);
+
+        if (!mounted) return;
+
+        const hasFleet = (fleetResult.objects || []).length > 0;
+        const hasVessel = (vesselResult.objects || []).length > 0;
+        const hasCaptain = (captainResult.objects || []).length > 0;
+        setShowWizard(!hasFleet || !hasVessel || !hasCaptain);
+      } catch {
+        if (mounted) {
+          setShowWizard(true);
+        }
+      }
+    }
+
+    evaluateWizardVisibility();
+    return () => {
+      mounted = false;
+    };
+  }, [user?.user?.id]);
+
+  useEffect(() => {
+    function handleOpenSetupWizard() {
+      setShowWizard(true);
+    }
+
+    window.addEventListener('armada:open-setup-wizard', handleOpenSetupWizard);
+    return () => {
+      window.removeEventListener('armada:open-setup-wizard', handleOpenSetupWizard);
+    };
+  }, []);
+
   const filteredSections = navSections
     .map((section) =>
-      section.key !== 'admin'
+      section.key !== 'security'
         ? section
         : {
             ...section,
@@ -418,12 +611,35 @@ export default function Layout() {
             }),
           }
     )
-    .filter((section) => section.key !== 'admin' || section.items.length > 0);
+    .filter((section) => section.key !== 'security' || section.items.length > 0);
 
   const isSectionActive = useCallback(
     (matchers: string[]) => matchers.some((matcher) => location.pathname.startsWith(matcher)),
     [location.pathname],
   );
+
+  const isItemActive = useCallback((item: NavItem): boolean => {
+    return location.pathname === item.to || location.pathname.startsWith(`${item.to}/`);
+  }, [location.pathname]);
+
+  const renderNavItem = useCallback((item: NavItem) => {
+    if (item.hidden) return null;
+
+    return (
+      <NavLink
+        key={item.key || item.to}
+        to={item.to}
+        className={({ isActive }) => `sidebar-nav-item${isActive || isItemActive(item) ? ' active' : ''}${wizardHighlights.includes(item.to) ? ' wizard-highlight' : ''}`}
+        title={collapsed ? t(item.label) : t(item.tooltip || item.label)}
+      >
+        {item.icon}
+        <span className="sidebar-label">{t(item.label)}</span>
+        {item.to === '/notifications' && unreadCount > 0 && (
+          <span className="notif-badge">{unreadCount > 99 ? '99+' : unreadCount}</span>
+        )}
+      </NavLink>
+    );
+  }, [collapsed, isItemActive, t, unreadCount, wizardHighlights]);
 
   const layoutClassName = [
     'app-layout',
@@ -472,20 +688,7 @@ export default function Layout() {
                 </button>
               )}
               <div className="sidebar-section-items" style={{ display: collapsed || sections[section.key] ? undefined : 'none' }}>
-                {section.items.filter((item) => !item.hidden).map((item) => (
-                  <NavLink
-                    key={item.to}
-                    to={item.to}
-                    className={({ isActive }) => `sidebar-nav-item${isActive ? ' active' : ''}${wizardHighlights.includes(item.to) ? ' wizard-highlight' : ''}`}
-                    title={collapsed ? t(item.label) : t(item.tooltip || item.label)}
-                  >
-                    {item.icon}
-                    <span className="sidebar-label">{t(item.label)}</span>
-                    {item.to === '/notifications' && unreadCount > 0 && (
-                      <span className="notif-badge">{unreadCount > 99 ? '99+' : unreadCount}</span>
-                    )}
-                  </NavLink>
-                ))}
+                {section.items.filter((item) => !item.hidden).map((item) => renderNavItem(item))}
               </div>
             </div>
           ))}

@@ -12,6 +12,7 @@ import RefreshButton from '../components/shared/RefreshButton';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
+import { buildPipelineDuplicatePayload } from '../lib/duplicates';
 
 type SortDir = 'asc' | 'desc';
 type SortField = 'name' | 'description' | 'stages' | 'isBuiltIn' | 'active' | 'createdUtc';
@@ -19,12 +20,14 @@ type SortField = 'name' | 'description' | 'stages' | 'isBuiltIn' | 'active' | 'c
 interface StageFormEntry {
   personaName: string;
   isOptional: boolean;
+  requiresReview: boolean;
+  reviewDenyAction: 'RetryStage' | 'FailPipeline';
 }
 
 function formatStages(stages: PipelineStage[]): string {
   if (!stages || stages.length === 0) return '-';
   const sorted = [...stages].sort((a, b) => a.order - b.order);
-  return sorted.map(s => s.personaName).join(' -> ');
+  return sorted.map(s => `${s.personaName}${s.requiresReview ? ' [review]' : ''}`).join(' -> ');
 }
 
 export default function Pipelines() {
@@ -38,7 +41,7 @@ export default function Pipelines() {
   // Modal state
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Pipeline | null>(null);
-  const [form, setForm] = useState<{ name: string; description: string; stages: StageFormEntry[] }>({ name: '', description: '', stages: [{ personaName: '', isOptional: false }] });
+  const [form, setForm] = useState<{ name: string; description: string; stages: StageFormEntry[] }>({ name: '', description: '', stages: [{ personaName: '', isOptional: false, requiresReview: false, reviewDenyAction: 'RetryStage' }] });
   const [personaNames, setPersonaNames] = useState<string[]>([]);
 
   // JSON viewer
@@ -122,7 +125,7 @@ export default function Pipelines() {
 
   // CRUD
   function openCreate() {
-    setForm({ name: '', description: '', stages: [{ personaName: '', isOptional: false }] });
+    setForm({ name: '', description: '', stages: [{ personaName: '', isOptional: false, requiresReview: false, reviewDenyAction: 'RetryStage' }] });
     setEditing(null);
     setShowForm(true);
   }
@@ -130,15 +133,15 @@ export default function Pipelines() {
   function openEdit(p: Pipeline) {
     const stages: StageFormEntry[] = (p.stages ?? [])
       .sort((a, b) => a.order - b.order)
-      .map(s => ({ personaName: s.personaName, isOptional: s.isOptional }));
-    if (stages.length === 0) stages.push({ personaName: '', isOptional: false });
+      .map(s => ({ personaName: s.personaName, isOptional: s.isOptional, requiresReview: s.requiresReview, reviewDenyAction: s.reviewDenyAction }));
+    if (stages.length === 0) stages.push({ personaName: '', isOptional: false, requiresReview: false, reviewDenyAction: 'RetryStage' });
     setForm({ name: p.name, description: p.description ?? '', stages });
     setEditing(p);
     setShowForm(true);
   }
 
   function addStage() {
-    setForm(f => ({ ...f, stages: [...f.stages, { personaName: '', isOptional: false }] }));
+    setForm(f => ({ ...f, stages: [...f.stages, { personaName: '', isOptional: false, requiresReview: false, reviewDenyAction: 'RetryStage' }] }));
   }
 
   function moveStage(index: number, direction: number) {
@@ -156,7 +159,7 @@ export default function Pipelines() {
   function removeStage(index: number) {
     setForm(f => {
       const stages = f.stages.filter((_, i) => i !== index);
-      if (stages.length === 0) stages.push({ personaName: '', isOptional: false });
+      if (stages.length === 0) stages.push({ personaName: '', isOptional: false, requiresReview: false, reviewDenyAction: 'RetryStage' });
       return { ...f, stages };
     });
   }
@@ -174,7 +177,7 @@ export default function Pipelines() {
     try {
       const stagesPayload = form.stages
         .filter(s => s.personaName.trim() !== '')
-        .map((s, i) => ({ personaName: s.personaName.trim(), isOptional: s.isOptional, order: i + 1 }));
+        .map((s, i) => ({ personaName: s.personaName.trim(), isOptional: s.isOptional, requiresReview: s.requiresReview, reviewDenyAction: s.reviewDenyAction, order: i + 1 }));
       const payload = { name: form.name, description: form.description || null, stages: stagesPayload } as Partial<Pipeline>;
       if (editing) await updatePipeline(editing.name, payload as Partial<Pipeline>);
       else await createPipeline(payload);
@@ -200,6 +203,16 @@ export default function Pipelines() {
         } catch { setError(t('Delete failed.')); }
       },
     });
+  }
+
+  async function handleDuplicate(pipeline: Pipeline) {
+    try {
+      const created = await createPipeline(buildPipelineDuplicatePayload(pipeline));
+      pushToast('success', t('Pipeline "{{name}}" duplicated.', { name: created.name }));
+      navigate(`/pipelines/${encodeURIComponent(created.name)}`);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('Duplicate failed.'));
+    }
   }
 
   return (
@@ -249,6 +262,24 @@ export default function Pipelines() {
                     />
                     <span style={{ verticalAlign: 'middle' }}>{t('Optional')}</span>
                   </label>
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', margin: 0, whiteSpace: 'nowrap', lineHeight: 1, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={stage.requiresReview}
+                      onChange={e => updateStage(i, 'requiresReview', e.target.checked)}
+                      style={{ width: 'auto', margin: 0, verticalAlign: 'middle' }}
+                    />
+                    <span style={{ verticalAlign: 'middle' }}>{t('Review gate')}</span>
+                  </label>
+                  <select
+                    value={stage.reviewDenyAction}
+                    disabled={!stage.requiresReview}
+                    onChange={e => updateStage(i, 'reviewDenyAction', e.target.value as 'RetryStage' | 'FailPipeline')}
+                    style={{ flex: '0 1 150px', minWidth: '120px' }}
+                  >
+                    <option value="RetryStage">{t('Retry stage')}</option>
+                    <option value="FailPipeline">{t('Fail pipeline')}</option>
+                  </select>
                   <span style={{ width: '0.75rem', flexShrink: 0 }} />
                   <button type="button" className="btn btn-sm" onClick={() => moveStage(i, -1)} disabled={i === 0} title={t('Move up')} style={{ padding: '0.15rem 0.4rem', fontSize: '0.75rem' }}>{'\u25B2'}</button>
                   <button type="button" className="btn btn-sm" onClick={() => moveStage(i, 1)} disabled={i === form.stages.length - 1} title={t('Move down')} style={{ padding: '0.15rem 0.4rem', fontSize: '0.75rem' }}>{'\u25BC'}</button>
@@ -337,6 +368,7 @@ export default function Pipelines() {
                       <ActionMenu id={`pipeline-${p.id}`} items={[
                         { label: 'View Detail', onClick: () => navigate(`/pipelines/${encodeURIComponent(p.name)}`) },
                         { label: 'Edit', onClick: () => openEdit(p) },
+                        { label: 'Duplicate', onClick: () => void handleDuplicate(p) },
                         { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `Pipeline: ${p.name}`, data: p }) },
                         ...(!p.isBuiltIn ? [{ label: 'Delete', danger: true as const, onClick: () => handleDelete(p.name) }] : []),
                       ]} />

@@ -12,6 +12,7 @@ namespace Armada.Server.Mcp.Tools
     using Armada.Core.Database;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
+    using Armada.Core.Models;
     using Armada.Core.Settings;
 
     /// <summary>
@@ -19,6 +20,21 @@ namespace Armada.Server.Mcp.Tools
     /// </summary>
     public static class McpToolHelpers
     {
+        /// <summary>
+        /// Build the default tenant-admin context used by unauthenticated MCP tools.
+        /// </summary>
+        public static AuthContext CreateDefaultTenantAdminContext()
+        {
+            return AuthContext.Authenticated(
+                ArmadaConstants.DefaultTenantId,
+                ArmadaConstants.DefaultUserId,
+                false,
+                true,
+                "Mcp",
+                null,
+                "MCP Default Tenant");
+        }
+
         /// <summary>
         /// Checks whether a mission status transition is valid.
         /// </summary>

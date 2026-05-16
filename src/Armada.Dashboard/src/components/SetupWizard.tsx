@@ -1,17 +1,21 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   createCaptain,
   createFleet,
   createVessel,
   dispatchMission,
+  getVesselReadiness,
   getMission,
   listCaptains,
+  listEnvironments,
   listFleets,
   listVessels,
+  listWorkflowProfiles,
 } from '../api/client';
 import MuxRuntimeFields from './captains/MuxRuntimeFields';
 import { buildMuxRuntimeOptionsJson, EMPTY_MUX_CAPTAIN_FORM, isMuxRuntime, type MuxCaptainFormFields } from '../lib/mux';
-import type { Captain, Fleet, Mission, Vessel } from '../types/models';
+import type { Captain, DeploymentEnvironment, Fleet, Mission, Vessel, VesselReadinessResult, WorkflowProfile } from '../types/models';
 import { useLocale } from '../context/LocaleContext';
 
 const STORAGE_KEY = 'armada_setup_completed';
@@ -86,7 +90,7 @@ const steps: WizardStep[] = [
   { title: 'Vessel', summary: 'Register the git repository that captains will work in.' },
   { title: 'Captain', summary: 'Create or choose an AI runtime so dispatch has capacity.' },
   { title: 'Dispatch', summary: 'Send a low-risk onboarding mission directly to Armada.' },
-  { title: 'Monitor', summary: 'Confirm what Armada created and refresh mission status.' },
+  { title: 'Handoff', summary: 'Refresh the mission and continue into onboarding, backlog, planning, and delivery setup.' },
 ];
 
 const tooltips = {
@@ -163,6 +167,7 @@ function SummaryItem({ label, value }: { label: string; value: ReactNode }) {
 }
 
 export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardProps) {
+  const navigate = useNavigate();
   const { t } = useLocale();
   const [current, setCurrent] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -214,6 +219,10 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
   const [activeCaptainId, setActiveCaptainId] = useState('');
   const [dispatchedMission, setDispatchedMission] = useState<Mission | null>(null);
   const [dispatchWarning, setDispatchWarning] = useState('');
+  const [readiness, setReadiness] = useState<VesselReadinessResult | null>(null);
+  const [matchingProfiles, setMatchingProfiles] = useState<WorkflowProfile[]>([]);
+  const [matchingEnvironments, setMatchingEnvironments] = useState<DeploymentEnvironment[]>([]);
+  const [nextSetupLoading, setNextSetupLoading] = useState(false);
 
   const activeFleet = useMemo(
     () => fleets.find((fleet) => fleet.id === activeFleetId) ?? null,
@@ -244,6 +253,31 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
     () => idleCaptains.find((captain) => captain.id === selectedCaptainId) ?? null,
     [idleCaptains, selectedCaptainId],
   );
+  const nextChecklistItem = useMemo(
+    () => (readiness?.setupChecklist || []).find((item) => !item.isSatisfied) || null,
+    [readiness],
+  );
+
+  const workflowProfileCount = matchingProfiles.length;
+  const environmentCount = matchingEnvironments.length;
+  const handoffFleetId = activeFleetId || activeVessel?.fleetId || '';
+  const handoffBacklogPath = useMemo(() => {
+    const params = new URLSearchParams();
+    if (handoffFleetId) params.set('fleetId', handoffFleetId);
+    if (activeVesselId) params.set('vesselId', activeVesselId);
+    const search = params.toString();
+    return search ? `/backlog?${search}` : '/backlog';
+  }, [activeVesselId, handoffFleetId]);
+  const handoffPlanningState = useMemo(() => {
+    if (!activeVesselId) return null;
+    return {
+      fromSetupWizard: true,
+      fleetId: handoffFleetId || undefined,
+      vesselId: activeVesselId,
+      title: t('Repository onboarding follow-up'),
+      initialPrompt: t('Use the onboarding findings for this vessel to produce a safe first execution plan. Summarize the setup gaps, pick one small follow-up task, and outline how Armada should approach it.'),
+    };
+  }, [activeVesselId, handoffFleetId, t]);
 
   const loadResources = useCallback(async () => {
     try {
@@ -279,10 +313,21 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
   }, [t]);
 
   useEffect(() => {
-    onHighlightChange?.([]);
     loadResources();
+  }, [loadResources]);
+
+  useEffect(() => {
+    const highlightsByStep: Record<number, string[]> = {
+      1: ['/fleets'],
+      2: ['/vessels'],
+      3: ['/captains'],
+      4: ['/dispatch'],
+      5: ['/vessels', '/workspace', '/backlog', '/planning', '/workflow-profiles', '/environments', '/checks', '/playbooks'],
+    };
+
+    onHighlightChange?.(highlightsByStep[current] || []);
     return () => onHighlightChange?.([]);
-  }, [loadResources, onHighlightChange]);
+  }, [current, onHighlightChange]);
 
   const finish = useCallback(() => {
     markSetupComplete();
@@ -290,10 +335,56 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
     onClose();
   }, [onClose, onHighlightChange]);
 
+  const finishAndNavigate = useCallback((to: string, options?: { state?: unknown; replace?: boolean }) => {
+    markSetupComplete();
+    onHighlightChange?.([]);
+    onClose();
+    navigate(to, options);
+  }, [navigate, onClose, onHighlightChange]);
+
   const goTo = useCallback((index: number) => {
     setCurrent(index);
     setResult(null);
   }, []);
+
+  useEffect(() => {
+    if (current !== steps.length - 1 || !activeVesselId) return;
+
+    let mounted = true;
+    async function loadNextSetupState() {
+      try {
+        setNextSetupLoading(true);
+        const [loadedReadiness, profileResult, environmentResult] = await Promise.all([
+          getVesselReadiness(activeVesselId),
+          listWorkflowProfiles({ pageSize: 9999 }),
+          listEnvironments({ pageSize: 9999, vesselId: activeVesselId }),
+        ]);
+
+        if (!mounted) return;
+
+        const relevantProfiles = (profileResult.objects || []).filter((profile) => {
+          if (profile.scope === 'Global') return true;
+          if (profile.scope === 'Fleet' && activeFleetId) return profile.fleetId === activeFleetId;
+          if (profile.scope === 'Vessel') return profile.vesselId === activeVesselId;
+          return false;
+        });
+
+        setReadiness(loadedReadiness);
+        setMatchingProfiles(relevantProfiles);
+        setMatchingEnvironments(environmentResult.objects || []);
+      } catch {
+        if (!mounted) return;
+        setReadiness(null);
+        setMatchingProfiles([]);
+        setMatchingEnvironments([]);
+      } finally {
+        if (mounted) setNextSetupLoading(false);
+      }
+    }
+
+    loadNextSetupState();
+    return () => { mounted = false; };
+  }, [activeFleetId, activeVesselId, current]);
 
   const handleFleetSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -525,10 +616,14 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
             <strong>{t('Dispatch directly')}</strong>
             <span>{t('Send a read-only onboarding mission through the dispatch endpoint and monitor the returned mission.')}</span>
           </div>
+          <div>
+            <strong>{t('Hand off into onboarding')}</strong>
+            <span>{t('From there, continue in Vessel Onboarding, Backlog, Planning, Workspace, Workflow Profiles, Environments, and Checks.')}</span>
+          </div>
         </div>
       </WizardExplanation>
       <p className="wizard-text">
-        {t('The default mission is intentionally low-risk: it asks the captain to inspect and summarize the repository without modifying files.')}
+        {t('The default mission is intentionally low-risk: it asks the captain to inspect and summarize the repository without modifying files. The wizard stops once Armada can dispatch safely, then hands you into the richer onboarding and delivery surfaces.')}
       </p>
     </>
   );
@@ -905,9 +1000,9 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
 
   const renderMonitorStep = () => (
     <>
-      <h2 className="wizard-step-heading">{t('Mission dispatched')}</h2>
+      <h2 className="wizard-step-heading">{t('Mission dispatched, handoff ready')}</h2>
       <p className="wizard-text">
-        {t('The setup workflow is complete. The mission details below come from the dispatch response and can be refreshed here.')}
+        {t('Armada can dispatch safely now. Use the handoff actions below to move this vessel into onboarding, backlog, planning, workspace, workflow-profile, environment, and first-check setup.')}
       </p>
 
       {dispatchWarning && <div className="wizard-result wizard-result-info">{dispatchWarning}</div>}
@@ -925,9 +1020,146 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
         <p className="text-dim">{t('No mission has been dispatched yet.')}</p>
       )}
 
+      <div className="wizard-summary-grid" style={{ marginTop: '1rem' }}>
+        <SummaryItem label={t('Readiness')} value={nextSetupLoading ? t('Loading...') : readiness ? `${readiness.setupChecklistSatisfiedCount}/${readiness.setupChecklistTotalCount}` : '-'} />
+        <SummaryItem label={t('Blocking Issues')} value={nextSetupLoading ? t('Loading...') : readiness ? readiness.errorCount : '-'} />
+        <SummaryItem label={t('Workflow Profiles')} value={nextSetupLoading ? t('Loading...') : workflowProfileCount} />
+        <SummaryItem label={t('Environments')} value={nextSetupLoading ? t('Loading...') : environmentCount} />
+      </div>
+
+      {nextChecklistItem && (
+        <div className="wizard-explanation" style={{ marginTop: '1rem' }}>
+          <h3>{t('Next Recommended Step')}</h3>
+          <div className="wizard-explanation-body">
+            <strong>{nextChecklistItem.title}</strong>
+            <div className="text-dim" style={{ marginTop: '0.35rem' }}>{nextChecklistItem.message}</div>
+          </div>
+        </div>
+      )}
+
+      <div className="wizard-start-list" style={{ marginTop: '1rem' }}>
+        <div>
+          <strong>{t('Vessel Onboarding')}</strong>
+          <span>{t('Review the readiness checklist, fix blocking issues, and follow the recommended onboarding actions for this vessel.')}</span>
+        </div>
+        <div>
+          <strong>{t('Backlog')}</strong>
+          <span>{t('Capture the follow-up work uncovered by the onboarding mission and keep it attached to this vessel.')}</span>
+        </div>
+        <div>
+          <strong>{t('Planning')}</strong>
+          <span>{t('Turn one of those follow-up tasks into a captain-backed execution plan before you dispatch code-changing work.')}</span>
+        </div>
+        <div>
+          <strong>{t('Workspace')}</strong>
+          <span>{t('Inspect the repository directly, review the onboarding findings, and continue setup or debugging without leaving Armada.')}</span>
+        </div>
+        <div>
+          <strong>{t('Workflow Profiles')}</strong>
+          <span>{t('Teach Armada how this repository builds, tests, deploys, rolls back, and verifies itself.')}</span>
+        </div>
+        <div>
+          <strong>{t('Environments')}</strong>
+          <span>{t('Capture at least one named rollout target with approval, verification, and monitoring metadata.')}</span>
+        </div>
+        <div>
+          <strong>{t('Checks')}</strong>
+          <span>{t('Run the first structured check once readiness and profile setup are in place.')}</span>
+        </div>
+        <div>
+          <strong>{t('Playbooks')}</strong>
+          <span>{t('Optional: capture reusable dispatch and planning guidance if your team wants consistent execution patterns.')}</span>
+        </div>
+      </div>
+
       <div className="wizard-inline-actions">
         <button type="button" className="btn" onClick={refreshMission} disabled={busy || !dispatchedMission}>
           {busy ? t('Refreshing...') : t('Refresh Mission Status')}
+        </button>
+        {activeVessel && (
+          <button
+            type="button"
+            className="btn"
+            onClick={() => finishAndNavigate(`/vessels/${activeVessel.id}/onboarding`)}
+          >
+            {t('Open Vessel Onboarding')}
+          </button>
+        )}
+        {activeVessel && (
+          <button
+            type="button"
+            className="btn"
+            onClick={() => finishAndNavigate(handoffBacklogPath)}
+          >
+            {t('Open Backlog')}
+          </button>
+        )}
+        {activeVessel && handoffPlanningState && (
+          <button
+            type="button"
+            className="btn"
+            onClick={() => finishAndNavigate('/planning', { state: handoffPlanningState })}
+          >
+            {t('Open Planning')}
+          </button>
+        )}
+        {activeVessel && (
+          <button
+            type="button"
+            className="btn"
+            onClick={() => finishAndNavigate(`/workspace/${activeVessel.id}`)}
+          >
+            {t('Open Workspace')}
+          </button>
+        )}
+        {activeVessel && (
+          <button
+            type="button"
+            className="btn"
+            onClick={() => finishAndNavigate(
+              workflowProfileCount > 0
+                ? '/workflow-profiles'
+                : `/workflow-profiles/new?scope=Vessel&vesselId=${encodeURIComponent(activeVessel.id)}`,
+            )}
+          >
+            {workflowProfileCount > 0 ? t('Open Workflow Profiles') : t('Create Workflow Profile')}
+          </button>
+        )}
+        {activeVessel && (
+          <button
+            type="button"
+            className="btn"
+            onClick={() => finishAndNavigate(
+              environmentCount > 0
+                ? '/environments'
+                : `/environments/new?vesselId=${encodeURIComponent(activeVessel.id)}&kind=Development`,
+            )}
+          >
+            {environmentCount > 0 ? t('Open Environments') : t('Create Environment')}
+          </button>
+        )}
+        {activeVessel && (
+          <button
+            type="button"
+            className="btn"
+            onClick={() => finishAndNavigate('/checks', {
+              state: {
+                prefill: {
+                  vesselId: activeVessel.id,
+                  branchName: activeVessel.defaultBranch || '',
+                },
+              },
+            })}
+          >
+            {t('Run First Check')}
+          </button>
+        )}
+        <button
+          type="button"
+          className="btn"
+          onClick={() => finishAndNavigate('/playbooks')}
+        >
+          {t('Open Playbooks')}
         </button>
         <button type="button" className="btn btn-primary" onClick={finish}>
           {t('Finish Setup')}

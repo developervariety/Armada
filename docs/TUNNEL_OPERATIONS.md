@@ -1,8 +1,8 @@
 # Tunnel Operations
 
-**Version:** 0.7.0
+**Version:** 0.8.0
 
-This guide covers the shipped remote-control tunnel and proxy MVP surfaces in Armada `v0.7.0`.
+This guide covers the shipped remote-control tunnel and proxy MVP surfaces in Armada `v0.8.0`.
 
 For a step-by-step operator setup path, see [REMOTE_MGMT.md](REMOTE_MGMT.md).
 
@@ -10,7 +10,7 @@ For a step-by-step operator setup path, see [REMOTE_MGMT.md](REMOTE_MGMT.md).
 
 ## Scope
 
-`v0.7.0` now includes:
+`v0.8.0` now includes:
 
 - the Armada-side outbound websocket tunnel client
 - remote tunnel configuration in Armada settings and dashboards
@@ -27,6 +27,7 @@ Still not included:
 - delegated identity or local-session brokerage
 - notification delivery
 - persistent proxy storage
+- remote release, environment, deployment, incident, or runbook operator workflows
 - server-side remote action policy evaluation beyond current shell confirmation prompts
 
 Treat the current proxy as an implementation-stage operator service, not a hardened public SaaS surface.
@@ -319,9 +320,9 @@ Recent forwarded events are retained in memory only and are bounded by `maxRecen
 
 ## Release Notes
 
-The `v0.6.0 -> v0.7.0` release does not require a database schema migration.
+The `v0.7.0 -> v0.8.0` release adds Armada backlog/objective normalization schema changes on the server side.
 
-Migration scripts still exist in `migrations/` so release automation and operator workflows have a versioned handoff point:
+`Armada.Server` applies those schema migrations automatically on first startup after upgrade. If you need a controlled DBA-managed rollout, the versioned handoff scripts in `migrations/` emit the backend-specific SQL and precheck guidance:
 
-- `migrations/migrate_v0.6.0_to_v0.7.0.sh`
-- `migrations/migrate_v0.6.0_to_v0.7.0.bat`
+- `migrations/migrate_v0.7.0_to_v0.8.0.sh`
+- `migrations/migrate_v0.7.0_to_v0.8.0.bat`

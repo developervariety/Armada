@@ -1,6 +1,6 @@
 # Pipelines -- Implementation Reference
 
-This document covers the complete pipeline implementation in Armada v0.7.0: data model, dispatch flow, execution lifecycle, stage handoff, architect special handling, captain routing, and extensibility.
+This document covers the complete pipeline implementation in Armada v0.8.0: data model, dispatch flow, execution lifecycle, stage handoff, architect special handling, captain routing, and extensibility.
 
 ---
 
@@ -138,7 +138,7 @@ own pipeline stage is customized.
 The complete lifecycle of a pipeline dispatch:
 
 ```
-User calls armada_dispatch(title, vesselId, missions, pipeline: "Reviewed")
+User calls dispatch(title, vesselId, missions, pipeline: "Reviewed")
     |
     v
 AdmiralService.DispatchVoyageAsync(title, desc, vesselId, missions, pipelineId)
@@ -181,7 +181,7 @@ The Admiral resolves which pipeline to use in `ResolvePipelineAsync`. Resolution
 
 | Priority | Source | How to Set |
 |----------|--------|------------|
-| 1 (highest) | **Explicit dispatch parameter** | `pipelineId` or `pipeline` on `armada_dispatch` / voyage create |
+| 1 (highest) | **Explicit dispatch parameter** | `pipelineId` or `pipeline` on `dispatch` / voyage create |
 | 2 | **Vessel default** | `DefaultPipelineId` on the target vessel |
 | 3 | **Fleet default** | `DefaultPipelineId` on the vessel's parent fleet |
 | 4 (lowest) | **System fallback** | WorkerOnly (no pipeline, standard single-mission behavior) |
@@ -471,19 +471,19 @@ All migrations are implemented for SQLite, MySQL, PostgreSQL, and SQL Server. St
 
 | Tool | Description |
 |------|-------------|
-| `armada_create_persona` | Create a custom persona |
-| `armada_get_persona` | Get persona by name |
-| `armada_update_persona` | Update persona properties |
-| `armada_delete_persona` | Delete (blocked for built-in) |
-| `armada_create_pipeline` | Create a pipeline with stages |
-| `armada_get_pipeline` | Get pipeline by name (includes stages) |
-| `armada_update_pipeline` | Update pipeline and stages |
-| `armada_delete_pipeline` | Delete (blocked for built-in) |
-| `armada_get_prompt_template` | Get template by name |
-| `armada_update_prompt_template` | Update template content |
-| `armada_reset_prompt_template` | Reset to built-in default |
-| `armada_dispatch` | Now accepts `pipelineId` and `pipeline` params |
-| `armada_enumerate` | Now supports `personas`, `prompt_templates`, `pipelines` entity types |
+| `create_persona` | Create a custom persona |
+| `get_persona` | Get persona by name |
+| `update_persona` | Update persona properties |
+| `delete_persona` | Delete (blocked for built-in) |
+| `create_pipeline` | Create a pipeline with stages |
+| `get_pipeline` | Get pipeline by name (includes stages) |
+| `update_pipeline` | Update pipeline and stages |
+| `delete_pipeline` | Delete (blocked for built-in) |
+| `get_prompt_template` | Get template by name |
+| `update_prompt_template` | Update template content |
+| `reset_prompt_template` | Reset to built-in default |
+| `dispatch` | Now accepts `pipelineId` and `pipeline` params |
+| `enumerate` | Now supports `personas`, `prompt_templates`, `pipelines` entity types |
 
 ### REST Endpoints
 
@@ -544,7 +544,7 @@ Personas, Pipelines, and Templates are in the **System** section of the sidebar.
 Set a default pipeline on a vessel so all dispatches to it use a specific workflow:
 
 ```json
-// armada_update_vessel
+// update_vessel
 { "vesselId": "vsl_abc", "defaultPipelineId": "ppl_reviewed" }
 ```
 
@@ -553,7 +553,7 @@ Set a default pipeline on a vessel so all dispatches to it use a specific workfl
 Set at the fleet level -- applies to all vessels in the fleet unless overridden:
 
 ```json
-// armada_update_fleet
+// update_fleet
 { "fleetId": "flt_abc", "defaultPipelineId": "ppl_tested" }
 ```
 
@@ -562,7 +562,7 @@ Set at the fleet level -- applies to all vessels in the fleet unless overridden:
 Override for a single voyage regardless of vessel/fleet defaults:
 
 ```json
-// armada_dispatch
+// dispatch
 { "title": "Quick fix", "vesselId": "vsl_abc", "pipeline": "WorkerOnly", "missions": [...] }
 ```
 
@@ -572,11 +572,11 @@ Assign captains to specific roles:
 
 ```json
 // Opus captain for planning and review
-// armada_update_captain
+// update_captain
 { "captainId": "cpt_opus", "preferredPersona": "Architect", "allowedPersonas": "[\"Architect\",\"Judge\"]" }
 
 // Sonnet captains for implementation and testing
-// armada_update_captain
+// update_captain
 { "captainId": "cpt_sonnet", "allowedPersonas": "[\"Worker\",\"TestEngineer\"]" }
 ```
 
@@ -588,19 +588,19 @@ Assign captains to specific roles:
 
 1. **Create a prompt template** with instructions for the new role:
    ```json
-   // armada_update_prompt_template
+   // update_prompt_template
    { "name": "persona.security_auditor", "content": "You are a security auditor...", "description": "Security review" }
    ```
 
 2. **Create the persona** referencing the template:
    ```json
-   // armada_create_persona
+   // create_persona
    { "name": "SecurityAuditor", "promptTemplateName": "persona.security_auditor" }
    ```
 
 3. **Create a pipeline** using the persona:
    ```json
-   // armada_create_pipeline
+   // create_pipeline
    {
      "name": "SecureReview",
      "stages": [
@@ -613,7 +613,7 @@ Assign captains to specific roles:
 
 4. **Dispatch** with the pipeline:
    ```json
-   // armada_dispatch
+   // dispatch
    { "title": "Add login", "vesselId": "vsl_abc", "pipeline": "SecureReview", "missions": [...] }
    ```
 

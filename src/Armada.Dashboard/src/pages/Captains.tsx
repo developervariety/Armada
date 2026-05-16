@@ -1,12 +1,13 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { listCaptains, createCaptain, updateCaptain, deleteCaptain, stopCaptain, recallCaptain, stopAllCaptains, restartCaptain } from '../api/client';
-import type { Captain } from '../types/models';
+import { listCaptains, createCaptain, updateCaptain, deleteCaptain, stopCaptain, recallCaptain, stopAllCaptains, restartCaptain, getCaptainTools } from '../api/client';
+import type { Captain, CaptainToolAccessResult } from '../types/models';
 import Pagination from '../components/shared/Pagination';
 import ActionMenu from '../components/shared/ActionMenu';
 import StatusBadge from '../components/shared/StatusBadge';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import MuxRuntimeFields from '../components/captains/MuxRuntimeFields';
+import CaptainToolViewer from '../components/captains/CaptainToolViewer';
 import JsonViewer from '../components/shared/JsonViewer';
 import CopyButton from '../components/shared/CopyButton';
 import RefreshButton from '../components/shared/RefreshButton';
@@ -14,6 +15,7 @@ import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { buildMuxRuntimeOptionsJson, EMPTY_MUX_CAPTAIN_FORM, isMuxRuntime, muxFormFromCaptain, type MuxCaptainFormFields } from '../lib/mux';
+import { buildCaptainDuplicatePayload } from '../lib/duplicates';
 
 type SortDir = 'asc' | 'desc';
 type SortField = 'name' | 'runtime' | 'state' | 'createdUtc';
@@ -39,6 +41,13 @@ export default function Captains() {
 
   // JSON viewer
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
+  const [toolViewer, setToolViewer] = useState<{ open: boolean; captainName: string; loading: boolean; error: string; data: CaptainToolAccessResult | null }>({
+    open: false,
+    captainName: '',
+    loading: false,
+    error: '',
+    data: null,
+  });
 
   // Confirm dialog
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
@@ -282,6 +291,45 @@ export default function Captains() {
     });
   }
 
+  async function handleDuplicate(captain: Captain) {
+    try {
+      const created = await createCaptain(buildCaptainDuplicatePayload(captain));
+      pushToast('success', t('Captain "{{name}}" duplicated.', { name: created.name }));
+      navigate(`/captains/${created.id}`);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('Duplicate failed.'));
+    }
+  }
+
+  async function handleViewTools(captain: Captain) {
+    setToolViewer({
+      open: true,
+      captainName: captain.name,
+      loading: true,
+      error: '',
+      data: null,
+    });
+
+    try {
+      const result = await getCaptainTools(captain.id);
+      setToolViewer({
+        open: true,
+        captainName: captain.name,
+        loading: false,
+        error: '',
+        data: result,
+      });
+    } catch {
+      setToolViewer({
+        open: true,
+        captainName: captain.name,
+        loading: false,
+        error: t('Failed to load captain tools.'),
+        data: null,
+      });
+    }
+  }
+
   return (
     <div>
       <div className="view-header">
@@ -343,6 +391,14 @@ export default function Captains() {
 
       {/* JSON Viewer */}
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
+      <CaptainToolViewer
+        open={toolViewer.open}
+        captainName={toolViewer.captainName}
+        loading={toolViewer.loading}
+        error={toolViewer.error}
+        data={toolViewer.data}
+        onClose={() => setToolViewer({ open: false, captainName: '', loading: false, error: '', data: null })}
+      />
 
       {/* Confirm Dialog */}
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
@@ -421,6 +477,8 @@ export default function Captains() {
                       <ActionMenu id={`captain-${c.id}`} items={[
                         { label: 'View Detail', onClick: () => navigate(`/captains/${c.id}`) },
                         { label: 'Edit', onClick: () => openEdit(c) },
+                        { label: 'Duplicate', onClick: () => void handleDuplicate(c) },
+                        { label: 'View Tools', onClick: () => void handleViewTools(c) },
                         { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `${t('Captain')}: ${c.name}`, data: c }) },
                         { label: 'Stop', onClick: () => handleStop(c.id, c.name) },
                         { label: 'Recall', onClick: () => handleRecall(c.id, c.name) },

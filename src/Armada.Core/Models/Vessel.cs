@@ -72,6 +72,51 @@ namespace Armada.Core.Models
         public string? WorkingDirectory { get; set; } = null;
 
         /// <summary>
+        /// Optional per-vessel GitHub token override.
+        /// This value is accepted on create and update, but is never serialized in read responses.
+        /// </summary>
+        [JsonIgnore]
+        public string? GitHubTokenOverride
+        {
+            get => _GitHubTokenOverride;
+            set
+            {
+                _GitHubTokenOverride = value;
+                _HasGitHubTokenOverride = null;
+            }
+        }
+
+        /// <summary>
+        /// Indicates whether this vessel has a GitHub token override configured.
+        /// </summary>
+        [JsonInclude]
+        public bool HasGitHubTokenOverride
+        {
+            get => _HasGitHubTokenOverride ?? !String.IsNullOrWhiteSpace(GitHubTokenOverride);
+            private set => _HasGitHubTokenOverride = value;
+        }
+
+        /// <summary>
+        /// Write-only JSON input for the GitHub token override.
+        /// This allows create and update requests to supply the token without Armada ever returning it.
+        /// </summary>
+        [JsonPropertyName("gitHubTokenOverride")]
+        public string? GitHubTokenOverrideInput
+        {
+            set
+            {
+                GitHubTokenOverrideSpecified = true;
+                GitHubTokenOverride = value;
+            }
+        }
+
+        /// <summary>
+        /// Whether the GitHub token override was explicitly supplied during JSON deserialization.
+        /// </summary>
+        [JsonIgnore]
+        public bool GitHubTokenOverrideSpecified { get; private set; } = false;
+
+        /// <summary>
         /// Default branch name.
         /// </summary>
         public string DefaultBranch { get; set; } = "main";
@@ -97,7 +142,7 @@ namespace Armada.Core.Models
         /// Agent-accumulated context about this repository. Contains key information
         /// discovered by AI agents during missions, such as architectural insights,
         /// testing patterns, build quirks, and other knowledge useful for future missions.
-        /// Updated by agents via armada_update_vessel_context when EnableModelContext is true.
+        /// Updated by agents via update_vessel_context when EnableModelContext is true.
         /// </summary>
         public string? ModelContext { get; set; } = null;
 
@@ -120,6 +165,37 @@ namespace Armada.Core.Models
         /// (Assigned, InProgress, WorkProduced, PullRequestOpen) at a time.
         /// </summary>
         public bool AllowConcurrentMissions { get; set; } = false;
+
+        /// <summary>
+        /// Whether successful landing requires at least one passing structured check
+        /// for the current branch or mission context.
+        /// </summary>
+        public bool RequirePassingChecksToLand { get; set; } = false;
+
+        /// <summary>
+        /// Optional protected-branch glob or exact-match patterns.
+        /// </summary>
+        public List<string> ProtectedBranchPatterns { get; set; } = new List<string>();
+
+        /// <summary>
+        /// Prefix used to classify release branches.
+        /// </summary>
+        public string ReleaseBranchPrefix { get; set; } = "release/";
+
+        /// <summary>
+        /// Prefix used to classify hotfix branches.
+        /// </summary>
+        public string HotfixBranchPrefix { get; set; } = "hotfix/";
+
+        /// <summary>
+        /// Whether protected branches must land via PR-oriented flow.
+        /// </summary>
+        public bool RequirePullRequestForProtectedBranches { get; set; } = false;
+
+        /// <summary>
+        /// Whether release branches must land via merge queue.
+        /// </summary>
+        public bool RequireMergeQueueForReleaseBranches { get; set; } = false;
 
         /// <summary>
         /// Default pipeline to use for dispatches to this vessel.
@@ -235,6 +311,8 @@ namespace Armada.Core.Models
         private string _Id = Constants.IdGenerator.GenerateKSortable(Constants.VesselIdPrefix, 24);
         private string _Name = "My Vessel";
         private string? _RepoUrl = null;
+        private string? _GitHubTokenOverride = null;
+        private bool? _HasGitHubTokenOverride = null;
 
         #endregion
 
@@ -256,6 +334,24 @@ namespace Armada.Core.Models
         {
             Name = name;
             RepoUrl = repoUrl;
+        }
+
+        #endregion
+
+        #region Public-Methods
+
+        /// <summary>
+        /// Normalizes the GitHub token override and clears it when blank.
+        /// </summary>
+        public void NormalizeGitHubTokenOverride()
+        {
+            if (String.IsNullOrWhiteSpace(GitHubTokenOverride))
+            {
+                GitHubTokenOverride = null;
+                return;
+            }
+
+            GitHubTokenOverride = GitHubTokenOverride.Trim();
         }
 
         #endregion

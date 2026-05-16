@@ -4,7 +4,7 @@ namespace Armada.Core.Models
     using System.Collections.Generic;
 
     /// <summary>
-    /// Response from DELETE /api/v1/voyages/{id}/purge or armada_purge_voyage.
+    /// Response from DELETE /api/v1/voyages/{id}/purge or purge_voyage.
     /// </summary>
     public class PurgeVoyageResponse
     {

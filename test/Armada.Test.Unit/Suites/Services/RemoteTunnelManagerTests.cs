@@ -2,6 +2,7 @@ namespace Armada.Test.Unit.Suites.Services
 {
     using Armada.Core;
     using Armada.Core.Enums;
+    using Armada.Core.Models;
     using Armada.Core.Settings;
     using Armada.Server;
     using Armada.Test.Common;
@@ -52,7 +53,7 @@ namespace Armada.Test.Unit.Suites.Services
                 ArmadaSettings settings = new ArmadaSettings();
                 RemoteTunnelManager manager = new RemoteTunnelManager(logging, settings);
 
-                var manifest = manager.BuildCapabilityManifest();
+                RemoteTunnelCapabilityManifest manifest = manager.BuildCapabilityManifest();
 
                 AssertEqual(Constants.RemoteTunnelProtocolVersion, manifest.ProtocolVersion);
                 AssertEqual(Constants.ProductVersion, manifest.ArmadaVersion);
@@ -69,7 +70,7 @@ namespace Armada.Test.Unit.Suites.Services
                 settings.RemoteControl.Enabled = false;
 
                 RemoteTunnelManager manager = new RemoteTunnelManager(logging, settings);
-                var status = manager.GetStatus();
+                RemoteTunnelStatus status = manager.GetStatus();
 
                 AssertFalse(status.Enabled);
                 AssertEqual(RemoteTunnelStateEnum.Disabled, status.State);

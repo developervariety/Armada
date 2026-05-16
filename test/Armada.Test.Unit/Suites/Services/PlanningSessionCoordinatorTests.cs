@@ -149,15 +149,15 @@ namespace Armada.Test.Unit.Suites.Services
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 using (CoordinatorFixture fixture = new CoordinatorFixture(testDb.Driver))
                 {
-                    (string tenantId, string userId) = await fixture.CreateTenantUserAsync().ConfigureAwait(false);
-                    Playbook playbook = await fixture.CreatePlaybookAsync(tenantId, userId, "planning-playbook.md").ConfigureAwait(false);
-                    Pipeline pipeline = await fixture.CreatePipelineAsync(tenantId, "Full planning pipeline").ConfigureAwait(false);
-                    Vessel vessel = await fixture.CreateVesselAsync("planning-vessel-dispatch", tenantId, userId).ConfigureAwait(false);
-                    Captain captain = await fixture.CreateCaptainAsync("planner-dispatch", AgentRuntimeEnum.ClaudeCode, tenantId, userId).ConfigureAwait(false);
+                    CoordinatorFixture.TenantUserResult tenantUser = await fixture.CreateTenantUserAsync().ConfigureAwait(false);
+                    Playbook playbook = await fixture.CreatePlaybookAsync(tenantUser.TenantId, tenantUser.UserId, "planning-playbook.md").ConfigureAwait(false);
+                    Pipeline pipeline = await fixture.CreatePipelineAsync(tenantUser.TenantId, "Full planning pipeline").ConfigureAwait(false);
+                    Vessel vessel = await fixture.CreateVesselAsync("planning-vessel-dispatch", tenantUser.TenantId, tenantUser.UserId).ConfigureAwait(false);
+                    Captain captain = await fixture.CreateCaptainAsync("planner-dispatch", AgentRuntimeEnum.ClaudeCode, tenantUser.TenantId, tenantUser.UserId).ConfigureAwait(false);
 
                     PlanningSession session = await fixture.Coordinator.CreateAsync(
-                        tenantId,
-                        userId,
+                        tenantUser.TenantId,
+                        tenantUser.UserId,
                         captain,
                         vessel,
                         new PlanningSessionCreateRequest
@@ -531,6 +531,13 @@ namespace Armada.Test.Unit.Suites.Services
 
         private sealed class CoordinatorFixture : IDisposable
         {
+            public sealed class TenantUserResult
+            {
+                public string TenantId { get; set; } = String.Empty;
+
+                public string UserId { get; set; } = String.Empty;
+            }
+
             public SqliteDatabaseDriver Database { get; }
             public ArmadaSettings Settings { get; }
             public StubGitService Git { get; }
@@ -570,7 +577,7 @@ namespace Armada.Test.Unit.Suites.Services
                     (eventType, message, entityType, entityId, captainId, missionId, vesselId, voyageId) => Task.CompletedTask);
             }
 
-            public async Task<(string TenantId, string UserId)> CreateTenantUserAsync(string tenantName = "Planning Tenant")
+            public async Task<TenantUserResult> CreateTenantUserAsync(string tenantName = "Planning Tenant")
             {
                 TenantMetadata tenant = new TenantMetadata(tenantName);
                 tenant = await Database.Tenants.CreateAsync(tenant).ConfigureAwait(false);
@@ -578,7 +585,11 @@ namespace Armada.Test.Unit.Suites.Services
                 UserMaster user = new UserMaster(tenant.Id, tenantName.Replace(" ", String.Empty).ToLowerInvariant() + "@example.com", "password");
                 user = await Database.Users.CreateAsync(user).ConfigureAwait(false);
 
-                return (tenant.Id, user.Id);
+                return new TenantUserResult
+                {
+                    TenantId = tenant.Id,
+                    UserId = user.Id
+                };
             }
 
             public async Task<Vessel> CreateVesselAsync(string name = "planning-vessel", string? tenantId = null, string? userId = null)

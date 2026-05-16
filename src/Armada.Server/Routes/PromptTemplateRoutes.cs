@@ -94,6 +94,63 @@ namespace Armada.Server.Routes
                 .WithRequestBody(OpenApiJson.BodyFor<EnumerationQuery>("Enumeration query", false))
                 .WithSecurity("ApiKey"));
 
+            // Create prompt template
+            app.Post<PromptTemplate>("/api/v1/prompt-templates", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                {
+                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
+                    return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
+                }
+
+                PromptTemplate template = JsonSerializer.Deserialize<PromptTemplate>(req.Http.Request.DataAsString, _jsonOptions)
+                    ?? throw new InvalidOperationException("Request body could not be deserialized as PromptTemplate.");
+
+                string normalizedName = template.Name.Trim();
+                string normalizedCategory = template.Category.Trim();
+                if (String.IsNullOrWhiteSpace(normalizedName))
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Prompt template name is required" };
+                }
+                if (String.IsNullOrWhiteSpace(normalizedCategory))
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Prompt template category is required" };
+                }
+                if (String.IsNullOrWhiteSpace(template.Content))
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Prompt template content is required" };
+                }
+
+                template.Name = normalizedName;
+                template.Category = normalizedCategory;
+                template.Description = String.IsNullOrWhiteSpace(template.Description) ? null : template.Description.Trim();
+                template.IsBuiltIn = false;
+                template.CreatedUtc = DateTime.UtcNow;
+                template.LastUpdateUtc = DateTime.UtcNow;
+
+                PromptTemplate? existing = await _database.PromptTemplates.ReadByNameAsync(template.Name).ConfigureAwait(false);
+                if (existing != null)
+                {
+                    req.Http.Response.StatusCode = 409;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Prompt template already exists" };
+                }
+
+                PromptTemplate created = await _database.PromptTemplates.CreateAsync(template).ConfigureAwait(false);
+                req.Http.Response.StatusCode = 201;
+                return created;
+            },
+            api => api
+                .WithTag("Prompt Templates")
+                .WithSummary("Create a prompt template")
+                .WithDescription("Creates a new prompt template with a unique name, category, and prompt content.")
+                .WithRequestBody(OpenApiJson.BodyFor<PromptTemplate>("Prompt template data (Name, Category, Description, Content)", true))
+                .WithResponse(201, OpenApiJson.For<PromptTemplate>("Created prompt template"))
+                .WithSecurity("ApiKey"));
+
             // Get prompt template by name
             app.Get("/api/v1/prompt-templates/{name}", async (ApiRequest req) =>
             {

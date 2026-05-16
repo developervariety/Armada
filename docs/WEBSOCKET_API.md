@@ -1,13 +1,13 @@
 # Armada WebSocket API Reference
 
-**Version:** 0.7.0
+**Version:** 0.8.0
 **Default URL:** `ws://localhost:7890/ws`
 **Protocol:** WebSocket (RFC 6455) via Watson7
 **Transport:** JSON text frames
 
 ## Remote Control Note
 
-`v0.7.0` does not expose the local Armada dashboard websocket API through `Armada.Proxy`.
+`v0.8.0` does not expose the local Armada dashboard websocket API through `Armada.Proxy`.
 
 The new remote-control tunnel forwards Armada server events to the proxy for instance activity tracking, but it does not provide dashboard-websocket compatibility mode yet. When that changes, this document will be updated with the proxied event and auth model.
 
@@ -26,7 +26,19 @@ The new remote-control tunnel forwards Armada server events to the proxy for ins
 - [Server-Pushed Events](#server-pushed-events)
   - [status.snapshot](#statussnapshot)
   - [mission.changed](#missionchanged)
+  - [voyage.changed](#voyagechanged)
   - [captain.changed](#captainchanged)
+  - [objective.changed](#objectivechanged)
+  - [objective-refinement-session.changed](#objective-refinement-sessionchanged)
+  - [objective-refinement-session.message.created](#objective-refinement-sessionmessagecreated)
+  - [objective-refinement-session.message.updated](#objective-refinement-sessionmessageupdated)
+  - [objective-refinement-session.summary.created](#objective-refinement-sessionsummarycreated)
+  - [objective-refinement-session.applied](#objective-refinement-sessionapplied)
+  - [check-run.changed](#check-runchanged)
+  - [deployment.changed](#deploymentchanged)
+  - [deployment.progress](#deploymentprogress)
+  - [environment.health](#environmenthealth)
+  - [approval-needed](#approval-needed)
   - [Generic Events](#generic-events)
 - [Command Actions](#command-actions)
   - [Status & Control](#status--control)
@@ -116,9 +128,11 @@ All server messages include a `type` field indicating the event kind, and a `tim
 ```json
 {
   "type": "mission.changed",
-  "missionId": "msn_abc123",
-  "status": "Complete",
-  "title": "Implement feature X",
+  "data": {
+    "id": "msn_abc123",
+    "status": "Complete",
+    "title": "Implement feature X"
+  },
   "timestamp": "2026-03-07T12:34:56.789Z"
 }
 ```
@@ -141,7 +155,7 @@ Subscribe to real-time event broadcasts. Upon connection with this route, the se
 
 **Server responds with:** a [`status.snapshot`](#statussnapshot) message.
 
-After the initial snapshot, the client will receive all broadcast events ([`mission.changed`](#missionchanged), [`captain.changed`](#captainchanged), and [generic events](#generic-events)) as they occur.
+After the initial snapshot, the client will receive all broadcast events ([`mission.changed`](#missionchanged), [`voyage.changed`](#voyagechanged), [`captain.changed`](#captainchanged), [`objective.changed`](#objectivechanged), [`objective-refinement-session.changed`](#objective-refinement-sessionchanged), [`objective-refinement-session.message.created`](#objective-refinement-sessionmessagecreated), [`objective-refinement-session.message.updated`](#objective-refinement-sessionmessageupdated), [`objective-refinement-session.summary.created`](#objective-refinement-sessionsummarycreated), [`objective-refinement-session.applied`](#objective-refinement-sessionapplied), [`check-run.changed`](#check-runchanged), [`deployment.changed`](#deploymentchanged), [`deployment.progress`](#deploymentprogress), [`environment.health`](#environmenthealth), [`approval-needed`](#approval-needed), and [generic events](#generic-events)) as they occur.
 
 ---
 
@@ -161,7 +175,7 @@ Send a command to the Admiral for execution. The `action` field determines which
 
 **Server responds with:** a `command.result` or `command.error` message.
 
-See [Command Actions](#command-actions) for the full list of 35 supported actions.
+See [Command Actions](#command-actions) for the current operational action set. This WebSocket surface focuses on real-time monitoring and core orchestration commands; newer REST-only helpers such as Workspace, planning sessions, request history, GitHub objective import, GitHub Actions sync, GitHub PR evidence, and runtime discovery remain HTTP-only.
 
 ---
 
@@ -198,6 +212,15 @@ Sent immediately when a client connects via the `subscribe` route. Contains a fu
       }
     ],
     "recentSignals": [],
+    "remoteTunnel": {
+      "enabled": false,
+      "state": "Disabled",
+      "tunnelUrl": null,
+      "instanceId": "armada-1f2e3d4c5b6a",
+      "lastError": null,
+      "reconnectAttempts": 0,
+      "latencyMs": null
+    },
     "timestampUtc": "2026-03-07T12:34:56.789Z"
   },
   "timestamp": "2026-03-07T12:34:56.789Z"
@@ -215,9 +238,11 @@ Broadcast when a mission's status changes (e.g., assigned, started, completed, f
 ```json
 {
   "type": "mission.changed",
-  "missionId": "msn_abc123def456ghi789jk",
-  "status": "InProgress",
-  "title": "Add input validation to signup form",
+  "data": {
+    "id": "msn_abc123def456ghi789jk",
+    "status": "InProgress",
+    "title": "Add input validation to signup form"
+  },
   "timestamp": "2026-03-07T12:35:00.000Z"
 }
 ```
@@ -225,9 +250,35 @@ Broadcast when a mission's status changes (e.g., assigned, started, completed, f
 | Field | Type | Description |
 |---|---|---|
 | `type` | string | Always `"mission.changed"` |
-| `missionId` | string | Mission ID (prefix `msn_`) |
-| `status` | string | New [MissionStatusEnum](#missionstatusenum) value |
-| `title` | string \| null | Mission title |
+| `data.id` | string | Mission ID (prefix `msn_`) |
+| `data.status` | string | New [MissionStatusEnum](#missionstatusenum) value |
+| `data.title` | string \| null | Mission title |
+| `timestamp` | string | ISO 8601 UTC timestamp |
+
+---
+
+### voyage.changed
+
+Broadcast when a voyage state changes.
+
+```json
+{
+  "type": "voyage.changed",
+  "data": {
+    "id": "vyg_abc123def456ghi789jk",
+    "status": "Complete",
+    "title": "API Hardening"
+  },
+  "timestamp": "2026-03-07T12:35:00.000Z"
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `type` | string | Always `"voyage.changed"` |
+| `data.id` | string | Voyage ID (prefix `vyg_`) |
+| `data.status` | string | Voyage status value |
+| `data.title` | string \| null | Voyage title |
 | `timestamp` | string | ISO 8601 UTC timestamp |
 
 ---
@@ -239,9 +290,11 @@ Broadcast when a captain's state changes (e.g., idle to working, working to stal
 ```json
 {
   "type": "captain.changed",
-  "captainId": "cpt_abc123def456ghi789jk",
-  "state": "Working",
-  "name": "captain-1",
+  "data": {
+    "id": "cpt_abc123def456ghi789jk",
+    "state": "Working",
+    "name": "captain-1"
+  },
   "timestamp": "2026-03-07T12:35:00.000Z"
 }
 ```
@@ -249,9 +302,331 @@ Broadcast when a captain's state changes (e.g., idle to working, working to stal
 | Field | Type | Description |
 |---|---|---|
 | `type` | string | Always `"captain.changed"` |
-| `captainId` | string | Captain ID (prefix `cpt_`) |
-| `state` | string | New [CaptainStateEnum](#captainstateenum) value |
-| `name` | string \| null | Captain display name |
+| `data.id` | string | Captain ID (prefix `cpt_`) |
+| `data.state` | string | New [CaptainStateEnum](#captainstateenum) value |
+| `data.name` | string \| null | Captain display name |
+| `timestamp` | string | ISO 8601 UTC timestamp |
+
+---
+
+### check-run.changed
+
+Broadcast when a structured check run is created, imported, updated, or retried.
+
+```json
+{
+  "type": "check-run.changed",
+  "data": {
+    "id": "chk_abc123def456ghi789jk",
+    "status": "Passed",
+    "type": "UnitTest",
+    "vesselId": "vsl_abc123def456ghi789jk",
+    "label": "Unit tests"
+  },
+  "timestamp": "2026-03-07T12:35:00.000Z"
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `type` | string | Always `"check-run.changed"` |
+| `data` | object | Full serialized `CheckRun` payload with enum values emitted as strings |
+| `timestamp` | string | ISO 8601 UTC timestamp |
+
+---
+
+### objective.changed
+
+Broadcast when an objective or backlog record is created or updated.
+
+```json
+{
+  "type": "objective.changed",
+  "data": {
+    "id": "obj_abc123def456ghi789jk",
+    "status": "Scoped",
+    "title": "Stabilize May rollout"
+  },
+  "timestamp": "2026-03-07T12:35:00.000Z"
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `type` | string | Always `"objective.changed"` |
+| `data` | object | Full serialized `Objective` payload with enum values emitted as strings, including backlog metadata and linkage fields |
+| `timestamp` | string | ISO 8601 UTC timestamp |
+
+---
+
+### objective-refinement-session.changed
+
+Broadcast when a backlog refinement session changes state.
+
+```json
+{
+  "type": "objective-refinement-session.changed",
+  "message": "Objective refinement session updated",
+  "data": {
+    "session": {
+      "id": "ors_abc123def456ghi789jk",
+      "objectiveId": "obj_abc123def456ghi789jk",
+      "captainId": "cpt_abc123def456ghi789jk",
+      "status": "Active"
+    }
+  },
+  "timestamp": "2026-03-07T12:35:00.000Z"
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `type` | string | Always `"objective-refinement-session.changed"` |
+| `message` | string | Human-readable event label |
+| `data.session` | object | Full serialized `ObjectiveRefinementSession` payload |
+| `timestamp` | string | ISO 8601 UTC timestamp |
+
+---
+
+### objective-refinement-session.message.created
+
+Broadcast when a refinement transcript message is created.
+
+```json
+{
+  "type": "objective-refinement-session.message.created",
+  "message": "Objective refinement message created",
+  "data": {
+    "sessionId": "ors_abc123def456ghi789jk",
+    "objectiveId": "obj_abc123def456ghi789jk",
+    "message": {
+      "id": "orm_abc123def456ghi789jk",
+      "role": "User",
+      "sequence": 1,
+      "content": "Focus on rollback safety."
+    }
+  },
+  "timestamp": "2026-03-07T12:35:00.000Z"
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `type` | string | Always `"objective-refinement-session.message.created"` |
+| `message` | string | Human-readable event label |
+| `data.sessionId` | string | Refinement session ID (prefix `ors_`) |
+| `data.objectiveId` | string | Linked backlog/objective ID (prefix `obj_`) |
+| `data.message` | object | Full serialized `ObjectiveRefinementMessage` payload |
+| `timestamp` | string | ISO 8601 UTC timestamp |
+
+---
+
+### objective-refinement-session.message.updated
+
+Broadcast when a refinement transcript message is updated, for example when an assistant turn finishes or selection state changes.
+
+```json
+{
+  "type": "objective-refinement-session.message.updated",
+  "message": "Objective refinement message updated",
+  "data": {
+    "sessionId": "ors_abc123def456ghi789jk",
+    "objectiveId": "obj_abc123def456ghi789jk",
+    "message": {
+      "id": "orm_def456ghi789jkl012mn",
+      "role": "Assistant",
+      "sequence": 2,
+      "isSelected": true
+    }
+  },
+  "timestamp": "2026-03-07T12:35:00.000Z"
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `type` | string | Always `"objective-refinement-session.message.updated"` |
+| `message` | string | Human-readable event label |
+| `data.sessionId` | string | Refinement session ID (prefix `ors_`) |
+| `data.objectiveId` | string | Linked backlog/objective ID (prefix `obj_`) |
+| `data.message` | object | Full serialized `ObjectiveRefinementMessage` payload |
+| `timestamp` | string | ISO 8601 UTC timestamp |
+
+---
+
+### objective-refinement-session.summary.created
+
+Broadcast when Armada creates a structured refinement summary from the transcript.
+
+```json
+{
+  "type": "objective-refinement-session.summary.created",
+  "message": "Objective refinement summary created",
+  "data": {
+    "sessionId": "ors_abc123def456ghi789jk",
+    "messageId": "orm_def456ghi789jkl012mn",
+    "summary": {
+      "summary": "Stabilize rollback and verification sequencing."
+    }
+  },
+  "timestamp": "2026-03-07T12:35:00.000Z"
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `type` | string | Always `"objective-refinement-session.summary.created"` |
+| `message` | string | Human-readable event label |
+| `data.sessionId` | string | Refinement session ID (prefix `ors_`) |
+| `data.messageId` | string | Source transcript message ID (prefix `orm_`) |
+| `data.summary` | object | Serialized `ObjectiveRefinementSummaryResponse` payload |
+| `timestamp` | string | ISO 8601 UTC timestamp |
+
+---
+
+### objective-refinement-session.applied
+
+Broadcast when Armada applies a refinement summary back to the linked backlog item.
+
+```json
+{
+  "type": "objective-refinement-session.applied",
+  "message": "Objective refinement summary applied",
+  "data": {
+    "sessionId": "ors_abc123def456ghi789jk",
+    "objectiveId": "obj_abc123def456ghi789jk",
+    "summary": {
+      "summary": "Stabilize rollback and verification sequencing."
+    }
+  },
+  "timestamp": "2026-03-07T12:35:00.000Z"
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `type` | string | Always `"objective-refinement-session.applied"` |
+| `message` | string | Human-readable event label |
+| `data.sessionId` | string | Refinement session ID (prefix `ors_`) |
+| `data.objectiveId` | string | Linked backlog/objective ID (prefix `obj_`) |
+| `data.summary` | object | Serialized `ObjectiveRefinementSummaryResponse` payload |
+| `timestamp` | string | ISO 8601 UTC timestamp |
+
+---
+
+### deployment.changed
+
+Broadcast when a deployment record changes, including approval, execution, verification, and rollback state.
+
+```json
+{
+  "type": "deployment.changed",
+  "data": {
+    "id": "dpl_abc123def456ghi789jk",
+    "status": "Running",
+    "environmentName": "Staging",
+    "verificationStatus": "Pending"
+  },
+  "timestamp": "2026-03-07T12:35:00.000Z"
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `type` | string | Always `"deployment.changed"` |
+| `data` | object | Full serialized `Deployment` payload with enum values emitted as strings |
+| `timestamp` | string | ISO 8601 UTC timestamp |
+
+---
+
+### deployment.progress
+
+Broadcast when deployment progress or operator-facing execution messaging changes.
+
+```json
+{
+  "type": "deployment.progress",
+  "data": {
+    "id": "dpl_abc123def456ghi789jk",
+    "status": "Running",
+    "message": "Running deploy command for Staging"
+  },
+  "timestamp": "2026-03-07T12:35:00.000Z"
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `type` | string | Always `"deployment.progress"` |
+| `data.id` | string | Deployment ID (prefix `dpl_`) |
+| `data.status` | string | Current deployment status |
+| `data.message` | string | Human-readable progress message |
+| `timestamp` | string | ISO 8601 UTC timestamp |
+
+---
+
+### environment.health
+
+Broadcast when rollout monitoring or verification updates health-related evidence for an environment deployment.
+
+```json
+{
+  "type": "environment.health",
+  "data": {
+    "deploymentId": "dpl_abc123def456ghi789jk",
+    "environmentId": "env_abc123def456ghi789jk",
+    "environmentName": "Staging",
+    "verificationStatus": "Passed",
+    "message": "Health endpoint returned 200 OK"
+  },
+  "timestamp": "2026-03-07T12:35:00.000Z"
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `type` | string | Always `"environment.health"` |
+| `data.deploymentId` | string \| null | Deployment ID tied to the health update |
+| `data.environmentId` | string \| null | Environment ID tied to the health update |
+| `data.environmentName` | string \| null | Environment name |
+| `data.verificationStatus` | string \| null | Current deployment verification status |
+| `data.message` | string \| null | Human-readable health/verification message |
+| `timestamp` | string | ISO 8601 UTC timestamp |
+
+---
+
+### approval-needed
+
+Broadcast when a mission enters review and awaits an explicit approve or deny decision.
+
+```json
+{
+  "type": "approval-needed",
+  "data": {
+    "entityType": "mission",
+    "entityId": "msn_abc123def456ghi789jk",
+    "missionId": "msn_abc123def456ghi789jk",
+    "title": "Review login rate limiting",
+    "status": "Review",
+    "vesselId": "vsl_abc123def456ghi789jk",
+    "voyageId": "vyg_abc123def456ghi789jk",
+    "reviewRequestedUtc": "2026-03-07T12:35:00.000Z"
+  },
+  "timestamp": "2026-03-07T12:35:00.000Z"
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `type` | string | Always `"approval-needed"` |
+| `data.entityType` | string | Currently `"mission"` |
+| `data.entityId` | string | Entity identifier requiring approval |
+| `data.missionId` | string | Mission identifier |
+| `data.title` | string \| null | Mission title |
+| `data.status` | string | Current mission status, normally `Review` |
+| `data.vesselId` | string \| null | Linked vessel ID |
+| `data.voyageId` | string \| null | Linked voyage ID |
+| `data.reviewRequestedUtc` | string \| null | Review request timestamp |
 | `timestamp` | string | ISO 8601 UTC timestamp |
 
 ---
@@ -280,7 +655,7 @@ Broadcast for general system events (e.g., escalation triggers, merge queue upda
 
 ## Command Actions
 
-Commands are sent via the `command` route. Each command returns a `command.result` message on success or a `command.error` message on failure. The WebSocket command surface has full parity with the REST and MCP APIs.
+Commands are sent via the `command` route. Each command returns a `command.result` message on success or a `command.error` message on failure. The WebSocket command surface covers Armada's real-time and core operational flows; it does not currently expose the REST-only Workspace, planning-session, request-history, GitHub objective import, GitHub Actions sync, GitHub PR evidence, runtime-helper, or OpenAPI discovery surfaces.
 
 ### Command Actions Summary
 
@@ -1775,7 +2150,7 @@ Restore Armada from a previously created backup ZIP file.
 
 #### enumerate
 
-Generic paginated enumeration of any entity type with filtering and sorting. This is the WebSocket equivalent of the REST `POST /api/v1/{entity}/enumerate` endpoints and the MCP `armada_enumerate` tool.
+Generic paginated enumeration of any entity type with filtering and sorting. This is the WebSocket equivalent of the REST `POST /api/v1/{entity}/enumerate` endpoints and the MCP `enumerate` tool.
 
 **Request:**
 
@@ -1994,7 +2369,25 @@ If a message is sent without a route:
 | `missionsByStatus` | object | Map of status string to count (e.g., `{"Pending": 3, "InProgress": 2}`) |
 | `voyages` | array | List of [VoyageProgress](#voyageprogress) objects |
 | `recentSignals` | array | List of recent [Signal](#signal) objects |
+| `remoteTunnel` | [RemoteTunnelStatus](#remotetunnelstatus) | Current outbound remote tunnel status |
 | `timestampUtc` | string | ISO 8601 UTC timestamp of the snapshot |
+
+#### RemoteTunnelStatus
+
+| Field | Type | Description |
+|---|---|---|
+| `enabled` | bool | Whether the remote tunnel feature is enabled |
+| `state` | string | Tunnel state (`Disabled`, `Disconnected`, `Connecting`, `Connected`, `Error`, `Stopping`) |
+| `tunnelUrl` | string \| null | Configured or normalized websocket endpoint |
+| `instanceId` | string \| null | Stable instance identifier advertised during handshake |
+| `lastConnectAttemptUtc` | string \| null | Last connection attempt timestamp |
+| `connectedUtc` | string \| null | Last successful connection timestamp |
+| `lastHeartbeatUtc` | string \| null | Last heartbeat or inbound tunnel activity timestamp |
+| `lastDisconnectUtc` | string \| null | Last disconnect timestamp |
+| `lastError` | string \| null | Last recorded tunnel error |
+| `reconnectAttempts` | int | Consecutive reconnect attempts since the last successful connection |
+| `latencyMs` | int \| null | Last successful ping/pong latency in milliseconds |
+| `capabilityManifest` | object | Current handshake capability manifest |
 
 #### VoyageProgress
 
@@ -2203,6 +2596,7 @@ If a message is sent without a route:
 | `Codex` | OpenAI Codex CLI |
 | `Gemini` | Google Gemini CLI |
 | `Cursor` | Cursor agent CLI |
+| `Mux` | Mux CLI |
 | `Custom` | Custom agent runtime |
 
 #### MergeStatusEnum

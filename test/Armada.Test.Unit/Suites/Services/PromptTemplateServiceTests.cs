@@ -39,7 +39,7 @@ namespace Armada.Test.Unit.Suites.Services
                     await service.SeedDefaultsAsync().ConfigureAwait(false);
 
                     List<PromptTemplate> templates = await service.ListAsync().ConfigureAwait(false);
-                    AssertTrue(templates.Count >= 11, "Expected at least 11 built-in templates, got " + templates.Count);
+                    AssertTrue(templates.Count >= 13, "Expected at least 13 built-in templates, got " + templates.Count);
 
                     // Verify some known template names exist
                     List<string> names = templates.Select(t => t.Name).ToList();
@@ -47,6 +47,8 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertTrue(names.Contains("agent.launch_prompt"), "Should contain agent.launch_prompt");
                     AssertTrue(names.Contains("persona.worker"), "Should contain persona.worker");
                     AssertTrue(names.Contains("persona.architect"), "Should contain persona.architect");
+                    AssertTrue(names.Contains("persona.product_manager"), "Should contain persona.product_manager");
+                    AssertTrue(names.Contains("persona.usability_engineer"), "Should contain persona.usability_engineer");
                     AssertTrue(names.Contains("persona.judge"), "Should contain persona.judge");
                 }
             });
@@ -237,6 +239,16 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertContains("negative or edge-path test", testEngineer!.Content, "Test engineer template should require negative-path coverage");
                     AssertContains("## Coverage Added", testEngineer.Content, "Test engineer template should request a coverage summary section");
                     AssertContains("residual risk", testEngineer.Content, "Test engineer template should require residual risk notes");
+
+                    PromptTemplate? productManager = await service.ResolveAsync("persona.product_manager").ConfigureAwait(false);
+                    AssertNotNull(productManager, "Product manager template should resolve");
+                    AssertContains("## Product Vision", productManager!.Content, "Product manager template should require a Product Vision section");
+                    AssertContains("## Future Readiness", productManager.Content, "Product manager template should require a Future Readiness section");
+
+                    PromptTemplate? usabilityEngineer = await service.ResolveAsync("persona.usability_engineer").ConfigureAwait(false);
+                    AssertNotNull(usabilityEngineer, "Usability engineer template should resolve");
+                    AssertContains("## Usability", usabilityEngineer!.Content, "Usability engineer template should require a Usability section");
+                    AssertContains("## Consistency", usabilityEngineer.Content, "Usability engineer template should require a Consistency section");
                 }
             });
 
@@ -346,7 +358,7 @@ namespace Armada.Test.Unit.Suites.Services
                     await service.SeedDefaultsAsync().ConfigureAwait(false);
 
                     List<PromptTemplate> templates = await service.ListAsync().ConfigureAwait(false);
-                    AssertTrue(templates.Count >= 11, "Expected at least 11 templates, got " + templates.Count);
+                    AssertTrue(templates.Count >= 13, "Expected at least 13 templates, got " + templates.Count);
                 }
             });
 

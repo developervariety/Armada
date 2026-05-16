@@ -380,8 +380,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
         {
             using (SqlCommand cmd = conn.CreateCommand())
             {
-                cmd.CommandText = @"INSERT INTO pipeline_stages (id, pipeline_id, stage_order, persona_name, is_optional, description, preferred_model)
-                        VALUES (@id, @pipeline_id, @stage_order, @persona_name, @is_optional, @description, @preferred_model);";
+                cmd.CommandText = @"INSERT INTO pipeline_stages (id, pipeline_id, stage_order, persona_name, is_optional, description, preferred_model, requires_review, review_deny_action)
+                        VALUES (@id, @pipeline_id, @stage_order, @persona_name, @is_optional, @description, @preferred_model, @requires_review, @review_deny_action);";
                 cmd.Parameters.AddWithValue("@id", stage.Id);
                 cmd.Parameters.AddWithValue("@pipeline_id", (object?)stage.PipelineId ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@stage_order", stage.Order);
@@ -389,6 +389,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 cmd.Parameters.AddWithValue("@is_optional", stage.IsOptional ? 1 : 0);
                 cmd.Parameters.AddWithValue("@description", (object?)stage.Description ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@preferred_model", (object?)stage.PreferredModel ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@requires_review", stage.RequiresReview ? 1 : 0);
+                cmd.Parameters.AddWithValue("@review_deny_action", stage.ReviewDenyAction.ToString());
                 await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
             }
         }
@@ -452,6 +454,16 @@ namespace Armada.Core.Database.SqlServer.Implementations
             stage.IsOptional = Convert.ToBoolean(reader["is_optional"]);
             stage.Description = SqlServerDatabaseDriver.NullableString(reader["description"]);
             try { stage.PreferredModel = SqlServerDatabaseDriver.NullableString(reader["preferred_model"]); } catch { }
+            try { stage.RequiresReview = Convert.ToBoolean(reader["requires_review"]); } catch { }
+            try
+            {
+                string? reviewDenyAction = SqlServerDatabaseDriver.NullableString(reader["review_deny_action"]);
+                if (!String.IsNullOrEmpty(reviewDenyAction) && Enum.TryParse(reviewDenyAction, true, out ReviewDenyActionEnum parsed))
+                {
+                    stage.ReviewDenyAction = parsed;
+                }
+            }
+            catch { }
             return stage;
         }
 

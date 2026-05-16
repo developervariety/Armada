@@ -608,6 +608,61 @@ namespace Armada.Core.Client
 
         #endregion
 
+        #region Public-Methods-Backlog
+
+        /// <summary>
+        /// Enumerate backlog items using the user-facing backlog alias surface.
+        /// </summary>
+        public async Task<EnumerationResult<Objective>?> ListBacklogAsync(ObjectiveQuery? query = null, CancellationToken token = default)
+        {
+            if (query == null)
+                return await GetAsync<EnumerationResult<Objective>>("/api/v1/backlog", token).ConfigureAwait(false);
+
+            return await PostAsync<EnumerationResult<Objective>, ObjectiveQuery>("/api/v1/backlog/enumerate", query, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Apply one or more explicit backlog rank updates using the backlog alias surface.
+        /// </summary>
+        public async Task<List<Objective>?> ReorderBacklogAsync(ObjectiveReorderRequest request, CancellationToken token = default)
+        {
+            return await PostAsync<List<Objective>, ObjectiveReorderRequest>("/api/v1/backlog/reorder", request, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Get one backlog item by identifier.
+        /// </summary>
+        public async Task<Objective?> GetBacklogItemAsync(string id, CancellationToken token = default)
+        {
+            return await GetAsync<Objective>("/api/v1/backlog/" + id, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Create one backlog item.
+        /// </summary>
+        public async Task<Objective?> CreateBacklogItemAsync(ObjectiveUpsertRequest request, CancellationToken token = default)
+        {
+            return await PostAsync<Objective, ObjectiveUpsertRequest>("/api/v1/backlog", request, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Update one backlog item.
+        /// </summary>
+        public async Task<Objective?> UpdateBacklogItemAsync(string id, ObjectiveUpsertRequest request, CancellationToken token = default)
+        {
+            return await PutAsync<Objective, ObjectiveUpsertRequest>("/api/v1/backlog/" + id, request, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Delete one backlog item.
+        /// </summary>
+        public async Task DeleteBacklogItemAsync(string id, CancellationToken token = default)
+        {
+            await DeleteAsync("/api/v1/backlog/" + id, token).ConfigureAwait(false);
+        }
+
+        #endregion
+
         #region Public-Methods-Dispose
 
         /// <summary>

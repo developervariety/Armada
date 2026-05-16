@@ -1135,10 +1135,10 @@ export default function Server() {
           <h3>{t('Server Actions')}</h3>
           <div className="settings-actions">
             <button
+              type="button"
               className="btn btn-sm"
               onClick={() => {
-                try { localStorage.removeItem('armada_setup_completed'); } catch {}
-                window.location.reload();
+                window.dispatchEvent(new CustomEvent('armada:open-setup-wizard'));
               }}
               title={t('Re-open the first-run setup guide')}
             >

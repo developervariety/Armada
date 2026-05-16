@@ -934,6 +934,17 @@ namespace Armada.Core.Database.Sqlite.Queries
                     @"ALTER TABLE fleets ADD COLUMN default_playbooks TEXT;",
                     @"ALTER TABLE fleets ADD COLUMN curate_threshold INTEGER;",
                     @"ALTER TABLE fleets ADD COLUMN learned_playbook_id TEXT;"
+                ),
+                new SchemaMigration(46, "Add pipeline and mission review gates",
+                    @"ALTER TABLE pipeline_stages ADD COLUMN requires_review INTEGER NOT NULL DEFAULT 0;",
+                    @"ALTER TABLE pipeline_stages ADD COLUMN review_deny_action TEXT NOT NULL DEFAULT 'RetryStage';",
+                    @"ALTER TABLE missions ADD COLUMN requires_review INTEGER NOT NULL DEFAULT 0;",
+                    @"ALTER TABLE missions ADD COLUMN review_deny_action TEXT NOT NULL DEFAULT 'RetryStage';",
+                    @"ALTER TABLE missions ADD COLUMN review_comment TEXT;",
+                    @"ALTER TABLE missions ADD COLUMN reviewed_by_user_id TEXT;",
+                    @"ALTER TABLE missions ADD COLUMN review_requested_utc TEXT;",
+                    @"ALTER TABLE missions ADD COLUMN reviewed_utc TEXT;",
+                    @"CREATE INDEX IF NOT EXISTS idx_missions_requires_review ON missions(requires_review);"
                 )
             };
         }

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNotifications } from '../context/NotificationContext';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { getPromptTemplate, updatePromptTemplate, resetPromptTemplate } from '../api/client';
+import { createPromptTemplate, getPromptTemplate, updatePromptTemplate, resetPromptTemplate } from '../api/client';
 import type { PromptTemplate } from '../types/models';
 import ActionMenu from '../components/shared/ActionMenu';
 import JsonViewer from '../components/shared/JsonViewer';
@@ -10,6 +10,7 @@ import ConfirmDialog from '../components/shared/ConfirmDialog';
 import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
+import { buildPromptTemplateDuplicatePayload } from '../lib/duplicates';
 
 interface ParameterInfo {
   name: string;
@@ -69,11 +70,14 @@ const PARAMETER_GROUPS: ParameterGroup[] = [
   },
 ];
 
+const PROMPT_TEMPLATE_CATEGORY_OPTIONS = ['mission', 'persona', 'structure', 'commit', 'landing', 'agent'] as const;
+
 export default function PromptTemplateDetail() {
   const { t, formatDateTime } = useLocale();
-  const { name } = useParams<{ name: string }>();
+  const { name } = useParams<{ name?: string }>();
   const navigate = useNavigate();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const createMode = !name;
 
   const [template, setTemplate] = useState<PromptTemplate | null>(null);
   const [loading, setLoading] = useState(true);
@@ -82,6 +86,8 @@ export default function PromptTemplateDetail() {
   const { pushToast } = useNotifications();
 
   // Editable fields
+  const [templateName, setTemplateName] = useState('');
+  const [category, setCategory] = useState('mission');
   const [content, setContent] = useState('');
   const [description, setDescription] = useState('');
   const [dirty, setDirty] = useState(false);
@@ -95,24 +101,48 @@ export default function PromptTemplateDetail() {
   });
 
   const load = useCallback(async () => {
+    if (createMode) {
+      setTemplate(null);
+      setTemplateName('');
+      setCategory('mission');
+      setContent('');
+      setDescription('');
+      setDirty(false);
+      setError('');
+      setLoading(false);
+      return;
+    }
+
     if (!name) return;
     try {
       setLoading(true);
-      const isInitialLoad = !template;
       const result = await getPromptTemplate(name);
       setTemplate(result);
+      setTemplateName(result.name);
+      setCategory(result.category);
       setContent(result.content);
       setDescription(result.description ?? '');
       setDirty(false);
-      if (isInitialLoad) setError('');
-    } catch {
-      setError(t('Failed to load prompt template.'));
+      setError('');
+    } catch (err) {
+      setTemplate(null);
+      setError(err instanceof Error ? err.message : t('Failed to load prompt template.'));
     } finally {
       setLoading(false);
     }
-  }, [name, t]);
+  }, [createMode, name, t]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
+
+  function handleTemplateNameChange(value: string) {
+    setTemplateName(value);
+    setDirty(true);
+  }
+
+  function handleCategoryChange(value: string) {
+    setCategory(value);
+    setDirty(true);
+  }
 
   function handleContentChange(value: string) {
     setContent(value);
@@ -125,17 +155,81 @@ export default function PromptTemplateDetail() {
   }
 
   async function handleSave() {
+    const normalizedName = templateName.trim();
+    const normalizedCategory = category.trim();
+    const normalizedDescription = description.trim();
+
+    if (createMode) {
+      if (!normalizedName) {
+        setError(t('Template name is required.'));
+        return;
+      }
+
+      if (!normalizedCategory) {
+        setError(t('Template category is required.'));
+        return;
+      }
+
+      if (!content.trim()) {
+        setError(t('Template content is required.'));
+        return;
+      }
+
+      try {
+        setSaving(true);
+        const result = await createPromptTemplate({
+          name: normalizedName,
+          category: normalizedCategory,
+          content,
+          description: normalizedDescription || undefined,
+          active: true,
+        });
+        setTemplate(result);
+        setTemplateName(result.name);
+        setCategory(result.category);
+        setContent(result.content);
+        setDescription(result.description ?? '');
+        setDirty(false);
+        setError('');
+        pushToast('success', t('Template "{{name}}" created.', { name: result.name }));
+        navigate(`/prompt-templates/${encodeURIComponent(result.name)}`, { replace: true });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : t('Create failed.'));
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
+
     if (!name || !template) return;
+
     try {
       setSaving(true);
-      const result = await updatePromptTemplate(name, { content, description });
+      const result = await updatePromptTemplate(name, { content, description: normalizedDescription || undefined });
       setTemplate(result);
+      setTemplateName(result.name);
+      setCategory(result.category);
       setContent(result.content);
       setDescription(result.description ?? '');
       setDirty(false);
+      setError('');
       pushToast('success', t('Template saved.'));
-    } catch {
-      setError(t('Save failed.'));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('Save failed.'));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDuplicate() {
+    if (!template) return;
+    try {
+      setSaving(true);
+      const created = await createPromptTemplate(buildPromptTemplateDuplicatePayload(template));
+      pushToast('success', t('Template "{{name}}" duplicated.', { name: created.name }));
+      navigate(`/prompt-templates/${encodeURIComponent(created.name)}`);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('Duplicate failed.'));
     } finally {
       setSaving(false);
     }
@@ -182,25 +276,32 @@ export default function PromptTemplateDetail() {
   }
 
   if (loading) return <p className="text-dim">{t('Loading...')}</p>;
-  if (error && !template) return <ErrorModal error={error} onClose={() => setError('')} />;
-  if (!template) return <p className="text-dim">{t('Template not found.')}</p>;
+  if (!createMode && error && !template) return <ErrorModal error={error} onClose={() => setError('')} />;
+  if (!createMode && !template) return <p className="text-dim">{t('Template not found.')}</p>;
 
   return (
     <div>
       {/* Breadcrumb */}
       <div className="breadcrumb">
-        <Link to="/prompt-templates">{t('Prompt Templates')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{template.name}</span>
+        <Link to="/prompt-templates">{t('Prompt Templates')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{createMode ? t('Create') : templateName}</span>
       </div>
 
       <div className="detail-header">
-        <h2>{template.name}</h2>
+        <h2>{createMode ? t('Create Prompt Template') : templateName}</h2>
         <div className="inline-actions">
-          <StatusBadge status={template.category} />
-          {template.isBuiltIn && <StatusBadge status="Built-in" />}
-          <ActionMenu id={`template-${template.name}`} items={[
-            { label: 'View JSON', onClick: () => setJsonData({ open: true, title: t('Template: {{name}}', { name: template.name }), data: template }) },
-            ...(template.isBuiltIn ? [{ label: 'Reset to Default', danger: true as const, onClick: handleReset }] : []),
-          ]} />
+          {createMode ? (
+            <StatusBadge status={category || 'mission'} />
+          ) : (
+            <>
+              <StatusBadge status={template!.category} />
+              {template!.isBuiltIn && <StatusBadge status="Built-in" />}
+              <ActionMenu id={`template-${template!.name}`} items={[
+                { label: 'Duplicate', onClick: () => void handleDuplicate() },
+                { label: 'View JSON', onClick: () => setJsonData({ open: true, title: t('Template: {{name}}', { name: template!.name }), data: template }) },
+                ...(template!.isBuiltIn ? [{ label: 'Reset to Default', danger: true as const, onClick: handleReset }] : []),
+              ]} />
+            </>
+          )}
         </div>
       </div>
 
@@ -263,6 +364,14 @@ export default function PromptTemplateDetail() {
           outline: none;
           border-color: var(--accent);
           box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+        }
+        .template-meta-field {
+          display: grid;
+          gap: 0.35rem;
+        }
+        .template-meta-label {
+          font-size: 0.85em;
+          color: var(--text-dim);
         }
         .template-param-panel {
           border: 1px solid var(--border);
@@ -341,16 +450,51 @@ export default function PromptTemplateDetail() {
 
       {/* Template Info */}
       <div className="detail-grid">
-        <div className="detail-field">
-          <span className="detail-label">{t('ID')}</span>
-          <span className="id-display">
-            <span className="mono">{template.id}</span>
-            <CopyButton text={template.id} />
-          </span>
-        </div>
-        <div className="detail-field"><span className="detail-label">{t('Active')}</span><StatusBadge status={template.active !== false ? 'Active' : 'Inactive'} /></div>
-        <div className="detail-field"><span className="detail-label">{t('Created')}</span><span>{formatDateTime(template.createdUtc)}</span></div>
-        <div className="detail-field"><span className="detail-label">{t('Last Updated')}</span><span>{template.lastUpdateUtc ? formatDateTime(template.lastUpdateUtc) : '-'}</span></div>
+        {createMode ? (
+          <>
+            <label className="detail-field template-meta-field">
+              <span className="detail-label">{t('Name')}</span>
+              <input
+                className="template-description-input"
+                value={templateName}
+                onChange={e => handleTemplateNameChange(e.target.value)}
+                placeholder={t('mission.rules.custom')}
+              />
+            </label>
+            <label className="detail-field template-meta-field">
+              <span className="detail-label">{t('Category')}</span>
+              <input
+                className="template-description-input"
+                list="prompt-template-category-options"
+                value={category}
+                onChange={e => handleCategoryChange(e.target.value)}
+                placeholder={t('mission')}
+              />
+              <datalist id="prompt-template-category-options">
+                {PROMPT_TEMPLATE_CATEGORY_OPTIONS.map(option => (
+                  <option key={option} value={option} />
+                ))}
+              </datalist>
+            </label>
+            <div className="detail-field">
+              <span className="detail-label">{t('Type')}</span>
+              <span>{t('Custom template')}</span>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="detail-field">
+              <span className="detail-label">{t('ID')}</span>
+              <span className="id-display">
+                <span className="mono">{template!.id}</span>
+                <CopyButton text={template!.id} />
+              </span>
+            </div>
+            <div className="detail-field"><span className="detail-label">{t('Active')}</span><StatusBadge status={template!.active !== false ? 'Active' : 'Inactive'} /></div>
+            <div className="detail-field"><span className="detail-label">{t('Created')}</span><span>{formatDateTime(template!.createdUtc)}</span></div>
+            <div className="detail-field"><span className="detail-label">{t('Last Updated')}</span><span>{template!.lastUpdateUtc ? formatDateTime(template!.lastUpdateUtc) : '-'}</span></div>
+          </>
+        )}
       </div>
 
       <div className="template-editor-layout">
@@ -388,11 +532,11 @@ export default function PromptTemplateDetail() {
             <button
               className="btn btn-primary"
               onClick={handleSave}
-              disabled={saving || !dirty}
+              disabled={saving || !dirty || (createMode && (!templateName.trim() || !category.trim() || !content.trim()))}
             >
               {saving ? t('Saving...') : t('Save')}
             </button>
-            {template.isBuiltIn && (
+            {template?.isBuiltIn && (
               <button
                 className="btn"
                 onClick={handleReset}

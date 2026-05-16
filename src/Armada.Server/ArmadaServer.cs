@@ -2,6 +2,7 @@ namespace Armada.Server
 {
     using System.IO;
     using System.Net.Http;
+    using System.Runtime.CompilerServices;
     using System.Text.Json;
     using SyslogLogging;
     using WatsonWebserver;
@@ -77,10 +78,27 @@ namespace Armada.Server
         private RemoteControlQueryService _RemoteControlQueries = null!;
         private RemoteControlManagementService _RemoteControlManagement = null!;
         private PlanningSessionCoordinator _PlanningSessions = null!;
+        private ObjectiveRefinementCoordinator _ObjectiveRefinementSessions = null!;
+        private IWorkspaceService _Workspace = null!;
+        private RequestHistoryCaptureService _RequestHistoryCapture = null!;
+        private WorkflowProfileService _WorkflowProfileService = null!;
+        private VesselReadinessService _VesselReadinessService = null!;
+        private DeploymentEnvironmentService _EnvironmentService = null!;
+        private CheckRunService _CheckRunService = null!;
+        private ObjectiveService _ObjectiveService = null!;
+        private ReleaseService _ReleaseService = null!;
+        private DeploymentService _DeploymentService = null!;
+        private IncidentService _IncidentService = null!;
+        private RunbookService _RunbookService = null!;
+        private GitHubIntegrationService _GitHubIntegrationService = null!;
+        private LandingPreviewService _LandingPreviewService = null!;
+        private HistoricalTimelineService _HistoricalTimelineService = null!;
 
         private ISessionTokenService _SessionTokenService = null!;
         private IAuthenticationService _AuthenticationService = null!;
         private IAuthorizationService _AuthorizationService = null!;
+        private IMissionService _MissionService = null!;
+        private CaptainToolService _CaptainTools = null!;
 
         private AgentLifecycleHandler _AgentLifecycle = null!;
         private MissionLandingHandler _MissionLanding = null!;
@@ -91,6 +109,7 @@ namespace Armada.Server
         private Task _HealthCheckTask = null!;
         private int _HealthCheckCycles = 0;
         private DateTime _StartUtc = DateTime.UtcNow;
+        private readonly ConditionalWeakTable<HttpContextBase, AuthContext> _RequestAuthContexts = new ConditionalWeakTable<HttpContextBase, AuthContext>();
 
         private static readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions
         {
@@ -159,7 +178,8 @@ namespace Armada.Server
             _CodeIndex = new CodeIndexService(_Logging, _Database, _Settings, _Git, embeddingClient, inferenceClient);
             await _OpenCodeServerLauncher.StartAsync(_TokenSource.Token).ConfigureAwait(false);
 
-            IMissionService missionService = new MissionService(_Logging, _Database, _Settings, dockService, captainService, _PromptTemplateService, _Git);
+            MissionService missionService = new MissionService(_Logging, _Database, _Settings, dockService, captainService, _PromptTemplateService, _Git);
+            _MissionService = missionService;
             IVoyageService voyageService = new VoyageService(_Logging, _Database);
             IEscalationService escalationService = new EscalationService(_Logging, _Database, _Settings);
             AdmiralService admiralService = new AdmiralService(_Logging, _Database, _Settings, captainService, missionService, voyageService, dockService, escalationService);
@@ -184,6 +204,20 @@ namespace Armada.Server
             _LandingService = new LandingService(_Logging, _Database, _Settings, _Git);
             _TemplateService = new MessageTemplateService(_Logging, _PromptTemplateService);
             _RuntimeFactory = new AgentRuntimeFactory(_Logging);
+            _Workspace = new WorkspaceService();
+            _RequestHistoryCapture = new RequestHistoryCaptureService(_Settings);
+            _WorkflowProfileService = new WorkflowProfileService(_Database, _Logging);
+            _VesselReadinessService = new VesselReadinessService(_Database, _WorkflowProfileService, _Logging);
+            _EnvironmentService = new DeploymentEnvironmentService(_Database, _WorkflowProfileService, _Logging);
+            _CheckRunService = new CheckRunService(_Database, _WorkflowProfileService, _VesselReadinessService, _Logging);
+            _ObjectiveService = new ObjectiveService(_Database);
+            _ReleaseService = new ReleaseService(_Database, _WorkflowProfileService, _Logging);
+            _DeploymentService = new DeploymentService(_Database, _WorkflowProfileService, _EnvironmentService, _CheckRunService, _Logging);
+            _IncidentService = new IncidentService(_Database);
+            _RunbookService = new RunbookService(_Database, _Logging);
+            _GitHubIntegrationService = new GitHubIntegrationService(_Database, _ObjectiveService, _CheckRunService, _DeploymentService, _Settings, _Logging);
+            _LandingPreviewService = new LandingPreviewService(_Database, _Logging);
+            _HistoricalTimelineService = new HistoricalTimelineService(_Database);
             _RemoteTunnel = new RemoteTunnelManager(_Logging, _Settings);
             admiralService.OnGetRemoteTunnelStatus = _RemoteTunnel.GetStatus;
             _RemoteControlQueries = new RemoteControlQueryService(
@@ -206,6 +240,9 @@ namespace Armada.Server
             _PersonaSeedService = new PersonaSeedService(_Database, _Logging);
             await _PersonaSeedService.SeedAsync().ConfigureAwait(false);
             _Logging.Info(_Header + "persona and pipeline seeding completed");
+
+            await _EnvironmentService.SeedDefaultsAsync().ConfigureAwait(false);
+            _Logging.Info(_Header + "deployment environment seeding completed");
 
             _ReflectionBootstrap = new ReflectionMemoryBootstrapService(_Database, _Logging);
             await _ReflectionBootstrap.BootstrapAsync().ConfigureAwait(false);
@@ -286,6 +323,17 @@ namespace Armada.Server
                 openApi.Tags.Add(new OpenApiTag { Name = "Status", Description = "Health check and system status" });
                 openApi.Tags.Add(new OpenApiTag { Name = "Fleets", Description = "Fleet (repository collection) management" });
                 openApi.Tags.Add(new OpenApiTag { Name = "Vessels", Description = "Vessel (git repository) management" });
+                openApi.Tags.Add(new OpenApiTag { Name = "Workspace", Description = "Workspace browsing, editing, search, and dispatch handoff" });
+                openApi.Tags.Add(new OpenApiTag { Name = "Objectives", Description = "Cross-repository objectives and intake-style scope records" });
+                openApi.Tags.Add(new OpenApiTag { Name = "WorkflowProfiles", Description = "Project-specific build, test, release, deploy, and verification command profiles" });
+                openApi.Tags.Add(new OpenApiTag { Name = "Environments", Description = "First-class deployment environment metadata for vessels" });
+                openApi.Tags.Add(new OpenApiTag { Name = "CheckRuns", Description = "Structured build, test, deploy, and verification executions with durable results" });
+                openApi.Tags.Add(new OpenApiTag { Name = "Releases", Description = "First-class release records linking work, checks, notes, versions, and artifacts" });
+                openApi.Tags.Add(new OpenApiTag { Name = "Deployments", Description = "First-class deployment records with approval, verification, and rollback state" });
+                openApi.Tags.Add(new OpenApiTag { Name = "Incidents", Description = "Incident, rollback, and hotfix records tied to current delivery state" });
+                openApi.Tags.Add(new OpenApiTag { Name = "Runbooks", Description = "Executable operational runbooks backed by playbooks and execution records" });
+                openApi.Tags.Add(new OpenApiTag { Name = "RequestHistory", Description = "Captured REST request history, summaries, and replay metadata" });
+                openApi.Tags.Add(new OpenApiTag { Name = "History", Description = "Cross-entity operational timeline and historical memory" });
                 openApi.Tags.Add(new OpenApiTag { Name = "Voyages", Description = "Voyage (mission batch) management" });
                 openApi.Tags.Add(new OpenApiTag { Name = "Missions", Description = "Mission (atomic work unit) management" });
                 openApi.Tags.Add(new OpenApiTag { Name = "Planning", Description = "Captain planning sessions and transcript-to-dispatch flow" });
@@ -330,6 +378,7 @@ namespace Armada.Server
                     "(" + (ctx.Timestamp.TotalMs.HasValue ? ctx.Timestamp.TotalMs.Value.ToString("F2") : "?") + "ms)");
 
                 ApplyCorsHeaders(ctx);
+                await CaptureRequestHistoryAsync(ctx).ConfigureAwait(false);
                 await Task.CompletedTask.ConfigureAwait(false);
             };
 
@@ -346,6 +395,12 @@ namespace Armada.Server
             _WebSocketHub = new ArmadaWebSocketHub(_Logging, _Admiral, _Database, _MergeQueue, _Settings, _Git, () => { OnStopping?.Invoke(); _TokenSource.Cancel(); });
             _AgentLifecycle.SetWebSocketHub(_WebSocketHub);
             _MissionLanding.SetWebSocketHub(_WebSocketHub);
+            missionService.OnReviewRequested = _WebSocketHub.BroadcastApprovalNeeded;
+            _CheckRunService.OnCheckRunChanged = _WebSocketHub.BroadcastCheckRunChange;
+            _ObjectiveService.OnObjectiveChanged = _WebSocketHub.BroadcastObjectiveChange;
+            _DeploymentService.OnDeploymentChanged = _WebSocketHub.BroadcastDeploymentChange;
+            _IncidentService.OnIncidentChanged = _WebSocketHub.BroadcastIncidentChange;
+            _RunbookService.OnRunbookExecutionChanged = _WebSocketHub.BroadcastRunbookExecutionChange;
             _PlanningSessions = new PlanningSessionCoordinator(
                 _Logging,
                 _Database,
@@ -355,6 +410,41 @@ namespace Armada.Server
                 _RuntimeFactory,
                 EmitEventAsync,
                 _WebSocketHub);
+            _ObjectiveRefinementSessions = new ObjectiveRefinementCoordinator(
+                _Logging,
+                _Database,
+                _Settings,
+                _RuntimeFactory,
+                EmitEventAsync,
+                _WebSocketHub);
+
+            _CaptainTools = new CaptainToolService(
+                _Logging,
+                McpToolRegistrar.DescribeAll(
+                    _Database,
+                    _Admiral,
+                    _Settings,
+                    _Git,
+                    _MergeQueue,
+                    _Docks,
+                    _LandingService,
+                    _CheckRunService,
+                    _ObjectiveService,
+                    _PlanningSessions,
+                    _ObjectiveRefinementSessions,
+                    _ReleaseService,
+                    _DeploymentService,
+                    _RunbookService,
+                    () => Stop(),
+                    async (captainId) =>
+                    {
+                        Captain? captain = await _Database.Captains.ReadAsync(captainId).ConfigureAwait(false);
+                        if (captain != null)
+                            await _AgentLifecycle.HandleStopAgentAsync(captain).ConfigureAwait(false);
+                    },
+                    _AgentLifecycle,
+                    _PromptTemplateService,
+                    _Logging));
 
             RegisterRoutes();
             InitializeDashboard();
@@ -400,6 +490,26 @@ namespace Armada.Server
                 _Logging.Warn(_Header + "planning session maintenance error: " + ex.Message);
             }
 
+            try
+            {
+                await _ObjectiveRefinementSessions.RecoverSessionsAsync(_TokenSource.Token).ConfigureAwait(false);
+                _Logging.Info(_Header + "objective refinement session recovery completed");
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "objective refinement session recovery error: " + ex.Message);
+            }
+
+            try
+            {
+                await _ObjectiveRefinementSessions.MaintainSessionsAsync(_TokenSource.Token).ConfigureAwait(false);
+                _Logging.Info(_Header + "objective refinement session maintenance completed");
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "objective refinement session maintenance error: " + ex.Message);
+            }
+
             // Start health check loop
             _HealthCheckTask = HealthCheckLoopAsync(_TokenSource.Token);
         }
@@ -442,7 +552,10 @@ namespace Armada.Server
             string? authHeader = ctx.Request.Headers.Get("Authorization");
             string? tokenHeader = ctx.Request.Headers.Get("X-Token");
             string? apiKeyHeader = ctx.Request.Headers.Get("X-Api-Key");
-            return await _AuthenticationService.AuthenticateAsync(authHeader, tokenHeader, apiKeyHeader).ConfigureAwait(false);
+            AuthContext result = await _AuthenticationService.AuthenticateAsync(authHeader, tokenHeader, apiKeyHeader).ConfigureAwait(false);
+            _RequestAuthContexts.Remove(ctx);
+            _RequestAuthContexts.Add(ctx, result);
+            return result;
         }
 
         private async Task SeedSyntheticAdminAsync()
@@ -502,16 +615,63 @@ namespace Armada.Server
             new VesselRoutes(_Database, EmitEventAsync, _JsonOptions, _Docks)
                 .Register(_App, authenticate, _AuthorizationService);
 
+            // Workspace
+            new WorkspaceRoutes(_Database, _Workspace, _JsonOptions)
+                .Register(_App, authenticate, _AuthorizationService);
+
+            // Workflow profiles
+            new WorkflowProfileRoutes(_Database, _WorkflowProfileService, _JsonOptions)
+                .Register(_App, authenticate, _AuthorizationService);
+
+            // Objectives
+            new ObjectiveRoutes(_ObjectiveService, _GitHubIntegrationService)
+                .Register(_App, authenticate, _AuthorizationService);
+
+            new ObjectiveRefinementRoutes(_Database, _ObjectiveRefinementSessions, _ObjectiveService, _JsonOptions)
+                .Register(_App, authenticate, _AuthorizationService);
+
+            // Environments
+            new EnvironmentRoutes(_EnvironmentService)
+                .Register(_App, authenticate, _AuthorizationService);
+
+            // Structured check runs
+            new CheckRunRoutes(_Database, _CheckRunService, _GitHubIntegrationService, _JsonOptions)
+                .Register(_App, authenticate, _AuthorizationService);
+
+            // Releases
+            new ReleaseRoutes(_ReleaseService, _ObjectiveService, _GitHubIntegrationService)
+                .Register(_App, authenticate, _AuthorizationService);
+
+            // Deployments
+            new DeploymentRoutes(_DeploymentService, _ObjectiveService, _JsonOptions)
+                .Register(_App, authenticate, _AuthorizationService);
+
+            // Incidents
+            new IncidentRoutes(_IncidentService, _ObjectiveService)
+                .Register(_App, authenticate, _AuthorizationService);
+
+            // Runbooks
+            new RunbookRoutes(_RunbookService)
+                .Register(_App, authenticate, _AuthorizationService);
+
+            // Request history
+            new RequestHistoryRoutes(_Database, _JsonOptions)
+                .Register(_App, authenticate, _AuthorizationService);
+
+            // Cross-entity history
+            new HistoryRoutes(_HistoricalTimelineService)
+                .Register(_App, authenticate, _AuthorizationService);
+
             // Voyages
-            new VoyageRoutes(_Database, _Admiral, EmitEventAsync, _WebSocketHub, _Logging, _JsonOptions)
+            new VoyageRoutes(_Database, _Admiral, EmitEventAsync, _WebSocketHub, _Logging, _ObjectiveService, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Missions
-            new MissionRoutes(_Database, _Admiral, _Settings, _Git, _LandingService, EmitEventAsync, _MissionLanding.HandleMissionCompleteAsync, _WebSocketHub, _Logging, _JsonOptions)
+            new MissionRoutes(_Database, _Admiral, _MissionService, _Settings, _Git, _LandingService, _LandingPreviewService, _GitHubIntegrationService, EmitEventAsync, _MissionLanding.HandleMissionCompleteAsync, _WebSocketHub, _Logging, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Captains
-            new CaptainRoutes(_Database, _Admiral, _Settings, _RuntimeFactory, _AgentLifecycle, EmitEventAsync, _JsonOptions, _PlanningSessions)
+            new CaptainRoutes(_Database, _Admiral, _Settings, _RuntimeFactory, _AgentLifecycle, _CaptainTools, EmitEventAsync, _JsonOptions, _PlanningSessions, _ObjectiveRefinementSessions)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Runtime helpers
@@ -519,7 +679,7 @@ namespace Armada.Server
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Planning sessions
-            new PlanningSessionRoutes(_Database, _PlanningSessions, _JsonOptions)
+            new PlanningSessionRoutes(_Database, _PlanningSessions, _ObjectiveService, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Docks
@@ -616,6 +776,190 @@ namespace Armada.Server
                 ctx.Response.Headers.Add("Access-Control-Allow-Headers", "Content-Type, X-Api-Key, X-Token, Authorization");
         }
 
+        private async Task CaptureRequestHistoryAsync(HttpContextBase ctx)
+        {
+            try
+            {
+                string route = ctx.Request.Url.RawWithoutQuery ?? String.Empty;
+                if (!_RequestHistoryCapture.ShouldCapture(route)) return;
+
+                AuthContext? auth = null;
+                _RequestAuthContexts.TryGetValue(ctx, out auth);
+
+                RequestHistoryCaptureInput input = new RequestHistoryCaptureInput
+                {
+                    Method = ctx.Request.Method.ToString().ToUpperInvariant(),
+                    Route = route,
+                    RouteTemplate = route,
+                    QueryString = ExtractQueryString(ctx),
+                    StatusCode = ctx.Response.StatusCode,
+                    DurationMs = Math.Round(ctx.Timestamp.TotalMs ?? 0, 2),
+                    RequestSizeBytes = ctx.Request.ContentLength,
+                    ResponseSizeBytes = ctx.Response.ContentLength,
+                    RequestContentType = ctx.Request.ContentType,
+                    ResponseContentType = ctx.Response.ContentType,
+                    ClientIp = ctx.Request.Source?.IpAddress?.ToString(),
+                    CorrelationId = ctx.Request.Headers.Get("X-Correlation-Id") ?? ctx.Request.Headers.Get("X-Request-Id"),
+                    RequestHeaders = ExtractHeaders(ctx.Request.Headers),
+                    ResponseHeaders = ExtractHeaders(ctx.Response.Headers),
+                    RequestBodyText = ReadBodySnapshot(ctx.Request.ContentType, ctx.Request.ContentLength, () => ctx.Request.DataAsString),
+                    ResponseBodyText = ReadBodySnapshot(ctx.Response.ContentType, ctx.Response.ContentLength, () => ctx.Response.DataAsString)
+                };
+
+                RequestHistoryRecord record = _RequestHistoryCapture.BuildRecord(auth, input);
+                await _Database.RequestHistory.CreateAsync(record.Entry, record.Detail, _TokenSource.Token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "request history capture error: " + ex.Message);
+            }
+        }
+
+        private static Dictionary<string, string?> ExtractHeaders(System.Collections.Specialized.NameValueCollection headers)
+        {
+            Dictionary<string, string?> results = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+            foreach (string? key in headers.AllKeys)
+            {
+                if (String.IsNullOrWhiteSpace(key)) continue;
+                results[key] = headers.Get(key);
+            }
+            return results;
+        }
+
+        private string? ReadBodySnapshot(string? contentType, long contentLength, Func<string?> reader)
+        {
+            int maxPreviewBytes = Math.Max(_Settings.RequestHistoryMaxBodyBytes * 4, _Settings.RequestHistoryMaxBodyBytes);
+            if (contentLength > maxPreviewBytes && !IsTextualContent(contentType)) return null;
+            if (contentLength > maxPreviewBytes && String.IsNullOrWhiteSpace(contentType)) return null;
+
+            try
+            {
+                return reader();
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static bool IsTextualContent(string? contentType)
+        {
+            if (String.IsNullOrWhiteSpace(contentType)) return true;
+            return contentType.StartsWith("text/", StringComparison.OrdinalIgnoreCase)
+                || contentType.Contains("json", StringComparison.OrdinalIgnoreCase)
+                || contentType.Contains("xml", StringComparison.OrdinalIgnoreCase)
+                || contentType.Contains("javascript", StringComparison.OrdinalIgnoreCase)
+                || contentType.Contains("x-www-form-urlencoded", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string? ExtractQueryString(HttpContextBase ctx)
+        {
+            string? rawWithQuery = ctx.Request.Url.RawWithQuery;
+            int idx = !String.IsNullOrWhiteSpace(rawWithQuery) ? rawWithQuery.IndexOf('?') : -1;
+            if (!String.IsNullOrWhiteSpace(rawWithQuery) && idx >= 0)
+            {
+                if (idx == rawWithQuery.Length - 1) return null;
+                return rawWithQuery.Substring(idx + 1);
+            }
+
+            object? url = ctx.Request.Url;
+            string? reflectedUrlQuery = ExtractQueryStringFromObject(url);
+            if (!String.IsNullOrWhiteSpace(reflectedUrlQuery))
+                return reflectedUrlQuery;
+
+            return ExtractQueryStringFromObject(ctx.Request);
+        }
+
+        private static string? ExtractQueryStringFromObject(object? source)
+        {
+            if (source == null) return null;
+
+            Type type = source.GetType();
+
+            foreach (string propertyName in new[] { "Querystring", "QueryString", "Query" })
+            {
+                System.Reflection.PropertyInfo? property = type.GetProperty(propertyName);
+                if (property == null) continue;
+
+                object? value = property.GetValue(source);
+                string? serialized = SerializeQueryValue(value);
+                if (!String.IsNullOrWhiteSpace(serialized))
+                    return serialized;
+            }
+
+            return null;
+        }
+
+        private static string? SerializeQueryValue(object? value)
+        {
+            if (value == null) return null;
+
+            if (value is string stringValue)
+            {
+                if (String.IsNullOrWhiteSpace(stringValue)) return null;
+                return stringValue.StartsWith("?") ? stringValue.Substring(1) : stringValue;
+            }
+
+            if (value is System.Collections.Specialized.NameValueCollection nameValueCollection)
+            {
+                List<string> parts = new List<string>();
+                foreach (string? key in nameValueCollection.AllKeys)
+                {
+                    if (String.IsNullOrWhiteSpace(key)) continue;
+                    string? itemValue = nameValueCollection.Get(key);
+                    parts.Add(String.IsNullOrEmpty(itemValue)
+                        ? Uri.EscapeDataString(key)
+                        : Uri.EscapeDataString(key) + "=" + Uri.EscapeDataString(itemValue));
+                }
+
+                return parts.Count > 0 ? String.Join("&", parts) : null;
+            }
+
+            if (value is System.Collections.IDictionary dictionary)
+            {
+                List<string> parts = new List<string>();
+                foreach (System.Collections.DictionaryEntry entry in dictionary)
+                {
+                    if (entry.Key == null) continue;
+                    string key = entry.Key.ToString() ?? String.Empty;
+                    if (String.IsNullOrWhiteSpace(key)) continue;
+
+                    string? itemValue = entry.Value?.ToString();
+                    parts.Add(String.IsNullOrEmpty(itemValue)
+                        ? Uri.EscapeDataString(key)
+                        : Uri.EscapeDataString(key) + "=" + Uri.EscapeDataString(itemValue));
+                }
+
+                return parts.Count > 0 ? String.Join("&", parts) : null;
+            }
+
+            if (value is System.Collections.IEnumerable enumerable)
+            {
+                List<string> parts = new List<string>();
+                foreach (object? item in enumerable)
+                {
+                    if (item == null) continue;
+
+                    Type itemType = item.GetType();
+                    System.Reflection.PropertyInfo? keyProperty = itemType.GetProperty("Key");
+                    System.Reflection.PropertyInfo? valueProperty = itemType.GetProperty("Value");
+                    if (keyProperty == null || valueProperty == null) continue;
+
+                    string? key = keyProperty.GetValue(item)?.ToString();
+                    if (String.IsNullOrWhiteSpace(key)) continue;
+
+                    string? itemValue = valueProperty.GetValue(item)?.ToString();
+                    parts.Add(String.IsNullOrEmpty(itemValue)
+                        ? Uri.EscapeDataString(key)
+                        : Uri.EscapeDataString(key) + "=" + Uri.EscapeDataString(itemValue));
+                }
+
+                return parts.Count > 0 ? String.Join("&", parts) : null;
+            }
+
+            return null;
+        }
+
         /// <summary>
         /// Default route used when no other route matches. Serves the static dashboard
         /// assets, the SPA index fallback, and a JSON 404 for anything else.
@@ -696,7 +1040,14 @@ namespace Armada.Server
                 _RemoteTriggerService,
                 _CodeIndex,
                 _ReflectionDispatcher,
-                _ReflectionBootstrap);
+                _ReflectionBootstrap,
+                checkRunService: _CheckRunService,
+                objectiveService: _ObjectiveService,
+                planningSessionCoordinator: _PlanningSessions,
+                objectiveRefinementCoordinator: _ObjectiveRefinementSessions,
+                releaseService: _ReleaseService,
+                deploymentService: _DeploymentService,
+                runbookService: _RunbookService);
         }
 
         private async Task EmitEventAsync(string eventType, string message,

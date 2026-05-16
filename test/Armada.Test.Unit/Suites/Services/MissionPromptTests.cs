@@ -413,7 +413,7 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertContains("## Model Context", content);
                         AssertContains("The test suite takes 4 minutes.", content);
                         AssertContains("## Model Context Updates", content);
-                        AssertContains("armada_update_vessel_context", content);
+                        AssertContains("update_vessel_context", content);
                     }
                     finally
                     {
@@ -484,7 +484,7 @@ namespace Armada.Test.Unit.Suites.Services
                         string content = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
                         AssertFalse(content.Contains("## Model Context\n"), "Should not contain Model Context section when null");
                         AssertContains("## Model Context Updates", content);
-                        AssertContains("armada_update_vessel_context", content);
+                        AssertContains("update_vessel_context", content);
                     }
                     finally
                     {
@@ -770,7 +770,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                         string content = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
                         AssertContains("## Model Context Updates", content);
-                        AssertContains("armada_update_vessel_context", content);
+                        AssertContains("update_vessel_context", content);
                         AssertContains("The auth module was recently refactored to use JWT tokens.", content);
                     }
                     finally

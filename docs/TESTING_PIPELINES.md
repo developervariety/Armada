@@ -6,7 +6,7 @@ This document walks through concrete examples for testing Armada pipelines end-t
 
 ## Prerequisites
 
-- Armada server running (v0.7.0+)
+- Armada server running (v0.8.0+)
 - At least one vessel registered with a valid git repository
 - At least one captain running (idle state)
 - Built-in personas and pipelines are seeded automatically on startup
@@ -15,14 +15,14 @@ Verify setup:
 
 ```
 // MCP: check built-in personas exist
-armada_enumerate({ entityType: "personas" })
+enumerate({ entityType: "personas" })
 
 // Expected: Worker, Architect, Judge, TestEngineer,
 // DiagnosticProtocolReviewer, TenantSecurityReviewer, MigrationDataReviewer,
 // PerformanceMemoryReviewer, PortingReferenceAnalyst, FrontendWorkflowReviewer
 
 // MCP: check built-in pipelines exist
-armada_enumerate({ entityType: "pipelines" })
+enumerate({ entityType: "pipelines" })
 
 // Expected: WorkerOnly, Reviewed, Tested, FullPipeline,
 // DiagnosticProtocolTested, TenantSecurityTested, MigrationDataTested,
@@ -37,7 +37,7 @@ This confirms the default behavior is unchanged. A single Worker mission is crea
 
 ```
 // Dispatch a voyage with no pipeline specified (defaults to WorkerOnly)
-armada_dispatch({
+dispatch({
   title: "Fix typo in README",
   vesselId: "<your_vessel_id>",
   missions: [
@@ -54,7 +54,7 @@ armada_dispatch({
 
 ```
 // Check the voyage
-armada_voyage_status({ voyageId: "<voyage_id>", summary: false, includeMissions: true })
+voyage_status({ voyageId: "<voyage_id>", summary: false, includeMissions: true })
 ```
 
 ---
@@ -65,7 +65,7 @@ This tests a two-stage pipeline where a Worker implements changes, then a Judge 
 
 ```
 // Dispatch with the built-in "Reviewed" pipeline
-armada_dispatch({
+dispatch({
   title: "Add input validation to UserService",
   vesselId: "<your_vessel_id>",
   pipeline: "Reviewed",
@@ -88,7 +88,7 @@ armada_dispatch({
 
 ```
 // Check the mission chain
-armada_enumerate({
+enumerate({
   entityType: "missions",
   voyageId: "<voyage_id>",
   includeDescription: true
@@ -108,7 +108,7 @@ armada_enumerate({
 This tests the complete four-stage pipeline, including the Architect's special handling.
 
 ```
-armada_dispatch({
+dispatch({
   title: "Add caching to the API layer",
   vesselId: "<your_vessel_id>",
   pipeline: "FullPipeline",
@@ -158,10 +158,10 @@ Files: src/Middleware/CacheMiddleware.cs, src/Startup.cs
 
 ```
 // Monitor the full pipeline
-armada_voyage_status({ voyageId: "<voyage_id>", summary: true })
+voyage_status({ voyageId: "<voyage_id>", summary: true })
 
 // Check individual mission status and dependencies
-armada_enumerate({
+enumerate({
   entityType: "missions",
   voyageId: "<voyage_id>",
   includeDescription: true
@@ -193,7 +193,7 @@ This tests creating a custom persona and pipeline from scratch.
 **Step 1: Create the prompt template**
 
 ```
-armada_update_prompt_template({
+update_prompt_template({
   name: "persona.security_auditor",
   content: "You are a security auditor reviewing code changes for vulnerabilities.\n\nReview the diff from the previous pipeline stage and check for:\n1. SQL injection vulnerabilities\n2. Cross-site scripting (XSS)\n3. Authentication/authorization bypass\n4. Hardcoded secrets or credentials\n5. Insecure deserialization\n6. Path traversal vulnerabilities\n\nFor each finding, report:\n- Severity (Critical, High, Medium, Low)\n- File and line number\n- Description of the vulnerability\n- Recommended fix\n\nIf no vulnerabilities are found, output: SECURITY REVIEW: PASS\nIf vulnerabilities are found, output: SECURITY REVIEW: FAIL followed by your findings.",
   description: "Security auditor persona for reviewing code changes"
@@ -203,7 +203,7 @@ armada_update_prompt_template({
 **Step 2: Create the persona**
 
 ```
-armada_create_persona({
+create_persona({
   name: "SecurityAuditor",
   description: "Reviews code changes for OWASP-style security vulnerabilities",
   promptTemplateName: "persona.security_auditor"
@@ -213,7 +213,7 @@ armada_create_persona({
 **Step 3: Create the pipeline**
 
 ```
-armada_create_pipeline({
+create_pipeline({
   name: "SecureReview",
   description: "Worker then SecurityAuditor then Judge",
   stages: [
@@ -227,7 +227,7 @@ armada_create_pipeline({
 **Step 4: Dispatch with the custom pipeline**
 
 ```
-armada_dispatch({
+dispatch({
   title: "Add user login endpoint",
   vesselId: "<your_vessel_id>",
   pipeline: "SecureReview",
@@ -256,13 +256,13 @@ This tests that the Admiral routes missions to the right captains based on perso
 
 ```
 // Dedicate a captain to Architect work
-armada_update_captain({
+update_captain({
   captainId: "<captain_1_id>",
   preferredPersona: "Architect"
 })
 
 // Restrict a captain to Worker only
-armada_update_captain({
+update_captain({
   captainId: "<captain_2_id>",
   allowedPersonas: "[\"Worker\", \"TestEngineer\"]"
 })
@@ -274,7 +274,7 @@ armada_update_captain({
 **Dispatch with FullPipeline:**
 
 ```
-armada_dispatch({
+dispatch({
   title: "Refactor database layer",
   vesselId: "<your_vessel_id>",
   pipeline: "FullPipeline",
@@ -292,7 +292,7 @@ armada_dispatch({
 
 ```
 // Check which captain got which mission
-armada_enumerate({
+enumerate({
   entityType: "missions",
   voyageId: "<voyage_id>"
 })
@@ -307,7 +307,7 @@ This tests that vessel-level pipeline defaults work correctly.
 
 ```
 // Set "Reviewed" as the default pipeline for a vessel
-armada_update_vessel({
+update_vessel({
   vesselId: "<your_vessel_id>",
   defaultPipelineId: "<reviewed_pipeline_id>"
 })
@@ -315,14 +315,14 @@ armada_update_vessel({
 
 Get the pipeline ID first:
 ```
-armada_get_pipeline({ name: "Reviewed" })
+get_pipeline({ name: "Reviewed" })
 // Note the id field
 ```
 
 Now dispatch WITHOUT specifying a pipeline:
 
 ```
-armada_dispatch({
+dispatch({
   title: "Update documentation",
   vesselId: "<your_vessel_id>",
   missions: [
@@ -339,7 +339,7 @@ armada_dispatch({
 **Override the default for one dispatch:**
 
 ```
-armada_dispatch({
+dispatch({
   title: "Quick hotfix",
   vesselId: "<your_vessel_id>",
   pipeline: "WorkerOnly",
@@ -359,10 +359,10 @@ armada_dispatch({
 
 ```
 // Voyage summary shows mission counts by status
-armada_voyage_status({ voyageId: "<voyage_id>", summary: true })
+voyage_status({ voyageId: "<voyage_id>", summary: true })
 
 // Full mission list with dependencies visible
-armada_enumerate({
+enumerate({
   entityType: "missions",
   voyageId: "<voyage_id>",
   includeDescription: true

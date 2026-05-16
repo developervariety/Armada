@@ -12,6 +12,7 @@ import RefreshButton from '../components/shared/RefreshButton';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
+import { buildVesselDuplicatePayload } from '../lib/duplicates';
 
 type SortDir = 'asc' | 'desc';
 type SortField = 'name' | 'fleetId' | 'defaultBranch' | 'createdUtc';
@@ -27,6 +28,8 @@ interface VesselForm {
   styleGuide: string;
   enableModelContext: boolean;
   modelContext: string;
+  gitHubTokenOverride: string;
+  clearGitHubTokenOverride: boolean;
   landingMode: string;
   branchCleanupPolicy: string;
   allowConcurrentMissions: boolean;
@@ -35,7 +38,7 @@ interface VesselForm {
 
 const emptyForm: VesselForm = {
   name: '', fleetId: '', repoUrl: '', defaultBranch: 'main', localPath: '', workingDirectory: '',
-  projectContext: '', styleGuide: '', enableModelContext: true, modelContext: '', landingMode: 'LocalMerge', branchCleanupPolicy: 'LocalAndRemote', allowConcurrentMissions: false, defaultPipelineId: '',
+  projectContext: '', styleGuide: '', enableModelContext: true, modelContext: '', gitHubTokenOverride: '', clearGitHubTokenOverride: false, landingMode: 'LocalMerge', branchCleanupPolicy: 'LocalAndRemote', allowConcurrentMissions: false, defaultPipelineId: '',
 };
 
 export default function Vessels() {
@@ -185,6 +188,8 @@ export default function Vessels() {
       allowConcurrentMissions: v.allowConcurrentMissions,
       enableModelContext: v.enableModelContext,
       modelContext: v.modelContext ?? '',
+      gitHubTokenOverride: '',
+      clearGitHubTokenOverride: false,
       defaultPipelineId: v.defaultPipelineId ?? '',
     });
     setEditing(v);
@@ -203,6 +208,24 @@ export default function Vessels() {
       if (!payload.branchCleanupPolicy) delete payload.branchCleanupPolicy;
       if (!payload.modelContext) delete payload.modelContext;
       if (!payload.defaultPipelineId) delete payload.defaultPipelineId;
+      delete payload.clearGitHubTokenOverride;
+      if (editing)
+      {
+        if (form.clearGitHubTokenOverride)
+          payload.gitHubTokenOverride = '';
+        else if (!form.gitHubTokenOverride.trim())
+          delete payload.gitHubTokenOverride;
+        else
+          payload.gitHubTokenOverride = form.gitHubTokenOverride.trim();
+      }
+      else if (!form.gitHubTokenOverride.trim())
+      {
+        delete payload.gitHubTokenOverride;
+      }
+      else
+      {
+        payload.gitHubTokenOverride = form.gitHubTokenOverride.trim();
+      }
       if (editing) await updateVessel(editing.id, payload);
       else await createVessel(payload);
       setShowForm(false);
@@ -254,6 +277,25 @@ export default function Vessels() {
     });
   }
 
+  function manageObjectives(vessel: Vessel) {
+    const params = new URLSearchParams({ vesselId: vessel.id });
+    if (vessel.fleetId) {
+      params.set('fleetId', vessel.fleetId);
+    }
+
+    navigate(`/backlog?${params.toString()}`);
+  }
+
+  async function handleDuplicate(vessel: Vessel) {
+    try {
+      const created = await createVessel(buildVesselDuplicatePayload(vessel));
+      pushToast('success', t('Vessel "{{name}}" duplicated.', { name: created.name }));
+      navigate(`/vessels/${created.id}?edit=1`);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('Duplicate failed.'));
+    }
+  }
+
   return (
     <div>
       <div className="view-header">
@@ -262,6 +304,9 @@ export default function Vessels() {
           <p className="text-dim view-subtitle">{t('Git repositories registered with Armada')}</p>
         </div>
         <div className="view-actions">
+          <button className="btn btn-sm" onClick={() => navigate('/workspace')}>
+            {t('Workspace')}
+          </button>
           {selected.length > 0 && (
             <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>
               {t('Delete Selected')} ({selected.length})
@@ -298,6 +343,35 @@ export default function Vessels() {
               <label>{t('Local Path')}<input value={form.localPath} onChange={e => setForm({ ...form, localPath: e.target.value })} /></label>
               <label>{t('Working Directory')}<input value={form.workingDirectory} onChange={e => setForm({ ...form, workingDirectory: e.target.value })} /></label>
             </div>
+
+            <label>
+              GitHub Token Override
+              <input
+                type="password"
+                value={form.gitHubTokenOverride}
+                onChange={e => setForm({ ...form, gitHubTokenOverride: e.target.value, clearGitHubTokenOverride: false })}
+                placeholder={editing && editing.hasGitHubTokenOverride ? 'Leave blank to keep existing override' : 'Optional per-vessel GitHub token'}
+                autoComplete="new-password"
+              />
+              <div className="text-dim" style={{ fontSize: '0.8em' }}>
+                {editing
+                  ? editing.hasGitHubTokenOverride
+                    ? 'This vessel already has an override. Leave blank to keep it, enter a new token to replace it, or clear it below.'
+                    : 'No vessel override is stored. Armada will use the global GitHub token if one is configured.'
+                  : 'Optional. Leave blank to use the global GitHub token from Armada settings.'}
+              </div>
+            </label>
+            {editing && editing.hasGitHubTokenOverride && (
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input
+                  type="checkbox"
+                  checked={form.clearGitHubTokenOverride}
+                  onChange={e => setForm({ ...form, clearGitHubTokenOverride: e.target.checked, gitHubTokenOverride: e.target.checked ? '' : form.gitHubTokenOverride })}
+                  style={{ width: 'auto' }}
+                />
+                Clear existing GitHub token override
+              </label>
+            )}
 
             {/* Row 3: Landing Mode + Branch Cleanup + Pipeline (3 cols) */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0 1.5rem' }}>
@@ -476,8 +550,12 @@ export default function Vessels() {
                     </td>
                     <td className="text-right" onClick={e => e.stopPropagation()}>
                       <ActionMenu id={`vessel-${v.id}`} items={[
+                        { label: 'Manage Objectives', onClick: () => manageObjectives(v) },
+                        { label: 'Manage Fleet', onClick: () => navigate(`/fleets/${v.fleetId}`), disabled: !v.fleetId },
+                        { label: 'Open Workspace', onClick: () => navigate(`/workspace/${v.id}`) },
                         { label: 'View Detail', onClick: () => navigate(`/vessels/${v.id}`) },
                         { label: 'Edit', onClick: () => openEdit(v) },
+                        { label: 'Duplicate', onClick: () => void handleDuplicate(v) },
                         { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `Vessel: ${v.name}`, data: v }) },
                         { label: 'Delete', danger: true, onClick: () => handleDelete(v.id, v.name) },
                       ]} />

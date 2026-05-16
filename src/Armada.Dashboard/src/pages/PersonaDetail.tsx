@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { getPersona, updatePersona, deletePersona, listPromptTemplates } from '../api/client';
-import type { Persona } from '../types/models';
+import { createPersona, deletePersona, getPersona, getPromptTemplate, listPromptTemplates, resetPromptTemplate, updatePersona, updatePromptTemplate } from '../api/client';
+import type { Persona, PromptTemplate } from '../types/models';
 import ActionMenu from '../components/shared/ActionMenu';
 import JsonViewer from '../components/shared/JsonViewer';
 import StatusBadge from '../components/shared/StatusBadge';
@@ -10,6 +10,7 @@ import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
+import { buildPersonaDuplicatePayload } from '../lib/duplicates';
 
 export default function PersonaDetail() {
   const { t, formatDateTime } = useLocale();
@@ -24,6 +25,13 @@ export default function PersonaDetail() {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ description: '', promptTemplateName: '' });
   const [templateNames, setTemplateNames] = useState<string[]>([]);
+  const [promptTemplate, setPromptTemplate] = useState<PromptTemplate | null>(null);
+  const [promptDescription, setPromptDescription] = useState('');
+  const [promptContent, setPromptContent] = useState('');
+  const [promptDirty, setPromptDirty] = useState(false);
+  const [promptSaving, setPromptSaving] = useState(false);
+  const [promptLoading, setPromptLoading] = useState(false);
+  const [promptError, setPromptError] = useState('');
 
   // JSON viewer
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
@@ -31,23 +39,51 @@ export default function PersonaDetail() {
   // Confirm
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
 
+  const clearPromptEditor = useCallback(() => {
+    setPromptTemplate(null);
+    setPromptDescription('');
+    setPromptContent('');
+    setPromptDirty(false);
+    setPromptError('');
+  }, []);
+
+  const loadPromptForPersona = useCallback(async (templateName: string) => {
+    try {
+      setPromptLoading(true);
+      const template = await getPromptTemplate(templateName);
+      setPromptTemplate(template);
+      setPromptDescription(template.description ?? '');
+      setPromptContent(template.content);
+      setPromptDirty(false);
+      setPromptError('');
+    } catch (err) {
+      clearPromptEditor();
+      setPromptError(err instanceof Error ? err.message : t('Failed to load backing prompt template.'));
+    } finally {
+      setPromptLoading(false);
+    }
+  }, [clearPromptEditor, t]);
+
   const load = useCallback(async () => {
     if (!name) return;
     try {
       setLoading(true);
-      const isInitialLoad = !persona;
       const found = await getPersona(name);
-      if (!found) { setError(t('Persona not found.')); setLoading(false); return; }
       setPersona(found);
       const templateResult = await listPromptTemplates({ pageSize: 9999 });
       setTemplateNames(templateResult.objects.map(t => t.name));
-      if (isInitialLoad) setError('');
-    } catch {
-      setError(t('Failed to load persona.'));
+      if (found.promptTemplateName) {
+        await loadPromptForPersona(found.promptTemplateName);
+      } else {
+        clearPromptEditor();
+      }
+      setError('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('Failed to load persona.'));
     } finally {
       setLoading(false);
     }
-  }, [name, t]);
+  }, [clearPromptEditor, loadPromptForPersona, name, t]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -66,6 +102,52 @@ export default function PersonaDetail() {
       pushToast('success', t('Persona "{{name}}" saved.', { name: persona.name }));
       load();
     } catch { setError(t('Save failed.')); }
+  }
+
+  async function handleSavePrompt() {
+    if (!promptTemplate) return;
+
+    try {
+      setPromptSaving(true);
+      const result = await updatePromptTemplate(promptTemplate.name, {
+        content: promptContent,
+        description: promptDescription.trim() || undefined,
+      });
+      setPromptTemplate(result);
+      setPromptDescription(result.description ?? '');
+      setPromptContent(result.content);
+      setPromptDirty(false);
+      setPromptError('');
+      pushToast('success', t('Prompt template "{{name}}" saved.', { name: result.name }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('Prompt save failed.'));
+    } finally {
+      setPromptSaving(false);
+    }
+  }
+
+  function handleResetPrompt() {
+    if (!promptTemplate?.isBuiltIn) return;
+
+    setConfirm({
+      open: true,
+      title: t('Reset Backing Prompt'),
+      message: t('Reset prompt template "{{name}}" to its built-in default content? Your customizations will be lost.', { name: promptTemplate.name }),
+      onConfirm: async () => {
+        setConfirm(c => ({ ...c, open: false }));
+        try {
+          const result = await resetPromptTemplate(promptTemplate.name);
+          setPromptTemplate(result);
+          setPromptDescription(result.description ?? '');
+          setPromptContent(result.content);
+          setPromptDirty(false);
+          setPromptError('');
+          pushToast('success', t('Prompt template "{{name}}" reset to default.', { name: result.name }));
+        } catch (err) {
+          setError(err instanceof Error ? err.message : t('Prompt reset failed.'));
+        }
+      },
+    });
   }
 
   function handleDelete() {
@@ -89,6 +171,17 @@ export default function PersonaDetail() {
     });
   }
 
+  async function handleDuplicate() {
+    if (!persona) return;
+    try {
+      const created = await createPersona(buildPersonaDuplicatePayload(persona));
+      pushToast('success', t('Persona "{{name}}" duplicated.', { name: created.name }));
+      navigate(`/personas/${encodeURIComponent(created.name)}`);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('Duplicate failed.'));
+    }
+  }
+
   if (loading) return <p className="text-dim">{t('Loading...')}</p>;
   if (error && !persona) return <ErrorModal error={error} onClose={() => setError('')} />;
   if (!persona) return <p className="text-dim">{t('Persona not found.')}</p>;
@@ -106,6 +199,8 @@ export default function PersonaDetail() {
           <ActionMenu id={`persona-${persona.name}`} items={[
             { label: 'View JSON', onClick: () => setJsonData({ open: true, title: t('Persona: {{name}}', { name: persona.name }), data: persona }) },
             { label: 'Edit', onClick: openEdit },
+            { label: 'Duplicate', onClick: () => void handleDuplicate() },
+            ...(persona.promptTemplateName ? [{ label: 'Open Backing Prompt', onClick: () => navigate(`/prompt-templates/${encodeURIComponent(persona.promptTemplateName)}`) }] : []),
             { label: 'Delete', danger: true, onClick: handleDelete },
           ]} />
         </div>
@@ -162,6 +257,92 @@ export default function PersonaDetail() {
         <div className="detail-field"><span className="detail-label">{t('Active')}</span><StatusBadge status={persona.active ? 'Active' : 'Inactive'} /></div>
         <div className="detail-field"><span className="detail-label">{t('Created')}</span><span title={persona.createdUtc}>{formatDateTime(persona.createdUtc)}</span></div>
         <div className="detail-field"><span className="detail-label">{t('Last Updated')}</span><span>{formatDateTime(persona.lastUpdateUtc)}</span></div>
+      </div>
+
+      <div className="card detail-section" style={{ marginTop: '1.5rem' }}>
+        <div className="detail-section-header">
+          <div>
+            <h3>{t('Backing Prompt')}</h3>
+            <div className="text-dim backlog-section-note">
+              {t('This is the prompt template Armada resolves when this persona is assigned to a mission. Edit it here to change future mission instructions.')}
+            </div>
+          </div>
+          <div className="inline-actions">
+            {promptTemplate ? <StatusBadge status={promptTemplate.category} /> : null}
+            {promptTemplate?.isBuiltIn ? <StatusBadge status="Built-in" /> : null}
+          </div>
+        </div>
+
+        {promptLoading ? (
+          <p className="text-dim">{t('Loading backing prompt...')}</p>
+        ) : promptTemplate ? (
+          <>
+            <div className="detail-form-grid">
+              <div className="form-field">
+                <label>{t('Template Name')}</label>
+                <div>
+                  <Link to={`/prompt-templates/${encodeURIComponent(promptTemplate.name)}`}>{promptTemplate.name}</Link>
+                </div>
+              </div>
+              <div className="form-field">
+                <label>{t('Template Type')}</label>
+                <div>{promptTemplate.isBuiltIn ? <StatusBadge status="Built-in" /> : <span className="text-dim">{t('Custom')}</span>}</div>
+              </div>
+              <div className="form-field detail-field-full">
+                <label>{t('Template Description')}</label>
+                <input
+                  value={promptDescription}
+                  onChange={e => {
+                    setPromptDescription(e.target.value);
+                    setPromptDirty(true);
+                  }}
+                  placeholder={t('Optional prompt template description...')}
+                />
+              </div>
+              <div className="form-field detail-field-full">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem', marginBottom: '0.4rem' }}>
+                  <label style={{ marginBottom: 0 }}>{t('Prompt Content')}</label>
+                  <span className="text-dim">{t('{{count}} characters', { count: promptContent.length.toLocaleString() })}</span>
+                </div>
+                <textarea
+                  rows={18}
+                  value={promptContent}
+                  onChange={e => {
+                    setPromptContent(e.target.value);
+                    setPromptDirty(true);
+                  }}
+                  spellCheck={false}
+                  style={{
+                    fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace",
+                    minHeight: '26rem',
+                    lineHeight: 1.5,
+                  }}
+                />
+                {promptDirty ? (
+                  <div className="text-dim" style={{ marginTop: '0.35rem' }}>{t('Unsaved prompt changes')}</div>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="detail-footer">
+              <button className="btn btn-primary" disabled={promptSaving || !promptDirty} onClick={() => void handleSavePrompt()}>
+                {promptSaving ? t('Saving...') : t('Save Prompt')}
+              </button>
+              {promptTemplate.isBuiltIn ? (
+                <button className="btn" disabled={promptSaving} onClick={handleResetPrompt}>
+                  {t('Reset to Default')}
+                </button>
+              ) : null}
+              <button className="btn" onClick={() => navigate(`/prompt-templates/${encodeURIComponent(promptTemplate.name)}`)}>
+                {t('Open Full Template')}
+              </button>
+            </div>
+          </>
+        ) : (
+          <div className="text-dim">
+            {promptError || t('No prompt template is linked to this persona.')}
+          </div>
+        )}
       </div>
     </div>
   );

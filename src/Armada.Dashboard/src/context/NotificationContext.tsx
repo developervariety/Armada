@@ -67,9 +67,9 @@ function saveNotifications(notifications: Notification[]) {
 function statusToSeverity(status: string): Severity {
   if (!status) return 'info';
   const s = status.toLowerCase();
-  if (s === 'completed' || s === 'complete' || s === 'landed' || s === 'passed') return 'success';
-  if (s === 'failed' || s === 'error') return 'error';
-  if (s === 'cancelled' || s === 'stalled' || s === 'stopping') return 'warning';
+  if (s === 'completed' || s === 'complete' || s === 'landed' || s === 'passed' || s.includes('succeeded')) return 'success';
+  if (s === 'failed' || s === 'error' || s.includes('failed')) return 'error';
+  if (s === 'cancelled' || s === 'stalled' || s === 'stopping' || s.includes('rolledback') || s.includes('denied')) return 'warning';
   return 'info';
 }
 
@@ -176,6 +176,34 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
           String(data.id || ''),
           String(data.name || data.id || ''),
           String(data.state || data.status),
+        );
+      }
+
+      if (msg.type === 'deployment.changed' && data.status) {
+        const verificationStatus = typeof data.verificationStatus === 'string' ? ` / ${String(data.verificationStatus)}` : '';
+        pushNotification(
+          'Deployment',
+          String(data.id || ''),
+          String(data.title || data.id || ''),
+          `${String(data.status)}${verificationStatus}`,
+        );
+      }
+
+      if (msg.type === 'objective.changed' && data.status) {
+        pushNotification(
+          'Objective',
+          String(data.id || ''),
+          String(data.title || data.id || ''),
+          String(data.status),
+        );
+      }
+
+      if (msg.type === 'incident.changed' && data.status) {
+        pushNotification(
+          'Incident',
+          String(data.id || ''),
+          String(data.title || data.id || ''),
+          String(data.status),
         );
       }
     });

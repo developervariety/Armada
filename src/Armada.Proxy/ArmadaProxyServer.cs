@@ -200,11 +200,11 @@ namespace Armada.Proxy
         {
             MapJsonGet(server, "/api/v1/auth/challenge", async (req) =>
             {
-                (string nonce, DateTime expiresUtc) = _Auth.CreateChallenge();
+                ProxyAuthService.ProxyAuthChallenge challenge = _Auth.CreateChallenge();
                 return new
                 {
-                    nonce,
-                    expiresUtc
+                    nonce = challenge.Nonce,
+                    expiresUtc = challenge.ExpiresUtc
                 };
             });
 

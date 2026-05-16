@@ -60,5 +60,10 @@ namespace Armada.Server
         /// Ordered playbooks to apply to every mission in the voyage.
         /// </summary>
         public List<SelectedPlaybook> SelectedPlaybooks { get; set; } = new List<SelectedPlaybook>();
+
+        /// <summary>
+        /// Optional objective identifier to link when the voyage is created from scoped intake work.
+        /// </summary>
+        public string? ObjectiveId { get; set; } = null;
     }
 }

@@ -512,6 +512,11 @@ namespace Armada.Core.Database.Mysql
                     45,
                     "Add fleet-memory columns to fleets (Reflections v2-F3)",
                     TableQueries.MigrationV45Statements
+                ),
+                new SchemaMigration(
+                    46,
+                    "Add pipeline and mission review gates",
+                    TableQueries.MigrationV46Statements
                 )
             };
         }
@@ -731,4 +736,3 @@ namespace Armada.Core.Database.Mysql
         #endregion
     }
 }
-

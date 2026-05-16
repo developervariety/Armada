@@ -72,7 +72,7 @@ The default `docker/compose.yaml`:
 ```yaml
 services:
   armada-server:
-    image: jchristn77/armada-server:v0.7.0
+    image: jchristn77/armada-server:v0.8.0
     ports:
       - "7890:7890"
       - "7891:7891"
@@ -82,7 +82,7 @@ services:
       - ./armada/logs:/app/data/logs
 
   armada-dashboard:
-    image: jchristn77/armada-dashboard:v0.7.0
+    image: jchristn77/armada-dashboard:v0.8.0
     ports:
       - "3000:80"
     environment:
@@ -106,12 +106,12 @@ A default `docker/server/armada.json` is tracked in the repository so `docker co
 ```json
 {
   "dataDirectory": "/app/data",
-  "databasePath": "/app/data/db/armada.db",
   "logDirectory": "/app/data/logs",
   "docksDirectory": "/app/data/docks",
   "reposDirectory": "/app/data/repos",
   "admiralPort": 7890,
   "mcpPort": 7891,
+  "gitHubToken": null,
   "syslogServers": [
     {
       "hostname": "127.0.0.1",
@@ -177,7 +177,7 @@ cd docker/factory
 ./reset.sh
 ```
 
-Both scripts prompt for confirmation, stop containers, and delete database and log files. The `armada.json` configuration file is preserved.
+Both scripts prompt for confirmation, stop containers, and delete local SQLite database and log files. The `armada.json` configuration file is preserved. If the Docker config points at MySQL, PostgreSQL, or SQL Server instead of the mounted SQLite file, the external database is not modified by the reset scripts.
 
 ---
 
@@ -211,25 +211,25 @@ scripts\windows\build-dashboard.bat
 
 ```bash
 Linux:
-./scripts/linux/build-server.sh v0.7.0
+./scripts/linux/build-server.sh v0.8.0
 
 macOS:
-./scripts/macos/build-server.sh v0.7.0
+./scripts/macos/build-server.sh v0.8.0
 
 Windows:
-scripts\windows\build-server.bat v0.7.0
+scripts\windows\build-server.bat v0.8.0
 
 Linux:
-./scripts/linux/build-dashboard.sh v0.7.0
+./scripts/linux/build-dashboard.sh v0.8.0
 
 macOS:
-./scripts/macos/build-dashboard.sh v0.7.0
+./scripts/macos/build-dashboard.sh v0.8.0
 
 Windows:
-scripts\windows\build-dashboard.bat v0.7.0
+scripts\windows\build-dashboard.bat v0.8.0
 ```
 
-This produces both `jchristn77/armada-server:latest` and `jchristn77/armada-server:v0.7.0` (and the same for the dashboard).
+This produces both `jchristn77/armada-server:latest` and `jchristn77/armada-server:v0.8.0` (and the same for the dashboard).
 
 ### Building locally (no push)
 

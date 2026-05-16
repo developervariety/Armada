@@ -66,10 +66,10 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     cmd.Connection = conn;
                     cmd.CommandText = @"INSERT INTO missions (id, tenant_id, user_id, voyage_id, vessel_id, captain_id, title, description,
                         status, priority, parent_mission_id, branch_name, dock_id, process_id,
-                        pr_url, commit_hash, diff_snapshot, agent_output, persona, depends_on_mission_id, failure_reason, total_runtime_ms, prestaged_files, preferred_model, recovery_attempts, last_recovery_action_utc, created_utc, started_utc, completed_utc, last_update_utc)
+                        pr_url, commit_hash, diff_snapshot, agent_output, persona, depends_on_mission_id, failure_reason, total_runtime_ms, prestaged_files, preferred_model, requires_review, review_deny_action, review_comment, reviewed_by_user_id, review_requested_utc, reviewed_utc, recovery_attempts, last_recovery_action_utc, created_utc, started_utc, completed_utc, last_update_utc)
                         VALUES (@id, @tenant_id, @user_id, @voyage_id, @vessel_id, @captain_id, @title, @description,
                         @status, @priority, @parent_mission_id, @branch_name, @dock_id, @process_id,
-                        @pr_url, @commit_hash, @diff_snapshot, @agent_output, @persona, @depends_on_mission_id, @failure_reason, @total_runtime_ms, @prestaged_files, @preferred_model, @recovery_attempts, @last_recovery_action_utc, @created_utc, @started_utc, @completed_utc, @last_update_utc);";
+                        @pr_url, @commit_hash, @diff_snapshot, @agent_output, @persona, @depends_on_mission_id, @failure_reason, @total_runtime_ms, @prestaged_files, @preferred_model, @requires_review, @review_deny_action, @review_comment, @reviewed_by_user_id, @review_requested_utc, @reviewed_utc, @recovery_attempts, @last_recovery_action_utc, @created_utc, @started_utc, @completed_utc, @last_update_utc);";
                     AddMissionParameters(cmd, mission);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
@@ -139,6 +139,12 @@ namespace Armada.Core.Database.Postgresql.Implementations
                         failure_reason = @failure_reason, total_runtime_ms = @total_runtime_ms,
                         prestaged_files = @prestaged_files,
                         preferred_model = @preferred_model,
+                        requires_review = @requires_review,
+                        review_deny_action = @review_deny_action,
+                        review_comment = @review_comment,
+                        reviewed_by_user_id = @reviewed_by_user_id,
+                        review_requested_utc = @review_requested_utc,
+                        reviewed_utc = @reviewed_utc,
                         recovery_attempts = @recovery_attempts,
                         last_recovery_action_utc = @last_recovery_action_utc,
                         started_utc = @started_utc, completed_utc = @completed_utc,
@@ -807,6 +813,12 @@ namespace Armada.Core.Database.Postgresql.Implementations
             cmd.Parameters.AddWithValue("@total_runtime_ms", mission.TotalRuntimeMs.HasValue ? (object)mission.TotalRuntimeMs.Value : DBNull.Value);
             cmd.Parameters.AddWithValue("@prestaged_files", (object?)SerializePrestagedFiles(mission.PrestagedFiles) ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@preferred_model", (object?)mission.PreferredModel ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@requires_review", mission.RequiresReview);
+            cmd.Parameters.AddWithValue("@review_deny_action", mission.ReviewDenyAction.ToString());
+            cmd.Parameters.AddWithValue("@review_comment", (object?)mission.ReviewComment ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@reviewed_by_user_id", (object?)mission.ReviewedByUserId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@review_requested_utc", mission.ReviewRequestedUtc.HasValue ? (object)mission.ReviewRequestedUtc.Value : DBNull.Value);
+            cmd.Parameters.AddWithValue("@reviewed_utc", mission.ReviewedUtc.HasValue ? (object)mission.ReviewedUtc.Value : DBNull.Value);
             cmd.Parameters.AddWithValue("@recovery_attempts", mission.RecoveryAttempts);
             cmd.Parameters.AddWithValue("@last_recovery_action_utc", mission.LastRecoveryActionUtc.HasValue ? (object)mission.LastRecoveryActionUtc.Value : DBNull.Value);
             cmd.Parameters.AddWithValue("@created_utc", mission.CreatedUtc);
@@ -881,6 +893,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
             Mission mission = new Mission();
             mission.Id = reader["id"].ToString()!;
             mission.TenantId = NullableString(reader["tenant_id"]);
+            mission.UserId = NullableString(reader["user_id"]);
             mission.VoyageId = NullableString(reader["voyage_id"]);
             mission.VesselId = NullableString(reader["vessel_id"]);
             mission.CaptainId = NullableString(reader["captain_id"]);
@@ -906,6 +919,20 @@ namespace Armada.Core.Database.Postgresql.Implementations
             try { mission.FailureReason = NullableString(reader["failure_reason"]); } catch { }
             try { mission.PrestagedFiles = DeserializePrestagedFiles(reader["prestaged_files"]); } catch { }
             try { mission.PreferredModel = NullableString(reader["preferred_model"]); } catch { }
+            try { mission.RequiresReview = Convert.ToBoolean(reader["requires_review"]); } catch { }
+            try
+            {
+                string? reviewDenyAction = NullableString(reader["review_deny_action"]);
+                if (!String.IsNullOrEmpty(reviewDenyAction) && Enum.TryParse(reviewDenyAction, true, out ReviewDenyActionEnum parsed))
+                {
+                    mission.ReviewDenyAction = parsed;
+                }
+            }
+            catch { }
+            try { mission.ReviewComment = NullableString(reader["review_comment"]); } catch { }
+            try { mission.ReviewedByUserId = NullableString(reader["reviewed_by_user_id"]); } catch { }
+            try { mission.ReviewRequestedUtc = NullableDateTime(reader["review_requested_utc"]); } catch { }
+            try { mission.ReviewedUtc = NullableDateTime(reader["reviewed_utc"]); } catch { }
             try { object rv = reader["recovery_attempts"]; mission.RecoveryAttempts = (rv == null || rv == DBNull.Value) ? 0 : Convert.ToInt32(rv); } catch { }
             try { mission.LastRecoveryActionUtc = NullableDateTime(reader["last_recovery_action_utc"]); } catch { }
             return mission;

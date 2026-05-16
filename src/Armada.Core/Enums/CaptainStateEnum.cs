@@ -28,6 +28,12 @@ namespace Armada.Core.Enums
         Planning,
 
         /// <summary>
+        /// Captain is reserved for a backlog refinement session.
+        /// </summary>
+        [EnumMember(Value = "Refining")]
+        Refining,
+
+        /// <summary>
         /// Captain process appears stalled.
         /// </summary>
         [EnumMember(Value = "Stalled")]

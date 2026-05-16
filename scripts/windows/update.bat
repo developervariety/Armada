@@ -29,11 +29,11 @@ exit /b %ERRORLEVEL%
 
 :run_helm
 if exist "%HELM_DLL%" (
-  dotnet "%HELM_DLL%" %*
+  call dotnet "%HELM_DLL%" %*
   exit /b %ERRORLEVEL%
 )
 
-dotnet run --project "%REPO_ROOT%\src\Armada.Helm" %ARMADA_DOTNET_FRAMEWORK_ARGS% -- %*
+call dotnet run --project "%REPO_ROOT%\src\Armada.Helm" %ARMADA_DOTNET_FRAMEWORK_ARGS% -- %*
 if not errorlevel 1 exit /b 0
 
 where armada >nul 2>nul

@@ -9,6 +9,22 @@ namespace Armada.Proxy.Services
     /// </summary>
     public class ProxyAuthService
     {
+        /// <summary>
+        /// One-time browser login challenge metadata.
+        /// </summary>
+        public sealed class ProxyAuthChallenge
+        {
+            /// <summary>
+            /// Randomized nonce to prove challenge ownership.
+            /// </summary>
+            public string Nonce { get; set; } = String.Empty;
+
+            /// <summary>
+            /// UTC expiration timestamp for the challenge.
+            /// </summary>
+            public DateTime ExpiresUtc { get; set; }
+        }
+
         #region Constructors-and-Factories
 
         /// <summary>
@@ -27,13 +43,17 @@ namespace Armada.Proxy.Services
         /// <summary>
         /// Issue a one-time browser login challenge.
         /// </summary>
-        public (string Nonce, DateTime ExpiresUtc) CreateChallenge()
+        public ProxyAuthChallenge CreateChallenge()
         {
             CleanupExpired();
             string nonce = RemoteTunnelAuth.CreateNonce();
             DateTime expiresUtc = _UtcNow().AddSeconds(Math.Max(30, _Settings.HandshakeTimeoutSeconds));
             _Challenges[nonce] = expiresUtc;
-            return (nonce, expiresUtc);
+            return new ProxyAuthChallenge
+            {
+                Nonce = nonce,
+                ExpiresUtc = expiresUtc
+            };
         }
 
         /// <summary>

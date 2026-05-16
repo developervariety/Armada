@@ -633,6 +633,17 @@ namespace Armada.Core.Database.Postgresql.Queries
                     @"ALTER TABLE fleets ADD COLUMN IF NOT EXISTS default_playbooks TEXT;",
                     @"ALTER TABLE fleets ADD COLUMN IF NOT EXISTS curate_threshold INTEGER;",
                     @"ALTER TABLE fleets ADD COLUMN IF NOT EXISTS learned_playbook_id TEXT;"
+                ),
+                new SchemaMigration(46, "Add pipeline and mission review gates",
+                    @"ALTER TABLE pipeline_stages ADD COLUMN IF NOT EXISTS requires_review BOOLEAN NOT NULL DEFAULT FALSE;",
+                    @"ALTER TABLE pipeline_stages ADD COLUMN IF NOT EXISTS review_deny_action TEXT NOT NULL DEFAULT 'RetryStage';",
+                    @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS requires_review BOOLEAN NOT NULL DEFAULT FALSE;",
+                    @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS review_deny_action TEXT NOT NULL DEFAULT 'RetryStage';",
+                    @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS review_comment TEXT;",
+                    @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS reviewed_by_user_id TEXT;",
+                    @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS review_requested_utc TIMESTAMP NULL;",
+                    @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS reviewed_utc TIMESTAMP NULL;",
+                    @"CREATE INDEX IF NOT EXISTS idx_missions_requires_review ON missions(requires_review);"
                 )
             };
         }

@@ -4,7 +4,7 @@ namespace Armada.Core.Models
     using System.Collections.Generic;
 
     /// <summary>
-    /// Response from DELETE /api/v1/vessels/{id} or armada_delete_vessel.
+    /// Response from DELETE /api/v1/vessels/{id} or delete_vessel.
     /// </summary>
     public class DeleteVesselResponse
     {

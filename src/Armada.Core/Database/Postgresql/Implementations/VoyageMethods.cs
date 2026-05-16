@@ -615,6 +615,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
             Voyage voyage = new Voyage();
             voyage.Id = reader["id"].ToString()!;
             voyage.TenantId = NullableString(reader["tenant_id"]);
+            voyage.UserId = NullableString(reader["user_id"]);
             voyage.Title = reader["title"].ToString()!;
             voyage.Description = NullableString(reader["description"]);
             voyage.Status = Enum.Parse<VoyageStatusEnum>(reader["status"].ToString()!);
@@ -652,4 +653,3 @@ namespace Armada.Core.Database.Postgresql.Implementations
         #endregion
     }
 }
-

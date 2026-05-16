@@ -80,6 +80,11 @@ namespace Armada.Core
         public static readonly int DefaultMaxLogFileCount = 5;
 
         /// <summary>
+        /// Objective ID prefix.
+        /// </summary>
+        public static readonly string ObjectiveIdPrefix = "obj_";
+
+        /// <summary>
         /// Fleet ID prefix.
         /// </summary>
         public static readonly string FleetIdPrefix = "flt_";
@@ -120,6 +125,46 @@ namespace Armada.Core
         public static readonly string PlaybookIdPrefix = "pbk_";
 
         /// <summary>
+        /// Environment ID prefix.
+        /// </summary>
+        public static readonly string EnvironmentIdPrefix = "env_";
+
+        /// <summary>
+        /// Request history ID prefix.
+        /// </summary>
+        public static readonly string RequestHistoryIdPrefix = "req_";
+
+        /// <summary>
+        /// Workflow profile ID prefix.
+        /// </summary>
+        public static readonly string WorkflowProfileIdPrefix = "wfp_";
+
+        /// <summary>
+        /// Check run ID prefix.
+        /// </summary>
+        public static readonly string CheckRunIdPrefix = "chk_";
+
+        /// <summary>
+        /// Release ID prefix.
+        /// </summary>
+        public static readonly string ReleaseIdPrefix = "rel_";
+
+        /// <summary>
+        /// Deployment ID prefix.
+        /// </summary>
+        public static readonly string DeploymentIdPrefix = "dpl_";
+
+        /// <summary>
+        /// Incident ID prefix.
+        /// </summary>
+        public static readonly string IncidentIdPrefix = "inc_";
+
+        /// <summary>
+        /// Runbook execution ID prefix.
+        /// </summary>
+        public static readonly string RunbookExecutionIdPrefix = "rbx_";
+
+        /// <summary>
         /// Dock ID prefix.
         /// </summary>
         public static readonly string DockIdPrefix = "dck_";
@@ -143,6 +188,16 @@ namespace Armada.Core
         /// Default data retention period in days for completed records.
         /// </summary>
         public static readonly int DefaultDataRetentionDays = 30;
+
+        /// <summary>
+        /// Default request-history retention period in days.
+        /// </summary>
+        public static readonly int DefaultRequestHistoryRetentionDays = 30;
+
+        /// <summary>
+        /// Default maximum number of request/response body bytes to persist.
+        /// </summary>
+        public static readonly int DefaultRequestHistoryMaxBodyBytes = 32768;
 
         /// <summary>
         /// Branch prefix for Armada-managed branches.

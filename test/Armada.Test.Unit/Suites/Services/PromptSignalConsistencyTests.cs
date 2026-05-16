@@ -17,6 +17,17 @@ namespace Armada.Test.Unit.Suites.Services
 
     public class PromptSignalConsistencyTests : TestSuite
     {
+        private sealed class PromptFixtureResult
+        {
+            public Mission Mission { get; set; } = null!;
+
+            public Vessel Vessel { get; set; } = null!;
+
+            public Captain Captain { get; set; } = null!;
+
+            public Dock Dock { get; set; } = null!;
+        }
+
         public override string Name => "Prompt Signal Consistency";
 
         private LoggingModule CreateLogging()
@@ -42,20 +53,27 @@ namespace Armada.Test.Unit.Suites.Services
             return new MissionService(logging, db, settings, dockService, captainService);
         }
 
-        private static (Mission Mission, Vessel Vessel, Captain Captain, Dock Dock) CreatePromptFixture(string persona)
+        private static PromptFixtureResult CreatePromptFixture(string persona)
         {
+            string slug = persona.ToLowerInvariant().Replace(" ", "-");
             Vessel vessel = new Vessel("PromptSignalVessel", "https://github.com/test/repo");
-            Captain captain = new Captain(persona.ToLowerInvariant() + "-captain");
+            Captain captain = new Captain(slug + "-captain");
             captain.Runtime = AgentRuntimeEnum.Codex;
 
             Mission mission = new Mission(persona + " mission", "Validate the signal contract.");
             mission.Persona = persona;
-            mission.BranchName = "armada/" + persona.ToLowerInvariant() + "-signal-contract";
+            mission.BranchName = "armada/" + slug + "-signal-contract";
 
             Dock dock = new Dock(vessel.Id);
             dock.BranchName = mission.BranchName;
 
-            return (mission, vessel, captain, dock);
+            return new PromptFixtureResult
+            {
+                Mission = mission,
+                Vessel = vessel,
+                Captain = captain,
+                Dock = dock
+            };
         }
 
         private async Task<string> ResolveTemplateContentAsync(PromptTemplateService templates, string templateName)
@@ -95,18 +113,18 @@ namespace Armada.Test.Unit.Suites.Services
         private async Task AssertResultPersonaSignalsAsync(PromptTemplateService templates, string persona, string templateName)
         {
             string embeddedPrompt = await ResolveTemplateContentAsync(templates, templateName).ConfigureAwait(false);
-            (Mission mission, Vessel vessel, Captain captain, Dock dock) = CreatePromptFixture(persona);
-            Dictionary<string, string> templateParams = MissionPromptBuilder.BuildTemplateParams(mission, vessel, captain, dock);
+            PromptFixtureResult fixture = CreatePromptFixture(persona);
+            Dictionary<string, string> templateParams = MissionPromptBuilder.BuildTemplateParams(fixture.Mission, fixture.Vessel, fixture.Captain, fixture.Dock);
 
             string fallbackPrompt = await MissionPromptBuilder.ResolvePersonaPromptAsync(
                 persona,
                 templateParams,
                 null).ConfigureAwait(false);
             string launchPrompt = await MissionPromptBuilder.BuildLaunchPromptAsync(
-                mission,
-                vessel,
-                captain,
-                dock,
+                fixture.Mission,
+                fixture.Vessel,
+                fixture.Captain,
+                fixture.Dock,
                 null).ConfigureAwait(false);
 
             AssertContains("`[ARMADA:RESULT] COMPLETE`", embeddedPrompt, templateName + " embedded template");
@@ -123,18 +141,18 @@ namespace Armada.Test.Unit.Suites.Services
         private async Task AssertJudgeSignalsAsync(PromptTemplateService templates)
         {
             string embeddedPrompt = await ResolveTemplateContentAsync(templates, "persona.judge").ConfigureAwait(false);
-            (Mission mission, Vessel vessel, Captain captain, Dock dock) = CreatePromptFixture("Judge");
-            Dictionary<string, string> templateParams = MissionPromptBuilder.BuildTemplateParams(mission, vessel, captain, dock);
+            PromptFixtureResult fixture = CreatePromptFixture("Judge");
+            Dictionary<string, string> templateParams = MissionPromptBuilder.BuildTemplateParams(fixture.Mission, fixture.Vessel, fixture.Captain, fixture.Dock);
 
             string fallbackPrompt = await MissionPromptBuilder.ResolvePersonaPromptAsync(
                 "Judge",
                 templateParams,
                 null).ConfigureAwait(false);
             string launchPrompt = await MissionPromptBuilder.BuildLaunchPromptAsync(
-                mission,
-                vessel,
-                captain,
-                dock,
+                fixture.Mission,
+                fixture.Vessel,
+                fixture.Captain,
+                fixture.Dock,
                 null).ConfigureAwait(false);
 
             AssertContains("`[ARMADA:VERDICT] PASS`", embeddedPrompt, "judge embedded template PASS");
@@ -213,17 +231,17 @@ namespace Armada.Test.Unit.Suites.Services
                     PromptTemplateService templates = new PromptTemplateService(testDb.Driver, logging);
                     string embeddedPrompt = await ResolveTemplateContentAsync(templates, "persona.architect").ConfigureAwait(false);
 
-                    (Mission mission, Vessel vessel, Captain captain, Dock dock) = CreatePromptFixture("Architect");
-                    Dictionary<string, string> templateParams = MissionPromptBuilder.BuildTemplateParams(mission, vessel, captain, dock);
+                    PromptFixtureResult fixture = CreatePromptFixture("Architect");
+                    Dictionary<string, string> templateParams = MissionPromptBuilder.BuildTemplateParams(fixture.Mission, fixture.Vessel, fixture.Captain, fixture.Dock);
                     string fallbackPrompt = await MissionPromptBuilder.ResolvePersonaPromptAsync(
                         "Architect",
                         templateParams,
                         null).ConfigureAwait(false);
                     string launchPrompt = await MissionPromptBuilder.BuildLaunchPromptAsync(
-                        mission,
-                        vessel,
-                        captain,
-                        dock,
+                        fixture.Mission,
+                        fixture.Vessel,
+                        fixture.Captain,
+                        fixture.Dock,
                         null).ConfigureAwait(false);
 
                     AssertContains("[ARMADA:MISSION]", embeddedPrompt, "architect embedded template should use mission markers");
@@ -245,6 +263,8 @@ namespace Armada.Test.Unit.Suites.Services
                     PromptTemplateService templates = new PromptTemplateService(testDb.Driver, logging);
 
                     await AssertResultPersonaSignalsAsync(templates, "Worker", "persona.worker").ConfigureAwait(false);
+                    await AssertResultPersonaSignalsAsync(templates, "Product Manager", "persona.product_manager").ConfigureAwait(false);
+                    await AssertResultPersonaSignalsAsync(templates, "Usability Engineer", "persona.usability_engineer").ConfigureAwait(false);
                     await AssertResultPersonaSignalsAsync(templates, "TestEngineer", "persona.test_engineer").ConfigureAwait(false);
                     await AssertJudgeSignalsAsync(templates).ConfigureAwait(false);
                 }

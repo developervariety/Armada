@@ -18,6 +18,15 @@ namespace Armada.Test.Unit
     /// </summary>
     public class AuthEndpointTests : TestSuite
     {
+        private sealed class AuthFixtureResult
+        {
+            public string TenantId { get; set; } = String.Empty;
+
+            public string UserId { get; set; } = String.Empty;
+
+            public string BearerToken { get; set; } = String.Empty;
+        }
+
         public override string Name => "Auth Endpoint Integration";
 
         protected override async Task RunTestsAsync()
@@ -84,14 +93,14 @@ namespace Armada.Test.Unit
                 {
                     SqliteDatabaseDriver db = testDb.Driver;
                     string password = "correctPassword123";
-                    (string tenantId, string userId, _) = await CreateTestEntitiesAsync(db, password: password);
+                    AuthFixtureResult entities = await CreateTestEntitiesAsync(db, password: password);
 
                     AuthenticationService svc = CreateAuthService(db);
-                    AuthContext ctx = await svc.AuthenticateWithCredentialsAsync(tenantId, "test@example.com", password);
+                    AuthContext ctx = await svc.AuthenticateWithCredentialsAsync(entities.TenantId, "test@example.com", password);
 
                     AssertTrue(ctx.IsAuthenticated, "Should be authenticated with correct credentials");
-                    AssertEqual(tenantId, ctx.TenantId, "TenantId");
-                    AssertEqual(userId, ctx.UserId, "UserId");
+                    AssertEqual(entities.TenantId, ctx.TenantId, "TenantId");
+                    AssertEqual(entities.UserId, ctx.UserId, "UserId");
                     AssertEqual("Credentials", ctx.AuthMethod, "AuthMethod");
                 }
             });
@@ -101,10 +110,10 @@ namespace Armada.Test.Unit
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
                     SqliteDatabaseDriver db = testDb.Driver;
-                    (string tenantId, _, _) = await CreateTestEntitiesAsync(db, password: "correctPassword");
+                    AuthFixtureResult entities = await CreateTestEntitiesAsync(db, password: "correctPassword");
 
                     AuthenticationService svc = CreateAuthService(db);
-                    AuthContext ctx = await svc.AuthenticateWithCredentialsAsync(tenantId, "test@example.com", "wrongPassword");
+                    AuthContext ctx = await svc.AuthenticateWithCredentialsAsync(entities.TenantId, "test@example.com", "wrongPassword");
 
                     AssertFalse(ctx.IsAuthenticated, "Should not be authenticated with wrong password");
                 }
@@ -115,10 +124,10 @@ namespace Armada.Test.Unit
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
                     SqliteDatabaseDriver db = testDb.Driver;
-                    (string tenantId, _, _) = await CreateTestEntitiesAsync(db);
+                    AuthFixtureResult entities = await CreateTestEntitiesAsync(db);
 
                     AuthenticationService svc = CreateAuthService(db);
-                    AuthContext ctx = await svc.AuthenticateWithCredentialsAsync(tenantId, "nonexistent@example.com", "anyPassword");
+                    AuthContext ctx = await svc.AuthenticateWithCredentialsAsync(entities.TenantId, "nonexistent@example.com", "anyPassword");
 
                     AssertFalse(ctx.IsAuthenticated, "Should not be authenticated with unknown email");
                 }
@@ -129,14 +138,14 @@ namespace Armada.Test.Unit
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
                     SqliteDatabaseDriver db = testDb.Driver;
-                    (string tenantId, string userId, string bearerToken) = await CreateTestEntitiesAsync(db);
+                    AuthFixtureResult entities = await CreateTestEntitiesAsync(db);
 
                     AuthenticationService svc = CreateAuthService(db);
-                    AuthContext ctx = await svc.AuthenticateAsync("Bearer " + bearerToken, null, null);
+                    AuthContext ctx = await svc.AuthenticateAsync("Bearer " + entities.BearerToken, null, null);
 
                     AssertTrue(ctx.IsAuthenticated, "Should be authenticated with valid bearer token");
-                    AssertEqual(tenantId, ctx.TenantId, "TenantId");
-                    AssertEqual(userId, ctx.UserId, "UserId");
+                    AssertEqual(entities.TenantId, ctx.TenantId, "TenantId");
+                    AssertEqual(entities.UserId, ctx.UserId, "UserId");
                     AssertEqual("Bearer", ctx.AuthMethod, "AuthMethod");
                 }
             });
@@ -331,7 +340,7 @@ namespace Armada.Test.Unit
             return new AuthenticationService(db, sessionTokenService, settings, logging);
         }
 
-        private async Task<(string tenantId, string userId, string bearerToken)> CreateTestEntitiesAsync(
+        private async Task<AuthFixtureResult> CreateTestEntitiesAsync(
             SqliteDatabaseDriver db,
             string? password = null,
             bool userActive = true,
@@ -350,7 +359,12 @@ namespace Armada.Test.Unit
             credential.Active = credentialActive;
             await db.Credentials.CreateAsync(credential);
 
-            return (tenant.Id, user.Id, credential.BearerToken);
+            return new AuthFixtureResult
+            {
+                TenantId = tenant.Id,
+                UserId = user.Id,
+                BearerToken = credential.BearerToken
+            };
         }
 
         private async Task<string> CreateTenantAsync(SqliteDatabaseDriver db, string name = "Test Tenant")

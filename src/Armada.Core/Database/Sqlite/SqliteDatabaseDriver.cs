@@ -523,6 +523,20 @@ namespace Armada.Core.Database.Sqlite
             try { mission.FailureReason = NullableString(reader["failure_reason"]); } catch { }
             try { mission.PrestagedFiles = Implementations.MissionMethods.DeserializePrestagedFiles(reader["prestaged_files"]); } catch { }
             try { mission.PreferredModel = NullableString(reader["preferred_model"]); } catch { }
+            try { mission.RequiresReview = Convert.ToInt64(reader["requires_review"]) == 1; } catch { }
+            try
+            {
+                string? reviewDenyAction = NullableString(reader["review_deny_action"]);
+                if (!String.IsNullOrEmpty(reviewDenyAction) && Enum.TryParse(reviewDenyAction, true, out ReviewDenyActionEnum parsed))
+                {
+                    mission.ReviewDenyAction = parsed;
+                }
+            }
+            catch { }
+            try { mission.ReviewComment = NullableString(reader["review_comment"]); } catch { }
+            try { mission.ReviewedByUserId = NullableString(reader["reviewed_by_user_id"]); } catch { }
+            try { mission.ReviewRequestedUtc = FromIso8601Nullable(reader["review_requested_utc"]); } catch { }
+            try { mission.ReviewedUtc = FromIso8601Nullable(reader["reviewed_utc"]); } catch { }
             try { object rv = reader["recovery_attempts"]; mission.RecoveryAttempts = (rv == null || rv == DBNull.Value) ? 0 : Convert.ToInt32(rv); } catch { }
             try { mission.LastRecoveryActionUtc = FromIso8601Nullable(reader["last_recovery_action_utc"]); } catch { }
             return mission;
@@ -772,4 +786,3 @@ namespace Armada.Core.Database.Sqlite
         #endregion
     }
 }
-

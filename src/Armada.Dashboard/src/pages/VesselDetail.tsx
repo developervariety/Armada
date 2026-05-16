@@ -1,15 +1,17 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
-import { listVessels, listFleets, listMissions, listPipelines, updateVessel, deleteVessel } from '../api/client';
-import type { Fleet, Vessel, Mission, Pipeline } from '../types/models';
+import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom';
+import { listVessels, listFleets, listMissions, listPipelines, createVessel, updateVessel, deleteVessel, getVesselReadiness, getVesselLandingPreview } from '../api/client';
+import type { Fleet, Vessel, Mission, Pipeline, VesselReadinessResult, LandingPreviewResult } from '../types/models';
 import ActionMenu from '../components/shared/ActionMenu';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
 import StatusBadge from '../components/shared/StatusBadge';
 import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
+import ReadinessPanel from '../components/shared/ReadinessPanel';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
+import { buildVesselDuplicatePayload } from '../lib/duplicates';
 
 interface VesselForm {
   name: string;
@@ -22,6 +24,14 @@ interface VesselForm {
   styleGuide: string;
   enableModelContext: boolean;
   modelContext: string;
+  gitHubTokenOverride: string;
+  clearGitHubTokenOverride: boolean;
+  requirePassingChecksToLand: boolean;
+  protectedBranchPatterns: string;
+  releaseBranchPrefix: string;
+  hotfixBranchPrefix: string;
+  requirePullRequestForProtectedBranches: boolean;
+  requireMergeQueueForReleaseBranches: boolean;
   defaultPipelineId: string;
 }
 
@@ -29,17 +39,22 @@ export default function VesselDetail() {
   const { t, formatDateTime, formatRelativeTime } = useLocale();
   const { pushToast } = useNotifications();
   const { id } = useParams<{ id: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const [vessel, setVessel] = useState<Vessel | null>(null);
   const [fleets, setFleets] = useState<Fleet[]>([]);
   const [missions, setMissions] = useState<Mission[]>([]);
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
+  const [readiness, setReadiness] = useState<VesselReadinessResult | null>(null);
+  const [landingPreview, setLandingPreview] = useState<LandingPreviewResult | null>(null);
+  const [loadingReadiness, setLoadingReadiness] = useState(false);
+  const [loadingLandingPreview, setLoadingLandingPreview] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   // Edit modal
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState<VesselForm>({ name: '', fleetId: '', repoUrl: '', defaultBranch: 'main', localPath: '', workingDirectory: '', projectContext: '', styleGuide: '', enableModelContext: true, modelContext: '', defaultPipelineId: '' });
+  const [form, setForm] = useState<VesselForm>({ name: '', fleetId: '', repoUrl: '', defaultBranch: 'main', localPath: '', workingDirectory: '', projectContext: '', styleGuide: '', enableModelContext: true, modelContext: '', gitHubTokenOverride: '', clearGitHubTokenOverride: false, requirePassingChecksToLand: false, protectedBranchPatterns: '', releaseBranchPrefix: 'release/', hotfixBranchPrefix: 'hotfix/', requirePullRequestForProtectedBranches: false, requireMergeQueueForReleaseBranches: false, defaultPipelineId: '' });
 
   // JSON viewer
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
@@ -65,6 +80,16 @@ export default function VesselDetail() {
       setFleets(fResult.objects);
       setMissions(mResult.objects.filter(m => m.vesselId === id));
       setPipelines(pResult.objects);
+      setLoadingReadiness(true);
+      getVesselReadiness(id)
+        .then((result) => setReadiness(result))
+        .catch(() => setReadiness(null))
+        .finally(() => setLoadingReadiness(false));
+      setLoadingLandingPreview(true);
+      getVesselLandingPreview(id, found.defaultBranch || null)
+        .then((result) => setLandingPreview(result))
+        .catch(() => setLandingPreview(null))
+        .finally(() => setLoadingLandingPreview(false));
       if (isInitialLoad) setError('');
     } catch {
       setError(t('Failed to load vessel.'));
@@ -88,10 +113,29 @@ export default function VesselDetail() {
       styleGuide: vessel.styleGuide ?? '',
       enableModelContext: vessel.enableModelContext,
       modelContext: vessel.modelContext ?? '',
+      gitHubTokenOverride: '',
+      clearGitHubTokenOverride: false,
+      requirePassingChecksToLand: vessel.requirePassingChecksToLand,
+      protectedBranchPatterns: (vessel.protectedBranchPatterns || []).join('\n'),
+      releaseBranchPrefix: vessel.releaseBranchPrefix || 'release/',
+      hotfixBranchPrefix: vessel.hotfixBranchPrefix || 'hotfix/',
+      requirePullRequestForProtectedBranches: vessel.requirePullRequestForProtectedBranches,
+      requireMergeQueueForReleaseBranches: vessel.requireMergeQueueForReleaseBranches,
       defaultPipelineId: vessel.defaultPipelineId ?? '',
     });
     setShowForm(true);
   }
+
+  useEffect(() => {
+    if (!vessel) return;
+    if (searchParams.get('edit') !== '1') return;
+    openEdit();
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.delete('edit');
+      return next;
+    }, { replace: true });
+  }, [searchParams, setSearchParams, vessel]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -104,6 +148,17 @@ export default function VesselDetail() {
       if (!payload.styleGuide) delete payload.styleGuide;
       if (!payload.modelContext) delete payload.modelContext;
       if (!payload.defaultPipelineId) delete payload.defaultPipelineId;
+      delete payload.clearGitHubTokenOverride;
+      if (form.clearGitHubTokenOverride)
+        payload.gitHubTokenOverride = '';
+      else if (!form.gitHubTokenOverride.trim())
+        delete payload.gitHubTokenOverride;
+      else
+        payload.gitHubTokenOverride = form.gitHubTokenOverride.trim();
+      payload.protectedBranchPatterns = form.protectedBranchPatterns
+        .split(/\r?\n/)
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0);
       await updateVessel(vessel.id, payload);
       setShowForm(false);
       pushToast('success', t('Vessel "{{name}}" saved.', { name: form.name }));
@@ -128,6 +183,27 @@ export default function VesselDetail() {
     });
   }
 
+  function handleManageObjectives() {
+    if (!vessel) return;
+    const params = new URLSearchParams({ vesselId: vessel.id });
+    if (vessel.fleetId) {
+      params.set('fleetId', vessel.fleetId);
+    }
+
+    navigate(`/backlog?${params.toString()}`);
+  }
+
+  async function handleDuplicate() {
+    if (!vessel) return;
+    try {
+      const created = await createVessel(buildVesselDuplicatePayload(vessel));
+      pushToast('success', t('Vessel "{{name}}" duplicated.', { name: created.name }));
+      navigate(`/vessels/${created.id}?edit=1`);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('Duplicate failed.'));
+    }
+  }
+
   if (loading) return <p className="text-dim">{t('Loading...')}</p>;
   if (error && !vessel) return <ErrorModal error={error} onClose={() => setError('')} />;
   if (!vessel) return <p className="text-dim">{t('Vessel not found.')}</p>;
@@ -142,8 +218,30 @@ export default function VesselDetail() {
       <div className="detail-header">
         <h2>{vessel.name}</h2>
         <div className="inline-actions">
+          <button type="button" className="btn btn-sm" onClick={handleManageObjectives}>
+            {t('Manage Objectives')}
+          </button>
+          {vessel.fleetId && (
+            <button type="button" className="btn btn-sm" onClick={() => navigate(`/fleets/${vessel.fleetId}`)}>
+              {t('Manage Fleet')}
+            </button>
+          )}
+          <button type="button" className="btn btn-sm" onClick={() => navigate(`/vessels/${vessel.id}/onboarding`)}>
+            {t('Onboarding')}
+          </button>
+          <button type="button" className="btn btn-sm" onClick={() => navigate('/checks', { state: { prefill: { vesselId: vessel.id, branchName: vessel.defaultBranch || '' } } })}>
+            {t('Run Check')}
+          </button>
+          <button type="button" className="btn btn-sm" onClick={() => navigate(`/workspace/${vessel.id}`)}>
+            {t('Open Workspace')}
+          </button>
           <ActionMenu id={`vessel-${vessel.id}`} items={[
+            { label: 'Manage Objectives', onClick: handleManageObjectives },
+            { label: 'Manage Fleet', onClick: () => navigate(`/fleets/${vessel.fleetId}`), disabled: !vessel.fleetId },
+            { label: 'Run Check', onClick: () => navigate('/checks', { state: { prefill: { vesselId: vessel.id, branchName: vessel.defaultBranch || '' } } }) },
+            { label: 'Open Workspace', onClick: () => navigate(`/workspace/${vessel.id}`) },
             { label: 'Edit', onClick: openEdit },
+            { label: 'Duplicate', onClick: () => void handleDuplicate() },
             { label: 'View JSON', onClick: () => setJsonData({ open: true, title: t('Vessel: {{name}}', { name: vessel.name }), data: vessel }) },
             { label: 'Delete', danger: true, onClick: handleDelete },
           ]} />
@@ -166,8 +264,40 @@ export default function VesselDetail() {
             </label>
             <label>{t('Repository URL')}<input value={form.repoUrl} onChange={e => setForm({ ...form, repoUrl: e.target.value })} required placeholder={t('https://github.com/org/repo.git')} /></label>
             <label>{t('Default Branch')}<input value={form.defaultBranch} onChange={e => setForm({ ...form, defaultBranch: e.target.value })} /></label>
+            <label>{t('Release Branch Prefix')}<input value={form.releaseBranchPrefix} onChange={e => setForm({ ...form, releaseBranchPrefix: e.target.value })} /></label>
+            <label>{t('Hotfix Branch Prefix')}<input value={form.hotfixBranchPrefix} onChange={e => setForm({ ...form, hotfixBranchPrefix: e.target.value })} /></label>
             <label>{t('Local Path')}<input value={form.localPath} onChange={e => setForm({ ...form, localPath: e.target.value })} /></label>
             <label>{t('Working Directory')}<input value={form.workingDirectory} onChange={e => setForm({ ...form, workingDirectory: e.target.value })} /></label>
+            <label>
+              GitHub Token Override
+              <input
+                type="password"
+                value={form.gitHubTokenOverride}
+                onChange={e => setForm({ ...form, gitHubTokenOverride: e.target.value, clearGitHubTokenOverride: false })}
+                placeholder={vessel.hasGitHubTokenOverride ? 'Leave blank to keep existing override' : 'Optional per-vessel GitHub token'}
+                autoComplete="new-password"
+              />
+              <span className="text-dim" style={{ fontSize: '0.8em' }}>
+                {vessel.hasGitHubTokenOverride
+                  ? 'This vessel already has an override. Leave blank to keep it, enter a new token to replace it, or clear it below.'
+                  : 'No vessel override is stored. Armada will use the global GitHub token if one is configured.'}
+              </span>
+            </label>
+            {vessel.hasGitHubTokenOverride && (
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input
+                  type="checkbox"
+                  checked={form.clearGitHubTokenOverride}
+                  onChange={e => setForm({ ...form, clearGitHubTokenOverride: e.target.checked, gitHubTokenOverride: e.target.checked ? '' : form.gitHubTokenOverride })}
+                  style={{ width: 'auto' }}
+                />
+                Clear existing GitHub token override
+              </label>
+            )}
+            <label>
+              {t('Protected Branch Patterns')}
+              <textarea value={form.protectedBranchPatterns} onChange={e => setForm({ ...form, protectedBranchPatterns: e.target.value })} rows={4} placeholder={t('One pattern per line, e.g. main or release/*')} />
+            </label>
             <label>
               {t('Project Context')}
               <textarea value={form.projectContext} onChange={e => setForm({ ...form, projectContext: e.target.value })} rows={4} />
@@ -190,6 +320,18 @@ export default function VesselDetail() {
               <input type="checkbox" checked={form.enableModelContext} onChange={e => setForm({ ...form, enableModelContext: e.target.checked })} style={{ width: 'auto' }} />
               {t('Enable Model Context')}
             </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input type="checkbox" checked={form.requirePassingChecksToLand} onChange={e => setForm({ ...form, requirePassingChecksToLand: e.target.checked })} style={{ width: 'auto' }} />
+              {t('Require Passing Checks To Land')}
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input type="checkbox" checked={form.requirePullRequestForProtectedBranches} onChange={e => setForm({ ...form, requirePullRequestForProtectedBranches: e.target.checked })} style={{ width: 'auto' }} />
+              {t('Require PR For Protected Branches')}
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input type="checkbox" checked={form.requireMergeQueueForReleaseBranches} onChange={e => setForm({ ...form, requireMergeQueueForReleaseBranches: e.target.checked })} style={{ width: 'auto' }} />
+              {t('Require Merge Queue For Release Branches')}
+            </label>
             {form.enableModelContext && (
               <label>
                 {t('Model Context')}
@@ -208,6 +350,69 @@ export default function VesselDetail() {
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
+
+      <ReadinessPanel
+        title={t('Readiness')}
+        readiness={readiness}
+        loading={loadingReadiness}
+        emptyMessage={t('Readiness data is not available for this vessel yet.')}
+      />
+
+      <div className="card landing-preview-card">
+        <div className="readiness-panel-header">
+          <div>
+            <h3>{t('Landing Preview')}</h3>
+            <div className="readiness-panel-meta">
+              {landingPreview?.sourceBranch ? `${landingPreview.sourceBranch} -> ${landingPreview.targetBranch}` : landingPreview?.targetBranch || t('No branch selected')}
+            </div>
+          </div>
+          <span className={`readiness-pill ${landingPreview?.isReadyToLand ? 'ready' : 'warning'}`}>
+            {landingPreview?.isReadyToLand ? t('Ready To Land') : t('Needs Review')}
+          </span>
+        </div>
+        {loadingLandingPreview ? (
+          <div className="text-dim">{t('Calculating landing preview...')}</div>
+        ) : !landingPreview ? (
+          <div className="text-dim">{t('Landing preview is not available for this vessel yet.')}</div>
+        ) : (
+          <>
+            <div className="readiness-summary-row">
+              <span>{t('Branch category')}: {landingPreview.branchCategory}</span>
+              <span>{t('Landing mode')}: {landingPreview.landingMode || t('Inherited')}</span>
+              <span>{t('Cleanup')}: {landingPreview.branchCleanupPolicy || t('Inherited')}</span>
+              {landingPreview.expectedLandingAction && <span>{t('Action')}: {landingPreview.expectedLandingAction}</span>}
+              <span>{landingPreview.requirePassingChecksToLand ? t('Passing checks required') : t('Passing checks optional')}</span>
+            </div>
+            <div className="readiness-summary-row">
+              <span>{landingPreview.targetBranchProtected ? t('Protected target branch') : t('Target branch not protected')}</span>
+              {landingPreview.protectedBranchMatch && <span>{t('Policy')}: <span className="mono">{landingPreview.protectedBranchMatch}</span></span>}
+              {landingPreview.requirePullRequestForProtectedBranches && <span>{t('PR required for protected branches')}</span>}
+              {landingPreview.requireMergeQueueForReleaseBranches && <span>{t('Merge queue required for release branches')}</span>}
+            </div>
+            {landingPreview.latestCheckSummary && (
+              <div className="landing-preview-latest-check">
+                <strong>{t('Latest check')}</strong>
+                <div className="text-dim">{landingPreview.latestCheckSummary}</div>
+              </div>
+            )}
+            {landingPreview.issues.length > 0 ? (
+              <div className="readiness-issues">
+                {landingPreview.issues.map((issue, index) => (
+                  <div key={`${issue.code}-${index}`} className={`readiness-issue ${issue.severity.toLowerCase()}`}>
+                    <div className="readiness-issue-title-row">
+                      <strong>{issue.title}</strong>
+                      <span className={`readiness-issue-severity ${issue.severity.toLowerCase()}`}>{issue.severity}</span>
+                    </div>
+                    <div className="text-dim">{issue.message}</div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="readiness-success-copy">{t('No landing blockers are currently predicted for this vessel.')}</div>
+            )}
+          </>
+        )}
+      </div>
 
       {/* Vessel Info */}
       <div className="detail-grid">
@@ -236,7 +441,13 @@ export default function VesselDetail() {
         <div className="detail-field"><span className="detail-label">{t('Working Directory')}</span><span className="mono" title={t('Your local checkout where completed missions are merged')}>{vessel.workingDirectory || '-'}</span></div>
         <div className="detail-field"><span className="detail-label">{t('Landing Mode')}</span><span>{vessel.landingMode || '-'}</span></div>
         <div className="detail-field"><span className="detail-label">{t('Branch Cleanup Policy')}</span><span>{vessel.branchCleanupPolicy || '-'}</span></div>
+        <div className="detail-field"><span className="detail-label">{t('Release Branch Prefix')}</span><span className="mono">{vessel.releaseBranchPrefix || 'release/'}</span></div>
+        <div className="detail-field"><span className="detail-label">{t('Hotfix Branch Prefix')}</span><span className="mono">{vessel.hotfixBranchPrefix || 'hotfix/'}</span></div>
+        <div className="detail-field"><span className="detail-label">{t('Require Passing Checks To Land')}</span><span>{vessel.requirePassingChecksToLand ? t('Yes') : t('No')}</span></div>
+        <div className="detail-field"><span className="detail-label">{t('Require PR For Protected Branches')}</span><span>{vessel.requirePullRequestForProtectedBranches ? t('Yes') : t('No')}</span></div>
+        <div className="detail-field"><span className="detail-label">{t('Require Merge Queue For Release Branches')}</span><span>{vessel.requireMergeQueueForReleaseBranches ? t('Yes') : t('No')}</span></div>
         <div className="detail-field"><span className="detail-label">{t('Allow Concurrent Missions')}</span><span>{vessel.allowConcurrentMissions ? t('Yes') : t('No')}</span></div>
+        <div className="detail-field"><span className="detail-label">GitHub Token Override</span><span>{vessel.hasGitHubTokenOverride ? 'Configured' : 'Inherited / None'}</span></div>
         <div className="detail-field">
           <span className="detail-label">{t('Default Pipeline')}</span>
           <span>{pipelines.find(p => p.id === vessel.defaultPipelineId)?.name || vessel.defaultPipelineId || <span className="text-dim">{t('None (WorkerOnly)')}</span>}</span>
@@ -271,6 +482,13 @@ export default function VesselDetail() {
         <div className="detail-context-section">
           <h4>{t('Style Guide')}</h4>
           <pre className="detail-context-block">{vessel.styleGuide}</pre>
+        </div>
+      )}
+
+      {vessel.protectedBranchPatterns && vessel.protectedBranchPatterns.length > 0 && (
+        <div className="detail-context-section">
+          <h4>{t('Protected Branch Patterns')}</h4>
+          <pre className="detail-context-block">{vessel.protectedBranchPatterns.join('\n')}</pre>
         </div>
       )}
 

@@ -4,6 +4,26 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## v0.8.0
+
+Focus: backlog-first delivery management.
+
+### Backlog and Objectives
+- Added normalized first-class objective storage with ranked backlog metadata, lifecycle fields, source lineage, and continued `objective.snapshot` event emission
+- Added backlog alias REST routes, ranked reorder support, dashboard/.NET client request models, and MCP backlog CRUD plus reorder aliases
+- Added objective refinement sessions and transcript messages with explicit captain selection, captain availability checks, summary generation, apply-to-objective support, and server startup wiring
+
+### Delivery Lineage
+- Added automatic objective linkage through deployment and incident create/update flows, including inference from linked release, mission, voyage, and deployment context
+- Added deployment and incident objective-link helpers so the same objective remains the record of truth as work moves from release into rollout and response
+
+### Release and Migration
+- Bumped shared product/package metadata to `0.8.0` across .NET, Helm, dashboard, Postman, and current-version API/documentation surfaces
+- Added versioned `v0.7.0 -> v0.8.0` migration handoff scripts with backlog/objective and refinement table guidance for all supported backends
+- Updated schema/version verification coverage for the new backlog schema baseline
+
+---
+
 ## v0.7.0
 
 Focus: remote access.
@@ -31,6 +51,11 @@ Focus: remote access.
 - Added press-and-hold reveal controls for remote-control secrets and other protected login/setup inputs
 - Added a full playbook management surface in the dashboard with list, detail, editing, delete, and ordered selection UX on voyage dispatch flows
 - Added explicit success and warning toast feedback across dashboard mutation flows so save, delete, cancel, stop, and update actions acknowledge completion visibly
+- Added a first-class `Workspace` experience with vessel-aware file browsing, editing, search, git status, context curation, and direct planning/dispatch handoff
+- Added `System > Requests` and `System > API Explorer` so captured REST traffic, OpenAPI-backed live execution, and replay all live inside the Armada dashboard
+- Added a first-class `Delivery` section in the dashboard for workflow-profile management, structured check-run inspection, and release drafting/detail flows
+- Added first-class `Operations > Objectives`, `Delivery > Environments`, `Delivery > Deployments`, `Activity > Incidents`, and `System > Runbooks` dashboard surfaces for scoping, rollout, incident response, and guided operational execution
+- Added `Activity > History` with saved views and export so cross-entity delivery memory spans objectives, planning, dispatch, checks, releases, deployments, incidents, events, merge activity, and request history
 
 ### Playbooks
 - Added tenant-scoped markdown playbooks with CRUD across REST, MCP, proxy remote management, dashboard, CLI, SDK, and Postman
@@ -49,11 +74,35 @@ Focus: remote access.
 - Added locale-aware date, time, and number formatting for dashboard runtime data
 - Extended localization coverage to newer operational pages and shared controls so the playbook, dispatch, and administrative flows follow the same runtime and persistence model as the rest of the dashboard
 
+### Planning, Runtimes, and API Tooling
+- Added planning-session REST endpoints for list, create, transcript detail, message turns, summarize-to-dispatch, direct dispatch, stop, and delete flows
+- Added persistent request-history capture, summaries, scoped delete flows, and replay metadata across SQLite, PostgreSQL, SQL Server, and MySQL
+- Added Mux captain runtime integration, Mux endpoint/config support on captains, and runtime helper APIs for saved endpoint discovery
+- Added live OpenAPI publishing at `/openapi.json` and `/swagger` to back the dashboard API Explorer and external tooling
+
+### Delivery Workflows
+- Added workflow profiles as first-class vessel/fleet delivery recipes for lint, build, unit test, integration test, e2e test, package, publish artifact, release versioning, changelog, deploy, rollback, smoke-test, and health-check flows
+- Added workflow-profile validation, scope-aware default resolution, and required secret/config reference declarations across SQLite, PostgreSQL, SQL Server, and MySQL
+- Added workflow-profile CRUD, validation, resolve, and enumerate APIs plus `ArmadaApiClient` support and dashboard list/detail/edit flows
+- Added vessel readiness, setup-checklist onboarding, and typed workflow-input preflight across Workspace, vessel detail, Planning, Dispatch, and Checks
+- Added structured check runs with durable status, timings, logs, artifacts, parsed test/coverage summaries, compare-to-previous-run analysis, retry, branch/commit metadata, and mission/voyage/release linkage
+- Added check-run execute/import/read/retry/delete/enumerate APIs, dashboard list/detail flows, and launch hooks from Workspace, vessel detail, mission detail, voyage detail, and release detail
+- Added first-class release records with version inference, draft/candidate/shipped state, artifact aggregation, linked work, and refreshable derived notes
+- Added first-class objective records with linked vessels, planning sessions, voyages, checks, releases, deployments, incidents, and acceptance criteria
+- Added first-class environments and deployments with approval, verification, rollback, request-history evidence, and default-environment seeding on startup
+- Added first-class incidents, hotfix handoff, and playbook-backed runbooks with execution history
+- Added optional server-global `GitHubToken` configuration plus per-vessel `GitHubTokenOverride` fallback with write-only update semantics, request-history redaction, and `hasGitHubTokenOverride` read models across REST, MCP, WebSocket, and dashboard surfaces
+- Added pull-based GitHub delivery integration for objective import from issues or PR scope, GitHub Actions sync into structured checks, and GitHub PR review/check evidence on mission and release detail surfaces
+- Added MCP enumeration support for `workflow_profiles`, `check_runs`, `releases`, `objectives`, `deployments`, `incidents`, `runbooks`, and `runbook_executions`
+- Added MCP delivery and operations tools for `run_check`, `get_check_run`, `retry_check_run`, `create_release`, `get_release`, `create_objective`, `get_objective`, `create_deployment`, `get_deployment`, `approve_deployment`, `verify_deployment`, `rollback_deployment`, `get_runbook`, `get_runbook_execution`, and `start_runbook_execution`
+- Added WebSocket delivery and operations events for `check-run.changed`, `objective.changed`, `deployment.changed`, `deployment.progress`, `environment.health`, and `approval-needed`
+
 ### Release and Docs
-- Updated shared release metadata, docker tags, Postman examples, REST docs, MCP docs, and WebSocket docs to `v0.7.0`
+- Updated shared release metadata, docker tags, Postman examples, REST docs, MCP docs, and WebSocket docs to reflect the shipped objective, environment, deployment, incident, runbook, and history surfaces
 - Promoted the shipped remote-management guide into `docs/REMOTE_MGMT.md` and archived the earlier planning doc
 - Added no-op `v0.6.0 -> v0.7.0` migration scripts to reflect the release even though no database schema change is required
-- Updated README and operator docs for the new playbook lifecycle, delivery modes, remote playbook management flows, and internationalized dashboard behavior
+- Updated README and operator docs for the new playbook lifecycle, delivery modes, workflow profiles, readiness/onboarding, structured checks, releases, history, remote playbook management flows, workspace, request-history, planning-session, Mux, and internationalized dashboard behavior
+- Expanded database, automated, MCP, WebSocket, request-history, and dashboard Vitest coverage around workflow profiles, checks, releases, and history
 
 ---
 
@@ -109,7 +158,7 @@ Focus: dispatch and pipeline stability.
 - Every prompt is now template-driven and user-editable (18 built-in templates)
 - Categories: mission, persona, structure, commit, landing, agent
 - Dashboard two-column editor with parameter reference panel
-- MCP tools: armada_get/update/reset_prompt_template
+- MCP tools: get/update/reset_prompt_template
 - REST endpoints: /api/v1/prompt-templates CRUD
 
 ### Dashboard
@@ -137,8 +186,8 @@ Focus: dispatch and pipeline stability.
 - 11 new MCP tools (persona, pipeline, prompt template CRUD)
 - 17 new REST endpoints
 - 12 new WebSocket commands
-- armada_enumerate supports personas, prompt_templates, pipelines
-- armada_dispatch accepts pipelineId and pipeline (name) parameters
+- enumerate supports personas, prompt_templates, pipelines
+- dispatch accepts pipelineId and pipeline (name) parameters
 - Voyage status considers LandingFailed, WorkProduced, PullRequestOpen as terminal
 
 ### Documentation

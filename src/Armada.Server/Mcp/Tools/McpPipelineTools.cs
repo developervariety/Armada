@@ -28,7 +28,7 @@ namespace Armada.Server.Mcp.Tools
         public static void Register(RegisterToolDelegate register, DatabaseDriver database)
         {
             register(
-                "armada_create_pipeline",
+                "create_pipeline",
                 "Create a new pipeline with an ordered sequence of persona stages",
                 new
                 {
@@ -90,7 +90,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_get_pipeline",
+                "get_pipeline",
                 "Get a pipeline by name, including its stages",
                 new
                 {
@@ -112,7 +112,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_update_pipeline",
+                "update_pipeline",
                 "Update an existing pipeline's properties and stages",
                 new
                 {
@@ -180,7 +180,7 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "armada_delete_pipeline",
+                "delete_pipeline",
                 "Delete a pipeline by name. Built-in pipelines cannot be deleted.",
                 new
                 {

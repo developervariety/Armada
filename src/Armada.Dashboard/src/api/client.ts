@@ -11,8 +11,17 @@ import type {
   Fleet,
   Vessel,
   Captain,
+  CaptainToolAccessResult,
   Mission,
   Voyage,
+  Objective,
+  GitHubActionsSyncRequest,
+  GitHubActionsSyncResult,
+  GitHubObjectiveImportRequest,
+  GitHubPullRequestDetail,
+  ObjectiveQuery,
+  ObjectiveReorderRequest,
+  ObjectiveUpsertRequest,
   ArmadaEvent,
   MergeEntry,
   Signal,
@@ -29,6 +38,14 @@ import type {
   PlanningSessionMessageRequest,
   PlanningSessionSummaryRequest,
   PlanningSessionSummaryResponse,
+  ObjectiveRefinementApplyRequest,
+  ObjectiveRefinementApplyResponse,
+  ObjectiveRefinementMessageRequest,
+  ObjectiveRefinementSession,
+  ObjectiveRefinementSessionCreateRequest,
+  ObjectiveRefinementSessionDetail,
+  ObjectiveRefinementSummaryRequest,
+  ObjectiveRefinementSummaryResponse,
   TransitionRequest,
   SendSignalRequest,
   SettingsData,
@@ -39,8 +56,51 @@ import type {
   Persona,
   Pipeline,
   Playbook,
+  WorkflowProfile,
+  WorkflowProfileResolutionPreviewResult,
+  WorkflowProfileValidationResult,
+  CheckRun,
+  CheckRunImportRequest,
+  CheckRunRequest,
+  Deployment,
+  DeploymentEnvironment,
+  DeploymentEnvironmentQuery,
+  DeploymentEnvironmentUpsertRequest,
+  DeploymentQuery,
+  DeploymentUpsertRequest,
+  Incident,
+  IncidentQuery,
+  IncidentUpsertRequest,
+  Release,
+  ReleaseQuery,
+  ReleaseUpsertRequest,
+  HistoricalTimelineEntry,
+  HistoricalTimelineQuery,
+  VesselReadinessResult,
+  LandingPreviewResult,
   MuxEndpointListResult,
   MuxEndpointShowResult,
+  WorkspaceChangesResult,
+  WorkspaceCreateDirectoryRequest,
+  WorkspaceFileResponse,
+  WorkspaceOperationResult,
+  WorkspaceRenameRequest,
+  WorkspaceSaveRequest,
+  WorkspaceSaveResult,
+  WorkspaceSearchResult,
+  WorkspaceStatusResult,
+  WorkspaceTreeResult,
+  RequestHistoryEntry,
+  RequestHistoryQuery,
+  RequestHistoryRecord,
+  RequestHistorySummaryResult,
+  Runbook,
+  RunbookExecution,
+  RunbookExecutionQuery,
+  RunbookExecutionStartRequest,
+  RunbookExecutionUpdateRequest,
+  RunbookQuery,
+  RunbookUpsertRequest,
 } from '../types/models';
 
 const BASE_URL = import.meta.env.VITE_ARMADA_SERVER_URL || '';
@@ -153,6 +213,192 @@ function buildQuery(params?: { pageNumber?: number; pageSize?: number; filters?:
   return parts.length ? '?' + parts.join('&') : '';
 }
 
+function buildRequestHistoryQuery(params?: RequestHistoryQuery): string {
+  if (!params) return '';
+
+  const search = new URLSearchParams();
+  const parts: string[] = [];
+  if (params.pageNumber) search.set('pageNumber', String(params.pageNumber));
+  if (params.pageSize) search.set('pageSize', String(params.pageSize));
+  if (params.bucketMinutes) search.set('bucketMinutes', String(params.bucketMinutes));
+  if (params.method) search.set('method', params.method);
+  if (params.principal) search.set('principal', params.principal);
+  if (params.tenantId) search.set('tenantId', params.tenantId);
+  if (params.userId) search.set('userId', params.userId);
+  if (params.credentialId) search.set('credentialId', params.credentialId);
+  if (params.statusCode !== undefined && params.statusCode !== null) search.set('statusCode', String(params.statusCode));
+  if (params.isSuccess !== undefined && params.isSuccess !== null) search.set('isSuccess', String(params.isSuccess));
+  if (params.fromUtc) search.set('fromUtc', params.fromUtc);
+  if (params.toUtc) search.set('toUtc', params.toUtc);
+
+  const query = search.toString();
+  if (query) parts.push(query);
+  if (params.route) parts.push(`route=${encodeWorkspaceQueryPath(params.route)}`);
+  return parts.length ? `?${parts.join('&')}` : '';
+}
+
+function buildHistoryQuery(params?: HistoricalTimelineQuery): string {
+  if (!params) return '';
+
+  const search = new URLSearchParams();
+  if (params.pageNumber) search.set('pageNumber', String(params.pageNumber));
+  if (params.pageSize) search.set('pageSize', String(params.pageSize));
+  if (params.objectiveId) search.set('objectiveId', params.objectiveId);
+  if (params.vesselId) search.set('vesselId', params.vesselId);
+    if (params.environmentId) search.set('environmentId', params.environmentId);
+    if (params.deploymentId) search.set('deploymentId', params.deploymentId);
+    if (params.incidentId) search.set('incidentId', params.incidentId);
+    if (params.postmortemOnly) search.set('postmortemOnly', String(params.postmortemOnly));
+    if (params.missionId) search.set('missionId', params.missionId);
+  if (params.voyageId) search.set('voyageId', params.voyageId);
+  if (params.actor) search.set('actor', params.actor);
+  if (params.text) search.set('text', params.text);
+  if (params.fromUtc) search.set('fromUtc', params.fromUtc);
+  if (params.toUtc) search.set('toUtc', params.toUtc);
+  if (params.sourceTypes && params.sourceTypes.length > 0) search.set('sourceType', params.sourceTypes.join(','));
+
+  const query = search.toString();
+  return query ? `?${query}` : '';
+}
+
+function buildObjectiveQuery(params?: ObjectiveQuery): string {
+  if (!params) return '';
+
+  const search = new URLSearchParams();
+  if (params.pageNumber) search.set('pageNumber', String(params.pageNumber));
+  if (params.pageSize) search.set('pageSize', String(params.pageSize));
+  if (params.owner) search.set('owner', params.owner);
+  if (params.category) search.set('category', params.category);
+  if (params.parentObjectiveId) search.set('parentObjectiveId', params.parentObjectiveId);
+  if (params.vesselId) search.set('vesselId', params.vesselId);
+  if (params.fleetId) search.set('fleetId', params.fleetId);
+  if (params.planningSessionId) search.set('planningSessionId', params.planningSessionId);
+  if (params.voyageId) search.set('voyageId', params.voyageId);
+  if (params.missionId) search.set('missionId', params.missionId);
+  if (params.checkRunId) search.set('checkRunId', params.checkRunId);
+  if (params.releaseId) search.set('releaseId', params.releaseId);
+  if (params.deploymentId) search.set('deploymentId', params.deploymentId);
+  if (params.incidentId) search.set('incidentId', params.incidentId);
+  if (params.tag) search.set('tag', params.tag);
+  if (params.status) search.set('status', params.status);
+  if (params.backlogState) search.set('backlogState', params.backlogState);
+  if (params.kind) search.set('kind', params.kind);
+  if (params.priority) search.set('priority', params.priority);
+  if (params.effort) search.set('effort', params.effort);
+  if (params.targetVersion) search.set('targetVersion', params.targetVersion);
+  if (params.search) search.set('search', params.search);
+  if (params.fromUtc) search.set('fromUtc', params.fromUtc);
+  if (params.toUtc) search.set('toUtc', params.toUtc);
+  const query = search.toString();
+  return query ? `?${query}` : '';
+}
+
+function buildReleaseQuery(params?: ReleaseQuery): string {
+  if (!params) return '';
+
+  const search = new URLSearchParams();
+  if (params.pageNumber) search.set('pageNumber', String(params.pageNumber));
+  if (params.pageSize) search.set('pageSize', String(params.pageSize));
+  if (params.vesselId) search.set('vesselId', params.vesselId);
+  if (params.workflowProfileId) search.set('workflowProfileId', params.workflowProfileId);
+  if (params.voyageId) search.set('voyageId', params.voyageId);
+  if (params.missionId) search.set('missionId', params.missionId);
+  if (params.checkRunId) search.set('checkRunId', params.checkRunId);
+  if (params.status) search.set('status', params.status);
+  if (params.search) search.set('search', params.search);
+  if (params.fromUtc) search.set('fromUtc', params.fromUtc);
+  if (params.toUtc) search.set('toUtc', params.toUtc);
+  const query = search.toString();
+  return query ? `?${query}` : '';
+}
+
+function buildEnvironmentQuery(params?: DeploymentEnvironmentQuery): string {
+  if (!params) return '';
+
+  const search = new URLSearchParams();
+  if (params.pageNumber) search.set('pageNumber', String(params.pageNumber));
+  if (params.pageSize) search.set('pageSize', String(params.pageSize));
+  if (params.vesselId) search.set('vesselId', params.vesselId);
+  if (params.kind) search.set('kind', params.kind);
+  if (params.isDefault !== undefined && params.isDefault !== null) search.set('isDefault', String(params.isDefault));
+  if (params.active !== undefined && params.active !== null) search.set('active', String(params.active));
+  if (params.search) search.set('search', params.search);
+  const query = search.toString();
+  return query ? `?${query}` : '';
+}
+
+function buildDeploymentQuery(params?: DeploymentQuery): string {
+  if (!params) return '';
+
+  const search = new URLSearchParams();
+  if (params.pageNumber) search.set('pageNumber', String(params.pageNumber));
+  if (params.pageSize) search.set('pageSize', String(params.pageSize));
+  if (params.vesselId) search.set('vesselId', params.vesselId);
+  if (params.workflowProfileId) search.set('workflowProfileId', params.workflowProfileId);
+  if (params.environmentId) search.set('environmentId', params.environmentId);
+  if (params.environmentName) search.set('environmentName', params.environmentName);
+  if (params.releaseId) search.set('releaseId', params.releaseId);
+  if (params.missionId) search.set('missionId', params.missionId);
+  if (params.voyageId) search.set('voyageId', params.voyageId);
+  if (params.checkRunId) search.set('checkRunId', params.checkRunId);
+  if (params.status) search.set('status', params.status);
+  if (params.verificationStatus) search.set('verificationStatus', params.verificationStatus);
+  if (params.search) search.set('search', params.search);
+  if (params.fromUtc) search.set('fromUtc', params.fromUtc);
+  if (params.toUtc) search.set('toUtc', params.toUtc);
+  const query = search.toString();
+  return query ? `?${query}` : '';
+}
+
+function buildIncidentQuery(params?: IncidentQuery): string {
+  if (!params) return '';
+
+  const search = new URLSearchParams();
+  if (params.pageNumber) search.set('pageNumber', String(params.pageNumber));
+  if (params.pageSize) search.set('pageSize', String(params.pageSize));
+  if (params.vesselId) search.set('vesselId', params.vesselId);
+  if (params.environmentId) search.set('environmentId', params.environmentId);
+  if (params.deploymentId) search.set('deploymentId', params.deploymentId);
+  if (params.releaseId) search.set('releaseId', params.releaseId);
+  if (params.missionId) search.set('missionId', params.missionId);
+  if (params.voyageId) search.set('voyageId', params.voyageId);
+  if (params.status) search.set('status', params.status);
+  if (params.severity) search.set('severity', params.severity);
+  if (params.search) search.set('search', params.search);
+  const query = search.toString();
+  return query ? `?${query}` : '';
+}
+
+function buildRunbookQuery(params?: RunbookQuery): string {
+  if (!params) return '';
+
+  const search = new URLSearchParams();
+  if (params.pageNumber) search.set('pageNumber', String(params.pageNumber));
+  if (params.pageSize) search.set('pageSize', String(params.pageSize));
+  if (params.workflowProfileId) search.set('workflowProfileId', params.workflowProfileId);
+  if (params.environmentId) search.set('environmentId', params.environmentId);
+  if (params.defaultCheckType) search.set('defaultCheckType', params.defaultCheckType);
+  if (params.active !== undefined && params.active !== null) search.set('active', String(params.active));
+  if (params.search) search.set('search', params.search);
+  const query = search.toString();
+  return query ? `?${query}` : '';
+}
+
+function buildRunbookExecutionQuery(params?: RunbookExecutionQuery): string {
+  if (!params) return '';
+
+  const search = new URLSearchParams();
+  if (params.pageNumber) search.set('pageNumber', String(params.pageNumber));
+  if (params.pageSize) search.set('pageSize', String(params.pageSize));
+  if (params.runbookId) search.set('runbookId', params.runbookId);
+  if (params.deploymentId) search.set('deploymentId', params.deploymentId);
+  if (params.incidentId) search.set('incidentId', params.incidentId);
+  if (params.status) search.set('status', params.status);
+  if (params.search) search.set('search', params.search);
+  const query = search.toString();
+  return query ? `?${query}` : '';
+}
+
 // ==================== Auth ====================
 export const authenticate = (req: AuthenticateRequest) =>
   post<AuthenticateResult>('/api/v1/authenticate', req);
@@ -196,12 +442,117 @@ export const getVessel = (id: string) => get<Vessel>(`/api/v1/vessels/${id}`);
 export const createVessel = (data: Partial<Vessel>) => post<Vessel>('/api/v1/vessels', data);
 export const updateVessel = (id: string, data: Partial<Vessel>) => put<Vessel>(`/api/v1/vessels/${id}`, data);
 export const deleteVessel = (id: string) => del<void>(`/api/v1/vessels/${id}`);
+export const getVesselReadiness = (
+  id: string,
+  params?: {
+    workflowProfileId?: string | null;
+    checkType?: string | null;
+    environmentName?: string | null;
+    includeWorkflowRequirements?: boolean;
+  },
+) => {
+  const query = new URLSearchParams();
+  if (params?.workflowProfileId) query.set('workflowProfileId', params.workflowProfileId);
+  if (params?.checkType) query.set('checkType', params.checkType);
+  if (params?.environmentName) query.set('environmentName', params.environmentName);
+  if (typeof params?.includeWorkflowRequirements === 'boolean') query.set('includeWorkflowRequirements', String(params.includeWorkflowRequirements));
+  const suffix = query.toString().length > 0 ? `?${query.toString()}` : '';
+  return get<VesselReadinessResult>(`/api/v1/vessels/${encodeURIComponent(id)}/readiness${suffix}`);
+};
+export const getVesselLandingPreview = (id: string, sourceBranch?: string | null) =>
+  get<LandingPreviewResult>(`/api/v1/vessels/${encodeURIComponent(id)}/landing-preview${sourceBranch ? `?sourceBranch=${encodeURIComponent(sourceBranch)}` : ''}`);
 export const getVesselGitStatus = (id: string) => get<{ vesselId: string; commitsAhead: number | null; commitsBehind: number | null; error?: string }>(`/api/v1/vessels/${id}/git-status`);
+
+// ==================== Workspace ====================
+function encodeWorkspaceQueryPath(path: string) {
+  return encodeURIComponent(path).replace(/%2F/g, '/');
+}
+
+export const getWorkspaceStatus = (vesselId: string) =>
+  get<WorkspaceStatusResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/status`);
+export const getWorkspaceTree = (vesselId: string, path?: string) =>
+  get<WorkspaceTreeResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/tree${path ? `?path=${encodeWorkspaceQueryPath(path)}` : ''}`);
+export const getWorkspaceFile = (vesselId: string, path: string) =>
+  get<WorkspaceFileResponse>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/file?path=${encodeWorkspaceQueryPath(path)}`);
+export const saveWorkspaceFile = (vesselId: string, data: WorkspaceSaveRequest) =>
+  put<WorkspaceSaveResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/file`, data);
+export const createWorkspaceDirectory = (vesselId: string, data: WorkspaceCreateDirectoryRequest) =>
+  post<WorkspaceOperationResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/directory`, data);
+export const renameWorkspaceEntry = (vesselId: string, data: WorkspaceRenameRequest) =>
+  post<WorkspaceOperationResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/rename`, data);
+export const deleteWorkspaceEntry = (vesselId: string, path: string) =>
+  del<WorkspaceOperationResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/entry?path=${encodeWorkspaceQueryPath(path)}`);
+export const searchWorkspace = (vesselId: string, query: string, maxResults = 200) =>
+  get<WorkspaceSearchResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/search?q=${encodeURIComponent(query)}&maxResults=${maxResults}`);
+export const getWorkspaceChanges = (vesselId: string) =>
+  get<WorkspaceChangesResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/changes`);
+
+// ==================== Request History ====================
+export const listRequestHistory = (params?: RequestHistoryQuery) =>
+  get<EnumerationResult<RequestHistoryEntry>>(`/api/v1/request-history${buildRequestHistoryQuery(params)}`);
+export const getRequestHistorySummary = (params?: RequestHistoryQuery) =>
+  get<RequestHistorySummaryResult>(`/api/v1/request-history/summary${buildRequestHistoryQuery(params)}`);
+export const getRequestHistoryEntry = (id: string) =>
+  get<RequestHistoryRecord>(`/api/v1/request-history/${encodeURIComponent(id)}`);
+export const deleteRequestHistoryEntry = (id: string) =>
+  del<void>(`/api/v1/request-history/${encodeURIComponent(id)}`);
+export const deleteRequestHistoryEntries = (ids: string[]) =>
+  post<BatchDeleteResult>('/api/v1/request-history/delete/multiple', { Ids: ids });
+export const deleteRequestHistoryByFilter = (query: RequestHistoryQuery) =>
+  post<BatchDeleteResult>('/api/v1/request-history/delete/by-filter', query);
+
+// ==================== History ====================
+export const listHistoryTimeline = (params?: HistoricalTimelineQuery) =>
+  get<EnumerationResult<HistoricalTimelineEntry>>(`/api/v1/history${buildHistoryQuery(params)}`);
+export const enumerateHistoryTimeline = (query?: HistoricalTimelineQuery) =>
+  post<EnumerationResult<HistoricalTimelineEntry>>('/api/v1/history/enumerate', query || {});
+
+// ==================== Objectives ====================
+export const listObjectives = (params?: ObjectiveQuery) =>
+  get<EnumerationResult<Objective>>(`/api/v1/objectives${buildObjectiveQuery(params)}`);
+export const enumerateObjectives = (query?: ObjectiveQuery) =>
+  post<EnumerationResult<Objective>>('/api/v1/objectives/enumerate', query || {});
+export const reorderObjectives = (data: ObjectiveReorderRequest) => post<Objective[]>('/api/v1/objectives/reorder', data);
+export const getObjective = (id: string) => get<Objective>(`/api/v1/objectives/${encodeURIComponent(id)}`);
+export const createObjective = (data: ObjectiveUpsertRequest) => post<Objective>('/api/v1/objectives', data);
+export const updateObjective = (id: string, data: ObjectiveUpsertRequest) => put<Objective>(`/api/v1/objectives/${encodeURIComponent(id)}`, data);
+export const deleteObjective = (id: string) => del<void>(`/api/v1/objectives/${encodeURIComponent(id)}`);
+export const importObjectiveFromGitHub = (data: GitHubObjectiveImportRequest) => post<Objective>('/api/v1/objectives/import/github', data);
+export const listBacklog = (params?: ObjectiveQuery) =>
+  get<EnumerationResult<Objective>>(`/api/v1/backlog${buildObjectiveQuery(params)}`);
+export const enumerateBacklog = (query?: ObjectiveQuery) =>
+  post<EnumerationResult<Objective>>('/api/v1/backlog/enumerate', query || {});
+export const reorderBacklog = (data: ObjectiveReorderRequest) => post<Objective[]>('/api/v1/backlog/reorder', data);
+export const getBacklogItem = (id: string) => get<Objective>(`/api/v1/backlog/${encodeURIComponent(id)}`);
+export const createBacklogItem = (data: ObjectiveUpsertRequest) => post<Objective>('/api/v1/backlog', data);
+export const updateBacklogItem = (id: string, data: ObjectiveUpsertRequest) => put<Objective>(`/api/v1/backlog/${encodeURIComponent(id)}`, data);
+export const deleteBacklogItem = (id: string) => del<void>(`/api/v1/backlog/${encodeURIComponent(id)}`);
+export const listObjectiveRefinementSessions = (objectiveId: string) =>
+  get<ObjectiveRefinementSession[]>(`/api/v1/objectives/${encodeURIComponent(objectiveId)}/refinement-sessions`);
+export const listBacklogRefinementSessions = (objectiveId: string) =>
+  get<ObjectiveRefinementSession[]>(`/api/v1/backlog/${encodeURIComponent(objectiveId)}/refinement-sessions`);
+export const createObjectiveRefinementSession = (objectiveId: string, data: ObjectiveRefinementSessionCreateRequest) =>
+  post<ObjectiveRefinementSessionDetail>(`/api/v1/objectives/${encodeURIComponent(objectiveId)}/refinement-sessions`, data, { timeout: PLANNING_CREATE_TIMEOUT_MS });
+export const createBacklogRefinementSession = (objectiveId: string, data: ObjectiveRefinementSessionCreateRequest) =>
+  post<ObjectiveRefinementSessionDetail>(`/api/v1/backlog/${encodeURIComponent(objectiveId)}/refinement-sessions`, data, { timeout: PLANNING_CREATE_TIMEOUT_MS });
+export const getObjectiveRefinementSession = (sessionId: string) =>
+  get<ObjectiveRefinementSessionDetail>(`/api/v1/objective-refinement-sessions/${encodeURIComponent(sessionId)}`);
+export const sendObjectiveRefinementMessage = (sessionId: string, data: ObjectiveRefinementMessageRequest) =>
+  post<ObjectiveRefinementSessionDetail>(`/api/v1/objective-refinement-sessions/${encodeURIComponent(sessionId)}/messages`, data);
+export const summarizeObjectiveRefinementSession = (sessionId: string, data?: ObjectiveRefinementSummaryRequest) =>
+  post<ObjectiveRefinementSummaryResponse>(`/api/v1/objective-refinement-sessions/${encodeURIComponent(sessionId)}/summarize`, data || {}, { timeout: PLANNING_SUMMARIZE_TIMEOUT_MS });
+export const applyObjectiveRefinementSummary = (sessionId: string, data?: ObjectiveRefinementApplyRequest) =>
+  post<ObjectiveRefinementApplyResponse>(`/api/v1/objective-refinement-sessions/${encodeURIComponent(sessionId)}/apply`, data || {}, { timeout: PLANNING_SUMMARIZE_TIMEOUT_MS });
+export const stopObjectiveRefinementSession = (sessionId: string) =>
+  post<ObjectiveRefinementSessionDetail>(`/api/v1/objective-refinement-sessions/${encodeURIComponent(sessionId)}/stop`);
+export const deleteObjectiveRefinementSession = (sessionId: string) =>
+  del<void>(`/api/v1/objective-refinement-sessions/${encodeURIComponent(sessionId)}`);
 
 // ==================== Captains ====================
 export const listCaptains = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
   get<EnumerationResult<Captain>>(`/api/v1/captains${buildQuery(params)}`);
 export const getCaptain = (id: string) => get<Captain>(`/api/v1/captains/${id}`);
+export const getCaptainTools = (id: string) => get<CaptainToolAccessResult>(`/api/v1/captains/${id}/tools`);
 export const createCaptain = (data: Partial<Captain>) => post<Captain>('/api/v1/captains', data);
 export const updateCaptain = (id: string, data: Partial<Captain>) => put<Captain>(`/api/v1/captains/${id}`, data);
 export const deleteCaptain = (id: string) => del<void>(`/api/v1/captains/${id}`);
@@ -233,6 +584,8 @@ export async function restartCaptain(id: string): Promise<Captain> {
 export const listMissions = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
   get<EnumerationResult<Mission>>(`/api/v1/missions${buildQuery(params)}`);
 export const getMission = (id: string) => get<Mission>(`/api/v1/missions/${id}`);
+export const getMissionLandingPreview = (id: string) => get<LandingPreviewResult>(`/api/v1/missions/${encodeURIComponent(id)}/landing-preview`);
+export const getMissionGitHubPullRequest = (id: string) => get<GitHubPullRequestDetail>(`/api/v1/missions/${encodeURIComponent(id)}/github/pull-request`);
 export const createMission = (data: Partial<Mission>) => post<Mission>('/api/v1/missions', data);
 export const updateMission = (id: string, data: Partial<Mission>) => put<Mission>(`/api/v1/missions/${id}`, data);
 export const deleteMission = (id: string) => del<void>(`/api/v1/missions/${id}`);
@@ -241,6 +594,8 @@ export const dispatchMission = (data: DispatchRequest) => post<Mission>('/api/v1
 export const restartMission = (id: string) => post<Mission>(`/api/v1/missions/${id}/restart`);
 export const retryMissionLanding = (id: string) => post<any>(`/api/v1/missions/${id}/retry-landing`, {});
 export const transitionMission = (id: string, data: TransitionRequest) => put<Mission>(`/api/v1/missions/${id}/status`, data);
+export const approveMissionReview = (id: string, comment?: string) => post<Mission>(`/api/v1/missions/${id}/review/approve`, comment ? { comment } : {});
+export const denyMissionReview = (id: string, comment?: string) => post<Mission>(`/api/v1/missions/${id}/review/deny`, comment ? { comment } : {});
 export const getMissionDiff = (id: string) => get<DiffResult>(`/api/v1/missions/${id}/diff`, { timeout: 30000 });
 export const getMissionLog = (id: string, lines = 500) => get<LogResult>(`/api/v1/missions/${id}/log?lines=${lines}`);
 export const getMissionInstructions = (id: string) => get<InstructionsResult>(`/api/v1/missions/${id}/instructions`);
@@ -286,6 +641,8 @@ export const cancelMergeEntry = (id: string) => post<void>(`/api/v1/merge-queue/
 export const listPromptTemplates = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
   get<EnumerationResult<PromptTemplate>>(`/api/v1/prompt-templates${buildQuery(params)}`);
 export const getPromptTemplate = (name: string) => get<PromptTemplate>(`/api/v1/prompt-templates/${encodeURIComponent(name)}`);
+export const createPromptTemplate = (data: { name: string; category: string; content: string; description?: string; active?: boolean }) =>
+  post<PromptTemplate>('/api/v1/prompt-templates', data);
 export const updatePromptTemplate = (name: string, data: { content: string; description?: string }) => put<PromptTemplate>(`/api/v1/prompt-templates/${encodeURIComponent(name)}`, data);
 export const resetPromptTemplate = (name: string) => post<PromptTemplate>(`/api/v1/prompt-templates/${encodeURIComponent(name)}/reset`);
 
@@ -296,6 +653,95 @@ export const getPlaybook = (id: string) => get<Playbook>(`/api/v1/playbooks/${id
 export const createPlaybook = (data: Partial<Playbook>) => post<Playbook>('/api/v1/playbooks', data);
 export const updatePlaybook = (id: string, data: Partial<Playbook>) => put<Playbook>(`/api/v1/playbooks/${id}`, data);
 export const deletePlaybook = (id: string) => del<void>(`/api/v1/playbooks/${id}`);
+
+// ==================== Workflow Profiles ====================
+export const listWorkflowProfiles = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
+  get<EnumerationResult<WorkflowProfile>>(`/api/v1/workflow-profiles${buildQuery(params)}`);
+export const getWorkflowProfile = (id: string) => get<WorkflowProfile>(`/api/v1/workflow-profiles/${encodeURIComponent(id)}`);
+export const createWorkflowProfile = (data: Partial<WorkflowProfile>) => post<WorkflowProfile>('/api/v1/workflow-profiles', data);
+export const updateWorkflowProfile = (id: string, data: Partial<WorkflowProfile>) => put<WorkflowProfile>(`/api/v1/workflow-profiles/${encodeURIComponent(id)}`, data);
+export const deleteWorkflowProfile = (id: string) => del<void>(`/api/v1/workflow-profiles/${encodeURIComponent(id)}`);
+export const validateWorkflowProfile = (data: Partial<WorkflowProfile>) => post<WorkflowProfileValidationResult>('/api/v1/workflow-profiles/validate', data);
+export const previewWorkflowProfileForVessel = (vesselId: string, workflowProfileId?: string | null) =>
+  get<WorkflowProfileResolutionPreviewResult>(`/api/v1/workflow-profiles/preview/vessels/${encodeURIComponent(vesselId)}${workflowProfileId ? `?workflowProfileId=${encodeURIComponent(workflowProfileId)}` : ''}`);
+export const resolveWorkflowProfile = (vesselId: string, workflowProfileId?: string | null) =>
+  get<WorkflowProfile>(`/api/v1/workflow-profiles/resolve/vessels/${encodeURIComponent(vesselId)}${workflowProfileId ? `?workflowProfileId=${encodeURIComponent(workflowProfileId)}` : ''}`);
+
+// ==================== Environments ====================
+export const listEnvironments = (params?: DeploymentEnvironmentQuery) =>
+  get<EnumerationResult<DeploymentEnvironment>>(`/api/v1/environments${buildEnvironmentQuery(params)}`);
+export const enumerateEnvironments = (query?: DeploymentEnvironmentQuery) =>
+  post<EnumerationResult<DeploymentEnvironment>>('/api/v1/environments/enumerate', query || {});
+export const getEnvironment = (id: string) => get<DeploymentEnvironment>(`/api/v1/environments/${encodeURIComponent(id)}`);
+export const createEnvironment = (data: DeploymentEnvironmentUpsertRequest) => post<DeploymentEnvironment>('/api/v1/environments', data);
+export const updateEnvironment = (id: string, data: DeploymentEnvironmentUpsertRequest) => put<DeploymentEnvironment>(`/api/v1/environments/${encodeURIComponent(id)}`, data);
+export const deleteEnvironment = (id: string) => del<void>(`/api/v1/environments/${encodeURIComponent(id)}`);
+
+// ==================== Deployments ====================
+export const listDeployments = (params?: DeploymentQuery) =>
+  get<EnumerationResult<Deployment>>(`/api/v1/deployments${buildDeploymentQuery(params)}`);
+export const enumerateDeployments = (query?: DeploymentQuery) =>
+  post<EnumerationResult<Deployment>>('/api/v1/deployments/enumerate', query || {});
+export const getDeployment = (id: string) => get<Deployment>(`/api/v1/deployments/${encodeURIComponent(id)}`);
+export const createDeployment = (data: DeploymentUpsertRequest) => post<Deployment>('/api/v1/deployments', data);
+export const updateDeployment = (id: string, data: DeploymentUpsertRequest) => put<Deployment>(`/api/v1/deployments/${encodeURIComponent(id)}`, data);
+export const syncGitHubActions = (data: GitHubActionsSyncRequest) => post<GitHubActionsSyncResult>('/api/v1/check-runs/sync/github-actions', data);
+export const approveDeployment = (id: string, comment?: string | null) => post<Deployment>(`/api/v1/deployments/${encodeURIComponent(id)}/approve`, comment ? { comment } : {});
+export const denyDeployment = (id: string, comment?: string | null) => post<Deployment>(`/api/v1/deployments/${encodeURIComponent(id)}/deny`, comment ? { comment } : {});
+export const verifyDeployment = (id: string) => post<Deployment>(`/api/v1/deployments/${encodeURIComponent(id)}/verify`, {});
+export const rollbackDeployment = (id: string) => post<Deployment>(`/api/v1/deployments/${encodeURIComponent(id)}/rollback`, {});
+export const deleteDeployment = (id: string) => del<void>(`/api/v1/deployments/${encodeURIComponent(id)}`);
+
+// ==================== Incidents ====================
+export const listIncidents = (params?: IncidentQuery) =>
+  get<EnumerationResult<Incident>>(`/api/v1/incidents${buildIncidentQuery(params)}`);
+export const enumerateIncidents = (query?: IncidentQuery) =>
+  post<EnumerationResult<Incident>>('/api/v1/incidents/enumerate', query || {});
+export const getIncident = (id: string) => get<Incident>(`/api/v1/incidents/${encodeURIComponent(id)}`);
+export const createIncident = (data: IncidentUpsertRequest) => post<Incident>('/api/v1/incidents', data);
+export const updateIncident = (id: string, data: IncidentUpsertRequest) => put<Incident>(`/api/v1/incidents/${encodeURIComponent(id)}`, data);
+export const deleteIncident = (id: string) => del<void>(`/api/v1/incidents/${encodeURIComponent(id)}`);
+
+// ==================== Runbooks ====================
+export const listRunbooks = (params?: RunbookQuery) =>
+  get<EnumerationResult<Runbook>>(`/api/v1/runbooks${buildRunbookQuery(params)}`);
+export const enumerateRunbooks = (query?: RunbookQuery) =>
+  post<EnumerationResult<Runbook>>('/api/v1/runbooks/enumerate', query || {});
+export const getRunbook = (id: string) => get<Runbook>(`/api/v1/runbooks/${encodeURIComponent(id)}`);
+export const createRunbook = (data: RunbookUpsertRequest) => post<Runbook>('/api/v1/runbooks', data);
+export const updateRunbook = (id: string, data: RunbookUpsertRequest) => put<Runbook>(`/api/v1/runbooks/${encodeURIComponent(id)}`, data);
+export const deleteRunbook = (id: string) => del<void>(`/api/v1/runbooks/${encodeURIComponent(id)}`);
+export const listRunbookExecutions = (params?: RunbookExecutionQuery) =>
+  get<EnumerationResult<RunbookExecution>>(`/api/v1/runbook-executions${buildRunbookExecutionQuery(params)}`);
+export const enumerateRunbookExecutions = (query?: RunbookExecutionQuery) =>
+  post<EnumerationResult<RunbookExecution>>('/api/v1/runbook-executions/enumerate', query || {});
+export const getRunbookExecution = (id: string) => get<RunbookExecution>(`/api/v1/runbook-executions/${encodeURIComponent(id)}`);
+export const startRunbookExecution = (runbookId: string, data: RunbookExecutionStartRequest) =>
+  post<RunbookExecution>(`/api/v1/runbooks/${encodeURIComponent(runbookId)}/executions`, data);
+export const updateRunbookExecution = (id: string, data: RunbookExecutionUpdateRequest) =>
+  put<RunbookExecution>(`/api/v1/runbook-executions/${encodeURIComponent(id)}`, data);
+export const deleteRunbookExecution = (id: string) => del<void>(`/api/v1/runbook-executions/${encodeURIComponent(id)}`);
+
+// ==================== Releases ====================
+export const listReleases = (params?: ReleaseQuery) =>
+  get<EnumerationResult<Release>>(`/api/v1/releases${buildReleaseQuery(params)}`);
+export const enumerateReleases = (query?: ReleaseQuery) =>
+  post<EnumerationResult<Release>>('/api/v1/releases/enumerate', query || {});
+export const getRelease = (id: string) => get<Release>(`/api/v1/releases/${encodeURIComponent(id)}`);
+export const createRelease = (data: ReleaseUpsertRequest) => post<Release>('/api/v1/releases', data);
+export const updateRelease = (id: string, data: ReleaseUpsertRequest) => put<Release>(`/api/v1/releases/${encodeURIComponent(id)}`, data);
+export const refreshRelease = (id: string) => post<Release>(`/api/v1/releases/${encodeURIComponent(id)}/refresh`, {});
+export const deleteRelease = (id: string) => del<void>(`/api/v1/releases/${encodeURIComponent(id)}`);
+export const getReleaseGitHubPullRequests = (id: string) => get<GitHubPullRequestDetail[]>(`/api/v1/releases/${encodeURIComponent(id)}/github/pull-requests`);
+
+// ==================== Check Runs ====================
+export const listCheckRuns = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
+  get<EnumerationResult<CheckRun>>(`/api/v1/check-runs${buildQuery(params)}`);
+export const getCheckRun = (id: string) => get<CheckRun>(`/api/v1/check-runs/${encodeURIComponent(id)}`);
+export const runCheck = (data: CheckRunRequest) => post<CheckRun>('/api/v1/check-runs', data, { timeout: 35 * 60 * 1000 });
+export const importCheckRun = (data: CheckRunImportRequest) => post<CheckRun>('/api/v1/check-runs/import', data);
+export const retryCheckRun = (id: string) => post<CheckRun>(`/api/v1/check-runs/${encodeURIComponent(id)}/retry`);
+export const deleteCheckRun = (id: string) => del<void>(`/api/v1/check-runs/${encodeURIComponent(id)}`);
 
 // ==================== Personas ====================
 export const listPersonas = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
@@ -388,6 +834,10 @@ export function getEntity(type: string, id: string): Promise<unknown> {
     docks: 'docks',
     'merge-queue': 'merge-queue',
     playbooks: 'playbooks',
+    objectives: 'objectives',
+    releases: 'releases',
+    environments: 'environments',
+    deployments: 'deployments',
   };
   const endpoint = typeMap[type];
   if (!endpoint) throw new Error(`Unknown entity type: ${type}`);

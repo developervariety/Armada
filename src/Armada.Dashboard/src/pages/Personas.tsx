@@ -12,6 +12,7 @@ import RefreshButton from '../components/shared/RefreshButton';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
+import { buildPersonaDuplicatePayload } from '../lib/duplicates';
 
 type SortDir = 'asc' | 'desc';
 type SortField = 'name' | 'description' | 'promptTemplateName' | 'isBuiltIn' | 'active' | 'createdUtc';
@@ -147,6 +148,16 @@ export default function Personas() {
     });
   }
 
+  async function handleDuplicate(persona: Persona) {
+    try {
+      const created = await createPersona(buildPersonaDuplicatePayload(persona));
+      pushToast('success', t('Persona "{{name}}" duplicated.', { name: created.name }));
+      navigate(`/personas/${encodeURIComponent(created.name)}`);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('Duplicate failed.'));
+    }
+  }
+
   return (
     <div>
       <div className="view-header">
@@ -258,6 +269,8 @@ export default function Personas() {
                       <ActionMenu id={`persona-${p.name}`} items={[
                         { label: 'View Detail', onClick: () => navigate(`/personas/${encodeURIComponent(p.name)}`) },
                         { label: 'Edit', onClick: () => openEdit(p) },
+                        { label: 'Duplicate', onClick: () => void handleDuplicate(p) },
+                        { label: 'Edit Backing Prompt', onClick: () => navigate(`/prompt-templates/${encodeURIComponent(p.promptTemplateName)}`) },
                         { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `${t('Persona')}: ${p.name}`, data: p }) },
                         ...(!p.isBuiltIn ? [{ label: 'Delete', danger: true as const, onClick: () => handleDelete(p.name) }] : []),
                       ]} />

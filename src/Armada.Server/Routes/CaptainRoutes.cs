@@ -25,9 +25,11 @@ namespace Armada.Server.Routes
         private readonly ArmadaSettings _settings;
         private readonly AgentRuntimeFactory _runtimeFactory;
         private readonly AgentLifecycleHandler _agentLifecycle;
+        private readonly CaptainToolService _captainTools;
         private readonly Func<string, string, string?, string?, string?, string?, string?, string?, Task> _emitEvent;
         private readonly JsonSerializerOptions _jsonOptions;
         private readonly PlanningSessionCoordinator? _planningSessions;
+        private readonly ObjectiveRefinementCoordinator? _objectiveRefinementSessions;
 
         /// <summary>
         /// Instantiate.
@@ -37,27 +39,33 @@ namespace Armada.Server.Routes
         /// <param name="settings">Application settings.</param>
         /// <param name="runtimeFactory">Agent runtime factory.</param>
         /// <param name="agentLifecycle">Agent lifecycle handler used for model validation.</param>
+        /// <param name="captainTools">Captain tool availability service.</param>
         /// <param name="emitEvent">Event broadcast callback.</param>
         /// <param name="jsonOptions">JSON serializer options.</param>
         /// <param name="planningSessions">Optional planning session coordinator for captain-planning ownership handoff.</param>
+        /// <param name="objectiveRefinementSessions">Optional objective refinement coordinator for captain-refinement ownership handoff.</param>
         public CaptainRoutes(
             DatabaseDriver database,
             IAdmiralService admiral,
             ArmadaSettings settings,
             AgentRuntimeFactory runtimeFactory,
             AgentLifecycleHandler agentLifecycle,
+            CaptainToolService captainTools,
             Func<string, string, string?, string?, string?, string?, string?, string?, Task> emitEvent,
             JsonSerializerOptions jsonOptions,
-            PlanningSessionCoordinator? planningSessions = null)
+            PlanningSessionCoordinator? planningSessions = null,
+            ObjectiveRefinementCoordinator? objectiveRefinementSessions = null)
         {
             _database = database;
             _admiral = admiral;
             _settings = settings;
             _runtimeFactory = runtimeFactory;
             _agentLifecycle = agentLifecycle;
+            _captainTools = captainTools;
             _emitEvent = emitEvent;
             _jsonOptions = jsonOptions;
             _planningSessions = planningSessions;
+            _objectiveRefinementSessions = objectiveRefinementSessions;
         }
 
         private async Task<string> ReadFileSharedAsync(string path)
@@ -201,6 +209,32 @@ namespace Armada.Server.Routes
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
+            app.Get("/api/v1/captains/{id}/tools", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                {
+                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
+                    return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
+                }
+                string id = req.Parameters["id"];
+                Captain? captain = ctx.IsAdmin
+                    ? await _database.Captains.ReadAsync(id).ConfigureAwait(false)
+                    : ctx.IsTenantAdmin
+                        ? await _database.Captains.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                        : await _database.Captains.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
+                if (captain == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Captain not found" }; }
+                return await _captainTools.DescribeAsync(captain).ConfigureAwait(false);
+            },
+            api => api
+                .WithTag("Captains")
+                .WithSummary("Describe captain tools")
+                .WithDescription("Returns the Armada MCP tool catalog available to the selected captain, including runtime-specific availability notes.")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Captain ID (cpt_ prefix)"))
+                .WithResponse(200, OpenApiJson.For<CaptainToolAccessResult>("Captain tool availability and catalog"))
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithSecurity("ApiKey"));
+
             app.Put<Captain>("/api/v1/captains/{id}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
@@ -284,6 +318,25 @@ namespace Armada.Server.Routes
                     PlanningSession stopped = await _planningSessions.StopAsync(planningSession).ConfigureAwait(false);
                     return new { Status = "stopped", PlanningSessionId = stopped.Id };
                 }
+                else if (captain.State == CaptainStateEnum.Refining)
+                {
+                    ObjectiveRefinementSession? refinementSession = (await _database.ObjectiveRefinementSessions.EnumerateByCaptainAsync(captain.Id).ConfigureAwait(false))
+                        .Where(s =>
+                            s.Status == ObjectiveRefinementSessionStatusEnum.Active ||
+                            s.Status == ObjectiveRefinementSessionStatusEnum.Responding ||
+                            s.Status == ObjectiveRefinementSessionStatusEnum.Stopping)
+                        .OrderByDescending(s => s.LastUpdateUtc)
+                        .FirstOrDefault();
+
+                    if (refinementSession == null || _objectiveRefinementSessions == null)
+                    {
+                        req.Http.Response.StatusCode = 409;
+                        return (object)new { Error = "Conflict", Message = "Captain is currently reserved by an objective refinement session, but Armada could not resolve that session for coordinated stop." };
+                    }
+
+                    ObjectiveRefinementSession stopped = await _objectiveRefinementSessions.StopAsync(refinementSession).ConfigureAwait(false);
+                    return new { Status = "stopped", ObjectiveRefinementSessionId = stopped.Id };
+                }
 
                 // Kill the process if running
                 if (captain.ProcessId.HasValue)
@@ -324,6 +377,24 @@ namespace Armada.Server.Routes
                         try
                         {
                             await _planningSessions.StopAsync(planningSession).ConfigureAwait(false);
+                        }
+                        catch
+                        {
+                        }
+                    }
+                }
+
+                if (_objectiveRefinementSessions != null)
+                {
+                    List<ObjectiveRefinementSession> refinementSessions = await _database.ObjectiveRefinementSessions.EnumerateAsync().ConfigureAwait(false);
+                    foreach (ObjectiveRefinementSession refinementSession in refinementSessions.Where(s =>
+                        s.Status == ObjectiveRefinementSessionStatusEnum.Active ||
+                        s.Status == ObjectiveRefinementSessionStatusEnum.Responding ||
+                        s.Status == ObjectiveRefinementSessionStatusEnum.Stopping))
+                    {
+                        try
+                        {
+                            await _objectiveRefinementSessions.StopAsync(refinementSession).ConfigureAwait(false);
                         }
                         catch
                         {
@@ -419,10 +490,10 @@ namespace Armada.Server.Routes
                 if (captain == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Captain not found" }; }
 
                 // Block deletion of working captains
-                if (captain.State == CaptainStateEnum.Working || captain.State == CaptainStateEnum.Planning)
+                if (captain.State == CaptainStateEnum.Working || captain.State == CaptainStateEnum.Planning || captain.State == CaptainStateEnum.Refining)
                 {
                     req.Http.Response.StatusCode = 409;
-                    return (object)new { Error = "Conflict", Message = "Cannot delete captain while state is Working or Planning. Stop the captain first." };
+                    return (object)new { Error = "Conflict", Message = "Cannot delete captain while state is Working, Planning, or Refining. Stop the captain first." };
                 }
 
                 // Block deletion if captain has active missions
@@ -485,9 +556,9 @@ namespace Armada.Server.Routes
                         result.Skipped.Add(new DeleteMultipleSkipped(id, "Not found"));
                         continue;
                     }
-                    if (captain.State == CaptainStateEnum.Working || captain.State == CaptainStateEnum.Planning)
+                    if (captain.State == CaptainStateEnum.Working || captain.State == CaptainStateEnum.Planning || captain.State == CaptainStateEnum.Refining)
                     {
-                        result.Skipped.Add(new DeleteMultipleSkipped(id, "Cannot delete captain while state is Working or Planning. Stop the captain first."));
+                        result.Skipped.Add(new DeleteMultipleSkipped(id, "Cannot delete captain while state is Working, Planning, or Refining. Stop the captain first."));
                         continue;
                     }
                     List<Mission> captainMissions = ctx.IsAdmin

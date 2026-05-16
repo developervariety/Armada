@@ -2,6 +2,7 @@ namespace Armada.Core.Models
 {
     using System;
     using System.Text.Json.Serialization;
+    using Armada.Core.Enums;
 
     /// <summary>
     /// A single stage within a pipeline, associating a persona with an execution order.
@@ -59,6 +60,16 @@ namespace Armada.Core.Models
         /// Description of what this stage does (e.g. "Plan the voyage", "Review the diff").
         /// </summary>
         public string? Description { get; set; } = null;
+
+        /// <summary>
+        /// Whether this stage requires an explicit review approval before the pipeline may continue.
+        /// </summary>
+        public bool RequiresReview { get; set; } = false;
+
+        /// <summary>
+        /// Action to take when the review gate is denied.
+        /// </summary>
+        public ReviewDenyActionEnum ReviewDenyAction { get; set; } = ReviewDenyActionEnum.RetryStage;
 
         /// <summary>
         /// Optional per-stage preferred Captain.Model. When set, the dispatcher uses this value
