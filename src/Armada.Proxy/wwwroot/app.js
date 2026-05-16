@@ -56,11 +56,24 @@ const state = {
   selectedMissionId: null,
   selectedPlaybookId: null,
   selectedObjectiveId: null,
+  selectedPlanningSessionId: null,
+  selectedPlanningMessageId: '',
   editingObjective: null,
   editingFleet: null,
   editingVessel: null,
   editingMission: null,
   editingPlaybook: null,
+  planningDetail: null,
+  planningComposer: '',
+  planningDraftTitle: '',
+  planningDraftDescription: '',
+  planningWorkspaceLoading: false,
+  planningWorkspaceStatus: { message: '', kind: null },
+  planningSending: false,
+  planningSummarizing: false,
+  planningDispatching: false,
+  planningStopping: false,
+  planningDeleting: false,
   dispatchSelectedPlaybooks: [],
   detailModal: null,
   resourceEditor: null,
@@ -118,6 +131,7 @@ const elements = {
   playbookList: document.getElementById('playbookList'),
   backlogList: document.getElementById('backlogList'),
   planningList: document.getElementById('planningList'),
+  planningWorkspace: document.getElementById('planningWorkspace'),
   workflowProfileList: document.getElementById('workflowProfileList'),
   checkRunList: document.getElementById('checkRunList'),
   environmentList: document.getElementById('environmentList'),
@@ -1567,11 +1581,24 @@ function resetProxyState() {
   state.selectedMissionId = null;
   state.selectedPlaybookId = null;
   state.selectedObjectiveId = null;
+  state.selectedPlanningSessionId = null;
+  state.selectedPlanningMessageId = '';
   state.editingFleet = null;
   state.editingVessel = null;
   state.editingMission = null;
   state.editingPlaybook = null;
   state.editingObjective = null;
+  state.planningDetail = null;
+  state.planningComposer = '';
+  state.planningDraftTitle = '';
+  state.planningDraftDescription = '';
+  state.planningWorkspaceLoading = false;
+  state.planningWorkspaceStatus = { message: '', kind: null };
+  state.planningSending = false;
+  state.planningSummarizing = false;
+  state.planningDispatching = false;
+  state.planningStopping = false;
+  state.planningDeleting = false;
   state.dispatchSelectedPlaybooks = [];
   state.resourceEditor = null;
   closeAllModals();
@@ -1583,6 +1610,7 @@ function resetProxyState() {
   resetBacklogForm();
   resetPlanningForm();
   resetResourceEditor();
+  renderPlanningWorkspace();
 }
 
 function returnToDeploymentSelection(message = '', prefill = '') {
@@ -1927,6 +1955,7 @@ function renderSelectedInstance() {
   renderRequestHistorySummaryCards(state.requestHistorySummary);
   renderWorkspaceStatusPanel(state.workspaceSnapshot);
   renderCaptainToolsSummary();
+  renderPlanningWorkspace();
   void loadRecentBacklogList();
   void loadRecentPlanningList();
   void loadDeliveryResources();
@@ -2040,6 +2069,502 @@ function renderWorkspaceResultRows(rows, kind) {
   renderEntityList(elements.workspaceResultList, rows, kind);
 }
 
+function focusPlanningSection() {
+  document.getElementById('planningSection')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function setPlanningWorkspaceStatus(message, kind = null) {
+  state.planningWorkspaceStatus = {
+    message: String(message || ''),
+    kind: kind || null,
+  };
+  renderPlanningWorkspace();
+}
+
+function clearPlanningWorkspaceStatus() {
+  state.planningWorkspaceStatus = { message: '', kind: null };
+}
+
+function getPlanningSessionParts(payload) {
+  const detail = payload || {};
+  return {
+    session: detail.session || detail.Session || {},
+    messages: detail.messages || detail.Messages || [],
+    captain: detail.captain || detail.Captain || {},
+    vessel: detail.vessel || detail.Vessel || {},
+  };
+}
+
+function getLinkedObjectiveForPlanningSession(sessionId) {
+  if (!sessionId) return null;
+  return (state.objectives || []).find((objective) => (objective.planningSessionIds || []).includes(sessionId)) || null;
+}
+
+function resolvePlanningDispatchSourceMessage(messages, preferredId = '') {
+  const rows = Array.isArray(messages) ? messages : [];
+  if (rows.length < 1) return null;
+
+  const canUse = (message) => String(message?.role || '').toLowerCase() === 'assistant' && String(message?.content || '').trim().length > 0;
+
+  if (preferredId) {
+    const preferred = rows.find((message) => message.id === preferredId && canUse(message));
+    if (preferred) return preferred;
+  }
+
+  const explicitlySelected = rows.find((message) => (message.isSelected || message.isSelectedForDispatch) && canUse(message));
+  if (explicitlySelected) return explicitlySelected;
+
+  for (let idx = rows.length - 1; idx >= 0; idx -= 1) {
+    if (canUse(rows[idx])) return rows[idx];
+  }
+
+  return null;
+}
+
+function openDispatchFromPlanningWorkspace() {
+  if (!state.planningDetail) return;
+
+  const { session, messages } = getPlanningSessionParts(state.planningDetail);
+  const selectedMessage = resolvePlanningDispatchSourceMessage(messages, state.selectedPlanningMessageId);
+  const missionTitle = (state.planningDraftTitle || session.title || 'Planned Work').trim();
+  const missionDescription = (state.planningDraftDescription || selectedMessage?.content || '')
+    .replace(/\r?\n+/g, ' ')
+    .trim();
+
+  resetDispatchForm();
+  elements.dispatchVesselId.value = session.vesselId || '';
+  elements.dispatchPipelineId.value = session.pipelineId || '';
+  elements.dispatchTitle.value = missionTitle;
+  elements.dispatchDescription.value = (state.planningDraftDescription || '').trim();
+  elements.dispatchMissions.value = missionDescription
+    ? `${missionTitle} :: ${missionDescription}`
+    : missionTitle;
+  state.dispatchSelectedPlaybooks = (session.selectedPlaybooks || []).map((selection) => ({
+    playbookId: selection.playbookId,
+    deliveryMode: selection.deliveryMode,
+  }));
+  renderDispatchPlaybookSelection();
+  setFormStatus(elements.dispatchFormStatus, 'Planning draft loaded into dispatch.', 'success');
+  openModal(elements.dispatchModal);
+}
+
+function renderPlanningWorkspace() {
+  if (!elements.planningWorkspace) return;
+
+  if (!state.selectedInstanceId) {
+    elements.planningWorkspace.innerHTML = '<div class="detail-empty">Select a deployment to inspect planning sessions.</div>';
+    return;
+  }
+
+  if (state.planningWorkspaceLoading) {
+    elements.planningWorkspace.innerHTML = '<div class="detail-empty">Loading planning session from the deployment...</div>';
+    return;
+  }
+
+  if (!state.selectedPlanningSessionId) {
+    elements.planningWorkspace.innerHTML = `
+      <div class="planning-workspace-empty">
+        <h3>Planning Workspace</h3>
+        <p>Select a planning session to continue the conversation, summarize a cleaner dispatch draft, or hand the work off into dispatch.</p>
+      </div>
+    `;
+    return;
+  }
+
+  if (!state.planningDetail) {
+    elements.planningWorkspace.innerHTML = `
+      <div class="detail-empty">${escapeHtml(state.planningWorkspaceStatus?.message || 'Unable to load planning session detail.')}</div>
+    `;
+    return;
+  }
+
+  const { session, messages, captain, vessel } = getPlanningSessionParts(state.planningDetail);
+  const linkedObjective = getLinkedObjectiveForPlanningSession(session.id);
+  const dispatchSourceMessage = resolvePlanningDispatchSourceMessage(messages, state.selectedPlanningMessageId);
+  const selectedMessage = dispatchSourceMessage || messages[messages.length - 1] || null;
+  const hasDispatchSource = Boolean(dispatchSourceMessage);
+  const canSend = String(session.status || '') === 'Active' && !state.planningSending && state.planningComposer.trim().length > 0;
+  const canSummarize = hasDispatchSource && !state.planningSummarizing;
+  const canOpenInDispatch = hasDispatchSource && !state.planningDispatching;
+  const canDispatch = hasDispatchSource && !state.planningDispatching;
+  const statusMessage = state.planningWorkspaceStatus?.message || '';
+  const statusKind = state.planningWorkspaceStatus?.kind || null;
+  const selectedPlaybooks = session.selectedPlaybooks || [];
+
+  elements.planningWorkspace.innerHTML = `
+    <div class="planning-workspace-stack">
+      <div class="planning-workspace-header">
+        <div>
+          <h3>${escapeHtml(session.title || session.id || 'Planning Session')}</h3>
+          <div class="planning-workspace-summary">
+            ${renderBadge(session.status || 'unknown')}
+            <span class="mono text-dim">${escapeHtml(session.id || '')}</span>
+            <span class="text-dim">${escapeHtml(captain.name || session.captainId || 'Unknown captain')}</span>
+            <span class="text-dim">${escapeHtml(vessel.name || session.vesselId || 'Unknown vessel')}</span>
+          </div>
+        </div>
+        <div class="detail-actions">
+          <button type="button" class="button" data-planning-action="refresh">Refresh</button>
+          ${linkedObjective ? '<button type="button" class="button" data-planning-action="open-objective">Open Objective</button>' : ''}
+          <button type="button" class="button" data-planning-action="stop" ${state.planningStopping ? 'disabled' : ''}>${state.planningStopping ? 'Stopping...' : 'Stop'}</button>
+          <button type="button" class="button button-danger" data-planning-action="delete" ${state.planningDeleting ? 'disabled' : ''}>${state.planningDeleting ? 'Deleting...' : 'Delete'}</button>
+        </div>
+      </div>
+      ${statusMessage ? `<div class="form-status${statusKind ? ` ${escapeHtml(statusKind)}` : ''}">${escapeHtml(statusMessage)}</div>` : ''}
+      <div class="detail-grid">
+        ${renderKeyValueCard('Session', [
+          ['Captain', captain.name || session.captainId || '-'],
+          ['Vessel', vessel.name || session.vesselId || '-'],
+          ['Pipeline', session.pipelineId || '-'],
+          ['Status', session.status || '-'],
+          ['Created', formatTimestamp(session.createdUtc)],
+          ['Updated', formatTimestamp(session.lastUpdateUtc)],
+        ])}
+        ${renderKeyValueCard('Scope', [
+          ['Fleet', session.fleetId || '-'],
+          ['Dock', session.dockId || '-'],
+          ['Branch', session.branchName || '-'],
+          ['Failure', session.failureReason || '-'],
+          ['Linked Objective', linkedObjective?.title || linkedObjective?.id || '-'],
+          ['Messages', String(messages.length)],
+        ])}
+        ${selectedPlaybooks.length > 0 ? renderSelectedPlaybooksCard('Playbooks', selectedPlaybooks) : ''}
+      </div>
+      <div class="planning-workspace-grid">
+        <section class="detail-card planning-transcript-card">
+          <div class="planning-card-head">
+            <div>
+              <h3>Transcript</h3>
+              <p class="text-muted">${escapeHtml(`${messages.length} message${messages.length === 1 ? '' : 's'}`)}</p>
+            </div>
+            <span class="text-dim">${escapeHtml(String(session.status || ''))}</span>
+          </div>
+          <div class="planning-message-list">
+            ${messages.length < 1
+              ? '<div class="text-muted">No transcript yet. Send the first planning message below.</div>'
+              : messages.map((message) => {
+                const role = String(message.role || 'Message');
+                const roleLower = role.toLowerCase();
+                const isAssistant = roleLower === 'assistant';
+                const isUser = roleLower === 'user';
+                const isSelected = dispatchSourceMessage?.id === message.id;
+                const hasContent = String(message.content || '').trim().length > 0;
+                const shellTag = isAssistant && hasContent ? 'button' : 'div';
+                const actionAttrs = isAssistant && hasContent
+                  ? `type="button" data-planning-action="select-message" data-message-id="${escapeHtml(message.id || '')}"`
+                  : '';
+                const subtitle = `${formatTimestamp(message.lastUpdateUtc || message.createdUtc)}${isSelected ? ' | Selected for dispatch' : ''}`;
+                return `
+                  <${shellTag} class="planning-message-card${isAssistant ? ' planning-message-card-assistant' : ''}${isUser ? ' planning-message-card-user' : ''}${isSelected ? ' is-selected' : ''}" ${actionAttrs}>
+                    <div class="planning-message-top">
+                      <div>
+                        <strong>${escapeHtml(role)}</strong>
+                        <div class="detail-list-meta mono">${escapeHtml(message.id || '')}</div>
+                      </div>
+                      <div class="planning-message-meta">
+                        <span class="text-dim">${escapeHtml(subtitle)}</span>
+                        ${isAssistant && hasContent
+                          ? `<span class="badge ${isSelected ? 'working' : 'idle'}">${isSelected ? 'Selected For Dispatch' : 'Use For Dispatch'}</span>`
+                          : ''}
+                      </div>
+                    </div>
+                    <pre class="planning-message-content">${escapeHtml(message.content || (isAssistant ? 'Waiting for response...' : ''))}</pre>
+                  </${shellTag}>
+                `;
+              }).join('')}
+          </div>
+          <form class="form-stack planning-composer-form" data-planning-form="composer">
+            <label class="field">
+              <span>Send Message</span>
+              <textarea rows="6" data-planning-field="composer" placeholder="Describe the problem, ask for a plan, or negotiate the next steps with the captain." ${String(session.status || '') !== 'Active' || state.planningSending ? 'disabled' : ''}>${escapeHtml(state.planningComposer)}</textarea>
+            </label>
+            <div class="form-actions">
+              <button type="submit" class="button button-primary" ${canSend ? '' : 'disabled'}>
+                ${state.planningSending ? 'Sending...' : (String(session.status || '') === 'Responding' ? 'Captain Responding...' : 'Send')}
+              </button>
+            </div>
+          </form>
+        </section>
+        <div class="planning-sidebar-stack">
+          <section class="detail-card">
+            <div class="planning-card-head">
+              <div>
+                <h3>Dispatch Source</h3>
+                <p class="text-muted">Pick an assistant response, refine the draft, then dispatch it or open it in the voyage composer.</p>
+              </div>
+            </div>
+            ${selectedMessage
+              ? `
+                <div class="planning-selected-message-meta">
+                  <strong>${escapeHtml(selectedMessage.role || 'Message')}</strong>
+                  <span class="mono text-dim">${escapeHtml(selectedMessage.id || '')}</span>
+                </div>
+                <pre class="planning-message-content planning-message-content-compact">${escapeHtml(selectedMessage.content || '')}</pre>
+              `
+              : '<div class="text-muted">Select an assistant response to use for summarization and dispatch.</div>'}
+          </section>
+          <section class="detail-card">
+            <div class="planning-card-head">
+              <div>
+                <h3>Dispatch Draft</h3>
+                <p class="text-muted">Summarize the selected assistant response into a cleaner voyage title and mission brief before dispatch.</p>
+              </div>
+            </div>
+            <div class="form-stack">
+              <label class="field">
+                <span>Voyage Title</span>
+                <input
+                  type="text"
+                  data-planning-field="draft-title"
+                  value="${escapeHtml(state.planningDraftTitle)}"
+                  placeholder="Optional override for the resulting voyage title"
+                >
+              </label>
+              <label class="field">
+                <span>Mission Description</span>
+                <textarea rows="10" data-planning-field="draft-description" placeholder="Select an assistant response to seed the dispatch description.">${escapeHtml(state.planningDraftDescription)}</textarea>
+              </label>
+              <div class="form-actions">
+                <button type="button" class="button" data-planning-action="summarize" ${canSummarize ? '' : 'disabled'}>
+                  ${state.planningSummarizing ? 'Summarizing...' : 'Summarize Draft'}
+                </button>
+                <button type="button" class="button" data-planning-action="open-dispatch" ${canOpenInDispatch ? '' : 'disabled'}>
+                  Open In Dispatch
+                </button>
+                <button type="button" class="button button-primary" data-planning-action="dispatch" ${canDispatch ? '' : 'disabled'}>
+                  ${state.planningDispatching ? 'Dispatching...' : 'Dispatch'}
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+async function selectPlanningSession(id, options = {}) {
+  if (!state.selectedInstanceId || !id) return;
+
+  const priorSelection = state.selectedPlanningSessionId;
+  const shouldResetDraft = priorSelection !== id;
+  state.selectedPlanningSessionId = id;
+  state.planningWorkspaceLoading = true;
+  state.planningDetail = null;
+  if (shouldResetDraft) {
+    state.selectedPlanningMessageId = '';
+    state.planningComposer = '';
+    state.planningDraftTitle = '';
+    state.planningDraftDescription = '';
+    clearPlanningWorkspaceStatus();
+  }
+  renderEntityList(elements.planningList, state.planningSessions || [], 'planning');
+  renderPlanningWorkspace();
+
+  if (options.scroll) {
+    focusPlanningSection();
+  }
+
+  try {
+    const payload = await fetchJson(`${instanceBaseUrl()}/planning-sessions/${encodeURIComponent(id)}`);
+    const { session, messages } = getPlanningSessionParts(payload);
+    const linkedObjective = getLinkedObjectiveForPlanningSession(session.id);
+    const dispatchSourceMessage = resolvePlanningDispatchSourceMessage(messages, state.selectedPlanningMessageId);
+
+    state.planningDetail = payload;
+    state.planningWorkspaceLoading = false;
+    state.selectedPlanningMessageId = dispatchSourceMessage?.id || '';
+    if (!state.planningDraftTitle) state.planningDraftTitle = session.title || '';
+    if (!state.planningDraftDescription) {
+      state.planningDraftDescription = linkedObjective?.refinementSummary || linkedObjective?.description || '';
+    }
+
+    if (options.statusMessage) {
+      state.planningWorkspaceStatus = {
+        message: String(options.statusMessage),
+        kind: options.statusKind || 'success',
+      };
+    }
+
+    renderEntityList(elements.planningList, state.planningSessions || [], 'planning');
+    renderPlanningWorkspace();
+  } catch (error) {
+    state.planningWorkspaceLoading = false;
+    state.planningDetail = null;
+    state.planningWorkspaceStatus = {
+      message: error instanceof Error ? error.message : 'Unable to load planning session.',
+      kind: 'error',
+    };
+    renderEntityList(elements.planningList, state.planningSessions || [], 'planning');
+    renderPlanningWorkspace();
+  }
+}
+
+async function sendPlanningWorkspaceMessage() {
+  if (!state.selectedInstanceId || !state.selectedPlanningSessionId || !state.planningDetail) return;
+
+  const { session } = getPlanningSessionParts(state.planningDetail);
+  const content = state.planningComposer.trim();
+  if (!content) {
+    setPlanningWorkspaceStatus('Enter a planning message before sending it.', 'error');
+    return;
+  }
+  if (String(session.status || '') !== 'Active') {
+    setPlanningWorkspaceStatus('This planning session is not active right now, so it cannot accept another message.', 'error');
+    return;
+  }
+
+  state.planningSending = true;
+  clearPlanningWorkspaceStatus();
+  renderPlanningWorkspace();
+
+  try {
+    const payload = await fetchJson(`${instanceBaseUrl()}/planning-sessions/${encodeURIComponent(state.selectedPlanningSessionId)}/messages`, {
+      method: 'POST',
+      body: { content },
+    });
+    state.planningComposer = '';
+    state.planningDetail = payload;
+    const { messages } = getPlanningSessionParts(payload);
+    const dispatchSourceMessage = resolvePlanningDispatchSourceMessage(messages, state.selectedPlanningMessageId);
+    state.selectedPlanningMessageId = dispatchSourceMessage?.id || state.selectedPlanningMessageId;
+    await loadRecentPlanningList(true);
+    setPlanningWorkspaceStatus('Planning session updated.', 'success');
+  } catch (error) {
+    setPlanningWorkspaceStatus(error instanceof Error ? error.message : 'Planning-session message failed.', 'error');
+  } finally {
+    state.planningSending = false;
+    renderPlanningWorkspace();
+  }
+}
+
+async function summarizePlanningWorkspace() {
+  if (!state.selectedInstanceId || !state.selectedPlanningSessionId || !state.planningDetail) return;
+
+  const { messages } = getPlanningSessionParts(state.planningDetail);
+  const dispatchSourceMessage = resolvePlanningDispatchSourceMessage(messages, state.selectedPlanningMessageId);
+  if (!dispatchSourceMessage) {
+    setPlanningWorkspaceStatus('Select an assistant response before summarizing a dispatch draft.', 'error');
+    return;
+  }
+
+  state.planningSummarizing = true;
+  clearPlanningWorkspaceStatus();
+  renderPlanningWorkspace();
+
+  try {
+    const summary = await fetchJson(`${instanceBaseUrl()}/planning-sessions/${encodeURIComponent(state.selectedPlanningSessionId)}/summarize`, {
+      method: 'POST',
+      body: {
+        messageId: dispatchSourceMessage.id,
+        title: state.planningDraftTitle.trim() || null,
+      },
+    });
+    state.selectedPlanningMessageId = summary?.messageId || summary?.MessageId || dispatchSourceMessage.id;
+    state.planningDraftTitle = summary?.title || summary?.Title || state.planningDraftTitle;
+    state.planningDraftDescription = summary?.description || summary?.Description || state.planningDraftDescription;
+    const method = summary?.method || summary?.Method || 'summary';
+    setPlanningWorkspaceStatus(`Dispatch draft refreshed using ${method}.`, 'success');
+  } catch (error) {
+    setPlanningWorkspaceStatus(error instanceof Error ? error.message : 'Planning-session summarization failed.', 'error');
+  } finally {
+    state.planningSummarizing = false;
+    renderPlanningWorkspace();
+  }
+}
+
+async function dispatchPlanningWorkspace() {
+  if (!state.selectedInstanceId || !state.selectedPlanningSessionId || !state.planningDetail) return;
+
+  const { messages } = getPlanningSessionParts(state.planningDetail);
+  const dispatchSourceMessage = resolvePlanningDispatchSourceMessage(messages, state.selectedPlanningMessageId);
+  if (!dispatchSourceMessage) {
+    setPlanningWorkspaceStatus('Select an assistant response before dispatching this planning session.', 'error');
+    return;
+  }
+
+  state.planningDispatching = true;
+  clearPlanningWorkspaceStatus();
+  renderPlanningWorkspace();
+
+  try {
+    const detail = await fetchJson(`${instanceBaseUrl()}/planning-sessions/${encodeURIComponent(state.selectedPlanningSessionId)}/dispatch`, {
+      method: 'POST',
+      body: {
+        messageId: dispatchSourceMessage.id,
+        title: state.planningDraftTitle.trim() || null,
+        description: state.planningDraftDescription.trim() || null,
+      },
+    });
+    await loadSelectedInstance();
+    const voyageId = detail?.voyage?.id || detail?.Voyage?.id || detail?.id;
+    setPlanningWorkspaceStatus('Voyage dispatched from this planning session.', 'success');
+    if (voyageId) {
+      await openVoyageDetailModal(voyageId);
+    }
+  } catch (error) {
+    setPlanningWorkspaceStatus(error instanceof Error ? error.message : 'Planning-session dispatch failed.', 'error');
+  } finally {
+    state.planningDispatching = false;
+    renderPlanningWorkspace();
+  }
+}
+
+async function stopPlanningWorkspace() {
+  if (!state.selectedInstanceId || !state.selectedPlanningSessionId) return;
+  if (!confirm('Stop this planning session?')) return;
+
+  state.planningStopping = true;
+  clearPlanningWorkspaceStatus();
+  renderPlanningWorkspace();
+
+  try {
+    const payload = await fetchJson(`${instanceBaseUrl()}/planning-sessions/${encodeURIComponent(state.selectedPlanningSessionId)}/stop`, {
+      method: 'POST',
+      body: {},
+    });
+    state.planningDetail = payload;
+    await loadRecentPlanningList(true);
+    setPlanningWorkspaceStatus('Planning session stop requested.', 'success');
+  } catch (error) {
+    setPlanningWorkspaceStatus(error instanceof Error ? error.message : 'Planning-session stop failed.', 'error');
+  } finally {
+    state.planningStopping = false;
+    renderPlanningWorkspace();
+  }
+}
+
+async function deletePlanningWorkspace() {
+  if (!state.selectedInstanceId || !state.selectedPlanningSessionId) return;
+  if (!confirm('Delete this planning session?')) return;
+
+  state.planningDeleting = true;
+  clearPlanningWorkspaceStatus();
+  renderPlanningWorkspace();
+
+  try {
+    await fetchJson(`${instanceBaseUrl()}/planning-sessions/${encodeURIComponent(state.selectedPlanningSessionId)}`, { method: 'DELETE' });
+    const deletedId = state.selectedPlanningSessionId;
+    state.selectedPlanningSessionId = null;
+    state.selectedPlanningMessageId = '';
+    state.planningDetail = null;
+    state.planningComposer = '';
+    state.planningDraftTitle = '';
+    state.planningDraftDescription = '';
+    await loadRecentPlanningList(true);
+    setFormStatus(elements.planningBrowseStatusText, `Planning session deleted: ${deletedId}`, 'success');
+    state.planningWorkspaceStatus = {
+      message: `Planning session deleted: ${deletedId}`,
+      kind: 'success',
+    };
+  } catch (error) {
+    setPlanningWorkspaceStatus(error instanceof Error ? error.message : 'Planning-session delete failed.', 'error');
+  } finally {
+    state.planningDeleting = false;
+    renderPlanningWorkspace();
+  }
+}
+
 async function loadRecentBacklogList(silent = false) {
   if (!state.selectedInstanceId) return;
 
@@ -2051,6 +2576,7 @@ async function loadRecentBacklogList(silent = false) {
     const rows = coerceListPayload(data, 'objectives', 'items');
     state.objectives = rows;
     renderEntityList(elements.backlogList, rows, 'backlog');
+    renderPlanningWorkspace();
     if (!silent) {
       setFormStatus(elements.backlogBrowseStatusText, `Loaded ${rows.length} backlog item${rows.length === 1 ? '' : 's'}.`, 'success');
     }
@@ -2082,6 +2608,7 @@ async function submitBacklogBrowseForm(event) {
     const rows = coerceListPayload(data, 'objectives', 'items');
     state.objectives = rows;
     renderEntityList(elements.backlogList, rows, 'backlog');
+    renderPlanningWorkspace();
     setFormStatus(elements.backlogBrowseStatusText, `Loaded ${rows.length} backlog item${rows.length === 1 ? '' : 's'} from the deployment.`, 'success');
   } catch (error) {
     setFormStatus(elements.backlogBrowseStatusText, error instanceof Error ? error.message : 'Backlog browse failed.', 'error');
@@ -2099,6 +2626,7 @@ async function loadRecentPlanningList(silent = false) {
     const rows = coerceListPayload(data, 'planningSessions', 'items');
     state.planningSessions = rows;
     renderEntityList(elements.planningList, rows, 'planning');
+    renderPlanningWorkspace();
     if (!silent) {
       setFormStatus(elements.planningBrowseStatusText, `Loaded ${rows.length} planning session${rows.length === 1 ? '' : 's'}.`, 'success');
     }
@@ -2127,6 +2655,7 @@ async function submitPlanningBrowseForm(event) {
     const rows = coerceListPayload(data, 'planningSessions', 'items');
     state.planningSessions = rows;
     renderEntityList(elements.planningList, rows, 'planning');
+    renderPlanningWorkspace();
     setFormStatus(elements.planningBrowseStatusText, `Loaded ${rows.length} planning session${rows.length === 1 ? '' : 's'} from the deployment.`, 'success');
   } catch (error) {
     setFormStatus(elements.planningBrowseStatusText, error instanceof Error ? error.message : 'Planning-session browse failed.', 'error');
@@ -2576,7 +3105,7 @@ async function handleEntitySelection(kind, row) {
   }
 
   if (kind === 'planning') {
-    await openPlanningSessionDetailModal(row.id);
+    await selectPlanningSession(row.id, { scroll: true });
     return;
   }
 
@@ -2705,6 +3234,9 @@ function renderEntityList(container, rows, kind) {
     badge.classList.add(badgeClass(badgeValue));
     meta.textContent = description.meta;
     secondary.textContent = description.secondary;
+    if (kind === 'planning' && row.id === state.selectedPlanningSessionId) {
+      card.classList.add('is-selected');
+    }
 
     card.addEventListener('click', async () => {
       await handleEntitySelection(kind, row);
@@ -3774,7 +4306,8 @@ async function performDetailAction(action, id, resourceKey = '') {
     }
 
     if (action === 'open-planning-session') {
-      await openPlanningSessionDetailModal(id);
+      closeModal(elements.detailModal);
+      await selectPlanningSession(id, { scroll: true });
       return;
     }
 
@@ -3837,61 +4370,32 @@ async function performDetailAction(action, id, resourceKey = '') {
     }
 
     if (action === 'planning-message') {
-      const content = prompt('Send message to this planning session:', '');
-      if (!content) return;
-      await fetchJson(`${base}/planning-sessions/${encodeURIComponent(id)}/messages`, {
-        method: 'POST',
-        body: { content },
-      });
-      await openPlanningSessionDetailModal(id);
-      await loadRecentPlanningList(true);
+      closeModal(elements.detailModal);
+      await selectPlanningSession(id, { scroll: true });
       return;
     }
 
     if (action === 'planning-summarize') {
-      const summary = await fetchJson(`${base}/planning-sessions/${encodeURIComponent(id)}/summarize`, {
-        method: 'POST',
-        body: {},
-      });
-      const title = summary?.title || summary?.Title || '';
-      const description = summary?.description || summary?.Description || '';
-      alert(`Draft summary:\n\n${title}\n\n${description}`);
-      await openPlanningSessionDetailModal(id);
+      closeModal(elements.detailModal);
+      await selectPlanningSession(id, { scroll: true });
       return;
     }
 
     if (action === 'planning-dispatch') {
-      const title = prompt('Voyage title override (optional):', '') || '';
-      const description = prompt('Mission description override (optional):', '') || '';
-      const detail = await fetchJson(`${base}/planning-sessions/${encodeURIComponent(id)}/dispatch`, {
-        method: 'POST',
-        body: {
-          title: title.trim() || null,
-          description: description.trim() || null,
-        },
-      });
-      await loadSelectedInstance();
-      const voyageId = detail?.voyage?.id || detail?.Voyage?.id || detail?.id;
-      if (voyageId) {
-        await openVoyageDetailModal(voyageId);
-      } else {
-        await openPlanningSessionDetailModal(id);
-      }
+      closeModal(elements.detailModal);
+      await selectPlanningSession(id, { scroll: true });
       return;
     }
 
     if (action === 'planning-stop') {
-      if (!confirm('Stop this planning session?')) return;
-      await fetchJson(`${base}/planning-sessions/${encodeURIComponent(id)}/stop`, { method: 'POST', body: {} });
-      await openPlanningSessionDetailModal(id);
+      closeModal(elements.detailModal);
+      await selectPlanningSession(id, { scroll: true });
       return;
     }
 
     if (action === 'planning-delete') {
-      if (!confirm('Delete this planning session?')) return;
-      await fetchJson(`${base}/planning-sessions/${encodeURIComponent(id)}`, { method: 'DELETE' });
       closeModal(elements.detailModal);
-      await loadRecentPlanningList(true);
+      await selectPlanningSession(id, { scroll: true });
       return;
     }
 
@@ -4253,7 +4757,11 @@ async function submitPlanningForm(event) {
     await loadRecentPlanningList(true);
     closeModal(elements.planningModal);
     if (sessionId) {
-      await openPlanningSessionDetailModal(sessionId);
+      await selectPlanningSession(sessionId, {
+        scroll: true,
+        statusMessage: initialMessage ? 'Planning session created and seeded.' : 'Planning session created.',
+        statusKind: 'success',
+      });
     }
   } catch (error) {
     setFormStatus(elements.planningFormStatus, error instanceof Error ? error.message : 'Planning-session creation failed.', 'error');
@@ -4651,8 +5159,99 @@ elements.backlogBrowseForm.addEventListener('submit', submitBacklogBrowseForm);
 elements.backlogBrowseRecentButton.addEventListener('click', () => { void loadRecentBacklogList(); });
 elements.refreshBacklogButton.addEventListener('click', () => { void loadRecentBacklogList(); });
 elements.planningBrowseForm.addEventListener('submit', submitPlanningBrowseForm);
-elements.planningBrowseRecentButton.addEventListener('click', () => { void loadRecentPlanningList(); });
-elements.refreshPlanningButton.addEventListener('click', () => { void loadRecentPlanningList(); });
+elements.planningBrowseRecentButton.addEventListener('click', async () => {
+  await loadRecentPlanningList();
+  if (state.selectedPlanningSessionId) {
+    await selectPlanningSession(state.selectedPlanningSessionId, { scroll: false });
+  }
+});
+elements.refreshPlanningButton.addEventListener('click', async () => {
+  await loadRecentPlanningList();
+  if (state.selectedPlanningSessionId) {
+    await selectPlanningSession(state.selectedPlanningSessionId, { scroll: false });
+  }
+});
+elements.planningWorkspace.addEventListener('click', async (event) => {
+  const button = event.target.closest('[data-planning-action]');
+  if (!button) return;
+
+  const action = button.getAttribute('data-planning-action');
+  if (!action) return;
+
+  if (action === 'select-message') {
+    const messageId = button.getAttribute('data-message-id') || '';
+    state.selectedPlanningMessageId = messageId;
+    clearPlanningWorkspaceStatus();
+    renderPlanningWorkspace();
+    return;
+  }
+
+  if (action === 'refresh') {
+    if (state.selectedPlanningSessionId) {
+      await selectPlanningSession(state.selectedPlanningSessionId, { scroll: false });
+    }
+    return;
+  }
+
+  if (action === 'open-objective') {
+    const objective = getLinkedObjectiveForPlanningSession(state.selectedPlanningSessionId);
+    if (objective?.id) {
+      await openBacklogDetailModal(objective.id);
+    }
+    return;
+  }
+
+  if (action === 'stop') {
+    await stopPlanningWorkspace();
+    return;
+  }
+
+  if (action === 'delete') {
+    await deletePlanningWorkspace();
+    return;
+  }
+
+  if (action === 'summarize') {
+    await summarizePlanningWorkspace();
+    return;
+  }
+
+  if (action === 'open-dispatch') {
+    openDispatchFromPlanningWorkspace();
+    return;
+  }
+
+  if (action === 'dispatch') {
+    await dispatchPlanningWorkspace();
+  }
+});
+elements.planningWorkspace.addEventListener('submit', async (event) => {
+  const form = event.target.closest('[data-planning-form]');
+  if (!form) return;
+
+  if (form.getAttribute('data-planning-form') === 'composer') {
+    event.preventDefault();
+    await sendPlanningWorkspaceMessage();
+  }
+});
+elements.planningWorkspace.addEventListener('input', (event) => {
+  const field = event.target.closest('[data-planning-field]');
+  if (!field) return;
+
+  const value = field.value || '';
+  const fieldKey = field.getAttribute('data-planning-field');
+  if (fieldKey === 'composer') {
+    state.planningComposer = value;
+    return;
+  }
+  if (fieldKey === 'draft-title') {
+    state.planningDraftTitle = value;
+    return;
+  }
+  if (fieldKey === 'draft-description') {
+    state.planningDraftDescription = value;
+  }
+});
 elements.refreshDeliveryButton.addEventListener('click', () => { void loadDeliveryResources(); });
 elements.requestHistoryForm.addEventListener('submit', async (event) => { event.preventDefault(); await loadRequestHistoryData(false); });
 elements.requestHistoryRecentButton.addEventListener('click', () => { void loadRequestHistoryData(false); });
