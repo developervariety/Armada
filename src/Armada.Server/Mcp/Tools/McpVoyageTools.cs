@@ -775,7 +775,9 @@ namespace Armada.Server.Mcp.Tools
                         stageMission.VesselId = vesselId;
                         stageMission.Persona = stage.PersonaName;
                         stageMission.DependsOnMissionId = groupDependencyId;
-                        stageMission.PreferredModel = stage.PreferredModel ?? md.PreferredModel;
+                        stageMission.PreferredModel = PreferredModelTierSelector.EnforceHighTierForPersona(
+                            stage.PreferredModel ?? md.PreferredModel,
+                            stage.PersonaName);
                         stageMission.SelectedPlaybooks = ClonePlaybookSelectionsLocal(mergedForMission);
 
                         // The very first mission of the chain gets the prestaged files.

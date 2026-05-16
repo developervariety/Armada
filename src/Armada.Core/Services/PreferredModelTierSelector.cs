@@ -61,6 +61,24 @@ namespace Armada.Core.Services
             LowTier, MidTier, HighTier, "quick", "medium"
         };
 
+        // Personas that can only be filled by high-tier captains. Mid- and low-tier
+        // captains carry ["Worker"] allow-lists and would never match these personas
+        // anyway, but enforcing the tier at mission-create time keeps the stored
+        // PreferredModel honest and surfaces dispatch errors before they hit routing.
+        private static readonly HashSet<string> _HighTierOnlyPersonas = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "Judge",
+            "Architect",
+            "TestEngineer",
+            "DiagnosticProtocolReviewer",
+            "TenantSecurityReviewer",
+            "MigrationDataReviewer",
+            "PerformanceMemoryReviewer",
+            "PortingReferenceAnalyst",
+            "FrontendWorkflowReviewer",
+            "MemoryConsolidator"
+        };
+
         #endregion
 
         #region Public-Methods
@@ -73,6 +91,38 @@ namespace Armada.Core.Services
         {
             if (String.IsNullOrWhiteSpace(value)) return false;
             return _TierNames.Contains(value);
+        }
+
+        /// <summary>
+        /// Returns true when the persona requires a high-tier captain (Judge, Architect,
+        /// TestEngineer, specialist reviewers, MemoryConsolidator). Worker and null personas
+        /// return false.
+        /// </summary>
+        public static bool RequiresHighTier(string? persona)
+        {
+            if (String.IsNullOrWhiteSpace(persona)) return false;
+            return _HighTierOnlyPersonas.Contains(persona);
+        }
+
+        /// <summary>
+        /// Returns a PreferredModel value safe to store on a mission with the given persona.
+        /// For high-tier-only personas (Judge, Architect, etc.) this upgrades any tier
+        /// selector below "high" to "high". Null/empty preferredModel becomes "high" when
+        /// the persona requires it; literal model names are passed through unchanged
+        /// (operator-pinned literals stay honest -- the dispatcher's tier-fallback handles
+        /// the runtime case if no captain matches).
+        /// </summary>
+        public static string? EnforceHighTierForPersona(string? preferredModel, string? persona)
+        {
+            if (!RequiresHighTier(persona)) return preferredModel;
+            if (String.IsNullOrWhiteSpace(preferredModel)) return HighTier;
+            if (IsTierSelector(preferredModel))
+            {
+                if (String.Equals(NormalizeTier(preferredModel), HighTier, StringComparison.OrdinalIgnoreCase))
+                    return preferredModel;
+                return HighTier;
+            }
+            return preferredModel;
         }
 
         /// <summary>
