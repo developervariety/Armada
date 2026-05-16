@@ -57,9 +57,13 @@ namespace Armada.Core.Database.Mysql
             Voyages = new VoyageMethods(_ConnectionString);
             PlanningSessions = new PlanningSessionMethods(_ConnectionString);
             PlanningSessionMessages = new PlanningSessionMessageMethods(_ConnectionString);
+            Objectives = new ObjectiveMethods(_ConnectionString);
+            ObjectiveRefinementSessions = new ObjectiveRefinementSessionMethods(_ConnectionString);
+            ObjectiveRefinementMessages = new ObjectiveRefinementMessageMethods(_ConnectionString);
             Docks = new DockMethods(_ConnectionString);
             Signals = new SignalMethods(_ConnectionString);
             Events = new EventMethods(_ConnectionString);
+            RequestHistory = new RequestHistoryMethods(_ConnectionString);
             MergeEntries = new MergeEntryMethods(_ConnectionString);
             Tenants = new TenantMethods(_ConnectionString);
             Users = new UserMethods(_ConnectionString);
@@ -68,6 +72,11 @@ namespace Armada.Core.Database.Mysql
             Playbooks = new PlaybookMethods(_ConnectionString);
             Personas = new PersonaMethods(_ConnectionString);
             Pipelines = new PipelineMethods(_ConnectionString);
+            WorkflowProfiles = new WorkflowProfileMethods(_ConnectionString);
+            Environments = new DeploymentEnvironmentMethods(_ConnectionString);
+            CheckRuns = new CheckRunMethods(_ConnectionString);
+            Releases = new ReleaseMethods(_ConnectionString);
+            Deployments = new DeploymentMethods(_ConnectionString);
             VesselPackHints = new VesselPackHintMethods(_ConnectionString, _Settings, _Logging);
         }
 

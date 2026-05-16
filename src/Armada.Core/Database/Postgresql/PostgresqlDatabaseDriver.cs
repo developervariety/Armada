@@ -230,9 +230,13 @@ namespace Armada.Core.Database.Postgresql
             Voyages = new VoyageMethods(this, _Settings, _Logging);
             PlanningSessions = new PlanningSessionMethods(this, _Settings, _Logging);
             PlanningSessionMessages = new PlanningSessionMessageMethods(this, _Settings, _Logging);
+            Objectives = new ObjectiveMethods(this, _Settings, _Logging);
+            ObjectiveRefinementSessions = new ObjectiveRefinementSessionMethods(this, _Settings, _Logging);
+            ObjectiveRefinementMessages = new ObjectiveRefinementMessageMethods(this, _Settings, _Logging);
             Docks = new DockMethods(this, _Settings, _Logging);
             Signals = new SignalMethods(_DataSource);
             Events = new EventMethods(_DataSource);
+            RequestHistory = new RequestHistoryMethods(_DataSource);
             MergeEntries = new MergeEntryMethods(_DataSource);
             Tenants = new TenantMethods(this, _Settings, _Logging);
             Users = new UserMethods(this, _Settings, _Logging);
@@ -241,10 +245,14 @@ namespace Armada.Core.Database.Postgresql
             Playbooks = new PlaybookMethods(this, _Settings, _Logging);
             Personas = new PersonaMethods(this, _Settings, _Logging);
             Pipelines = new PipelineMethods(this, _Settings, _Logging);
+            WorkflowProfiles = new WorkflowProfileMethods(this);
+            Environments = new DeploymentEnvironmentMethods(this);
+            CheckRuns = new CheckRunMethods(this);
+            Releases = new ReleaseMethods(this);
+            Deployments = new DeploymentMethods(this);
             VesselPackHints = new VesselPackHintMethods(this, _Settings, _Logging);
         }
 
         #endregion
     }
 }
-
