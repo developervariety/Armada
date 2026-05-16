@@ -180,23 +180,6 @@ namespace Armada.Server
                 _Database,
                 _Admiral,
                 EmitEventAsync);
-            _RemoteControlOperations = new RemoteControlOperationsService(
-                _Database,
-                _ObjectiveService,
-                _ObjectiveRefinementSessions,
-                _PlanningSessions,
-                _WorkflowProfileService,
-                _EnvironmentService,
-                _CheckRunService,
-                _ReleaseService,
-                _DeploymentService,
-                _IncidentService,
-                _RunbookService,
-                _CaptainTools,
-                _Workspace,
-                _PromptTemplateService);
-            _RemoteTunnel.OnHandleRequest = HandleRemoteTunnelRequestAsync;
-
             // Seed built-in prompt templates, personas, and pipelines
             await _PromptTemplateService.SeedDefaultsAsync().ConfigureAwait(false);
             _Logging.Info(_Header + "prompt template seeding completed");
@@ -364,6 +347,23 @@ namespace Armada.Server
             _CaptainTools = new CaptainToolService(
                 _Logging,
                 _Database);
+
+            _RemoteControlOperations = new RemoteControlOperationsService(
+                _Database,
+                _ObjectiveService,
+                _ObjectiveRefinementSessions,
+                _PlanningSessions,
+                _WorkflowProfileService,
+                _EnvironmentService,
+                _CheckRunService,
+                _ReleaseService,
+                _DeploymentService,
+                _IncidentService,
+                _RunbookService,
+                _CaptainTools,
+                _Workspace,
+                _PromptTemplateService);
+            _RemoteTunnel.OnHandleRequest = HandleRemoteTunnelRequestAsync;
 
             RegisterRoutes();
             InitializeDashboard();
