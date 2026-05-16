@@ -635,7 +635,7 @@ Mux captains require a named endpoint. Armada stores that endpoint selection on 
 
 Settings live in `~/.armada/settings.json` and are created on first use.
 
-For GitHub-backed integrations, Armada supports a server-global `GitHubToken` in `settings.json` (or `docker/server/armada.json` in Docker) plus an optional per-vessel `GitHubTokenOverride`. Vessel reads return `hasGitHubTokenOverride`, but the raw token is never returned through REST, MCP, WebSocket, or dashboard reads.
+For GitHub-backed integrations, Armada supports a server-global `GitHubToken` in `settings.json` (or `docker/armada/armada.json` in Docker) plus an optional per-vessel `GitHubTokenOverride`. Vessel reads return `hasGitHubTokenOverride`, but the raw token is never returned through REST, MCP, WebSocket, or dashboard reads.
 
 Armada currently uses that token resolution for three pull-based GitHub workflows:
 
@@ -806,7 +806,7 @@ The server starts on the following ports:
 | 7890 | HTTP | REST API + embedded dashboard (WebSocket at /ws) |
 | 7891 | JSON-RPC | MCP server |
 
-Open `http://localhost:7890/dashboard` in your browser. Local server configuration is stored in `~/.armada/settings.json`. The Docker deployment uses `docker/server/armada.json`. On first run, Armada creates the SQLite database, applies migrations, and seeds default data.
+Open `http://localhost:7890/dashboard` in your browser. Local server configuration is stored in `~/.armada/settings.json`. The Docker deployment uses `docker/armada/armada.json`. On first run, Armada creates the SQLite database, applies migrations, and seeds default data.
 
 ### Install the CLI (optional)
 
@@ -857,18 +857,20 @@ Docker volumes are mapped to `docker/armada/`:
 docker/
 +-- armada/
 |   +-- compose.yaml # Armada server + dashboard
+|   +-- armada.json  # Server configuration
 |   +-- db/          # SQLite database (persistent across restarts)
+|   +-- factory/
+|   |   +-- reset.bat
+|   |   +-- reset.sh
 |   +-- logs/        # Server logs
 +-- proxy/
 |   +-- compose.yaml # Armada proxy
 |   +-- data/        # Proxy state
 |   +-- logs/        # Proxy logs
 |   +-- proxysettings.json
-+-- server/
-|   +-- armada.json  # Server configuration
 ```
 
-To change settings, edit `docker/server/armada.json` and restart:
+To change settings, edit `docker/armada/armada.json` and restart:
 
 ```bash
 cd docker/armada
@@ -880,7 +882,7 @@ docker compose restart armada-server
 To delete all data and start fresh (preserves configuration):
 
 ```bash
-cd docker/factory
+cd docker/armada/factory
 
 # Linux/macOS
 ./reset.sh
@@ -889,9 +891,9 @@ cd docker/factory
 reset.bat
 ```
 
-The reset scripts delete local SQLite database and log files while preserving `docker/server/armada.json`. If that Docker config points at MySQL, PostgreSQL, or SQL Server instead of the mounted SQLite file, the external database is not modified by the reset scripts.
+The reset scripts delete local SQLite database and log files while preserving `docker/armada/armada.json`. If that Docker config points at MySQL, PostgreSQL, or SQL Server instead of the mounted SQLite file, the external database is not modified by the reset scripts.
 
-If you want a server-global GitHub integration token in Docker, add `"gitHubToken": "ghp_..."` to `docker/server/armada.json`. Individual vessels can also store their own override token through the dashboard or `POST/PUT /api/v1/vessels`; Armada only exposes `hasGitHubTokenOverride` on reads and never returns the raw override value.
+If you want a server-global GitHub integration token in Docker, add `"gitHubToken": "ghp_..."` to `docker/armada/armada.json`. Individual vessels can also store their own override token through the dashboard or `POST/PUT /api/v1/vessels`; Armada only exposes `hasGitHubTokenOverride` on reads and never returns the raw override value.
 
 ### Stop
 

@@ -1,7 +1,0 @@
-# Ignore runtime data written by the server container.
-*
-# But keep the tracked default config and directory structure.
-!.gitignore
-!.gitkeep
-!armada.json
-!logs/

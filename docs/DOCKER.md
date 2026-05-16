@@ -79,7 +79,7 @@ services:
       - "7890:7890"
       - "7891:7891"
     volumes:
-      - ../server/armada.json:/app/data/armada.json
+      - ./armada.json:/app/data/armada.json
       - ./db:/app/data/db
       - ./logs:/app/data/logs
 
@@ -117,7 +117,7 @@ services:
 
 | Host Path | Container Path | Purpose |
 |-----------|----------------|---------|
-| `docker/server/armada.json` | `/app/data/armada.json` | Server configuration |
+| `docker/armada/armada.json` | `/app/data/armada.json` | Server configuration |
 | `docker/armada/db/` | `/app/data/db/` | SQLite database files |
 | `docker/armada/logs/` | `/app/data/logs/` | Server log files |
 | `docker/proxy/proxysettings.json` | `/config/proxysettings.json` | Proxy configuration |
@@ -126,7 +126,7 @@ services:
 
 ### Server Configuration
 
-Edit `docker/server/armada.json` to customize:
+Edit `docker/armada/armada.json` to customize:
 
 ```json
 {
@@ -201,13 +201,13 @@ To delete all data and start fresh while preserving configuration:
 
 **Windows:**
 ```bash
-cd docker/factory
+cd docker/armada/factory
 reset.bat
 ```
 
 **Linux / macOS:**
 ```bash
-cd docker/factory
+cd docker/armada/factory
 ./reset.sh
 ```
 
