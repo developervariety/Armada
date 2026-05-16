@@ -836,7 +836,7 @@ Docker Compose can run the server and the optional React dashboard in containers
 ### Start
 
 ```bash
-cd docker
+cd docker/armada
 docker compose up -d
 ```
 
@@ -856,16 +856,22 @@ Docker volumes are mapped to `docker/armada/`:
 ```
 docker/
 +-- armada/
+|   +-- compose.yaml # Armada server + dashboard
 |   +-- db/          # SQLite database (persistent across restarts)
 |   +-- logs/        # Server logs
++-- proxy/
+|   +-- compose.yaml # Armada proxy
+|   +-- data/        # Proxy state
+|   +-- logs/        # Proxy logs
+|   +-- proxysettings.json
 +-- server/
 |   +-- armada.json  # Server configuration
-+-- compose.yaml
 ```
 
 To change settings, edit `docker/server/armada.json` and restart:
 
 ```bash
+cd docker/armada
 docker compose restart armada-server
 ```
 
@@ -890,7 +896,7 @@ If you want a server-global GitHub integration token in Docker, add `"gitHubToke
 ### Stop
 
 ```bash
-cd docker
+cd docker/armada
 docker compose down
 ```
 

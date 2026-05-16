@@ -18,7 +18,9 @@ fi
 echo ""
 
 echo "[1/3] Stopping containers..."
+pushd ../armada >/dev/null
 docker compose down
+popd >/dev/null
 echo ""
 
 echo "[2/3] Deleting local database files..."
@@ -41,5 +43,5 @@ echo ""
 
 echo "========================================"
 echo " Factory reset complete."
-echo " Run 'docker compose up -d' to restart."
+echo " Run 'cd docker/armada && docker compose up -d' to restart."
 echo "========================================"

@@ -14,7 +14,7 @@ This guide covers running the Armada server and dashboard using Docker container
 ## Quick Start
 
 ```bash
-cd docker
+cd docker/armada
 docker compose up -d
 ```
 
@@ -67,28 +67,50 @@ That dashboard includes the planning workflow as well as direct dispatch: you ca
 
 ## Docker Compose Configuration
 
-The default `docker/compose.yaml`:
+The default Armada stack file is `docker/armada/compose.yaml`:
 
 ```yaml
 services:
   armada-server:
-    image: jchristn77/armada-server:v0.8.0
+    build:
+      context: ../..
+      dockerfile: src/Armada.Server/Dockerfile
     ports:
       - "7890:7890"
       - "7891:7891"
     volumes:
-      - ./server/armada.json:/app/data/armada.json
-      - ./armada/db:/app/data/db
-      - ./armada/logs:/app/data/logs
+      - ../server/armada.json:/app/data/armada.json
+      - ./db:/app/data/db
+      - ./logs:/app/data/logs
 
   armada-dashboard:
-    image: jchristn77/armada-dashboard:v0.8.0
+    build:
+      context: ../..
+      dockerfile: src/Armada.Dashboard/Dockerfile
     ports:
       - "3000:80"
     environment:
       - ARMADA_SERVER_URL=http://armada-server:7890
     depends_on:
       - armada-server
+```
+
+The proxy stack file is `docker/proxy/compose.yaml`:
+
+```yaml
+services:
+  armada-proxy:
+    build:
+      context: ../..
+      dockerfile: src/Armada.Proxy/Dockerfile
+    ports:
+      - "7893:7893"
+    environment:
+      - ARMADA_PROXY_SETTINGS_FILE=/config/proxysettings.json
+    volumes:
+      - ./proxysettings.json:/config/proxysettings.json:ro
+      - ./data:/app/data
+      - ./logs:/app/data/logs
 ```
 
 ### Volumes
@@ -98,6 +120,9 @@ services:
 | `docker/server/armada.json` | `/app/data/armada.json` | Server configuration |
 | `docker/armada/db/` | `/app/data/db/` | SQLite database files |
 | `docker/armada/logs/` | `/app/data/logs/` | Server log files |
+| `docker/proxy/proxysettings.json` | `/config/proxysettings.json` | Proxy configuration |
+| `docker/proxy/data/` | `/app/data/` | Proxy state files |
+| `docker/proxy/logs/` | `/app/data/logs/` | Proxy log files |
 
 ### Server Configuration
 
@@ -147,8 +172,8 @@ Valid `type` values: `Sqlite`, `Mysql`, `Postgresql`, `SqlServer`.
 ## Stopping and Restarting
 
 ```bash
-# Stop containers (preserves data)
-cd docker
+# Stop Armada containers (preserves data)
+cd docker/armada
 docker compose down
 
 # Restart
@@ -157,6 +182,15 @@ docker compose up -d
 # View logs
 docker compose logs -f armada-server
 docker compose logs -f armada-dashboard
+```
+
+For the proxy stack:
+
+```bash
+cd docker/proxy
+docker compose down
+docker compose up -d
+docker compose logs -f armada-proxy
 ```
 
 ---
@@ -243,7 +277,7 @@ docker build -f src/Armada.Server/Dockerfile -t armada-server:local .
 docker build -f src/Armada.Dashboard/Dockerfile -t armada-dashboard:local .
 ```
 
-Then update `docker/compose.yaml` to reference your local tags instead of `jchristn77/...`.
+Then update `docker/armada/compose.yaml` or `docker/proxy/compose.yaml` to reference your local tags instead of local builds if you want to pin named images.
 
 ---
 
@@ -261,6 +295,7 @@ Then update `docker/compose.yaml` to reference your local tags instead of `jchri
 
 **Container won't start:**
 ```bash
+cd docker/armada
 docker compose logs armada-server
 ```
 Check that `armada.json` exists and has valid JSON.

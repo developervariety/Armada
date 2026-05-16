@@ -15,7 +15,9 @@ if /i not "%confirm%"=="RESET" (
 )
 echo.
 echo [1/3] Stopping containers...
+pushd ..\armada >nul
 docker compose down
+popd >nul
 echo.
 echo [2/3] Deleting local database files...
 if exist "..\armada\db" (
@@ -35,5 +37,5 @@ if exist "..\armada\logs" (
 echo.
 echo ========================================
 echo  Factory reset complete.
-echo  Run 'docker compose up -d' to restart.
+echo  Run 'cd docker\armada && docker compose up -d' to restart.
 echo ========================================
