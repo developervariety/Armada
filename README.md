@@ -229,8 +229,8 @@ A by-category inventory of what Armada actually ships. Each feature is implement
 
 ### Persistence
 
-- **Four database backends.** SQLite (default, embedded), PostgreSQL, MySQL, SQL Server. Same schema, same migration sequence (currently v46).
-- **Numbered schema migrations.** Versioned `SchemaMigration(N, description, statements)` entries applied at admiral startup. Latest fork migrations: v37 planning sessions/transcripts/lineage, v38 merge failure classification and mission recovery attempts, v39 captain `runtime_options_json`, v40 vessel reflection tracking, v41 reorganize threshold, v42 parallel pipeline stages, v43 vessel pack hints / pack-curate threshold, v44 persona/captain identity-memory, v45 fleet-memory, v46 pipeline and mission review gates.
+- **Four database backends.** SQLite (default, embedded), PostgreSQL, MySQL, SQL Server. Same schema, same migration sequence (currently v47 for SQLite).
+- **Numbered schema migrations.** Versioned `SchemaMigration(N, description, statements)` entries applied at admiral startup. Latest fork migrations: v37 planning sessions/transcripts/lineage, v38 merge failure classification and mission recovery attempts, v39 captain `runtime_options_json`, v40 vessel reflection tracking, v41 reorganize threshold, v42 parallel pipeline stages, v43 vessel pack hints / pack-curate threshold, v44 persona/captain identity-memory, v45 fleet-memory, v46 pipeline and mission review gates, v47 SQLite workflow/delivery/objective/request-history tables.
 - **Backup / restore.** `armada_backup` and `armada_restore` MCP tools for full-database snapshots.
 - **Bulk delete / purge.** `armada_delete_*` and `armada_purge_*` per entity for terminal-state cleanup.
 
