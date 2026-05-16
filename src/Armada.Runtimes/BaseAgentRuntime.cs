@@ -104,11 +104,12 @@ namespace Armada.Runtimes
                 RedirectStandardInput = RedirectStdin,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
-                StandardInputEncoding = Encoding.UTF8,
                 StandardOutputEncoding = Encoding.UTF8,
                 StandardErrorEncoding = Encoding.UTF8,
                 CreateNoWindow = true
             };
+            if (RedirectStdin)
+                startInfo.StandardInputEncoding = Encoding.UTF8;
 
             foreach (string arg in args)
             {

@@ -40,7 +40,7 @@ namespace Armada.Test.Runtimes.Suites
                 AgentRuntimeFactory factory = CreateFactory();
                 IAgentRuntime runtime = factory.Create(AgentRuntimeEnum.Gemini);
                 AssertNotNull(runtime);
-                AssertEqual("Gemini CLI", runtime.Name);
+                AssertEqual("Gemini", runtime.Name);
             });
 
             await RunTest("Create Cursor Returns CursorRuntime", () =>

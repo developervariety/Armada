@@ -83,6 +83,18 @@ namespace Armada.Test.Runtimes.Suites
                 await Task.Delay(2000);
             });
 
+            await RunTest("StartAsync Without Stdin Redirect Does Not Configure StdinEncoding", async () =>
+            {
+                TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());
+                runtime.RedirectStdinOverride = false;
+                string tempDir = Path.GetTempPath();
+
+                int pid = await runtime.StartAsync(tempDir, "test prompt");
+                AssertTrue(pid > 0);
+
+                await Task.Delay(1000);
+            });
+
             await RunTest("StartAsync Invalid Command Throws", async () =>
             {
                 TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());
