@@ -60,6 +60,19 @@ Claude will call `armada_status` and report active captains, missions, and voyag
 
 > "Refactor the authentication system. Decompose into parallel missions and dispatch them."
 
+## Current Operator Surfaces
+
+For non-trivial work, prefer this flow:
+
+1. Create or find an objective/backlog item first.
+2. Use objective refinement, Planning, Workspace, and context packs to scope the mission set.
+3. Dispatch with objective IDs, selected playbooks, workflow profile/check expectations, and explicit file boundaries.
+4. Monitor through voyage/mission status, structured check runs, request history, and timeline history.
+5. Use review gates for human approval points, then let merge queue/audit/PR fallback handle landing safety.
+6. Link releases, deployments, incidents, runbooks, and GitHub evidence back to the objective before closing it.
+
+See [`armada-ops.md`](armada-ops.md) for the current operator playbook.
+
 ## Project-Scoped Orchestration
 
 If you want Claude Code to orchestrate Armada from within a specific project (not as a standalone agent), add to your project's `CLAUDE.md`:

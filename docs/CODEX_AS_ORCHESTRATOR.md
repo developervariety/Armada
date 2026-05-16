@@ -14,7 +14,7 @@ Connect OpenAI Codex CLI to Armada's MCP server and use natural language to orch
 armada mcp install
 ```
 
-This now writes the MCP configuration for all supported tools automatically. For Codex specifically, it writes `~/.codex/config.json`. If you prefer to edit manually, use:
+This writes MCP configuration for all supported tools automatically. For Codex specifically, Armada uses the native `codex mcp add` flow and the current `~/.codex/config.toml` format. If you prefer to edit manually, add an Armada MCP server entry equivalent to:
 
 ```json
 {
@@ -55,11 +55,24 @@ For Codex to effectively orchestrate Armada, paste the contents of [`INSTRUCTION
 
 > "Refactor the authentication system. Decompose into parallel missions and dispatch them."
 
+## Current Operator Surfaces
+
+For non-trivial work, prefer this flow:
+
+1. Create or find an objective/backlog item first.
+2. Use objective refinement, Planning, Workspace, and context packs to scope the mission set.
+3. Dispatch with objective IDs, selected playbooks, workflow profile/check expectations, and explicit file boundaries.
+4. Monitor through voyage/mission status, structured check runs, request history, and timeline history.
+5. Use review gates for human approval points, then let merge queue/audit/PR fallback handle landing safety.
+6. Link releases, deployments, incidents, runbooks, and GitHub evidence back to the objective before closing it.
+
+See [`armada-ops.md`](armada-ops.md) for the current operator playbook.
+
 ---
 
 ## Appendix: Manual Configuration
 
-If you prefer to configure MCP manually instead of using `armada mcp install`, add the following to `~/.codex/config.json`:
+If you prefer to configure MCP manually instead of using `armada mcp install`, add the equivalent MCP server entry to `~/.codex/config.toml`.
 
 **HTTP Transport (recommended)** — requires Admiral server running (`armada server start`):
 

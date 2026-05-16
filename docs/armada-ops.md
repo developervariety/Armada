@@ -4,6 +4,22 @@ This document describes operational workflows for the Armada multi-agent orchest
 
 ---
 
+## Current Operator Notes
+
+Last upstream sync: upstream `e5fe494d` via merge `9fcfe995` on 2026-05-15. The fork now includes upstream v0.8.0 delivery-management surfaces plus fork orchestration features.
+
+For non-trivial work, start from an objective/backlog item and keep the evidence there. Use objective refinement or Planning for fuzzy scope, Workspace/context packs for file-grounded scope, and structured check runs for repeatable validation. Dispatch missions with objective IDs, selected playbooks, expected checks, and explicit file boundaries.
+
+Use these upstream surfaces when they fit:
+
+- `list_objectives`, `create_objective`, `update_objective`, and backlog aliases for durable scope, priority, acceptance criteria, rollout constraints, and evidence links.
+- `run_check`, `get_check_run`, and `retry_check_run` for build/test/deploy validation records instead of only mission logs.
+- `create_release`, `create_deployment`, deployment approval/verify/rollback tools, and runbook tools for release and operations work.
+- Workspace, request history/API Explorer, history timeline, GitHub evidence, and captain tool visibility from the dashboard when investigating or resuming work.
+- Pipeline review gates for human checkpoints; approve or deny via mission detail or `/api/v1/missions/{id}/review/*` before merge queue/audit/PR fallback.
+
+---
+
 ## Reflection Workflow (Memory Consolidation)
 
 ### Overview

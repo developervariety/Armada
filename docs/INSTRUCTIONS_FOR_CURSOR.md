@@ -17,6 +17,11 @@ You have access to the Armada multi-agent orchestration system via MCP tools. Yo
 | **Captain** | A worker AI agent (Claude Code, Codex, Gemini, Cursor) | `cpt_` |
 | **Dock** | A git worktree where a captain works | `dck_` |
 | **Signal** | A message to/from a captain | `sig_` |
+| **Objective** | Durable backlog/scope/evidence record | `obj_` |
+| **Check Run** | Structured validation result | `chk_` |
+| **Release** | Candidate or shipped release record | `rel_` |
+| **Deployment** | Environment rollout/verification/rollback record | `dpl_` |
+| **Runbook** | Repeatable operational procedure | `rbk_` |
 
 ## Core Workflow
 
@@ -31,9 +36,21 @@ armada_status()                                                    -> overview o
 armada_enumerate({ entityType: "fleets" })                         -> find available fleets
 armada_get_fleet({ fleetId })                                      -> see vessels in a fleet
 armada_enumerate({ entityType: "vessels", fleetId: "flt_..." })    -> find vessels in a fleet
+list_objectives({ pageSize: 20 })                                   -> find durable backlog/scope records
+get_check_run({ checkRunId })                                       -> inspect validation evidence
 ```
 
-Use your own codebase tools (search, file reading, indexing) to understand the codebase and identify what needs to change.
+Use your own codebase tools (search, file reading, indexing), Workspace, and context packs to understand the codebase and identify what needs to change. For non-trivial work, prefer creating or linking an objective/backlog item before dispatch so the work has durable scope, acceptance criteria, and evidence lineage.
+
+### Current Operating Rule
+
+Do not treat Armada as only a mission launcher. For feature, bug, release, deployment, or incident work:
+
+1. Start from an objective/backlog item when the work has any lifespan.
+2. Use objective refinement, Planning, Workspace, and `armada_context_pack` to narrow scope before dispatch.
+3. Use workflow profiles and structured check runs for repeatable validation.
+4. Use review gates (`requiresReview`, `reviewDenyAction`) for human approval points.
+5. Link check runs, releases, deployments, incidents, runbooks, request history, GitHub evidence, and final mission results back to the objective.
 
 ### 2. Decompose
 
@@ -185,11 +202,15 @@ When missions fail:
 
 | Tool | Parameters | Description |
 |------|-----------|-------------|
-| `armada_enumerate` | `entityType` (required): fleets/vessels/captains/missions/voyages/docks/signals/events/merge_queue | Paginated query for any entity type. Default `pageSize` is 10. |
+| `armada_enumerate` | `entityType` (required): fleets/vessels/captains/missions/voyages/docks/signals/events/merge_queue/personas/prompt_templates/pipelines/playbooks | Paginated query for supported core entities. Default `pageSize` is 10. |
 
 Optional filters: `pageNumber`, `pageSize` (default 10), `order` (CreatedAscending/CreatedDescending), `status`, `createdAfter`, `createdBefore`, plus entity-specific filters (`fleetId`, `vesselId`, `captainId`, `voyageId`, `missionId`, `eventType`, `signalType`).
 
 Boolean include flags (all default to `false`): `includeDescription` (missions, voyages), `includeContext` (vessels), `includeTestOutput` (merge_queue), `includePayload` (events), `includeMessage` (signals). When `false`, length hints are returned instead of full text.
+
+### Delivery Records
+
+Use dedicated tools for v0.8.0 delivery records: `list_objectives`, `create_objective`, `update_objective`, `list_backlog`, `run_check`, `get_check_run`, `retry_check_run`, `create_release`, `get_release`, `create_deployment`, `get_deployment`, `approve_deployment`, `verify_deployment`, `rollback_deployment`, `get_runbook`, `start_runbook_execution`, and `get_runbook_execution`.
 
 ### Fleets
 
