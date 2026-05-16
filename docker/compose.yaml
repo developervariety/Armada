@@ -1,6 +1,8 @@
 services:
   armada-server:
-    image: jchristn77/armada-server:v0.8.0
+    build:
+      context: ..
+      dockerfile: src/Armada.Server/Dockerfile
     ports:
       - "7890:7890"
       - "7891:7891"
@@ -10,7 +12,9 @@ services:
       - ./armada/logs:/app/data/logs
 
   armada-dashboard:
-    image: jchristn77/armada-dashboard:v0.8.0
+    build:
+      context: ..
+      dockerfile: src/Armada.Dashboard/Dockerfile
     ports:
       - "3000:80"
     environment:

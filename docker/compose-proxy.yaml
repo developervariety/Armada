@@ -1,6 +1,8 @@
 services:
   armada-proxy:
-    image: jchristn77/armada-proxy:v0.8.0
+    build:
+      context: ..
+      dockerfile: src/Armada.Proxy/Dockerfile
     ports:
       - "7893:7893"
     environment:
