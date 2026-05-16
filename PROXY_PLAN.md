@@ -219,6 +219,7 @@ Bring the new future-work orchestration model into the proxy in a bounded but us
 - [x] Add planning-session list view with captain, vessel, linked objective, status, and timestamps.
 - [x] Add planning-session detail modal with summary, transcript preview, selected captain, vessel, and dispatch-handoff actions.
 - [x] Replace the modal-and-prompt planning flow with an inline transcript workspace that supports chat continuation, dispatch-message selection, draft summarization, and dispatch handoff directly in the proxy shell.
+- [x] Auto-refresh responding planning sessions in the proxy so captain replies appear without requiring a manual reload.
 - [x] Support creating planning sessions from backlog/objectives.
 - [x] Support creating planning sessions from vessel context when no backlog record exists.
 

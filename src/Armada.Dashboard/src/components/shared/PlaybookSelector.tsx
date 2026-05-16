@@ -1,23 +1,20 @@
-import { type ChangeEvent, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { listPlaybooks } from '../../api/client';
 import type { Playbook, PlaybookDeliveryMode, SelectedPlaybook } from '../../types/models';
 import { useLocale } from '../../context/LocaleContext';
 
-const DELIVERY_MODE_COPY: Record<PlaybookDeliveryMode, { label: string; shortLabel: string; description: string }> = {
+const DELIVERY_MODE_COPY: Record<PlaybookDeliveryMode, { label: string; description: string }> = {
   InlineFullContent: {
     label: 'Inline Full Content',
-    shortLabel: 'Inline',
     description: 'Inject the complete markdown into the mission instructions.',
   },
   InstructionWithReference: {
     label: 'Instruction With Reference',
-    shortLabel: 'Reference',
     description: 'Tell the model to read the materialized playbook path outside the worktree.',
   },
   AttachIntoWorktree: {
     label: 'Attach Into Worktree',
-    shortLabel: 'Worktree',
     description: 'Materialize the playbook in `.armada/playbooks/` and instruct the model to read it there.',
   },
 };
@@ -30,13 +27,11 @@ interface PlaybookSelectorProps {
 
 export default function PlaybookSelector({ value, onChange, disabled = false }: PlaybookSelectorProps) {
   const { t, formatRelativeTime } = useLocale();
-  const [expanded, setExpanded] = useState(false);
   const [playbooks, setPlaybooks] = useState<Playbook[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [search, setSearch] = useState('');
-  const [availableSelection, setAvailableSelection] = useState<string[]>([]);
-  const [selectedSelection, setSelectedSelection] = useState<string[]>([]);
+  const [draftPlaybookId, setDraftPlaybookId] = useState('');
+  const [draftDeliveryMode, setDraftDeliveryMode] = useState<PlaybookDeliveryMode>('InlineFullContent');
 
   useEffect(() => {
     let mounted = true;
@@ -62,92 +57,103 @@ export default function PlaybookSelector({ value, onChange, disabled = false }: 
 
   const activePlaybooks = playbooks.filter((playbook) => playbook.active !== false);
   const selectedIds = new Set(value.map((item) => item.playbookId));
-  const availablePlaybooks = activePlaybooks.filter((playbook) => !selectedIds.has(playbook.id));
-  const filteredAvailable = availablePlaybooks.filter((playbook) => {
-    const query = search.trim().toLowerCase();
-    if (!query) return true;
-    return playbook.fileName.toLowerCase().includes(query)
-      || (playbook.description || '').toLowerCase().includes(query)
-      || playbook.id.toLowerCase().includes(query);
-  });
+  const availableDraftPlaybooks = activePlaybooks.filter((playbook) => !selectedIds.has(playbook.id));
 
   useEffect(() => {
-    const activeIds = new Set(activePlaybooks.map((playbook) => playbook.id));
-    setAvailableSelection((current) => current.filter((id) => activeIds.has(id) && !selectedIds.has(id)));
-    setSelectedSelection((current) => current.filter((id) => selectedIds.has(id)));
-  }, [playbooks, value]);
-
-  function handleListSelection(event: ChangeEvent<HTMLSelectElement>, setter: (ids: string[]) => void) {
-    setter(Array.from(event.target.selectedOptions).map((option) => option.value));
-  }
-
-  function addSelectedPlaybooks() {
-    if (disabled || availableSelection.length === 0) return;
-    const selectedSet = new Set(availableSelection);
-    const additions = activePlaybooks
-      .filter((playbook) => selectedSet.has(playbook.id) && !selectedIds.has(playbook.id))
-      .map((playbook) => ({
-        playbookId: playbook.id,
-        deliveryMode: 'InlineFullContent' as PlaybookDeliveryMode,
-      }));
-
-    if (additions.length === 0) return;
-    onChange([...value, ...additions]);
-    setSelectedSelection(additions.map((item) => item.playbookId));
-    setAvailableSelection([]);
-  }
-
-  function removeSelectedPlaybooks() {
-    if (disabled || selectedSelection.length === 0) return;
-    const removalSet = new Set(selectedSelection);
-    onChange(value.filter((item) => !removalSet.has(item.playbookId)));
-    setSelectedSelection([]);
-  }
-
-  function updateModeForSelection(deliveryMode: PlaybookDeliveryMode) {
-    if (disabled || selectedSelection.length === 0) return;
-    const updateSet = new Set(selectedSelection);
-    onChange(value.map((item) => updateSet.has(item.playbookId) ? { ...item, deliveryMode } : item));
-  }
-
-  function moveSelected(direction: -1 | 1) {
-    if (disabled || selectedSelection.length !== 1) return;
-    const playbookId = selectedSelection[0];
-    const index = value.findIndex((item) => item.playbookId === playbookId);
-    const nextIndex = index + direction;
-    if (index < 0 || nextIndex < 0 || nextIndex >= value.length) return;
-
-    const next = [...value];
-    const current = next[index];
-    next[index] = next[nextIndex];
-    next[nextIndex] = current;
-    onChange(next);
-  }
+    const availableIds = new Set(availableDraftPlaybooks.map((playbook) => playbook.id));
+    setDraftPlaybookId((current) => availableIds.has(current) ? current : '');
+  }, [availableDraftPlaybooks]);
 
   function resolvePlaybook(playbookId: string): Playbook | undefined {
     return playbooks.find((playbook) => playbook.id === playbookId);
   }
 
-  const focusedAvailable = filteredAvailable.find((playbook) => playbook.id === availableSelection[0]) || null;
-  const focusedSelectedItems = value.filter((item) => selectedSelection.includes(item.playbookId));
-  const focusedSelectedPlaybook = selectedSelection.length === 1 ? resolvePlaybook(selectedSelection[0]) || null : null;
-  const selectedModes = Array.from(new Set(focusedSelectedItems.map((item) => item.deliveryMode)));
-  const selectedModeValue = focusedSelectedItems.length === 0
-    ? 'InlineFullContent'
-    : selectedModes.length === 1
-      ? selectedModes[0]
-      : '';
-  const selectedIndex = selectedSelection.length === 1
-    ? value.findIndex((item) => item.playbookId === selectedSelection[0])
-    : -1;
+  function getOptionsForRow(playbookId: string) {
+    const otherSelectedIds = new Set(
+      value
+        .filter((item) => item.playbookId !== playbookId)
+        .map((item) => item.playbookId),
+    );
+    const options = activePlaybooks.filter((playbook) => playbook.id === playbookId || !otherSelectedIds.has(playbook.id));
+    const current = resolvePlaybook(playbookId);
+    if (current && !options.some((playbook) => playbook.id === current.id)) {
+      return [current, ...options];
+    }
+
+    return options;
+  }
+
+  function updateSelectedPlaybook(index: number, playbookId: string) {
+    if (disabled || !playbookId) return;
+
+    onChange(value.map((item, itemIndex) => (
+      itemIndex === index
+        ? {
+            ...item,
+            playbookId,
+          }
+        : item
+    )));
+  }
+
+  function updateSelectedDeliveryMode(index: number, deliveryMode: PlaybookDeliveryMode) {
+    if (disabled) return;
+
+    onChange(value.map((item, itemIndex) => (
+      itemIndex === index
+        ? {
+            ...item,
+            deliveryMode,
+          }
+        : item
+    )));
+  }
+
+  function removeSelectedPlaybook(index: number) {
+    if (disabled) return;
+    onChange(value.filter((_, itemIndex) => itemIndex !== index));
+  }
+
+  function addSelectedPlaybook() {
+    if (disabled || !draftPlaybookId) return;
+
+    onChange([
+      ...value,
+      {
+        playbookId: draftPlaybookId,
+        deliveryMode: draftDeliveryMode,
+      },
+    ]);
+    setDraftPlaybookId('');
+    setDraftDeliveryMode('InlineFullContent');
+  }
+
+  function renderSummary(playbook: Playbook | undefined, deliveryMode: PlaybookDeliveryMode) {
+    if (!playbook) {
+      return (
+        <div className="playbook-selector-row-summary">
+          <span className="text-dim">{t('This playbook is no longer available in the active catalog.')}</span>
+        </div>
+      );
+    }
+
+    return (
+      <div className="playbook-selector-row-summary">
+        <span>{playbook.description || t('No description')}</span>
+        <span>{t('{{count}} chars', { count: playbook.content.length.toLocaleString() })}</span>
+        <span>{t('Updated {{time}}', { time: formatRelativeTime(playbook.lastUpdateUtc) })}</span>
+        <span>{t(DELIVERY_MODE_COPY[deliveryMode].description)}</span>
+      </div>
+    );
+  }
 
   return (
-    <section className={`playbook-selector-shell${expanded ? '' : ' collapsed'}`}>
+    <section className="playbook-selector-shell">
       <div className="playbook-selector-head">
         <div>
           <h3>{t('Playbooks')}</h3>
           <p className="text-dim">
-            {t('Attach reusable markdown guidance to every mission in this dispatch. Order matters, and each selection can use its own delivery mode.')}
+            {t('Attach reusable markdown guidance to every mission in this dispatch. Playbooks are applied in the order listed below.')}
           </p>
         </div>
         <div className="playbook-selector-meta">
@@ -156,201 +162,156 @@ export default function PlaybookSelector({ value, onChange, disabled = false }: 
               ? t('Loading playbooks...')
               : error
                 ? t('Playbooks unavailable')
-                : t('{{count}} available', { count: availablePlaybooks.length })}
+                : t('{{count}} available', { count: availableDraftPlaybooks.length })}
           </span>
           <span>{t('{{count}} selected', { count: value.length })}</span>
           <Link to="/playbooks" className="playbook-selector-link">{t('Manage playbooks')}</Link>
-          <button
-            type="button"
-            className="playbook-selector-toggle"
-            aria-expanded={expanded}
-            onClick={() => setExpanded((current) => !current)}
-          >
-            <span>{expanded ? t('Hide') : t('Show')}</span>
-            <span className="playbook-selector-toggle-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24">
-                <polyline points="6 9 12 15 18 9" />
-              </svg>
-            </span>
-          </button>
         </div>
       </div>
 
-      {expanded && error && <div className="alert alert-error">{error}</div>}
+      {error && <div className="alert alert-error">{error}</div>}
 
-      {!expanded ? (
-        <div className="text-dim">
-          {t('Expand this section to browse, order, and attach playbooks.')}
+      {loading ? (
+        <div className="playbook-selector-empty">
+          <strong>{t('Loading playbooks...')}</strong>
+          <span>{t('Fetching reusable guidance from Armada.')}</span>
+        </div>
+      ) : activePlaybooks.length === 0 ? (
+        <div className="playbook-selector-empty emphasized">
+          <strong>{t('No active playbooks found.')}</strong>
+          <span>{t('Create one from the Playbooks page, then return here to attach it.')}</span>
         </div>
       ) : (
-      <div className="playbook-selector-layout">
-        <div className="playbook-selector-pane">
-          <div className="playbook-selector-pane-head">
-            <div>
-              <h4>{t('Available')}</h4>
-              <p className="text-dim">{t('Filter and multi-select active playbooks to attach to this dispatch.')}</p>
-            </div>
-          </div>
+        <div className="playbook-selector-list">
+          {value.map((item, index) => {
+            const playbook = resolvePlaybook(item.playbookId);
+            const options = getOptionsForRow(item.playbookId);
 
-          <div className="playbook-selector-pane-body">
-            <input
-              type="text"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              className="playbook-selector-search"
-              placeholder={t('Search playbooks...')}
-              disabled={disabled || loading}
-            />
-
-          {loading ? (
-            <div className="playbook-selector-empty">{t('Loading playbooks...')}</div>
-          ) : activePlaybooks.length === 0 ? (
-            <div className="playbook-selector-empty">
-              <strong>{t('No active playbooks found.')}</strong>
-              <span>{t('Create one from the Playbooks page, then return here to attach it.')}</span>
-            </div>
-          ) : filteredAvailable.length === 0 ? (
-            <div className="playbook-selector-empty">
-              <strong>{t('No playbooks match the current filter.')}</strong>
-              <span>{t('Try a different search or clear the filter.')}</span>
-            </div>
-          ) : (
-            <>
-              <select
-                multiple
-                size={12}
-                className="playbook-selector-listbox"
-                value={availableSelection}
-                disabled={disabled}
-                onChange={(event) => handleListSelection(event, setAvailableSelection)}
-              >
-                {filteredAvailable.map((playbook) => (
-                  <option key={playbook.id} value={playbook.id}>
-                    {playbook.fileName}
-                  </option>
-                ))}
-              </select>
-
-              <div className="playbook-selector-details">
-                {focusedAvailable ? (
-                  <>
-                    <strong>{focusedAvailable.fileName}</strong>
-                    <span className="text-dim">{focusedAvailable.description || t('No description')}</span>
-                    <div className="playbook-selector-detail-meta">
-                      <span>{t('{{count}} chars', { count: focusedAvailable.content.length.toLocaleString() })}</span>
-                      <span>{t('Updated {{time}}', { time: formatRelativeTime(focusedAvailable.lastUpdateUtc) })}</span>
-                    </div>
-                  </>
-                ) : (
-                  <span className="text-dim">{t('Select one or more playbooks to review them before adding.')}</span>
-                )}
-              </div>
-            </>
-          )}
-          </div>
-        </div>
-
-        <div className="playbook-selector-toolbar">
-          <button type="button" className="btn" disabled={disabled || availableSelection.length === 0} onClick={addSelectedPlaybooks}>
-            {t('Add')} &gt;
-          </button>
-          <button type="button" className="btn" disabled={disabled || selectedSelection.length === 0} onClick={removeSelectedPlaybooks}>
-            &lt; {t('Remove')}
-          </button>
-          <button type="button" className="btn" disabled={disabled || selectedSelection.length !== 1 || selectedIndex <= 0} onClick={() => moveSelected(-1)}>
-            {t('Up')}
-          </button>
-          <button
-            type="button"
-            className="btn"
-            disabled={disabled || selectedSelection.length !== 1 || selectedIndex < 0 || selectedIndex >= value.length - 1}
-            onClick={() => moveSelected(1)}
-          >
-            {t('Down')}
-          </button>
-        </div>
-
-        <div className="playbook-selector-pane">
-          <div className="playbook-selector-pane-head">
-            <div>
-              <h4>{t('Selected')}</h4>
-              <p className="text-dim">{t('These playbooks will be applied in the listed order when the work is dispatched.')}</p>
-            </div>
-          </div>
-
-          <div className="playbook-selector-pane-body">
-          {value.length === 0 ? (
-            <div className="playbook-selector-empty emphasized">
-              <strong>{t('No playbooks selected yet.')}</strong>
-              <span>{t('Use this when you want repeatable engineering rules, architecture constraints, or review standards to be applied automatically.')}</span>
-            </div>
-          ) : (
-            <>
-              <select
-                multiple
-                size={12}
-                className="playbook-selector-listbox"
-                value={selectedSelection}
-                disabled={disabled}
-                onChange={(event) => handleListSelection(event, setSelectedSelection)}
-              >
-                {value.map((item, index) => {
-                  const playbook = resolvePlaybook(item.playbookId);
-                  return (
-                    <option key={`${item.playbookId}-${index}`} value={item.playbookId}>
-                      {`${index + 1}. ${playbook?.fileName || item.playbookId} [${t(DELIVERY_MODE_COPY[item.deliveryMode].shortLabel)}]`}
-                    </option>
-                  );
-                })}
-              </select>
-
-              <div className="playbook-selector-details">
-                {focusedSelectedItems.length === 0 ? (
-                  <span className="text-dim">{t('Select one or more attached playbooks to change delivery mode or review details.')}</span>
-                ) : (
-                  <>
-                    <strong>
-                      {focusedSelectedItems.length === 1
-                        ? (focusedSelectedPlaybook?.fileName || selectedSelection[0])
-                        : t('{{count}} playbooks selected', { count: focusedSelectedItems.length })}
-                    </strong>
-                    {focusedSelectedItems.length === 1 && (
-                      <span className="text-dim">{focusedSelectedPlaybook?.description || t('No description')}</span>
-                    )}
-                    <div className="playbook-selector-detail-meta">
-                      {focusedSelectedItems.length === 1 && focusedSelectedPlaybook && (
-                        <span>{t('{{count}} chars', { count: focusedSelectedPlaybook.content.length.toLocaleString() })}</span>
+            return (
+              <div key={`${item.playbookId}-${index}`} className="playbook-selector-row">
+                <div className="playbook-selector-row-main">
+                  <label className="playbook-selector-field">
+                    <span>{t('Playbook {{index}}', { index: index + 1 })}</span>
+                    <select
+                      value={item.playbookId}
+                      disabled={disabled}
+                      onChange={(event) => updateSelectedPlaybook(index, event.target.value)}
+                    >
+                      {options.map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.fileName}
+                        </option>
+                      ))}
+                      {!playbook && (
+                        <option value={item.playbookId}>
+                          {t('{{id}} (Unavailable)', { id: item.playbookId })}
+                        </option>
                       )}
-                      <span>{t('Order is preserved in the final instruction bundle.')}</span>
-                    </div>
-                    <label className="playbook-mode-field">
-                      <span>{t('Delivery Mode')}</span>
-                      <select
-                        value={selectedModeValue}
-                        disabled={disabled || focusedSelectedItems.length === 0}
-                        onChange={(event) => updateModeForSelection(event.target.value as PlaybookDeliveryMode)}
-                      >
-                        {selectedModes.length > 1 && <option value="" disabled>{t('Multiple values')}</option>}
-                        {Object.entries(DELIVERY_MODE_COPY).map(([mode, copy]) => (
-                          <option key={mode} value={mode}>
-                            {t(copy.label)}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <span className="text-dim">
-                      {selectedModes.length > 1
-                        ? t('Choosing a mode here applies it to every highlighted playbook.')
-                        : t(DELIVERY_MODE_COPY[(selectedModes[0] || 'InlineFullContent') as PlaybookDeliveryMode].description)}
-                    </span>
-                  </>
-                )}
+                    </select>
+                  </label>
+
+                  <label className="playbook-selector-field playbook-selector-mode-field">
+                    <span>{t('Delivery Mode')}</span>
+                    <select
+                      value={item.deliveryMode}
+                      disabled={disabled}
+                      onChange={(event) => updateSelectedDeliveryMode(index, event.target.value as PlaybookDeliveryMode)}
+                    >
+                      {Object.entries(DELIVERY_MODE_COPY).map(([mode, copy]) => (
+                        <option key={mode} value={mode}>
+                          {t(copy.label)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <div className="playbook-selector-row-actions">
+                    <button
+                      type="button"
+                      className="icon-btn icon-btn-delete"
+                      disabled={disabled}
+                      aria-label={t('Remove playbook {{index}}', { index: index + 1 })}
+                      title={t('Remove playbook {{index}}', { index: index + 1 })}
+                      onClick={() => removeSelectedPlaybook(index)}
+                    />
+                  </div>
+                </div>
+
+                {renderSummary(playbook, item.deliveryMode)}
               </div>
-            </>
+            );
+          })}
+
+          {availableDraftPlaybooks.length > 0 && (
+            <div className="playbook-selector-row playbook-selector-row-draft">
+              <div className="playbook-selector-row-main">
+                <label className="playbook-selector-field">
+                  <span>{t('Add Playbook')}</span>
+                  <select
+                    value={draftPlaybookId}
+                    disabled={disabled}
+                    onChange={(event) => setDraftPlaybookId(event.target.value)}
+                  >
+                    <option value="">{t('Select a playbook...')}</option>
+                    {availableDraftPlaybooks.map((playbook) => (
+                      <option key={playbook.id} value={playbook.id}>
+                        {playbook.fileName}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="playbook-selector-field playbook-selector-mode-field">
+                  <span>{t('Delivery Mode')}</span>
+                  <select
+                    value={draftDeliveryMode}
+                    disabled={disabled}
+                    onChange={(event) => setDraftDeliveryMode(event.target.value as PlaybookDeliveryMode)}
+                  >
+                    {Object.entries(DELIVERY_MODE_COPY).map(([mode, copy]) => (
+                      <option key={mode} value={mode}>
+                        {t(copy.label)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <div className="playbook-selector-row-actions">
+                  <button
+                    type="button"
+                    className="icon-btn icon-btn-add"
+                    disabled={disabled || !draftPlaybookId}
+                    aria-label={t('Add playbook')}
+                    title={t('Add playbook')}
+                    onClick={addSelectedPlaybook}
+                  />
+                </div>
+              </div>
+
+              {draftPlaybookId ? (
+                renderSummary(resolvePlaybook(draftPlaybookId), draftDeliveryMode)
+              ) : (
+                <div className="playbook-selector-row-summary">
+                  <span className="text-dim">
+                    {t('Choose a playbook and delivery mode, then add it to the dispatch sequence.')}
+                  </span>
+                </div>
+              )}
+            </div>
           )}
-          </div>
+
+          {availableDraftPlaybooks.length === 0 && value.length > 0 && (
+            <div className="playbook-selector-helper text-dim">
+              {t('All active playbooks are already attached to this request.')}
+            </div>
+          )}
+
+          {value.length === 0 && (
+            <div className="playbook-selector-helper text-dim">
+              {t('Add only the reusable guidance you want automatically applied to every mission in this dispatch.')}
+            </div>
+          )}
         </div>
-      </div>
       )}
     </section>
   );

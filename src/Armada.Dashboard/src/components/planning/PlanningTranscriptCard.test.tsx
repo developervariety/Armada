@@ -3,6 +3,10 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import PlanningTranscriptCard from './PlanningTranscriptCard';
 
+vi.mock('../shared/StatusBadge', () => ({
+  default: ({ status }: { status: string }) => <span>{status}</span>,
+}));
+
 const t = (value: string) => value;
 const formatDateTime = (value: string) => value;
 const formatRelativeTime = () => 'just now';
@@ -16,6 +20,14 @@ describe('PlanningTranscriptCard', () => {
       <PlanningTranscriptCard
         t={t}
         transcriptRef={createRef<HTMLDivElement>()}
+        title="Session title"
+        captainName="Planner"
+        captainRuntime="Codex"
+        vesselName="Vessel"
+        branchName="feature/planning"
+        pipelineName="FullPipeline"
+        playbookCount={1}
+        updatedUtc="2026-04-29T00:00:03Z"
         messages={[
           {
             id: 'psm_user',
@@ -59,11 +71,16 @@ describe('PlanningTranscriptCard', () => {
         composer=""
         sending={false}
         canSend={false}
+        canStop
+        stopping={false}
+        deleting={false}
         formatDateTime={formatDateTime}
         formatRelativeTime={formatRelativeTime}
         onSelectMessage={onSelectMessage}
         onComposerChange={() => undefined}
         onSend={() => undefined}
+        onStop={() => undefined}
+        onDelete={() => undefined}
       />,
     );
 
@@ -81,17 +98,30 @@ describe('PlanningTranscriptCard', () => {
       <PlanningTranscriptCard
         t={t}
         transcriptRef={createRef<HTMLDivElement>()}
+        title="Session title"
+        captainName="Planner"
+        captainRuntime="Codex"
+        vesselName="Vessel"
+        branchName="feature/planning"
+        pipelineName="FullPipeline"
+        playbookCount={1}
+        updatedUtc="2026-04-29T00:00:03Z"
         messages={[]}
         selectedMessageId=""
         currentStatus="Active"
         composer="Add a migration checklist"
         sending={false}
         canSend
+        canStop
+        stopping={false}
+        deleting={false}
         formatDateTime={formatDateTime}
         formatRelativeTime={formatRelativeTime}
         onSelectMessage={() => undefined}
         onComposerChange={onComposerChange}
         onSend={onSend}
+        onStop={() => undefined}
+        onDelete={() => undefined}
       />,
     );
 

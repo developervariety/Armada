@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   createPlanningSession,
   deletePlanningSession,
@@ -31,14 +31,12 @@ import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { useWebSocket } from '../context/WebSocketContext';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
-import StatusBadge from '../components/shared/StatusBadge';
 import PlanningDispatchCard from '../components/planning/PlanningDispatchCard';
 import PlanningSessionListCard from '../components/planning/PlanningSessionListCard';
 import PlanningStartCard from '../components/planning/PlanningStartCard';
 import PlanningTranscriptCard from '../components/planning/PlanningTranscriptCard';
 import ReadinessPanel from '../components/shared/ReadinessPanel';
 import {
-  buildDispatchSeed,
   type DispatchSeedState,
   getLatestAssistantMessage,
   mergeCaptainState,
@@ -369,6 +367,30 @@ export default function Planning() {
     () => captains.find((captain) => captain.id === captainId) || null,
     [captainId, captains],
   );
+  const captainNameById = useMemo(
+    () => new Map(captains.map((captain) => [captain.id, captain.name])),
+    [captains],
+  );
+  const vesselNameById = useMemo(
+    () => new Map(vessels.map((vessel) => [vessel.id, vessel.name])),
+    [vessels],
+  );
+  const pipelineNameById = useMemo(
+    () => new Map(pipelines.map((pipeline) => [pipeline.id, pipeline.name])),
+    [pipelines],
+  );
+
+  function resolveCaptainName(currentCaptainId: string) {
+    return captainNameById.get(currentCaptainId) || currentCaptainId;
+  }
+
+  function resolveVesselName(currentVesselId: string) {
+    return vesselNameById.get(currentVesselId) || currentVesselId;
+  }
+
+  function resolvePipelineName(currentPipelineId: string | null) {
+    return (currentPipelineId && pipelineNameById.get(currentPipelineId)) || currentPipelineId || '-';
+  }
 
   const currentSession = detail?.session || null;
   const currentMessages = detail?.messages || [];
@@ -608,142 +630,86 @@ export default function Planning() {
         />
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '360px minmax(0, 1fr)', gap: '1rem', alignItems: 'start' }}>
-        <div style={{ display: 'grid', gap: '1rem' }}>
-          <PlanningSessionListCard
-            t={t}
-            sessions={sessions}
-            activeSessionId={id}
-            formatRelativeTime={formatRelativeTime}
-            onSelect={(sessionId) => navigate(`/planning/${sessionId}`)}
-          />
-        </div>
+      <div className="planning-section-stack">
+        <PlanningSessionListCard
+          t={t}
+          sessions={sessions}
+          activeSessionId={id}
+          formatRelativeTime={formatRelativeTime}
+          resolveCaptainName={resolveCaptainName}
+          resolveVesselName={resolveVesselName}
+          resolvePipelineName={resolvePipelineName}
+          onSelect={(sessionId) => navigate(`/planning/${sessionId}`)}
+        />
 
-        <div style={{ display: 'grid', gap: '1rem' }}>
-          {!id ? (
-            <div className="card" style={{ padding: '1.25rem' }}>
-              <h3>{t('Select Or Start A Session')}</h3>
-              <p className="text-muted">
-                {t('Choose an existing planning session from the left, or start a new one to begin chatting with a captain.')}
-              </p>
-            </div>
-          ) : loadingDetail ? (
-            <div className="card" style={{ padding: '1.25rem' }}>
-              <p className="text-muted">{t('Loading planning session...')}</p>
-            </div>
-          ) : !detail ? (
-            <div className="card" style={{ padding: '1.25rem' }}>
-              <p className="text-muted">{t('Planning session not found.')}</p>
-            </div>
-          ) : (
-            <>
-              <div className="card" style={{ padding: '1rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'start' }}>
-                  <div>
-                    <div className="breadcrumb" style={{ marginBottom: '0.5rem' }}>
-                      <Link to="/planning">{t('Planning')}</Link>
-                      <span className="breadcrumb-sep">&gt;</span>
-                      <span>{detail.session.title}</span>
-                    </div>
-                    <h3 style={{ marginBottom: '0.35rem' }}>{detail.session.title}</h3>
-                    <p className="text-muted">
-                      {t('Captain {{captain}} on vessel {{vessel}}', {
-                        captain: detail.captain?.name || detail.session.captainId,
-                        vessel: detail.vessel?.name || detail.session.vesselId,
-                      })}
-                    </p>
-                  </div>
-                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                    <StatusBadge status={detail.session.status} />
-                    <button type="button" className="btn btn-sm" disabled={!canStop} onClick={handleStopSession}>
-                      {stopping || sessionStopping ? t('Stopping...') : t('Stop Session')}
-                    </button>
-                    <button type="button" className="btn btn-sm" disabled={deleting} onClick={() => setConfirmDeleteOpen(true)}>
-                      {deleting ? t('Deleting...') : t('Delete Session')}
-                    </button>
-                  </div>
-                </div>
+        {!id ? (
+          <div className="card" style={{ padding: '1.25rem' }}>
+            <h3>{t('Current Session')}</h3>
+            <p className="text-muted">
+              {t('Choose an existing planning session from the table above, or start a new one to begin chatting with a captain.')}
+            </p>
+          </div>
+        ) : loadingDetail ? (
+          <div className="card" style={{ padding: '1.25rem' }}>
+            <p className="text-muted">{t('Loading planning session...')}</p>
+          </div>
+        ) : !detail ? (
+          <div className="card" style={{ padding: '1.25rem' }}>
+            <p className="text-muted">{t('Planning session not found.')}</p>
+          </div>
+        ) : (
+          <>
+            <PlanningTranscriptCard
+              t={t}
+              transcriptRef={transcriptRef}
+              title={detail.session.title}
+              captainName={detail.captain?.name || detail.session.captainId}
+              captainRuntime={detail.captain?.runtime || '-'}
+              vesselName={detail.vessel?.name || detail.session.vesselId}
+              branchName={detail.session.branchName}
+              pipelineName={resolvePipelineName(detail.session.pipelineId)}
+              playbookCount={detail.session.selectedPlaybooks?.length || 0}
+              currentStatus={currentSession?.status}
+              failureReason={detail.session.failureReason}
+              updatedUtc={detail.session.lastUpdateUtc}
+              messages={currentMessages}
+              selectedMessageId={selectedMessageId}
+              composer={composer}
+              sending={sending}
+              canSend={canSend}
+              canStop={canStop}
+              stopping={stopping || sessionStopping}
+              deleting={deleting}
+              formatDateTime={formatDateTime}
+              formatRelativeTime={formatRelativeTime}
+              onSelectMessage={(messageId) => {
+                setSelectedMessageId(messageId);
+                dispatchSeedRef.current = null;
+              }}
+              onComposerChange={setComposer}
+              onSend={handleSendMessage}
+              onStop={handleStopSession}
+              onDelete={() => setConfirmDeleteOpen(true)}
+            />
 
-                <div className="detail-grid" style={{ marginTop: '1rem' }}>
-                  <div className="detail-field">
-                    <span className="detail-label">{t('Captain')}</span>
-                    <span>{detail.captain?.name || detail.session.captainId}</span>
-                  </div>
-                  <div className="detail-field">
-                    <span className="detail-label">{t('Runtime')}</span>
-                    <span>{detail.captain?.runtime || '-'}</span>
-                  </div>
-                  <div className="detail-field">
-                    <span className="detail-label">{t('Vessel')}</span>
-                    <span>{detail.vessel?.name || detail.session.vesselId}</span>
-                  </div>
-                  <div className="detail-field">
-                    <span className="detail-label">{t('Branch')}</span>
-                    <span className="mono">{detail.session.branchName || '-'}</span>
-                  </div>
-                  <div className="detail-field">
-                    <span className="detail-label">{t('Pipeline')}</span>
-                    <span>{pipelines.find((pipeline) => pipeline.id === detail.session.pipelineId)?.name || detail.session.pipelineId || '-'}</span>
-                  </div>
-                  <div className="detail-field">
-                    <span className="detail-label">{t('Playbooks')}</span>
-                    <span>{detail.session.selectedPlaybooks?.length || 0}</span>
-                  </div>
-                  <div className="detail-field">
-                    <span className="detail-label">{t('Updated')}</span>
-                    <span title={formatDateTime(detail.session.lastUpdateUtc)}>{formatRelativeTime(detail.session.lastUpdateUtc)}</span>
-                  </div>
-                </div>
-
-                <div className="text-muted" style={{ marginTop: '1rem' }}>
-                  {t('Each planning reply is generated from the preserved transcript and repo context, then streamed back into this session.')}
-                </div>
-
-                {detail.session.failureReason && (
-                  <div className="alert alert-error" style={{ marginTop: '1rem' }}>
-                    {detail.session.failureReason}
-                  </div>
-                )}
-              </div>
-
-              <PlanningTranscriptCard
-                t={t}
-                transcriptRef={transcriptRef}
-                messages={currentMessages}
-                selectedMessageId={selectedMessageId}
-                currentStatus={currentSession?.status}
-                composer={composer}
-                sending={sending}
-                canSend={canSend}
-                formatDateTime={formatDateTime}
-                formatRelativeTime={formatRelativeTime}
-                onSelectMessage={(messageId) => {
-                  setSelectedMessageId(messageId);
-                  dispatchSeedRef.current = null;
-                }}
-                onComposerChange={setComposer}
-                onSend={handleSendMessage}
-              />
-
-              <PlanningDispatchCard
-                t={t}
-                selectedMessage={selectedMessage}
-                dispatchTitle={dispatchTitle}
-                dispatchDescription={dispatchDescription}
-                canSummarize={canSummarize}
-                canOpenInDispatch={canOpenInDispatch}
-                canDispatch={canDispatch}
-                summarizing={summarizing}
-                dispatching={dispatching}
-                onDispatchTitleChange={setDispatchTitle}
-                onDispatchDescriptionChange={setDispatchDescription}
-                onSummarize={handleSummarize}
-                onOpenInDispatch={handleOpenInDispatch}
-                onDispatch={handleDispatch}
-              />
-            </>
-          )}
-        </div>
+            <PlanningDispatchCard
+              t={t}
+              selectedMessage={selectedMessage}
+              dispatchTitle={dispatchTitle}
+              dispatchDescription={dispatchDescription}
+              canSummarize={canSummarize}
+              canOpenInDispatch={canOpenInDispatch}
+              canDispatch={canDispatch}
+              summarizing={summarizing}
+              dispatching={dispatching}
+              onDispatchTitleChange={setDispatchTitle}
+              onDispatchDescriptionChange={setDispatchDescription}
+              onSummarize={handleSummarize}
+              onOpenInDispatch={handleOpenInDispatch}
+              onDispatch={handleDispatch}
+            />
+          </>
+        )}
       </div>
 
       <ConfirmDialog

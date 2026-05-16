@@ -71,7 +71,7 @@ export default function PlanningStartCard(props: PlanningStartCardProps) {
         <p className="text-muted">{t('Loading planning catalog...')}</p>
       ) : (
         <div className="dispatch-form">
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0 1rem' }}>
+          <div className="planning-start-grid">
             <div className="form-group">
               <label>{t('Title')}</label>
               <input

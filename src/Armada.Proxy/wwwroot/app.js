@@ -2,6 +2,9 @@ const DEPLOYMENT_STORAGE_KEY = 'armada_proxy_instance_id';
 const PROXY_SESSION_STORAGE_KEY = 'armada_proxy_session_token';
 const THEME_STORAGE_KEY = 'armada_proxy_theme';
 const PROXY_SESSION_HEADER = 'X-Armada-Proxy-Session';
+const PLANNING_POLL_INTERVAL_MS = 1200;
+const PLANNING_POLL_RETRY_INTERVAL_MS = 2500;
+const PLANNING_POLL_MAX_ERRORS = 3;
 const API_EXPLORER_PRESETS = [
   { key: 'summary', label: 'Summary', method: 'GET', path: '/summary' },
   { key: 'activity', label: 'Recent Activity', method: 'GET', path: '/activity' },
@@ -74,6 +77,8 @@ const state = {
   planningDispatching: false,
   planningStopping: false,
   planningDeleting: false,
+  planningPollTimer: null,
+  planningPollErrorCount: 0,
   dispatchSelectedPlaybooks: [],
   detailModal: null,
   resourceEditor: null,
@@ -1555,6 +1560,7 @@ function openResourceEditor(resourceKey, mode, payload = null, id = null) {
 }
 
 function resetProxyState() {
+  clearPlanningSessionPoll();
   state.summary = null;
   state.fleets = [];
   state.vessels = [];
@@ -1599,6 +1605,8 @@ function resetProxyState() {
   state.planningDispatching = false;
   state.planningStopping = false;
   state.planningDeleting = false;
+  state.planningPollTimer = null;
+  state.planningPollErrorCount = 0;
   state.dispatchSelectedPlaybooks = [];
   state.resourceEditor = null;
   closeAllModals();
@@ -2085,6 +2093,13 @@ function clearPlanningWorkspaceStatus() {
   state.planningWorkspaceStatus = { message: '', kind: null };
 }
 
+function clearPlanningSessionPoll() {
+  if (state.planningPollTimer != null) {
+    clearTimeout(state.planningPollTimer);
+    state.planningPollTimer = null;
+  }
+}
+
 function getPlanningSessionParts(payload) {
   const detail = payload || {};
   return {
@@ -2098,6 +2113,20 @@ function getPlanningSessionParts(payload) {
 function getLinkedObjectiveForPlanningSession(sessionId) {
   if (!sessionId) return null;
   return (state.objectives || []).find((objective) => (objective.planningSessionIds || []).includes(sessionId)) || null;
+}
+
+function shouldPollPlanningSession(payload = state.planningDetail) {
+  if (!payload) return false;
+
+  const { session, messages } = getPlanningSessionParts(payload);
+  const status = String(session.status || '');
+  if (status === 'Created' || status === 'Responding' || status === 'Stopping') {
+    return true;
+  }
+
+  return (messages || []).some((message) =>
+    String(message?.role || '').toLowerCase() === 'assistant' &&
+    String(message?.content || '').trim().length < 1);
 }
 
 function resolvePlanningDispatchSourceMessage(messages, preferredId = '') {
@@ -2119,6 +2148,75 @@ function resolvePlanningDispatchSourceMessage(messages, preferredId = '') {
   }
 
   return null;
+}
+
+function applyPlanningSessionDetail(payload, options = {}) {
+  const { session, messages } = getPlanningSessionParts(payload);
+  const linkedObjective = getLinkedObjectiveForPlanningSession(session.id);
+  const dispatchSourceMessage = resolvePlanningDispatchSourceMessage(messages, state.selectedPlanningMessageId);
+
+  state.planningDetail = payload;
+  state.planningWorkspaceLoading = false;
+  state.planningPollErrorCount = 0;
+  state.selectedPlanningMessageId = dispatchSourceMessage?.id || state.selectedPlanningMessageId;
+  if (!state.planningDraftTitle) state.planningDraftTitle = session.title || '';
+  if (!state.planningDraftDescription) {
+    state.planningDraftDescription = linkedObjective?.refinementSummary || linkedObjective?.description || '';
+  }
+
+  if (options.statusMessage !== undefined) {
+    state.planningWorkspaceStatus = {
+      message: String(options.statusMessage || ''),
+      kind: options.statusKind || null,
+    };
+  }
+
+  renderEntityList(elements.planningList, state.planningSessions || [], 'planning');
+  renderPlanningWorkspace();
+  schedulePlanningSessionPoll();
+}
+
+function schedulePlanningSessionPoll(delayMs = PLANNING_POLL_INTERVAL_MS) {
+  clearPlanningSessionPoll();
+
+  if (!state.selectedPlanningSessionId || !shouldPollPlanningSession()) {
+    return;
+  }
+
+  const sessionId = state.selectedPlanningSessionId;
+  state.planningPollTimer = window.setTimeout(async () => {
+    if (state.selectedPlanningSessionId !== sessionId) {
+      return;
+    }
+
+    try {
+      const payload = await fetchJson(`${instanceBaseUrl()}/planning-sessions/${encodeURIComponent(sessionId)}`);
+      if (state.selectedPlanningSessionId !== sessionId) {
+        return;
+      }
+
+      applyPlanningSessionDetail(payload, {
+        statusMessage: state.planningWorkspaceStatus?.kind === 'error'
+          ? ''
+          : state.planningWorkspaceStatus?.message,
+        statusKind: state.planningWorkspaceStatus?.kind,
+      });
+    } catch (error) {
+      if (state.selectedPlanningSessionId !== sessionId) {
+        return;
+      }
+
+      state.planningPollErrorCount += 1;
+      if (state.planningPollErrorCount >= PLANNING_POLL_MAX_ERRORS) {
+        setPlanningWorkspaceStatus(error instanceof Error ? error.message : 'Unable to refresh the planning transcript.', 'error');
+        clearPlanningSessionPoll();
+        return;
+      }
+
+      state.planningPollTimer = null;
+      schedulePlanningSessionPoll(PLANNING_POLL_RETRY_INTERVAL_MS);
+    }
+  }, delayMs);
 }
 
 function openDispatchFromPlanningWorkspace() {
@@ -2346,11 +2444,13 @@ function renderPlanningWorkspace() {
 async function selectPlanningSession(id, options = {}) {
   if (!state.selectedInstanceId || !id) return;
 
+  clearPlanningSessionPoll();
   const priorSelection = state.selectedPlanningSessionId;
   const shouldResetDraft = priorSelection !== id;
   state.selectedPlanningSessionId = id;
   state.planningWorkspaceLoading = true;
   state.planningDetail = null;
+  state.planningPollErrorCount = 0;
   if (shouldResetDraft) {
     state.selectedPlanningMessageId = '';
     state.planningComposer = '';
@@ -2367,27 +2467,10 @@ async function selectPlanningSession(id, options = {}) {
 
   try {
     const payload = await fetchJson(`${instanceBaseUrl()}/planning-sessions/${encodeURIComponent(id)}`);
-    const { session, messages } = getPlanningSessionParts(payload);
-    const linkedObjective = getLinkedObjectiveForPlanningSession(session.id);
-    const dispatchSourceMessage = resolvePlanningDispatchSourceMessage(messages, state.selectedPlanningMessageId);
-
-    state.planningDetail = payload;
-    state.planningWorkspaceLoading = false;
-    state.selectedPlanningMessageId = dispatchSourceMessage?.id || '';
-    if (!state.planningDraftTitle) state.planningDraftTitle = session.title || '';
-    if (!state.planningDraftDescription) {
-      state.planningDraftDescription = linkedObjective?.refinementSummary || linkedObjective?.description || '';
-    }
-
-    if (options.statusMessage) {
-      state.planningWorkspaceStatus = {
-        message: String(options.statusMessage),
-        kind: options.statusKind || 'success',
-      };
-    }
-
-    renderEntityList(elements.planningList, state.planningSessions || [], 'planning');
-    renderPlanningWorkspace();
+    applyPlanningSessionDetail(payload, {
+      statusMessage: options.statusMessage,
+      statusKind: options.statusKind || (options.statusMessage ? 'success' : null),
+    });
   } catch (error) {
     state.planningWorkspaceLoading = false;
     state.planningDetail = null;
@@ -2424,12 +2507,11 @@ async function sendPlanningWorkspaceMessage() {
       body: { content },
     });
     state.planningComposer = '';
-    state.planningDetail = payload;
-    const { messages } = getPlanningSessionParts(payload);
-    const dispatchSourceMessage = resolvePlanningDispatchSourceMessage(messages, state.selectedPlanningMessageId);
-    state.selectedPlanningMessageId = dispatchSourceMessage?.id || state.selectedPlanningMessageId;
     await loadRecentPlanningList(true);
-    setPlanningWorkspaceStatus('Planning session updated.', 'success');
+    applyPlanningSessionDetail(payload, {
+      statusMessage: 'Captain is responding. The transcript will refresh automatically.',
+      statusKind: 'success',
+    });
   } catch (error) {
     setPlanningWorkspaceStatus(error instanceof Error ? error.message : 'Planning-session message failed.', 'error');
   } finally {
@@ -2514,6 +2596,7 @@ async function stopPlanningWorkspace() {
   if (!state.selectedInstanceId || !state.selectedPlanningSessionId) return;
   if (!confirm('Stop this planning session?')) return;
 
+  clearPlanningSessionPoll();
   state.planningStopping = true;
   clearPlanningWorkspaceStatus();
   renderPlanningWorkspace();
@@ -2538,6 +2621,7 @@ async function deletePlanningWorkspace() {
   if (!state.selectedInstanceId || !state.selectedPlanningSessionId) return;
   if (!confirm('Delete this planning session?')) return;
 
+  clearPlanningSessionPoll();
   state.planningDeleting = true;
   clearPlanningWorkspaceStatus();
   renderPlanningWorkspace();
