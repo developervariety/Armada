@@ -55,6 +55,8 @@ namespace Armada.Core.Services
         {
             await SeedPersonaAsync("Worker", "Standard mission executor -- writes code, makes changes, commits work.", "persona.worker", token).ConfigureAwait(false);
             await SeedPersonaAsync("Architect", "Plans voyages and decomposes work into right-sized missions.", "persona.architect", token).ConfigureAwait(false);
+            await SeedPersonaAsync("Product Manager", "Shapes the whole product picture, clarifies user outcomes, and turns dispatched work into durable requirements.", "persona.product_manager", token).ConfigureAwait(false);
+            await SeedPersonaAsync("Usability Engineer", "Improves usability, edge-case experience, and consistency with the surrounding product.", "persona.usability_engineer", token).ConfigureAwait(false);
             await SeedPersonaAsync("Judge", "Reviews completed mission diffs for correctness and completeness.", "persona.judge", token).ConfigureAwait(false);
             await SeedPersonaAsync("TestEngineer", "Writes and updates tests for mission changes.", "persona.test_engineer", token).ConfigureAwait(false);
             await SeedPersonaAsync("DiagnosticProtocolReviewer", "Specialist reviewer for J1939, UDS, J1708, K-line, OEM seed-key/security access, diagnostic timing/framing, and banned reflash boundary checks.", "persona.diagnostic_protocol_reviewer", token).ConfigureAwait(false);
@@ -122,6 +124,20 @@ namespace Armada.Core.Services
                 "FullPipeline",
                 "Architect then Worker then TestEngineer then Judge.",
                 new List<PipelineStage> { new PipelineStage(1, "Architect"), new PipelineStage(2, "Worker"), new PipelineStage(3, "TestEngineer"), new PipelineStage(4, "Judge") },
+                token).ConfigureAwait(false);
+
+            await SeedPipelineAsync(
+                "ProductDevelopment",
+                "Product Manager then Architect then Worker then Usability Engineer then TestEngineer then Judge.",
+                new List<PipelineStage>
+                {
+                    new PipelineStage(1, "Product Manager") { PreferredModel = "high" },
+                    new PipelineStage(2, "Architect") { PreferredModel = "high" },
+                    new PipelineStage(3, "Worker"),
+                    new PipelineStage(4, "Usability Engineer") { PreferredModel = "high" },
+                    new PipelineStage(5, "TestEngineer"),
+                    new PipelineStage(6, "Judge") { PreferredModel = "high" }
+                },
                 token).ConfigureAwait(false);
 
             await SeedPipelineAsync(

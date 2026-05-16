@@ -125,6 +125,7 @@ previous one.
 | **Reviewed** | Worker -> Judge | Work is implemented, then reviewed. |
 | **Tested** | Worker -> TestEngineer -> Judge | Work is implemented, tests are written, then everything is reviewed. |
 | **FullPipeline** | Architect -> Worker -> TestEngineer -> Judge | Full lifecycle: plan, implement, test, review. |
+| **ProductDevelopment** | Product Manager -> Architect -> Worker -> Usability Engineer -> TestEngineer -> Judge | Product-facing lifecycle: product intent, plan, implement, UX review, test, final review. |
 | **DiagnosticProtocolTested** | Worker -> DiagnosticProtocolReviewer -> TestEngineer -> Judge | Use for diagnostic protocol or ECU safety-sensitive work. |
 | **TenantSecurityTested** | Worker -> TenantSecurityReviewer -> TestEngineer -> Judge | Use for auth, tenant isolation, secrets, audit, or cross-tenant leak risk. |
 | **MigrationDataTested** | Worker -> MigrationDataReviewer -> TestEngineer -> Judge | Use for migrations, provider parity, backfills, indexes, or data-loss risk. |

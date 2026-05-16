@@ -53,6 +53,77 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Seed creates product personas and ProductDevelopment pipeline", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    PersonaSeedService service = new PersonaSeedService(testDb.Driver, CreateLogging());
+                    await service.SeedAsync().ConfigureAwait(false);
+
+                    Persona? productManager = await testDb.Driver.Personas.ReadByNameAsync("Product Manager").ConfigureAwait(false);
+                    AssertProductPersona("Product Manager", "persona.product_manager", productManager);
+
+                    Persona? usabilityEngineer = await testDb.Driver.Personas.ReadByNameAsync("Usability Engineer").ConfigureAwait(false);
+                    AssertProductPersona("Usability Engineer", "persona.usability_engineer", usabilityEngineer);
+
+                    Pipeline? pipeline = await testDb.Driver.Pipelines.ReadByNameAsync("ProductDevelopment").ConfigureAwait(false);
+                    AssertNotNull(pipeline, "ProductDevelopment pipeline should be seeded");
+                    AssertEqual("ProductDevelopment", pipeline!.Name, "Pipeline name");
+                    AssertTrue(pipeline.IsBuiltIn, "Pipeline should be built in");
+                    AssertTrue(pipeline.Active, "Pipeline should be active");
+                    AssertEqual(Constants.DefaultTenantId, pipeline.TenantId, "Pipeline tenant");
+
+                    AssertPipelineStages(
+                        pipeline,
+                        new List<string> { "Product Manager", "Architect", "Worker", "Usability Engineer", "TestEngineer", "Judge" },
+                        "ProductDevelopment");
+
+                    List<PipelineStage> ordered = pipeline.Stages.OrderBy(s => s.Order).ToList();
+                    AssertEqual("high", ordered[0].PreferredModel, "Product Manager should prefer high tier");
+                    AssertEqual("high", ordered[1].PreferredModel, "Architect should prefer high tier");
+                    AssertEqual("high", ordered[3].PreferredModel, "Usability Engineer should prefer high tier");
+                    AssertEqual("high", ordered[5].PreferredModel, "Judge should prefer high tier");
+                }
+            });
+
+            await RunTest("Seed reconciles existing product persona and pipeline", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    Persona existingPersona = new Persona("Product Manager", "persona.old_product");
+                    existingPersona.Description = "Old product persona";
+                    existingPersona.IsBuiltIn = false;
+                    existingPersona.Active = false;
+                    await testDb.Driver.Personas.CreateAsync(existingPersona).ConfigureAwait(false);
+
+                    Pipeline existingPipeline = new Pipeline("ProductDevelopment");
+                    existingPipeline.Description = "Old product pipeline";
+                    existingPipeline.IsBuiltIn = false;
+                    existingPipeline.Active = false;
+                    existingPipeline.Stages = new List<PipelineStage>
+                    {
+                        new PipelineStage(1, "Worker"),
+                        new PipelineStage(2, "Judge")
+                    };
+                    await testDb.Driver.Pipelines.CreateAsync(existingPipeline).ConfigureAwait(false);
+
+                    PersonaSeedService service = new PersonaSeedService(testDb.Driver, CreateLogging());
+                    await service.SeedAsync().ConfigureAwait(false);
+
+                    Persona? productManager = await testDb.Driver.Personas.ReadByNameAsync("Product Manager").ConfigureAwait(false);
+                    AssertProductPersona("Product Manager", "persona.product_manager", productManager);
+                    AssertContains("whole product", productManager!.Description ?? "", "Product Manager description should be canonical");
+
+                    Pipeline? pipeline = await testDb.Driver.Pipelines.ReadByNameAsync("ProductDevelopment").ConfigureAwait(false);
+                    AssertNotNull(pipeline, "ProductDevelopment pipeline should still exist after reconciliation");
+                    AssertContains("Usability Engineer", pipeline!.Description ?? "", "Pipeline description should be canonical");
+                    AssertPipelineStages(
+                        pipeline,
+                        new List<string> { "Product Manager", "Architect", "Worker", "Usability Engineer", "TestEngineer", "Judge" },
+                        "ProductDevelopment");
+                }
+            });
+
             await RunTest("Seed upgrades existing specialist persona and pipeline", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
@@ -251,6 +322,10 @@ namespace Armada.Test.Unit.Suites.Services
                         await testDb.Driver.Pipelines.ReadByNameAsync("FullPipeline").ConfigureAwait(false),
                         new List<string> { "Architect", "Worker", "TestEngineer", "Judge" },
                         "FullPipeline");
+                    AssertPipelineStages(
+                        await testDb.Driver.Pipelines.ReadByNameAsync("ProductDevelopment").ConfigureAwait(false),
+                        new List<string> { "Product Manager", "Architect", "Worker", "Usability Engineer", "TestEngineer", "Judge" },
+                        "ProductDevelopment");
 
                     Pipeline? reflections = await testDb.Driver.Pipelines.ReadByNameAsync("Reflections").ConfigureAwait(false);
                     AssertNotNull(reflections, "Reflections pipeline should be seeded");
@@ -448,6 +523,16 @@ namespace Armada.Test.Unit.Suites.Services
             AssertEqual("high", ordered[1].PreferredModel, "Specialist stage preferred model");
             AssertEqual("TestEngineer", ordered[2].PersonaName, "Stage 3 persona");
             AssertEqual("Judge", ordered[3].PersonaName, "Stage 4 persona");
+        }
+
+        private void AssertProductPersona(string expectedName, string expectedTemplate, Persona? persona)
+        {
+            AssertNotNull(persona, "Persona should be seeded: " + expectedName);
+            AssertEqual(expectedName, persona!.Name, "Persona name");
+            AssertEqual(expectedTemplate, persona.PromptTemplateName, "Persona prompt template");
+            AssertTrue(persona.IsBuiltIn, "Persona should be built in");
+            AssertTrue(persona.Active, "Persona should be active");
+            AssertEqual(Constants.DefaultTenantId, persona.TenantId, "Persona tenant");
         }
 
         private void AssertPipelineStages(Pipeline? pipeline, List<string> expectedPersonas, string pipelineName)

@@ -18,6 +18,27 @@ Use these upstream surfaces when they fit:
 - Workspace, request history/API Explorer, history timeline, GitHub evidence, and captain tool visibility from the dashboard when investigating or resuming work.
 - Pipeline review gates for human checkpoints; approve or deny via mission detail or `/api/v1/missions/{id}/review/*` before merge queue/audit/PR fallback.
 
+## Pipeline Selection
+
+Choose the default pipeline per vessel based on the repository's dominant risk profile, then override per voyage when the work calls for a different review path.
+
+| Pipeline | Use when |
+|----------|----------|
+| `WorkerOnly` | Tiny, low-risk operational edits where review would add more queue time than value. |
+| `Reviewed` | Narrow implementation work that needs a final Judge but not a dedicated test-writing stage. |
+| `Tested` | Default for most backend/library changes: Worker, TestEngineer, Judge. |
+| `FullPipeline` | Ambiguous engineering work that benefits from Architect decomposition before implementation. |
+| `ProductDevelopment` | Product-facing features, dashboard/workflow changes, onboarding/setup flows, or anything where user value, UX, and acceptance criteria are still fuzzy. Stages: Product Manager, Architect, Worker, Usability Engineer, TestEngineer, Judge. |
+| `DiagnosticProtocolTested` | J1939, UDS, J1708, K-line, seed-key/security-access, diagnostic timing/framing, or banned reflash boundary work. |
+| `TenantSecurityTested` | Authn/authz, tenant isolation, secrets, auditability, or cross-tenant data exposure risk. |
+| `MigrationDataTested` | Schema migrations, provider parity, backfills, indexes, retention, data loss, or restart safety. |
+| `PerformanceMemoryTested` | Memory growth, output/log retention, large DB materialization, throughput, disposal, timers, or repeated background work. |
+| `ReferencePortingTested` | Porting from decompiler output, traces, vendor references, protocol captures, or source-bundle evidence. |
+| `FrontendWorkflowTested` | UI workflow, accessibility, responsive/i18n states, validation/error surfaces, or design-system consistency. |
+| `Reflections` / `ReflectionsDualJudge` | Memory consolidation only; do not use for normal code delivery. |
+
+Personas are not interchangeable labels. `Product Manager` clarifies product intent before architecture; `Usability Engineer` reviews the resulting experience after implementation; specialist reviewers are high-tier focused reviewers for known risk domains; `TestEngineer` owns test coverage; `Judge` is final review. If a vessel is mostly product/UI work, set its default pipeline to `ProductDevelopment` or `FrontendWorkflowTested`; if it is mostly library/protocol/security/data work, set the matching specialist tested pipeline as the vessel default. Use `WorkerOnly` only when the blast radius is deliberately small.
+
 ---
 
 ## Reflection Workflow (Memory Consolidation)

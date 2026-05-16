@@ -24,7 +24,7 @@ enumerate({ entityType: "personas" })
 // MCP: check built-in pipelines exist
 enumerate({ entityType: "pipelines" })
 
-// Expected: WorkerOnly, Reviewed, Tested, FullPipeline,
+// Expected: WorkerOnly, Reviewed, Tested, FullPipeline, ProductDevelopment,
 // DiagnosticProtocolTested, TenantSecurityTested, MigrationDataTested,
 // PerformanceMemoryTested, ReferencePortingTested, FrontendWorkflowTested
 ```

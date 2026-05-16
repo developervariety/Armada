@@ -99,7 +99,7 @@ This fork (`developervariety/Armada`) is based on `jchristn/Armada` and keeps up
 - **DeepSeek embedding/inference clients + hybrid code search.** `DeepSeekEmbeddingClient` (implements `IEmbeddingClient`) and `DeepSeekInferenceClient` (implements `IInferenceClient`) wired into `CodeIndexService` for hybrid embedding+lexical search. `CodeIndexSettings.UseSemanticSearch` (default `false`) activates semantic score blending with configurable `SemanticWeight`/`LexicalWeight`. Summarizer (`UseSummarizer`, default `false`) and file-signature (`UseFileSignatures`, default `false`) also supported but disabled by default. (`d242cc7b`, `c2ec68f1`, `86724a1d`, `2883cb21`)
 - **AgentWake MCP-notification delivery mode.** New `AgentWakeDeliveryMode.McpNotification` writes a `SignalTypeEnum.Wake` signal row instead of spawning a process. Interactive orchestrators drain pending wakes via `armada_enumerate entityType=signals signalType=Wake unreadOnly=true` and acknowledge with `armada_mark_signal_read`. `Both` mode does spawn + signal for transition deployments. (`35054fcd`)
 - **Per-captain reasoning effort via RuntimeOptionsJson.** Captains carry `runtime_options_json` (schema v39 field) forwarding `reasoning_effort` to Codex CLI and supporting pinned cursor reasoning effort documentation. (`b5088b0d`)
-- **Built-in specialist personas and tested pipelines.** Six specialist tested pipelines: DiagnosticProtocolTested, TenantSecurityTested, MigrationDataTested, PerformanceMemoryTested, ReferencePortingTested, FrontendWorkflowTested — each with corresponding specialist personas (DiagnosticProtocolReviewer, TenantSecurityReviewer, MigrationDataReviewer, PerformanceMemoryReviewer, PortingReferenceAnalyst, FrontendWorkflowReviewer). (`60781f72`)
+- **Built-in product and specialist personas/pipelines.** `ProductDevelopment` adds Product Manager and Usability Engineer review around implementation, tests, and Judge review; specialist tested pipelines cover diagnostic protocol, tenant security, migration/data, performance/memory, reference porting, and frontend workflow risk with corresponding reviewer personas. (`60781f72`, `e5fe494d`)
 - **Code context pack auto-attach on dispatch.** `CodeIndexService.BuildContextPackAsync` is called at architect and dispatch time to auto-attach a context pack (`_briefing/context-pack.md`) as a prestaged file when the code index is available. (`baec5512`)
 - **Stdio MCP framing fix for Codex.** Corrects the framed stdio MCP transport so that Codex `mcp add` works correctly with the Armada server entrypoint. (`cec36fa6`)
 - **Cursor model alias matching.** Preferred-model tier routing recognizes Cursor-specific model aliases (composer-2-fast, kimi-k2.5, claude-4.6-sonnet-medium, gemini-3-flash) alongside canonical Claude/Codex names. (`34574c5f`)
@@ -155,11 +155,11 @@ A by-category inventory of what Armada actually ships. Each feature is implement
 
 ### Pipelines & Personas
 
-- **Built-in pipelines.** `WorkerOnly`, `Reviewed`, `Tested`, `FullPipeline`, plus specialist tested pipelines for diagnostic protocol, tenant security, migration/data, performance/memory, reference porting, and frontend workflow review. Configurable at fleet/vessel level with per-dispatch override.
+- **Built-in pipelines.** `WorkerOnly`, `Reviewed`, `Tested`, `FullPipeline`, `ProductDevelopment`, plus specialist tested pipelines for diagnostic protocol, tenant security, migration/data, performance/memory, reference porting, and frontend workflow review. Configurable at fleet/vessel level with per-dispatch override.
 - **Custom pipelines.** Define your own ordered persona chain. MCP `armada_create_pipeline` accepts `stages: [{personaName, isOptional, description, preferredModel}]`; REST/dashboard pipeline editors also expose review-gate fields.
 - **Per-stage `PreferredModel`.** Each pipeline stage can carry an optional `PreferredModel` that overrides the per-mission pin for missions created from that stage. Lets the `Reviewed` pipeline route Worker to Mid-tier Sonnet and Judge to Opus independently. Dispatcher precedence: `mission.PreferredModel = stage.PreferredModel ?? md.PreferredModel`.
 - **Per-stage review gates.** A pipeline stage with `RequiresReview = true` pauses in `MissionStatusEnum.Review` after producing work. Approve to continue to the next stage or landing; deny with `RetryStage` to return the stage to `Pending` with feedback, or `FailPipeline` to stop the chain.
-- **Built-in personas.** Worker, Architect, Judge, TestEngineer, DiagnosticProtocolReviewer, TenantSecurityReviewer, MigrationDataReviewer, PerformanceMemoryReviewer, PortingReferenceAnalyst, FrontendWorkflowReviewer.
+- **Built-in personas.** Worker, Architect, Product Manager, Usability Engineer, Judge, TestEngineer, DiagnosticProtocolReviewer, TenantSecurityReviewer, MigrationDataReviewer, PerformanceMemoryReviewer, PortingReferenceAnalyst, FrontendWorkflowReviewer, MemoryConsolidator.
 - **Custom personas.** `armada_create_persona` registers a persona with `name`, `description`, `promptTemplateName`. Pipelines reference personas by name, so user-defined personas slot into stages just like built-ins.
 - **Prompt templates.** Every prompt agents see is template-driven. `armada_create_prompt_template` / `armada_update_prompt_template` / `armada_reset_prompt_template`. Templates use `{Placeholder}` parameters. Built-in templates ship as defaults; user edits persist in the database.
 - **Allowed-personas filter on captains.** Each captain has an `AllowedPersonas` list (e.g. Opus captains: `Worker, Judge, Architect`; Codex: `Worker, Architect`). Hard filter inside the dispatcher — a mission with `Persona = "Judge"` only routes to captains whose `AllowedPersonas` includes Judge.
@@ -351,6 +351,7 @@ Each step is a **persona** with its own prompt template. A sequence of personas 
 | **Reviewed** | Implement -> Review | Normal development |
 | **Tested** | Implement -> Test -> Review | When you need coverage |
 | **FullPipeline** | Plan -> Implement -> Test -> Review | Big features, unfamiliar codebases |
+| **ProductDevelopment** | Product -> Plan -> Implement -> UX -> Test -> Review | Product-facing features and fuzzy requirements |
 | **DiagnosticProtocolTested** | Implement -> Diagnostic protocol review -> Test -> Review | J1939, UDS, J1708, K-line, seed-key/security access, diagnostic timing/framing, and banned reflash boundary checks |
 | **TenantSecurityTested** | Implement -> Tenant security review -> Test -> Review | Multi-tenant authz/authn, tenant isolation, secrets, auditability, and cross-tenant leak risk |
 | **MigrationDataTested** | Implement -> Migration/data review -> Test -> Review | Migrations, schema/provider parity, indexes, backfills, rollback/restart safety, and data-loss risk |
@@ -358,7 +359,7 @@ Each step is a **persona** with its own prompt template. A sequence of personas 
 | **ReferencePortingTested** | Implement -> Reference parity analysis -> Test -> Review | Approved reference material, decompiler-derived notes, vendor traces, protocol captures, and semantic parity evidence for porting work |
 | **FrontendWorkflowTested** | Implement -> Frontend workflow review -> Test -> Review | Frontend UX/workflow, accessibility, responsive states, i18n, errors, and design consistency |
 
-You can set a default pipeline per repository and override it on a single dispatch when needed. Use the specialist tested pipelines when the mission has one of those known risk profiles; if the built-in roles are not enough, define your own personas and compose them into custom pipelines for additional project-specific steps.
+You can set a default pipeline per repository and override it on a single dispatch when needed. Use ProductDevelopment for product-facing work that needs product intent and UX review, or use the specialist tested pipelines when the mission has one of those known risk profiles. If the built-in roles are not enough, define your own personas and compose them into custom pipelines for additional project-specific steps.
 
 ### Parallel Tasks
 
@@ -525,7 +526,7 @@ armada_create_pipeline name=SecureRelease stages='[{"personaName":"Worker"},{"pe
 
 Every prompt Armada sends is backed by an editable template. You can change agent behavior without modifying code. The dashboard includes a template editor with a parameter reference panel.
 
-Pipelines are not limited to planning, implementation, testing, and review. Armada ships specialist tested pipelines for diagnostic protocol, tenant security, migration/data, performance/memory, reference porting, and frontend workflow review. If a project needs a SecurityAuditor, DocsWriter, ReleaseManager, or another internal role with custom instructions and handoff rules, Armada can support that by adding the persona and inserting it into the pipeline.
+Pipelines are not limited to planning, implementation, testing, and review. Armada ships ProductDevelopment plus specialist tested pipelines for diagnostic protocol, tenant security, migration/data, performance/memory, reference porting, and frontend workflow review. If a project needs a SecurityAuditor, DocsWriter, ReleaseManager, or another internal role with custom instructions and handoff rules, Armada can support that by adding the persona and inserting it into the pipeline.
 
 For the full pipeline reference, see [docs/PIPELINES.md](docs/PIPELINES.md).
 
@@ -1297,7 +1298,7 @@ v0.4.0 adds personas, pipelines, and prompt templates. The database schema is au
 
 - New tables: `prompt_templates`, `personas`, `pipelines`, `pipeline_stages`
 - New columns: `captains.allowed_personas`, `captains.preferred_persona`, `missions.persona`, `missions.depends_on_mission_id`, `fleets.default_pipeline_id`, `vessels.default_pipeline_id`
-- Built-in personas (Worker, Architect, Judge, TestEngineer, and the six specialist reviewers) and pipelines (WorkerOnly, Reviewed, Tested, FullPipeline, and the six specialist tested pipelines) are seeded automatically
+- Built-in personas (Worker, Architect, Product Manager, Usability Engineer, Judge, TestEngineer, MemoryConsolidator, and the six specialist reviewers) and pipelines (WorkerOnly, Reviewed, Tested, FullPipeline, ProductDevelopment, Reflections, ReflectionsDualJudge, and the six specialist tested pipelines) are seeded automatically
 - 24 built-in prompt templates are seeded automatically
 - Standalone migration scripts available in `migrations/` for manual execution
 

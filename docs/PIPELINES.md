@@ -117,6 +117,7 @@ Key design decisions:
 | Reviewed | Worker -> Judge | Implementation + review |
 | Tested | Worker -> TestEngineer -> Judge | Implementation + testing + review |
 | FullPipeline | Architect -> Worker -> TestEngineer -> Judge | Planning + implementation + testing + review |
+| ProductDevelopment | Product Manager -> Architect -> Worker -> Usability Engineer -> TestEngineer -> Judge | Product-facing work that needs product intent and UX review |
 | DiagnosticProtocolTested | Worker -> DiagnosticProtocolReviewer -> TestEngineer -> Judge | Diagnostic protocol safety and compliance review before tests and final review |
 | TenantSecurityTested | Worker -> TenantSecurityReviewer -> TestEngineer -> Judge | Tenant isolation, auth, secret, audit, and cross-tenant leak review |
 | MigrationDataTested | Worker -> MigrationDataReviewer -> TestEngineer -> Judge | Migration, provider parity, backfill, index, rollback, and data-loss review |
