@@ -686,8 +686,39 @@ export default function Layout() {
   const showProxyContext = !!proxyContext?.selectedInstanceId;
 
   return (
-    <div className={layoutClassName} style={{ gridTemplateColumns: collapsed ? '56px 1fr' : '180px 1fr' }}>
-      <aside className={`sidebar${collapsed ? ' sidebar-collapsed' : ''}`}>
+    <div className="app-shell">
+      {showProxyContext && (
+        <div className="proxy-context-strip proxy-context-shell-strip">
+          <div className="proxy-context-copy">
+            <span className="proxy-context-pill">{t('Proxy Mode')}</span>
+            <span>
+              {t('Remote dashboard for {{instanceId}}', {
+                instanceId: proxyInstance?.instanceId || proxyContext?.selectedInstanceId || '',
+              })}
+            </span>
+            <span className="proxy-context-meta">
+              {t('State: {{state}}', { state: proxyInstance?.state || 'unknown' })}
+            </span>
+            {proxyInstance?.armadaVersion && (
+              <span className="proxy-context-meta">
+                {t('Armada {{version}}', { version: proxyInstance.armadaVersion })}
+              </span>
+            )}
+          </div>
+
+          <div className="proxy-context-actions">
+            <button className="btn btn-sm" onClick={handleSwitchDeployment}>
+              {t('Switch Deployment')}
+            </button>
+            <button className="btn btn-sm" onClick={handleProxyLogout}>
+              {t('Proxy Logout')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className={layoutClassName} style={{ gridTemplateColumns: collapsed ? '56px 1fr' : '180px 1fr' }}>
+        <aside className={`sidebar${collapsed ? ' sidebar-collapsed' : ''}`}>
         <div className="sidebar-brand">
           <img
             src="/img/logo-light-grey.png"
@@ -749,40 +780,9 @@ export default function Layout() {
             </>
           )}
         </div>
-      </aside>
+        </aside>
 
-      <div className="main-content-area">
-        <div className="shell-chrome">
-          {showProxyContext && (
-            <div className="proxy-context-strip">
-              <div className="proxy-context-copy">
-                <span className="proxy-context-pill">{t('Proxy Mode')}</span>
-                <span>
-                  {t('Remote dashboard for {{instanceId}}', {
-                    instanceId: proxyInstance?.instanceId || proxyContext?.selectedInstanceId || '',
-                  })}
-                </span>
-                <span className="proxy-context-meta">
-                  {t('State: {{state}}', { state: proxyInstance?.state || 'unknown' })}
-                </span>
-                {proxyInstance?.armadaVersion && (
-                  <span className="proxy-context-meta">
-                    {t('Armada {{version}}', { version: proxyInstance.armadaVersion })}
-                  </span>
-                )}
-              </div>
-
-              <div className="proxy-context-actions">
-                <button className="btn btn-sm" onClick={handleSwitchDeployment}>
-                  {t('Switch Deployment')}
-                </button>
-                <button className="btn btn-sm" onClick={handleProxyLogout}>
-                  {t('Proxy Logout')}
-                </button>
-              </div>
-            </div>
-          )}
-
+        <div className="main-content-area">
           <div className="top-bar">
             <NavLink to="/doctor" className="top-bar-health" title={t('Health: {{status}}', { status: t(healthStatus === 'healthy' ? 'Healthy' : healthStatus === 'warning' ? 'Degraded' : healthStatus === 'unknown' ? 'Checking...' : 'Unhealthy') })}>
               <span
@@ -833,13 +833,13 @@ export default function Layout() {
               </button>
             )}
           </div>
-        </div>
 
-        <main className="main">
-          <div className="view">
-            <Outlet />
-          </div>
-        </main>
+          <main className="main">
+            <div className="view">
+              <Outlet />
+            </div>
+          </main>
+        </div>
       </div>
 
       {toasts.length > 0 && (
