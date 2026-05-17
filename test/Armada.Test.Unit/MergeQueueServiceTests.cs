@@ -121,6 +121,188 @@ namespace Armada.Test.Unit
                     try { Directory.Delete(rootDir, true); } catch { /* best-effort */ }
                 }
             });
+
+            await RunTest("ReconcilePullRequest_FiresIndexRefresh_WhenMissionComplete", async () =>
+            {
+                // Pins the second call site added by the Worker: after the PR reconciler
+                // transitions a PullRequestOpen entry to Landed, the code-index refresh
+                // must fire for that vessel (mirrors the LandEntryAsync hook).
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = new ArmadaSettings();
+                    StubGitService git = new StubGitService();
+                    RecordingCodeIndexService recordingIndex = new RecordingCodeIndexService();
+
+                    MergeQueueService service = new MergeQueueService(
+                        logging,
+                        testDb.Driver,
+                        settings,
+                        git,
+                        new MergeFailureClassifier(),
+                        null,
+                        recordingIndex);
+
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("mqidx-pr-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    Mission mergedMission = new Mission("merged via pr", "");
+                    mergedMission.VesselId = vessel.Id;
+                    mergedMission.Status = MissionStatusEnum.Complete;
+                    mergedMission.PrUrl = "https://github.com/test/repo/pull/700";
+                    mergedMission = await testDb.Driver.Missions.CreateAsync(mergedMission).ConfigureAwait(false);
+
+                    MergeEntry entry = new MergeEntry();
+                    entry.VesselId = vessel.Id;
+                    entry.MissionId = mergedMission.Id;
+                    entry.BranchName = "armada/captain/pr-merged";
+                    entry.TargetBranch = "main";
+                    entry.Status = MergeStatusEnum.PullRequestOpen;
+                    entry.PrUrl = mergedMission.PrUrl;
+                    entry = await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                    int reconciled = await service.ReconcilePullRequestEntriesAsync().ConfigureAwait(false);
+                    AssertEqual(1, reconciled, "Reconciler must land the entry whose mission is Complete");
+
+                    MergeEntry? readBack = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
+                    AssertEqual(MergeStatusEnum.Landed, readBack!.Status, "Entry should be Landed after reconcile");
+
+                    await WaitUntilAsync(() => recordingIndex.HasUpdateForVessel(vessel.Id)).ConfigureAwait(false);
+                    AssertTrue(recordingIndex.HasUpdateForVessel(vessel.Id),
+                        "PR reconciler must fire code-index refresh for the landed entry's vessel");
+                }
+            });
+
+            await RunTest("Reconcile_DoesNotInvokeCodeIndex_WhenVesselIdEmpty", async () =>
+            {
+                // Pins the FireIndexRefreshForVessel early-return guard: when the landed
+                // entry has no VesselId, no UpdateAsync call should ever be scheduled.
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = new ArmadaSettings();
+                    StubGitService git = new StubGitService();
+                    RecordingCodeIndexService recordingIndex = new RecordingCodeIndexService();
+
+                    MergeQueueService service = new MergeQueueService(
+                        logging,
+                        testDb.Driver,
+                        settings,
+                        git,
+                        new MergeFailureClassifier(),
+                        null,
+                        recordingIndex);
+
+                    Mission mergedMission = new Mission("merged without vessel", "");
+                    mergedMission.Status = MissionStatusEnum.Complete;
+                    mergedMission.PrUrl = "https://github.com/test/repo/pull/701";
+                    mergedMission = await testDb.Driver.Missions.CreateAsync(mergedMission).ConfigureAwait(false);
+
+                    MergeEntry entry = new MergeEntry();
+                    entry.VesselId = "";
+                    entry.MissionId = mergedMission.Id;
+                    entry.BranchName = "armada/captain/no-vessel";
+                    entry.TargetBranch = "main";
+                    entry.Status = MergeStatusEnum.PullRequestOpen;
+                    entry.PrUrl = mergedMission.PrUrl;
+                    entry = await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                    int reconciled = await service.ReconcilePullRequestEntriesAsync().ConfigureAwait(false);
+                    AssertEqual(1, reconciled, "Reconciler should still land the entry even without a VesselId");
+
+                    MergeEntry? readBack = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
+                    AssertEqual(MergeStatusEnum.Landed, readBack!.Status, "Entry should be Landed regardless of vessel-id");
+
+                    // Give any incorrectly-scheduled background task time to fire.
+                    await Task.Delay(500).ConfigureAwait(false);
+                    AssertEqual(0, recordingIndex.UpdateAsyncVesselIds.Count,
+                        "FireIndexRefreshForVessel must short-circuit when VesselId is empty");
+                }
+            });
+
+            await RunTest("Reconcile_LandsEntry_WhenCodeIndexUpdateThrows", async () =>
+            {
+                // Pins the try/catch inside the fire-and-forget Task.Run: a throwing
+                // code-index service must not propagate out of the merge-queue tick
+                // and must not affect the entry's Landed status.
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = new ArmadaSettings();
+                    StubGitService git = new StubGitService();
+                    ThrowingCodeIndexService throwingIndex = new ThrowingCodeIndexService();
+
+                    MergeQueueService service = new MergeQueueService(
+                        logging,
+                        testDb.Driver,
+                        settings,
+                        git,
+                        new MergeFailureClassifier(),
+                        null,
+                        throwingIndex);
+
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("mqidx-throw-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    Mission mergedMission = new Mission("merged into throwing index", "");
+                    mergedMission.VesselId = vessel.Id;
+                    mergedMission.Status = MissionStatusEnum.Complete;
+                    mergedMission.PrUrl = "https://github.com/test/repo/pull/702";
+                    mergedMission = await testDb.Driver.Missions.CreateAsync(mergedMission).ConfigureAwait(false);
+
+                    MergeEntry entry = new MergeEntry();
+                    entry.VesselId = vessel.Id;
+                    entry.MissionId = mergedMission.Id;
+                    entry.BranchName = "armada/captain/throwing";
+                    entry.TargetBranch = "main";
+                    entry.Status = MergeStatusEnum.PullRequestOpen;
+                    entry.PrUrl = mergedMission.PrUrl;
+                    entry = await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                    int reconciled = await service.ReconcilePullRequestEntriesAsync().ConfigureAwait(false);
+                    AssertEqual(1, reconciled, "Reconciler must land the entry even when the refresh throws");
+
+                    MergeEntry? readBack = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
+                    AssertEqual(MergeStatusEnum.Landed, readBack!.Status,
+                        "A throwing code-index refresh must not flip the entry status");
+
+                    await WaitUntilAsync(() => throwingIndex.UpdateAttempts > 0).ConfigureAwait(false);
+                    AssertTrue(throwingIndex.UpdateAttempts > 0,
+                        "UpdateAsync should have been attempted before throwing");
+                }
+            });
+        }
+
+        /// <summary>
+        /// Hand-rolled <see cref="ICodeIndexService"/> double that throws on
+        /// <see cref="UpdateAsync"/> -- exercises the fire-and-forget catch block.
+        /// </summary>
+        private sealed class ThrowingCodeIndexService : ICodeIndexService
+        {
+            private int _UpdateAttempts;
+
+            public int UpdateAttempts => System.Threading.Volatile.Read(ref _UpdateAttempts);
+
+            public Task<CodeIndexStatus> GetStatusAsync(string vesselId, CancellationToken token = default)
+                => Task.FromResult(new CodeIndexStatus { VesselId = vesselId ?? "" });
+
+            public Task<CodeIndexStatus> UpdateAsync(string vesselId, CancellationToken token = default)
+            {
+                System.Threading.Interlocked.Increment(ref _UpdateAttempts);
+                throw new InvalidOperationException("simulated code-index refresh failure");
+            }
+
+            public Task<CodeSearchResponse> SearchAsync(CodeSearchRequest request, CancellationToken token = default)
+                => Task.FromResult(new CodeSearchResponse());
+
+            public Task<FleetCodeSearchResponse> SearchFleetAsync(FleetCodeSearchRequest request, CancellationToken token = default)
+                => Task.FromResult(new FleetCodeSearchResponse());
+
+            public Task<ContextPackResponse> BuildContextPackAsync(ContextPackRequest request, CancellationToken token = default)
+                => Task.FromResult(new ContextPackResponse());
+
+            public Task<FleetContextPackResponse> BuildFleetContextPackAsync(FleetContextPackRequest request, CancellationToken token = default)
+                => Task.FromResult(new FleetContextPackResponse());
         }
 
         private static LoggingModule CreateLogging()
