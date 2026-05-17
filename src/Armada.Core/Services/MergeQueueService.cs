@@ -28,6 +28,7 @@ namespace Armada.Core.Services
         private IGitService _Git;
         private IMergeFailureClassifier _Classifier;
         private Func<PullRequestPlatform, string, IPullRequestService>? _PullRequestServiceFactory;
+        private ICodeIndexService? _CodeIndexService;
         private IMergeRecoveryHandler? _RecoveryHandler;
 
         private bool _Processing = false;
@@ -50,13 +51,16 @@ namespace Armada.Core.Services
         /// <see cref="IPullRequestService"/> for a (platform, working-directory) pair. When
         /// non-null, entries flagged with <c>AuditCriticalTrigger</c> are routed to PR fallback
         /// instead of an automatic land. When null, the legacy land-everything path applies.</param>
+        /// <param name="codeIndexService">Optional code-index service invoked after a merge entry
+        /// lands successfully (fire-and-forget). When null, no index refresh runs.</param>
         public MergeQueueService(
             LoggingModule logging,
             DatabaseDriver database,
             ArmadaSettings settings,
             IGitService git,
             IMergeFailureClassifier classifier,
-            Func<PullRequestPlatform, string, IPullRequestService>? pullRequestServiceFactory = null)
+            Func<PullRequestPlatform, string, IPullRequestService>? pullRequestServiceFactory = null,
+            ICodeIndexService? codeIndexService = null)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Database = database ?? throw new ArgumentNullException(nameof(database));
@@ -64,6 +68,7 @@ namespace Armada.Core.Services
             _Git = git ?? throw new ArgumentNullException(nameof(git));
             _Classifier = classifier ?? throw new ArgumentNullException(nameof(classifier));
             _PullRequestServiceFactory = pullRequestServiceFactory;
+            _CodeIndexService = codeIndexService;
         }
 
         /// <summary>
@@ -785,6 +790,7 @@ namespace Armada.Core.Services
                     await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
                     reconciledCount++;
                     _Logging.Info(_Header + "PR reconciler: entry " + entry.Id + " landed (linked mission " + mission.Id + " merged)");
+                    FireIndexRefreshForVessel(entry.VesselId);
                 }
                 catch (Exception ex)
                 {
@@ -924,6 +930,30 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Fire-and-forget code index refresh for a vessel after a successful land.
+        /// Does not block the merge-queue tick.
+        /// </summary>
+        private void FireIndexRefreshForVessel(string? vesselId)
+        {
+            ICodeIndexService? svc = _CodeIndexService;
+            if (svc == null || String.IsNullOrEmpty(vesselId)) return;
+            string capturedVesselId = vesselId;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    _Logging.Info(_Header + "auto-refreshing code index for vessel " + capturedVesselId);
+                    await svc.UpdateAsync(capturedVesselId).ConfigureAwait(false);
+                    _Logging.Info(_Header + "code index refresh complete for vessel " + capturedVesselId);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "code index refresh failed for vessel " + capturedVesselId + ": " + ex.Message);
+                }
+            });
+        }
+
+        /// <summary>
         /// Land a single entry by pushing the integration branch to the target.
         /// </summary>
         private async Task LandEntryAsync(MergeEntry entry, string repoPath, string integrationBranch, CancellationToken token)
@@ -937,6 +967,7 @@ namespace Armada.Core.Services
                 entry.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
                 _Logging.Info(_Header + "landed " + entry.Id + " branch " + entry.BranchName);
+                FireIndexRefreshForVessel(entry.VesselId);
 
                 if (entry.AuditDeepPicked.HasValue && !string.IsNullOrEmpty(entry.VesselId))
                 {
