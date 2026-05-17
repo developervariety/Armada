@@ -11,6 +11,8 @@ RUN dotnet restore src/Armada.Proxy/Armada.Proxy.csproj
 # Build
 COPY src/Armada.Core/ src/Armada.Core/
 COPY src/Armada.Proxy/ src/Armada.Proxy/
+COPY src/Armada.Dashboard/dist/ src/Armada.Dashboard/dist/
+COPY src/Armada.Server/wwwroot/i18n/ src/Armada.Server/wwwroot/i18n/
 RUN dotnet publish src/Armada.Proxy -c Release -f net10.0 -o /app --no-restore
 
 # --- Runtime stage ---
