@@ -5,6 +5,7 @@ const state = {
   context: null,
   instances: [],
   busy: false,
+  menu: null,
 };
 
 const elements = {
@@ -16,10 +17,7 @@ const elements = {
   loginStatus: document.getElementById('loginStatus'),
   refreshButton: document.getElementById('refreshButton'),
   instanceList: document.getElementById('instanceList'),
-  selectedInstanceId: document.getElementById('selectedInstanceId'),
-  selectedInstanceMeta: document.getElementById('selectedInstanceMeta'),
-  openDashboardButton: document.getElementById('openDashboardButton'),
-  clearSelectionButton: document.getElementById('clearSelectionButton'),
+  instanceMenu: document.getElementById('instanceMenu'),
   logoutButton: document.getElementById('logoutButton'),
   portalStatus: document.getElementById('portalStatus'),
 };
@@ -167,9 +165,185 @@ function formatTimestamp(value) {
   return date.toLocaleString();
 }
 
-function formatState(state) {
-  const value = String(state || 'offline').toLowerCase();
+function formatState(stateValue) {
+  const value = String(stateValue || 'offline').toLowerCase();
   return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function formatIpAddress(remoteAddress) {
+  const value = String(remoteAddress || '').trim();
+  if (!value || value === 'unknown') return '-';
+
+  if (value.startsWith('[')) {
+    const end = value.indexOf(']');
+    if (end > 0) {
+      return value.slice(1, end);
+    }
+  }
+
+  const colonCount = (value.match(/:/g) || []).length;
+  if (colonCount === 1) {
+    const separator = value.lastIndexOf(':');
+    const maybePort = value.slice(separator + 1);
+    if (/^\d+$/.test(maybePort)) {
+      return value.slice(0, separator);
+    }
+  }
+
+  return value;
+}
+
+function getInstanceById(instanceId) {
+  return state.instances.find((instance) => instance.instanceId === instanceId) || null;
+}
+
+function canConnectToInstance(instance) {
+  const value = String(instance?.state || '').toLowerCase();
+  return value === 'connected' || value === 'stale';
+}
+
+function hideMenuElement() {
+  elements.instanceMenu.classList.add('hidden');
+  elements.instanceMenu.setAttribute('aria-hidden', 'true');
+  elements.instanceMenu.innerHTML = '';
+  elements.instanceMenu.style.left = '';
+  elements.instanceMenu.style.top = '';
+}
+
+function closeMenu() {
+  state.menu = null;
+  render();
+}
+
+function positionMenu(anchorRect) {
+  const menuRect = elements.instanceMenu.getBoundingClientRect();
+  let left = anchorRect.right - menuRect.width;
+  let top = anchorRect.bottom + 8;
+
+  left = Math.max(12, Math.min(left, window.innerWidth - menuRect.width - 12));
+  if (top + menuRect.height > window.innerHeight - 12) {
+    top = Math.max(12, anchorRect.top - menuRect.height - 8);
+  }
+
+  elements.instanceMenu.style.left = `${left}px`;
+  elements.instanceMenu.style.top = `${top}px`;
+}
+
+function renderMenu() {
+  if (!state.menu?.instanceId) {
+    hideMenuElement();
+    return;
+  }
+
+  const instance = getInstanceById(state.menu.instanceId);
+  if (!instance) {
+    state.menu = null;
+    hideMenuElement();
+    return;
+  }
+
+  const disabled = !canConnectToInstance(instance) || state.busy;
+  elements.instanceMenu.innerHTML = `
+    <button
+      type="button"
+      class="instance-menu-item"
+      role="menuitem"
+      data-menu-action="connect"
+      data-instance-id="${escapeHtml(instance.instanceId)}"
+      ${disabled ? 'disabled' : ''}
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M5 12h14" />
+        <path d="M13 6l6 6-6 6" />
+      </svg>
+      <span class="instance-menu-label">Connect</span>
+    </button>
+  `;
+  elements.instanceMenu.classList.remove('hidden');
+  elements.instanceMenu.setAttribute('aria-hidden', 'false');
+  requestAnimationFrame(() => {
+    if (state.menu?.anchorRect) {
+      positionMenu(state.menu.anchorRect);
+    }
+  });
+}
+
+function renderInstances() {
+  if (!state.instances.length) {
+    elements.instanceList.innerHTML = `
+      <tr class="instance-empty">
+        <td colspan="6">No deployments are currently available from this proxy.</td>
+      </tr>
+    `;
+    return;
+  }
+
+  const selectedInstanceId = state.context?.selectedInstanceId || '';
+  const openMenuId = state.menu?.instanceId || '';
+
+  elements.instanceList.innerHTML = state.instances.map((instance) => {
+    const stateClass = String(instance.state || 'offline').toLowerCase();
+    const selectedClass = instance.instanceId === selectedInstanceId ? ' is-selected' : '';
+    const currentBadge = instance.instanceId === selectedInstanceId
+      ? '<span class="instance-current">Current</span>'
+      : '';
+    const expanded = instance.instanceId === openMenuId ? 'true' : 'false';
+
+    return `
+      <tr class="instance-table-row${selectedClass}">
+        <td>
+          <div class="instance-deployment">
+            <span class="instance-name">${escapeHtml(instance.instanceId)}</span>
+            ${currentBadge}
+          </div>
+        </td>
+        <td class="instance-ip">${escapeHtml(formatIpAddress(instance.remoteAddress))}</td>
+        <td class="instance-version">${escapeHtml(instance.armadaVersion || '-')}</td>
+        <td class="instance-last-seen">${escapeHtml(formatTimestamp(instance.lastSeenUtc))}</td>
+        <td>
+          <span class="state-pill ${escapeHtml(stateClass)}">${escapeHtml(formatState(instance.state))}</span>
+        </td>
+        <td class="instance-actions-cell">
+          <button
+            type="button"
+            class="menu-trigger"
+            data-menu-trigger="true"
+            data-instance-id="${escapeHtml(instance.instanceId)}"
+            aria-haspopup="menu"
+            aria-expanded="${expanded}"
+            aria-label="Open actions"
+            title="Open actions"
+            ${state.busy ? 'disabled' : ''}
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="5" r="1.75" />
+              <circle cx="12" cy="12" r="1.75" />
+              <circle cx="12" cy="19" r="1.75" />
+            </svg>
+          </button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function render() {
+  const authenticated = !!state.context?.isAuthenticated;
+  elements.loginCard.classList.toggle('hidden', authenticated);
+  elements.portalCard.classList.toggle('hidden', !authenticated);
+
+  if (!authenticated) {
+    hideMenuElement();
+    setStatus(elements.loginStatus, '', null);
+    elements.refreshButton.disabled = false;
+    elements.logoutButton.disabled = false;
+    return;
+  }
+
+  elements.refreshButton.disabled = state.busy;
+  elements.logoutButton.disabled = state.busy;
+  renderInstances();
+  renderMenu();
 }
 
 async function fetchJson(url, options = {}) {
@@ -237,61 +411,38 @@ async function refreshPortal() {
   render();
 }
 
-function renderInstances() {
-  if (!state.instances.length) {
-    elements.instanceList.innerHTML = '<div class="selection-meta">No connected deployments are currently available from this proxy.</div>';
+async function refreshPortalAfterLogin() {
+  await loadSessionContext();
+  await loadInstances();
+  render();
+}
+
+async function connectToInstance(instanceId) {
+  const instance = getInstanceById(instanceId);
+  if (!instance || !canConnectToInstance(instance)) {
+    setStatus(elements.portalStatus, 'That deployment is not currently available.', 'error');
+    closeMenu();
     return;
   }
 
-  const selectedInstanceId = state.context?.selectedInstanceId || '';
-  elements.instanceList.innerHTML = state.instances.map((instance) => {
-    const stateClass = String(instance.state || 'offline').toLowerCase();
-    const selectedClass = instance.instanceId === selectedInstanceId ? ' selected' : '';
-    return `
-      <button type="button" class="instance-card${selectedClass}" data-instance-id="${escapeHtml(instance.instanceId)}">
-        <div class="instance-row">
-          <div class="instance-id">${escapeHtml(instance.instanceId)}</div>
-          <span class="state-pill ${escapeHtml(stateClass)}">${escapeHtml(formatState(instance.state))}</span>
-        </div>
-        <div class="instance-meta">
-          Armada ${escapeHtml(instance.armadaVersion || '?')} · Last seen ${escapeHtml(formatTimestamp(instance.lastSeenUtc))}
-        </div>
-      </button>
-    `;
-  }).join('');
-}
+  state.busy = true;
+  state.menu = null;
+  render();
+  setStatus(elements.portalStatus, `Connecting to ${instanceId}...`, null);
 
-function renderSelection() {
-  const selectedInstance = state.context?.selectedInstance;
-  const selectedInstanceId = state.context?.selectedInstanceId || '';
-  const instanceIsAvailable = !!selectedInstance;
-
-  elements.selectedInstanceId.textContent = selectedInstanceId || 'None selected';
-
-  if (!selectedInstanceId) {
-    elements.selectedInstanceMeta.textContent = 'Choose a connected deployment to continue.';
-  } else if (!instanceIsAvailable) {
-    elements.selectedInstanceMeta.textContent = 'The selected deployment is no longer connected to this proxy.';
-  } else {
-    elements.selectedInstanceMeta.textContent = `State: ${formatState(selectedInstance.state)} · Armada ${selectedInstance.armadaVersion || '?'} · Last seen ${formatTimestamp(selectedInstance.lastSeenUtc)}`;
+  try {
+    state.context = await fetchJson('/proxy-api/v1/session/instance', {
+      method: 'POST',
+      body: { instanceId },
+    });
+    setStatus(elements.portalStatus, `Connected to ${instanceId}.`, 'success');
+    window.location.href = '/dashboard';
+  } catch (error) {
+    setStatus(elements.portalStatus, error instanceof Error ? error.message : 'Unable to connect to deployment.', 'error');
+  } finally {
+    state.busy = false;
+    render();
   }
-
-  elements.openDashboardButton.disabled = !selectedInstanceId;
-  elements.clearSelectionButton.disabled = !selectedInstanceId;
-}
-
-function render() {
-  const authenticated = !!state.context?.isAuthenticated;
-  elements.loginCard.classList.toggle('hidden', authenticated);
-  elements.portalCard.classList.toggle('hidden', !authenticated);
-
-  if (!authenticated) {
-    setStatus(elements.loginStatus, '', null);
-    return;
-  }
-
-  renderInstances();
-  renderSelection();
 }
 
 async function bootstrap() {
@@ -323,7 +474,7 @@ elements.loginForm.addEventListener('submit', async (event) => {
     await loginToProxy(password);
     elements.passwordInput.value = '';
     await refreshPortalAfterLogin();
-    setStatus(elements.portalStatus, 'Proxy unlocked. Select a deployment to continue.', 'success');
+    setStatus(elements.portalStatus, 'Proxy unlocked. Choose a deployment to connect.', 'success');
   } catch (error) {
     setStatus(elements.loginStatus, error instanceof Error ? error.message : 'Proxy login failed.', 'error');
   } finally {
@@ -331,15 +482,11 @@ elements.loginForm.addEventListener('submit', async (event) => {
   }
 });
 
-async function refreshPortalAfterLogin() {
-  await loadSessionContext();
-  await loadInstances();
-  render();
-}
-
 elements.refreshButton.addEventListener('click', async () => {
-  elements.refreshButton.disabled = true;
-  setStatus(elements.portalStatus, 'Refreshing connected deployments...', null);
+  state.menu = null;
+  state.busy = true;
+  render();
+  setStatus(elements.portalStatus, 'Refreshing deployments...', null);
 
   try {
     await refreshPortal();
@@ -347,45 +494,46 @@ elements.refreshButton.addEventListener('click', async () => {
   } catch (error) {
     setStatus(elements.portalStatus, error instanceof Error ? error.message : 'Unable to refresh deployments.', 'error');
   } finally {
-    elements.refreshButton.disabled = false;
+    state.busy = false;
+    render();
   }
 });
 
-elements.instanceList.addEventListener('click', async (event) => {
-  const button = event.target.closest('[data-instance-id]');
-  if (!button) return;
+elements.instanceList.addEventListener('click', (event) => {
+  const trigger = event.target.closest('[data-menu-trigger]');
+  if (!trigger) return;
 
-  const instanceId = button.getAttribute('data-instance-id');
+  const instanceId = trigger.getAttribute('data-instance-id');
   if (!instanceId) return;
 
-  setStatus(elements.portalStatus, `Selecting ${instanceId}...`, null);
-
-  try {
-    state.context = await fetchJson('/proxy-api/v1/session/instance', {
-      method: 'POST',
-      body: { instanceId },
-    });
-    render();
-    setStatus(elements.portalStatus, `${instanceId} selected.`, 'success');
-  } catch (error) {
-    setStatus(elements.portalStatus, error instanceof Error ? error.message : 'Unable to select deployment.', 'error');
+  const nextAnchorRect = trigger.getBoundingClientRect();
+  if (state.menu?.instanceId === instanceId) {
+    state.menu = null;
+  } else {
+    state.menu = {
+      instanceId,
+      anchorRect: nextAnchorRect,
+    };
   }
+
+  render();
 });
 
-elements.clearSelectionButton.addEventListener('click', async () => {
-  setStatus(elements.portalStatus, 'Clearing selection...', null);
+elements.instanceMenu.addEventListener('click', async (event) => {
+  const actionButton = event.target.closest('[data-menu-action]');
+  if (!actionButton) return;
 
-  try {
-    state.context = await fetchJson('/proxy-api/v1/session/logout-instance', { method: 'POST' });
-    render();
-    setStatus(elements.portalStatus, 'Selection cleared.', 'success');
-  } catch (error) {
-    setStatus(elements.portalStatus, error instanceof Error ? error.message : 'Unable to clear selection.', 'error');
+  const action = actionButton.getAttribute('data-menu-action');
+  const instanceId = actionButton.getAttribute('data-instance-id');
+  if (action === 'connect' && instanceId) {
+    await connectToInstance(instanceId);
   }
 });
 
 elements.logoutButton.addEventListener('click', async () => {
-  elements.logoutButton.disabled = true;
+  state.menu = null;
+  state.busy = true;
+  render();
 
   try {
     await fetchJson('/proxy-api/v1/auth/logout', { method: 'POST' });
@@ -394,21 +542,38 @@ elements.logoutButton.addEventListener('click', async () => {
   } finally {
     state.context = null;
     state.instances = [];
+    state.busy = false;
     render();
     setStatus(elements.loginStatus, '', null);
     setStatus(elements.portalStatus, '', null);
-    elements.logoutButton.disabled = false;
   }
 });
 
-elements.openDashboardButton.addEventListener('click', () => {
-  if (!state.context?.selectedInstanceId) {
-    setStatus(elements.portalStatus, 'Select a deployment before opening the dashboard.', 'error');
+document.addEventListener('click', (event) => {
+  if (!state.menu) return;
+  if (event.target.closest('#instanceMenu') || event.target.closest('[data-menu-trigger]')) {
     return;
   }
-
-  window.location.href = '/dashboard';
+  closeMenu();
 });
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && state.menu) {
+    closeMenu();
+  }
+});
+
+window.addEventListener('resize', () => {
+  if (state.menu) {
+    closeMenu();
+  }
+});
+
+document.addEventListener('scroll', () => {
+  if (state.menu) {
+    closeMenu();
+  }
+}, true);
 
 bootstrap().catch((error) => {
   setStatus(elements.loginStatus, error instanceof Error ? error.message : 'Unable to initialize the proxy portal.', 'error');

@@ -9,18 +9,17 @@
 </head>
 <body>
   <main class="portal-shell">
-    <section class="portal-card portal-card-hero">
+    <section class="portal-card portal-card-hero portal-card-compact">
       <div class="portal-brand">
         <img src="/img/logo-dark-grey.png" alt="Armada" class="portal-logo">
         <div>
-          <p class="portal-eyebrow">Armada Proxy</p>
-          <h1>Armada remote access</h1>
-          <p class="portal-copy">Sign in to the proxy, choose a connected deployment, then continue into the shared Armada dashboard experience.</p>
+          <h1>Remote access</h1>
+          <p class="portal-copy">Sign in to the proxy and connect to a deployment.</p>
         </div>
       </div>
     </section>
 
-    <section id="loginCard" class="portal-card">
+    <section id="loginCard" class="portal-card portal-card-compact">
       <div class="section-head">
         <div>
           <p class="portal-eyebrow">Step 1</p>
@@ -40,48 +39,51 @@
       <p id="loginStatus" class="form-status"></p>
     </section>
 
-    <section id="portalCard" class="portal-card hidden">
-      <div class="portal-grid">
-        <div class="portal-column">
-          <div class="section-head">
-            <div>
-              <p class="portal-eyebrow">Step 2</p>
-              <h2>Select deployment</h2>
-              <p class="section-copy">Only connected Armada instances appear here.</p>
-            </div>
-            <button id="refreshButton" type="button" class="button">Refresh</button>
-          </div>
-          <div id="instanceList" class="instance-list"></div>
-        </div>
-
-        <div class="portal-column">
-          <div class="section-head">
-            <div>
-              <p class="portal-eyebrow">Step 3</p>
-              <h2>Open dashboard</h2>
-            </div>
-          </div>
-
-          <div class="selection-card">
-            <div class="selection-label">Selected deployment</div>
-            <div id="selectedInstanceId" class="selection-id">None selected</div>
-            <div id="selectedInstanceMeta" class="selection-meta">Choose a connected deployment to continue.</div>
-          </div>
-
-          <div class="portal-note">
-            The proxy session gets you to the remote deployment. You will still sign into the Armada dashboard after it opens.
-          </div>
-
-          <div class="form-actions form-actions-stack">
-            <button id="openDashboardButton" type="button" class="button button-primary" disabled>Open dashboard</button>
-            <button id="clearSelectionButton" type="button" class="button" disabled>Clear selection</button>
-            <button id="logoutButton" type="button" class="button">Logout</button>
-          </div>
-          <p id="portalStatus" class="form-status"></p>
+    <section id="portalCard" class="portal-card portal-card-wide hidden">
+      <div class="section-head">
+        <div>
+          <p class="portal-eyebrow">Step 2</p>
+          <h2>Deployments</h2>
+          <p class="section-copy">Use the row menu to connect.</p>
         </div>
       </div>
+
+      <div class="instance-table-shell">
+        <table class="instance-table" aria-label="Existing deployments">
+          <thead>
+            <tr>
+              <th scope="col">Deployment / ID</th>
+              <th scope="col">IP address</th>
+              <th scope="col">Version</th>
+              <th scope="col">Last seen</th>
+              <th scope="col">State</th>
+              <th scope="col" class="instance-actions-header">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="instanceList"></tbody>
+        </table>
+      </div>
+
+      <div class="portal-toolbar">
+        <button id="refreshButton" type="button" class="icon-button" title="Refresh deployments" aria-label="Refresh deployments">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+            <path d="M21 3v6h-6" />
+          </svg>
+        </button>
+        <button id="logoutButton" type="button" class="icon-button" title="Logout" aria-label="Logout">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+            <path d="M16 17l5-5-5-5" />
+            <path d="M21 12H9" />
+          </svg>
+        </button>
+      </div>
+      <p id="portalStatus" class="form-status"></p>
     </section>
   </main>
+
+  <div id="instanceMenu" class="instance-menu hidden" role="menu" aria-hidden="true"></div>
 
   <script src="/app.js"></script>
 </body>
