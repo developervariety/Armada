@@ -45,6 +45,27 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(403, restoreStatusCode);
                 AssertContains("blocked", restoreMessage ?? String.Empty, "Restore should be blocked");
             });
+
+            await RunTest("TryAuthorize AllowsRemoteLoginBootstrapRoutes", () =>
+            {
+                ProxyRoutePolicyService service = new ProxyRoutePolicyService();
+
+                bool tenantLookupAllowed = service.TryAuthorize(new RemoteTunnelHttpRelayRequest
+                {
+                    Method = "POST",
+                    Path = "/api/v1/tenants/lookup"
+                }, out int tenantLookupStatusCode, out string? tenantLookupMessage);
+                AssertTrue(tenantLookupAllowed, tenantLookupMessage ?? "Tenant lookup should be allowed for remote login");
+                AssertEqual(200, tenantLookupStatusCode);
+
+                bool authenticateAllowed = service.TryAuthorize(new RemoteTunnelHttpRelayRequest
+                {
+                    Method = "POST",
+                    Path = "/api/v1/authenticate"
+                }, out int authenticateStatusCode, out string? authenticateMessage);
+                AssertTrue(authenticateAllowed, authenticateMessage ?? "Authenticate should be allowed for remote login");
+                AssertEqual(200, authenticateStatusCode);
+            });
         }
     }
 }

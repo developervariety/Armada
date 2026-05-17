@@ -46,6 +46,13 @@ namespace Armada.Proxy.Services
                 return false;
             }
 
+            if (String.Equals(method, "POST", StringComparison.OrdinalIgnoreCase) &&
+                (String.Equals(path, "/api/v1/authenticate", StringComparison.OrdinalIgnoreCase) ||
+                 String.Equals(path, "/api/v1/tenants/lookup", StringComparison.OrdinalIgnoreCase)))
+            {
+                return true;
+            }
+
             if (!String.Equals(method, "GET", StringComparison.OrdinalIgnoreCase) &&
                 !String.Equals(method, "HEAD", StringComparison.OrdinalIgnoreCase))
             {
