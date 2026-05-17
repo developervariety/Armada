@@ -1,80 +1,58 @@
-# Armada Remote Management
+# Remote Management
 
-**Version:** 0.8.0
+**Version:** `0.8.0`
 
-This guide is the operator-focused setup path for connecting an Armada instance to `Armada.Proxy` and then using the proxy app for remote management.
+This guide describes the current remote-access model for Armada:
 
-If you want protocol details, see:
+- `Armada.Server` owns the product API, websocket, and dashboard behavior
+- `Armada.Proxy` provides browser login, deployment selection, tunnel termination, and relay
+- the remote user ultimately uses the same React dashboard served from the proxy at `/dashboard`
 
-- [TUNNEL_PROTOCOL.md](TUNNEL_PROTOCOL.md)
-- [TUNNEL_OPERATIONS.md](TUNNEL_OPERATIONS.md)
-- [PROXY_API.md](PROXY_API.md)
+The proxy is no longer the primary product UI. It is the remote-access broker for the product UI.
 
-## Scope
+## What Ships Now
 
-`v0.8.0` supports:
+The shipped remote-access path includes:
 
-- outbound Armada-to-proxy tunnel connection with shared-password handshake and optional enrollment-token validation
-- challenge-based proxy browser login and connected-deployment discovery
-- remote fleet, vessel, and playbook management, including default pipeline selection
-- remote backlog/objective intake, captain-backed refinement, planning sessions, and dispatch handoff
-- remote voyage dispatch and cancellation, including playbook selection with delivery-mode control
-- remote mission create, update, cancel, and restart
-- remote workflow-profile, check, environment, release, deployment, incident, and runbook management
-- remote captain-tool inspection, request-history diagnostics, and bounded API Explorer access
-- read-only workspace, pipeline, persona, and prompt-template reference views
-- remote captain stop
-- remote recent activity, mission logs, diffs, and focused detail views
+- outbound Armada-to-proxy websocket tunnel at `/tunnel`
+- shared-password tunnel handshake with optional enrollment-token validation
+- proxy browser login using a challenge/response proof
+- deployment selection from currently connected Armada instances
+- the shared React dashboard served from the proxy at `/dashboard`
+- same-origin dashboard REST relay at `/api/v1/*`
+- same-origin dashboard websocket relay at `/ws`
+- explicit proxy-side route policy for blocked local-only actions
 
-`v0.8.0` does not yet provide:
+Not shipped in this cut:
 
-- SaaS user accounts
-- delegated identity or local-session brokerage
-- notification inbox/read state
-- server-side remote action policy beyond current UI confirmation prompts
-- secret-bearing settings editing such as credential administration or vessel token overrides
+- proxy relay for the MCP endpoint
+- delegated identity or SSO between proxy auth and Armada auth
+- resumable tunnel subscriptions or large-body streaming
+- unrestricted remote access to every local-only admin route
 
-Treat the current proxy as an operator service, not a hardened internet-facing SaaS product.
+## Default URLs
 
-## Default Ports
+For a local Armada server and a local proxy:
 
-- Armada API: `7890` (WebSocket available at `/ws` on the same port)
-- Armada MCP: `7891`
-- Armada.Proxy: `7893`
+- Armada dashboard: `http://localhost:7890/dashboard`
+- Armada websocket: `ws://localhost:7890/ws`
+- proxy portal: `http://localhost:7893/`
+- proxy-served dashboard: `http://localhost:7893/dashboard`
+- proxy health: `http://localhost:7893/proxy-api/v1/status/health`
+- proxy tunnel endpoint: `ws://localhost:7893/tunnel`
 
-## 1. Start The Proxy
+## Configure The Proxy
 
-From the Armada repo root:
-
-```powershell
-dotnet run --project src/Armada.Proxy/Armada.Proxy.csproj --framework net10.0
-```
-
-By default, the proxy listens on:
-
-- health: `http://localhost:7893/api/v1/status/health`
-- instance list: `http://localhost:7893/api/v1/instances` (requires proxy login)
-- remote shell: `http://localhost:7893/`
-- tunnel endpoint: `ws://localhost:7893/tunnel`
-
-Optional proxy configuration lives under `ArmadaProxy`, for example:
+Proxy settings live under `ArmadaProxy`:
 
 ```json
 {
   "ArmadaProxy": {
-    "dataDirectory": "/app/data",
-    "logDirectory": "/app/data/logs",
     "hostname": "localhost",
     "port": 7893,
-    "syslogServers": [
-      {
-        "hostname": "127.0.0.1",
-        "port": 514
-      }
-    ],
+    "password": "armadaadmin",
     "requireEnrollmentToken": false,
     "enrollmentTokens": [],
-    "password": "armadaadmin",
     "handshakeTimeoutSeconds": 15,
     "staleAfterSeconds": 90,
     "requestTimeoutSeconds": 20,
@@ -83,56 +61,16 @@ Optional proxy configuration lives under `ArmadaProxy`, for example:
 }
 ```
 
-If you enable enrollment-token enforcement, the same token must be configured on the Armada instance.
+Important settings:
 
-The proxy now also enforces a shared password for:
+- `password`: shared secret used by both the Armada tunnel handshake and proxy browser login
+- `requireEnrollmentToken` and `enrollmentTokens`: optional extra admission control for instances
+- `staleAfterSeconds`: when a connected instance is treated as stale without activity
+- `requestTimeoutSeconds`: timeout for live tunnel request/response relay calls
 
-- browser login to the proxy app
-- Armada tunnel handshake proof validation
-- opening the selected deployment in the current proxy UI flow
+## Configure Armada
 
-If `password` is missing or blank on either side, it defaults to `armadaadmin`.
-
-## 2. Point Armada At The Proxy
-
-You can configure the tunnel in any of these places:
-
-- React dashboard: `Server`
-- legacy dashboard: `Server Settings`
-- `settings.json`
-- `PUT /api/v1/settings`
-
-### Option A: React Dashboard
-
-Open the Armada dashboard and go to `Server`.
-
-Set:
-
-- `Enable Remote Tunnel`: `true`
-- `Tunnel URL`: for example `ws://localhost:7893/tunnel`
-- `Instance ID Override`: optional
-- `Enrollment Token`: optional unless required by the proxy
-- `Shared Password`: defaults to `armadaadmin` when blank
-- timeout and reconnect values as needed
-
-Then click `Save Remote Control Settings`.
-
-### Option B: Legacy Dashboard
-
-Open `Server Settings` and fill in the same `Remote Control` fields:
-
-- enable remote tunnel
-- tunnel URL
-- optional instance ID override
-- optional enrollment token
-- shared password
-- timeout and reconnect settings
-
-Then click `Save Remote Control Settings`.
-
-### Option C: settings.json
-
-Update your Armada settings file with:
+Armada outbound tunnel settings live under `remoteControl` in the Armada server settings:
 
 ```json
 {
@@ -151,282 +89,127 @@ Update your Armada settings file with:
 }
 ```
 
-Recommendations:
+You can configure those values through:
 
-- use `wss://.../tunnel` outside local development
-- leave `instanceId` empty unless you want a stable operator-facing override
-- use `allowInvalidCertificates = true` only for local testing with self-signed certificates
+- the Armada dashboard `Server` page
+- `GET /api/v1/settings` and `PUT /api/v1/settings`
+- local settings files
 
-## 3. Restart Or Reload Armada
+Notes:
 
-If you saved settings through the dashboards or `PUT /api/v1/settings`, Armada will reload the tunnel settings.
+- `http://` and `https://` tunnel URLs are normalized to websocket form automatically
+- if the path is omitted, Armada normalizes it to `/tunnel`
+- outside local development, prefer `wss://.../tunnel`
+- the Armada `remoteControl.password` must match `ArmadaProxy.password`
 
-If you edited `settings.json` directly, restart the Armada server.
+## Bring The Tunnel Up
 
-## 4. Verify The Tunnel On The Armada Side
+1. Start `Armada.Proxy`.
+2. Start `Armada.Server`.
+3. Enable the Armada remote tunnel and save settings.
+4. Wait for the outbound Armada tunnel to connect to the proxy.
 
-Check one of these:
+You can verify connection state from the Armada side through:
 
-- React dashboard `Server`
-- legacy dashboard `Server Settings`
+- `GET /api/v1/status`
 - `GET /api/v1/status/health`
-- `GET /api/v1/settings`
-- `armada status`
+- the local Armada dashboard `Server` page
 
-Key fields to verify:
+Healthy indicators include:
 
 - `remoteTunnel.enabled = true`
 - `remoteTunnel.state = Connected`
-- `remoteTunnel.tunnelUrl` matches the proxy endpoint
-- `remoteTunnel.instanceId` is populated
 - `remoteTunnel.lastError` is empty
-- `remoteTunnel.latencyMs` is reasonable
+- `remoteTunnel.tunnelUrl` matches the proxy endpoint
 
-Example health response fragment:
+You can verify the proxy side through:
 
-```json
-{
-  "remoteTunnel": {
-    "enabled": true,
-    "state": "Connected",
-    "tunnelUrl": "ws://localhost:7893/tunnel",
-    "instanceId": "armada-1f2e3d4c5b6a",
-    "lastError": null,
-    "reconnectAttempts": 0,
-    "latencyMs": 42
-  }
-}
-```
+- `GET /proxy-api/v1/status/health`
+- `GET /proxy-api/v1/instances` after proxy login
+- the portal deployment list at `/`
 
-## 5. Verify The Tunnel On The Proxy
+## Use The Remote Dashboard
 
-Check:
+The current remote browser flow is:
 
-- `http://localhost:7893/api/v1/status/health`
-- after proxy login, `http://localhost:7893/api/v1/instances`
-- or the deployment list in the proxy shell
+1. Open the proxy root URL.
+2. Enter the proxy shared password.
+3. Select a connected deployment.
+4. Open the shared dashboard at `/dashboard`.
+5. Sign into the selected Armada deployment inside that dashboard if required.
+6. Use the dashboard normally through proxy-backed `/api/v1/*` and `/ws`.
 
-You should see your Armada instance listed as `connected`.
+This is intentionally a double-auth flow today:
 
-## 6. Open The Remote Management App
+- proxy auth proves access to the relay service
+- Armada auth proves access to the selected deployment
 
-Open:
+That split is acceptable for the current cut and is explicitly surfaced in the portal and dashboard.
 
-```text
-http://localhost:7893/
-```
+## Remote Policy
 
-The current proxy shell login flow is:
+The proxy relays the real dashboard transport, but it still blocks selected local-only actions.
 
-1. Enter the proxy shared password.
-2. Choose a connected deployment.
-3. Enter the deployment password prompt and open the deployment.
+Always blocked:
 
-In `v0.8.0`, that deployment password prompt reuses the same shared password used by the proxy and the connected Armada instance. It is not yet a distinct per-deployment user-auth model.
+- shutdown
+- factory reset
+- restore
 
-If your Armada instance uses a custom remote-control password, the proxy `ArmadaProxy.password` value must match it or the tunnel handshake will fail and the deployment will not appear as connected.
+Write-blocked administrative families:
 
-The shell is organized around:
+- settings writes
+- tenant writes
+- user writes
+- credential writes
 
-- instances
-- recent activity
-- missions
-- voyages
-- captains
-- fleets
-- vessels
-- playbooks
-- backlog
-- planning
-- delivery
-- diagnostics
-- reference
-- focused detail
-- management forms
+If the dashboard reaches one of those routes through the proxy, the user gets an explicit policy-denied response instead of a proxy-specific substitute workflow.
 
-## 7. Use The Proxy To Manage Armada
+## Troubleshooting
 
-### Manage Fleets
-
-Use `Fleet Studio` to:
-
-- create a new fleet
-- edit the selected fleet
-- set name, description, default pipeline, and active state
-
-### Manage Vessels
-
-Use `Vessel Studio` to:
-
-- register a vessel
-- edit the selected vessel
-- set repo URL, working directory, default branch, default pipeline, and concurrency
-
-### Dispatch Voyages
-
-Use `Voyage Dispatch` to:
-
-- choose a vessel ID
-- provide a voyage title and description
-- optionally set `pipelineId` or `pipeline`
-- optionally attach ordered playbook selections with per-selection delivery mode
-- provide one mission per line
-
-Mission lines support:
-
-```text
-Title :: Description
-```
-
-If you omit `::`, the full line is used as both title and description.
-
-### Manage Playbooks
-
-Use `Playbook Studio` to:
-
-- create a markdown playbook
-- edit file name, description, content, and active state
-- delete a playbook when it is no longer needed
-- prepare reusable instruction sets before attaching them during dispatch
-
-### Manage Backlog And Planning
-
-Use `Backlog` to:
-
-- capture or update future work remotely
-- launch captain-backed refinement
-- inspect refinement summaries and transcript history
-- promote an objective into planning
-
-Use `Planning` to:
-
-- create a planning session for a backlog item or directly against a vessel
-- continue the planning transcript
-- summarize planning state
-- dispatch the selected plan into a voyage
-
-### Manage Missions
-
-Use `Mission Studio` to:
-
-- create a standalone mission
-- edit a selected mission
-- change title, description, vessel, voyage, persona, and priority
-
-From focused mission detail you can also:
-
-- load mission log
-- load mission diff
-- restart mission
-- cancel mission
-
-### Manage Voyages
-
-From focused voyage detail you can:
-
-- inspect the mission chain
-- cancel the voyage
-
-### Manage Captains
-
-From focused captain detail you can:
-
-- inspect the captain log
-- inspect accessible MCP/runtime tools
-- stop the captain
-
-### Manage Delivery
-
-Use `Delivery` to:
-
-- manage workflow profiles and check runs
-- create and inspect environments
-- create, refresh, and inspect releases
-- create and operate deployments, including approve, deny, verify, and rollback
-- create and inspect incidents
-- create runbooks and launch runbook executions
-
-### Use Diagnostics And Reference Views
-
-Use `Diagnostics` to:
-
-- inspect captain tool visibility and runtime source state
-- browse request-history summaries and recent records
-- issue bounded instance-scoped API Explorer calls through the proxy route family
-
-Use `Reference` to:
-
-- inspect read-only vessel workspace status, tree, file preview, search, and local changes
-- inspect live pipelines, personas, and prompt templates without leaving the tunnel shell
-
-## 8. Browse Beyond Recent Items
-
-The remote shell includes browse forms for:
-
-- missions
-- voyages
-
-Use those to filter by:
-
-- status
-- limit
-- voyage ID
-- vessel ID
-
-This lets you manage remote work even when it no longer appears in the small recent-summary lists.
-
-## 9. Common Local-Dev Configuration
-
-For a local Armada instance and a local proxy:
-
-- proxy URL in Armada: `ws://localhost:7893/tunnel`
-- proxy app URL in browser: `http://localhost:7893/`
-
-For a remote proxy with TLS:
-
-- proxy URL in Armada: `wss://your-proxy.example.com/tunnel`
-- proxy app URL in browser: `https://your-proxy.example.com/`
-
-## 10. Troubleshooting
-
-### Armada shows `Enabled` but never connects
+### Instance does not appear in the proxy
 
 Check:
 
 - the proxy is running
 - the tunnel URL ends in `/tunnel`
-- the scheme is `ws`, `wss`, `http`, or `https`
-- firewall and DNS allow outbound connectivity
+- the shared passwords match
+- the enrollment token is present if the proxy requires one
+- the Armada server reports `remoteTunnel.state = Connected` or a useful `lastError`
 
-### Proxy rejects the handshake
-
-Check:
-
-- the instance has a non-empty `instanceId`
-- the proxy enrollment-token requirement
-- the Armada `enrollmentToken` value
-- the Armada `remoteControl.password` value matches `ArmadaProxy.password`
-
-### Proxy shows the instance as `stale`
+### `/dashboard` keeps returning to `/`
 
 Check:
 
-- Armada is still running
-- the host is not asleep
-- the network is stable
-- `staleAfterSeconds` is appropriate for the environment
+- the proxy browser session is still valid
+- a deployment is selected in the proxy session
+- the selected deployment is still connected
 
-### TLS errors
+The proxy redirects `/dashboard` back to the portal when either the session or the selected deployment is missing.
 
-For real deployments:
+### Dashboard loads but some actions fail with policy errors
 
-- use a valid certificate
-- prefer `wss://`
+That is expected for local-only administration routes. Use a direct Armada dashboard session for:
 
-For local-only development:
+- settings writes
+- restore
+- shutdown
+- factory reset
+- tenant, user, and credential administration
 
-- temporarily enable `allowInvalidCertificates`
+### MCP bootstrap details look wrong in remote mode
 
-## Operator Note
+Also expected. The proxy does not relay the MCP endpoint. Use direct Armada connectivity for MCP client bootstrap or for local server administration.
 
-The current remote shell already supports real remote management flows, but it is still intentionally bounded. It is meant for focused operational control, not full remote parity with every local Armada dashboard surface.
+## Security Notes
+
+Treat the current proxy as an operator service, not a hardened multi-tenant SaaS product.
+
+Current constraints:
+
+- authentication is shared-password based
+- proxy auth and Armada auth are separate
+- some dangerous routes are blocked entirely rather than re-authenticated
+- TLS should be used for any non-local deployment
+
+If the proxy is exposed beyond a trusted network, raise the bar before broad rollout: TLS, stronger auth, better authorization policy, and audit expectations all need to be treated as first-class work.

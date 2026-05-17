@@ -10,6 +10,27 @@ namespace Armada.Proxy.Services
     public class ProxyAuthService
     {
         /// <summary>
+        /// Authenticated browser session state.
+        /// </summary>
+        public sealed class ProxyBrowserSession
+        {
+            /// <summary>
+            /// Stable opaque session token.
+            /// </summary>
+            public string Token { get; set; } = String.Empty;
+
+            /// <summary>
+            /// UTC expiration timestamp for the session.
+            /// </summary>
+            public DateTime ExpiresUtc { get; set; }
+
+            /// <summary>
+            /// Selected Armada instance for this browser session, if any.
+            /// </summary>
+            public string? SelectedInstanceId { get; set; } = null;
+        }
+
+        /// <summary>
         /// One-time browser login challenge metadata.
         /// </summary>
         public sealed class ProxyAuthChallenge
@@ -59,10 +80,9 @@ namespace Armada.Proxy.Services
         /// <summary>
         /// Attempt to create an authenticated browser session.
         /// </summary>
-        public bool TryLogin(string? nonce, string? proofSha256, out string? sessionToken, out DateTime? expiresUtc, out string? error)
+        public bool TryLogin(string? nonce, string? proofSha256, out ProxyBrowserSession? session, out string? error)
         {
-            sessionToken = null;
-            expiresUtc = null;
+            session = null;
             error = null;
 
             CleanupExpired();
@@ -94,9 +114,12 @@ namespace Armada.Proxy.Services
                 return false;
             }
 
-            sessionToken = RemoteTunnelAuth.CreateNonce(24);
-            expiresUtc = _UtcNow().AddHours(Constants.SessionTokenLifetimeHours);
-            _Sessions[sessionToken] = expiresUtc.Value;
+            session = new ProxyBrowserSession
+            {
+                Token = RemoteTunnelAuth.CreateNonce(24),
+                ExpiresUtc = _UtcNow().AddHours(Constants.SessionTokenLifetimeHours)
+            };
+            _Sessions[session.Token] = session;
             return true;
         }
 
@@ -106,6 +129,21 @@ namespace Armada.Proxy.Services
         public bool TryValidateSession(string? sessionToken, out DateTime? expiresUtc)
         {
             expiresUtc = null;
+            if (!TryGetSession(sessionToken, out ProxyBrowserSession? session))
+            {
+                return false;
+            }
+
+            expiresUtc = session!.ExpiresUtc;
+            return true;
+        }
+
+        /// <summary>
+        /// Retrieve the current authenticated browser session.
+        /// </summary>
+        public bool TryGetSession(string? sessionToken, out ProxyBrowserSession? session)
+        {
+            session = null;
             CleanupExpired();
 
             string normalizedToken = (sessionToken ?? String.Empty).Trim();
@@ -114,18 +152,39 @@ namespace Armada.Proxy.Services
                 return false;
             }
 
-            if (!_Sessions.TryGetValue(normalizedToken, out DateTime sessionExpiresUtc))
+            if (!_Sessions.TryGetValue(normalizedToken, out ProxyBrowserSession? existingSession))
             {
                 return false;
             }
 
-            if (sessionExpiresUtc <= _UtcNow())
+            if (existingSession.ExpiresUtc <= _UtcNow())
             {
-                _Sessions.TryRemove(normalizedToken, out DateTime _);
+                _Sessions.TryRemove(normalizedToken, out ProxyBrowserSession? _);
                 return false;
             }
 
-            expiresUtc = sessionExpiresUtc;
+            session = Clone(existingSession);
+            return true;
+        }
+
+        /// <summary>
+        /// Set or replace the selected instance for an authenticated browser session.
+        /// </summary>
+        public bool TrySetSelectedInstance(string? sessionToken, string? instanceId, out ProxyBrowserSession? session, out string? error)
+        {
+            session = null;
+            error = null;
+
+            if (!TryGetSessionForUpdate(sessionToken, out string normalizedToken, out ProxyBrowserSession? existingSession, out error))
+            {
+                return false;
+            }
+
+            string? normalizedInstanceId = String.IsNullOrWhiteSpace(instanceId) ? null : instanceId.Trim();
+            ProxyBrowserSession updated = Clone(existingSession!);
+            updated.SelectedInstanceId = normalizedInstanceId;
+            _Sessions[normalizedToken] = updated;
+            session = Clone(updated);
             return true;
         }
 
@@ -139,7 +198,7 @@ namespace Armada.Proxy.Services
                 return;
             }
 
-            _Sessions.TryRemove(sessionToken.Trim(), out DateTime _);
+            _Sessions.TryRemove(sessionToken.Trim(), out ProxyBrowserSession? _);
         }
 
         #endregion
@@ -149,7 +208,7 @@ namespace Armada.Proxy.Services
         private readonly ProxySettings _Settings;
         private readonly Func<DateTime> _UtcNow;
         private readonly ConcurrentDictionary<string, DateTime> _Challenges = new ConcurrentDictionary<string, DateTime>(StringComparer.Ordinal);
-        private readonly ConcurrentDictionary<string, DateTime> _Sessions = new ConcurrentDictionary<string, DateTime>(StringComparer.Ordinal);
+        private readonly ConcurrentDictionary<string, ProxyBrowserSession> _Sessions = new ConcurrentDictionary<string, ProxyBrowserSession>(StringComparer.Ordinal);
 
         #endregion
 
@@ -167,13 +226,52 @@ namespace Armada.Proxy.Services
                 }
             }
 
-            foreach (KeyValuePair<string, DateTime> session in _Sessions.ToArray())
+            foreach (KeyValuePair<string, ProxyBrowserSession> session in _Sessions.ToArray())
             {
-                if (session.Value <= nowUtc)
+                if (session.Value.ExpiresUtc <= nowUtc)
                 {
-                    _Sessions.TryRemove(session.Key, out DateTime _);
+                    _Sessions.TryRemove(session.Key, out ProxyBrowserSession? _);
                 }
             }
+        }
+
+        private bool TryGetSessionForUpdate(string? sessionToken, out string normalizedToken, out ProxyBrowserSession? session, out string? error)
+        {
+            error = null;
+            session = null;
+            normalizedToken = (sessionToken ?? String.Empty).Trim();
+
+            if (String.IsNullOrWhiteSpace(normalizedToken))
+            {
+                error = "Proxy session is missing.";
+                return false;
+            }
+
+            if (!_Sessions.TryGetValue(normalizedToken, out ProxyBrowserSession? existingSession))
+            {
+                error = "Proxy session is invalid or expired.";
+                return false;
+            }
+
+            if (existingSession.ExpiresUtc <= _UtcNow())
+            {
+                _Sessions.TryRemove(normalizedToken, out ProxyBrowserSession? _);
+                error = "Proxy session is invalid or expired.";
+                return false;
+            }
+
+            session = existingSession;
+            return true;
+        }
+
+        private static ProxyBrowserSession Clone(ProxyBrowserSession source)
+        {
+            return new ProxyBrowserSession
+            {
+                Token = source.Token,
+                ExpiresUtc = source.ExpiresUtc,
+                SelectedInstanceId = source.SelectedInstanceId
+            };
         }
 
         #endregion

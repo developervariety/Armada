@@ -63,9 +63,7 @@ namespace Armada.Server
         private LogRotationService _LogRotation = null!;
         private DataExpiryService _DataExpiry = null!;
         private RemoteTunnelManager _RemoteTunnel = null!;
-        private RemoteControlQueryService _RemoteControlQueries = null!;
-        private RemoteControlManagementService _RemoteControlManagement = null!;
-        private RemoteControlOperationsService _RemoteControlOperations = null!;
+        private RemoteDashboardRelayService _RemoteDashboardRelay = null!;
         private PlanningSessionCoordinator _PlanningSessions = null!;
         private ObjectiveRefinementCoordinator _ObjectiveRefinementSessions = null!;
         private IWorkspaceService _Workspace = null!;
@@ -168,18 +166,8 @@ namespace Armada.Server
             _LandingPreviewService = new LandingPreviewService(_Database, _Logging);
             _HistoricalTimelineService = new HistoricalTimelineService(_Database);
             _RemoteTunnel = new RemoteTunnelManager(_Logging, _Settings);
+            _RemoteDashboardRelay = new RemoteDashboardRelayService(_Logging, _Settings, _RemoteTunnel.PublishEventAsync);
             admiralService.OnGetRemoteTunnelStatus = _RemoteTunnel.GetStatus;
-            _RemoteControlQueries = new RemoteControlQueryService(
-                _Database,
-                _Settings,
-                _Git,
-                token => _Admiral.GetStatusAsync(token),
-                _RemoteTunnel.GetStatus,
-                _StartUtc);
-            _RemoteControlManagement = new RemoteControlManagementService(
-                _Database,
-                _Admiral,
-                EmitEventAsync);
             // Seed built-in prompt templates, personas, and pipelines
             await _PromptTemplateService.SeedDefaultsAsync().ConfigureAwait(false);
             _Logging.Info(_Header + "prompt template seeding completed");
@@ -348,21 +336,6 @@ namespace Armada.Server
                 _Logging,
                 _Database);
 
-            _RemoteControlOperations = new RemoteControlOperationsService(
-                _Database,
-                _ObjectiveService,
-                _ObjectiveRefinementSessions,
-                _PlanningSessions,
-                _WorkflowProfileService,
-                _EnvironmentService,
-                _CheckRunService,
-                _ReleaseService,
-                _DeploymentService,
-                _IncidentService,
-                _RunbookService,
-                _CaptainTools,
-                _Workspace,
-                _PromptTemplateService);
             _RemoteTunnel.OnHandleRequest = HandleRemoteTunnelRequestAsync;
 
             RegisterRoutes();
@@ -450,6 +423,7 @@ namespace Armada.Server
             }
             _TokenSource.Cancel();
             _RemoteTunnel?.StopAsync().GetAwaiter().GetResult();
+            _RemoteDashboardRelay?.DisposeAsync().GetAwaiter().GetResult();
             _McpServer?.Stop();
             _Database?.Dispose();
             OnStopping?.Invoke();
@@ -1073,119 +1047,19 @@ namespace Armada.Server
             string method = envelope.Method?.Trim().ToLowerInvariant() ?? String.Empty;
             switch (method)
             {
-                case "armada.fleets.list":
-                case "armada.fleet.detail":
-                case "armada.fleet.create":
-                case "armada.fleet.update":
-                case "armada.vessels.list":
-                case "armada.vessel.detail":
-                case "armada.vessel.create":
-                case "armada.vessel.update":
-                case "armada.pipelines.list":
-                case "armada.playbooks.list":
-                case "armada.playbook.detail":
-                case "armada.playbook.create":
-                case "armada.playbook.update":
-                case "armada.playbook.delete":
-                case "armada.voyages.list":
-                case "armada.voyage.dispatch":
-                case "armada.voyage.cancel":
-                case "armada.missions.list":
-                case "armada.mission.create":
-                case "armada.mission.update":
-                case "armada.mission.cancel":
-                case "armada.mission.restart":
-                case "armada.captain.stop":
-                    return await _RemoteControlManagement.HandleAsync(envelope, token).ConfigureAwait(false);
-                case "armada.objectives.list":
-                case "armada.objective.detail":
-                case "armada.objective.create":
-                case "armada.objective.update":
-                case "armada.objective.delete":
-                case "armada.backlog.list":
-                case "armada.backlog.detail":
-                case "armada.backlog.create":
-                case "armada.backlog.update":
-                case "armada.backlog.delete":
-                case "armada.objective-refinement-sessions.list":
-                case "armada.objective-refinement-sessions.create":
-                case "armada.objective-refinement-session.detail":
-                case "armada.objective-refinement-session.message":
-                case "armada.objective-refinement-session.summarize":
-                case "armada.objective-refinement-session.apply":
-                case "armada.objective-refinement-session.stop":
-                case "armada.objective-refinement-session.delete":
-                case "armada.planning-sessions.list":
-                case "armada.planning-session.detail":
-                case "armada.planning-session.create":
-                case "armada.planning-session.message":
-                case "armada.planning-session.summarize":
-                case "armada.planning-session.dispatch":
-                case "armada.planning-session.stop":
-                case "armada.planning-session.delete":
-                case "armada.workflow-profiles.list":
-                case "armada.workflow-profile.detail":
-                case "armada.workflow-profile.create":
-                case "armada.workflow-profile.update":
-                case "armada.workflow-profile.delete":
-                case "armada.check-runs.list":
-                case "armada.check-run.detail":
-                case "armada.check-run.create":
-                case "armada.check-run.retry":
-                case "armada.check-run.delete":
-                case "armada.environments.list":
-                case "armada.environment.detail":
-                case "armada.environment.create":
-                case "armada.environment.update":
-                case "armada.environment.delete":
-                case "armada.releases.list":
-                case "armada.release.detail":
-                case "armada.release.create":
-                case "armada.release.update":
-                case "armada.release.refresh":
-                case "armada.release.delete":
-                case "armada.deployments.list":
-                case "armada.deployment.detail":
-                case "armada.deployment.create":
-                case "armada.deployment.update":
-                case "armada.deployment.approve":
-                case "armada.deployment.deny":
-                case "armada.deployment.verify":
-                case "armada.deployment.rollback":
-                case "armada.deployment.delete":
-                case "armada.incidents.list":
-                case "armada.incident.detail":
-                case "armada.incident.create":
-                case "armada.incident.update":
-                case "armada.incident.delete":
-                case "armada.runbooks.list":
-                case "armada.runbook.detail":
-                case "armada.runbook.create":
-                case "armada.runbook.update":
-                case "armada.runbook.delete":
-                case "armada.runbook-executions.list":
-                case "armada.runbook-execution.detail":
-                case "armada.runbook-execution.create":
-                case "armada.runbook-execution.update":
-                case "armada.runbook-execution.delete":
-                case "armada.captain.tools":
-                case "armada.request-history.list":
-                case "armada.request-history.detail":
-                case "armada.request-history.summary":
-                case "armada.workspace.status":
-                case "armada.workspace.tree":
-                case "armada.workspace.file":
-                case "armada.workspace.search":
-                case "armada.workspace.changes":
-                case "armada.pipeline.detail":
-                case "armada.personas.list":
-                case "armada.persona.detail":
-                case "armada.prompt-templates.list":
-                case "armada.prompt-template.detail":
-                    return await _RemoteControlOperations.HandleAsync(envelope, token).ConfigureAwait(false);
+                case "armada.http.request":
+                case "armada.ws.open":
+                case "armada.ws.message":
+                case "armada.ws.close":
+                    return await _RemoteDashboardRelay.HandleAsync(envelope, token).ConfigureAwait(false);
             }
 
-            return await _RemoteControlQueries.HandleAsync(envelope, token).ConfigureAwait(false);
+            return new RemoteTunnelRequestResult
+            {
+                StatusCode = 404,
+                ErrorCode = "unsupported_method",
+                Message = "Tunnel method " + envelope.Method + " is not supported. Use generic dashboard relay methods instead."
+            };
         }
 
         private async Task PurgeExpiredRequestHistoryAsync(CancellationToken token)

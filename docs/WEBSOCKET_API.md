@@ -5,11 +5,19 @@
 **Protocol:** WebSocket (RFC 6455) via Watson7
 **Transport:** JSON text frames
 
-## Remote Control Note
+## Remote Proxy Note
 
-`v0.8.0` does not expose the local Armada dashboard websocket API through `Armada.Proxy`.
+When the dashboard is opened directly from `Armada.Server`, connect to `/ws` on the Armada origin as usual.
 
-The new remote-control tunnel forwards Armada server events to the proxy for instance activity tracking, but it does not provide dashboard-websocket compatibility mode yet. When that changes, this document will be updated with the proxied event and auth model.
+When the dashboard is opened from `Armada.Proxy`, the browser still connects to `/ws` on the current origin, but the proxy relays that websocket session through the outbound tunnel to the selected Armada deployment. The dashboard websocket message format does not change in proxy mode; only the transport path changes.
+
+Proxy prerequisites:
+
+- an authenticated proxy browser session
+- a selected connected deployment in the proxy session
+- an active tunnel connection for that deployment
+
+If the selected deployment disconnects or the tunnel drops, the proxy closes the browser websocket and the dashboard must reconnect through the proxy origin.
 
 ---
 

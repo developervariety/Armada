@@ -125,7 +125,11 @@ describe('PlanningTranscriptCard', () => {
       />,
     );
 
-    await user.type(screen.getByRole('textbox', { name: 'Send Message' }), ' now');
+    const composer = screen.getByRole('textbox', { name: 'Send Message' });
+
+    expect(composer).toHaveAttribute('rows', '3');
+
+    await user.type(composer, ' now');
     await user.click(screen.getByRole('button', { name: 'Send' }));
 
     expect(onComposerChange).toHaveBeenCalled();

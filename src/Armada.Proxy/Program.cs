@@ -121,7 +121,9 @@ namespace Armada.Proxy
         {
             List<SyslogServer> syslogServers = _Settings.SyslogServers ?? new List<SyslogServer>();
 
-            _Logging = new LoggingModule(syslogServers, true);
+            _Logging = syslogServers.Count > 0
+                ? new LoggingModule(syslogServers, true)
+                : new LoggingModule();
             _Logging.Settings.EnableConsole = true;
             _Logging.Settings.EnableColors = true;
             _Logging.Settings.MinimumSeverity = Severity.Debug;

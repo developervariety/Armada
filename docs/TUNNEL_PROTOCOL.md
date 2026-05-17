@@ -1,41 +1,48 @@
 # Tunnel Protocol
 
-**Version:** 0.8.0
+**Version:** `0.8.0`
 
-This document describes the shipped tunnel contract between `Armada.Server` and `Armada.Proxy` in `v0.8.0`.
+This document describes the currently shipped tunnel contract between `Armada.Server` and `Armada.Proxy`.
 
-The shipped contract now includes:
+The direction is now:
 
-- outbound websocket tunnel initiation from Armada
-- proxy websocket termination at `/tunnel`
-- handshake with protocol version, instance ID, shared-password proof, optional enrollment token, and capability manifest
+- keep the outbound Armada tunnel
+- keep proxy tunnel termination at `/tunnel`
+- add generic dashboard transport relay for `/api/v1/*` and `/ws`
+- stop growing the proxy around feature-specific UI route families
+
+Legacy feature-specific tunnel methods still exist for compatibility, but they are no longer the preferred growth path for remote dashboard support.
+
+## Transport Overview
+
+The shipped tunnel provides:
+
+- outbound websocket connection from Armada to the proxy
+- handshake with instance identity, shared-password proof, optional enrollment token, and capability manifest
 - request/response correlation IDs
-- event forwarding from Armada to the proxy
-- bounded remote request routing for summary, work intake, planning, delivery, diagnostics, and reference views
-- `ping` / `pong` heartbeat handling
-- reconnect with capped exponential backoff and jitter
-- proxy stale/offline instance semantics
+- `ping` and `pong` heartbeats
+- proxy-maintained instance liveness and stale-state tracking
+- generic HTTP relay for dashboard REST
+- generic websocket relay for the dashboard `/ws` endpoint
+- event publishing from Armada back to the proxy
 
-Not yet shipped:
+Still not shipped:
 
-- subscription lifecycle management
+- chunked or streamed relay bodies for very large payloads
 - resumable subscriptions
-- chunked streaming for large payloads
 - delegated remote identity
-- unbounded arbitrary remote action routing or policy evaluation
-
----
+- a generic policy engine inside the tunnel itself
 
 ## Envelope Shape
 
-All tunnel messages use the same JSON envelope:
+All tunnel messages use the same envelope:
 
 ```json
 {
   "type": "request",
   "correlationId": "5a9b9ed0cc4343e5882e5f4abaf9d0e0",
   "method": "armada.tunnel.handshake",
-  "timestampUtc": "2026-04-03T18:30:00Z",
+  "timestampUtc": "2026-05-16T18:30:00Z",
   "statusCode": null,
   "success": null,
   "errorCode": null,
@@ -53,332 +60,207 @@ Recognized `type` values:
 - `pong`
 - `error`
 
-### Field Rules
+Field rules:
 
-- `correlationId` is required for request/response pairing.
-- `method` is required for `request` and `event`.
-- `statusCode` and `success` are used on `response` and `error`.
-- `payload` is optional and JSON-typed.
-- `timestampUtc` is optional but included by shipped emitters.
-
----
+- `correlationId` is required for request/response pairing
+- `method` is used for `request` and `event`
+- `statusCode`, `success`, `errorCode`, and `message` are carried on terminal responses
+- `payload` is optional and JSON-typed
 
 ## Handshake
 
-The first message from Armada must be:
+The first Armada message on a new tunnel connection must be `armada.tunnel.handshake`.
+
+Representative request payload:
 
 ```json
 {
-  "type": "request",
+  "protocolVersion": "2026-04-04",
+  "armadaVersion": "0.8.0",
+  "instanceId": "armada-1f2e3d4c5b6a",
+  "enrollmentToken": "optional-token",
+  "passwordTimestampUtc": "2026-05-16T18:30:00Z",
+  "passwordNonce": "9f31c41b5f934d7ea2865a0b56d3c8ce",
+  "passwordProofSha256": "8c77f5..."
+}
+```
+
+The proxy validates:
+
+- required fields
+- protocol version presence
+- password timestamp freshness
+- password proof correctness
+- replay protection for the password proof
+- optional enrollment-token policy
+
+Representative successful response:
+
+```json
+{
+  "type": "response",
   "correlationId": "5a9b9ed0cc4343e5882e5f4abaf9d0e0",
   "method": "armada.tunnel.handshake",
-  "timestampUtc": "2026-04-04T18:30:00Z",
+  "statusCode": 200,
+  "success": true,
   "payload": {
     "protocolVersion": "2026-04-04",
-    "armadaVersion": "0.8.0",
-    "instanceId": "armada-1f2e3d4c5b6a",
-    "enrollmentToken": "optional-token",
-    "passwordProofSha256": "9c9be4bdc9b3d11f2c4a9a482d0f36d93fb7357db10ee3119af7c0a0c38e4d54",
-    "passwordNonce": "4f3a0c7a8f6c49d9b6711d2c1a7b5e90",
-    "passwordTimestampUtc": "2026-04-04T18:30:00Z",
-    "capabilities": [
+    "proxyVersion": "0.8.0",
+    "features": [
       "remoteControl.handshake",
       "remoteControl.heartbeat",
       "remoteControl.events",
       "remoteControl.requests",
-      "instance.summary",
-      "objectives.list",
-      "planning-session.dispatch",
-      "workflow-profile.create",
-      "deployment.rollback",
-      "captain.tools",
-      "workspace.search",
-      "status.health",
-      "status.snapshot"
+      "dashboard.http.relay",
+      "dashboard.websocket.relay"
     ]
   }
 }
 ```
 
-The `capabilities` array above is representative, not exhaustive. The live manifest now also advertises the wider mission, playbook, backlog, refinement, planning, delivery, diagnostics, and reference route families implemented by the proxy/server pair.
+The feature list above is representative. Armada still advertises legacy feature-specific capabilities today, but the important new contract point is the presence of `dashboard.http.relay` and `dashboard.websocket.relay`.
 
-The proxy validates:
+## Generic HTTP Relay
 
-- `instanceId` is present
-- `protocolVersion` is present
-- `passwordProofSha256`, `passwordNonce`, and `passwordTimestampUtc` are present
-- the shared-password proof matches the configured `ArmadaProxy.password`
-- the password-proof timestamp is fresh enough to reject stale or replayed handshakes
-- enrollment token rules from `ArmadaProxy`, when enabled
+The proxy now forwards dashboard REST traffic through `armada.http.request`.
 
-If either side leaves the password blank, it defaults to `armadaadmin`.
-
-The tunnel does not send the raw shared password. The proof is a SHA-256 value derived from the instance ID, timestamp, nonce, and the password hash.
-
-Accepted handshake response:
+Payload shape:
 
 ```json
 {
-  "type": "response",
-  "correlationId": "5a9b9ed0cc4343e5882e5f4abaf9d0e0",
-  "timestampUtc": "2026-04-04T18:30:00Z",
+  "method": "GET",
+  "path": "/api/v1/status/health",
+  "queryString": null,
+  "headers": {
+    "Accept": "application/json",
+    "X-Request-Id": "abc123"
+  },
+  "contentType": null,
+  "bodyBase64": null
+}
+```
+
+Current behavior:
+
+- only `/api/v1/*` is accepted
+- selected request headers are forwarded
+- request and response bodies are base64-encoded when present
+- JSON, text, uploads, and downloads are supported
+- cancellation and timeout propagate back as relay errors
+- proxy-side policy still runs before the request is sent
+
+Representative response payload:
+
+```json
+{
   "statusCode": 200,
-  "success": true,
-  "message": "Handshake accepted.",
-  "payload": {
-    "accepted": true,
-    "proxyVersion": "0.8.0",
-    "protocolVersion": "2026-04-04",
-    "instanceId": "armada-1f2e3d4c5b6a",
-    "message": "Handshake accepted.",
-    "capabilities": [
-      "instances.summary",
-      "instances.detail",
-      "instances.shell.summary",
-      "instances.backlog.list",
-      "instances.planning.dispatch",
-      "instances.workflowprofile.create",
-      "instances.deployment.rollback",
-      "instances.captain.tools",
-      "instances.workspace.search",
-      "armada.status.snapshot",
-      "armada.status.health"
-    ]
-  }
+  "reasonPhrase": "OK",
+  "headers": {
+    "Content-Type": "application/json; charset=utf-8"
+  },
+  "contentType": "application/json; charset=utf-8",
+  "bodyBase64": "eyJzdGF0dXMiOiJIZWFsdGh5In0="
 }
 ```
 
-The proxy capability list above is also representative. The live proxy handshake now advertises the expanded Phase 1-4 route families implemented by `Armada.Proxy`.
+Current limitation:
 
-Rejected handshake response:
+- the first shipped relay assumes request and response bodies fit in one tunnel payload
+- chunking/streaming remains open work
+
+## Generic WebSocket Relay
+
+The proxy now forwards the dashboard websocket through these method families:
+
+- `armada.ws.open`
+- `armada.ws.message`
+- `armada.ws.close`
+- `armada.ws.closed`
+- `armada.ws.error`
+
+Representative open request payload:
 
 ```json
 {
-  "type": "response",
-  "correlationId": "5a9b9ed0cc4343e5882e5f4abaf9d0e0",
-  "timestampUtc": "2026-04-04T18:30:00Z",
-  "statusCode": 401,
-  "success": false,
-  "errorCode": "handshake_rejected",
-  "message": "Handshake shared password proof is invalid."
+  "proxySocketId": "7f3d1f7f1d90491c9b0f4fca1e50f8d9",
+  "path": "/ws"
 }
 ```
 
----
-
-## Heartbeats
-
-Armada periodically sends:
+Representative message event payload:
 
 ```json
 {
-  "type": "ping",
-  "correlationId": "0a8ce9bdb1ea4857a97d8bbd6d388df0",
-  "timestampUtc": "2026-04-03T18:31:00Z"
+  "proxySocketId": "7f3d1f7f1d90491c9b0f4fca1e50f8d9",
+  "data": "{\"type\":\"subscribe\",\"channel\":\"events\"}"
 }
 ```
 
-The proxy answers:
+Representative close payload:
 
 ```json
 {
-  "type": "pong",
-  "correlationId": "0a8ce9bdb1ea4857a97d8bbd6d388df0",
-  "timestampUtc": "2026-04-03T18:31:00Z"
+  "proxySocketId": "7f3d1f7f1d90491c9b0f4fca1e50f8d9",
+  "code": 1000,
+  "reason": "Normal closure"
 }
 ```
 
-Armada records round-trip latency from matching `pong` envelopes.
+Current websocket relay guarantees:
 
-Armada also responds to inbound `ping` messages with a matching `pong`.
+- one proxy browser websocket maps to one proxied Armada websocket
+- multiple browser sockets can relay through one connected instance tunnel
+- message ordering is preserved per proxied socket
+- close codes and reasons are forwarded where practical
 
----
+Current limitation:
 
-## Routed Requests
+- reconnect and recovery semantics after tunnel interruption still need deeper verification
 
-The proxy currently issues requests across these method families:
+## Legacy Feature-Specific Methods
 
-- summary and status:
-  - `armada.instance.summary`
-  - `armada.status.snapshot`
-  - `armada.status.health`
-- core inspection and management:
-  - fleets, vessels, pipelines, playbooks
-  - missions, voyages, captains
-  - mission log and diff
-- work intake:
-  - `armada.objectives.*`
-  - `armada.backlog.*`
-  - `armada.objective-refinement-sessions.*`
-  - `armada.objective-refinement-session.*`
-  - `armada.planning-sessions.*`
-  - `armada.planning-session.*`
-- delivery:
-  - `armada.workflow-profiles.*`
-  - `armada.workflow-profile.*`
-  - `armada.check-runs.*`
-  - `armada.check-run.*`
-  - `armada.environments.*`
-  - `armada.environment.*`
-  - `armada.releases.*`
-  - `armada.release.*`
-  - `armada.deployments.*`
-  - `armada.deployment.*`
-  - `armada.incidents.*`
-  - `armada.incident.*`
-  - `armada.runbooks.*`
-  - `armada.runbook.*`
-  - `armada.runbook-executions.*`
-  - `armada.runbook-execution.*`
-- diagnostics and reference:
-  - `armada.captain.tools`
-  - `armada.request-history.*`
-  - `armada.workspace.*`
-  - `armada.personas.*`
-  - `armada.persona.*`
-  - `armada.prompt-templates.*`
-  - `armada.prompt-template.*`
+The server still handles older `armada.*` request families for compatibility, including objective/backlog, planning, workflow, delivery, diagnostics, workspace, and reference methods.
 
-Example request:
+Those methods are now considered compatibility surface:
 
-```json
-{
-  "type": "request",
-  "correlationId": "62cf28fa232f49a5aab48debe031eb89",
-  "method": "armada.planning-session.dispatch",
-  "timestampUtc": "2026-04-03T18:32:00Z",
-  "payload": {
-    "id": "pls_abc123",
-    "body": {
-      "messageId": "psm_abc123",
-      "title": "Proxy backlog dispatch"
-    }
-  }
-}
-```
+- they are not the preferred path for new dashboard support
+- the shared dashboard should reach new REST behavior through generic `/api/v1/*` relay
+- the shared dashboard should reach live behavior through generic `/ws` relay
 
-Example response:
+Removing the legacy method families remains follow-up work after compatibility confidence is high enough.
 
-```json
-{
-  "type": "response",
-  "correlationId": "62cf28fa232f49a5aab48debe031eb89",
-  "timestampUtc": "2026-04-03T18:32:00Z",
-  "statusCode": 200,
-  "success": true,
-  "message": "Planning session dispatched.",
-  "payload": {
-    "id": "vyg_abc123",
-    "title": "Proxy backlog dispatch",
-    "sourcePlanningSessionId": "pls_abc123"
-  }
-}
-```
+## Connection Lifecycle And Health
 
-Unsupported requests return:
+Armada tunnel configuration lives under `remoteControl`:
 
-```json
-{
-  "type": "response",
-  "correlationId": "62cf28fa232f49a5aab48debe031eb89",
-  "timestampUtc": "2026-04-03T18:32:00Z",
-  "statusCode": 404,
-  "success": false,
-  "errorCode": "unsupported_method",
-  "message": "Unsupported tunnel method armada.unknown."
-}
-```
+- `enabled`
+- `tunnelUrl`
+- `instanceId`
+- `enrollmentToken`
+- `password`
+- `connectTimeoutSeconds`
+- `heartbeatIntervalSeconds`
+- `reconnectBaseDelaySeconds`
+- `reconnectMaxDelaySeconds`
+- `allowInvalidCertificates`
 
----
+Proxy-side instance state is derived as:
 
-## Forwarded Events
+- `connected`: websocket is attached and recent tunnel activity is fresh
+- `stale`: websocket is still attached but activity is older than `staleAfterSeconds`
+- `disconnected`: no active tunnel session
 
-Armada forwards server-side events to the proxy as `event` envelopes.
+Useful health surfaces:
 
-Example:
+- Armada: `GET /api/v1/status`, `GET /api/v1/status/health`, `GET /api/v1/settings`
+- proxy: `GET /proxy-api/v1/status/health`, `GET /proxy-api/v1/instances`
 
-```json
-{
-  "type": "event",
-  "correlationId": "b0f3d61d59d74e5a855f6b2e3953c64f",
-  "method": "mission.completed",
-  "timestampUtc": "2026-04-03T18:33:00Z",
-  "payload": {
-    "message": "Mission completed: Update prompt templates",
-    "missionId": "msn_abc123",
-    "voyageId": "vyg_abc123"
-  }
-}
-```
+## Directional Summary
 
-The proxy stores recent inbound events per instance for detail inspection.
+The current tunnel is intentionally in a mixed state:
 
----
+- generic dashboard relay is now shipped
+- legacy feature-specific methods still exist for compatibility
+- new remote dashboard work should bias to generic transport, not new feature-specific tunnel methods
 
-## URL Handling
-
-`remoteControl.tunnelUrl` accepts:
-
-- `ws://...`
-- `wss://...`
-- `http://...`
-- `https://...`
-
-`http` is normalized to `ws`, and `https` is normalized to `wss`.
-
-Any other scheme is rejected and surfaced through `RemoteTunnel.LastError`.
-
----
-
-## Reconnect Behavior
-
-When the tunnel is enabled and a connection attempt fails, Armada:
-
-1. records the failure in `RemoteTunnel.LastError`
-2. increments `RemoteTunnel.ReconnectAttempts`
-3. waits using capped exponential backoff with jitter
-4. retries until the server stops or the feature is disabled
-
-The timing is controlled by:
-
-- `remoteControl.connectTimeoutSeconds`
-- `remoteControl.heartbeatIntervalSeconds`
-- `remoteControl.reconnectBaseDelaySeconds`
-- `remoteControl.reconnectMaxDelaySeconds`
-
----
-
-## Offline And Stale Semantics
-
-The proxy computes instance state as:
-
-- `connected`: websocket open and recent tunnel activity is within `staleAfterSeconds`
-- `stale`: websocket still attached but no tunnel activity has been observed within `staleAfterSeconds`
-- `offline`: no active websocket session is attached
-
----
-
-## Status Surfaces
-
-Armada exposes tunnel state through:
-
-- `GET /api/v1/status`
-- `GET /api/v1/status/health`
-- `GET /api/v1/settings`
-- `armada status`
-- the React and legacy server dashboards
-
-The proxy exposes tunnel-derived state through:
-
-- `GET /api/v1/status/health`
-- `GET /api/v1/instances`
-- `GET /api/v1/instances/{instanceId}`
-
-Current Armada tunnel states:
-
-- `Disabled`
-- `Disconnected`
-- `Connecting`
-- `Connected`
-- `Error`
-- `Stopping`
+That is the architectural direction this repo should continue following.

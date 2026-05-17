@@ -5,7 +5,7 @@ import { useLocale } from '../context/LocaleContext';
 import { useTheme } from '../context/ThemeContext';
 import { useWebSocket } from '../context/WebSocketContext';
 import { useNotifications } from '../context/NotificationContext';
-import { getHealth, listCaptains, listFleets, listVessels } from '../api/client';
+import { clearProxySessionInstance, getHealth, getProxySessionContext, listCaptains, listFleets, listVessels, logoutProxy, type ProxySessionContext } from '../api/client';
 import SetupWizard, { isSetupComplete } from './SetupWizard';
 import LanguageSelector from './shared/LanguageSelector';
 
@@ -514,6 +514,7 @@ export default function Layout() {
     security: true,
   });
   const [healthStatus, setHealthStatus] = useState<HealthStatus>('unknown');
+  const [proxyContext, setProxyContext] = useState<ProxySessionContext | null>(null);
 
   useEffect(() => {
     try {
@@ -597,6 +598,22 @@ export default function Layout() {
     };
   }, []);
 
+  useEffect(() => {
+    let mounted = true;
+
+    getProxySessionContext()
+      .then((context) => {
+        if (mounted) setProxyContext(context);
+      })
+      .catch(() => {
+        if (mounted) setProxyContext(null);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [user?.user?.id]);
+
   const filteredSections = navSections
     .map((section) =>
       section.key !== 'security'
@@ -641,11 +658,32 @@ export default function Layout() {
     );
   }, [collapsed, isItemActive, t, unreadCount, wizardHighlights]);
 
+  const handleSwitchDeployment = useCallback(async () => {
+    try {
+      await clearProxySessionInstance();
+    } catch {
+      // Best effort. The portal is still the recovery path.
+    }
+    window.location.assign('/');
+  }, []);
+
+  const handleProxyLogout = useCallback(async () => {
+    try {
+      await logoutProxy();
+    } catch {
+      // Best effort logout.
+    }
+    logout();
+    window.location.assign('/');
+  }, [logout]);
+
   const layoutClassName = [
     'app-layout',
     showWizard ? 'wizard-active' : '',
     showWizard && wizardHighlights.length > 0 ? 'wizard-spotlight-active' : '',
   ].filter(Boolean).join(' ');
+  const proxyInstance = proxyContext?.selectedInstance;
+  const showProxyContext = !!proxyContext?.selectedInstanceId;
 
   return (
     <div className={layoutClassName} style={{ gridTemplateColumns: collapsed ? '56px 1fr' : '180px 1fr' }}>
@@ -764,6 +802,36 @@ export default function Layout() {
             </button>
           )}
         </div>
+
+        {showProxyContext && (
+          <div className="proxy-context-strip">
+            <div className="proxy-context-copy">
+              <span className="proxy-context-pill">{t('Proxy Mode')}</span>
+              <span>
+                {t('Remote dashboard for {{instanceId}}', {
+                  instanceId: proxyInstance?.instanceId || proxyContext?.selectedInstanceId || '',
+                })}
+              </span>
+              <span className="proxy-context-meta">
+                {t('State: {{state}}', { state: proxyInstance?.state || 'unknown' })}
+              </span>
+              {proxyInstance?.armadaVersion && (
+                <span className="proxy-context-meta">
+                  {t('Armada {{version}}', { version: proxyInstance.armadaVersion })}
+                </span>
+              )}
+            </div>
+
+            <div className="proxy-context-actions">
+              <button className="btn btn-sm" onClick={handleSwitchDeployment}>
+                {t('Switch Deployment')}
+              </button>
+              <button className="btn btn-sm" onClick={handleProxyLogout}>
+                {t('Proxy Logout')}
+              </button>
+            </div>
+          </div>
+        )}
 
         <main className="main">
           <div className="view">

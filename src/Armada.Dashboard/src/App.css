@@ -526,6 +526,50 @@ body {
     z-index: 90;
 }
 
+.proxy-context-strip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.85rem;
+    padding: 0.7rem 1rem;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 14%, var(--bg-card)), color-mix(in srgb, var(--accent) 4%, var(--bg-card)));
+}
+
+.proxy-context-copy {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    flex-wrap: wrap;
+    color: var(--text);
+    font-size: 0.88rem;
+}
+
+.proxy-context-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 24px;
+    padding: 0.12rem 0.65rem;
+    border-radius: 999px;
+    background: var(--accent);
+    color: #ffffff;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.proxy-context-meta {
+    color: var(--text-dim);
+}
+
+.proxy-context-actions {
+    display: flex;
+    gap: 0.55rem;
+    flex-wrap: wrap;
+}
+
 /* Theme toggle */
 .theme-toggle {
     background: none;
@@ -1884,6 +1928,17 @@ tr.clickable { cursor: pointer; }
     align-items: center;
     gap: 0.5rem;
     flex-wrap: wrap;
+}
+
+@media (max-width: 980px) {
+    .proxy-context-strip {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .proxy-context-actions {
+        flex-direction: column;
+    }
 }
 
 .readiness-panel {
@@ -3658,96 +3713,49 @@ tr.clickable { cursor: pointer; }
 
 .playbook-selector-shell {
     margin: 1rem 0;
-    padding: 1rem;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--bg-card);
     display: grid;
-    gap: 1rem;
-}
-
-.playbook-selector-head {
-    display: flex;
-    justify-content: space-between;
-    gap: 1rem;
-    align-items: flex-start;
-    margin-bottom: 0;
-}
-
-.playbook-selector-meta {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 0.75rem;
-    color: var(--text-dim);
-    font-size: 0.82rem;
-}
-
-.playbook-selector-link {
-    font-weight: 600;
+    gap: 0.6rem;
 }
 
 .playbook-selector-list {
     display: grid;
-    gap: 0.8rem;
+    gap: 0.45rem;
 }
 
-.playbook-selector-row {
-    display: grid;
-    gap: 0.65rem;
-    padding: 0.9rem;
-    border: 1px solid var(--border);
-    border-radius: calc(var(--radius) - 2px);
-    background: var(--bg-card);
-}
-
-.playbook-selector-row-draft {
-    background:
-        linear-gradient(180deg, color-mix(in srgb, var(--accent) 4%, var(--bg-card)), var(--bg-card)),
-        var(--bg-card);
-}
-
-.playbook-selector-row-main {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(220px, 260px) auto;
-    gap: 0.75rem;
-    align-items: end;
-}
-
-.playbook-selector-field {
-    display: flex;
-    flex-direction: column;
-    gap: 0.35rem;
-}
-
-.playbook-selector-field > span {
-    font-size: 0.82rem;
-    font-weight: 600;
+.playbook-selector-section-label {
+    margin: 0;
+    font-size: 0.85rem;
+    font-weight: 500;
     color: var(--text-dim);
 }
 
-.playbook-selector-mode-field {
-    min-width: 0;
+.playbook-selector-column-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(210px, 250px) 2.25rem;
+    gap: 0.75rem;
+    padding: 0 0.1rem;
+    color: var(--text-dim);
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.playbook-selector-inline-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(210px, 250px) auto;
+    gap: 0.75rem;
+    align-items: center;
+}
+
+.playbook-selector-inline-row select {
+    margin: 0;
 }
 
 .playbook-selector-row-actions {
     display: flex;
-    align-items: flex-end;
+    align-items: center;
     justify-content: flex-end;
-}
-
-.playbook-selector-row-summary {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.45rem 0.9rem;
-    color: var(--text-dim);
-    font-size: 0.82rem;
-    line-height: 1.45;
-}
-
-.playbook-selector-helper {
-    font-size: 0.84rem;
 }
 
 .form-label-row {
@@ -3796,8 +3804,12 @@ tr.clickable { cursor: pointer; }
 
 .planning-start-grid {
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 0 1rem;
+}
+
+.planning-start-title-group {
+    margin-bottom: 1rem;
 }
 
 .planning-section-stack {
@@ -3885,7 +3897,8 @@ tr.clickable { cursor: pointer; }
     background:
         linear-gradient(180deg, color-mix(in srgb, var(--bg-hover) 82%, transparent), transparent 22%),
         var(--bg-card);
-    display: grid;
+    display: flex;
+    flex-direction: column;
     gap: 0.9rem;
 }
 
@@ -3906,11 +3919,13 @@ tr.clickable { cursor: pointer; }
 
 .planning-chat-message-user {
     align-self: flex-end;
+    align-items: flex-end;
 }
 
 .planning-chat-message-assistant,
 .planning-chat-message-system {
     align-self: flex-start;
+    align-items: flex-start;
 }
 
 .planning-chat-message-meta {
@@ -3926,6 +3941,10 @@ tr.clickable { cursor: pointer; }
     font-weight: 800;
     letter-spacing: 0.08em;
     text-transform: uppercase;
+}
+
+.planning-chat-message-user .planning-chat-message-meta {
+    justify-content: flex-end;
 }
 
 .planning-chat-bubble {
@@ -3964,6 +3983,11 @@ tr.clickable { cursor: pointer; }
 .planning-chat-composer {
     display: grid;
     gap: 0.75rem;
+}
+
+.planning-chat-composer textarea {
+    min-height: 6.5rem;
+    resize: vertical;
 }
 
 .planning-chat-composer-actions {
@@ -4120,7 +4144,7 @@ tr.clickable { cursor: pointer; }
 
 @media (max-width: 1100px) {
     .planning-start-grid {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
     .playbook-overview-grid {
@@ -4137,7 +4161,6 @@ tr.clickable { cursor: pointer; }
         grid-template-columns: 1fr;
     }
 
-    .playbook-selector-head,
     .playbook-voyage-item,
     .playbook-snapshot-header {
         flex-direction: column;
@@ -4153,7 +4176,11 @@ tr.clickable { cursor: pointer; }
 }
 
 @media (max-width: 720px) {
-    .playbook-selector-row-main {
+    .playbook-selector-column-head {
+        display: none;
+    }
+
+    .playbook-selector-inline-row {
         grid-template-columns: 1fr;
     }
 
@@ -4187,7 +4214,6 @@ tr.clickable { cursor: pointer; }
         grid-template-columns: 1fr;
     }
 
-    .playbook-selector-head,
     .planning-current-session-head {
         flex-direction: column;
     }

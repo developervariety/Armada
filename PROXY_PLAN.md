@@ -1,5 +1,8 @@
 # Proxy Expansion Plan
 
+> Superseded by [CONSISTENT_DASHBOARD.md](CONSISTENT_DASHBOARD.md) for long-term direction as of `2026-05-16`.
+> Keep this file only as historical context for the retired bounded-shell expansion approach.
+
 ## Status Snapshot
 
 As of `2026-05-15`, `Armada.Proxy` now exposes the planned Phase 0-4 remote-operations surface: playbooks, backlog/refinement/planning, delivery workflows, captain/runtime diagnostics, request-history and bounded API exploration, plus read-only reference views for workspace, pipelines, personas, and prompt templates. The remaining open work is primarily verification and UX hardening rather than missing feature families: route-level proxy coverage, end-to-end shell smoke coverage, and explicit mobile/tablet/desktop validation still need to be closed out.

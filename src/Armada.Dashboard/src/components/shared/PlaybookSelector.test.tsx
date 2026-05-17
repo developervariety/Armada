@@ -61,9 +61,10 @@ describe('PlaybookSelector', () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByText('2 available')).toBeInTheDocument();
-    expect(screen.getByText('0 selected')).toBeInTheDocument();
+    expect(await screen.findByText('Playbook')).toBeInTheDocument();
+    expect(screen.getByText('Delivery Mode')).toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: 'Add Playbook' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Manage playbooks' })).toHaveAttribute('href', '/playbooks');
   });
 
   it('adds and removes playbooks with the compact row workflow', async () => {
@@ -71,16 +72,14 @@ describe('PlaybookSelector', () => {
 
     render(<Harness />);
 
-    await screen.findByText('2 available');
+    await screen.findByRole('combobox', { name: 'Add Playbook' });
     await user.selectOptions(screen.getByRole('combobox', { name: 'Add Playbook' }), 'plb_123');
     await user.click(screen.getByRole('button', { name: 'Add playbook' }));
 
-    expect(screen.getByText('1 selected')).toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: 'Playbook 1' })).toHaveValue('plb_123');
 
     await user.click(screen.getByRole('button', { name: 'Remove playbook 1' }));
 
-    expect(screen.getByText('0 selected')).toBeInTheDocument();
     expect(screen.queryByRole('combobox', { name: 'Playbook 1' })).not.toBeInTheDocument();
   });
 });

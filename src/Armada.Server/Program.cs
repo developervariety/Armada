@@ -4,7 +4,6 @@ namespace Armada.Server
     using System.Collections.Generic;
     using System.IO;
     using System.Runtime.Loader;
-    using System.Text.Json;
     using System.Threading;
     using SyslogLogging;
     using Armada.Core;
@@ -52,12 +51,7 @@ namespace Armada.Server
 
             // Load settings
             string settingsPath = Path.Combine(Constants.DefaultDataDirectory, "settings.json");
-            if (File.Exists(settingsPath))
-            {
-                string json = File.ReadAllText(settingsPath);
-                ArmadaSettings? loaded = JsonSerializer.Deserialize<ArmadaSettings>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                if (loaded != null) _Settings = loaded;
-            }
+            _Settings = await ArmadaSettings.LoadAsync(settingsPath).ConfigureAwait(false);
 
             // Initialize directories
             _Settings.InitializeDirectories();
@@ -115,7 +109,9 @@ namespace Armada.Server
         {
             List<SyslogServer> syslogServers = _Settings.SyslogServers ?? new List<SyslogServer>();
 
-            _Logging = new LoggingModule(syslogServers, true);
+            _Logging = syslogServers.Count > 0
+                ? new LoggingModule(syslogServers, true)
+                : new LoggingModule();
             _Logging.Settings.EnableConsole = true;
             _Logging.Settings.EnableColors = true;
             _Logging.Settings.MinimumSeverity = Severity.Debug;

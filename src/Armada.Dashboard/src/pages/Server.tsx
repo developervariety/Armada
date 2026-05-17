@@ -7,6 +7,8 @@ import {
   resetServer,
   downloadBackup,
   restoreBackup,
+  getProxySessionContext,
+  type ProxySessionContext,
 } from '../api/client';
 import RefreshButton from '../components/shared/RefreshButton';
 import { useWebSocket } from '../context/WebSocketContext';
@@ -158,6 +160,7 @@ export default function Server() {
 
   const [health, setHealth] = useState<HealthInfo | null>(null);
   const [settings, setSettings] = useState<ServerSettings | null>(null);
+  const [proxyContext, setProxyContext] = useState<ProxySessionContext | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [backupLoading, setBackupLoading] = useState(false);
@@ -216,12 +219,14 @@ export default function Server() {
   const loadData = useCallback(async () => {
     try {
       setError('');
-      const [h, s] = await Promise.all([
+      const [h, s, proxy] = await Promise.all([
         getHealth().catch(() => null),
         getSettings().catch(() => null),
+        getProxySessionContext().catch(() => null),
       ]);
       if (h) setHealth(h as unknown as HealthInfo);
       if (s) setSettings(mergeServerSettings(s as unknown as ServerSettings));
+      setProxyContext(proxy);
       if (!h && !s) setError(t('Failed to load server data.'));
       else if (!s) setError(t('Failed to load server settings. Health data is available, but configuration and backup sections could not be loaded.'));
     } catch {
@@ -488,6 +493,9 @@ export default function Server() {
     remoteTunnelEnabled,
     health?.remoteTunnel?.state,
   );
+  const remoteProxyMode = !!proxyContext?.selectedInstanceId;
+  const remoteProxyInstanceId = proxyContext?.selectedInstance?.instanceId || proxyContext?.selectedInstanceId || '';
+  const remoteSettingsLocked = remoteProxyMode;
   const serverDetailFields = [
     {
       key: 'version',
@@ -570,6 +578,15 @@ export default function Server() {
 
       <ErrorModal error={error} onClose={() => setError('')} />
 
+      {remoteProxyMode && (
+        <div className="alert alert-warning" style={{ marginBottom: '1rem' }}>
+          {t(
+            'This page is connected through Armada.Proxy for {{instanceId}}. Local server settings, tunnel settings, setup, restore, shutdown, and factory reset are blocked in remote mode.',
+            { instanceId: remoteProxyInstanceId || t('the selected deployment') },
+          )}
+        </div>
+      )}
+
       {/* Health Status Cards */}
       <div className="card-grid">
         <div className="card" title={t('Current health status of the admiral server')}>
@@ -632,53 +649,55 @@ export default function Server() {
       {settings && (
         <div className="settings-section" style={{ marginTop: '1.5rem' }}>
           <h3>{t('Server Configuration')}</h3>
-          <div className="settings-grid">
-            <div className="form-group">
-              <label title={t('REST API port used by the Armada server and dashboard.')}>{t('Admiral Port')}</label>
-              <input
-                type="number"
-                value={settings.admiralPort}
-                onChange={(e) =>
-                  setSettings({ ...settings, admiralPort: parseInt(e.target.value) || 0 })
-                }
-                min={1}
-                max={65535}
-                title={t('REST API port (1-65535)')}
-              />
+          <fieldset disabled={remoteSettingsLocked} style={{ border: 'none', margin: 0, padding: 0 }}>
+            <div className="settings-grid">
+              <div className="form-group">
+                <label title={t('REST API port used by the Armada server and dashboard.')}>{t('Admiral Port')}</label>
+                <input
+                  type="number"
+                  value={settings.admiralPort}
+                  onChange={(e) =>
+                    setSettings({ ...settings, admiralPort: parseInt(e.target.value) || 0 })
+                  }
+                  min={1}
+                  max={65535}
+                  title={t('REST API port (1-65535)')}
+                />
+              </div>
+              <div className="form-group">
+                <label title={t('Port used by the Armada MCP HTTP endpoint.')}>{t('MCP Port')}</label>
+                <input
+                  type="number"
+                  value={settings.mcpPort}
+                  onChange={(e) =>
+                    setSettings({ ...settings, mcpPort: parseInt(e.target.value) || 0 })
+                  }
+                  min={1}
+                  max={65535}
+                  title={t('MCP server port (1-65535)')}
+                />
+              </div>
+              <div className="form-group">
+                <label title={t('Maximum number of captains Armada may keep registered at once. Set to 0 for no fixed limit.')}>{t('Max Captains')}</label>
+                <input
+                  type="number"
+                  value={settings.maxCaptains}
+                  onChange={(e) =>
+                    setSettings({ ...settings, maxCaptains: parseInt(e.target.value) || 0 })
+                  }
+                  min={0}
+                  title={t('Maximum captains (0 = unlimited)')}
+                />
+              </div>
             </div>
-            <div className="form-group">
-              <label title={t('Port used by the Armada MCP HTTP endpoint.')}>{t('MCP Port')}</label>
-              <input
-                type="number"
-                value={settings.mcpPort}
-                onChange={(e) =>
-                  setSettings({ ...settings, mcpPort: parseInt(e.target.value) || 0 })
-                }
-                min={1}
-                max={65535}
-                title={t('MCP server port (1-65535)')}
-              />
-            </div>
-            <div className="form-group">
-              <label title={t('Maximum number of captains Armada may keep registered at once. Set to 0 for no fixed limit.')}>{t('Max Captains')}</label>
-              <input
-                type="number"
-                value={settings.maxCaptains}
-                onChange={(e) =>
-                  setSettings({ ...settings, maxCaptains: parseInt(e.target.value) || 0 })
-                }
-                min={0}
-                title={t('Maximum captains (0 = unlimited)')}
-              />
-            </div>
-          </div>
-          <button
-            className="btn-primary btn-sm"
-            onClick={handleSaveServerConfig}
-            title={t('Save server configuration changes')}
-          >
-            {t('Save Server Config')}
-          </button>
+            <button
+              className="btn-primary btn-sm"
+              onClick={handleSaveServerConfig}
+              title={t('Save server configuration changes')}
+            >
+              {t('Save Server Config')}
+            </button>
+          </fieldset>
         </div>
       )}
 
@@ -686,70 +705,72 @@ export default function Server() {
       {settings && (
         <div className="settings-section" style={{ marginTop: '1.5rem' }}>
           <h3 title={t('Settings that control captain monitoring, stalling, cleanup, and pull-request automation.')}>{t('Agent Settings')}</h3>
-          <div className="settings-grid">
-            <div className="form-group">
-              <label title={t('How often Armada runs its health and dispatch checks.')}>{t('Heartbeat Interval (seconds)')}</label>
-              <input
-                type="number"
-                value={settings.heartbeatIntervalSeconds}
-                onChange={(e) =>
-                  setSettings({
-                    ...settings,
-                    heartbeatIntervalSeconds: parseInt(e.target.value) || 5,
-                  })
-                }
-                min={5}
-                title={t('Health check interval, minimum 5 seconds')}
-              />
-            </div>
-            <div className="form-group">
-              <label title={t('How long a captain may go without meaningful progress before Armada considers it stalled.')}>{t('Stall Threshold (minutes)')}</label>
-              <input
-                type="number"
-                value={settings.stallThresholdMinutes}
-                onChange={(e) =>
-                  setSettings({
-                    ...settings,
-                    stallThresholdMinutes: parseInt(e.target.value) || 1,
-                  })
-                }
-                min={1}
-                title={t('Minutes before a captain is considered stalled')}
-              />
-            </div>
-            <div className="form-group">
-              <label title={t('How long an idle captain may sit unused before Armada automatically removes it. Set to 0 to disable auto-removal.')}>{t('Idle Captain Timeout (seconds)')}</label>
-              <input
-                type="number"
-                value={settings.idleCaptainTimeoutSeconds}
-                onChange={(e) =>
-                  setSettings({
-                    ...settings,
-                    idleCaptainTimeoutSeconds: parseInt(e.target.value) || 0,
-                  })
-                }
-                min={0}
-                title={t('Auto-remove idle captains after this many seconds (0 = disabled)')}
-              />
-            </div>
-            <div className="form-group">
-              <label className="settings-checkbox-label" title={t('Automatically open pull requests when supported by the mission and vessel configuration.')}>
+          <fieldset disabled={remoteSettingsLocked} style={{ border: 'none', margin: 0, padding: 0 }}>
+            <div className="settings-grid">
+              <div className="form-group">
+                <label title={t('How often Armada runs its health and dispatch checks.')}>{t('Heartbeat Interval (seconds)')}</label>
                 <input
-                  type="checkbox"
-                  checked={settings.autoCreatePr}
-                  onChange={(e) => setSettings({ ...settings, autoCreatePr: e.target.checked })}
+                  type="number"
+                  value={settings.heartbeatIntervalSeconds}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      heartbeatIntervalSeconds: parseInt(e.target.value) || 5,
+                    })
+                  }
+                  min={5}
+                  title={t('Health check interval, minimum 5 seconds')}
                 />
-                <span>{t('Auto-Create Pull Requests')}</span>
-              </label>
+              </div>
+              <div className="form-group">
+                <label title={t('How long a captain may go without meaningful progress before Armada considers it stalled.')}>{t('Stall Threshold (minutes)')}</label>
+                <input
+                  type="number"
+                  value={settings.stallThresholdMinutes}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      stallThresholdMinutes: parseInt(e.target.value) || 1,
+                    })
+                  }
+                  min={1}
+                  title={t('Minutes before a captain is considered stalled')}
+                />
+              </div>
+              <div className="form-group">
+                <label title={t('How long an idle captain may sit unused before Armada automatically removes it. Set to 0 to disable auto-removal.')}>{t('Idle Captain Timeout (seconds)')}</label>
+                <input
+                  type="number"
+                  value={settings.idleCaptainTimeoutSeconds}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      idleCaptainTimeoutSeconds: parseInt(e.target.value) || 0,
+                    })
+                  }
+                  min={0}
+                  title={t('Auto-remove idle captains after this many seconds (0 = disabled)')}
+                />
+              </div>
+              <div className="form-group">
+                <label className="settings-checkbox-label" title={t('Automatically open pull requests when supported by the mission and vessel configuration.')}>
+                  <input
+                    type="checkbox"
+                    checked={settings.autoCreatePr}
+                    onChange={(e) => setSettings({ ...settings, autoCreatePr: e.target.checked })}
+                  />
+                  <span>{t('Auto-Create Pull Requests')}</span>
+                </label>
+              </div>
             </div>
-          </div>
-          <button
-            className="btn-primary btn-sm"
-            onClick={handleSaveAgentSettings}
-            title={t('Save agent settings changes')}
-          >
-            {t('Save Agent Settings')}
-          </button>
+            <button
+              className="btn-primary btn-sm"
+              onClick={handleSaveAgentSettings}
+              title={t('Save agent settings changes')}
+            >
+              {t('Save Agent Settings')}
+            </button>
+          </fieldset>
         </div>
       )}
 
@@ -759,226 +780,227 @@ export default function Server() {
           <p className="text-muted" style={{ marginBottom: '0.75rem' }}>
             {t('Outbound tunnel settings for connecting this Armada server to Armada.Proxy.')}
           </p>
-          <div className="settings-grid">
-            <div className="form-group">
-              <label className="settings-checkbox-label" title={t('Open an outbound remote-management tunnel from this Armada instance to Armada.Proxy.')}>
+          <fieldset disabled={remoteSettingsLocked} style={{ border: 'none', margin: 0, padding: 0 }}>
+            <div className="settings-grid">
+              <div className="form-group">
+                <label className="settings-checkbox-label" title={t('Open an outbound remote-management tunnel from this Armada instance to Armada.Proxy.')}>
+                  <input
+                    type="checkbox"
+                    checked={settings.remoteControl.enabled}
+                    onChange={(e) => handleRemoteTunnelEnabledChange(e.target.checked)}
+                  />
+                  <span>{t('Enable Remote Tunnel')}</span>
+                </label>
+              </div>
+              <div className="form-group">
+                <label title={t('Armada.Proxy base URL or explicit /tunnel endpoint used for remote management.')}>{t('Tunnel URL')}</label>
                 <input
-                  type="checkbox"
-                  checked={settings.remoteControl.enabled}
-                  onChange={(e) => handleRemoteTunnelEnabledChange(e.target.checked)}
-                />
-                <span>{t('Enable Remote Tunnel')}</span>
-              </label>
-            </div>
-            <div className="form-group">
-              <label title={t('Armada.Proxy base URL or explicit /tunnel endpoint used for remote management.')}>{t('Tunnel URL')}</label>
-              <input
-                type="text"
-                value={settings.remoteControl.tunnelUrl ?? ''}
-                onChange={(e) =>
-                  setSettings({
-                    ...settings,
-                    remoteControl: {
-                      ...settings.remoteControl,
-                      tunnelUrl: e.target.value || null,
-                    },
-                  })
-                }
-                placeholder={DEFAULT_REMOTE_TUNNEL_URL}
-                title={t('Proxy base URL or tunnel endpoint. http/https will be normalized to ws/wss and /tunnel will be added automatically when needed.')}
-              />
-            </div>
-            <div className="form-group">
-              <label title={t('Optional stable deployment identifier advertised to Armada.Proxy. Leave blank to let Armada derive one automatically.')}>{t('Instance ID Override')}</label>
-              <input
-                type="text"
-                value={settings.remoteControl.instanceId ?? ''}
-                onChange={(e) =>
-                  setSettings({
-                    ...settings,
-                    remoteControl: {
-                      ...settings.remoteControl,
-                      instanceId: e.target.value || null,
-                    },
-                  })
-                }
-                placeholder={t('Leave blank for auto-generated')}
-                title={t('Optional stable deployment identifier advertised to Armada.Proxy. Leave blank to let Armada derive one automatically.')}
-              />
-            </div>
-            <div className="form-group">
-              <label title={t('Optional extra admission token used only when Armada.Proxy requires instance enrollment tokens.')}>{t('Instance Enrollment Token')}</label>
-              <div className="settings-secret-field">
-                <input
-                  type={revealedRemoteField === 'enrollmentToken' ? 'text' : 'password'}
-                  value={settings.remoteControl.enrollmentToken ?? ''}
+                  type="text"
+                  value={settings.remoteControl.tunnelUrl ?? ''}
                   onChange={(e) =>
                     setSettings({
                       ...settings,
                       remoteControl: {
                         ...settings.remoteControl,
-                        enrollmentToken: e.target.value || null,
+                        tunnelUrl: e.target.value || null,
                       },
                     })
                   }
-                  placeholder={t('Optional bootstrap token')}
-                  title={t('Optional extra admission token used only when Armada.Proxy requires instance enrollment tokens.')}
+                  placeholder={DEFAULT_REMOTE_TUNNEL_URL}
+                  title={t('Proxy base URL or tunnel endpoint. http/https will be normalized to ws/wss and /tunnel will be added automatically when needed.')}
                 />
-                <button
-                  type="button"
-                  className="settings-secret-toggle"
-                  aria-label={t(revealedRemoteField === 'enrollmentToken' ? 'Hide enrollment token' : 'Show enrollment token')}
-                  title={t(revealedRemoteField === 'enrollmentToken' ? 'Hide enrollment token' : 'Show enrollment token')}
-                  onPointerDown={(e) => {
-                    e.preventDefault();
-                    beginRevealRemoteField('enrollmentToken');
-                  }}
-                  onPointerUp={endRevealRemoteField}
-                  onPointerLeave={endRevealRemoteField}
-                  onPointerCancel={endRevealRemoteField}
-                  onBlur={endRevealRemoteField}
-                >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z" />
-                    <circle cx="12" cy="12" r="3" />
-                  </svg>
-                </button>
+              </div>
+              <div className="form-group">
+                <label title={t('Optional stable deployment identifier advertised to Armada.Proxy. Leave blank to let Armada derive one automatically.')}>{t('Instance ID Override')}</label>
+                <input
+                  type="text"
+                  value={settings.remoteControl.instanceId ?? ''}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      remoteControl: {
+                        ...settings.remoteControl,
+                        instanceId: e.target.value || null,
+                      },
+                    })
+                  }
+                  placeholder={t('Leave blank for auto-generated')}
+                  title={t('Optional stable deployment identifier advertised to Armada.Proxy. Leave blank to let Armada derive one automatically.')}
+                />
+              </div>
+              <div className="form-group">
+                <label title={t('Optional extra admission token used only when Armada.Proxy requires instance enrollment tokens.')}>{t('Instance Enrollment Token')}</label>
+                <div className="settings-secret-field">
+                  <input
+                    type={revealedRemoteField === 'enrollmentToken' ? 'text' : 'password'}
+                    value={settings.remoteControl.enrollmentToken ?? ''}
+                    onChange={(e) =>
+                      setSettings({
+                        ...settings,
+                        remoteControl: {
+                          ...settings.remoteControl,
+                          enrollmentToken: e.target.value || null,
+                        },
+                      })
+                    }
+                    placeholder={t('Optional bootstrap token')}
+                    title={t('Optional extra admission token used only when Armada.Proxy requires instance enrollment tokens.')}
+                  />
+                  <button
+                    type="button"
+                    className="settings-secret-toggle"
+                    aria-label={t(revealedRemoteField === 'enrollmentToken' ? 'Hide enrollment token' : 'Show enrollment token')}
+                    title={t(revealedRemoteField === 'enrollmentToken' ? 'Hide enrollment token' : 'Show enrollment token')}
+                    onPointerDown={(e) => {
+                      e.preventDefault();
+                      beginRevealRemoteField('enrollmentToken');
+                    }}
+                    onPointerUp={endRevealRemoteField}
+                    onPointerLeave={endRevealRemoteField}
+                    onPointerCancel={endRevealRemoteField}
+                    onBlur={endRevealRemoteField}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z" />
+                      <circle cx="12" cy="12" r="3" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <div className="form-group">
+                <label title={t('Shared secret used to authenticate this Armada instance to Armada.Proxy and to unlock Armada.Proxy browser access.')}>{t('Proxy Shared Password')}</label>
+                <div className="settings-secret-field">
+                  <input
+                    type={revealedRemoteField === 'password' ? 'text' : 'password'}
+                    value={settings.remoteControl.password ?? ''}
+                    onChange={(e) =>
+                      setSettings({
+                        ...settings,
+                        remoteControl: {
+                          ...settings.remoteControl,
+                          password: e.target.value,
+                        },
+                      })
+                    }
+                    placeholder={t('Defaults to armadaadmin')}
+                    title={t('Shared secret used to authenticate this Armada instance to Armada.Proxy and to unlock Armada.Proxy browser access.')}
+                  />
+                  <button
+                    type="button"
+                    className="settings-secret-toggle"
+                    aria-label={t(revealedRemoteField === 'password' ? 'Hide shared password' : 'Show shared password')}
+                    title={t(revealedRemoteField === 'password' ? 'Hide shared password' : 'Show shared password')}
+                    onPointerDown={(e) => {
+                      e.preventDefault();
+                      beginRevealRemoteField('password');
+                    }}
+                    onPointerUp={endRevealRemoteField}
+                    onPointerLeave={endRevealRemoteField}
+                    onPointerCancel={endRevealRemoteField}
+                    onBlur={endRevealRemoteField}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z" />
+                      <circle cx="12" cy="12" r="3" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <div className="form-group">
+                <label title={t('How long Armada waits for the proxy tunnel connection to open before treating the attempt as failed.')}>{t('Connect Timeout (seconds)')}</label>
+                <input
+                  type="number"
+                  value={settings.remoteControl.connectTimeoutSeconds}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      remoteControl: {
+                        ...settings.remoteControl,
+                        connectTimeoutSeconds: parseInt(e.target.value) || 15,
+                      },
+                    })
+                  }
+                  min={5}
+                  max={300}
+                  title={t('How long Armada waits for the proxy tunnel connection to open before treating the attempt as failed.')}
+                />
+              </div>
+              <div className="form-group">
+                <label title={t('How often Armada sends tunnel heartbeats to keep the connection alive and measure latency.')}>{t('Heartbeat Interval (seconds)')}</label>
+                <input
+                  type="number"
+                  value={settings.remoteControl.heartbeatIntervalSeconds}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      remoteControl: {
+                        ...settings.remoteControl,
+                        heartbeatIntervalSeconds: parseInt(e.target.value) || 30,
+                      },
+                    })
+                  }
+                  min={5}
+                  max={300}
+                  title={t('How often Armada sends tunnel heartbeats to keep the connection alive and measure latency.')}
+                />
+              </div>
+              <div className="form-group">
+                <label title={t('Initial reconnect backoff after a tunnel failure. Later retries grow from this base delay.')}>{t('Reconnect Base Delay (seconds)')}</label>
+                <input
+                  type="number"
+                  value={settings.remoteControl.reconnectBaseDelaySeconds}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      remoteControl: {
+                        ...settings.remoteControl,
+                        reconnectBaseDelaySeconds: parseInt(e.target.value) || 5,
+                      },
+                    })
+                  }
+                  min={1}
+                  max={300}
+                  title={t('Initial reconnect backoff after a tunnel failure. Later retries grow from this base delay.')}
+                />
+              </div>
+              <div className="form-group">
+                <label title={t('Maximum reconnect backoff between tunnel retry attempts.')}>{t('Reconnect Max Delay (seconds)')}</label>
+                <input
+                  type="number"
+                  value={settings.remoteControl.reconnectMaxDelaySeconds}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      remoteControl: {
+                        ...settings.remoteControl,
+                        reconnectMaxDelaySeconds: parseInt(e.target.value) || 60,
+                      },
+                    })
+                  }
+                  min={1}
+                  max={3600}
+                  title={t('Maximum reconnect backoff between tunnel retry attempts.')}
+                />
+              </div>
+              <div className="form-group">
+                <label className="settings-checkbox-label" title={t('Allow self-signed or otherwise invalid TLS certificates for https/wss tunnel endpoints. Use only in trusted environments.')}>
+                  <input
+                    type="checkbox"
+                    checked={settings.remoteControl.allowInvalidCertificates}
+                    onChange={(e) =>
+                      setSettings({
+                        ...settings,
+                        remoteControl: {
+                          ...settings.remoteControl,
+                          allowInvalidCertificates: e.target.checked,
+                        },
+                      })
+                    }
+                  />
+                  <span>{t('Allow Invalid Certificates')}</span>
+                </label>
               </div>
             </div>
-            <div className="form-group">
-              <label title={t('Shared secret used to authenticate this Armada instance to Armada.Proxy and to unlock Armada.Proxy browser access.')}>{t('Proxy Shared Password')}</label>
-              <div className="settings-secret-field">
-                <input
-                  type={revealedRemoteField === 'password' ? 'text' : 'password'}
-                  value={settings.remoteControl.password ?? ''}
-                  onChange={(e) =>
-                    setSettings({
-                      ...settings,
-                      remoteControl: {
-                        ...settings.remoteControl,
-                        password: e.target.value,
-                      },
-                    })
-                  }
-                  placeholder={t('Defaults to armadaadmin')}
-                  title={t('Shared secret used to authenticate this Armada instance to Armada.Proxy and to unlock Armada.Proxy browser access.')}
-                />
-                <button
-                  type="button"
-                  className="settings-secret-toggle"
-                  aria-label={t(revealedRemoteField === 'password' ? 'Hide shared password' : 'Show shared password')}
-                  title={t(revealedRemoteField === 'password' ? 'Hide shared password' : 'Show shared password')}
-                  onPointerDown={(e) => {
-                    e.preventDefault();
-                    beginRevealRemoteField('password');
-                  }}
-                  onPointerUp={endRevealRemoteField}
-                  onPointerLeave={endRevealRemoteField}
-                  onPointerCancel={endRevealRemoteField}
-                  onBlur={endRevealRemoteField}
-                >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z" />
-                    <circle cx="12" cy="12" r="3" />
-                  </svg>
-                </button>
-              </div>
-            </div>
-            <div className="form-group">
-              <label title={t('How long Armada waits for the proxy tunnel connection to open before treating the attempt as failed.')}>{t('Connect Timeout (seconds)')}</label>
-              <input
-                type="number"
-                value={settings.remoteControl.connectTimeoutSeconds}
-                onChange={(e) =>
-                  setSettings({
-                    ...settings,
-                    remoteControl: {
-                      ...settings.remoteControl,
-                      connectTimeoutSeconds: parseInt(e.target.value) || 15,
-                    },
-                  })
-                }
-                min={5}
-                max={300}
-                title={t('How long Armada waits for the proxy tunnel connection to open before treating the attempt as failed.')}
-              />
-            </div>
-            <div className="form-group">
-              <label title={t('How often Armada sends tunnel heartbeats to keep the connection alive and measure latency.')}>{t('Heartbeat Interval (seconds)')}</label>
-              <input
-                type="number"
-                value={settings.remoteControl.heartbeatIntervalSeconds}
-                onChange={(e) =>
-                  setSettings({
-                    ...settings,
-                    remoteControl: {
-                      ...settings.remoteControl,
-                      heartbeatIntervalSeconds: parseInt(e.target.value) || 30,
-                    },
-                  })
-                }
-                min={5}
-                max={300}
-                title={t('How often Armada sends tunnel heartbeats to keep the connection alive and measure latency.')}
-              />
-            </div>
-            <div className="form-group">
-              <label title={t('Initial reconnect backoff after a tunnel failure. Later retries grow from this base delay.')}>{t('Reconnect Base Delay (seconds)')}</label>
-              <input
-                type="number"
-                value={settings.remoteControl.reconnectBaseDelaySeconds}
-                onChange={(e) =>
-                  setSettings({
-                    ...settings,
-                    remoteControl: {
-                      ...settings.remoteControl,
-                      reconnectBaseDelaySeconds: parseInt(e.target.value) || 5,
-                    },
-                  })
-                }
-                min={1}
-                max={300}
-                title={t('Initial reconnect backoff after a tunnel failure. Later retries grow from this base delay.')}
-              />
-            </div>
-            <div className="form-group">
-              <label title={t('Maximum reconnect backoff between tunnel retry attempts.')}>{t('Reconnect Max Delay (seconds)')}</label>
-              <input
-                type="number"
-                value={settings.remoteControl.reconnectMaxDelaySeconds}
-                onChange={(e) =>
-                  setSettings({
-                    ...settings,
-                    remoteControl: {
-                      ...settings.remoteControl,
-                      reconnectMaxDelaySeconds: parseInt(e.target.value) || 60,
-                    },
-                  })
-                }
-                min={1}
-                max={3600}
-                title={t('Maximum reconnect backoff between tunnel retry attempts.')}
-              />
-            </div>
-            <div className="form-group">
-              <label className="settings-checkbox-label" title={t('Allow self-signed or otherwise invalid TLS certificates for https/wss tunnel endpoints. Use only in trusted environments.')}>
-                <input
-                  type="checkbox"
-                  checked={settings.remoteControl.allowInvalidCertificates}
-                  onChange={(e) =>
-                    setSettings({
-                      ...settings,
-                      remoteControl: {
-                        ...settings.remoteControl,
-                        allowInvalidCertificates: e.target.checked,
-                      },
-                    })
-                  }
-                />
-                <span>{t('Allow Invalid Certificates')}</span>
-              </label>
-            </div>
-          </div>
           {settings.remoteControl.enabled && (
             <div className="settings-config-block tunnel-status-card">
               <div className="settings-config-header tunnel-status-card-header">
@@ -993,18 +1015,19 @@ export default function Server() {
               </div>
             </div>
           )}
-          {health?.remoteTunnel?.lastError && (
-            <div className="alert alert-error" style={{ marginTop: '0.75rem' }}>
-              {health.remoteTunnel.lastError}
-            </div>
+              {health?.remoteTunnel?.lastError && (
+              <div className="alert alert-error" style={{ marginTop: '0.75rem' }}>
+                {health.remoteTunnel.lastError}
+              </div>
           )}
-          <button
-            className="btn-primary btn-sm"
-            onClick={handleSaveRemoteControlSettings}
-            title={t('Save remote-control tunnel configuration')}
-          >
-            {t('Save Remote Control Settings')}
-          </button>
+            <button
+              className="btn-primary btn-sm"
+              onClick={handleSaveRemoteControlSettings}
+              title={t('Save remote-control tunnel configuration')}
+            >
+              {t('Save Remote Control Settings')}
+            </button>
+          </fieldset>
         </div>
       )}
 
@@ -1015,7 +1038,11 @@ export default function Server() {
           <p className="text-muted" style={{ marginBottom: '0.75rem' }}>
             {t('Client-specific MCP references for Claude, Codex, Gemini, and Cursor.')}
           </p>
-          {MCP_CLIENTS.map((client) => (
+          {remoteProxyMode ? (
+            <div className="alert alert-warning">
+              {t('MCP bootstrap commands are only valid when connected directly to an Armada server origin. Armada.Proxy does not relay the MCP endpoint.')}
+            </div>
+          ) : MCP_CLIENTS.map((client) => (
             <div key={client.key} className="settings-config-block" style={{ marginTop: '0.75rem' }}>
               <div className="settings-config-header">
                 <div>
@@ -1103,6 +1130,11 @@ export default function Server() {
       {isAdmin && settings && (
         <div className="settings-section" style={{ marginTop: '1.5rem' }}>
           <h3>{t('Database Backup')}</h3>
+          {remoteProxyMode && (
+            <div className="alert alert-warning" style={{ marginBottom: '0.75rem' }}>
+              {t('Backup download remains available through the proxy relay, but restore is blocked remotely by proxy policy.')}
+            </div>
+          )}
           <div className="settings-actions">
             <button
               className="btn btn-sm"
@@ -1115,7 +1147,8 @@ export default function Server() {
             <button
               className="btn btn-danger btn-sm"
               onClick={handleRestoreClick}
-              title={t('Restore the database from a backup ZIP file')}
+              disabled={remoteProxyMode}
+              title={remoteProxyMode ? t('Restore from Backup is blocked in proxy mode') : t('Restore the database from a backup ZIP file')}
             >
               {t('Restore from Backup')}
             </button>
@@ -1133,14 +1166,20 @@ export default function Server() {
       {isAdmin && (
         <div className="settings-section" style={{ marginTop: '1.5rem' }}>
           <h3>{t('Server Actions')}</h3>
+          {remoteProxyMode && (
+            <div className="alert alert-warning" style={{ marginBottom: '0.75rem' }}>
+              {t('Setup, shutdown, and factory reset are local-only server actions and are disabled when this dashboard is opened through Armada.Proxy.')}
+            </div>
+          )}
           <div className="settings-actions">
             <button
               type="button"
               className="btn btn-sm"
+              disabled={remoteProxyMode}
               onClick={() => {
                 window.dispatchEvent(new CustomEvent('armada:open-setup-wizard'));
               }}
-              title={t('Re-open the first-run setup guide')}
+              title={remoteProxyMode ? t('Setup Wizard is only available when connected directly to Armada.Server') : t('Re-open the first-run setup guide')}
             >
               {t('Setup Wizard')}
             </button>
@@ -1153,15 +1192,17 @@ export default function Server() {
             </button>
             <button
               className="btn btn-danger btn-sm"
+              disabled={remoteProxyMode}
               onClick={handleStopServer}
-              title={t('Shut down the admiral server process')}
+              title={remoteProxyMode ? t('Stop Server is blocked in proxy mode') : t('Shut down the admiral server process')}
             >
               {t('Stop Server')}
             </button>
             <button
               className="btn btn-danger btn-sm"
+              disabled={remoteProxyMode}
               onClick={handleFactoryReset}
-              title={t('Delete all data and reset to factory defaults')}
+              title={remoteProxyMode ? t('Factory Reset is blocked in proxy mode') : t('Delete all data and reset to factory defaults')}
             >
               {t('Factory Reset')}
             </button>

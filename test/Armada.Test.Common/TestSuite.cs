@@ -78,6 +78,10 @@ namespace Armada.Test.Common
                 Console.WriteLine(name + " (" + result.ElapsedMs + "ms)");
                 Console.ForegroundColor = ConsoleColor.DarkGray;
                 Console.WriteLine("         " + result.Message);
+                foreach (string line in ex.ToString().Split(new[] { Environment.NewLine }, StringSplitOptions.None))
+                {
+                    Console.WriteLine("         " + line);
+                }
                 Console.ResetColor();
             }
 

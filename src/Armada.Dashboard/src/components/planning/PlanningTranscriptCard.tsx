@@ -184,7 +184,7 @@ export default function PlanningTranscriptCard(props: PlanningTranscriptCardProp
           id={composerId}
           value={composer}
           onChange={(event) => onComposerChange(event.target.value)}
-          rows={5}
+          rows={3}
           disabled={currentStatus !== 'Active' || sending}
           placeholder={t('Describe the problem, ask for a plan, or negotiate the next steps with the captain.')}
         />

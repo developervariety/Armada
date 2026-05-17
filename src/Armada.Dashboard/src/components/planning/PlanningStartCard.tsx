@@ -71,17 +71,17 @@ export default function PlanningStartCard(props: PlanningStartCardProps) {
         <p className="text-muted">{t('Loading planning catalog...')}</p>
       ) : (
         <div className="dispatch-form">
-          <div className="planning-start-grid">
-            <div className="form-group">
-              <label>{t('Title')}</label>
-              <input
-                value={title}
-                disabled={creating}
-                onChange={(event) => onTitleChange(event.target.value)}
-                placeholder={t('Optional planning session title')}
-              />
-            </div>
+          <div className="form-group planning-start-title-group">
+            <label>{t('Title')}</label>
+            <input
+              value={title}
+              disabled={creating}
+              onChange={(event) => onTitleChange(event.target.value)}
+              placeholder={t('Optional planning session title')}
+            />
+          </div>
 
+          <div className="planning-start-grid">
             <div className="form-group">
               <label>{t('Captain')}</label>
               <select value={captainId} disabled={creating} onChange={(event) => onCaptainChange(event.target.value)}>

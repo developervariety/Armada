@@ -11,6 +11,7 @@ import { useAuth } from '../../context/AuthContext';
 import ErrorModal from '../../components/shared/ErrorModal';
 import { useLocale } from '../../context/LocaleContext';
 import { useNotifications } from '../../context/NotificationContext';
+import { useProxySessionContext } from '../../lib/useProxySessionContext';
 
 type SortField = 'name' | 'active' | 'createdUtc';
 type SortDir = 'asc' | 'desc';
@@ -19,6 +20,7 @@ export default function Tenants() {
   const { user, isAdmin } = useAuth();
   const { t, formatRelativeTime, formatDateTime } = useLocale();
   const { pushToast } = useNotifications();
+  const proxyContext = useProxySessionContext();
   const [items, setItems] = useState<TenantMetadata[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -33,6 +35,7 @@ export default function Tenants() {
   const [pageSize, setPageSize] = useState(25);
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; resourceName?: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
+  const remoteProxyMode = Boolean(proxyContext?.selectedInstanceId);
 
   const load = useCallback(async () => {
     try {
@@ -85,8 +88,21 @@ export default function Tenants() {
   const allSelected = selected.length > 0 && selected.length === filtered.length;
   function toggleSelect(id: string) { setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]); }
 
-  function openCreate() { setForm({ name: '', active: true }); setEditing(null); setShowForm(true); }
-  function openEdit(tenant: TenantMetadata) { setForm({ name: tenant.name, active: tenant.active }); setEditing(tenant); setShowForm(true); }
+  function openCreate() {
+    if (remoteProxyMode) return;
+    setForm({ name: '', active: true });
+    setEditing(null);
+    setShowForm(true);
+  }
+  function openEdit(tenant: TenantMetadata) {
+    if (remoteProxyMode) {
+      setJsonData({ open: true, title: `Tenant: ${tenant.name}`, data: tenant });
+      return;
+    }
+    setForm({ name: tenant.name, active: tenant.active });
+    setEditing(tenant);
+    setShowForm(true);
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -151,13 +167,21 @@ export default function Tenants() {
           </p>
         </div>
         <div className="view-actions">
-          {isAdmin && selected.length > 0 && <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>{t('Delete Selected')} ({selected.length})</button>}
-          {isAdmin && <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Tenant')}</button>}
+          {isAdmin && !remoteProxyMode && selected.length > 0 && <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>{t('Delete Selected')} ({selected.length})</button>}
+          {isAdmin && !remoteProxyMode && <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Tenant')}</button>}
           <RefreshButton onRefresh={load} title="Refresh tenants" />
         </div>
       </div>
 
       <ErrorModal error={error} onClose={() => setError('')} />
+      {remoteProxyMode && (
+        <div className="alert alert-warning" style={{ marginBottom: '1rem' }}>
+          {t(
+            'This page is connected through Armada.Proxy for {{instanceId}}. Tenant create, edit, and delete actions are blocked in remote mode.',
+            { instanceId: proxyContext?.selectedInstanceId ?? t('the selected deployment') },
+          )}
+        </div>
+      )}
 
       {showForm && (
         <div className="modal-overlay" onClick={() => setShowForm(false)}>
@@ -208,7 +232,7 @@ export default function Tenants() {
                   <tr
                     key={tenant.id}
                     className="clickable"
-                    onClick={() => isAdmin
+                    onClick={() => isAdmin && !remoteProxyMode
                       ? openEdit(tenant)
                       : setJsonData({ open: true, title: `Tenant: ${tenant.name}`, data: tenant })}
                   >
@@ -225,9 +249,9 @@ export default function Tenants() {
                     <td className="text-dim" title={formatDateTime(tenant.lastUpdateUtc)}>{formatRelativeTime(tenant.lastUpdateUtc)}</td>
                     <td className="text-right" onClick={e => e.stopPropagation()}>
                       <ActionMenu id={tenant.id} items={[
-                        ...(isAdmin ? [{ label: 'Edit', onClick: () => openEdit(tenant) }] : []),
+                        ...(isAdmin && !remoteProxyMode ? [{ label: 'Edit', onClick: () => openEdit(tenant) }] : []),
                         { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `Tenant: ${tenant.name}`, data: tenant }) },
-                        ...(isAdmin ? [{ label: 'Delete', danger: true as const, onClick: () => handleDelete(tenant.id, tenant.name) }] : []),
+                        ...(isAdmin && !remoteProxyMode ? [{ label: 'Delete', danger: true as const, onClick: () => handleDelete(tenant.id, tenant.name) }] : []),
                       ]} />
                     </td>
                   </tr>

@@ -10,104 +10,118 @@ namespace Armada.Test.Unit
         public static async Task<int> Main(string[] args)
         {
             bool noCleanup = args.Contains("--no-cleanup");
+            HashSet<string> suiteFilters = args
+                .Select((value, index) => new { value, index })
+                .Where(entry => String.Equals(entry.value, "--suite", StringComparison.OrdinalIgnoreCase) && (entry.index + 1) < args.Length)
+                .Select(entry => args[entry.index + 1].Trim())
+                .Where(value => !String.IsNullOrWhiteSpace(value))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
             TestRunner runner = new TestRunner("ARMADA UNIT TEST SUITE");
+            void AddSuite(TestSuite suite)
+            {
+                if (suiteFilters.Count == 0 || suiteFilters.Contains(suite.Name))
+                {
+                    runner.AddSuite(suite);
+                }
+            }
 
             // Database tests
-            runner.AddSuite(new FleetDatabaseTests());
-            runner.AddSuite(new VesselDatabaseTests());
-            runner.AddSuite(new VesselTests());
-            runner.AddSuite(new CaptainDatabaseTests());
-            runner.AddSuite(new CaptainTests());
-            runner.AddSuite(new MissionDatabaseTests());
-            runner.AddSuite(new VoyageDatabaseTests());
-            runner.AddSuite(new DockDatabaseTests());
-            runner.AddSuite(new SignalDatabaseTests());
-            runner.AddSuite(new EventDatabaseTests());
-            runner.AddSuite(new RequestHistoryDatabaseTests());
-            runner.AddSuite(new EventTests());
-            runner.AddSuite(new EnumerationTests());
-            runner.AddSuite(new ForeignKeyTests());
-            runner.AddSuite(new ConcurrentAccessTests());
-            runner.AddSuite(new DatabaseInitializationTests());
-            runner.AddSuite(new PlanningSessionDatabaseTests());
-            runner.AddSuite(new SchemaMigrationTests());
-            runner.AddSuite(new EdgeCaseTests());
-            runner.AddSuite(new TenantMethodsTests());
-            runner.AddSuite(new UserMethodsTests());
-            runner.AddSuite(new CredentialMethodsTests());
-            runner.AddSuite(new TenantFencingTests());
-            runner.AddSuite(new EntityTenantScopedTests());
-            runner.AddSuite(new DefaultSeedingTests());
-            runner.AddSuite(new TenantScopedEnumerationTests());
-            runner.AddSuite(new TenantScopedPaginationTests());
-            runner.AddSuite(new TenantScopedPaginationTests2());
+            AddSuite(new FleetDatabaseTests());
+            AddSuite(new VesselDatabaseTests());
+            AddSuite(new VesselTests());
+            AddSuite(new CaptainDatabaseTests());
+            AddSuite(new CaptainTests());
+            AddSuite(new MissionDatabaseTests());
+            AddSuite(new VoyageDatabaseTests());
+            AddSuite(new DockDatabaseTests());
+            AddSuite(new SignalDatabaseTests());
+            AddSuite(new EventDatabaseTests());
+            AddSuite(new RequestHistoryDatabaseTests());
+            AddSuite(new EventTests());
+            AddSuite(new EnumerationTests());
+            AddSuite(new ForeignKeyTests());
+            AddSuite(new ConcurrentAccessTests());
+            AddSuite(new DatabaseInitializationTests());
+            AddSuite(new PlanningSessionDatabaseTests());
+            AddSuite(new SchemaMigrationTests());
+            AddSuite(new EdgeCaseTests());
+            AddSuite(new TenantMethodsTests());
+            AddSuite(new UserMethodsTests());
+            AddSuite(new CredentialMethodsTests());
+            AddSuite(new TenantFencingTests());
+            AddSuite(new EntityTenantScopedTests());
+            AddSuite(new DefaultSeedingTests());
+            AddSuite(new TenantScopedEnumerationTests());
+            AddSuite(new TenantScopedPaginationTests());
+            AddSuite(new TenantScopedPaginationTests2());
 
             // Model tests
-            runner.AddSuite(new FleetModelTests());
-            runner.AddSuite(new VesselModelTests());
-            runner.AddSuite(new CaptainModelTests());
-            runner.AddSuite(new MissionModelTests());
-            runner.AddSuite(new VoyageModelTests());
-            runner.AddSuite(new PlanningSessionModelTests());
-            runner.AddSuite(new DockModelTests());
-            runner.AddSuite(new SignalModelTests());
-            runner.AddSuite(new ArmadaEventModelTests());
-            runner.AddSuite(new ArmadaStatusModelTests());
-            runner.AddSuite(new EnumModelTests());
-            runner.AddSuite(new TenantMetadataTests());
-            runner.AddSuite(new UserMasterTests());
-            runner.AddSuite(new CredentialTests());
-            runner.AddSuite(new AuthContextTests());
-            runner.AddSuite(new ObjectiveModelTests());
-            runner.AddSuite(new ObjectiveRefinementModelTests());
+            AddSuite(new FleetModelTests());
+            AddSuite(new VesselModelTests());
+            AddSuite(new CaptainModelTests());
+            AddSuite(new MissionModelTests());
+            AddSuite(new VoyageModelTests());
+            AddSuite(new PlanningSessionModelTests());
+            AddSuite(new DockModelTests());
+            AddSuite(new SignalModelTests());
+            AddSuite(new ArmadaEventModelTests());
+            AddSuite(new ArmadaStatusModelTests());
+            AddSuite(new EnumModelTests());
+            AddSuite(new TenantMetadataTests());
+            AddSuite(new UserMasterTests());
+            AddSuite(new CredentialTests());
+            AddSuite(new AuthContextTests());
+            AddSuite(new ObjectiveModelTests());
+            AddSuite(new ObjectiveRefinementModelTests());
 
             // Service tests
-            runner.AddSuite(new AdmiralServiceTests());
-            runner.AddSuite(new EntityResolverTests());
-            runner.AddSuite(new MessageTemplateServiceTests());
-            runner.AddSuite(new ProgressParserTests());
-            runner.AddSuite(new SettingsTests());
-            runner.AddSuite(new ReleaseVersionTests());
-            runner.AddSuite(new StartupScriptTests());
-            runner.AddSuite(new GitServiceTests());
-            runner.AddSuite(new GitInferenceTests());
-            runner.AddSuite(new LogRotationServiceTests());
-            runner.AddSuite(new DataExpiryServiceTests());
-            runner.AddSuite(new NotificationServiceTests());
-            runner.AddSuite(new RuntimeDetectionServiceTests());
-            runner.AddSuite(new RemoteTunnelManagerTests());
-            runner.AddSuite(new ProxyRegistryTests());
-            runner.AddSuite(new RemoteControlQueryServiceTests());
-            runner.AddSuite(new RemoteControlManagementServiceTests());
-            runner.AddSuite(new RemoteControlOperationsServiceTests());
-            runner.AddSuite(new CaptainServiceTests());
-            runner.AddSuite(new AgentLifecycleHandlerTests());
-            runner.AddSuite(new PlanningSessionCoordinatorTests());
-            runner.AddSuite(new MissionPromptTests());
-            runner.AddSuite(new SequentialDispatchTests());
-            runner.AddSuite(new MissionStatusTransitionTests());
-            runner.AddSuite(new LandingPipelineTests());
-            runner.AddSuite(new SessionTokenServiceTests());
-            runner.AddSuite(new AuthenticationServiceTests());
-            runner.AddSuite(new AuthorizationConfigTests());
-            runner.AddSuite(new AuthorizationServiceTests());
-            runner.AddSuite(new AuthEndpointTests());
-            runner.AddSuite(new PromptTemplateServiceTests());
-            runner.AddSuite(new PromptSignalConsistencyTests());
-            runner.AddSuite(new PersonaPipelineDbTests());
-            runner.AddSuite(new PipelineDispatchTests());
-            runner.AddSuite(new ReviewGateTests());
-            runner.AddSuite(new WorkspaceServiceTests());
-            runner.AddSuite(new RequestHistoryCaptureServiceTests());
-            runner.AddSuite(new HistoricalTimelineServiceTests());
-            runner.AddSuite(new ObjectiveServiceTests());
-            runner.AddSuite(new ObjectiveRefinementCoordinatorTests());
-            runner.AddSuite(new IncidentServiceTests());
-            runner.AddSuite(new WorkflowProfileCheckRunServiceTests());
-            runner.AddSuite(new DeploymentEnvironmentServiceTests());
-            runner.AddSuite(new DeploymentServiceTests());
-            runner.AddSuite(new ReleaseServiceTests());
+            AddSuite(new AdmiralServiceTests());
+            AddSuite(new EntityResolverTests());
+            AddSuite(new MessageTemplateServiceTests());
+            AddSuite(new ProgressParserTests());
+            AddSuite(new SettingsTests());
+            AddSuite(new ReleaseVersionTests());
+            AddSuite(new StartupScriptTests());
+            AddSuite(new GitServiceTests());
+            AddSuite(new GitInferenceTests());
+            AddSuite(new LogRotationServiceTests());
+            AddSuite(new DataExpiryServiceTests());
+            AddSuite(new NotificationServiceTests());
+            AddSuite(new RuntimeDetectionServiceTests());
+            AddSuite(new RemoteTunnelManagerTests());
+            AddSuite(new RemoteDashboardRelayServiceTests());
+            AddSuite(new ProxyAuthServiceTests());
+            AddSuite(new ProxyRegistryTests());
+            AddSuite(new ProxyRoutePolicyServiceTests());
+            AddSuite(new ProxyDashboardRelayIntegrationTests());
+            AddSuite(new CaptainServiceTests());
+            AddSuite(new AgentLifecycleHandlerTests());
+            AddSuite(new PlanningSessionCoordinatorTests());
+            AddSuite(new MissionPromptTests());
+            AddSuite(new SequentialDispatchTests());
+            AddSuite(new MissionStatusTransitionTests());
+            AddSuite(new LandingPipelineTests());
+            AddSuite(new SessionTokenServiceTests());
+            AddSuite(new AuthenticationServiceTests());
+            AddSuite(new AuthorizationConfigTests());
+            AddSuite(new AuthorizationServiceTests());
+            AddSuite(new AuthEndpointTests());
+            AddSuite(new PromptTemplateServiceTests());
+            AddSuite(new PromptSignalConsistencyTests());
+            AddSuite(new PersonaPipelineDbTests());
+            AddSuite(new PipelineDispatchTests());
+            AddSuite(new ReviewGateTests());
+            AddSuite(new WorkspaceServiceTests());
+            AddSuite(new RequestHistoryCaptureServiceTests());
+            AddSuite(new HistoricalTimelineServiceTests());
+            AddSuite(new ObjectiveServiceTests());
+            AddSuite(new ObjectiveRefinementCoordinatorTests());
+            AddSuite(new IncidentServiceTests());
+            AddSuite(new WorkflowProfileCheckRunServiceTests());
+            AddSuite(new DeploymentEnvironmentServiceTests());
+            AddSuite(new DeploymentServiceTests());
+            AddSuite(new ReleaseServiceTests());
 
             int exitCode = await runner.RunAllAsync().ConfigureAwait(false);
             return exitCode;

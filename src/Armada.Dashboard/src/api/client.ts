@@ -138,6 +138,23 @@ interface RequestOptions {
   rawText?: boolean;
 }
 
+export interface ProxySessionContext {
+  isAuthenticated?: boolean;
+  expiresUtc?: string;
+  selectedInstanceId?: string | null;
+  selectedInstance?: {
+    instanceId?: string;
+    state?: string;
+    armadaVersion?: string | null;
+    lastSeenUtc?: string | null;
+  } | null;
+  relay?: {
+    dashboard?: boolean;
+    api?: boolean;
+    websocket?: boolean;
+  } | null;
+}
+
 const PLANNING_CREATE_TIMEOUT_MS = 5 * 60 * 1000;
 const PLANNING_SUMMARIZE_TIMEOUT_MS = 3 * 60 * 1000;
 
@@ -198,6 +215,48 @@ function get<T>(path: string, opts?: RequestOptions) { return request<T>('GET', 
 function post<T>(path: string, body?: unknown, opts?: RequestOptions) { return request<T>('POST', path, body, opts); }
 function put<T>(path: string, body?: unknown, opts?: RequestOptions) { return request<T>('PUT', path, body, opts); }
 function del<T>(path: string, opts?: RequestOptions) { return request<T>('DELETE', path, undefined, opts); }
+
+async function proxyRequest<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const headers: Record<string, string> = {};
+  if (body !== undefined) {
+    headers['Content-Type'] = 'application/json';
+  }
+
+  const res = await fetch(`${BASE_URL}${path}`, {
+    method,
+    headers,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+    credentials: 'same-origin',
+  });
+
+  if (res.status === 404 || res.status === 401) {
+    throw new Error(`proxy:${res.status}`);
+  }
+
+  if (!res.ok) {
+    const text = await res.text();
+    let message = text || `${res.status}`;
+    try {
+      const parsed = JSON.parse(text);
+      message = parsed.error || parsed.message || message;
+    } catch {
+      // Fall back to raw text.
+    }
+    throw new Error(message);
+  }
+
+  if (res.status === 204) {
+    return undefined as T;
+  }
+
+  const contentType = res.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    return undefined as T;
+  }
+
+  const json = await res.json();
+  return camelizeKeys(json) as T;
+}
 
 // Build query string from pagination/filter params
 function buildQuery(params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }): string {
@@ -404,6 +463,32 @@ export const authenticate = (req: AuthenticateRequest) =>
   post<AuthenticateResult>('/api/v1/authenticate', req);
 
 export const whoami = () => get<WhoAmIResult>('/api/v1/whoami');
+
+export async function getProxySessionContext(): Promise<ProxySessionContext | null> {
+  try {
+    return await proxyRequest<ProxySessionContext>('GET', '/proxy-api/v1/session/context');
+  } catch (error) {
+    if (error instanceof Error && (error.message === 'proxy:404' || error.message === 'proxy:401')) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+export async function clearProxySessionInstance(): Promise<void> {
+  await proxyRequest('POST', '/proxy-api/v1/session/logout-instance');
+}
+
+export async function logoutProxy(): Promise<void> {
+  try {
+    await proxyRequest('POST', '/proxy-api/v1/auth/logout');
+  } catch (error) {
+    if (error instanceof Error && error.message === 'proxy:404') {
+      return;
+    }
+    throw error;
+  }
+}
 
 export const lookupTenants = (email: string) =>
   post<TenantLookupResult>('/api/v1/tenants/lookup', { Email: email });

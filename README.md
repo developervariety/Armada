@@ -274,6 +274,22 @@ The dashboard supports language selection from the login screen and keeps the ch
 
 For a deeper walkthrough, see the [Getting Started Guide](GETTING_STARTED.md).
 
+### Remote Access Through Armada.Proxy
+
+`Armada.Proxy` now acts as a portal and relay for the real Armada dashboard rather than a second remote-operations dashboard.
+
+The remote browser flow is:
+
+1. Open the proxy root URL.
+2. Sign into the proxy with the shared proxy password.
+3. Select a connected Armada deployment.
+4. Open the same React dashboard at `/dashboard` on the proxy origin.
+5. Sign into Armada inside that dashboard if the remote deployment requires it.
+
+The proxy keeps its own routes under `/proxy-api/v1/*`, serves the shared dashboard bundle at `/dashboard`, relays Armada REST traffic at `/api/v1/*`, and relays the dashboard websocket at `/ws`. Some local-only administrative actions are intentionally blocked by proxy policy in remote mode.
+
+See [docs/REMOTE_MGMT.md](docs/REMOTE_MGMT.md) and [docs/PROXY_API.md](docs/PROXY_API.md) for setup and route details.
+
 ## Pipelines
 
 Pipelines are the workflow layer in Armada. They let you run work through explicit stages instead of treating every task as a single agent session.
@@ -325,7 +341,7 @@ Playbooks are tenant-scoped markdown instruction documents that you can manage i
 - Select any number of playbooks when creating a voyage or standalone mission.
 - Choose delivery per selection: `InlineFullContent`, `InstructionWithReference`, or `AttachIntoWorktree`.
 - Armada snapshots the exact playbook content, filename, order, and resolved delivery mode used for a mission so later edits do not change historical execution context.
-- REST, MCP, proxy remote-management, dashboard, CLI, SDK, and Postman surfaces all use the same playbook selection model.
+- REST, MCP, the proxy-served remote dashboard, dashboard, CLI, SDK, and Postman surfaces all use the same playbook selection model.
 - File-based delivery resolves readable playbook files for the agent without polluting repository history, while inline delivery embeds the full markdown body directly into the rendered instruction set.
 
 This is useful for architecture rules, coding standards, migration checklists, release procedures, security review requirements, or any other reusable instruction set that should travel with the work.
@@ -665,6 +681,7 @@ armada config init              # Interactive setup (optional)
 | `TerminalBell` | true | Ring terminal bell during `armada watch` |
 | `DefaultRuntime` | null (auto-detect) | Default agent runtime |
 | `PlanningSessionInactivityTimeoutMinutes` | 0 | Automatically stop idle planning sessions after this many minutes; 0 disables the timeout |
+| `PlanningSessionAbandonmentTimeoutMinutes` | 240 | Safety-valve cleanup for abandoned planning sessions with no running process; 0 disables abandonment cleanup |
 | `PlanningSessionRetentionDays` | 0 | Automatically delete stopped or failed planning transcripts after this many days; 0 disables retention cleanup |
 
 ## Authentication
