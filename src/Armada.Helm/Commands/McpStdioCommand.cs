@@ -71,7 +71,6 @@ namespace Armada.Helm.Commands
             // Register all Armada tools
             IGitService gitService = git;
             IMergeFailureClassifier mergeFailureClassifier = new MergeFailureClassifier();
-            IMergeQueueService mergeQueueService = new MergeQueueService(logging, database, armadaSettings, git, mergeFailureClassifier);
             LandingService landingService = new LandingService(logging, database, armadaSettings, git);
             HttpClient codeIndexHttpClient = new HttpClient();
             IEmbeddingClient embeddingClient = new DeepSeekEmbeddingClient(armadaSettings.CodeIndex, logging, codeIndexHttpClient);
@@ -83,6 +82,7 @@ namespace Armada.Helm.Commands
             {
                 await openCodeServerLauncher.StartAsync(cancellationToken).ConfigureAwait(false);
                 ICodeIndexService codeIndexService = new CodeIndexService(logging, database, armadaSettings, git, embeddingClient, inferenceClient);
+                IMergeQueueService mergeQueueService = new MergeQueueService(logging, database, armadaSettings, git, mergeFailureClassifier, codeIndexService: codeIndexService);
                 McpToolRegistrar.RegisterAll(mcpServer.RegisterTool, database, admiral, armadaSettings, gitService, mergeQueueService, dockService, landingService, agentLifecycle: agentLifecycle, templateService: promptTemplateService, logging: logging, codeIndexService: codeIndexService);
 
                 // Run until stdin closes or process is killed
