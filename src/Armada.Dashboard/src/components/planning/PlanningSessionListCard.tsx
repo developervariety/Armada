@@ -5,11 +5,13 @@ interface PlanningSessionListCardProps {
   t: (value: string, vars?: Record<string, string | number>) => string;
   sessions: PlanningSession[];
   activeSessionId?: string;
+  endingSessionId?: string | null;
   formatRelativeTime: (value: string) => string;
   resolveCaptainName: (captainId: string) => string;
   resolveVesselName: (vesselId: string) => string;
   resolvePipelineName: (pipelineId: string | null) => string;
   onSelect: (sessionId: string) => void;
+  onEndSession: (session: PlanningSession) => void;
 }
 
 export default function PlanningSessionListCard(props: PlanningSessionListCardProps) {
@@ -17,11 +19,13 @@ export default function PlanningSessionListCard(props: PlanningSessionListCardPr
     t,
     sessions,
     activeSessionId,
+    endingSessionId,
     formatRelativeTime,
     resolveCaptainName,
     resolveVesselName,
     resolvePipelineName,
     onSelect,
+    onEndSession,
   } = props;
 
   return (
@@ -30,7 +34,7 @@ export default function PlanningSessionListCard(props: PlanningSessionListCardPr
         <div>
           <h3>{t('Recent Sessions')}</h3>
           <p className="text-muted">
-            {t('Select a prior planning conversation to continue it or dispatch from it.')}
+            {t('Select a prior planning conversation to continue it, dispatch from it, or end an active session.')}
           </p>
         </div>
         <span className="text-muted">{t('{{count}} total', { count: sessions.length })}</span>
@@ -49,26 +53,53 @@ export default function PlanningSessionListCard(props: PlanningSessionListCardPr
                 <th>{t('Pipeline')}</th>
                 <th>{t('Status')}</th>
                 <th>{t('Updated')}</th>
+                <th>{t('Actions')}</th>
               </tr>
             </thead>
             <tbody>
-              {sessions.map((session) => (
-                <tr
-                  key={session.id}
-                  className={`clickable planning-session-row${activeSessionId === session.id ? ' is-active' : ''}`}
-                  onClick={() => onSelect(session.id)}
-                >
-                  <td>
-                    <div className="planning-session-title">{session.title}</div>
-                    <div className="planning-session-subtitle mono">{session.id}</div>
-                  </td>
-                  <td>{resolveCaptainName(session.captainId)}</td>
-                  <td>{resolveVesselName(session.vesselId)}</td>
-                  <td>{resolvePipelineName(session.pipelineId)}</td>
-                  <td><StatusBadge status={session.status} /></td>
-                  <td>{formatRelativeTime(session.lastUpdateUtc)}</td>
-                </tr>
-              ))}
+              {sessions.map((session) => {
+                const canEndSession = session.status === 'Active' || session.status === 'Responding';
+                const ending = endingSessionId === session.id || session.status === 'Stopping';
+
+                return (
+                  <tr
+                    key={session.id}
+                    className={`clickable planning-session-row${activeSessionId === session.id ? ' is-active' : ''}`}
+                    onClick={() => onSelect(session.id)}
+                  >
+                    <td>
+                      <div className="planning-session-title">{session.title}</div>
+                      <div className="planning-session-subtitle mono">{session.id}</div>
+                    </td>
+                    <td>{resolveCaptainName(session.captainId)}</td>
+                    <td>{resolveVesselName(session.vesselId)}</td>
+                    <td>{resolvePipelineName(session.pipelineId)}</td>
+                    <td><StatusBadge status={session.status} /></td>
+                    <td>{formatRelativeTime(session.lastUpdateUtc)}</td>
+                    <td>
+                      <div className="planning-session-actions">
+                        {(canEndSession || ending) ? (
+                          <button
+                            type="button"
+                            className="btn btn-sm"
+                            disabled={ending}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              if (!ending) {
+                                onEndSession(session);
+                              }
+                            }}
+                          >
+                            {ending ? t('Ending...') : t('End Session')}
+                          </button>
+                        ) : (
+                          <span className="text-muted">-</span>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

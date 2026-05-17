@@ -71,15 +71,15 @@ describe('PlanningTranscriptCard', () => {
         composer=""
         sending={false}
         canSend={false}
-        canStop
-        stopping={false}
+        canEndSession
+        endingSession={false}
         deleting={false}
         formatDateTime={formatDateTime}
         formatRelativeTime={formatRelativeTime}
         onSelectMessage={onSelectMessage}
         onComposerChange={() => undefined}
         onSend={() => undefined}
-        onStop={() => undefined}
+        onEndSession={() => undefined}
         onDelete={() => undefined}
       />,
     );
@@ -112,15 +112,15 @@ describe('PlanningTranscriptCard', () => {
         composer="Add a migration checklist"
         sending={false}
         canSend
-        canStop
-        stopping={false}
+        canEndSession
+        endingSession={false}
         deleting={false}
         formatDateTime={formatDateTime}
         formatRelativeTime={formatRelativeTime}
         onSelectMessage={() => undefined}
         onComposerChange={onComposerChange}
         onSend={onSend}
-        onStop={() => undefined}
+        onEndSession={() => undefined}
         onDelete={() => undefined}
       />,
     );
@@ -134,5 +134,41 @@ describe('PlanningTranscriptCard', () => {
 
     expect(onComposerChange).toHaveBeenCalled();
     expect(onSend).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders explicit end-session and transcript-delete actions', () => {
+    render(
+      <PlanningTranscriptCard
+        t={t}
+        transcriptRef={createRef<HTMLDivElement>()}
+        title="Session title"
+        captainName="Planner"
+        captainRuntime="Codex"
+        vesselName="Vessel"
+        branchName="feature/planning"
+        pipelineName="FullPipeline"
+        playbookCount={1}
+        updatedUtc="2026-04-29T00:00:03Z"
+        messages={[]}
+        selectedMessageId=""
+        currentStatus="Active"
+        composer=""
+        sending={false}
+        canSend={false}
+        canEndSession
+        endingSession={false}
+        deleting={false}
+        formatDateTime={formatDateTime}
+        formatRelativeTime={formatRelativeTime}
+        onSelectMessage={() => undefined}
+        onComposerChange={() => undefined}
+        onSend={() => undefined}
+        onEndSession={() => undefined}
+        onDelete={() => undefined}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'End Session' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Delete Transcript' })).toBeInTheDocument();
   });
 });

@@ -190,6 +190,11 @@ namespace Armada.Core
         public static readonly int DefaultRequestHistoryRetentionDays = 30;
 
         /// <summary>
+        /// Default inactivity timeout in minutes for planning sessions with no active runtime process.
+        /// </summary>
+        public static readonly int DefaultPlanningSessionInactivityTimeoutMinutes = 60;
+
+        /// <summary>
         /// Default abandonment timeout in minutes for planning sessions with no active runtime process.
         /// Sessions older than this are reclaimed even when the standard inactivity timeout is disabled.
         /// </summary>

@@ -3821,8 +3821,18 @@ tr.clickable { cursor: pointer; }
     width: 28%;
 }
 
+.planning-session-table th:last-child,
+.planning-session-table td:last-child {
+    white-space: nowrap;
+}
+
 .planning-session-row.is-active td {
     background: color-mix(in srgb, var(--accent) 10%, var(--bg-card));
+}
+
+.planning-session-actions {
+    display: flex;
+    justify-content: flex-end;
 }
 
 .planning-session-title {

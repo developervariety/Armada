@@ -518,7 +518,7 @@ namespace Armada.Core.Settings
         private int _RequestHistoryRetentionDays = Constants.DefaultRequestHistoryRetentionDays;
         private int _RequestHistoryMaxBodyBytes = Constants.DefaultRequestHistoryMaxBodyBytes;
         private int _PlanningSessionRetentionDays = 0;
-        private int _PlanningSessionInactivityTimeoutMinutes = 0;
+        private int _PlanningSessionInactivityTimeoutMinutes = Constants.DefaultPlanningSessionInactivityTimeoutMinutes;
         private int _PlanningSessionAbandonmentTimeoutMinutes = Constants.DefaultPlanningSessionAbandonmentTimeoutMinutes;
         private int _MaxLandingRetries = 3;
         private int _MinIdleCaptains = 0;

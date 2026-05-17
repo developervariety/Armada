@@ -20,15 +20,15 @@ interface PlanningTranscriptCardProps {
   composer: string;
   sending: boolean;
   canSend: boolean;
-  canStop: boolean;
-  stopping: boolean;
+  canEndSession: boolean;
+  endingSession: boolean;
   deleting: boolean;
   formatDateTime: (value: string) => string;
   formatRelativeTime: (value: string) => string;
   onSelectMessage: (messageId: string) => void;
   onComposerChange: (value: string) => void;
   onSend: () => void;
-  onStop: () => void;
+  onEndSession: () => void;
   onDelete: () => void;
 }
 
@@ -51,15 +51,15 @@ export default function PlanningTranscriptCard(props: PlanningTranscriptCardProp
     composer,
     sending,
     canSend,
-    canStop,
-    stopping,
+    canEndSession,
+    endingSession,
     deleting,
     formatDateTime,
     formatRelativeTime,
     onSelectMessage,
     onComposerChange,
     onSend,
-    onStop,
+    onEndSession,
     onDelete,
   } = props;
   const composerId = 'planning-session-composer';
@@ -79,11 +79,11 @@ export default function PlanningTranscriptCard(props: PlanningTranscriptCardProp
         </div>
         <div className="planning-current-session-actions">
           {currentStatus && <StatusBadge status={currentStatus} />}
-          <button type="button" className="btn btn-sm" disabled={!canStop} onClick={onStop}>
-            {stopping || currentStatus === 'Stopping' ? t('Stopping...') : t('Stop Session')}
+          <button type="button" className="btn btn-sm" disabled={!canEndSession} onClick={onEndSession}>
+            {endingSession || currentStatus === 'Stopping' ? t('Ending...') : t('End Session')}
           </button>
           <button type="button" className="btn btn-sm" disabled={deleting} onClick={onDelete}>
-            {deleting ? t('Deleting...') : t('Delete Session')}
+            {deleting ? t('Deleting...') : t('Delete Transcript')}
           </button>
         </div>
       </div>

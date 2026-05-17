@@ -105,9 +105,11 @@ export default function Planning() {
   const [sending, setSending] = useState(false);
   const [summarizing, setSummarizing] = useState(false);
   const [dispatching, setDispatching] = useState(false);
-  const [stopping, setStopping] = useState(false);
+  const [endingSessionId, setEndingSessionId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [confirmEndOpen, setConfirmEndOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [pendingEndSession, setPendingEndSession] = useState<PlanningSession | null>(null);
 
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const dispatchSeedRef = useRef<DispatchSeedState | null>(null);
@@ -398,7 +400,7 @@ export default function Planning() {
   const sessionStopping = currentSession?.status === 'Stopping';
   const canStartSession = !!selectedCaptain && selectedCaptain.supportsPlanningSessions && selectedCaptain.state === 'Idle' && !!vesselId && !creating;
   const canSend = currentSession?.status === 'Active' && composer.trim().length > 0 && !sending;
-  const canStop = !!currentSession && ['Active', 'Responding'].includes(currentSession.status) && !stopping;
+  const canEndSession = !!currentSession && ['Active', 'Responding'].includes(currentSession.status) && !endingSessionId;
   const canSummarize = !!currentSession && !!selectedMessage?.content.trim() && !summarizing;
   const canOpenInDispatch = !!currentSession && dispatchDescription.trim().length > 0;
   const canDispatch = !!currentSession && !!selectedMessage?.content.trim() && dispatchDescription.trim().length > 0 && !dispatching;
@@ -517,20 +519,29 @@ export default function Planning() {
     }
   }
 
-  async function handleStopSession() {
-    if (!currentSession) return;
+  function requestEndSession(session: PlanningSession) {
+    setPendingEndSession(session);
+    setConfirmEndOpen(true);
+  }
 
+  async function handleEndSession() {
+    if (!pendingEndSession) return;
+
+    const targetSessionId = pendingEndSession.id;
     try {
-      setStopping(true);
+      setEndingSessionId(targetSessionId);
       setError('');
-      const result = await stopPlanningSession(currentSession.id);
-      setDetail(result);
+      const result = await stopPlanningSession(targetSessionId);
+      if (currentSession?.id === targetSessionId) {
+        setDetail(result);
+      }
       setSessions((current) => upsertSession(current, result.session));
-      pushToast('warning', t('Planning session is stopping.'));
+      pushToast('warning', t('Planning session is ending.'));
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : t('Failed to stop planning session.'));
+      setError(err instanceof Error ? err.message : t('Failed to end planning session.'));
     } finally {
-      setStopping(false);
+      setEndingSessionId(null);
+      setPendingEndSession(null);
     }
   }
 
@@ -635,11 +646,13 @@ export default function Planning() {
           t={t}
           sessions={sessions}
           activeSessionId={id}
+          endingSessionId={endingSessionId}
           formatRelativeTime={formatRelativeTime}
           resolveCaptainName={resolveCaptainName}
           resolveVesselName={resolveVesselName}
           resolvePipelineName={resolvePipelineName}
           onSelect={(sessionId) => navigate(`/planning/${sessionId}`)}
+          onEndSession={requestEndSession}
         />
 
         {!id ? (
@@ -677,8 +690,8 @@ export default function Planning() {
               composer={composer}
               sending={sending}
               canSend={canSend}
-              canStop={canStop}
-              stopping={stopping || sessionStopping}
+              canEndSession={canEndSession}
+              endingSession={(endingSessionId === currentSession?.id) || sessionStopping}
               deleting={deleting}
               formatDateTime={formatDateTime}
               formatRelativeTime={formatRelativeTime}
@@ -688,7 +701,7 @@ export default function Planning() {
               }}
               onComposerChange={setComposer}
               onSend={handleSendMessage}
-              onStop={handleStopSession}
+              onEndSession={() => currentSession && requestEndSession(currentSession)}
               onDelete={() => setConfirmDeleteOpen(true)}
             />
 
@@ -711,6 +724,22 @@ export default function Planning() {
           </>
         )}
       </div>
+
+      <ConfirmDialog
+        open={confirmEndOpen}
+        title={t('End Planning Session')}
+        message={t('End this planning session and release the reserved captain and dock? The transcript will be kept until you delete it or it expires under server retention settings.')}
+        confirmLabel={t('End Session')}
+        cancelLabel={t('Cancel')}
+        onConfirm={() => {
+          setConfirmEndOpen(false);
+          void handleEndSession();
+        }}
+        onCancel={() => {
+          setConfirmEndOpen(false);
+          setPendingEndSession(null);
+        }}
+      />
 
       <ConfirmDialog
         open={confirmDeleteOpen}

@@ -74,6 +74,9 @@ interface ServerSettings {
   heartbeatIntervalSeconds: number;
   stallThresholdMinutes: number;
   idleCaptainTimeoutSeconds: number;
+  planningSessionInactivityTimeoutMinutes: number;
+  planningSessionAbandonmentTimeoutMinutes: number;
+  planningSessionRetentionDays: number;
   autoCreatePr: boolean;
   dataDirectory: string;
   databasePath: string;
@@ -267,6 +270,22 @@ export default function Server() {
       });
       setSettings(mergeServerSettings(updated as unknown as ServerSettings));
       showToast('success', t('Agent settings saved'));
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : t('Unknown error');
+      showToast('error', t('Failed: {{message}}', { message: msg }));
+    }
+  };
+
+  const handleSavePlanningSessionSettings = async () => {
+    if (!settings) return;
+    try {
+      const updated = await updateSettings({
+        planningSessionInactivityTimeoutMinutes: settings.planningSessionInactivityTimeoutMinutes,
+        planningSessionAbandonmentTimeoutMinutes: settings.planningSessionAbandonmentTimeoutMinutes,
+        planningSessionRetentionDays: settings.planningSessionRetentionDays,
+      });
+      setSettings(mergeServerSettings(updated as unknown as ServerSettings));
+      showToast('success', t('Planning session settings saved'));
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : t('Unknown error');
       showToast('error', t('Failed: {{message}}', { message: msg }));
@@ -769,6 +788,71 @@ export default function Server() {
               title={t('Save agent settings changes')}
             >
               {t('Save Agent Settings')}
+            </button>
+          </fieldset>
+        </div>
+      )}
+
+      {settings && (
+        <div className="settings-section" style={{ marginTop: '1.5rem' }}>
+          <h3 title={t('Controls how long planning sessions remain open when they are idle and how long ended transcripts are retained.')}>{t('Planning Session Settings')}</h3>
+          <p className="text-muted" style={{ marginBottom: '0.75rem' }}>
+            {t('Idle planning sessions are only auto-ended when there is no running planning process. Set a value to 0 to disable the corresponding cleanup rule.')}
+          </p>
+          <fieldset disabled={remoteSettingsLocked} style={{ border: 'none', margin: 0, padding: 0 }}>
+            <div className="settings-grid">
+              <div className="form-group">
+                <label title={t('How long an idle planning session may sit with no running process before Armada automatically ends it.')}>{t('Idle Session Timeout (minutes)')}</label>
+                <input
+                  type="number"
+                  value={settings.planningSessionInactivityTimeoutMinutes}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      planningSessionInactivityTimeoutMinutes: parseInt(e.target.value) || 0,
+                    })
+                  }
+                  min={0}
+                  title={t('Minutes before an idle planning session is automatically ended (0 = disabled)')}
+                />
+              </div>
+              <div className="form-group">
+                <label title={t('Safety-net timeout for stale planning sessions with no running process, even when the normal idle timeout is disabled.')}>{t('Abandonment Timeout (minutes)')}</label>
+                <input
+                  type="number"
+                  value={settings.planningSessionAbandonmentTimeoutMinutes}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      planningSessionAbandonmentTimeoutMinutes: parseInt(e.target.value) || 0,
+                    })
+                  }
+                  min={0}
+                  title={t('Minutes before a stale planning session is force-ended (0 = disabled)')}
+                />
+              </div>
+              <div className="form-group">
+                <label title={t('How long ended or failed planning sessions are retained before Armada deletes them automatically.')}>{t('Transcript Retention (days)')}</label>
+                <input
+                  type="number"
+                  value={settings.planningSessionRetentionDays}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      planningSessionRetentionDays: parseInt(e.target.value) || 0,
+                    })
+                  }
+                  min={0}
+                  title={t('Days to keep stopped or failed planning sessions before deleting them (0 = disabled)')}
+                />
+              </div>
+            </div>
+            <button
+              className="btn-primary btn-sm"
+              onClick={handleSavePlanningSessionSettings}
+              title={t('Save planning session lifecycle settings')}
+            >
+              {t('Save Planning Session Settings')}
             </button>
           </fieldset>
         </div>

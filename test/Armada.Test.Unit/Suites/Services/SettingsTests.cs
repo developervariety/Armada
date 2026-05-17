@@ -22,6 +22,9 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(Constants.DefaultMaxLogFileSizeBytes, settings.MaxLogFileSizeBytes);
                 AssertEqual(Constants.DefaultMaxLogFileCount, settings.MaxLogFileCount);
                 AssertEqual(Constants.DefaultDataRetentionDays, settings.DataRetentionDays);
+                AssertEqual(Constants.DefaultPlanningSessionInactivityTimeoutMinutes, settings.PlanningSessionInactivityTimeoutMinutes);
+                AssertEqual(Constants.DefaultPlanningSessionAbandonmentTimeoutMinutes, settings.PlanningSessionAbandonmentTimeoutMinutes);
+                AssertEqual(0, settings.PlanningSessionRetentionDays);
                 AssertFalse(settings.AutoCreatePullRequests);
                 AssertNull(settings.ApiKey);
             });
@@ -147,6 +150,9 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(settings.Notifications);
                 AssertTrue(settings.TerminalBell);
                 AssertEqual(Constants.DefaultIdleCaptainTimeoutSeconds, settings.IdleCaptainTimeoutSeconds);
+                AssertEqual(Constants.DefaultPlanningSessionInactivityTimeoutMinutes, settings.PlanningSessionInactivityTimeoutMinutes);
+                AssertEqual(Constants.DefaultPlanningSessionAbandonmentTimeoutMinutes, settings.PlanningSessionAbandonmentTimeoutMinutes);
+                AssertEqual(0, settings.PlanningSessionRetentionDays);
                 AssertNotNull(settings.RemoteControl);
                 AssertFalse(settings.RemoteControl.Enabled);
                 AssertEqual(Constants.DefaultRemoteConnectTimeoutSeconds, settings.RemoteControl.ConnectTimeoutSeconds);
@@ -196,6 +202,9 @@ namespace Armada.Test.Unit.Suites.Services
                     original.Notifications = false;
                     original.TerminalBell = false;
                     original.IdleCaptainTimeoutSeconds = 120;
+                    original.PlanningSessionInactivityTimeoutMinutes = 45;
+                    original.PlanningSessionAbandonmentTimeoutMinutes = 180;
+                    original.PlanningSessionRetentionDays = 14;
 
                     await original.SaveAsync(tempFile);
 
@@ -204,6 +213,9 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertFalse(loaded.Notifications);
                     AssertFalse(loaded.TerminalBell);
                     AssertEqual(120, loaded.IdleCaptainTimeoutSeconds);
+                    AssertEqual(45, loaded.PlanningSessionInactivityTimeoutMinutes);
+                    AssertEqual(180, loaded.PlanningSessionAbandonmentTimeoutMinutes);
+                    AssertEqual(14, loaded.PlanningSessionRetentionDays);
                 }
                 finally
                 {
