@@ -512,6 +512,13 @@ body {
 }
 
 /* Top bar (thin bar above main content) */
+.shell-chrome {
+    flex: 0 0 auto;
+    position: relative;
+    z-index: 90;
+    background: var(--bg-card);
+}
+
 .top-bar {
     display: flex;
     align-items: center;
@@ -521,9 +528,6 @@ body {
     padding: 0 1rem;
     background: var(--bg-card);
     border-bottom: 1px solid var(--border);
-    position: sticky;
-    top: 0;
-    z-index: 90;
 }
 
 .proxy-context-strip {
@@ -622,15 +626,21 @@ body {
 .main-content-area {
     display: flex;
     flex-direction: column;
+    height: 100vh;
     min-height: 100vh;
     min-width: 0;
+    overflow: hidden;
     background: var(--bg-card);
 }
 
 .main {
+    flex: 1 1 auto;
+    min-height: 0;
     margin: 0;
     padding: 0.75rem 1rem 0.75rem 1.5rem;
     width: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
 }
 
 .view { animation: fadeIn 0.2s ease; }
