@@ -131,6 +131,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new RemoteTriggerServiceTests());
             runner.AddSuite(new RemoteTriggerEventHookTests());
             runner.AddSuite(new MergeQueueBranchCleanupTests());
+            runner.AddSuite(new MergeQueueServiceTests());
             runner.AddSuite(new MergeQueueServiceClassificationTests());
             runner.AddSuite(new MergeFailureClassifierTests());
             runner.AddSuite(new RebaseCaptainDockSetupTests());
