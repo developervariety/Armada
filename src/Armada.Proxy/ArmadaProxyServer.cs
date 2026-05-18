@@ -36,6 +36,8 @@ namespace Armada.Proxy
         private readonly string _DashboardDirectory;
         private readonly DateTime _StartUtc = DateTime.UtcNow;
         private readonly ConcurrentDictionary<string, BrowserWebSocketRelay> _BrowserSockets = new ConcurrentDictionary<string, BrowserWebSocketRelay>(StringComparer.Ordinal);
+        private const string DashboardApiRelayCapability = "dashboard.http.relay";
+        private const string DashboardWebSocketRelayCapability = "dashboard.websocket.relay";
 
         private Webserver _Server = null!;
         private bool _Started = false;
@@ -261,10 +263,17 @@ namespace Armada.Proxy
                     return new { error = "instanceId is required." };
                 }
 
-                if (_Registry.GetRecord(instanceId.Trim()) == null)
+                RemoteInstanceSummary? summary = _Registry.GetRecord(instanceId.Trim())?.ToSummary(DateTime.UtcNow, _Settings.StaleAfterSeconds);
+                if (summary == null)
                 {
                     req.Http.Response.StatusCode = 404;
                     return new { error = "Instance not found." };
+                }
+
+                if (!IsDashboardInstanceSelectable(summary, out string selectionError))
+                {
+                    req.Http.Response.StatusCode = 409;
+                    return new { error = selectionError };
                 }
 
                 if (!_Auth.TrySetSelectedInstance(sessionToken, instanceId, out ProxyAuthService.ProxyBrowserSession? session, out string? error))
@@ -405,6 +414,18 @@ namespace Armada.Proxy
             if (!HasSelectedInstance(browserSession))
             {
                 await CloseBrowserSessionAsync(session, WebSocketCloseStatus.PolicyViolation, "Select a deployment before opening the dashboard.").ConfigureAwait(false);
+                return;
+            }
+
+            if (!TryGetSelectedInstanceSummary(browserSession!, out RemoteInstanceSummary? summary, out string? selectionError))
+            {
+                await CloseBrowserSessionAsync(session, WebSocketCloseStatus.PolicyViolation, selectionError ?? "Choose a connected deployment again.").ConfigureAwait(false);
+                return;
+            }
+
+            if (!SupportsDashboardWebSocketRelay(summary!))
+            {
+                await CloseBrowserSessionAsync(session, WebSocketCloseStatus.PolicyViolation, BuildUnsupportedDashboardWebSocketMessage(summary!.InstanceId)).ConfigureAwait(false);
                 return;
             }
 
@@ -806,6 +827,18 @@ namespace Armada.Proxy
                     return;
                 }
 
+                if (!TryGetSelectedInstanceSummary(browserSession!, out RemoteInstanceSummary? summary, out string? selectionError))
+                {
+                    await SendJsonErrorAsync(ctx, 409, selectionError ?? "Choose a connected deployment again.").ConfigureAwait(false);
+                    return;
+                }
+
+                if (!SupportsDashboardApiRelay(summary!))
+                {
+                    await SendJsonErrorAsync(ctx, 409, BuildUnsupportedDashboardAccessMessage(summary!.InstanceId)).ConfigureAwait(false);
+                    return;
+                }
+
                 await RelayArmadaHttpRequestAsync(ctx, browserSession!, ctx.Token).ConfigureAwait(false);
                 return;
             }
@@ -822,6 +855,18 @@ namespace Armada.Proxy
                 if (!HasSelectedInstance(browserSession))
                 {
                     await HandleMissingSelectedInstanceAsync(ctx, path).ConfigureAwait(false);
+                    return;
+                }
+
+                if (!TryGetSelectedInstanceSummary(browserSession!, out RemoteInstanceSummary? summary, out string? selectionError))
+                {
+                    await RedirectToPortalWithErrorAsync(ctx, selectionError ?? "Choose a connected deployment again.").ConfigureAwait(false);
+                    return;
+                }
+
+                if (!SupportsDashboardApiRelay(summary!))
+                {
+                    await RedirectToPortalWithErrorAsync(ctx, BuildUnsupportedDashboardAccessMessage(summary!.InstanceId)).ConfigureAwait(false);
                     return;
                 }
 
@@ -934,12 +979,16 @@ namespace Armada.Proxy
         private object BuildSessionContextPayload(ProxyAuthService.ProxyBrowserSession session)
         {
             object? selectedInstance = null;
+            bool apiRelay = false;
+            bool websocketRelay = false;
             if (!String.IsNullOrWhiteSpace(session.SelectedInstanceId))
             {
                 RemoteInstanceSummary? instanceSummary = _Registry.GetRecord(session.SelectedInstanceId.Trim())?.ToSummary(DateTime.UtcNow, _Settings.StaleAfterSeconds);
                 if (instanceSummary != null)
                 {
                     selectedInstance = BuildInstanceSummaryPayload(instanceSummary);
+                    apiRelay = SupportsDashboardApiRelay(instanceSummary);
+                    websocketRelay = SupportsDashboardWebSocketRelay(instanceSummary);
                 }
             }
 
@@ -951,9 +1000,9 @@ namespace Armada.Proxy
                 selectedInstance = selectedInstance,
                 relay = new
                 {
-                    dashboard = true,
-                    api = true,
-                    websocket = true
+                    dashboard = apiRelay,
+                    api = apiRelay,
+                    websocket = websocketRelay
                 }
             };
         }
@@ -997,6 +1046,91 @@ namespace Armada.Proxy
             }
 
             return results;
+        }
+
+        private async Task RedirectToPortalWithErrorAsync(HttpContextBase ctx, string message)
+        {
+            ctx.Response.StatusCode = 302;
+            ctx.Response.Headers.Add("Location", "/?error=" + Uri.EscapeDataString(message));
+            await ctx.Response.Send().ConfigureAwait(false);
+        }
+
+        private bool TryGetSelectedInstanceSummary(ProxyAuthService.ProxyBrowserSession session, out RemoteInstanceSummary? summary, out string? error)
+        {
+            summary = null;
+            error = null;
+
+            string? selectedInstanceId = session.SelectedInstanceId?.Trim();
+            if (String.IsNullOrWhiteSpace(selectedInstanceId))
+            {
+                error = "Select a connected deployment before opening the dashboard.";
+                return false;
+            }
+
+            summary = _Registry.GetRecord(selectedInstanceId)?.ToSummary(DateTime.UtcNow, _Settings.StaleAfterSeconds);
+            if (summary == null)
+            {
+                error = "The selected deployment is no longer available. Choose a connected deployment again.";
+                return false;
+            }
+
+            if (!IsInstanceConnectable(summary))
+            {
+                error = "The selected deployment is no longer connected. Choose a connected deployment again.";
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool IsDashboardInstanceSelectable(RemoteInstanceSummary summary, out string error)
+        {
+            if (!IsInstanceConnectable(summary))
+            {
+                error = "Select a connected deployment before opening the dashboard.";
+                return false;
+            }
+
+            if (!SupportsDashboardApiRelay(summary))
+            {
+                error = BuildUnsupportedDashboardAccessMessage(summary.InstanceId);
+                return false;
+            }
+
+            error = String.Empty;
+            return true;
+        }
+
+        private static bool IsInstanceConnectable(RemoteInstanceSummary summary)
+        {
+            string state = summary.State?.Trim() ?? String.Empty;
+            return String.Equals(state, "connected", StringComparison.OrdinalIgnoreCase) ||
+                String.Equals(state, "stale", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool SupportsDashboardApiRelay(RemoteInstanceSummary summary)
+        {
+            return HasCapability(summary, DashboardApiRelayCapability);
+        }
+
+        private static bool SupportsDashboardWebSocketRelay(RemoteInstanceSummary summary)
+        {
+            return HasCapability(summary, DashboardWebSocketRelayCapability);
+        }
+
+        private static bool HasCapability(RemoteInstanceSummary summary, string capability)
+        {
+            return summary.Capabilities.Any(candidate => String.Equals(candidate, capability, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static string BuildUnsupportedDashboardAccessMessage(string instanceId)
+        {
+            return instanceId + " needs an Armada update before it can open through this proxy dashboard.";
+        }
+
+        private static string BuildUnsupportedDashboardWebSocketMessage(string instanceId)
+        {
+            return instanceId + " does not support live dashboard websocket relay yet. Update Armada on that deployment and reconnect it.";
         }
 
         private static string BuildSessionCookie(string token, DateTime expiresUtc)

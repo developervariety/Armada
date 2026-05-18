@@ -26,7 +26,7 @@ interface NavSection {
 }
 
 const dashboardItem: NavItem = {
-  to: '/dashboard',
+  to: '/',
   label: 'Dashboard',
   tooltip: 'Overview of captains, missions, and voyages',
   icon: (

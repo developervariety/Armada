@@ -170,6 +170,61 @@ namespace Armada.Test.Unit.Suites.Services
                     await harness.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
                 }
             }).ConfigureAwait(false);
+
+            await RunTest("ProxyRejectsDeploymentsWithoutDashboardApiRelayCapability", async () =>
+            {
+                ProxyTestHarness harness = await ProxyTestHarness.StartAsync(new[]
+                {
+                    "dashboard.websocket.relay"
+                }).WaitAsync(TimeSpan.FromSeconds(20)).ConfigureAwait(false);
+                try
+                {
+                    await harness.LoginAsync().WaitAsync(TimeSpan.FromSeconds(20)).ConfigureAwait(false);
+
+                    HttpResponseMessage selectionResponse = await harness.PostJsonAsync("/proxy-api/v1/session/instance", new
+                    {
+                        instanceId = "smoke-instance"
+                    }).ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.Conflict, selectionResponse.StatusCode, "Selection should fail when dashboard API relay is missing");
+                    AssertContains("needs an Armada update", await selectionResponse.Content.ReadAsStringAsync().ConfigureAwait(false), "Selection failure should explain the compatibility requirement");
+
+                    using JsonDocument sessionContext = await harness.GetJsonAsync("/proxy-api/v1/session/context").WaitAsync(TimeSpan.FromSeconds(20)).ConfigureAwait(false);
+                    bool hasSelection = sessionContext.RootElement.TryGetProperty("selectedInstanceId", out JsonElement selectedInstanceId)
+                        && selectedInstanceId.ValueKind != JsonValueKind.Null
+                        && !String.IsNullOrWhiteSpace(selectedInstanceId.GetString());
+                    AssertFalse(hasSelection, "Failed selection should not persist a deployment");
+                }
+                finally
+                {
+                    await harness.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("ProxySessionContextReflectsSelectedInstanceRelayCapabilities", async () =>
+            {
+                ProxyTestHarness harness = await ProxyTestHarness.StartAsync(new[]
+                {
+                    "dashboard.http.relay"
+                }).WaitAsync(TimeSpan.FromSeconds(20)).ConfigureAwait(false);
+                try
+                {
+                    await harness.LoginAsync().WaitAsync(TimeSpan.FromSeconds(20)).ConfigureAwait(false);
+                    await harness.SelectInstanceAsync("smoke-instance").WaitAsync(TimeSpan.FromSeconds(20)).ConfigureAwait(false);
+
+                    using JsonDocument sessionContext = await harness.GetJsonAsync("/proxy-api/v1/session/context").WaitAsync(TimeSpan.FromSeconds(20)).ConfigureAwait(false);
+                    JsonElement relay = sessionContext.RootElement.GetProperty("relay");
+                    AssertTrue(relay.GetProperty("dashboard").GetBoolean(), "Dashboard flag should reflect HTTP relay availability");
+                    AssertTrue(relay.GetProperty("api").GetBoolean(), "API relay should be true when HTTP relay is advertised");
+                    AssertFalse(relay.GetProperty("websocket").GetBoolean(), "WebSocket relay should be false when websocket capability is absent");
+
+                    using ClientWebSocket browserSocket = await harness.ConnectBrowserWebSocketAsync().WaitAsync(TimeSpan.FromSeconds(20)).ConfigureAwait(false);
+                    AssertTrue(await WaitForWebSocketCloseAsync(browserSocket).ConfigureAwait(false), "Proxy websocket should close when the selected deployment lacks websocket relay capability");
+                }
+                finally
+                {
+                    await harness.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+                }
+            }).ConfigureAwait(false);
         }
 
         private static async Task SendWebSocketTextAsync(ClientWebSocket socket, string text)
@@ -275,7 +330,7 @@ namespace Armada.Test.Unit.Suites.Services
 
             public HttpClient Browser { get; }
 
-            public static async Task<ProxyTestHarness> StartAsync()
+            public static async Task<ProxyTestHarness> StartAsync(IEnumerable<string>? tunnelCapabilities = null)
             {
                 EnsureStaticProxyAssets();
 
@@ -298,7 +353,7 @@ namespace Armada.Test.Unit.Suites.Services
                 ArmadaProxyServer proxy = new ArmadaProxyServer(logging, settings, quiet: true);
                 await proxy.StartAsync().ConfigureAwait(false);
 
-                FakeTunnelClient tunnel = new FakeTunnelClient(port, password, "smoke-instance");
+                FakeTunnelClient tunnel = new FakeTunnelClient(port, password, "smoke-instance", tunnelCapabilities);
                 await tunnel.ConnectAsync().ConfigureAwait(false);
 
                 HttpClientHandler handler = new HttpClientHandler
@@ -448,6 +503,7 @@ namespace Armada.Test.Unit.Suites.Services
             private readonly int _ProxyPort;
             private readonly string _Password;
             private readonly string _InstanceId;
+            private readonly List<string> _Capabilities;
             private readonly ConcurrentDictionary<string, int> _HttpRequestCounts = new ConcurrentDictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             private readonly ConcurrentDictionary<string, bool> _OpenSockets = new ConcurrentDictionary<string, bool>(StringComparer.Ordinal);
             private readonly SemaphoreSlim _SendLock = new SemaphoreSlim(1, 1);
@@ -455,11 +511,21 @@ namespace Armada.Test.Unit.Suites.Services
             private ClientWebSocket? _Socket;
             private Task? _ReceiveLoop;
 
-            public FakeTunnelClient(int proxyPort, string password, string instanceId)
+            public FakeTunnelClient(int proxyPort, string password, string instanceId, IEnumerable<string>? capabilities = null)
             {
                 _ProxyPort = proxyPort;
                 _Password = password;
                 _InstanceId = instanceId;
+                _Capabilities = capabilities?
+                    .Where(capability => !String.IsNullOrWhiteSpace(capability))
+                    .Select(capability => capability.Trim())
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList()
+                    ?? new List<string>
+                    {
+                        "dashboard.http.relay",
+                        "dashboard.websocket.relay"
+                    };
             }
 
             public int GetRequestCount(string path)
@@ -492,11 +558,7 @@ namespace Armada.Test.Unit.Suites.Services
                         PasswordNonce = nonce,
                         PasswordTimestampUtc = timestampUtc,
                         PasswordProofSha256 = proof,
-                        Capabilities = new List<string>
-                        {
-                            "dashboard.http.relay",
-                            "dashboard.websocket.relay"
-                        }
+                        Capabilities = new List<string>(_Capabilities)
                     });
 
                 await SendEnvelopeAsync(handshake).ConfigureAwait(false);

@@ -1,1 +1,0 @@
-import{r as o,ae as s}from"./index-DqaVQipp.js";function x(){const[n,e]=o.useState(null);return o.useEffect(()=>{let t=!0;return s().then(r=>{t&&e(r)}).catch(()=>{t&&e(null)}),()=>{t=!1}},[]),n}export{x as u};

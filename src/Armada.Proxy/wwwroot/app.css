@@ -315,6 +315,16 @@ h2 {
   word-break: break-word;
 }
 
+.instance-meta {
+  margin-top: 0.3rem;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+}
+
+.instance-meta-warning {
+  color: var(--warning);
+}
+
 .instance-current {
   display: inline-flex;
   align-items: center;
@@ -425,6 +435,13 @@ h2 {
 .instance-menu-item:disabled:hover {
   background: transparent;
   color: var(--text-dim);
+}
+
+.instance-menu-note {
+  padding: 0.2rem 0.75rem 0.45rem;
+  color: var(--text-dim);
+  font-size: 0.76rem;
+  line-height: 1.45;
 }
 
 .instance-menu-label {

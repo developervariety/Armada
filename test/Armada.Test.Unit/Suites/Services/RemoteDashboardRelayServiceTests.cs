@@ -4,6 +4,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Net;
     using System.Net.Sockets;
     using System.Net.WebSockets;
+    using System.Reflection;
     using System.Text;
     using System.Text.Json;
     using Armada.Core;
@@ -19,6 +20,21 @@ namespace Armada.Test.Unit.Suites.Services
 
         protected override async Task RunTestsAsync()
         {
+            await RunTest("ResolveLoopbackHost MapsLocalhostToIpv4Loopback", async () =>
+            {
+                await using RemoteDashboardRelayService service = new RemoteDashboardRelayService(
+                    CreateLogging(),
+                    CreateSettings(7890, "localhost"),
+                    (_, _, _) => Task.CompletedTask);
+
+                MethodInfo? resolveLoopbackHost = typeof(RemoteDashboardRelayService).GetMethod(
+                    "ResolveLoopbackHost",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+
+                AssertNotNull(resolveLoopbackHost);
+                AssertEqual(IPAddress.Loopback.ToString(), resolveLoopbackHost!.Invoke(service, null)?.ToString(), "localhost should normalize to IPv4 loopback for self-relay traffic");
+            }).ConfigureAwait(false);
+
             await RunTest("HandleAsync RelaysHttpMethodsBodiesAndErrors", async () =>
             {
                 await using LoopbackRelayHost host = await LoopbackRelayHost.StartAsync().ConfigureAwait(false);
@@ -219,10 +235,10 @@ namespace Armada.Test.Unit.Suites.Services
             return logging;
         }
 
-        private static ArmadaSettings CreateSettings(int port)
+        private static ArmadaSettings CreateSettings(int port, string restHostname = "127.0.0.1")
         {
             ArmadaSettings settings = new ArmadaSettings();
-            settings.Rest.Hostname = "127.0.0.1";
+            settings.Rest.Hostname = restHostname;
             settings.Rest.Ssl = false;
             settings.AdmiralPort = port;
             return settings;

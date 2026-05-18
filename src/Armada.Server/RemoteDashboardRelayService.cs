@@ -595,6 +595,7 @@ namespace Armada.Server
         {
             string configuredHost = (_Settings.Rest.Hostname ?? String.Empty).Trim();
             if (String.IsNullOrWhiteSpace(configuredHost) ||
+                String.Equals(configuredHost, "localhost", StringComparison.OrdinalIgnoreCase) ||
                 String.Equals(configuredHost, "0.0.0.0", StringComparison.OrdinalIgnoreCase) ||
                 String.Equals(configuredHost, "::", StringComparison.OrdinalIgnoreCase) ||
                 String.Equals(configuredHost, "*", StringComparison.OrdinalIgnoreCase))

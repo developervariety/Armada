@@ -8,6 +8,18 @@ const state = {
   menu: null,
 };
 
+const launchErrorMessage = (() => {
+  const params = new URLSearchParams(window.location.search);
+  const message = params.get('error') || '';
+  if (message) {
+    params.delete('error');
+    const nextQuery = params.toString();
+    const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}${window.location.hash || ''}`;
+    window.history.replaceState({}, '', nextUrl);
+  }
+  return message;
+})();
+
 const elements = {
   loginCard: document.getElementById('loginCard'),
   portalCard: document.getElementById('portalCard'),
@@ -202,6 +214,23 @@ function canConnectToInstance(instance) {
   return value === 'connected' || value === 'stale';
 }
 
+function supportsDashboardApiRelay(instance) {
+  const capabilities = Array.isArray(instance?.capabilities) ? instance.capabilities : [];
+  return capabilities.some((capability) => String(capability || '').toLowerCase() === 'dashboard.http.relay');
+}
+
+function getInstanceCompatibilityMessage(instance) {
+  if (!canConnectToInstance(instance)) {
+    return 'Deployment must be connected before you can open the dashboard.';
+  }
+
+  if (!supportsDashboardApiRelay(instance)) {
+    return 'Update Armada on this deployment before using the proxy dashboard.';
+  }
+
+  return '';
+}
+
 function hideMenuElement() {
   elements.instanceMenu.classList.add('hidden');
   elements.instanceMenu.setAttribute('aria-hidden', 'true');
@@ -242,7 +271,11 @@ function renderMenu() {
     return;
   }
 
-  const disabled = !canConnectToInstance(instance) || state.busy;
+  const compatibilityMessage = getInstanceCompatibilityMessage(instance);
+  const disabled = !!compatibilityMessage || state.busy;
+  const menuHint = compatibilityMessage
+    ? `<div class="instance-menu-note">${escapeHtml(compatibilityMessage)}</div>`
+    : '';
   elements.instanceMenu.innerHTML = `
     <button
       type="button"
@@ -258,6 +291,7 @@ function renderMenu() {
       </svg>
       <span class="instance-menu-label">Connect</span>
     </button>
+    ${menuHint}
   `;
   elements.instanceMenu.classList.remove('hidden');
   elements.instanceMenu.setAttribute('aria-hidden', 'false');
@@ -287,6 +321,10 @@ function renderInstances() {
     const currentBadge = instance.instanceId === selectedInstanceId
       ? '<span class="instance-current">Current</span>'
       : '';
+    const compatibilityMessage = getInstanceCompatibilityMessage(instance);
+    const deploymentMeta = compatibilityMessage
+      ? `<div class="instance-meta instance-meta-warning">${escapeHtml(compatibilityMessage)}</div>`
+      : '';
     const expanded = instance.instanceId === openMenuId ? 'true' : 'false';
 
     return `
@@ -296,6 +334,7 @@ function renderInstances() {
             <span class="instance-name">${escapeHtml(instance.instanceId)}</span>
             ${currentBadge}
           </div>
+          ${deploymentMeta}
         </td>
         <td class="instance-ip">${escapeHtml(formatIpAddress(instance.remoteAddress))}</td>
         <td class="instance-version">${escapeHtml(instance.armadaVersion || '-')}</td>
@@ -419,8 +458,9 @@ async function refreshPortalAfterLogin() {
 
 async function connectToInstance(instanceId) {
   const instance = getInstanceById(instanceId);
-  if (!instance || !canConnectToInstance(instance)) {
-    setStatus(elements.portalStatus, 'That deployment is not currently available.', 'error');
+  const compatibilityMessage = instance ? getInstanceCompatibilityMessage(instance) : 'That deployment is not currently available.';
+  if (!instance || compatibilityMessage) {
+    setStatus(elements.portalStatus, compatibilityMessage, 'error');
     closeMenu();
     return;
   }
@@ -460,6 +500,13 @@ async function bootstrap() {
   }
 
   render();
+  if (launchErrorMessage) {
+    setStatus(
+      state.context?.isAuthenticated ? elements.portalStatus : elements.loginStatus,
+      launchErrorMessage,
+      'error',
+    );
+  }
 }
 
 elements.loginForm.addEventListener('submit', async (event) => {
