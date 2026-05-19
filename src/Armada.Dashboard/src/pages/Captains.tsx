@@ -14,6 +14,7 @@ import RefreshButton from '../components/shared/RefreshButton';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
+import { canCaptainStartPlanning } from '../lib/captains';
 import { buildMuxRuntimeOptionsJson, EMPTY_MUX_CAPTAIN_FORM, isMuxRuntime, muxFormFromCaptain, type MuxCaptainFormFields } from '../lib/mux';
 import { buildCaptainDuplicatePayload } from '../lib/duplicates';
 
@@ -330,6 +331,14 @@ export default function Captains() {
     }
   }
 
+  function handleStartPlanning(captain: Captain) {
+    navigate('/planning', {
+      state: {
+        captainId: captain.id,
+      },
+    });
+  }
+
   return (
     <div>
       <div className="view-header">
@@ -476,6 +485,7 @@ export default function Captains() {
                     <td className="text-right" onClick={e => e.stopPropagation()}>
                       <ActionMenu id={`captain-${c.id}`} items={[
                         { label: 'View Detail', onClick: () => navigate(`/captains/${c.id}`) },
+                        ...(canCaptainStartPlanning(c) ? [{ label: 'Start Planning', onClick: () => handleStartPlanning(c) }] : []),
                         { label: 'Edit', onClick: () => openEdit(c) },
                         { label: 'Duplicate', onClick: () => void handleDuplicate(c) },
                         { label: 'View Tools', onClick: () => void handleViewTools(c) },

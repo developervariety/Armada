@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import type { Captain, Fleet, Pipeline, SelectedPlaybook, Vessel } from '../../types/models';
+import { canCaptainStartPlanning } from '../../lib/captains';
 import PlaybookSelector from '../shared/PlaybookSelector';
 
 interface PlanningStartCardProps {
@@ -90,7 +91,7 @@ export default function PlanningStartCard(props: PlanningStartCardProps) {
                   <option
                     key={captain.id}
                     value={captain.id}
-                    disabled={captain.state !== 'Idle' || !captain.supportsPlanningSessions}
+                    disabled={!canCaptainStartPlanning(captain)}
                   >
                     {`${captain.name} (${captain.runtime}) - ${captain.state}${captain.supportsPlanningSessions ? '' : ' - planning unsupported'}`}
                   </option>

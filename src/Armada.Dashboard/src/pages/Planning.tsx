@@ -36,6 +36,7 @@ import PlanningSessionListCard from '../components/planning/PlanningSessionListC
 import PlanningStartCard from '../components/planning/PlanningStartCard';
 import PlanningTranscriptCard from '../components/planning/PlanningTranscriptCard';
 import ReadinessPanel from '../components/shared/ReadinessPanel';
+import { canCaptainStartPlanning } from '../lib/captains';
 import {
   type DispatchSeedState,
   getLatestAssistantMessage,
@@ -61,6 +62,7 @@ interface PlanningPrefillState {
   fromIncident?: boolean;
   fromObjective?: boolean;
   fromSetupWizard?: boolean;
+  captainId?: string;
   objectiveId?: string;
   vesselId?: string;
   fleetId?: string;
@@ -308,9 +310,10 @@ export default function Planning() {
     if (planningPrefillAppliedRef.current || id || loadingCatalog) return;
 
     const prefill = location.state as PlanningPrefillState | null;
-    if (!prefill?.fromWorkspace && !prefill?.fromIncident && !prefill?.fromObjective && !prefill?.fromSetupWizard) return;
+    if (!prefill?.fromWorkspace && !prefill?.fromIncident && !prefill?.fromObjective && !prefill?.fromSetupWizard && !prefill?.captainId) return;
 
     if (prefill.title) setTitle(prefill.title);
+    if (prefill.captainId) setCaptainId(prefill.captainId);
     if (prefill.fleetId) setFleetId(prefill.fleetId);
     if (prefill.vesselId) setVesselId(prefill.vesselId);
     if (prefill.pipelineId) setPipelineId(prefill.pipelineId);
@@ -398,7 +401,7 @@ export default function Planning() {
   const currentMessages = detail?.messages || [];
   const selectedMessage = currentMessages.find((message) => message.id === selectedMessageId) || null;
   const sessionStopping = currentSession?.status === 'Stopping';
-  const canStartSession = !!selectedCaptain && selectedCaptain.supportsPlanningSessions && selectedCaptain.state === 'Idle' && !!vesselId && !creating;
+  const canStartSession = canCaptainStartPlanning(selectedCaptain) && !!vesselId && !creating;
   const canSend = currentSession?.status === 'Active' && composer.trim().length > 0 && !sending;
   const canEndSession = !!currentSession && ['Active', 'Responding'].includes(currentSession.status) && !endingSessionId;
   const canSummarize = !!currentSession && !!selectedMessage?.content.trim() && !summarizing;
