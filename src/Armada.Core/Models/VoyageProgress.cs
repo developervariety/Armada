@@ -1,5 +1,6 @@
 namespace Armada.Core.Models
 {
+    using System.Collections.Generic;
     using System.Text.Json.Serialization;
     using Armada.Core.Enums;
 
@@ -34,6 +35,11 @@ namespace Armada.Core.Models
         /// In-progress missions in this voyage.
         /// </summary>
         public int InProgressMissions { get; set; } = 0;
+
+        /// <summary>
+        /// Distinct vessel identifiers referenced by this voyage's missions.
+        /// </summary>
+        public List<string> VesselIds { get; set; } = new List<string>();
 
         #endregion
 

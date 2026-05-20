@@ -14,7 +14,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
     /// <summary>
     /// SQLite implementation of mission database operations.
     /// </summary>
-    public class MissionMethods : IMissionMethods
+    public partial class MissionMethods : IMissionMethods
     {
         #region Private-Members
 

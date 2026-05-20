@@ -449,6 +449,13 @@ namespace Armada.Server.WebSocket
                     missionResult.TotalMs = Math.Round(missionSw.Elapsed.TotalMilliseconds, 2);
                     return new { type = "command.result", action = "list_missions", data = (object)missionResult };
 
+                case "list_missions_summary":
+                    EnumerationQuery missionSummaryQuery = command.Query ?? new EnumerationQuery();
+                    Stopwatch missionSummarySw = Stopwatch.StartNew();
+                    EnumerationResult<MissionSummary> missionSummaryResult = await _Database.Missions.EnumerateSummariesAsync(missionSummaryQuery).ConfigureAwait(false);
+                    missionSummaryResult.TotalMs = Math.Round(missionSummarySw.Elapsed.TotalMilliseconds, 2);
+                    return new { type = "command.result", action = "list_missions_summary", data = (object)missionSummaryResult };
+
                 case "get_mission":
                     string getMissionId = command.Id ?? "";
                     Mission? foundMission = await _Database.Missions.ReadAsync(getMissionId).ConfigureAwait(false);

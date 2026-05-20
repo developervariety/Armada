@@ -151,29 +151,30 @@ namespace Armada.Server.Mcp.Tools
                             return (object)projectedCaptains;
                         case "missions":
                         case "mission":
-                            EnumerationResult<Mission> missions = await database.Missions.EnumerateAsync(query).ConfigureAwait(false);
-                            foreach (Mission m in missions.Objects) m.DiffSnapshot = null;
                             if (request.IncludeDescription != true)
                             {
+                                EnumerationResult<MissionSummary> missionSummaries = await database.Missions.EnumerateSummariesAsync(query).ConfigureAwait(false);
                                 object projectedMissions = new
                                 {
-                                    missions.Success,
-                                    missions.PageNumber,
-                                    missions.PageSize,
-                                    missions.TotalPages,
-                                    missions.TotalRecords,
-                                    Objects = missions.Objects.Select(m => new
+                                    missionSummaries.Success,
+                                    missionSummaries.PageNumber,
+                                    missionSummaries.PageSize,
+                                    missionSummaries.TotalPages,
+                                    missionSummaries.TotalRecords,
+                                    Objects = missionSummaries.Objects.Select(m => new
                                     {
                                         m.Id, m.Title, m.Status, m.VesselId, m.VoyageId, m.CaptainId,
                                         m.BranchName, m.DockId, m.ProcessId, m.PrUrl, m.CommitHash,
-                                        m.Priority, m.ParentMissionId,
+                                        m.Priority, m.ParentMissionId, m.Persona, m.DependsOnMissionId,
                                         m.CreatedUtc, m.LastUpdateUtc, m.StartedUtc, m.CompletedUtc,
-                                        DescriptionLength = m.Description?.Length ?? 0
+                                        m.DescriptionLength, m.DiffSnapshotLength, m.AgentOutputLength
                                     }).ToList(),
-                                    missions.TotalMs
+                                    missionSummaries.TotalMs
                                 };
                                 return (object)projectedMissions;
                             }
+                            EnumerationResult<Mission> missions = await database.Missions.EnumerateAsync(query).ConfigureAwait(false);
+                            foreach (Mission m in missions.Objects) m.DiffSnapshot = null;
                             return (object)missions;
                         case "voyages":
                         case "voyage":

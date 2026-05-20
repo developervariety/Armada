@@ -13,6 +13,8 @@ import type {
   Captain,
   CaptainToolAccessResult,
   Mission,
+  MissionSummary,
+  MissionHistorySummaryResult,
   Voyage,
   Objective,
   GitHubActionsSyncRequest,
@@ -668,7 +670,17 @@ export async function restartCaptain(id: string): Promise<Captain> {
 // ==================== Missions ====================
 export const listMissions = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
   get<EnumerationResult<Mission>>(`/api/v1/missions${buildQuery(params)}`);
+export const listMissionSummaries = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
+  get<EnumerationResult<MissionSummary>>(`/api/v1/missions/summaries${buildQuery(params)}`);
 export const getMission = (id: string) => get<Mission>(`/api/v1/missions/${id}`);
+export const getMissionHistory = (params?: { fromUtc?: string; toUtc?: string; bucketMinutes?: number; fleetId?: string; vesselId?: string }) =>
+  get<MissionHistorySummaryResult>(`/api/v1/missions/history${buildQuery(params ? {
+    filters: Object.fromEntries(
+      Object.entries(params)
+        .filter(([, value]) => value !== undefined && value !== null && value !== '')
+        .map(([key, value]) => [key, String(value)]),
+    ),
+  } : undefined)}`);
 export const getMissionLandingPreview = (id: string) => get<LandingPreviewResult>(`/api/v1/missions/${encodeURIComponent(id)}/landing-preview`);
 export const getMissionGitHubPullRequest = (id: string) => get<GitHubPullRequestDetail>(`/api/v1/missions/${encodeURIComponent(id)}/github/pull-request`);
 export const createMission = (data: Partial<Mission>) => post<Mission>('/api/v1/missions', data);

@@ -1,5 +1,7 @@
 namespace Armada.Core.Services
 {
+    using System;
+    using System.Linq;
     using SyslogLogging;
     using Armada.Core.Database;
     using Armada.Core.Enums;
@@ -101,7 +103,9 @@ namespace Armada.Core.Services
                 : await _Database.Voyages.ReadAsync(voyageId, token).ConfigureAwait(false);
             if (voyage == null) return null;
 
-            List<Mission> missions = await _Database.Missions.EnumerateByVoyageAsync(voyage.Id, token).ConfigureAwait(false);
+            List<MissionSummary> missions = !String.IsNullOrEmpty(tenantId)
+                ? await _Database.Missions.EnumerateSummariesByVoyageAsync(tenantId, voyage.Id, token).ConfigureAwait(false)
+                : await _Database.Missions.EnumerateSummariesByVoyageAsync(voyage.Id, token).ConfigureAwait(false);
 
             VoyageProgress progress = new VoyageProgress
             {
@@ -116,7 +120,13 @@ namespace Armada.Core.Services
                     m.Status == MissionStatusEnum.Assigned ||
                     m.Status == MissionStatusEnum.Testing ||
                     m.Status == MissionStatusEnum.Review ||
-                    m.Status == MissionStatusEnum.PullRequestOpen)
+                    m.Status == MissionStatusEnum.PullRequestOpen),
+                VesselIds = missions
+                    .Select(m => m.VesselId)
+                    .Where(v => !String.IsNullOrEmpty(v))
+                    .Distinct(StringComparer.Ordinal)
+                    .Cast<string>()
+                    .ToList()
             };
 
             return progress;

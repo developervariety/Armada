@@ -202,6 +202,7 @@ export interface CaptainToolAccessResult {
 export interface Mission {
   id: string;
   tenantId: string | null;
+  userId?: string | null;
   voyageId: string | null;
   vesselId: string | null;
   captainId: string | null;
@@ -232,6 +233,60 @@ export interface Mission {
   lastUpdateUtc: string;
   selectedPlaybooks?: SelectedPlaybook[];
   playbookSnapshots?: MissionPlaybookSnapshot[];
+}
+
+export interface MissionSummary {
+  id: string;
+  tenantId: string | null;
+  userId: string | null;
+  voyageId: string | null;
+  vesselId: string | null;
+  captainId: string | null;
+  title: string;
+  status: string;
+  priority: number;
+  parentMissionId: string | null;
+  persona: string | null;
+  dependsOnMissionId: string | null;
+  branchName: string | null;
+  dockId: string | null;
+  processId: number | null;
+  prUrl: string | null;
+  commitHash: string | null;
+  failureReason: string | null;
+  requiresReview: boolean;
+  reviewDenyAction: 'RetryStage' | 'FailPipeline';
+  reviewComment: string | null;
+  reviewedByUserId: string | null;
+  reviewRequestedUtc: string | null;
+  reviewedUtc: string | null;
+  descriptionLength: number;
+  diffSnapshotLength: number;
+  agentOutputLength: number;
+  createdUtc: string;
+  startedUtc: string | null;
+  completedUtc: string | null;
+  totalRuntimeMs: number | null;
+  lastUpdateUtc: string;
+}
+
+export interface MissionHistoryBucket {
+  startUtc: string;
+  completeCount: number;
+  failedCount: number;
+  otherCount: number;
+  totalCount: number;
+}
+
+export interface MissionHistorySummaryResult {
+  totalCount: number;
+  completeCount: number;
+  failedCount: number;
+  otherCount: number;
+  fromUtc: string;
+  toUtc: string;
+  bucketMinutes: number;
+  buckets: MissionHistoryBucket[];
 }
 
 export interface Voyage {

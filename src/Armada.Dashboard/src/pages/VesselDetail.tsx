@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom';
-import { listVessels, listFleets, listMissions, listPipelines, createVessel, updateVessel, deleteVessel, getVesselReadiness, getVesselLandingPreview } from '../api/client';
-import type { Fleet, Vessel, Mission, Pipeline, VesselReadinessResult, LandingPreviewResult } from '../types/models';
+import { listVessels, listFleets, listMissionSummaries, listPipelines, createVessel, updateVessel, deleteVessel, getVesselReadiness, getVesselLandingPreview } from '../api/client';
+import type { Fleet, Vessel, MissionSummary, Pipeline, VesselReadinessResult, LandingPreviewResult } from '../types/models';
 import ActionMenu from '../components/shared/ActionMenu';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
@@ -43,7 +43,7 @@ export default function VesselDetail() {
   const navigate = useNavigate();
   const [vessel, setVessel] = useState<Vessel | null>(null);
   const [fleets, setFleets] = useState<Fleet[]>([]);
-  const [missions, setMissions] = useState<Mission[]>([]);
+  const [missions, setMissions] = useState<MissionSummary[]>([]);
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [readiness, setReadiness] = useState<VesselReadinessResult | null>(null);
   const [landingPreview, setLandingPreview] = useState<LandingPreviewResult | null>(null);
@@ -73,12 +73,17 @@ export default function VesselDetail() {
     try {
       setLoading(true);
       const isInitialLoad = !vessel;
-      const [vResult, fResult, mResult, pResult] = await Promise.all([listVessels({ pageSize: 9999 }), listFleets({ pageSize: 9999 }), listMissions({ pageSize: 9999 }), listPipelines({ pageSize: 9999 })]);
+      const [vResult, fResult, mResult, pResult] = await Promise.all([
+        listVessels({ pageSize: 9999 }),
+        listFleets({ pageSize: 9999 }),
+        listMissionSummaries({ pageSize: 1000, filters: { vesselId: id } }),
+        listPipelines({ pageSize: 9999 }),
+      ]);
       const found = vResult.objects.find(v => v.id === id);
       if (!found) { setError(t('Vessel not found.')); setLoading(false); return; }
       setVessel(found);
       setFleets(fResult.objects);
-      setMissions(mResult.objects.filter(m => m.vesselId === id));
+      setMissions(mResult.objects || []);
       setPipelines(pResult.objects);
       setLoadingReadiness(true);
       getVesselReadiness(id)

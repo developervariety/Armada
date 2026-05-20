@@ -33,6 +33,7 @@ namespace Armada.Server
         private Func<string, string, string?, string?, string?, string?, string?, string?, Task> _EmitEventAsync;
         private readonly TimeSpan _ModelValidationTimeout = TimeSpan.FromSeconds(5);
         private readonly TimeSpan _MissionHeartbeatPersistInterval = TimeSpan.FromSeconds(15);
+        private const int _MaxMissionOutputChars = 262144;
 
         /// <summary>
         /// Accumulates agent stdout per mission for pipeline handoff.
@@ -608,7 +609,7 @@ namespace Armada.Server
             if (!String.IsNullOrEmpty(outputMissionId))
             {
                 System.Text.StringBuilder sb = _MissionOutput.GetOrAdd(outputMissionId, _ => new System.Text.StringBuilder());
-                sb.AppendLine(line);
+                BoundedTextBuffer.AppendLine(sb, line, _MaxMissionOutputChars);
             }
 
             ProgressParser.ProgressSignal? signal = ProgressParser.TryParse(line);

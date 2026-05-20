@@ -1,7 +1,10 @@
 namespace Armada.Server.Routes
 {
+    using System;
+    using System.Collections.Generic;
     using System.Diagnostics;
     using System.IO;
+    using System.Linq;
     using System.Text.Json;
     using WatsonWebserver;
     using WatsonWebserver.Core;
@@ -278,6 +281,117 @@ namespace Armada.Server.Routes
                 .WithSummary("Enumerate missions")
                 .WithDescription("Paginated enumeration of missions with optional filtering and sorting.")
                 .WithRequestBody(OpenApiJson.BodyFor<EnumerationQuery>("Enumeration query", false))
+                .WithSecurity("ApiKey"));
+
+            app.Get("/api/v1/missions/summaries", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                {
+                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
+                    return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
+                }
+                EnumerationQuery query = new EnumerationQuery();
+                query.ApplyQuerystringOverrides(key => req.Query.GetValueOrDefault(key));
+                Stopwatch sw = Stopwatch.StartNew();
+                EnumerationResult<MissionSummary> result = ctx.IsAdmin
+                    ? await _database.Missions.EnumerateSummariesAsync(query).ConfigureAwait(false)
+                    : ctx.IsTenantAdmin
+                        ? await _database.Missions.EnumerateSummariesAsync(ctx.TenantId!, query).ConfigureAwait(false)
+                        : await _database.Missions.EnumerateSummariesAsync(ctx.TenantId!, ctx.UserId!, query).ConfigureAwait(false);
+                result.TotalMs = Math.Round(sw.Elapsed.TotalMilliseconds, 2);
+                return result;
+            },
+            api => api
+                .WithTag("Missions")
+                .WithSummary("List lightweight mission summaries")
+                .WithDescription("Returns lightweight mission summaries without large description, diff, or agent-output payloads.")
+                .WithParameter(OpenApiParameterMetadata.Query("status", "Filter by mission status", false))
+                .WithParameter(OpenApiParameterMetadata.Query("vesselId", "Filter by vessel ID", false))
+                .WithParameter(OpenApiParameterMetadata.Query("captainId", "Filter by captain ID", false))
+                .WithParameter(OpenApiParameterMetadata.Query("voyageId", "Filter by voyage ID", false))
+                .WithResponse(200, OpenApiJson.For<EnumerationResult<MissionSummary>>("Paginated mission summary list"))
+                .WithSecurity("ApiKey"));
+
+            app.Post<EnumerationQuery>("/api/v1/missions/summaries/enumerate", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                {
+                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
+                    return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
+                }
+                EnumerationQuery query = JsonSerializer.Deserialize<EnumerationQuery>(req.Http.Request.DataAsString, _jsonOptions) ?? new EnumerationQuery();
+                query.ApplyQuerystringOverrides(key => req.Query.GetValueOrDefault(key));
+                Stopwatch sw = Stopwatch.StartNew();
+                EnumerationResult<MissionSummary> result = ctx.IsAdmin
+                    ? await _database.Missions.EnumerateSummariesAsync(query).ConfigureAwait(false)
+                    : ctx.IsTenantAdmin
+                        ? await _database.Missions.EnumerateSummariesAsync(ctx.TenantId!, query).ConfigureAwait(false)
+                        : await _database.Missions.EnumerateSummariesAsync(ctx.TenantId!, ctx.UserId!, query).ConfigureAwait(false);
+                result.TotalMs = Math.Round(sw.Elapsed.TotalMilliseconds, 2);
+                return result;
+            },
+            api => api
+                .WithTag("Missions")
+                .WithSummary("Enumerate lightweight mission summaries")
+                .WithDescription("Paginated enumeration of lightweight mission summaries with optional filtering and sorting.")
+                .WithRequestBody(OpenApiJson.BodyFor<EnumerationQuery>("Enumeration query", false))
+                .WithResponse(200, OpenApiJson.For<EnumerationResult<MissionSummary>>("Paginated mission summary list"))
+                .WithSecurity("ApiKey"));
+
+            app.Get("/api/v1/missions/history", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                {
+                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
+                    return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
+                }
+
+                MissionHistoryQuery query = new MissionHistoryQuery();
+                if (DateTime.TryParse(req.Query.GetValueOrDefault("fromUtc"), out DateTime fromUtc)) query.FromUtc = fromUtc.ToUniversalTime();
+                if (DateTime.TryParse(req.Query.GetValueOrDefault("toUtc"), out DateTime toUtc)) query.ToUtc = toUtc.ToUniversalTime();
+                if (int.TryParse(req.Query.GetValueOrDefault("bucketMinutes"), out int bucketMinutes) && bucketMinutes > 0) query.BucketMinutes = bucketMinutes;
+                string? fleetId = req.Query.GetValueOrDefault("fleetId");
+                if (!String.IsNullOrEmpty(fleetId)) query.FleetId = fleetId;
+                string? vesselId = req.Query.GetValueOrDefault("vesselId");
+                if (!String.IsNullOrEmpty(vesselId)) query.VesselId = vesselId;
+
+                List<MissionHistoryPoint> points = ctx.IsAdmin
+                    ? await _database.Missions.EnumerateHistoryPointsAsync(query).ConfigureAwait(false)
+                    : ctx.IsTenantAdmin
+                        ? await _database.Missions.EnumerateHistoryPointsAsync(ctx.TenantId!, query).ConfigureAwait(false)
+                        : await _database.Missions.EnumerateHistoryPointsAsync(ctx.TenantId!, ctx.UserId!, query).ConfigureAwait(false);
+
+                if (!String.IsNullOrEmpty(query.FleetId))
+                {
+                    List<Vessel> vessels = ctx.IsAdmin
+                        ? await _database.Vessels.EnumerateAsync().ConfigureAwait(false)
+                        : ctx.IsTenantAdmin
+                            ? await _database.Vessels.EnumerateAsync(ctx.TenantId!).ConfigureAwait(false)
+                            : await _database.Vessels.EnumerateAsync(ctx.TenantId!, ctx.UserId!).ConfigureAwait(false);
+                    HashSet<string> allowedVesselIds = vessels
+                        .Where(v => String.Equals(v.FleetId, query.FleetId, StringComparison.Ordinal))
+                        .Select(v => v.Id)
+                        .ToHashSet(StringComparer.Ordinal);
+                    points = points
+                        .Where(point => !String.IsNullOrEmpty(point.VesselId) && allowedVesselIds.Contains(point.VesselId!))
+                        .ToList();
+                }
+
+                return BuildMissionHistorySummary(query, points);
+            },
+            api => api
+                .WithTag("Missions")
+                .WithSummary("Get aggregated mission history")
+                .WithDescription("Returns aggregated mission counts by time bucket for dashboard history charts.")
+                .WithParameter(OpenApiParameterMetadata.Query("fromUtc", "Inclusive UTC start time", false))
+                .WithParameter(OpenApiParameterMetadata.Query("toUtc", "Exclusive UTC end time", false))
+                .WithParameter(OpenApiParameterMetadata.Query("bucketMinutes", "Bucket size in minutes", false))
+                .WithParameter(OpenApiParameterMetadata.Query("fleetId", "Optional fleet filter", false))
+                .WithParameter(OpenApiParameterMetadata.Query("vesselId", "Optional vessel filter", false))
+                .WithResponse(200, OpenApiJson.For<MissionHistorySummaryResult>("Mission history summary"))
                 .WithSecurity("ApiKey"));
 
             app.Post<Mission>("/api/v1/missions", async (ApiRequest req) =>
@@ -1144,6 +1258,62 @@ namespace Armada.Server.Routes
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Mission ID (msn_ prefix)"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
+        }
+
+        private static MissionHistorySummaryResult BuildMissionHistorySummary(MissionHistoryQuery query, IEnumerable<MissionHistoryPoint> points)
+        {
+            DateTime fromUtc = query.FromUtc.Kind == DateTimeKind.Utc ? query.FromUtc : query.FromUtc.ToUniversalTime();
+            DateTime toUtc = query.ToUtc.Kind == DateTimeKind.Utc ? query.ToUtc : query.ToUtc.ToUniversalTime();
+            int bucketMinutes = query.BucketMinutes > 0 ? query.BucketMinutes : 60;
+            TimeSpan bucketSize = TimeSpan.FromMinutes(bucketMinutes);
+            long bucketTicks = Math.Max(bucketSize.Ticks, TimeSpan.FromMinutes(1).Ticks);
+
+            MissionHistorySummaryResult result = new MissionHistorySummaryResult
+            {
+                FromUtc = fromUtc,
+                ToUtc = toUtc,
+                BucketMinutes = bucketMinutes
+            };
+
+            SortedDictionary<long, MissionHistoryBucket> buckets = new SortedDictionary<long, MissionHistoryBucket>();
+            long startTicks = (fromUtc.Ticks / bucketTicks) * bucketTicks;
+            for (long ticks = startTicks; ticks < toUtc.Ticks; ticks += bucketTicks)
+            {
+                buckets[ticks] = new MissionHistoryBucket { StartUtc = new DateTime(ticks, DateTimeKind.Utc) };
+            }
+
+            foreach (MissionHistoryPoint point in points)
+            {
+                DateTime createdUtc = point.CreatedUtc.Kind == DateTimeKind.Utc ? point.CreatedUtc : point.CreatedUtc.ToUniversalTime();
+                if (createdUtc < fromUtc || createdUtc >= toUtc) continue;
+
+                long bucketStartTicks = (createdUtc.Ticks / bucketTicks) * bucketTicks;
+                if (!buckets.TryGetValue(bucketStartTicks, out MissionHistoryBucket? bucket))
+                {
+                    bucket = new MissionHistoryBucket { StartUtc = new DateTime(bucketStartTicks, DateTimeKind.Utc) };
+                    buckets[bucketStartTicks] = bucket;
+                }
+
+                if (point.Status == MissionStatusEnum.Complete)
+                {
+                    bucket.CompleteCount++;
+                    result.CompleteCount++;
+                }
+                else if (point.Status == MissionStatusEnum.Failed || point.Status == MissionStatusEnum.LandingFailed)
+                {
+                    bucket.FailedCount++;
+                    result.FailedCount++;
+                }
+                else
+                {
+                    bucket.OtherCount++;
+                    result.OtherCount++;
+                }
+            }
+
+            result.TotalCount = result.CompleteCount + result.FailedCount + result.OtherCount;
+            result.Buckets = buckets.Values.ToList();
+            return result;
         }
     }
 }

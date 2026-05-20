@@ -14,7 +14,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
     /// <summary>
     /// PostgreSQL implementation of mission database operations.
     /// </summary>
-    public class MissionMethods : IMissionMethods
+    public partial class MissionMethods : IMissionMethods
     {
         #region Private-Members
 

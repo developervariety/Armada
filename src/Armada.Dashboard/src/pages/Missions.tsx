@@ -2,11 +2,11 @@ import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useNotifications } from '../context/NotificationContext';
 import {
-  listMissions, createMission, updateMission, deleteMission, purgeMission,
+  listMissionSummaries, createMission, updateMission, deleteMission, purgeMission,
   restartMission, retryMissionLanding, transitionMission, getMissionDiff, getMissionLog,
   listVessels, listCaptains, listVoyages,
 } from '../api/client';
-import type { Mission, Vessel, Captain, Voyage } from '../types/models';
+import type { MissionSummary, Vessel, Captain, Voyage } from '../types/models';
 import Pagination from '../components/shared/Pagination';
 import ActionMenu from '../components/shared/ActionMenu';
 import StatusBadge from '../components/shared/StatusBadge';
@@ -27,7 +27,7 @@ const MISSION_STATUSES = ['Pending', 'Assigned', 'InProgress', 'WorkProduced', '
 export default function Missions() {
   const navigate = useNavigate();
   const { t } = useLocale();
-  const [missions, setMissions] = useState<Mission[]>([]);
+  const [missions, setMissions] = useState<MissionSummary[]>([]);
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [captains, setCaptains] = useState<Captain[]>([]);
   const [voyages, setVoyages] = useState<Voyage[]>([]);
@@ -93,7 +93,7 @@ export default function Missions() {
       setLoading(true);
       const filters: Record<string, string> = {};
       if (statusFilter) filters.status = statusFilter;
-      const result = await listMissions({ pageNumber, pageSize, filters });
+      const result = await listMissionSummaries({ pageNumber, pageSize, filters });
       setMissions(result.objects || []);
       setTotalPages(result.totalPages || 1);
       setTotalRecords(result.totalRecords || 0);
@@ -232,7 +232,7 @@ export default function Missions() {
     });
   }
 
-  async function handleRestart(m: Mission) {
+  async function handleRestart(m: MissionSummary) {
     try {
       await restartMission(m.id);
       pushToast('success', t('Mission "{{title}}" restarted.', { title: m.title }));
@@ -240,7 +240,7 @@ export default function Missions() {
     } catch { setError(t('Restart failed.')); }
   }
 
-  async function handleRetryLanding(m: Mission) {
+  async function handleRetryLanding(m: MissionSummary) {
     try {
       await retryMissionLanding(m.id);
       pushToast('success', t('Landing succeeded for "{{title}}"', { title: m.title }));

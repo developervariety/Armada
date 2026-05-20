@@ -688,7 +688,8 @@ Commands are sent via the `command` route. Each command returns a `command.resul
 | | `create_voyage` | Create voyage | `data` |
 | | `cancel_voyage` | Cancel voyage | `id` |
 | | `purge_voyage` | Permanently delete voyage and all missions | `id` |
-| **Mission** | `list_missions` | List/enumerate missions | optional `query` |
+| **Mission** | `list_missions` | List/enumerate full mission objects | optional `query` |
+| | `list_missions_summary` | List/enumerate lightweight mission summaries | optional `query` |
 | | `get_mission` | Get mission by ID | `id` |
 | | `create_mission` | Create and dispatch mission | `data` |
 | | `update_mission` | Update mission | `id`, `data` |
@@ -1377,7 +1378,7 @@ Permanently delete a voyage and all of its missions.
 
 #### list_missions
 
-List or enumerate missions with optional pagination and filtering.
+List or enumerate full mission objects with optional pagination and filtering.
 
 **Request:**
 
@@ -1398,6 +1399,61 @@ List or enumerate missions with optional pagination and filtering.
 |---|---|---|---|
 | `action` | string | Yes | `"list_missions"` |
 | `query` | object | No | [EnumerationQuery](#enumerationquery) for pagination/filtering |
+
+---
+
+#### list_missions_summary
+
+List or enumerate lightweight mission summaries with optional pagination and filtering.
+
+This action returns `MissionSummary` rows instead of full `Mission` objects. Use it for dashboards and status views that need IDs, status, routing fields, timestamps, and payload length hints without transferring `Description`, `DiffSnapshot`, or `AgentOutput`.
+
+**Request:**
+
+```json
+{
+  "Route": "command",
+  "action": "list_missions_summary",
+  "query": {
+    "pageNumber": 1,
+    "pageSize": 50,
+    "voyageId": "vyg_abc123",
+    "status": "InProgress"
+  }
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `action` | string | Yes | `"list_missions_summary"` |
+| `query` | object | No | [EnumerationQuery](#enumerationquery) for pagination/filtering |
+
+**Summary object fields:**
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | string | Mission ID |
+| `title` | string | Mission title |
+| `status` | string | [MissionStatusEnum](#missionstatusenum) value |
+| `vesselId` | string \| null | Linked vessel ID |
+| `voyageId` | string \| null | Linked voyage ID |
+| `captainId` | string \| null | Assigned captain ID |
+| `branchName` | string \| null | Working branch name |
+| `dockId` | string \| null | Linked dock ID |
+| `processId` | int \| null | Local process ID when active |
+| `prUrl` | string \| null | Pull request URL |
+| `commitHash` | string \| null | Last recorded commit hash |
+| `priority` | int | Mission priority |
+| `parentMissionId` | string \| null | Parent mission ID |
+| `persona` | string \| null | Assigned persona |
+| `dependsOnMissionId` | string \| null | Dependency mission ID |
+| `createdUtc` | string | Creation timestamp |
+| `lastUpdateUtc` | string | Last update timestamp |
+| `startedUtc` | string \| null | Start timestamp |
+| `completedUtc` | string \| null | Completion timestamp |
+| `descriptionLength` | int | Saved description length |
+| `diffSnapshotLength` | int | Saved diff length |
+| `agentOutputLength` | int | Saved agent output length |
 
 ---
 

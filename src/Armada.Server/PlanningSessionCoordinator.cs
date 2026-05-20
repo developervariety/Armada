@@ -36,6 +36,7 @@ namespace Armada.Server
         private readonly Func<string, string, string?, string?, string?, string?, string?, string?, Task> _EmitEventAsync;
         private readonly ArmadaWebSocketHub? _WebSocketHub;
         private readonly PlaybookService _Playbooks;
+        private const int _MaxPlanningOutputChars = 131072;
         private readonly System.Collections.Concurrent.ConcurrentDictionary<string, TurnState> _ActiveTurns =
             new System.Collections.Concurrent.ConcurrentDictionary<string, TurnState>(StringComparer.Ordinal);
         private readonly System.Collections.Concurrent.ConcurrentDictionary<string, Task<PlanningSession>> _StopOperations =
@@ -692,8 +693,7 @@ namespace Armada.Server
                     string updatedContent;
                     lock (outputLock)
                     {
-                        if (output.Length > 0) output.AppendLine();
-                        output.Append(line);
+                        BoundedTextBuffer.AppendLine(output, line, _MaxPlanningOutputChars);
                         updatedContent = output.ToString();
                     }
 
@@ -1004,8 +1004,7 @@ namespace Armada.Server
             {
                 lock (outputLock)
                 {
-                    if (output.Length > 0) output.AppendLine();
-                    output.Append(line);
+                    BoundedTextBuffer.AppendLine(output, line, _MaxPlanningOutputChars);
                 }
             };
             runtime.OnProcessExited += (processId, exitCode) => exitSource.TrySetResult(exitCode);

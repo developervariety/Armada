@@ -421,11 +421,10 @@ namespace Armada.Core.Services
             status.StalledCaptains = allCaptains.Count(c => c.State == CaptainStateEnum.Stalled);
 
             // Mission counts by status
-            List<Mission> allMissions = await _Database.Missions.EnumerateAsync(token).ConfigureAwait(false);
-            foreach (MissionStatusEnum missionStatus in Enum.GetValues<MissionStatusEnum>())
+            Dictionary<MissionStatusEnum, int> missionCounts = await _Database.Missions.CountByStatusAsync(token).ConfigureAwait(false);
+            foreach (KeyValuePair<MissionStatusEnum, int> kvp in missionCounts)
             {
-                int count = allMissions.Count(m => m.Status == missionStatus);
-                if (count > 0) status.MissionsByStatus[missionStatus.ToString()] = count;
+                if (kvp.Value > 0) status.MissionsByStatus[kvp.Key.ToString()] = kvp.Value;
             }
 
             // Active voyages

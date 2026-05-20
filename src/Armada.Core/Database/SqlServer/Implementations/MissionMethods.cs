@@ -14,7 +14,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
     /// <summary>
     /// SQL Server implementation of mission database operations.
     /// </summary>
-    internal class MissionMethods : IMissionMethods
+    internal partial class MissionMethods : IMissionMethods
     {
         #region Private-Members
 

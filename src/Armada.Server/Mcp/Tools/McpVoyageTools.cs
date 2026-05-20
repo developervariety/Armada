@@ -124,18 +124,18 @@ namespace Armada.Server.Mcp.Tools
                     Voyage? voyage = await database.Voyages.ReadAsync(voyageId).ConfigureAwait(false);
                     if (voyage == null) return (object)new { Error = "Voyage not found" };
 
-                    List<Mission> missions = await database.Missions.EnumerateByVoyageAsync(voyageId).ConfigureAwait(false);
+                    List<MissionSummary> missionSummaries = await database.Missions.EnumerateSummariesByVoyageAsync(voyageId).ConfigureAwait(false);
 
                     // Default: summary mode (returns voyage metadata + mission counts by status, no mission objects)
                     bool isSummary = request.Summary != false;
                     if (isSummary)
                     {
-                        Dictionary<string, int> counts = missions.GroupBy(m => m.Status.ToString())
+                        Dictionary<string, int> counts = missionSummaries.GroupBy(m => m.Status.ToString())
                             .ToDictionary(g => g.Key, g => g.Count());
                         return (object)new
                         {
                             Voyage = new { voyage.Id, voyage.Title, voyage.Description, voyage.Status, voyage.CreatedUtc, voyage.LastUpdateUtc },
-                            TotalMissions = missions.Count,
+                            TotalMissions = missionSummaries.Count,
                             MissionCountsByStatus = counts
                         };
                     }
@@ -143,10 +143,11 @@ namespace Armada.Server.Mcp.Tools
                     // Non-summary: optionally include mission objects
                     if (request.IncludeMissions != true)
                     {
-                        return (object)new { Voyage = voyage, TotalMissions = missions.Count };
+                        return (object)new { Voyage = voyage, TotalMissions = missionSummaries.Count };
                     }
 
                     // Full mission objects with optional field inclusion
+                    List<Mission> missions = await database.Missions.EnumerateByVoyageAsync(voyageId).ConfigureAwait(false);
                     foreach (Mission m in missions)
                     {
                         m.DiffSnapshot = request.IncludeDiffs == true ? m.DiffSnapshot : null;

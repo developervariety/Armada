@@ -581,6 +581,17 @@ namespace Armada.Test.Automated.Suites
                 JsonElement resp = await WsCommandAsync("list_missions").ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
                 AssertEqual("list_missions", resp.GetProperty("action").GetString());
+                EnumerationResult<Mission> data = DeserializeData<EnumerationResult<Mission>>(resp);
+                AssertNotNull(data);
+            }).ConfigureAwait(false);
+
+            await RunTest("ListMissionSummaries_Empty_ReturnsEmptyList", async () =>
+            {
+                JsonElement resp = await WsCommandAsync("list_missions_summary").ConfigureAwait(false);
+                AssertEqual("command.result", resp.GetProperty("type").GetString());
+                AssertEqual("list_missions_summary", resp.GetProperty("action").GetString());
+                EnumerationResult<MissionSummary> data = DeserializeData<EnumerationResult<MissionSummary>>(resp);
+                AssertNotNull(data);
             }).ConfigureAwait(false);
 
             await RunTest("CreateMission_ReturnsCreatedMission", async () =>
@@ -703,6 +714,17 @@ namespace Armada.Test.Automated.Suites
 
                 JsonElement resp = await WsCommandAsync("list_missions", new { query = new { pageSize = 2 } }).ConfigureAwait(false);
                 EnumerationResult<Mission> data = DeserializeData<EnumerationResult<Mission>>(resp);
+                AssertEqual(2, data.Objects.Count);
+            }).ConfigureAwait(false);
+
+            await RunTest("ListMissionSummaries_WithPagination_RespectsPageSize", async () =>
+            {
+                await CreateMissionViaRestAsync("ws-page-summary-m1").ConfigureAwait(false);
+                await CreateMissionViaRestAsync("ws-page-summary-m2").ConfigureAwait(false);
+                await CreateMissionViaRestAsync("ws-page-summary-m3").ConfigureAwait(false);
+
+                JsonElement resp = await WsCommandAsync("list_missions_summary", new { query = new { pageSize = 2 } }).ConfigureAwait(false);
+                EnumerationResult<MissionSummary> data = DeserializeData<EnumerationResult<MissionSummary>>(resp);
                 AssertEqual(2, data.Objects.Count);
             }).ConfigureAwait(false);
 

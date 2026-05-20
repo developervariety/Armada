@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   getStatus,
-  listMissions,
+  listMissionSummaries,
   listVessels,
   listCaptains,
   listSignals,
@@ -10,7 +10,7 @@ import {
   deleteMission,
   restartMission,
 } from '../api/client';
-import type { Mission, Vessel, Captain, Signal, Fleet } from '../types/models';
+import type { MissionSummary, Vessel, Captain, Signal, Fleet } from '../types/models';
 import { useWebSocket } from '../context/WebSocketContext';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import ErrorModal from '../components/shared/ErrorModal';
@@ -33,6 +33,7 @@ interface VoyageProgress {
   totalMissions: number;
   completedMissions: number;
   failedMissions: number;
+  vesselIds: string[];
 }
 
 interface StatusData {
@@ -66,8 +67,7 @@ export default function Dashboard() {
   }, []);
 
   const [status, setStatus] = useState<StatusData | null>(null);
-  const [recentMissions, setRecentMissions] = useState<Mission[]>([]);
-  const [allMissions, setAllMissions] = useState<Mission[]>([]);
+  const [recentMissions, setRecentMissions] = useState<MissionSummary[]>([]);
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [fleets, setFleets] = useState<Fleet[]>([]);
   const [captains, setCaptains] = useState<Captain[]>([]);
@@ -105,13 +105,11 @@ export default function Dashboard() {
   );
 
   const voyageVesselNames = useCallback(
-    (voyageId: string | null | undefined) => {
-      if (!voyageId) return '-';
-      const vesselIds = [...new Set(recentMissions.filter(m => m.voyageId === voyageId).map(m => m.vesselId))];
-      if (vesselIds.length === 0) return '-';
+    (vesselIds: string[] | null | undefined) => {
+      if (!vesselIds || vesselIds.length === 0) return '-';
       return vesselIds.map(id => vesselName(id)).join(', ');
     },
-    [recentMissions, vesselName],
+    [vesselName],
   );
 
   const captainName = useCallback(
@@ -127,18 +125,14 @@ export default function Dashboard() {
     try {
       const [statusRes, missionRes, vesselRes, captainRes, fleetRes] = await Promise.all([
         getStatus().catch(() => null),
-        listMissions({ pageSize: 9999 }).catch(() => null),
+        listMissionSummaries({ pageSize: 10 }).catch(() => null),
         listVessels({ pageSize: 9999 }).catch(() => null),
         listCaptains({ pageSize: 9999 }).catch(() => null),
         listFleets({ pageSize: 9999 }).catch(() => null),
       ]);
       if (statusRes) setStatus(statusRes as unknown as StatusData);
       if (missionRes) {
-        setAllMissions(missionRes.objects);
-        const sorted = [...missionRes.objects].sort(
-          (a, b) => new Date(b.createdUtc).getTime() - new Date(a.createdUtc).getTime(),
-        );
-        setRecentMissions(sorted.slice(0, 10));
+        setRecentMissions(missionRes.objects || []);
       }
       if (vesselRes) setVessels(vesselRes.objects);
       if (fleetRes) setFleets(fleetRes.objects);
@@ -387,7 +381,7 @@ export default function Dashboard() {
       </div>
 
       {/* Mission History Chart */}
-      <MissionHistoryChart missions={allMissions} vessels={vessels} fleets={fleets} onRefresh={loadAll} />
+      <MissionHistoryChart vessels={vessels} fleets={fleets} onRefresh={loadAll} />
 
       {/* Voyage Progress */}
       {status?.voyages && status.voyages.length > 0 && (
@@ -422,7 +416,7 @@ export default function Dashboard() {
                     <td>
                       <StatusBadge status={vp.voyage?.status || ''} />
                     </td>
-                    <td className="text-dim">{voyageVesselNames(vp.voyage?.id)}</td>
+                    <td className="text-dim">{voyageVesselNames(vp.vesselIds)}</td>
                     <td>
                       <div className="progress-bar">
                         <div
