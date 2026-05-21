@@ -199,7 +199,8 @@ namespace Armada.Core.Services
                             if (!inTypeBody)
                             {
                                 currentType = qualifiedName;
-                                braceDepthAtTypeEntry = braceDepth;
+                                // Same logic as method body: if { is on this line, depth is already incremented.
+                                braceDepthAtTypeEntry = trimmed.Contains('{') ? braceDepth : braceDepth + 1;
                                 inTypeBody = true;
                             }
                         }
@@ -259,11 +260,14 @@ namespace Armada.Core.Services
                                 });
                             }
 
-                            if (trimmed.Contains('{') || !trimmed.TrimEnd().EndsWith(";"))
+                            if (!trimmed.TrimEnd().EndsWith(";"))
                             {
                                 currentMethod = qualifiedMethod;
                                 inMethodBody = true;
-                                braceDepthAtMethodEntry = braceDepth;
+                                // When { is on the same line, brace tracking already incremented depth.
+                                // When { is on the next line, add 1 so exit triggers when depth drops back
+                                // to signature level (i.e., after the closing } of the body).
+                                braceDepthAtMethodEntry = trimmed.Contains('{') ? braceDepth : braceDepth + 1;
                             }
                         }
                         continue;
