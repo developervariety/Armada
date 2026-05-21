@@ -37,6 +37,7 @@ namespace Armada.Core.Services
         private IGitService _Git;
         private IEmbeddingClient? _EmbeddingClient;
         private IInferenceClient? _InferenceClient;
+        private CSharpSymbolExtractor _SymbolExtractor = new CSharpSymbolExtractor();
 
         #endregion
 
@@ -205,6 +206,7 @@ namespace Armada.Core.Services
                 };
 
                 await WriteIndexAsync(vesselIndexDirectory, status, records, token).ConfigureAwait(false);
+                await WriteGraphSidecarsAsync(vesselIndexDirectory, vessel.Id, commitSha, tempDirectory, records, token).ConfigureAwait(false);
                 return status;
             }
             catch (Exception ex)
@@ -696,6 +698,72 @@ namespace Armada.Core.Services
                 foreach (CodeIndexRecord record in records)
                 {
                     string json = JsonSerializer.Serialize(record, _JsonOptions);
+                    await writer.WriteLineAsync(json.AsMemory(), token).ConfigureAwait(false);
+                }
+            }
+        }
+
+        private async Task WriteGraphSidecarsAsync(
+            string vesselIndexDirectory,
+            string vesselId,
+            string commitSha,
+            string tempDirectory,
+            List<CodeIndexRecord> records,
+            CancellationToken token)
+        {
+            List<CodeGraphSymbolRecord> allSymbols = new List<CodeGraphSymbolRecord>();
+            List<CodeGraphEdgeRecord> allEdges = new List<CodeGraphEdgeRecord>();
+
+            // Process each unique C# file represented in the chunk records
+            HashSet<string> processedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (CodeIndexRecord record in records)
+            {
+                if (!record.Path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)) continue;
+                if (!processedPaths.Add(record.Path)) continue;
+
+                string absolutePath = Path.Combine(tempDirectory, record.Path.Replace('/', Path.DirectorySeparatorChar));
+                if (!File.Exists(absolutePath)) continue;
+
+                string source;
+                try
+                {
+                    source = File.ReadAllText(absolutePath, System.Text.Encoding.UTF8);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "graph extraction: failed to read " + record.Path + ": " + ex.Message);
+                    continue;
+                }
+
+                try
+                {
+                    List<CodeGraphSymbolRecord> fileSymbols;
+                    List<CodeGraphEdgeRecord> fileEdges;
+                    _SymbolExtractor.Extract(vesselId, commitSha, record.Path, record.ContentHash, source, out fileSymbols, out fileEdges);
+                    allSymbols.AddRange(fileSymbols);
+                    allEdges.AddRange(fileEdges);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "graph extraction: failed to extract symbols from " + record.Path + ": " + ex.Message);
+                }
+            }
+
+            await WriteJsonlFileAsync(Path.Combine(vesselIndexDirectory, "symbols.jsonl"), allSymbols, token).ConfigureAwait(false);
+            await WriteJsonlFileAsync(Path.Combine(vesselIndexDirectory, "edges.jsonl"), allEdges, token).ConfigureAwait(false);
+
+            _Logging.Info(_Header + "graph sidecars written: " + allSymbols.Count + " symbols, " + allEdges.Count + " edges");
+        }
+
+        private async Task WriteJsonlFileAsync<T>(string path, List<T> items, CancellationToken token)
+        {
+            using (FileStream stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None))
+            using (StreamWriter writer = new StreamWriter(stream, new System.Text.UTF8Encoding(false)))
+            {
+                foreach (T item in items)
+                {
+                    string json = JsonSerializer.Serialize(item, _JsonOptions);
                     await writer.WriteLineAsync(json.AsMemory(), token).ConfigureAwait(false);
                 }
             }
