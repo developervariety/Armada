@@ -85,7 +85,7 @@ Everything else in Armada exists to support that: isolated worktrees, parallel d
                               |                                               |
                               |                                               v
                               |                          +-----------------------------------------------------------+
-                              |                          | Select a planning reply                                    |
+                              |                          | Select a planning reply                                   |
                               |                          | Summarize it, open it in Dispatch, or dispatch directly   |
                               |                          +-----------------------------------------------------------+
                               |                                               |
