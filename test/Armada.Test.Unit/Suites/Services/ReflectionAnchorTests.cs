@@ -207,10 +207,11 @@ namespace Armada.Test.Unit.Suites.Services
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     Vessel vessel = await CreateAnchorVesselAsync(testDb.Driver, "anchor-event").ConfigureAwait(false);
+                    string content = "# Event anchor test\nSee src/Armada.Core/Memory/MemoryAnchor.cs and msn_embedded_event.";
                     Mission mission = await CreateReflectionMissionAsync(
                         testDb.Driver,
                         vessel.Id,
-                        ReflectionTestHelpers.BuildReflectionProposalAgentOutput("# Event anchor test")).ConfigureAwait(false);
+                        ReflectionTestHelpers.BuildReflectionProposalAgentOutput(content)).ConfigureAwait(false);
 
                     ReflectionMemoryService memSvc = new ReflectionMemoryService(testDb.Driver);
                     ReflectionOutputParser parser = new ReflectionOutputParser();
@@ -227,6 +228,33 @@ namespace Armada.Test.Unit.Suites.Services
                         "mission ID in source anchors");
                     AssertEqual("verbatim", outcome.Anchors.EvidenceKind, "verbatim evidenceKind");
                     AssertEqual("high", outcome.Anchors.Confidence, "high confidence from diff");
+
+                    List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByMissionAsync(mission.Id).ConfigureAwait(false);
+                    ArmadaEvent? accepted = null;
+                    foreach (ArmadaEvent armadaEvent in events)
+                    {
+                        if (armadaEvent.EventType == "reflection.accepted")
+                            accepted = armadaEvent;
+                    }
+
+                    AssertNotNull(accepted, "accepted event recorded");
+                    AcceptedReflectionPayload? payload = JsonSerializer.Deserialize<AcceptedReflectionPayload>(
+                        accepted!.Payload ?? "{}",
+                        new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    AssertNotNull(payload, "accepted event payload deserializes");
+                    AssertNotNull(payload!.Anchors, "accepted event payload includes anchors");
+                    AssertTrue(
+                        payload.Anchors!.SourceMissionIds.Contains(mission.Id.ToLowerInvariant())
+                        || payload.Anchors.SourceMissionIds.Contains(mission.Id),
+                        "event payload anchors include source mission ID");
+                    AssertTrue(
+                        payload.Anchors.SourceMissionIds.Contains("msn_embedded_event"),
+                        "event payload anchors include embedded mission ID");
+                    AssertTrue(
+                        payload.Anchors.FilePaths.Contains("src/Armada.Core/Memory/MemoryAnchor.cs"),
+                        "event payload anchors include extracted file path");
+                    AssertEqual("verbatim", payload.Anchors.EvidenceKind, "event payload anchor evidenceKind");
+                    AssertEqual("high", payload.Anchors.Confidence, "event payload anchor confidence");
                 }
             });
 
@@ -288,6 +316,22 @@ namespace Armada.Test.Unit.Suites.Services
                 settings);
             if (handler == null) throw new InvalidOperationException("armada_accept_memory_proposal handler missing");
             return handler;
+        }
+
+        private sealed class AcceptedReflectionPayload
+        {
+            public AcceptedReflectionAnchors? Anchors { get; set; }
+        }
+
+        private sealed class AcceptedReflectionAnchors
+        {
+            public List<string> SourceMissionIds { get; set; } = new List<string>();
+
+            public List<string> FilePaths { get; set; } = new List<string>();
+
+            public string? Confidence { get; set; }
+
+            public string? EvidenceKind { get; set; }
         }
 
         private sealed class StubAdmiralService : IAdmiralService
