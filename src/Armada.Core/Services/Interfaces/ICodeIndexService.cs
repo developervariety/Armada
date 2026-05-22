@@ -36,5 +36,30 @@ namespace Armada.Core.Services.Interfaces
         /// Build a dispatch-ready context pack across all vessels in a fleet.
         /// </summary>
         Task<FleetContextPackResponse> BuildFleetContextPackAsync(FleetContextPackRequest request, CancellationToken token = default);
+
+        /// <summary>
+        /// Search symbols from vessel-scoped graph sidecars.
+        /// </summary>
+        Task<CodeGraphSymbolSearchResponse> SearchSymbolsAsync(CodeGraphSymbolSearchRequest request, CancellationToken token = default);
+
+        /// <summary>
+        /// Resolve direct callers for a symbol from vessel-scoped graph sidecars.
+        /// </summary>
+        Task<CodeGraphNeighborsResponse> GetCallersAsync(CodeGraphNeighborsRequest request, CancellationToken token = default);
+
+        /// <summary>
+        /// Resolve direct callees for a symbol from vessel-scoped graph sidecars.
+        /// </summary>
+        Task<CodeGraphNeighborsResponse> GetCalleesAsync(CodeGraphNeighborsRequest request, CancellationToken token = default);
+
+        /// <summary>
+        /// Traverse graph relationships from a seed symbol using bounded depth and deterministic ordering.
+        /// </summary>
+        Task<CodeGraphImpactResponse> GetImpactAsync(CodeGraphImpactRequest request, CancellationToken token = default);
+
+        /// <summary>
+        /// Suggest affected tests from graph traversal evidence and path conventions.
+        /// </summary>
+        Task<CodeGraphAffectedTestsResponse> SuggestAffectedTestsAsync(CodeGraphAffectedTestsRequest request, CancellationToken token = default);
     }
 }
