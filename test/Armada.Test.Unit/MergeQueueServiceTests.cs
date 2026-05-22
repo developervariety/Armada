@@ -303,6 +303,21 @@ namespace Armada.Test.Unit
 
             public Task<FleetContextPackResponse> BuildFleetContextPackAsync(FleetContextPackRequest request, CancellationToken token = default)
                 => Task.FromResult(new FleetContextPackResponse());
+
+            public Task<CodeGraphSymbolSearchResponse> SearchSymbolsAsync(CodeGraphSymbolSearchRequest request, CancellationToken token = default)
+                => Task.FromResult(new CodeGraphSymbolSearchResponse());
+
+            public Task<CodeGraphNeighborsResponse> GetCallersAsync(CodeGraphNeighborsRequest request, CancellationToken token = default)
+                => Task.FromResult(new CodeGraphNeighborsResponse());
+
+            public Task<CodeGraphNeighborsResponse> GetCalleesAsync(CodeGraphNeighborsRequest request, CancellationToken token = default)
+                => Task.FromResult(new CodeGraphNeighborsResponse());
+
+            public Task<CodeGraphImpactResponse> GetImpactAsync(CodeGraphImpactRequest request, CancellationToken token = default)
+                => Task.FromResult(new CodeGraphImpactResponse());
+
+            public Task<CodeGraphAffectedTestsResponse> SuggestAffectedTestsAsync(CodeGraphAffectedTestsRequest request, CancellationToken token = default)
+                => Task.FromResult(new CodeGraphAffectedTestsResponse());
         }
 
         private static LoggingModule CreateLogging()

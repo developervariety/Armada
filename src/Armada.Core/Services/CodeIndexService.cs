@@ -38,6 +38,13 @@ namespace Armada.Core.Services
         private IEmbeddingClient? _EmbeddingClient;
         private IInferenceClient? _InferenceClient;
         private CSharpSymbolExtractor _SymbolExtractor = new CSharpSymbolExtractor();
+        private const int _DefaultGraphSearchLimit = 20;
+        private const int _DefaultGraphNeighborLimit = 25;
+        private const int _DefaultImpactDepth = 3;
+        private const int _DefaultImpactResultLimit = 50;
+        private const int _DefaultAffectedTestsLimit = 20;
+        private const int _MaxGraphDepth = 8;
+        private const int _MaxGraphResults = 200;
 
         #endregion
 
@@ -616,6 +623,250 @@ namespace Armada.Core.Services
             return response;
         }
 
+        /// <inheritdoc />
+        public async Task<CodeGraphSymbolSearchResponse> SearchSymbolsAsync(CodeGraphSymbolSearchRequest request, CancellationToken token = default)
+        {
+            if (request == null) throw new ArgumentNullException(nameof(request));
+            if (String.IsNullOrWhiteSpace(request.VesselId)) throw new ArgumentNullException(nameof(request.VesselId));
+            if (String.IsNullOrWhiteSpace(request.Query)) throw new ArgumentNullException(nameof(request.Query));
+
+            GraphQueryContext context = await LoadGraphQueryContextAsync(request.VesselId, token).ConfigureAwait(false);
+            int limit = ClampGraphLimit(request.Limit, _DefaultGraphSearchLimit, _MaxGraphResults);
+            string query = request.Query.Trim();
+            string pathPrefix = String.IsNullOrWhiteSpace(request.PathPrefix) ? "" : NormalizeRepoPath(request.PathPrefix.Trim());
+
+            List<CodeGraphSymbolSearchResult> results = new List<CodeGraphSymbolSearchResult>();
+            foreach (CodeGraphSymbolRecord symbol in context.Symbols)
+            {
+                if (!String.IsNullOrWhiteSpace(pathPrefix)
+                    && !symbol.Path.StartsWith(pathPrefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (request.Kind.HasValue && symbol.Kind != request.Kind.Value) continue;
+
+                ScoredSymbolMatch match = ScoreSymbolMatch(symbol, query);
+                if (match.Score <= 0) continue;
+                results.Add(new CodeGraphSymbolSearchResult
+                {
+                    Score = match.Score,
+                    MatchReason = match.Reason,
+                    Symbol = symbol
+                });
+            }
+
+            results = results
+                .OrderByDescending(r => r.Score)
+                .ThenBy(r => SelectSymbolName(r.Symbol), StringComparer.OrdinalIgnoreCase)
+                .ThenBy(r => r.Symbol.Path, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(r => r.Symbol.StartLine)
+                .Take(limit)
+                .ToList();
+
+            return new CodeGraphSymbolSearchResponse
+            {
+                Status = context.Status,
+                Query = request.Query,
+                Results = results,
+                Warnings = context.Warnings
+            };
+        }
+
+        /// <inheritdoc />
+        public async Task<CodeGraphNeighborsResponse> GetCallersAsync(CodeGraphNeighborsRequest request, CancellationToken token = default)
+        {
+            return await GetNeighborsAsync(request, includeCallers: true, includeCallees: false, token).ConfigureAwait(false);
+        }
+
+        /// <inheritdoc />
+        public async Task<CodeGraphNeighborsResponse> GetCalleesAsync(CodeGraphNeighborsRequest request, CancellationToken token = default)
+        {
+            return await GetNeighborsAsync(request, includeCallers: false, includeCallees: true, token).ConfigureAwait(false);
+        }
+
+        /// <inheritdoc />
+        public async Task<CodeGraphImpactResponse> GetImpactAsync(CodeGraphImpactRequest request, CancellationToken token = default)
+        {
+            if (request == null) throw new ArgumentNullException(nameof(request));
+            if (String.IsNullOrWhiteSpace(request.VesselId)) throw new ArgumentNullException(nameof(request.VesselId));
+            if (String.IsNullOrWhiteSpace(request.Symbol)) throw new ArgumentNullException(nameof(request.Symbol));
+
+            GraphQueryContext context = await LoadGraphQueryContextAsync(request.VesselId, token).ConfigureAwait(false);
+            int maxDepth = ClampGraphDepth(request.MaxDepth, _DefaultImpactDepth);
+            int maxResults = ClampGraphLimit(request.MaxResults, _DefaultImpactResultLimit, _MaxGraphResults);
+
+            List<CodeGraphSymbolRecord> seeds = ResolveSeedSymbols(context, request.Symbol, _DefaultGraphNeighborLimit);
+
+            Dictionary<string, ImpactAccumulator> accumulators = new Dictionary<string, ImpactAccumulator>(StringComparer.OrdinalIgnoreCase);
+            Queue<GraphTraversalStep> queue = new Queue<GraphTraversalStep>();
+            Dictionary<string, int> minDepthByNode = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (CodeGraphSymbolRecord seed in seeds)
+            {
+                string seedKey = BuildSymbolKey(seed);
+                if (String.IsNullOrWhiteSpace(seedKey)) continue;
+                minDepthByNode[seedKey] = 0;
+                queue.Enqueue(new GraphTraversalStep(seed, 0));
+            }
+
+            while (queue.Count > 0)
+            {
+                GraphTraversalStep current = queue.Dequeue();
+                if (current.Depth >= maxDepth) continue;
+
+                List<GraphEdgeHop> hops = ResolveTraversalHops(context, current.Symbol, request.Direction);
+                foreach (GraphEdgeHop hop in hops)
+                {
+                    string hopKey = BuildSymbolKey(hop.Symbol);
+                    if (String.IsNullOrWhiteSpace(hopKey)) continue;
+
+                    int nextDepth = current.Depth + 1;
+                    if (minDepthByNode.TryGetValue(hopKey, out int existingDepth) && existingDepth < nextDepth)
+                    {
+                        continue;
+                    }
+                    minDepthByNode[hopKey] = nextDepth;
+
+                    ImpactAccumulator accumulator = GetOrCreateImpactAccumulator(accumulators, hop.Symbol);
+                    accumulator.MinDepth = Math.Min(accumulator.MinDepth, nextDepth);
+                    accumulator.HitCount++;
+                    accumulator.Score = Math.Max(accumulator.Score, ScoreTraversalDepth(nextDepth) + hop.WeightBoost);
+                    if (accumulator.Reasons.Count < 3 && !accumulator.Reasons.Contains(hop.Reason, StringComparer.OrdinalIgnoreCase))
+                    {
+                        accumulator.Reasons.Add(hop.Reason);
+                    }
+
+                    queue.Enqueue(new GraphTraversalStep(hop.Symbol, nextDepth));
+                }
+            }
+
+            List<CodeGraphImpactResult> results = accumulators.Values
+                .OrderByDescending(a => a.Score)
+                .ThenBy(a => a.MinDepth)
+                .ThenBy(a => SelectSymbolName(a.Symbol), StringComparer.OrdinalIgnoreCase)
+                .ThenBy(a => a.Symbol.Path, StringComparer.OrdinalIgnoreCase)
+                .Take(maxResults)
+                .Select(a => new CodeGraphImpactResult
+                {
+                    Score = a.Score,
+                    MinDepth = a.MinDepth == Int32.MaxValue ? 0 : a.MinDepth,
+                    HitCount = a.HitCount,
+                    Symbol = a.Symbol,
+                    Reasons = a.Reasons.ToList()
+                })
+                .ToList();
+
+            return new CodeGraphImpactResponse
+            {
+                Status = context.Status,
+                RequestedSymbol = request.Symbol,
+                Direction = request.Direction,
+                MaxDepth = maxDepth,
+                ResolvedSeedSymbols = seeds,
+                Results = results,
+                Warnings = context.Warnings
+            };
+        }
+
+        /// <inheritdoc />
+        public async Task<CodeGraphAffectedTestsResponse> SuggestAffectedTestsAsync(CodeGraphAffectedTestsRequest request, CancellationToken token = default)
+        {
+            if (request == null) throw new ArgumentNullException(nameof(request));
+            if (String.IsNullOrWhiteSpace(request.VesselId)) throw new ArgumentNullException(nameof(request.VesselId));
+            if (String.IsNullOrWhiteSpace(request.Symbol)) throw new ArgumentNullException(nameof(request.Symbol));
+
+            int maxDepth = ClampGraphDepth(request.MaxDepth, _DefaultImpactDepth);
+            int maxResults = ClampGraphLimit(request.MaxResults, _DefaultAffectedTestsLimit, _MaxGraphResults);
+
+            CodeGraphImpactResponse impact = await GetImpactAsync(new CodeGraphImpactRequest
+            {
+                VesselId = request.VesselId,
+                Symbol = request.Symbol,
+                Direction = CodeGraphTraversalDirectionEnum.Both,
+                MaxDepth = maxDepth,
+                MaxResults = _MaxGraphResults
+            }, token).ConfigureAwait(false);
+
+            Dictionary<string, AffectedTestAccumulator> explicitCandidates = new Dictionary<string, AffectedTestAccumulator>(StringComparer.OrdinalIgnoreCase);
+            Dictionary<string, AffectedTestAccumulator> conventionCandidates = new Dictionary<string, AffectedTestAccumulator>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (CodeGraphImpactResult hit in impact.Results)
+            {
+                ClassifyTestSignal(hit.Symbol, out bool explicitSignal, out bool conventionSignal, out string signalReason);
+                if (!explicitSignal && !conventionSignal) continue;
+
+                AffectedTestAccumulator bucket = explicitSignal
+                    ? GetOrCreateAffectedTestAccumulator(explicitCandidates, hit.Symbol.Path)
+                    : GetOrCreateAffectedTestAccumulator(conventionCandidates, hit.Symbol.Path);
+
+                bucket.Path = hit.Symbol.Path;
+                bucket.Symbol = SelectSymbolName(hit.Symbol);
+                bucket.IsExplicitSignal = explicitSignal || bucket.IsExplicitSignal;
+                bucket.MinDepth = Math.Min(bucket.MinDepth, hit.MinDepth);
+                bucket.Score = Math.Max(bucket.Score, hit.Score + (explicitSignal ? 150 : 40));
+                if (bucket.Reasons.Count < 4)
+                {
+                    AddReason(bucket.Reasons, signalReason);
+                    foreach (string reason in hit.Reasons)
+                    {
+                        if (bucket.Reasons.Count >= 4) break;
+                        AddReason(bucket.Reasons, reason);
+                    }
+                }
+            }
+
+            if (explicitCandidates.Count == 0)
+            {
+                foreach (CodeGraphSymbolRecord seed in impact.ResolvedSeedSymbols)
+                {
+                    string seedStem = Path.GetFileNameWithoutExtension(seed.Path) ?? "";
+                    if (String.IsNullOrWhiteSpace(seedStem)) continue;
+                    foreach (CodeGraphImpactResult hit in impact.Results)
+                    {
+                        if (!LooksLikeTestPath(hit.Symbol.Path)) continue;
+                        string testStem = Path.GetFileNameWithoutExtension(hit.Symbol.Path) ?? "";
+                        if (!testStem.Contains(seedStem, StringComparison.OrdinalIgnoreCase)) continue;
+
+                        AffectedTestAccumulator bucket = GetOrCreateAffectedTestAccumulator(conventionCandidates, hit.Symbol.Path);
+                        bucket.Path = hit.Symbol.Path;
+                        bucket.Symbol = SelectSymbolName(hit.Symbol);
+                        bucket.IsExplicitSignal = false;
+                        bucket.MinDepth = Math.Min(bucket.MinDepth, hit.MinDepth);
+                        bucket.Score = Math.Max(bucket.Score, hit.Score + 30);
+                        AddReason(bucket.Reasons, "filename convention matched seed file stem");
+                    }
+                }
+            }
+
+            List<CodeGraphAffectedTestCandidate> candidates = explicitCandidates.Values
+                .Concat(conventionCandidates.Values)
+                .OrderByDescending(c => c.IsExplicitSignal)
+                .ThenByDescending(c => c.Score)
+                .ThenBy(c => c.Path, StringComparer.OrdinalIgnoreCase)
+                .Take(maxResults)
+                .Select(c => new CodeGraphAffectedTestCandidate
+                {
+                    TestPath = c.Path,
+                    Symbol = c.Symbol,
+                    Score = c.Score,
+                    IsExplicitSignal = c.IsExplicitSignal,
+                    EvidenceDepth = c.MinDepth == Int32.MaxValue ? 0 : c.MinDepth,
+                    Reasons = c.Reasons.ToList()
+                })
+                .ToList();
+
+            return new CodeGraphAffectedTestsResponse
+            {
+                Status = impact.Status,
+                RequestedSymbol = request.Symbol,
+                MaxDepth = maxDepth,
+                ResolvedSeedSymbols = impact.ResolvedSeedSymbols,
+                Candidates = candidates,
+                Warnings = impact.Warnings
+            };
+        }
+
         private static bool TryMatchGoalPattern(string? pattern, string goal)
         {
             if (String.IsNullOrEmpty(pattern)) return false;
@@ -832,6 +1083,468 @@ namespace Armada.Core.Services
             }
 
             return signatures;
+        }
+
+        private async Task<CodeGraphNeighborsResponse> GetNeighborsAsync(
+            CodeGraphNeighborsRequest request,
+            bool includeCallers,
+            bool includeCallees,
+            CancellationToken token)
+        {
+            if (request == null) throw new ArgumentNullException(nameof(request));
+            if (String.IsNullOrWhiteSpace(request.VesselId)) throw new ArgumentNullException(nameof(request.VesselId));
+            if (String.IsNullOrWhiteSpace(request.Symbol)) throw new ArgumentNullException(nameof(request.Symbol));
+
+            GraphQueryContext context = await LoadGraphQueryContextAsync(request.VesselId, token).ConfigureAwait(false);
+            int limit = ClampGraphLimit(request.Limit, _DefaultGraphNeighborLimit, _MaxGraphResults);
+            List<CodeGraphSymbolRecord> seeds = ResolveSeedSymbols(context, request.Symbol, _DefaultGraphNeighborLimit);
+
+            Dictionary<string, CodeGraphNeighborResult> resultsByKey = new Dictionary<string, CodeGraphNeighborResult>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (CodeGraphSymbolRecord seed in seeds)
+            {
+                if (includeCallers)
+                {
+                    foreach (CodeGraphNeighborResult caller in ResolveDirectNeighbors(context, seed, includeCallers: true))
+                    {
+                        string key = BuildSymbolKey(caller.Symbol);
+                        if (String.IsNullOrWhiteSpace(key)) continue;
+                        if (!resultsByKey.TryGetValue(key, out CodeGraphNeighborResult? existing))
+                        {
+                            resultsByKey[key] = caller;
+                            continue;
+                        }
+
+                        if (caller.Score > existing.Score)
+                        {
+                            resultsByKey[key] = caller;
+                        }
+                    }
+                }
+
+                if (includeCallees)
+                {
+                    foreach (CodeGraphNeighborResult callee in ResolveDirectNeighbors(context, seed, includeCallers: false))
+                    {
+                        string key = BuildSymbolKey(callee.Symbol);
+                        if (String.IsNullOrWhiteSpace(key)) continue;
+                        if (!resultsByKey.TryGetValue(key, out CodeGraphNeighborResult? existing))
+                        {
+                            resultsByKey[key] = callee;
+                            continue;
+                        }
+
+                        if (callee.Score > existing.Score)
+                        {
+                            resultsByKey[key] = callee;
+                        }
+                    }
+                }
+            }
+
+            List<CodeGraphNeighborResult> ordered = resultsByKey.Values
+                .OrderByDescending(r => r.Score)
+                .ThenBy(r => SelectSymbolName(r.Symbol), StringComparer.OrdinalIgnoreCase)
+                .ThenBy(r => r.Symbol.Path, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(r => r.Symbol.StartLine)
+                .Take(limit)
+                .ToList();
+
+            return new CodeGraphNeighborsResponse
+            {
+                Status = context.Status,
+                RequestedSymbol = request.Symbol,
+                ResolvedSeedSymbols = seeds,
+                Results = ordered,
+                Warnings = context.Warnings
+            };
+        }
+
+        private async Task<GraphQueryContext> LoadGraphQueryContextAsync(string vesselId, CancellationToken token)
+        {
+            CodeIndexStatus status = await GetStatusAsync(vesselId, token).ConfigureAwait(false);
+            List<string> warnings = new List<string>();
+            if (!String.Equals(status.Freshness, "Fresh", StringComparison.OrdinalIgnoreCase))
+            {
+                warnings.Add("index freshness is " + status.Freshness);
+            }
+
+            string vesselDirectory = GetVesselIndexDirectory(vesselId);
+            string symbolsPath = Path.Combine(vesselDirectory, "symbols.jsonl");
+            string edgesPath = Path.Combine(vesselDirectory, "edges.jsonl");
+
+            if (!File.Exists(symbolsPath)) warnings.Add("graph symbols sidecar missing: symbols.jsonl");
+            if (!File.Exists(edgesPath)) warnings.Add("graph edges sidecar missing: edges.jsonl");
+
+            List<CodeGraphSymbolRecord> symbols = await ReadJsonlRecordsAsync<CodeGraphSymbolRecord>(symbolsPath, token).ConfigureAwait(false);
+            List<CodeGraphEdgeRecord> edges = await ReadJsonlRecordsAsync<CodeGraphEdgeRecord>(edgesPath, token).ConfigureAwait(false);
+
+            symbols = symbols
+                .Where(s => String.IsNullOrWhiteSpace(s.VesselId) || String.Equals(s.VesselId, vesselId, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            edges = edges
+                .Where(e => String.IsNullOrWhiteSpace(e.VesselId) || String.Equals(e.VesselId, vesselId, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            if (symbols.Count == 0) warnings.Add("graph symbols sidecar is empty");
+            if (edges.Count == 0) warnings.Add("graph edges sidecar is empty");
+
+            if (!String.IsNullOrWhiteSpace(status.IndexedCommitSha))
+            {
+                bool mismatchedSymbolCommit = symbols.Any(s =>
+                    !String.IsNullOrWhiteSpace(s.CommitSha)
+                    && !String.Equals(s.CommitSha, status.IndexedCommitSha, StringComparison.OrdinalIgnoreCase));
+                if (mismatchedSymbolCommit)
+                {
+                    warnings.Add("graph symbols sidecar commit does not match metadata indexed commit");
+                }
+
+                bool mismatchedEdgeCommit = edges.Any(e =>
+                    !String.IsNullOrWhiteSpace(e.CommitSha)
+                    && !String.Equals(e.CommitSha, status.IndexedCommitSha, StringComparison.OrdinalIgnoreCase));
+                if (mismatchedEdgeCommit)
+                {
+                    warnings.Add("graph edges sidecar commit does not match metadata indexed commit");
+                }
+            }
+
+            Dictionary<string, List<CodeGraphSymbolRecord>> symbolLookup = new Dictionary<string, List<CodeGraphSymbolRecord>>(StringComparer.OrdinalIgnoreCase);
+            foreach (CodeGraphSymbolRecord symbol in symbols)
+            {
+                AddSymbolLookup(symbolLookup, symbol.QualifiedName, symbol);
+                AddSymbolLookup(symbolLookup, symbol.SimpleName, symbol);
+            }
+
+            return new GraphQueryContext(status, symbols, edges, symbolLookup, warnings);
+        }
+
+        private async Task<List<T>> ReadJsonlRecordsAsync<T>(string path, CancellationToken token)
+        {
+            if (!File.Exists(path)) return new List<T>();
+
+            List<T> records = new List<T>();
+            using (FileStream stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            using (StreamReader reader = new StreamReader(stream, Encoding.UTF8))
+            {
+                string? line;
+                while ((line = await reader.ReadLineAsync(token).ConfigureAwait(false)) != null)
+                {
+                    if (String.IsNullOrWhiteSpace(line)) continue;
+                    T? record = JsonSerializer.Deserialize<T>(line, _JsonOptions);
+                    if (record == null) continue;
+                    records.Add(record);
+                }
+            }
+
+            return records;
+        }
+
+        private static void AddSymbolLookup(Dictionary<string, List<CodeGraphSymbolRecord>> lookup, string key, CodeGraphSymbolRecord symbol)
+        {
+            if (String.IsNullOrWhiteSpace(key)) return;
+            if (!lookup.TryGetValue(key, out List<CodeGraphSymbolRecord>? bucket))
+            {
+                bucket = new List<CodeGraphSymbolRecord>();
+                lookup[key] = bucket;
+            }
+            bucket.Add(symbol);
+        }
+
+        private static List<CodeGraphSymbolRecord> ResolveSeedSymbols(GraphQueryContext context, string symbolQuery, int maxSeeds)
+        {
+            if (String.IsNullOrWhiteSpace(symbolQuery)) return new List<CodeGraphSymbolRecord>();
+            int seedLimit = ClampGraphLimit(maxSeeds, _DefaultGraphNeighborLimit, _MaxGraphResults);
+            string query = symbolQuery.Trim();
+
+            List<(CodeGraphSymbolRecord Symbol, double Score)> scored = new List<(CodeGraphSymbolRecord Symbol, double Score)>();
+            foreach (CodeGraphSymbolRecord symbol in context.Symbols)
+            {
+                ScoredSymbolMatch match = ScoreSymbolMatch(symbol, query);
+                if (match.Score <= 0) continue;
+                scored.Add((symbol, match.Score));
+            }
+
+            return scored
+                .OrderByDescending(s => s.Score)
+                .ThenBy(s => SelectSymbolName(s.Symbol), StringComparer.OrdinalIgnoreCase)
+                .ThenBy(s => s.Symbol.Path, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(s => s.Symbol.StartLine)
+                .Take(seedLimit)
+                .Select(s => s.Symbol)
+                .ToList();
+        }
+
+        private static ScoredSymbolMatch ScoreSymbolMatch(CodeGraphSymbolRecord symbol, string query)
+        {
+            string qualified = symbol.QualifiedName ?? "";
+            string simple = symbol.SimpleName ?? "";
+            if (String.IsNullOrWhiteSpace(query)) return new ScoredSymbolMatch(0, "");
+
+            if (!String.IsNullOrWhiteSpace(qualified) && String.Equals(qualified, query, StringComparison.OrdinalIgnoreCase))
+                return new ScoredSymbolMatch(120, "exact qualified symbol match");
+            if (!String.IsNullOrWhiteSpace(simple) && String.Equals(simple, query, StringComparison.OrdinalIgnoreCase))
+                return new ScoredSymbolMatch(110, "exact simple symbol match");
+            if (!String.IsNullOrWhiteSpace(qualified) && qualified.StartsWith(query, StringComparison.OrdinalIgnoreCase))
+                return new ScoredSymbolMatch(95, "qualified symbol prefix match");
+            if (!String.IsNullOrWhiteSpace(simple) && simple.StartsWith(query, StringComparison.OrdinalIgnoreCase))
+                return new ScoredSymbolMatch(85, "simple symbol prefix match");
+            if (!String.IsNullOrWhiteSpace(qualified) && qualified.Contains(query, StringComparison.OrdinalIgnoreCase))
+                return new ScoredSymbolMatch(70, "qualified symbol contains query");
+            if (!String.IsNullOrWhiteSpace(simple) && simple.Contains(query, StringComparison.OrdinalIgnoreCase))
+                return new ScoredSymbolMatch(60, "simple symbol contains query");
+            if (!String.IsNullOrWhiteSpace(symbol.Path) && symbol.Path.Contains(query, StringComparison.OrdinalIgnoreCase))
+                return new ScoredSymbolMatch(40, "path contains query");
+
+            return new ScoredSymbolMatch(0, "");
+        }
+
+        private static List<CodeGraphNeighborResult> ResolveDirectNeighbors(GraphQueryContext context, CodeGraphSymbolRecord seed, bool includeCallers)
+        {
+            List<CodeGraphNeighborResult> results = new List<CodeGraphNeighborResult>();
+            foreach (CodeGraphEdgeRecord edge in context.Edges)
+            {
+                if (edge.Kind != CodeGraphEdgeKindEnum.Calls) continue;
+                if (includeCallers)
+                {
+                    if (!SymbolMatchesEndpoint(seed, edge.TargetSymbol)) continue;
+                    foreach (CodeGraphSymbolRecord source in ResolveSymbolsForEndpoint(context, edge.SourceSymbol, edge.SourcePath))
+                    {
+                        results.Add(new CodeGraphNeighborResult
+                        {
+                            Score = 95,
+                            EdgeKind = edge.Kind,
+                            TraversalDepth = 1,
+                            Symbol = source,
+                            Reason = "direct caller"
+                        });
+                    }
+                }
+                else
+                {
+                    if (!SymbolMatchesEndpoint(seed, edge.SourceSymbol)) continue;
+                    foreach (CodeGraphSymbolRecord target in ResolveSymbolsForEndpoint(context, edge.TargetSymbol, ""))
+                    {
+                        results.Add(new CodeGraphNeighborResult
+                        {
+                            Score = 95,
+                            EdgeKind = edge.Kind,
+                            TraversalDepth = 1,
+                            Symbol = target,
+                            Reason = "direct callee"
+                        });
+                    }
+                }
+            }
+
+            return results;
+        }
+
+        private static List<GraphEdgeHop> ResolveTraversalHops(
+            GraphQueryContext context,
+            CodeGraphSymbolRecord symbol,
+            CodeGraphTraversalDirectionEnum direction)
+        {
+            List<GraphEdgeHop> hops = new List<GraphEdgeHop>();
+            foreach (CodeGraphEdgeRecord edge in context.Edges)
+            {
+                if (edge.Kind != CodeGraphEdgeKindEnum.Calls) continue;
+
+                if ((direction == CodeGraphTraversalDirectionEnum.Callees || direction == CodeGraphTraversalDirectionEnum.Both)
+                    && SymbolMatchesEndpoint(symbol, edge.SourceSymbol))
+                {
+                    foreach (CodeGraphSymbolRecord target in ResolveSymbolsForEndpoint(context, edge.TargetSymbol, ""))
+                    {
+                        hops.Add(new GraphEdgeHop(
+                            target,
+                            "callee traversal",
+                            0));
+                    }
+                }
+
+                if ((direction == CodeGraphTraversalDirectionEnum.Callers || direction == CodeGraphTraversalDirectionEnum.Both)
+                    && SymbolMatchesEndpoint(symbol, edge.TargetSymbol))
+                {
+                    foreach (CodeGraphSymbolRecord source in ResolveSymbolsForEndpoint(context, edge.SourceSymbol, edge.SourcePath))
+                    {
+                        hops.Add(new GraphEdgeHop(
+                            source,
+                            "caller traversal",
+                            0));
+                    }
+                }
+            }
+
+            return hops;
+        }
+
+        private static bool SymbolMatchesEndpoint(CodeGraphSymbolRecord symbol, string endpoint)
+        {
+            if (String.IsNullOrWhiteSpace(endpoint)) return false;
+            if (!String.IsNullOrWhiteSpace(symbol.QualifiedName)
+                && String.Equals(symbol.QualifiedName, endpoint, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (!String.IsNullOrWhiteSpace(symbol.SimpleName)
+                && String.Equals(symbol.SimpleName, endpoint, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        private static List<CodeGraphSymbolRecord> ResolveSymbolsForEndpoint(GraphQueryContext context, string endpoint, string fallbackPath)
+        {
+            if (!String.IsNullOrWhiteSpace(endpoint)
+                && context.SymbolLookup.TryGetValue(endpoint, out List<CodeGraphSymbolRecord>? matches)
+                && matches.Count > 0)
+            {
+                return matches;
+            }
+
+            if (!String.IsNullOrWhiteSpace(fallbackPath))
+            {
+                List<CodeGraphSymbolRecord> pathMatches = context.Symbols
+                    .Where(s => String.Equals(s.Path, fallbackPath, StringComparison.OrdinalIgnoreCase))
+                    .OrderBy(s => s.StartLine)
+                    .Take(1)
+                    .ToList();
+                if (pathMatches.Count > 0) return pathMatches;
+            }
+
+            return new List<CodeGraphSymbolRecord>
+            {
+                new CodeGraphSymbolRecord
+                {
+                    Path = fallbackPath ?? "",
+                    SimpleName = endpoint ?? "",
+                    QualifiedName = endpoint ?? "",
+                    Kind = CodeGraphSymbolKindEnum.Unknown,
+                    StartLine = 1,
+                    EndLine = 1
+                }
+            };
+        }
+
+        private static string BuildSymbolKey(CodeGraphSymbolRecord symbol)
+        {
+            if (!String.IsNullOrWhiteSpace(symbol.QualifiedName)) return symbol.QualifiedName.Trim();
+            if (!String.IsNullOrWhiteSpace(symbol.SimpleName)) return symbol.SimpleName.Trim();
+            if (!String.IsNullOrWhiteSpace(symbol.Path)) return symbol.Path.Trim() + ":" + symbol.StartLine;
+            return "";
+        }
+
+        private static string SelectSymbolName(CodeGraphSymbolRecord symbol)
+        {
+            if (!String.IsNullOrWhiteSpace(symbol.QualifiedName)) return symbol.QualifiedName;
+            if (!String.IsNullOrWhiteSpace(symbol.SimpleName)) return symbol.SimpleName;
+            return "";
+        }
+
+        private static ImpactAccumulator GetOrCreateImpactAccumulator(Dictionary<string, ImpactAccumulator> accumulators, CodeGraphSymbolRecord symbol)
+        {
+            string key = BuildSymbolKey(symbol);
+            if (!accumulators.TryGetValue(key, out ImpactAccumulator? accumulator))
+            {
+                accumulator = new ImpactAccumulator(symbol);
+                accumulators[key] = accumulator;
+            }
+            return accumulator;
+        }
+
+        private static int ClampGraphDepth(int requested, int defaultValue)
+        {
+            int depth = requested > 0 ? requested : defaultValue;
+            if (depth < 1) depth = 1;
+            if (depth > _MaxGraphDepth) depth = _MaxGraphDepth;
+            return depth;
+        }
+
+        private static int ClampGraphLimit(int requested, int defaultValue, int maxValue)
+        {
+            int limit = requested > 0 ? requested : defaultValue;
+            if (limit < 1) limit = 1;
+            if (limit > maxValue) limit = maxValue;
+            return limit;
+        }
+
+        private static double ScoreTraversalDepth(int depth)
+        {
+            return Math.Max(1, 100 - (depth * 12));
+        }
+
+        private static void ClassifyTestSignal(CodeGraphSymbolRecord symbol, out bool explicitSignal, out bool conventionSignal, out string reason)
+        {
+            explicitSignal = false;
+            conventionSignal = false;
+            reason = "";
+
+            string path = symbol.Path ?? "";
+            string simple = symbol.SimpleName ?? "";
+            string qualified = symbol.QualifiedName ?? "";
+
+            if (LooksLikeExplicitTestPath(path))
+            {
+                explicitSignal = true;
+                reason = "explicit test file path signal";
+                return;
+            }
+
+            if (simple.EndsWith("Tests", StringComparison.OrdinalIgnoreCase)
+                || simple.EndsWith("Test", StringComparison.OrdinalIgnoreCase)
+                || qualified.Contains(".Tests.", StringComparison.OrdinalIgnoreCase))
+            {
+                explicitSignal = true;
+                reason = "explicit test symbol naming signal";
+                return;
+            }
+
+            if (LooksLikeTestPath(path))
+            {
+                conventionSignal = true;
+                reason = "test path naming convention";
+            }
+        }
+
+        private static bool LooksLikeExplicitTestPath(string path)
+        {
+            if (String.IsNullOrWhiteSpace(path)) return false;
+            string normalized = path.Replace('\\', '/');
+            if (normalized.Contains("/test/", StringComparison.OrdinalIgnoreCase)) return true;
+            if (normalized.Contains("/tests/", StringComparison.OrdinalIgnoreCase)) return true;
+            if (normalized.EndsWith("Tests.cs", StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
+        }
+
+        private static bool LooksLikeTestPath(string path)
+        {
+            if (String.IsNullOrWhiteSpace(path)) return false;
+            string normalized = path.Replace('\\', '/');
+            if (normalized.EndsWith("Test.cs", StringComparison.OrdinalIgnoreCase)) return true;
+            if (normalized.EndsWith("Tests.cs", StringComparison.OrdinalIgnoreCase)) return true;
+            if (normalized.EndsWith("Spec.cs", StringComparison.OrdinalIgnoreCase)) return true;
+            if (normalized.Contains("/integration/", StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
+        }
+
+        private static AffectedTestAccumulator GetOrCreateAffectedTestAccumulator(Dictionary<string, AffectedTestAccumulator> accumulators, string path)
+        {
+            string key = String.IsNullOrWhiteSpace(path) ? "<unknown>" : path;
+            if (!accumulators.TryGetValue(key, out AffectedTestAccumulator? accumulator))
+            {
+                accumulator = new AffectedTestAccumulator(path);
+                accumulators[key] = accumulator;
+            }
+            return accumulator;
+        }
+
+        private static void AddReason(List<string> reasons, string reason)
+        {
+            if (String.IsNullOrWhiteSpace(reason)) return;
+            if (reasons.Contains(reason, StringComparer.OrdinalIgnoreCase)) return;
+            reasons.Add(reason);
         }
 
         private async Task<string> ResolveRepositoryPathAsync(Vessel vessel, CancellationToken token)
@@ -1362,6 +2075,113 @@ namespace Armada.Core.Services
         private int EstimateTokens(string markdown)
         {
             return (int)Math.Ceiling((markdown ?? "").Length / 4.0);
+        }
+
+        private sealed class GraphQueryContext
+        {
+            public CodeIndexStatus Status { get; }
+
+            public List<CodeGraphSymbolRecord> Symbols { get; }
+
+            public List<CodeGraphEdgeRecord> Edges { get; }
+
+            public Dictionary<string, List<CodeGraphSymbolRecord>> SymbolLookup { get; }
+
+            public List<string> Warnings { get; }
+
+            public GraphQueryContext(
+                CodeIndexStatus status,
+                List<CodeGraphSymbolRecord> symbols,
+                List<CodeGraphEdgeRecord> edges,
+                Dictionary<string, List<CodeGraphSymbolRecord>> symbolLookup,
+                List<string> warnings)
+            {
+                Status = status;
+                Symbols = symbols;
+                Edges = edges;
+                SymbolLookup = symbolLookup;
+                Warnings = warnings;
+            }
+        }
+
+        private readonly struct ScoredSymbolMatch
+        {
+            public double Score { get; }
+
+            public string Reason { get; }
+
+            public ScoredSymbolMatch(double score, string reason)
+            {
+                Score = score;
+                Reason = reason ?? "";
+            }
+        }
+
+        private readonly struct GraphTraversalStep
+        {
+            public CodeGraphSymbolRecord Symbol { get; }
+
+            public int Depth { get; }
+
+            public GraphTraversalStep(CodeGraphSymbolRecord symbol, int depth)
+            {
+                Symbol = symbol;
+                Depth = depth;
+            }
+        }
+
+        private readonly struct GraphEdgeHop
+        {
+            public CodeGraphSymbolRecord Symbol { get; }
+
+            public string Reason { get; }
+
+            public double WeightBoost { get; }
+
+            public GraphEdgeHop(CodeGraphSymbolRecord symbol, string reason, double weightBoost)
+            {
+                Symbol = symbol;
+                Reason = reason ?? "";
+                WeightBoost = weightBoost;
+            }
+        }
+
+        private sealed class ImpactAccumulator
+        {
+            public CodeGraphSymbolRecord Symbol { get; }
+
+            public double Score { get; set; } = 0;
+
+            public int MinDepth { get; set; } = Int32.MaxValue;
+
+            public int HitCount { get; set; } = 0;
+
+            public List<string> Reasons { get; } = new List<string>();
+
+            public ImpactAccumulator(CodeGraphSymbolRecord symbol)
+            {
+                Symbol = symbol;
+            }
+        }
+
+        private sealed class AffectedTestAccumulator
+        {
+            public string Path { get; set; } = "";
+
+            public string Symbol { get; set; } = "";
+
+            public double Score { get; set; } = 0;
+
+            public bool IsExplicitSignal { get; set; } = false;
+
+            public int MinDepth { get; set; } = Int32.MaxValue;
+
+            public List<string> Reasons { get; } = new List<string>();
+
+            public AffectedTestAccumulator(string path)
+            {
+                Path = path ?? "";
+            }
         }
 
         private string GetVesselIndexDirectory(string vesselId)
