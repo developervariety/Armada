@@ -231,7 +231,15 @@ namespace Armada.Server.Mcp.Tools
                         judgeVerdicts = result.JudgeVerdicts,
                         appliedHintIds = result.AppliedHintIds,
                         pathWarnings = result.PathWarnings,
-                        conflictWarnings = result.ConflictWarnings
+                        conflictWarnings = result.ConflictWarnings,
+                        anchors = result.Anchors == null ? null : (object)new
+                        {
+                            sourceMissionIds = result.Anchors.SourceMissionIds,
+                            filePaths = result.Anchors.FilePaths,
+                            symbolNames = result.Anchors.SymbolNames,
+                            confidence = result.Anchors.Confidence,
+                            evidenceKind = result.Anchors.EvidenceKind,
+                        }
                     };
                 });
 

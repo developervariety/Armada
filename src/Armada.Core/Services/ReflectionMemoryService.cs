@@ -332,6 +332,13 @@ namespace Armada.Core.Services
                 }
             }
 
+            MemoryAnchor anchors = MemoryAnchorExtractor.Extract(
+                contentToApply,
+                diffText,
+                overrideActive,
+                mission.Id,
+                ModeToWireString(missionMode));
+
             string fileName = "vessel-" + SanitizeName(vessel.Name) + "-learned.md";
             PlaybookService playbookService = new PlaybookService(_Database, CreateSilentLogging());
             Playbook? existing = await _Database.Playbooks.ReadByFileNameAsync(tenantId, fileName, token).ConfigureAwait(false);
@@ -383,13 +390,21 @@ namespace Armada.Core.Services
                 addedFromReorganize = metrics.AddedFromReorganize,
                 tokensBefore = metrics.TokensBefore,
                 tokensAfter = metrics.TokensAfter,
-                judgeVerdicts = outcome.JudgeVerdicts
+                judgeVerdicts = outcome.JudgeVerdicts,
+                anchors = new
+                {
+                    sourceMissionIds = anchors.SourceMissionIds,
+                    filePaths = anchors.FilePaths,
+                    confidence = anchors.Confidence,
+                    evidenceKind = anchors.EvidenceKind,
+                }
             });
             await _Database.Events.CreateAsync(accepted, token).ConfigureAwait(false);
 
             outcome.PlaybookId = persisted.Id;
             outcome.PlaybookVersion = persisted.LastUpdateUtc.ToString("o");
             outcome.AppliedContent = contentToApply;
+            outcome.Anchors = anchors;
             return outcome;
         }
 
