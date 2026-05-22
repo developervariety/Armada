@@ -119,7 +119,7 @@ namespace Armada.Test.Unit.Suites.Services
                 // Three mid-tier models, one captain each. Seeded random verifies uniform selection.
                 List<Captain> captains = new List<Captain>
                 {
-                    MakeCaptain("composer-2-fast"),
+                    MakeCaptain("composer-2.5"),
                     MakeCaptain("claude-sonnet-4-6"),
                     MakeCaptain("gemini-3.5-pro")
                 };
@@ -145,9 +145,9 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 List<Captain> captains = new List<Captain>
                 {
-                    MakeCaptain("composer-2-fast"),
-                    MakeCaptain("composer-2-fast"),
-                    MakeCaptain("composer-2-fast"),
+                    MakeCaptain("composer-2.5"),
+                    MakeCaptain("composer-2.5"),
+                    MakeCaptain("composer-2.5"),
                     MakeCaptain("claude-sonnet-4-6"),
                     MakeCaptain("gemini-3.5-pro")
                 };
@@ -169,7 +169,7 @@ namespace Armada.Test.Unit.Suites.Services
                 // Two mid-tier captains, only one allows Judge persona
                 List<Captain> captains = new List<Captain>
                 {
-                    MakeCaptain("composer-2-fast", "[\"Worker\"]"),
+                    MakeCaptain("composer-2.5", "[\"Worker\"]"),
                     MakeCaptain("claude-sonnet-4-6", "[\"Worker\",\"Judge\"]")
                 };
 
@@ -185,7 +185,7 @@ namespace Armada.Test.Unit.Suites.Services
                 List<Captain> captains = new List<Captain>
                 {
                     MakeCaptain("claude-sonnet-4-6"),
-                    MakeCaptain("composer-2-fast")
+                    MakeCaptain("composer-2.5")
                 };
 
                 string? selected = PreferredModelTierSelector.SelectModel("low", captains, null, _ => 0);
