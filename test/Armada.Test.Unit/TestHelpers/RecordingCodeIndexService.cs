@@ -73,5 +73,35 @@ namespace Armada.Test.Unit.TestHelpers
         {
             return Task.FromResult(new FleetContextPackResponse());
         }
+
+        /// <inheritdoc />
+        public Task<CodeGraphSymbolSearchResponse> SearchSymbolsAsync(CodeGraphSymbolSearchRequest request, CancellationToken token = default)
+        {
+            return Task.FromResult(new CodeGraphSymbolSearchResponse());
+        }
+
+        /// <inheritdoc />
+        public Task<CodeGraphNeighborsResponse> GetCallersAsync(CodeGraphNeighborsRequest request, CancellationToken token = default)
+        {
+            return Task.FromResult(new CodeGraphNeighborsResponse());
+        }
+
+        /// <inheritdoc />
+        public Task<CodeGraphNeighborsResponse> GetCalleesAsync(CodeGraphNeighborsRequest request, CancellationToken token = default)
+        {
+            return Task.FromResult(new CodeGraphNeighborsResponse());
+        }
+
+        /// <inheritdoc />
+        public Task<CodeGraphImpactResponse> GetImpactAsync(CodeGraphImpactRequest request, CancellationToken token = default)
+        {
+            return Task.FromResult(new CodeGraphImpactResponse());
+        }
+
+        /// <inheritdoc />
+        public Task<CodeGraphAffectedTestsResponse> SuggestAffectedTestsAsync(CodeGraphAffectedTestsRequest request, CancellationToken token = default)
+        {
+            return Task.FromResult(new CodeGraphAffectedTestsResponse());
+        }
     }
 }
