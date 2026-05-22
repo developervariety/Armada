@@ -169,6 +169,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new ReflectionAcceptRejectToolsTests());
             runner.AddSuite(new ReflectionAnchorTests());
             runner.AddSuite(new StaleAnchorDetectorTests());
+            runner.AddSuite(new StaleAnchorDetectorEdgeCaseTests());
             runner.AddSuite(new ReflectionsEndToEndSmokeTests());
             runner.AddSuite(new ReflectionsV2F4EndToEndSmokeTests());
             runner.AddSuite(new ReflectionsV2F1EndToEndSmokeTests());
