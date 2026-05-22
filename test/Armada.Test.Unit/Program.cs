@@ -143,7 +143,9 @@ namespace Armada.Test.Unit
             runner.AddSuite(new VoyageMissionPlaybookPropagationTests());
             runner.AddSuite(new MissionAliasResolverTests());
             runner.AddSuite(new CSharpSymbolExtractorTests());
+            runner.AddSuite(new CSharpSymbolExtractorNegativePathTests());
             runner.AddSuite(new CodeIndexServiceTests());
+            runner.AddSuite(new CodeIndexServiceGraphSidecarTests());
             runner.AddSuite(new CodeIndexServiceSignatureTests());
             runner.AddSuite(new CodeIndexServiceSummarizerTests());
             runner.AddSuite(new CodeIndexServiceSummarizerNegativePathTests());
