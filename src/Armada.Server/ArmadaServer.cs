@@ -717,6 +717,10 @@ namespace Armada.Server
             // Backup & restore
             new BackupRoutes(_Database, _Settings, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
+
+            // Code index graph queries
+            new CodeIndexRoutes(_CodeIndex, _JsonOptions)
+                .Register(_App, authenticate, _AuthorizationService);
         }
 
         private void InitializeDashboard()

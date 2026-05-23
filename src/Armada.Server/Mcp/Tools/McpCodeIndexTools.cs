@@ -168,6 +168,126 @@ namespace Armada.Server.Mcp.Tools
                     if (String.IsNullOrWhiteSpace(request.Goal)) return (object)new { Error = "goal is required" };
                     return (object)await codeIndex.BuildFleetContextPackAsync(request).ConfigureAwait(false);
                 });
+
+            register(
+                "armada_graph_search_symbols",
+                "Search symbols in a vessel's code graph sidecars. Returns ranked symbol matches with kind, path, qualified name, and sidecar freshness warnings. Vectors are never included in results.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        vesselId = new { type = "string", description = "Vessel ID (vsl_ prefix)" },
+                        query = new { type = "string", description = "Symbol name query (qualified or simple)" },
+                        limit = new { type = "integer", description = "Maximum number of results (default 20)" },
+                        pathPrefix = new { type = "string", description = "Optional repo-relative path prefix filter" },
+                        kind = new { type = "string", description = "Optional symbol kind filter: Namespace, Class, Interface, Record, Enum, Struct, Method, Constructor, Property, Field, Delegate, Unknown" }
+                    },
+                    required = new[] { "vesselId", "query" }
+                },
+                async (args) =>
+                {
+                    if (!args.HasValue) return (object)new { Error = "missing args" };
+                    CodeGraphSymbolSearchRequest request = JsonSerializer.Deserialize<CodeGraphSymbolSearchRequest>(args.Value, _JsonOptions)!;
+                    if (String.IsNullOrWhiteSpace(request.VesselId)) return (object)new { Error = "vesselId is required" };
+                    if (String.IsNullOrWhiteSpace(request.Query)) return (object)new { Error = "query is required" };
+                    return (object)await codeIndex.SearchSymbolsAsync(request).ConfigureAwait(false);
+                });
+
+            register(
+                "armada_graph_get_callers",
+                "Resolve direct callers of a symbol from a vessel's code graph sidecars. Returns ranked neighbor results with edge kind, source path, and sidecar freshness warnings.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        vesselId = new { type = "string", description = "Vessel ID (vsl_ prefix)" },
+                        symbol = new { type = "string", description = "Seed symbol name (qualified or simple)" },
+                        limit = new { type = "integer", description = "Maximum number of caller results (default 25)" }
+                    },
+                    required = new[] { "vesselId", "symbol" }
+                },
+                async (args) =>
+                {
+                    if (!args.HasValue) return (object)new { Error = "missing args" };
+                    CodeGraphNeighborsRequest request = JsonSerializer.Deserialize<CodeGraphNeighborsRequest>(args.Value, _JsonOptions)!;
+                    if (String.IsNullOrWhiteSpace(request.VesselId)) return (object)new { Error = "vesselId is required" };
+                    if (String.IsNullOrWhiteSpace(request.Symbol)) return (object)new { Error = "symbol is required" };
+                    return (object)await codeIndex.GetCallersAsync(request).ConfigureAwait(false);
+                });
+
+            register(
+                "armada_graph_get_callees",
+                "Resolve direct callees of a symbol from a vessel's code graph sidecars. Returns ranked neighbor results with edge kind, source path, and sidecar freshness warnings.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        vesselId = new { type = "string", description = "Vessel ID (vsl_ prefix)" },
+                        symbol = new { type = "string", description = "Seed symbol name (qualified or simple)" },
+                        limit = new { type = "integer", description = "Maximum number of callee results (default 25)" }
+                    },
+                    required = new[] { "vesselId", "symbol" }
+                },
+                async (args) =>
+                {
+                    if (!args.HasValue) return (object)new { Error = "missing args" };
+                    CodeGraphNeighborsRequest request = JsonSerializer.Deserialize<CodeGraphNeighborsRequest>(args.Value, _JsonOptions)!;
+                    if (String.IsNullOrWhiteSpace(request.VesselId)) return (object)new { Error = "vesselId is required" };
+                    if (String.IsNullOrWhiteSpace(request.Symbol)) return (object)new { Error = "symbol is required" };
+                    return (object)await codeIndex.GetCalleesAsync(request).ConfigureAwait(false);
+                });
+
+            register(
+                "armada_graph_get_impact",
+                "Traverse graph relationships from a seed symbol using bounded depth. Returns impacted symbols with traversal depth, score, and sidecar freshness warnings. Direction can be Callers, Callees, or Both.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        vesselId = new { type = "string", description = "Vessel ID (vsl_ prefix)" },
+                        symbol = new { type = "string", description = "Seed symbol name (qualified or simple)" },
+                        direction = new { type = "string", description = "Traversal direction: Callers, Callees, or Both (default Both)" },
+                        maxDepth = new { type = "integer", description = "Maximum traversal depth (default 3)" },
+                        maxResults = new { type = "integer", description = "Maximum number of impacted symbols to return (default 50)" }
+                    },
+                    required = new[] { "vesselId", "symbol" }
+                },
+                async (args) =>
+                {
+                    if (!args.HasValue) return (object)new { Error = "missing args" };
+                    CodeGraphImpactRequest request = JsonSerializer.Deserialize<CodeGraphImpactRequest>(args.Value, _JsonOptions)!;
+                    if (String.IsNullOrWhiteSpace(request.VesselId)) return (object)new { Error = "vesselId is required" };
+                    if (String.IsNullOrWhiteSpace(request.Symbol)) return (object)new { Error = "symbol is required" };
+                    return (object)await codeIndex.GetImpactAsync(request).ConfigureAwait(false);
+                });
+
+            register(
+                "armada_graph_suggest_affected_tests",
+                "Suggest test files likely affected by a symbol change using graph traversal and path-convention fallback. Returns ranked candidates with evidence depth, reasons, and sidecar freshness warnings.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        vesselId = new { type = "string", description = "Vessel ID (vsl_ prefix)" },
+                        symbol = new { type = "string", description = "Seed symbol name (qualified or simple)" },
+                        maxDepth = new { type = "integer", description = "Maximum traversal depth used to collect evidence (default 3)" },
+                        maxResults = new { type = "integer", description = "Maximum number of suggested test candidates (default 20)" }
+                    },
+                    required = new[] { "vesselId", "symbol" }
+                },
+                async (args) =>
+                {
+                    if (!args.HasValue) return (object)new { Error = "missing args" };
+                    CodeGraphAffectedTestsRequest request = JsonSerializer.Deserialize<CodeGraphAffectedTestsRequest>(args.Value, _JsonOptions)!;
+                    if (String.IsNullOrWhiteSpace(request.VesselId)) return (object)new { Error = "vesselId is required" };
+                    if (String.IsNullOrWhiteSpace(request.Symbol)) return (object)new { Error = "symbol is required" };
+                    return (object)await codeIndex.SuggestAffectedTestsAsync(request).ConfigureAwait(false);
+                });
         }
     }
 }
