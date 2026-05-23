@@ -9,6 +9,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Threading.Tasks;
     using Armada.Core.Models;
     using Armada.Core.Services;
+    using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
@@ -819,6 +820,266 @@ namespace Armada.Test.Unit.Suites.Services
                     TryDeleteDirectory(dataRoot);
                 }
             });
+
+            await RunTest("GraphQueryMethods_DoNotInvokeGitCloneEvenWhenVesselHasRepoUrl", async () =>
+            {
+                // Stronger no-mutate proof than the LocalPath check: a stub git service records
+                // every CloneBareAsync call. With vessel.RepoUrl populated, the OLD code path
+                // (GetStatusAsync -> TryResolveCurrentCommitAsync -> ResolveRepositoryPathAsync)
+                // would have invoked CloneBareAsync. After the fix, the read-only status loader
+                // never reaches that code, so the call list must stay empty across all five
+                // graph query APIs.
+                string dataRoot = NewTempDirectory("armada-code-graph-query-git-noop-");
+                try
+                {
+                    using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        ArmadaSettings settings = BuildSettings(dataRoot);
+                        Vessel vessel = await CreateFixtureVesselAsync(db).ConfigureAwait(false);
+                        vessel.RepoUrl = "https://example.invalid/never-resolves.git";
+                        vessel = await db.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
+                        AssertTrue(String.IsNullOrEmpty(vessel.LocalPath), "vessel must start with no LocalPath");
+
+                        WriteGraphFixture(settings, vessel, freshness: "Fresh", includeGraphFiles: true, includeExplicitTest: true);
+
+                        StubGitService stub = new StubGitService();
+                        CodeIndexService service = CreateServiceWithGit(db, settings, stub);
+
+                        await service.SearchSymbolsAsync(new CodeGraphSymbolSearchRequest
+                        {
+                            VesselId = vessel.Id,
+                            Query = "Execute"
+                        }).ConfigureAwait(false);
+                        await service.GetCallersAsync(new CodeGraphNeighborsRequest
+                        {
+                            VesselId = vessel.Id,
+                            Symbol = "Armada.App.Worker.Run"
+                        }).ConfigureAwait(false);
+                        await service.GetCalleesAsync(new CodeGraphNeighborsRequest
+                        {
+                            VesselId = vessel.Id,
+                            Symbol = "Armada.App.Worker.Run"
+                        }).ConfigureAwait(false);
+                        await service.GetImpactAsync(new CodeGraphImpactRequest
+                        {
+                            VesselId = vessel.Id,
+                            Symbol = "Armada.App.Worker.Run",
+                            MaxDepth = 3,
+                            MaxResults = 10
+                        }).ConfigureAwait(false);
+                        await service.SuggestAffectedTestsAsync(new CodeGraphAffectedTestsRequest
+                        {
+                            VesselId = vessel.Id,
+                            Symbol = "Armada.App.Worker.Run",
+                            MaxDepth = 3,
+                            MaxResults = 10
+                        }).ConfigureAwait(false);
+
+                        AssertEqual(0, stub.CloneCalls.Count);
+                        AssertEqual(0, stub.OperationCalls.Count);
+                        AssertEqual(0, stub.PushCalls.Count);
+                        AssertEqual(0, stub.PullCalls.Count);
+                        AssertEqual(0, stub.DiffCalls.Count);
+                        AssertEqual(0, stub.WorktreeCalls.Count);
+
+                        Vessel? after = await db.Driver.Vessels.ReadAsync(vessel.Id).ConfigureAwait(false);
+                        AssertTrue(after != null, "vessel still present after graph queries");
+                        AssertTrue(String.IsNullOrEmpty(after!.LocalPath),
+                            "LocalPath must remain unset (would prove ResolveRepositoryPathAsync was called)");
+                        AssertEqual(vessel.RepoUrl, after.RepoUrl);
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("SuggestAffectedTestsAsync_ConventionOnlyFallback_SkippedWhenExplicitCandidateExists", async () =>
+            {
+                // Pre-existing behavior: convention-only fallback runs only when explicitCandidates
+                // is empty. After the worker added the context.Symbols sweep, that gate still
+                // governs whether the new sweep runs. A disconnected test file with a matching
+                // stem must NOT surface when an explicit test signal already exists.
+                string dataRoot = NewTempDirectory("armada-code-graph-query-convention-suppressed-");
+                try
+                {
+                    using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        ArmadaSettings settings = BuildSettings(dataRoot);
+                        Vessel vessel = await CreateFixtureVesselAsync(db).ConfigureAwait(false);
+                        WriteConventionWithExplicitFixture(settings, vessel);
+
+                        CodeIndexService service = CreateService(db, settings);
+                        CodeGraphAffectedTestsResponse response = await service.SuggestAffectedTestsAsync(new CodeGraphAffectedTestsRequest
+                        {
+                            VesselId = vessel.Id,
+                            Symbol = "Armada.App.Worker.Run",
+                            MaxDepth = 3,
+                            MaxResults = 10
+                        }).ConfigureAwait(false);
+
+                        AssertTrue(response.Candidates.Any(c => c.IsExplicitSignal),
+                            "explicit reachable test candidate must surface");
+                        AssertFalse(
+                            response.Candidates.Any(c => c.TestPath.Contains("DisconnectedWorkerSpec", StringComparison.OrdinalIgnoreCase)),
+                            "non-reachable convention test must NOT surface when explicit candidates exist");
+                        AssertFalse(
+                            response.Candidates.Any(c => !c.IsExplicitSignal),
+                            "no convention-only candidates should appear when explicit candidates exist");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("SuggestAffectedTestsAsync_ConventionOnlyFallback_StemMismatch_FiltersOutNonMatchingTestFile", async () =>
+            {
+                // The convention-only sweep only suggests a test file when its filename stem
+                // contains the seed's filename stem. A disconnected test file whose stem does
+                // not contain the seed stem must NOT be suggested even though its path looks
+                // like a test path.
+                string dataRoot = NewTempDirectory("armada-code-graph-query-convention-stem-mismatch-");
+                try
+                {
+                    using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        ArmadaSettings settings = BuildSettings(dataRoot);
+                        Vessel vessel = await CreateFixtureVesselAsync(db).ConfigureAwait(false);
+                        WriteConventionStemMismatchFixture(settings, vessel);
+
+                        CodeIndexService service = CreateService(db, settings);
+                        CodeGraphAffectedTestsResponse response = await service.SuggestAffectedTestsAsync(new CodeGraphAffectedTestsRequest
+                        {
+                            VesselId = vessel.Id,
+                            Symbol = "Armada.App.Worker.Run",
+                            MaxDepth = 3,
+                            MaxResults = 10
+                        }).ConfigureAwait(false);
+
+                        AssertFalse(
+                            response.Candidates.Any(c => c.TestPath.Contains("UnrelatedThingTest.cs", StringComparison.OrdinalIgnoreCase)),
+                            "UnrelatedThingTest.cs has no stem overlap with Worker.cs and must NOT be suggested");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("SuggestAffectedTestsAsync_ConventionOnlyFallback_NotDuplicatedWhenAlsoReachable", async () =>
+            {
+                // Guard for the reachablePaths.Contains check: when a test file is BOTH
+                // graph-reachable (via an edge) AND present in context.Symbols with a
+                // non-test sibling symbol on the same path, the new context.Symbols sweep
+                // must skip the path so the candidate is not registered twice.
+                string dataRoot = NewTempDirectory("armada-code-graph-query-convention-no-dup-");
+                try
+                {
+                    using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        ArmadaSettings settings = BuildSettings(dataRoot);
+                        Vessel vessel = await CreateFixtureVesselAsync(db).ConfigureAwait(false);
+                        WriteConventionReachableSamePathFixture(settings, vessel);
+
+                        CodeIndexService service = CreateService(db, settings);
+                        CodeGraphAffectedTestsResponse response = await service.SuggestAffectedTestsAsync(new CodeGraphAffectedTestsRequest
+                        {
+                            VesselId = vessel.Id,
+                            Symbol = "Armada.App.Worker.Run",
+                            MaxDepth = 3,
+                            MaxResults = 10
+                        }).ConfigureAwait(false);
+
+                        int workerSpecBuckets = response.Candidates.Count(c =>
+                            c.TestPath.Equals("test/WorkerSpec.cs", StringComparison.OrdinalIgnoreCase));
+                        AssertEqual(1, workerSpecBuckets);
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("SuggestAffectedTestsAsync_ConventionOnlyFallback_SetsExpectedReasonAndZeroEvidenceDepth", async () =>
+            {
+                // The new context.Symbols sweep records:
+                //   - reason = "filename convention matched seed file stem (not graph-reachable)"
+                //   - MinDepth = Int32.MaxValue, which gets encoded as EvidenceDepth = 0
+                // Pin the contract so refactors that drop or rewrite this reason text are noticed.
+                string dataRoot = NewTempDirectory("armada-code-graph-query-convention-reason-");
+                try
+                {
+                    using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        ArmadaSettings settings = BuildSettings(dataRoot);
+                        Vessel vessel = await CreateFixtureVesselAsync(db).ConfigureAwait(false);
+                        WriteConventionOnlyFixture(settings, vessel);
+
+                        CodeIndexService service = CreateService(db, settings);
+                        CodeGraphAffectedTestsResponse response = await service.SuggestAffectedTestsAsync(new CodeGraphAffectedTestsRequest
+                        {
+                            VesselId = vessel.Id,
+                            Symbol = "Armada.App.Worker.Run",
+                            MaxDepth = 3,
+                            MaxResults = 10
+                        }).ConfigureAwait(false);
+
+                        CodeGraphAffectedTestCandidate? workerTests = response.Candidates.FirstOrDefault(c =>
+                            c.TestPath.Contains("WorkerTests", StringComparison.OrdinalIgnoreCase));
+                        AssertNotNull(workerTests);
+                        AssertFalse(workerTests!.IsExplicitSignal,
+                            "convention-only candidate must not be flagged as explicit");
+                        AssertEqual(0, workerTests.EvidenceDepth);
+                        AssertTrue(workerTests.Reasons.Any(r =>
+                                r.Contains("not graph-reachable", StringComparison.OrdinalIgnoreCase)),
+                            "expected '(not graph-reachable)' marker in the reason text");
+                        AssertTrue(workerTests.Score > 0,
+                            "convention-only candidate score must be positive (sweep assigns 20)");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("LoadGraphQueryContext_PersistedStaleFreshness_StillSurfacesWarning", async () =>
+            {
+                // The read-only status loader skips TryResolveCurrentCommitAsync, so
+                // CurrentCommitSha stays null and ResolveFreshness returns whatever the
+                // persisted metadata.json recorded. Persisted "Stale" must still surface
+                // as a freshness warning -- proves we did not silently coerce to Fresh.
+                string dataRoot = NewTempDirectory("armada-code-graph-query-stale-freshness-");
+                try
+                {
+                    using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        ArmadaSettings settings = BuildSettings(dataRoot);
+                        Vessel vessel = await CreateFixtureVesselAsync(db).ConfigureAwait(false);
+                        WriteGraphFixture(settings, vessel, freshness: "Stale", includeGraphFiles: true, includeExplicitTest: true);
+
+                        CodeIndexService service = CreateService(db, settings);
+                        CodeGraphSymbolSearchResponse response = await service.SearchSymbolsAsync(new CodeGraphSymbolSearchRequest
+                        {
+                            VesselId = vessel.Id,
+                            Query = "Worker",
+                            Limit = 10
+                        }).ConfigureAwait(false);
+
+                        AssertTrue(response.Warnings.Any(w => w.Contains("freshness is Stale", StringComparison.OrdinalIgnoreCase)),
+                            "persisted Stale freshness must surface as a warning through the read-only loader");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
         }
 
         #endregion
@@ -830,6 +1091,13 @@ namespace Armada.Test.Unit.Suites.Services
             LoggingModule logging = new LoggingModule();
             logging.Settings.EnableConsole = false;
             return new CodeIndexService(logging, db.Driver, settings, new GitService(logging), null, null);
+        }
+
+        private static CodeIndexService CreateServiceWithGit(TestDatabase db, ArmadaSettings settings, IGitService git)
+        {
+            LoggingModule logging = new LoggingModule();
+            logging.Settings.EnableConsole = false;
+            return new CodeIndexService(logging, db.Driver, settings, git, null, null);
         }
 
         private static ArmadaSettings BuildSettings(string dataRoot)
@@ -1008,6 +1276,234 @@ namespace Armada.Test.Unit.Suites.Services
 
             // No edges -- WorkerTests is entirely disconnected from the graph
             List<CodeGraphEdgeRecord> edges = new List<CodeGraphEdgeRecord>();
+
+            WriteJsonl(Path.Combine(indexDir, "symbols.jsonl"), symbols);
+            WriteJsonl(Path.Combine(indexDir, "edges.jsonl"), edges);
+        }
+
+        private static void WriteConventionWithExplicitFixture(ArmadaSettings settings, Vessel vessel)
+        {
+            // Two test files share a "Worker" stem:
+            //   - test/WorkerTests.cs (Class WorkerTests) has an edge back to Worker.Run -> explicit + reachable
+            //   - test/DisconnectedWorkerSpec.cs (Class WorkerHelperSpec) has NO edge -> would match convention sweep
+            // The explicit candidate must suppress the convention-only sweep entirely.
+            string indexDir = Path.Combine(settings.CodeIndex.IndexDirectory, vessel.Id);
+            Directory.CreateDirectory(indexDir);
+
+            CodeIndexStatus status = new CodeIndexStatus
+            {
+                VesselId = vessel.Id,
+                VesselName = vessel.Name,
+                DefaultBranch = vessel.DefaultBranch,
+                IndexedCommitSha = "deadbeef",
+                CurrentCommitSha = "",
+                IndexedAtUtc = DateTime.UtcNow,
+                Freshness = "Fresh",
+                DocumentCount = 3,
+                ChunkCount = 6,
+                IndexDirectory = indexDir,
+                LastError = null
+            };
+
+            File.WriteAllText(Path.Combine(indexDir, "metadata.json"), JsonSerializer.Serialize(status, _JsonOptions), Encoding.UTF8);
+
+            List<CodeGraphSymbolRecord> symbols = new List<CodeGraphSymbolRecord>
+            {
+                new CodeGraphSymbolRecord
+                {
+                    VesselId = vessel.Id,
+                    CommitSha = "deadbeef",
+                    Path = "src/Worker.cs",
+                    Kind = CodeGraphSymbolKindEnum.Method,
+                    SimpleName = "Run",
+                    QualifiedName = "Armada.App.Worker.Run",
+                    StartLine = 4,
+                    EndLine = 10,
+                    ContentHash = "h1"
+                },
+                new CodeGraphSymbolRecord
+                {
+                    VesselId = vessel.Id,
+                    CommitSha = "deadbeef",
+                    Path = "test/WorkerTests.cs",
+                    Kind = CodeGraphSymbolKindEnum.Class,
+                    SimpleName = "WorkerTests",
+                    QualifiedName = "Armada.Tests.WorkerTests",
+                    StartLine = 1,
+                    EndLine = 30,
+                    ContentHash = "h2"
+                },
+                new CodeGraphSymbolRecord
+                {
+                    VesselId = vessel.Id,
+                    CommitSha = "deadbeef",
+                    Path = "test/DisconnectedWorkerSpec.cs",
+                    Kind = CodeGraphSymbolKindEnum.Class,
+                    SimpleName = "WorkerHelperSpec",
+                    QualifiedName = "Armada.Tests.WorkerHelperSpec",
+                    StartLine = 1,
+                    EndLine = 20,
+                    ContentHash = "h3"
+                }
+            };
+
+            List<CodeGraphEdgeRecord> edges = new List<CodeGraphEdgeRecord>
+            {
+                new CodeGraphEdgeRecord
+                {
+                    VesselId = vessel.Id,
+                    CommitSha = "deadbeef",
+                    Kind = CodeGraphEdgeKindEnum.Calls,
+                    SourceSymbol = "Armada.Tests.WorkerTests",
+                    TargetSymbol = "Armada.App.Worker.Run",
+                    SourcePath = "test/WorkerTests.cs",
+                    SourceLine = 5
+                }
+            };
+
+            WriteJsonl(Path.Combine(indexDir, "symbols.jsonl"), symbols);
+            WriteJsonl(Path.Combine(indexDir, "edges.jsonl"), edges);
+        }
+
+        private static void WriteConventionStemMismatchFixture(ArmadaSettings settings, Vessel vessel)
+        {
+            // src/Worker.cs is the seed. UnrelatedThingTest.cs is disconnected AND its stem
+            // ("UnrelatedThingTest") does NOT contain the seed stem ("Worker"). The convention
+            // sweep must filter it out.
+            string indexDir = Path.Combine(settings.CodeIndex.IndexDirectory, vessel.Id);
+            Directory.CreateDirectory(indexDir);
+
+            CodeIndexStatus status = new CodeIndexStatus
+            {
+                VesselId = vessel.Id,
+                VesselName = vessel.Name,
+                DefaultBranch = vessel.DefaultBranch,
+                IndexedCommitSha = "deadbeef",
+                CurrentCommitSha = "",
+                IndexedAtUtc = DateTime.UtcNow,
+                Freshness = "Fresh",
+                DocumentCount = 2,
+                ChunkCount = 4,
+                IndexDirectory = indexDir,
+                LastError = null
+            };
+
+            File.WriteAllText(Path.Combine(indexDir, "metadata.json"), JsonSerializer.Serialize(status, _JsonOptions), Encoding.UTF8);
+
+            List<CodeGraphSymbolRecord> symbols = new List<CodeGraphSymbolRecord>
+            {
+                new CodeGraphSymbolRecord
+                {
+                    VesselId = vessel.Id,
+                    CommitSha = "deadbeef",
+                    Path = "src/Worker.cs",
+                    Kind = CodeGraphSymbolKindEnum.Method,
+                    SimpleName = "Run",
+                    QualifiedName = "Armada.App.Worker.Run",
+                    StartLine = 4,
+                    EndLine = 10,
+                    ContentHash = "h1"
+                },
+                new CodeGraphSymbolRecord
+                {
+                    VesselId = vessel.Id,
+                    CommitSha = "deadbeef",
+                    Path = "test/UnrelatedThingTest.cs",
+                    Kind = CodeGraphSymbolKindEnum.Class,
+                    SimpleName = "UnrelatedThingTest",
+                    QualifiedName = "Armada.Tests.UnrelatedThingTest",
+                    StartLine = 1,
+                    EndLine = 20,
+                    ContentHash = "h2"
+                }
+            };
+
+            List<CodeGraphEdgeRecord> edges = new List<CodeGraphEdgeRecord>();
+
+            WriteJsonl(Path.Combine(indexDir, "symbols.jsonl"), symbols);
+            WriteJsonl(Path.Combine(indexDir, "edges.jsonl"), edges);
+        }
+
+        private static void WriteConventionReachableSamePathFixture(ArmadaSettings settings, Vessel vessel)
+        {
+            // test/WorkerSpec.cs has two symbols: an outer class WorkerSpec that has an edge
+            // from Worker.Run (so the path is reachable) and a NestedHelper class on the same
+            // path with no edge. Because the path is in reachablePaths, the new context.Symbols
+            // sweep must skip both -- the candidate is only registered once via the existing
+            // impact.Results convention loop, not duplicated by the new sweep.
+            string indexDir = Path.Combine(settings.CodeIndex.IndexDirectory, vessel.Id);
+            Directory.CreateDirectory(indexDir);
+
+            CodeIndexStatus status = new CodeIndexStatus
+            {
+                VesselId = vessel.Id,
+                VesselName = vessel.Name,
+                DefaultBranch = vessel.DefaultBranch,
+                IndexedCommitSha = "deadbeef",
+                CurrentCommitSha = "",
+                IndexedAtUtc = DateTime.UtcNow,
+                Freshness = "Fresh",
+                DocumentCount = 3,
+                ChunkCount = 6,
+                IndexDirectory = indexDir,
+                LastError = null
+            };
+
+            File.WriteAllText(Path.Combine(indexDir, "metadata.json"), JsonSerializer.Serialize(status, _JsonOptions), Encoding.UTF8);
+
+            List<CodeGraphSymbolRecord> symbols = new List<CodeGraphSymbolRecord>
+            {
+                new CodeGraphSymbolRecord
+                {
+                    VesselId = vessel.Id,
+                    CommitSha = "deadbeef",
+                    Path = "src/Worker.cs",
+                    Kind = CodeGraphSymbolKindEnum.Method,
+                    SimpleName = "Run",
+                    QualifiedName = "Armada.App.Worker.Run",
+                    StartLine = 4,
+                    EndLine = 10,
+                    ContentHash = "h1"
+                },
+                new CodeGraphSymbolRecord
+                {
+                    VesselId = vessel.Id,
+                    CommitSha = "deadbeef",
+                    Path = "test/WorkerSpec.cs",
+                    Kind = CodeGraphSymbolKindEnum.Class,
+                    SimpleName = "WorkerSpec",
+                    QualifiedName = "Armada.Spec.WorkerSpec",
+                    StartLine = 1,
+                    EndLine = 20,
+                    ContentHash = "h2"
+                },
+                new CodeGraphSymbolRecord
+                {
+                    VesselId = vessel.Id,
+                    CommitSha = "deadbeef",
+                    Path = "test/WorkerSpec.cs",
+                    Kind = CodeGraphSymbolKindEnum.Class,
+                    SimpleName = "WorkerSpec_NestedHelper",
+                    QualifiedName = "Armada.Spec.WorkerSpec.NestedHelper",
+                    StartLine = 21,
+                    EndLine = 40,
+                    ContentHash = "h2"
+                }
+            };
+
+            List<CodeGraphEdgeRecord> edges = new List<CodeGraphEdgeRecord>
+            {
+                new CodeGraphEdgeRecord
+                {
+                    VesselId = vessel.Id,
+                    CommitSha = "deadbeef",
+                    Kind = CodeGraphEdgeKindEnum.Calls,
+                    SourceSymbol = "Armada.App.Worker.Run",
+                    TargetSymbol = "Armada.Spec.WorkerSpec",
+                    SourcePath = "src/Worker.cs",
+                    SourceLine = 7
+                }
+            };
 
             WriteJsonl(Path.Combine(indexDir, "symbols.jsonl"), symbols);
             WriteJsonl(Path.Combine(indexDir, "edges.jsonl"), edges);
