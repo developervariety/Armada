@@ -333,6 +333,218 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("symbol is required", JsonSerializer.Serialize(missingSymbolImpactResult));
             });
 
+            await RunTest("Graph callers/callees/impact/affected-tests reject missing vesselId and null args", async () =>
+            {
+                RecordingCodeIndexService service = new RecordingCodeIndexService();
+                Dictionary<string, Func<JsonElement?, Task<object>>> handlers = RegisterHandlers(service);
+
+                // null args for every graph tool produces "missing args"
+                AssertContains("missing args", JsonSerializer.Serialize(await handlers["armada_graph_get_callers"](null).ConfigureAwait(false)));
+                AssertContains("missing args", JsonSerializer.Serialize(await handlers["armada_graph_get_callees"](null).ConfigureAwait(false)));
+                AssertContains("missing args", JsonSerializer.Serialize(await handlers["armada_graph_get_impact"](null).ConfigureAwait(false)));
+                AssertContains("missing args", JsonSerializer.Serialize(await handlers["armada_graph_suggest_affected_tests"](null).ConfigureAwait(false)));
+
+                // Missing vesselId on every neighbor/impact/affected-tests tool
+                JsonElement callerMissingVessel = JsonSerializer.SerializeToElement(new { symbol = "Foo" });
+                AssertContains("vesselId is required", JsonSerializer.Serialize(await handlers["armada_graph_get_callers"](callerMissingVessel).ConfigureAwait(false)));
+                AssertNull(service.LastCallersRequest, "Invalid callers request should not delegate to service");
+
+                JsonElement calleeMissingVessel = JsonSerializer.SerializeToElement(new { symbol = "Foo" });
+                AssertContains("vesselId is required", JsonSerializer.Serialize(await handlers["armada_graph_get_callees"](calleeMissingVessel).ConfigureAwait(false)));
+                AssertNull(service.LastCalleesRequest, "Invalid callees request should not delegate to service");
+
+                JsonElement impactMissingVessel = JsonSerializer.SerializeToElement(new { symbol = "Foo" });
+                AssertContains("vesselId is required", JsonSerializer.Serialize(await handlers["armada_graph_get_impact"](impactMissingVessel).ConfigureAwait(false)));
+                AssertNull(service.LastImpactRequest, "Invalid impact request should not delegate to service");
+
+                JsonElement affectedMissingVessel = JsonSerializer.SerializeToElement(new { symbol = "Foo" });
+                AssertContains("vesselId is required", JsonSerializer.Serialize(await handlers["armada_graph_suggest_affected_tests"](affectedMissingVessel).ConfigureAwait(false)));
+                AssertNull(service.LastAffectedTestsRequest, "Invalid affected-tests request should not delegate to service");
+
+                // Missing symbol on callees and affected-tests (search_symbols/callers/impact are covered above)
+                JsonElement calleeMissingSymbol = JsonSerializer.SerializeToElement(new { vesselId = "vsl_test" });
+                AssertContains("symbol is required", JsonSerializer.Serialize(await handlers["armada_graph_get_callees"](calleeMissingSymbol).ConfigureAwait(false)));
+                AssertNull(service.LastCalleesRequest, "Invalid callees request without symbol should not delegate to service");
+
+                JsonElement affectedMissingSymbol = JsonSerializer.SerializeToElement(new { vesselId = "vsl_test" });
+                AssertContains("symbol is required", JsonSerializer.Serialize(await handlers["armada_graph_suggest_affected_tests"](affectedMissingSymbol).ConfigureAwait(false)));
+                AssertNull(service.LastAffectedTestsRequest, "Invalid affected-tests request without symbol should not delegate to service");
+            });
+
+            await RunTest("Whitespace-only vesselId, query, and symbol are rejected", async () =>
+            {
+                RecordingCodeIndexService service = new RecordingCodeIndexService();
+                Dictionary<string, Func<JsonElement?, Task<object>>> handlers = RegisterHandlers(service);
+
+                JsonElement wsVesselSearch = JsonSerializer.SerializeToElement(new { vesselId = "   ", query = "Foo" });
+                AssertContains("vesselId is required", JsonSerializer.Serialize(await handlers["armada_graph_search_symbols"](wsVesselSearch).ConfigureAwait(false)));
+
+                JsonElement wsQuery = JsonSerializer.SerializeToElement(new { vesselId = "vsl_test", query = "\t" });
+                AssertContains("query is required", JsonSerializer.Serialize(await handlers["armada_graph_search_symbols"](wsQuery).ConfigureAwait(false)));
+
+                JsonElement wsSymbolCallers = JsonSerializer.SerializeToElement(new { vesselId = "vsl_test", symbol = "  " });
+                AssertContains("symbol is required", JsonSerializer.Serialize(await handlers["armada_graph_get_callers"](wsSymbolCallers).ConfigureAwait(false)));
+
+                JsonElement wsSymbolImpact = JsonSerializer.SerializeToElement(new { vesselId = "vsl_test", symbol = "\n" });
+                AssertContains("symbol is required", JsonSerializer.Serialize(await handlers["armada_graph_get_impact"](wsSymbolImpact).ConfigureAwait(false)));
+
+                JsonElement wsSymbolAffected = JsonSerializer.SerializeToElement(new { vesselId = "vsl_test", symbol = " " });
+                AssertContains("symbol is required", JsonSerializer.Serialize(await handlers["armada_graph_suggest_affected_tests"](wsSymbolAffected).ConfigureAwait(false)));
+
+                AssertNull(service.LastSymbolSearchRequest, "Whitespace inputs must not reach the service layer");
+                AssertNull(service.LastCallersRequest, "Whitespace inputs must not reach the service layer");
+                AssertNull(service.LastImpactRequest, "Whitespace inputs must not reach the service layer");
+                AssertNull(service.LastAffectedTestsRequest, "Whitespace inputs must not reach the service layer");
+            });
+
+            await RunTest("Graph tool responses propagate Warnings without leaking vector fields", async () =>
+            {
+                RecordingCodeIndexService service = new RecordingCodeIndexService();
+                service.SymbolSearchResponse = new CodeGraphSymbolSearchResponse
+                {
+                    Query = "Execute",
+                    Status = NewStatus("vsl_test")
+                };
+                service.SymbolSearchResponse.Warnings.Add("graph sidecars are stale for vessel vsl_test");
+                service.SymbolSearchResponse.Results.Add(new CodeGraphSymbolSearchResult
+                {
+                    Score = 0.42,
+                    MatchReason = "exact qualified",
+                    Symbol = new CodeGraphSymbolRecord
+                    {
+                        VesselId = "vsl_test",
+                        QualifiedName = "Armada.Foo.Execute",
+                        SimpleName = "Execute",
+                        Path = "src/Foo.cs"
+                    }
+                });
+
+                service.NeighborsResponse = new CodeGraphNeighborsResponse
+                {
+                    RequestedSymbol = "Execute",
+                    Status = NewStatus("vsl_test")
+                };
+                service.NeighborsResponse.Warnings.Add("graph sidecars are missing for vessel vsl_test");
+
+                service.ImpactResponse = new CodeGraphImpactResponse
+                {
+                    RequestedSymbol = "Execute",
+                    MaxDepth = 3,
+                    Status = NewStatus("vsl_test")
+                };
+                service.ImpactResponse.Warnings.Add("graph sidecars are stale for vessel vsl_test");
+
+                service.AffectedTestsResponse = new CodeGraphAffectedTestsResponse
+                {
+                    RequestedSymbol = "Execute",
+                    MaxDepth = 3,
+                    Status = NewStatus("vsl_test")
+                };
+                service.AffectedTestsResponse.Warnings.Add("graph sidecars are stale for vessel vsl_test");
+
+                Dictionary<string, Func<JsonElement?, Task<object>>> handlers = RegisterHandlers(service);
+
+                JsonElement searchArgs = JsonSerializer.SerializeToElement(new { vesselId = "vsl_test", query = "Execute" });
+                object searchResult = await handlers["armada_graph_search_symbols"](searchArgs).ConfigureAwait(false);
+                string searchJson = JsonSerializer.Serialize(searchResult);
+                AssertContains("graph sidecars are stale", searchJson);
+                AssertContains("Warnings", searchJson);
+                AssertFalse(searchJson.Contains("EmbeddingVector", StringComparison.OrdinalIgnoreCase), "search response must not include EmbeddingVector");
+                AssertFalse(searchJson.Contains("\"Vector\"", StringComparison.Ordinal), "search response must not include a Vector field");
+
+                JsonElement callersArgs = JsonSerializer.SerializeToElement(new { vesselId = "vsl_test", symbol = "Execute" });
+                string callersJson = JsonSerializer.Serialize(await handlers["armada_graph_get_callers"](callersArgs).ConfigureAwait(false));
+                AssertContains("graph sidecars are missing", callersJson);
+                AssertFalse(callersJson.Contains("EmbeddingVector", StringComparison.OrdinalIgnoreCase), "callers response must not include EmbeddingVector");
+
+                JsonElement calleesArgs = JsonSerializer.SerializeToElement(new { vesselId = "vsl_test", symbol = "Execute" });
+                string calleesJson = JsonSerializer.Serialize(await handlers["armada_graph_get_callees"](calleesArgs).ConfigureAwait(false));
+                AssertContains("graph sidecars are missing", calleesJson);
+                AssertFalse(calleesJson.Contains("EmbeddingVector", StringComparison.OrdinalIgnoreCase), "callees response must not include EmbeddingVector");
+
+                JsonElement impactArgs = JsonSerializer.SerializeToElement(new { vesselId = "vsl_test", symbol = "Execute" });
+                string impactJson = JsonSerializer.Serialize(await handlers["armada_graph_get_impact"](impactArgs).ConfigureAwait(false));
+                AssertContains("graph sidecars are stale", impactJson);
+                AssertFalse(impactJson.Contains("EmbeddingVector", StringComparison.OrdinalIgnoreCase), "impact response must not include EmbeddingVector");
+
+                JsonElement affectedArgs = JsonSerializer.SerializeToElement(new { vesselId = "vsl_test", symbol = "Execute" });
+                string affectedJson = JsonSerializer.Serialize(await handlers["armada_graph_suggest_affected_tests"](affectedArgs).ConfigureAwait(false));
+                AssertContains("graph sidecars are stale", affectedJson);
+                AssertFalse(affectedJson.Contains("EmbeddingVector", StringComparison.OrdinalIgnoreCase), "affected-tests response must not include EmbeddingVector");
+            });
+
+            await RunTest("Graph handlers omit optional fields and rely on model defaults", async () =>
+            {
+                RecordingCodeIndexService service = new RecordingCodeIndexService();
+                Dictionary<string, Func<JsonElement?, Task<object>>> handlers = RegisterHandlers(service);
+
+                // Only required fields supplied; optional limit/maxDepth/maxResults/direction omitted.
+                JsonElement searchArgs = JsonSerializer.SerializeToElement(new { vesselId = "vsl_test", query = "Foo" });
+                await handlers["armada_graph_search_symbols"](searchArgs).ConfigureAwait(false);
+                AssertNotNull(service.LastSymbolSearchRequest);
+                AssertTrue(String.IsNullOrEmpty(service.LastSymbolSearchRequest!.PathPrefix), "PathPrefix should default to empty when omitted");
+
+                JsonElement callersArgs = JsonSerializer.SerializeToElement(new { vesselId = "vsl_test", symbol = "Foo" });
+                await handlers["armada_graph_get_callers"](callersArgs).ConfigureAwait(false);
+                AssertNotNull(service.LastCallersRequest);
+                AssertEqual("Foo", service.LastCallersRequest!.Symbol);
+
+                JsonElement calleesArgs = JsonSerializer.SerializeToElement(new { vesselId = "vsl_test", symbol = "Foo" });
+                await handlers["armada_graph_get_callees"](calleesArgs).ConfigureAwait(false);
+                AssertNotNull(service.LastCalleesRequest);
+                AssertEqual("Foo", service.LastCalleesRequest!.Symbol);
+
+                JsonElement impactArgs = JsonSerializer.SerializeToElement(new { vesselId = "vsl_test", symbol = "Foo" });
+                await handlers["armada_graph_get_impact"](impactArgs).ConfigureAwait(false);
+                AssertNotNull(service.LastImpactRequest);
+                AssertEqual("Foo", service.LastImpactRequest!.Symbol);
+
+                JsonElement affectedArgs = JsonSerializer.SerializeToElement(new { vesselId = "vsl_test", symbol = "Foo" });
+                await handlers["armada_graph_suggest_affected_tests"](affectedArgs).ConfigureAwait(false);
+                AssertNotNull(service.LastAffectedTestsRequest);
+                AssertEqual("Foo", service.LastAffectedTestsRequest!.Symbol);
+            });
+
+            await RunTest("Register rejects null delegate and null code index service", () =>
+            {
+                RecordingCodeIndexService service = new RecordingCodeIndexService();
+                AssertThrows<ArgumentNullException>(() => McpCodeIndexTools.Register(null!, service));
+                AssertThrows<ArgumentNullException>(() => McpCodeIndexTools.Register((_, _, _, _) => { }, null!));
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Graph tools are registered with required-property schemas", () =>
+            {
+                Dictionary<string, object> schemas = new Dictionary<string, object>();
+                McpCodeIndexTools.Register(
+                    (name, _, schema, _) => { schemas[name] = schema; },
+                    new RecordingCodeIndexService());
+
+                string searchSchema = JsonSerializer.Serialize(schemas["armada_graph_search_symbols"]);
+                AssertContains("vesselId", searchSchema);
+                AssertContains("query", searchSchema);
+                AssertContains("required", searchSchema);
+
+                string callersSchema = JsonSerializer.Serialize(schemas["armada_graph_get_callers"]);
+                AssertContains("vesselId", callersSchema);
+                AssertContains("symbol", callersSchema);
+
+                string calleesSchema = JsonSerializer.Serialize(schemas["armada_graph_get_callees"]);
+                AssertContains("vesselId", calleesSchema);
+                AssertContains("symbol", calleesSchema);
+
+                string impactSchema = JsonSerializer.Serialize(schemas["armada_graph_get_impact"]);
+                AssertContains("direction", impactSchema);
+                AssertContains("maxDepth", impactSchema);
+                AssertContains("maxResults", impactSchema);
+
+                string affectedSchema = JsonSerializer.Serialize(schemas["armada_graph_suggest_affected_tests"]);
+                AssertContains("maxDepth", affectedSchema);
+                AssertContains("maxResults", affectedSchema);
+
+                return Task.CompletedTask;
+            });
+
             await RunTest("Handlers reject missing required arguments", async () =>
             {
                 RecordingCodeIndexService service = new RecordingCodeIndexService();

@@ -120,6 +120,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new ProtectedPathsTests());
             runner.AddSuite(new VesselAutoLandPredicateRoutesTests());
             runner.AddSuite(new VesselDefaultPlaybooksTests());
+            runner.AddSuite(new CodeIndexRoutesTests());
             runner.AddSuite(new AuditDrainerTests());
             runner.AddSuite(new ReflectionAuditDrainTests());
             runner.AddSuite(new ArchitectOutputParserTests());
