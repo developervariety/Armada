@@ -716,6 +716,109 @@ namespace Armada.Test.Unit.Suites.Services
                     TryDeleteDirectory(dataRoot);
                 }
             });
+
+            await RunTest("GraphQueryMethods_DoNotCloneOrMutateVesselState", async () =>
+            {
+                string dataRoot = NewTempDirectory("armada-code-graph-query-readonly-");
+                try
+                {
+                    using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        ArmadaSettings settings = BuildSettings(dataRoot);
+                        Vessel vessel = await CreateFixtureVesselAsync(db).ConfigureAwait(false);
+                        // vessel has empty RepoUrl, empty WorkingDirectory, null LocalPath
+                        AssertTrue(String.IsNullOrEmpty(vessel.RepoUrl), "fixture vessel should have no RepoUrl");
+                        AssertTrue(String.IsNullOrEmpty(vessel.WorkingDirectory), "fixture vessel should have no WorkingDirectory");
+                        AssertTrue(String.IsNullOrEmpty(vessel.LocalPath), "fixture vessel should have no LocalPath");
+
+                        WriteGraphFixture(settings, vessel, freshness: "Fresh", includeGraphFiles: true, includeExplicitTest: false);
+
+                        CodeIndexService service = CreateService(db, settings);
+
+                        await service.SearchSymbolsAsync(new CodeGraphSymbolSearchRequest
+                        {
+                            VesselId = vessel.Id,
+                            Query = "Execute"
+                        }).ConfigureAwait(false);
+
+                        await service.GetCallersAsync(new CodeGraphNeighborsRequest
+                        {
+                            VesselId = vessel.Id,
+                            Symbol = "Armada.App.Worker.Run"
+                        }).ConfigureAwait(false);
+
+                        await service.GetCalleesAsync(new CodeGraphNeighborsRequest
+                        {
+                            VesselId = vessel.Id,
+                            Symbol = "Armada.App.Worker.Run"
+                        }).ConfigureAwait(false);
+
+                        await service.GetImpactAsync(new CodeGraphImpactRequest
+                        {
+                            VesselId = vessel.Id,
+                            Symbol = "Armada.App.Worker.Run",
+                            MaxDepth = 3,
+                            MaxResults = 10
+                        }).ConfigureAwait(false);
+
+                        await service.SuggestAffectedTestsAsync(new CodeGraphAffectedTestsRequest
+                        {
+                            VesselId = vessel.Id,
+                            Symbol = "Armada.App.Worker.Run",
+                            MaxDepth = 3,
+                            MaxResults = 10
+                        }).ConfigureAwait(false);
+
+                        // Re-read vessel from DB and assert it was not mutated
+                        Vessel? after = await db.Driver.Vessels.ReadAsync(vessel.Id).ConfigureAwait(false);
+                        AssertTrue(after != null, "vessel must still exist in DB after graph queries");
+                        AssertTrue(String.IsNullOrEmpty(after!.LocalPath),
+                            "graph queries must not set LocalPath (would indicate a clone occurred)");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("SuggestAffectedTestsAsync_ConventionOnlyFallback_FindsNonReachableTestFile", async () =>
+            {
+                string dataRoot = NewTempDirectory("armada-code-graph-query-convention-only-");
+                try
+                {
+                    using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        ArmadaSettings settings = BuildSettings(dataRoot);
+                        Vessel vessel = await CreateFixtureVesselAsync(db).ConfigureAwait(false);
+                        WriteConventionOnlyFixture(settings, vessel);
+
+                        CodeIndexService service = CreateService(db, settings);
+                        CodeGraphAffectedTestsResponse response = await service.SuggestAffectedTestsAsync(new CodeGraphAffectedTestsRequest
+                        {
+                            VesselId = vessel.Id,
+                            Symbol = "Armada.App.Worker.Run",
+                            MaxDepth = 3,
+                            MaxResults = 10
+                        }).ConfigureAwait(false);
+
+                        // test/WorkerTests.cs exists in symbols.jsonl but has no edge to the target symbol.
+                        // The convention-only fallback should still suggest it because "WorkerTests" contains "Worker".
+                        AssertTrue(response.Candidates.Count > 0,
+                            "convention-only fallback should yield at least one candidate");
+                        AssertTrue(
+                            response.Candidates.Any(c => c.TestPath.Contains("WorkerTests", StringComparison.OrdinalIgnoreCase)),
+                            "non-graph-reachable WorkerTests.cs must appear via convention-only fallback");
+                        AssertTrue(
+                            response.Candidates.All(c => !c.IsExplicitSignal),
+                            "all candidates should be convention matches, not explicit signals");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
         }
 
         #endregion
@@ -844,6 +947,67 @@ namespace Armada.Test.Unit.Suites.Services
                     SourceLine = 14
                 });
             }
+
+            WriteJsonl(Path.Combine(indexDir, "symbols.jsonl"), symbols);
+            WriteJsonl(Path.Combine(indexDir, "edges.jsonl"), edges);
+        }
+
+        private static void WriteConventionOnlyFixture(ArmadaSettings settings, Vessel vessel)
+        {
+            string indexDir = Path.Combine(settings.CodeIndex.IndexDirectory, vessel.Id);
+            Directory.CreateDirectory(indexDir);
+
+            CodeIndexStatus status = new CodeIndexStatus
+            {
+                VesselId = vessel.Id,
+                VesselName = vessel.Name,
+                DefaultBranch = vessel.DefaultBranch,
+                IndexedCommitSha = "deadbeef",
+                CurrentCommitSha = "",
+                IndexedAtUtc = DateTime.UtcNow,
+                Freshness = "Fresh",
+                DocumentCount = 2,
+                ChunkCount = 4,
+                IndexDirectory = indexDir,
+                LastError = null
+            };
+
+            File.WriteAllText(Path.Combine(indexDir, "metadata.json"), JsonSerializer.Serialize(status, _JsonOptions), Encoding.UTF8);
+
+            // Source symbol under test -- no edge to WorkerTests
+            List<CodeGraphSymbolRecord> symbols = new List<CodeGraphSymbolRecord>
+            {
+                new CodeGraphSymbolRecord
+                {
+                    VesselId = vessel.Id,
+                    CommitSha = "deadbeef",
+                    Path = "src/Worker.cs",
+                    Kind = CodeGraphSymbolKindEnum.Method,
+                    SimpleName = "Run",
+                    QualifiedName = "Armada.App.Worker.Run",
+                    StartLine = 4,
+                    EndLine = 10,
+                    ContentHash = "h1"
+                },
+                // Test symbol with a conventional name matching the source file stem ("Worker").
+                // Intentionally no edge connects this symbol to the source symbol above,
+                // so the graph traversal never reaches it -- the convention-only fallback must find it.
+                new CodeGraphSymbolRecord
+                {
+                    VesselId = vessel.Id,
+                    CommitSha = "deadbeef",
+                    Path = "test/WorkerTests.cs",
+                    Kind = CodeGraphSymbolKindEnum.Class,
+                    SimpleName = "WorkerTests",
+                    QualifiedName = "Armada.Tests.WorkerTests",
+                    StartLine = 1,
+                    EndLine = 30,
+                    ContentHash = "h2"
+                }
+            };
+
+            // No edges -- WorkerTests is entirely disconnected from the graph
+            List<CodeGraphEdgeRecord> edges = new List<CodeGraphEdgeRecord>();
 
             WriteJsonl(Path.Combine(indexDir, "symbols.jsonl"), symbols);
             WriteJsonl(Path.Combine(indexDir, "edges.jsonl"), edges);

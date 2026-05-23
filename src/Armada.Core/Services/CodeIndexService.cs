@@ -695,78 +695,7 @@ namespace Armada.Core.Services
             GraphQueryContext context = await LoadGraphQueryContextAsync(request.VesselId, token).ConfigureAwait(false);
             int maxDepth = ClampGraphDepth(request.MaxDepth, _DefaultImpactDepth);
             int maxResults = ClampGraphLimit(request.MaxResults, _DefaultImpactResultLimit, _MaxGraphResults);
-
-            List<CodeGraphSymbolRecord> seeds = ResolveSeedSymbols(context, request.Symbol, _DefaultGraphNeighborLimit);
-
-            Dictionary<string, ImpactAccumulator> accumulators = new Dictionary<string, ImpactAccumulator>(StringComparer.OrdinalIgnoreCase);
-            Queue<GraphTraversalStep> queue = new Queue<GraphTraversalStep>();
-            Dictionary<string, int> minDepthByNode = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-
-            foreach (CodeGraphSymbolRecord seed in seeds)
-            {
-                string seedKey = BuildSymbolKey(seed);
-                if (String.IsNullOrWhiteSpace(seedKey)) continue;
-                minDepthByNode[seedKey] = 0;
-                queue.Enqueue(new GraphTraversalStep(seed, 0));
-            }
-
-            while (queue.Count > 0)
-            {
-                GraphTraversalStep current = queue.Dequeue();
-                if (current.Depth >= maxDepth) continue;
-
-                List<GraphEdgeHop> hops = ResolveTraversalHops(context, current.Symbol, request.Direction);
-                foreach (GraphEdgeHop hop in hops)
-                {
-                    string hopKey = BuildSymbolKey(hop.Symbol);
-                    if (String.IsNullOrWhiteSpace(hopKey)) continue;
-
-                    int nextDepth = current.Depth + 1;
-                    if (minDepthByNode.TryGetValue(hopKey, out int existingDepth) && existingDepth < nextDepth)
-                    {
-                        continue;
-                    }
-                    minDepthByNode[hopKey] = nextDepth;
-
-                    ImpactAccumulator accumulator = GetOrCreateImpactAccumulator(accumulators, hop.Symbol);
-                    accumulator.MinDepth = Math.Min(accumulator.MinDepth, nextDepth);
-                    accumulator.HitCount++;
-                    accumulator.Score = Math.Max(accumulator.Score, ScoreTraversalDepth(nextDepth) + hop.WeightBoost);
-                    if (accumulator.Reasons.Count < 3 && !accumulator.Reasons.Contains(hop.Reason, StringComparer.OrdinalIgnoreCase))
-                    {
-                        accumulator.Reasons.Add(hop.Reason);
-                    }
-
-                    queue.Enqueue(new GraphTraversalStep(hop.Symbol, nextDepth));
-                }
-            }
-
-            List<CodeGraphImpactResult> results = accumulators.Values
-                .OrderByDescending(a => a.Score)
-                .ThenBy(a => a.MinDepth)
-                .ThenBy(a => SelectSymbolName(a.Symbol), StringComparer.OrdinalIgnoreCase)
-                .ThenBy(a => a.Symbol.Path, StringComparer.OrdinalIgnoreCase)
-                .Take(maxResults)
-                .Select(a => new CodeGraphImpactResult
-                {
-                    Score = a.Score,
-                    MinDepth = a.MinDepth == Int32.MaxValue ? 0 : a.MinDepth,
-                    HitCount = a.HitCount,
-                    Symbol = a.Symbol,
-                    Reasons = a.Reasons.ToList()
-                })
-                .ToList();
-
-            return new CodeGraphImpactResponse
-            {
-                Status = context.Status,
-                RequestedSymbol = request.Symbol,
-                Direction = request.Direction,
-                MaxDepth = maxDepth,
-                ResolvedSeedSymbols = seeds,
-                Results = results,
-                Warnings = context.Warnings
-            };
+            return ComputeImpact(context, request.Symbol, request.Direction, maxDepth, maxResults);
         }
 
         /// <inheritdoc />
@@ -779,14 +708,13 @@ namespace Armada.Core.Services
             int maxDepth = ClampGraphDepth(request.MaxDepth, _DefaultImpactDepth);
             int maxResults = ClampGraphLimit(request.MaxResults, _DefaultAffectedTestsLimit, _MaxGraphResults);
 
-            CodeGraphImpactResponse impact = await GetImpactAsync(new CodeGraphImpactRequest
-            {
-                VesselId = request.VesselId,
-                Symbol = request.Symbol,
-                Direction = CodeGraphTraversalDirectionEnum.Both,
-                MaxDepth = maxDepth,
-                MaxResults = _MaxGraphResults
-            }, token).ConfigureAwait(false);
+            GraphQueryContext context = await LoadGraphQueryContextAsync(request.VesselId, token).ConfigureAwait(false);
+            CodeGraphImpactResponse impact = ComputeImpact(
+                context,
+                request.Symbol,
+                CodeGraphTraversalDirectionEnum.Both,
+                maxDepth,
+                _MaxGraphResults);
 
             Dictionary<string, AffectedTestAccumulator> explicitCandidates = new Dictionary<string, AffectedTestAccumulator>(StringComparer.OrdinalIgnoreCase);
             Dictionary<string, AffectedTestAccumulator> conventionCandidates = new Dictionary<string, AffectedTestAccumulator>(StringComparer.OrdinalIgnoreCase);
@@ -818,10 +746,15 @@ namespace Armada.Core.Services
 
             if (explicitCandidates.Count == 0)
             {
+                HashSet<string> reachablePaths = new HashSet<string>(
+                    impact.Results.Select(r => r.Symbol.Path),
+                    StringComparer.OrdinalIgnoreCase);
+
                 foreach (CodeGraphSymbolRecord seed in impact.ResolvedSeedSymbols)
                 {
                     string seedStem = Path.GetFileNameWithoutExtension(seed.Path) ?? "";
                     if (String.IsNullOrWhiteSpace(seedStem)) continue;
+
                     foreach (CodeGraphImpactResult hit in impact.Results)
                     {
                         if (!LooksLikeTestPath(hit.Symbol.Path)) continue;
@@ -835,6 +768,25 @@ namespace Armada.Core.Services
                         bucket.MinDepth = Math.Min(bucket.MinDepth, hit.MinDepth);
                         bucket.Score = Math.Max(bucket.Score, hit.Score + 30);
                         AddReason(bucket.Reasons, "filename convention matched seed file stem");
+                    }
+
+                    // Also scan all symbols in the index that are not graph-reachable, so a
+                    // test file that exists in symbols.jsonl but has no edge to the target symbol
+                    // is still suggested when its filename stem matches the seed.
+                    foreach (CodeGraphSymbolRecord sym in context.Symbols)
+                    {
+                        if (!LooksLikeTestPath(sym.Path)) continue;
+                        if (reachablePaths.Contains(sym.Path)) continue;
+                        string testStem = Path.GetFileNameWithoutExtension(sym.Path) ?? "";
+                        if (!testStem.Contains(seedStem, StringComparison.OrdinalIgnoreCase)) continue;
+
+                        AffectedTestAccumulator bucket = GetOrCreateAffectedTestAccumulator(conventionCandidates, sym.Path);
+                        bucket.Path = sym.Path;
+                        bucket.Symbol = SelectSymbolName(sym);
+                        bucket.IsExplicitSignal = false;
+                        bucket.MinDepth = Math.Min(bucket.MinDepth, Int32.MaxValue);
+                        bucket.Score = Math.Max(bucket.Score, 20);
+                        AddReason(bucket.Reasons, "filename convention matched seed file stem (not graph-reachable)");
                     }
                 }
             }
@@ -893,6 +845,98 @@ namespace Armada.Core.Services
             Vessel? vessel = await _Database.Vessels.ReadAsync(vesselId, token).ConfigureAwait(false);
             if (vessel == null) throw new InvalidOperationException("Vessel not found: " + vesselId);
             return vessel;
+        }
+
+        private async Task<CodeIndexStatus> LoadReadOnlyStatusAsync(string vesselId, CancellationToken token)
+        {
+            Vessel vessel = await ReadVesselOrThrowAsync(vesselId, token).ConfigureAwait(false);
+            CodeIndexStatus status = await ReadPersistedStatusAsync(vessel).ConfigureAwait(false)
+                ?? BuildMissingStatus(vessel);
+            status.IndexDirectory = GetVesselIndexDirectory(vessel.Id);
+            // Deliberately omit TryResolveCurrentCommitAsync: graph queries must not clone or mutate vessel state.
+            // Freshness is derived from persisted metadata only; CurrentCommitSha stays null.
+            status.Freshness = ResolveFreshness(status);
+            return status;
+        }
+
+        private CodeGraphImpactResponse ComputeImpact(
+            GraphQueryContext context,
+            string symbol,
+            CodeGraphTraversalDirectionEnum direction,
+            int maxDepth,
+            int maxResults)
+        {
+            List<CodeGraphSymbolRecord> seeds = ResolveSeedSymbols(context, symbol, _DefaultGraphNeighborLimit);
+
+            Dictionary<string, ImpactAccumulator> accumulators = new Dictionary<string, ImpactAccumulator>(StringComparer.OrdinalIgnoreCase);
+            Queue<GraphTraversalStep> queue = new Queue<GraphTraversalStep>();
+            Dictionary<string, int> minDepthByNode = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (CodeGraphSymbolRecord seed in seeds)
+            {
+                string seedKey = BuildSymbolKey(seed);
+                if (String.IsNullOrWhiteSpace(seedKey)) continue;
+                minDepthByNode[seedKey] = 0;
+                queue.Enqueue(new GraphTraversalStep(seed, 0));
+            }
+
+            while (queue.Count > 0)
+            {
+                GraphTraversalStep current = queue.Dequeue();
+                if (current.Depth >= maxDepth) continue;
+
+                List<GraphEdgeHop> hops = ResolveTraversalHops(context, current.Symbol, direction);
+                foreach (GraphEdgeHop hop in hops)
+                {
+                    string hopKey = BuildSymbolKey(hop.Symbol);
+                    if (String.IsNullOrWhiteSpace(hopKey)) continue;
+
+                    int nextDepth = current.Depth + 1;
+                    if (minDepthByNode.TryGetValue(hopKey, out int existingDepth) && existingDepth < nextDepth)
+                    {
+                        continue;
+                    }
+                    minDepthByNode[hopKey] = nextDepth;
+
+                    ImpactAccumulator accumulator = GetOrCreateImpactAccumulator(accumulators, hop.Symbol);
+                    accumulator.MinDepth = Math.Min(accumulator.MinDepth, nextDepth);
+                    accumulator.HitCount++;
+                    accumulator.Score = Math.Max(accumulator.Score, ScoreTraversalDepth(nextDepth) + hop.WeightBoost);
+                    if (accumulator.Reasons.Count < 3 && !accumulator.Reasons.Contains(hop.Reason, StringComparer.OrdinalIgnoreCase))
+                    {
+                        accumulator.Reasons.Add(hop.Reason);
+                    }
+
+                    queue.Enqueue(new GraphTraversalStep(hop.Symbol, nextDepth));
+                }
+            }
+
+            List<CodeGraphImpactResult> results = accumulators.Values
+                .OrderByDescending(a => a.Score)
+                .ThenBy(a => a.MinDepth)
+                .ThenBy(a => SelectSymbolName(a.Symbol), StringComparer.OrdinalIgnoreCase)
+                .ThenBy(a => a.Symbol.Path, StringComparer.OrdinalIgnoreCase)
+                .Take(maxResults)
+                .Select(a => new CodeGraphImpactResult
+                {
+                    Score = a.Score,
+                    MinDepth = a.MinDepth == Int32.MaxValue ? 0 : a.MinDepth,
+                    HitCount = a.HitCount,
+                    Symbol = a.Symbol,
+                    Reasons = a.Reasons.ToList()
+                })
+                .ToList();
+
+            return new CodeGraphImpactResponse
+            {
+                Status = context.Status,
+                RequestedSymbol = symbol,
+                Direction = direction,
+                MaxDepth = maxDepth,
+                ResolvedSeedSymbols = seeds,
+                Results = results,
+                Warnings = context.Warnings
+            };
         }
 
         private CodeIndexStatus BuildMissingStatus(Vessel vessel)
@@ -1162,7 +1206,7 @@ namespace Armada.Core.Services
 
         private async Task<GraphQueryContext> LoadGraphQueryContextAsync(string vesselId, CancellationToken token)
         {
-            CodeIndexStatus status = await GetStatusAsync(vesselId, token).ConfigureAwait(false);
+            CodeIndexStatus status = await LoadReadOnlyStatusAsync(vesselId, token).ConfigureAwait(false);
             List<string> warnings = new List<string>();
             if (!String.Equals(status.Freshness, "Fresh", StringComparison.OrdinalIgnoreCase))
             {
