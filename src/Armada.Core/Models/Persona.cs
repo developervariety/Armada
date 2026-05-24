@@ -31,7 +31,7 @@ namespace Armada.Core.Models
         public string? TenantId { get; set; } = null;
 
         /// <summary>
-        /// Persona name (e.g. "Worker", "Architect", "Judge", "TestEngineer").
+        /// Persona name (e.g. "Worker", "Architect", "Judge", "Test Engineer").
         /// </summary>
         public string Name
         {

@@ -2,39 +2,30 @@
 
 **Version:** 0.8.0
 
-This document describes the first shipped Armada proxy API surface in `v0.8.0`.
+`Armada.Proxy` is now a portal and relay for the real Armada dashboard. It no longer ships a second long-lived remote operations UI with its own feature-by-feature API family.
 
-`v0.8.0` includes:
+The shipped proxy responsibilities are:
 
-- websocket tunnel termination at `/tunnel`
-- challenge-based browser login using the shared proxy password
-- in-memory instance registration keyed by `instanceId`
-- live instance summary and detail endpoints
-- a mobile-first remote operations shell served at `/`
-- focused remote inspection endpoints for activity, missions, voyages, captains, logs, and diffs
-- bounded remote management endpoints for fleets, vessels, playbooks, voyages, missions, and captain control
-- live request/response forwarding for Armada health, status, detail snapshots, and management actions
-- tunnel handshake validation using shared-password proofs plus optional enrollment-token validation
-
-`v0.8.0` does not yet include:
-
-- SaaS user accounts
-- enrollment workflows beyond static token validation
-- delegated identity or remote authorization mapping
-- notification inboxes
-- persistent proxy storage
-- server-side remote action policy evaluation beyond the current shell confirmation prompts
-
----
+- browser authentication to the proxy
+- connected-instance discovery and selection
+- serving the shared React dashboard bundle at `/dashboard`
+- relaying Armada REST traffic at `/api/v1/*`
+- relaying the dashboard websocket at `/ws`
+- terminating the outbound Armada tunnel at `/tunnel`
+- enforcing explicit remote-access policy for blocked routes
 
 ## Default Bind
 
-The proxy binds to:
+By default, the proxy binds to:
 
-- Host: `localhost`
-- Port: `7893`
+- host: `localhost`
+- port: `7893`
+- portal: `http://localhost:7893/`
+- shared dashboard: `http://localhost:7893/dashboard`
+- health: `http://localhost:7893/proxy-api/v1/status/health`
+- tunnel: `ws://localhost:7893/tunnel`
 
-Configuration is read from the `ArmadaProxy` section:
+Configuration is loaded from the `ArmadaProxy` section:
 
 ```json
 {
@@ -43,12 +34,6 @@ Configuration is read from the `ArmadaProxy` section:
     "logDirectory": "/app/data/logs",
     "hostname": "localhost",
     "port": 7893,
-    "syslogServers": [
-      {
-        "hostname": "127.0.0.1",
-        "port": 514
-      }
-    ],
     "requireEnrollmentToken": false,
     "enrollmentTokens": [],
     "password": "armadaadmin",
@@ -60,38 +45,46 @@ Configuration is read from the `ArmadaProxy` section:
 }
 ```
 
----
+## Browser Model
 
-## Authentication Model
+The remote browser flow is:
 
-The proxy now exposes a small auth surface for the browser app:
+1. Open `/`.
+2. Request a login challenge from `/proxy-api/v1/auth/challenge`.
+3. Submit a SHA-256 proof to `/proxy-api/v1/auth/login`.
+4. Receive an authenticated proxy session.
+5. List connected deployments from `/proxy-api/v1/instances`.
+6. Store the selected deployment with `/proxy-api/v1/session/instance`.
+7. Open `/dashboard`.
+8. Use the normal Armada dashboard against same-origin `/api/v1/*` and `/ws`.
 
-- `GET /api/v1/auth/challenge`
-- `POST /api/v1/auth/login`
-- `POST /api/v1/auth/logout`
+The proxy session is separate from the Armada application session. After opening `/dashboard`, the user may still need to sign into the selected Armada deployment.
 
-`GET /api/v1/status/health` remains unauthenticated.
+## Authentication And Session Handling
 
-All other `/api/v1/*` routes require the `X-Armada-Proxy-Session` header, obtained from `POST /api/v1/auth/login`.
+The proxy browser session is primarily cookie-backed:
 
-The browser does not send the raw shared password. It first requests a nonce from `/api/v1/auth/challenge`, computes a SHA-256 proof in the browser, and submits that proof to `/api/v1/auth/login`.
+- cookie name: `armada_proxy_session`
+- attributes: `Path=/; HttpOnly; SameSite=Lax`
 
-If `ArmadaProxy.password` is omitted or blank, the proxy defaults it to `armadaadmin`.
+For non-browser callers, the proxy still accepts `X-Armada-Proxy-Session`.
 
-### GET /api/v1/auth/challenge
+The browser never sends the raw shared password. It first requests a nonce and then submits a derived proof:
 
-Returns a one-time challenge for browser login.
+### `GET /proxy-api/v1/auth/challenge`
+
+Returns a one-time login challenge:
 
 ```json
 {
   "nonce": "4f3a0c7a8f6c49d9b6711d2c1a7b5e90",
-  "expiresUtc": "2026-04-04T05:10:00Z"
+  "expiresUtc": "2026-05-16T18:30:00Z"
 }
 ```
 
-### POST /api/v1/auth/login
+### `POST /proxy-api/v1/auth/login`
 
-Validates the browser proof and returns a short-lived session token.
+Request:
 
 ```json
 {
@@ -100,435 +93,114 @@ Validates the browser proof and returns a short-lived session token.
 }
 ```
 
+Response:
+
 ```json
 {
   "token": "0f34455311b54e719f50927df5ecdfd798f8f27ed4ae45e2a73c0c3b2d194f73",
-  "expiresUtc": "2026-04-04T17:05:00Z"
+  "expiresUtc": "2026-05-17T18:30:00Z",
+  "selectedInstanceId": null
 }
 ```
 
-### POST /api/v1/auth/logout
+The response body still includes the token for compatibility, but browser callers normally rely on the `Set-Cookie` header instead.
 
-Invalidates the current browser session identified by `X-Armada-Proxy-Session`.
+### `POST /proxy-api/v1/auth/logout`
 
----
+Invalidates the current proxy browser session and clears the session cookie.
 
-## REST Endpoints
+## Proxy-Local Routes
 
-### GET /
+These routes belong to the proxy itself and are never relayed to Armada:
 
-Serves the proxy remote operations shell.
+| Route | Auth | Purpose |
+| --- | --- | --- |
+| `GET /` | no | Minimal login-and-selection portal |
+| `GET /proxy-api/v1/status/health` | no | Proxy process health and instance counts |
+| `GET /proxy-api/v1/auth/challenge` | no | Browser login challenge |
+| `POST /proxy-api/v1/auth/login` | no | Browser login |
+| `POST /proxy-api/v1/auth/logout` | yes | Proxy logout |
+| `GET /proxy-api/v1/instances` | yes | Connected deployment summaries |
+| `GET /proxy-api/v1/session/context` | yes | Current proxy session and selected deployment metadata |
+| `POST /proxy-api/v1/session/instance` | yes | Set selected deployment |
+| `POST /proxy-api/v1/session/logout-instance` | yes | Clear selected deployment |
+| `GET /dashboard` and `GET /dashboard/*` | yes + selected instance | Shared React dashboard bundle |
+| `WS /tunnel` | instance auth | Armada outbound tunnel |
 
-The shell is designed for quick remote triage rather than full local-dashboard parity. In `v0.8.0` it includes:
-
-- instance list
-- instance summary cards
-- recent activity feed
-- mission, voyage, captain, fleet, and vessel lists
-- focused mission, voyage, captain, fleet, and vessel detail
-- fleet creation and editing
-- vessel creation and editing
-- playbook creation, editing, deletion, and selection during voyage dispatch
-- voyage dispatch and cancellation
-- mission creation, editing, cancellation, and restart
-- captain stop
-- inline mission log, mission diff, and captain log viewers
-
-### GET /api/v1/status/health
-
-Returns proxy process health and instance counts.
+`GET /proxy-api/v1/session/context` returns the selected deployment summary plus relay capability flags:
 
 ```json
 {
-  "healthy": true,
-  "product": "Armada.Proxy",
-  "version": "0.8.0",
-  "protocolVersion": "2026-04-04",
-  "port": 7893,
-  "startedUtc": "2026-04-03T21:00:00Z",
-  "instances": {
-    "total": 2,
-    "connected": 1,
-    "stale": 1,
-    "offline": 0
-  }
-}
-```
-
-### GET /api/v1/instances
-
-Returns summary rows for all known instances.
-
-```json
-{
-  "count": 1,
-  "instances": [
-    {
-      "instanceId": "armada-1f2e3d4c5b6a",
-      "state": "connected",
-      "armadaVersion": "0.8.0",
-      "protocolVersion": "2026-04-04",
-      "capabilities": [
-        "remoteControl.handshake",
-        "remoteControl.heartbeat",
-        "remoteControl.events",
-        "remoteControl.requests",
-        "status.health",
-        "status.snapshot",
-        "settings.remoteControl"
-      ],
-      "remoteAddress": "127.0.0.1",
-      "firstSeenUtc": "2026-04-03T21:00:00Z",
-      "connectedUtc": "2026-04-03T21:00:00Z",
-      "lastSeenUtc": "2026-04-03T21:02:00Z",
-      "lastEventUtc": "2026-04-03T21:01:30Z",
-      "lastDisconnectUtc": null,
-      "lastError": null,
-      "recentEventCount": 3,
-      "pendingRequestCount": 0
-    }
-  ]
-}
-```
-
-`state` can be:
-
-- `connected`
-- `stale`
-- `offline`
-
-### GET /api/v1/instances/{instanceId}
-
-Returns the current summary plus recent inbound event history for an instance.
-
-```json
-{
-  "summary": {
+  "isAuthenticated": true,
+  "expiresUtc": "2026-05-17T18:30:00Z",
+  "selectedInstanceId": "armada-1f2e3d4c5b6a",
+  "selectedInstance": {
     "instanceId": "armada-1f2e3d4c5b6a",
-    "state": "connected",
-    "armadaVersion": "0.8.0",
-    "protocolVersion": "2026-04-04",
-    "capabilities": [
-      "remoteControl.handshake",
-      "remoteControl.heartbeat",
-      "remoteControl.events",
-      "remoteControl.requests",
-      "status.health",
-      "status.snapshot",
-      "settings.remoteControl"
-    ],
-    "remoteAddress": "127.0.0.1",
-    "firstSeenUtc": "2026-04-03T21:00:00Z",
-    "connectedUtc": "2026-04-03T21:00:00Z",
-    "lastSeenUtc": "2026-04-03T21:02:00Z",
-    "lastEventUtc": "2026-04-03T21:01:30Z",
-    "lastDisconnectUtc": null,
-    "lastError": null,
-    "recentEventCount": 3,
-    "pendingRequestCount": 0
+    "state": "connected"
   },
-  "recentEvents": [
-    {
-      "method": "mission.completed",
-      "correlationId": "b0f3d61d59d74e5a855f6b2e3953c64f",
-      "message": null,
-      "timestampUtc": "2026-04-03T21:01:30Z",
-      "payload": {
-        "message": "Mission completed: Update prompt templates",
-        "missionId": "msn_abc123"
-      }
-    }
-  ]
-}
-```
-
-### GET /api/v1/instances/{instanceId}/summary
-
-Returns the aggregated remote-shell summary for a connected instance by issuing `armada.instance.summary` over the tunnel and unwrapping the successful payload.
-
-```json
-{
-  "generatedUtc": "2026-04-03T21:05:00Z",
-  "health": {
-    "status": "healthy",
-    "version": "0.8.0"
-  },
-  "status": {
-    "activeVoyages": 1,
-    "workingCaptains": 1
-  },
-  "recentActivity": [],
-  "recentMissions": [],
-  "recentVoyages": [],
-  "recentCaptains": []
-}
-```
-
-### Focused Remote Inspection Endpoints
-
-The following proxy routes unwrap the successful payload returned by the instance:
-
-- `GET /api/v1/instances/{instanceId}/activity?limit=20`
-- `GET /api/v1/instances/{instanceId}/missions/recent?limit=10`
-- `GET /api/v1/instances/{instanceId}/voyages/recent?limit=10`
-- `GET /api/v1/instances/{instanceId}/captains/recent?limit=10`
-- `GET /api/v1/instances/{instanceId}/missions/{missionId}`
-- `GET /api/v1/instances/{instanceId}/missions/{missionId}/log?lines=200&offset=0`
-- `GET /api/v1/instances/{instanceId}/missions/{missionId}/diff`
-- `GET /api/v1/instances/{instanceId}/voyages/{voyageId}`
-- `GET /api/v1/instances/{instanceId}/captains/{captainId}`
-- `GET /api/v1/instances/{instanceId}/captains/{captainId}/log?lines=50&offset=0`
-
-Example mission detail response:
-
-```json
-{
-  "mission": {
-    "id": "msn_abc123",
-    "title": "Update prompt templates",
-    "status": "Review",
-    "persona": "Judge"
-  },
-  "captain": {
-    "id": "cpt_abc123",
-    "name": "judge-1",
-    "runtime": "ClaudeCode"
-  },
-  "voyage": {
-    "id": "vyg_abc123",
-    "title": "Remote control tranche"
-  },
-  "vessel": {
-    "id": "vsl_abc123",
-    "name": "armada-repo"
-  },
-  "dock": {
-    "id": "dck_abc123",
-    "branchName": "armada/remote-shell"
+  "relay": {
+    "dashboard": true,
+    "api": true,
+    "websocket": true
   }
 }
 ```
 
-### Remote Management Endpoints
+## Relayed Dashboard Routes
 
-The proxy now forwards a bounded management surface into the connected Armada instance.
+Once a deployment is selected, the proxy exposes the same origin shape expected by `Armada.Dashboard`:
 
-Fleet management:
+| Route | Purpose |
+| --- | --- |
+| `ALL /api/v1/*` | Relay to the selected Armada deployment over the tunnel |
+| `WS /ws` | Relay the dashboard websocket to the selected Armada deployment |
 
-- `GET /api/v1/instances/{instanceId}/fleets?limit=25`
-- `GET /api/v1/instances/{instanceId}/fleets/{fleetId}`
-- `POST /api/v1/instances/{instanceId}/fleets`
-- `PUT /api/v1/instances/{instanceId}/fleets/{fleetId}`
+Behavior when session state is missing:
 
-Vessel management:
+- `/dashboard*` without a proxy session or selected deployment redirects to `/`
+- `/api/v1/*` without a proxy session returns `401`
+- `/api/v1/*` without a selected deployment returns `409`
+- `/ws` requires both an authenticated proxy session and a selected deployment
 
-- `GET /api/v1/instances/{instanceId}/vessels?limit=25&fleetId={fleetId}`
-- `GET /api/v1/instances/{instanceId}/vessels/{vesselId}`
-- `POST /api/v1/instances/{instanceId}/vessels`
-- `PUT /api/v1/instances/{instanceId}/vessels/{vesselId}`
+The dashboard bundle served from `/dashboard` is the same built output from `src/Armada.Dashboard/dist`, plus the shared `i18n/armada.json` catalog.
 
-Playbook management:
+## Relay Policy
 
-- `GET /api/v1/instances/{instanceId}/playbooks?limit=25`
-- `GET /api/v1/instances/{instanceId}/playbooks/{playbookId}`
-- `POST /api/v1/instances/{instanceId}/playbooks`
-- `PUT /api/v1/instances/{instanceId}/playbooks/{playbookId}`
-- `DELETE /api/v1/instances/{instanceId}/playbooks/{playbookId}`
+The relay transport is generic, but remote policy is still explicit.
 
-Voyage management:
+### Always blocked
 
-- `GET /api/v1/instances/{instanceId}/voyages?limit=25&status=InProgress`
-- `POST /api/v1/instances/{instanceId}/voyages/dispatch`
-- `DELETE /api/v1/instances/{instanceId}/voyages/{voyageId}`
+- `POST /api/v1/server/stop`
+- `POST /api/v1/server/reset`
+- `POST /api/v1/status/shutdown`
+- `POST /api/v1/status/factory-reset`
+- `POST /api/v1/restore`
 
-Mission management:
+### Write-blocked administrative families
 
-- `GET /api/v1/instances/{instanceId}/missions?limit=25&status=Review&voyageId={voyageId}&vesselId={vesselId}`
-- `POST /api/v1/instances/{instanceId}/missions`
-- `PUT /api/v1/instances/{instanceId}/missions/{missionId}`
-- `DELETE /api/v1/instances/{instanceId}/missions/{missionId}`
-- `POST /api/v1/instances/{instanceId}/missions/{missionId}/restart`
+Non-`GET` and non-`HEAD` requests are blocked for:
 
-Captain control:
+- `/api/v1/settings*`
+- `/api/v1/tenants*`
+- `/api/v1/users*`
+- `/api/v1/credentials*`
 
-- `POST /api/v1/instances/{instanceId}/captains/{captainId}/stop`
+Blocked requests return `403` with an explicit policy message. The transport does not silently fall back to a proxy-specific workaround.
 
-Example voyage dispatch request:
+### Still allowed
 
-```json
-{
-  "title": "Remote release hardening",
-  "description": "Ship the v0.8.0 proxy management surface.",
-  "vesselId": "vsl_abc123",
-  "pipeline": "FullPipeline",
-  "selectedPlaybooks": [
-    {
-      "playbookId": "pbk_abc123",
-      "deliveryMode": "InlineFullContent"
-    }
-  ],
-  "missions": [
-    {
-      "title": "Tighten remote shell UX",
-      "description": "Add mission and voyage browser filters to the proxy shell."
-    },
-    {
-      "title": "Update proxy docs",
-      "description": "Document the shipped management endpoints and shell workflows."
-    }
-  ]
-}
-```
+- normal dashboard reads across `/api/v1/*`
+- normal dashboard writes outside the blocked families
+- file downloads such as `GET /api/v1/backup`
+- websocket traffic at `/ws`
 
-Example mission update request:
+## Tunnel Compatibility Notes
 
-```json
-{
-  "title": "Update proxy docs",
-  "description": "Document the shipped management endpoints and shell workflows.",
-  "persona": "Worker",
-  "priority": 50,
-  "vesselId": "vsl_abc123",
-  "voyageId": "vyg_abc123"
-}
-```
+The proxy now prefers generic relay methods:
 
-### GET /api/v1/instances/{instanceId}/status/snapshot
+- `armada.http.request`
+- `armada.ws.open`
+- `armada.ws.message`
+- `armada.ws.close`
 
-Sends a live tunnel request to the connected Armada instance using method `armada.status.snapshot`.
-
-```json
-{
-  "correlationId": "62cf28fa232f49a5aab48debe031eb89",
-  "success": true,
-  "statusCode": 200,
-  "errorCode": null,
-  "message": "Armada status snapshot captured.",
-  "payload": {
-    "totalCaptains": 2,
-    "idleCaptains": 1,
-    "workingCaptains": 1,
-    "stalledCaptains": 0,
-    "activeVoyages": 1,
-    "missionsByStatus": {
-      "Pending": 2,
-      "InProgress": 1
-    },
-    "voyages": [],
-    "recentSignals": [],
-    "remoteTunnel": {
-      "enabled": true,
-      "state": "Connected",
-      "tunnelUrl": "wss://proxy.example.com/tunnel",
-      "instanceId": "armada-1f2e3d4c5b6a",
-      "lastError": null,
-      "reconnectAttempts": 0,
-      "latencyMs": 42
-    },
-    "timestampUtc": "2026-04-03T21:02:00Z"
-  }
-}
-```
-
-### GET /api/v1/instances/{instanceId}/health
-
-Sends a live tunnel request to the connected Armada instance using method `armada.status.health`.
-
-```json
-{
-  "correlationId": "a81ec0a5ee024679b719046d1bf8de85",
-  "success": true,
-  "statusCode": 200,
-  "errorCode": null,
-  "message": "Armada health snapshot captured.",
-  "payload": {
-    "status": "healthy",
-    "timestamp": "2026-04-03T21:02:00Z",
-    "startUtc": "2026-04-03T20:00:00Z",
-    "uptime": "0.01:02:00",
-    "version": "0.8.0",
-    "ports": {
-      "admiral": 7890,
-      "mcp": 7891
-    },
-    "remoteTunnel": {
-      "enabled": true,
-      "state": "Connected",
-      "tunnelUrl": "wss://proxy.example.com/tunnel",
-      "instanceId": "armada-1f2e3d4c5b6a",
-      "lastError": null,
-      "reconnectAttempts": 0,
-      "latencyMs": 42
-    }
-  }
-}
-```
-
-If the instance is offline, the live endpoints return a `400` response with:
-
-```json
-{
-  "error": "Instance armada-1f2e3d4c5b6a is not connected."
-}
-```
-
----
-
-## Tunnel Endpoint
-
-### GET /tunnel
-
-`/tunnel` is a websocket endpoint, not a normal REST resource.
-
-Expected first message:
-
-- `type = request`
-- `method = armada.tunnel.handshake`
-
-See [docs/TUNNEL_PROTOCOL.md](TUNNEL_PROTOCOL.md) for envelope details.
-
----
-
-## Current Guardrails
-
-- the registry is process-local and in-memory
-- browser API access is protected by a shared-password session gate, not a multi-user identity model
-- tunnel registration requires a valid shared-password proof and optional enrollment-token validation
-- routed requests currently support:
-  - `armada.instance.summary`
-  - `armada.fleets.list`
-  - `armada.fleet.detail`
-  - `armada.fleet.create`
-  - `armada.fleet.update`
-  - `armada.vessels.list`
-  - `armada.vessel.detail`
-  - `armada.vessel.create`
-  - `armada.vessel.update`
-  - `armada.playbooks.list`
-  - `armada.playbook.detail`
-  - `armada.playbook.create`
-  - `armada.playbook.update`
-  - `armada.playbook.delete`
-  - `armada.activity.recent`
-  - `armada.missions.list`
-  - `armada.missions.recent`
-  - `armada.mission.create`
-  - `armada.mission.update`
-  - `armada.mission.cancel`
-  - `armada.mission.restart`
-  - `armada.voyages.list`
-  - `armada.voyages.recent`
-  - `armada.voyage.dispatch`
-  - `armada.voyage.cancel`
-  - `armada.captains.recent`
-  - `armada.captain.stop`
-  - `armada.mission.detail`
-  - `armada.mission.log`
-  - `armada.mission.diff`
-  - `armada.voyage.detail`
-  - `armada.captain.detail`
-  - `armada.captain.log`
-  - `armada.status.snapshot`
-  - `armada.status.health`
-- recent event history is bounded by `maxRecentEvents`
-- destructive actions are client-confirmed in the remote shell, but there is still no per-user authz or policy engine; this remains an implementation-stage operator service
+It still accepts older feature-specific tunnel methods server-side for compatibility, but those are no longer the intended growth path for remote dashboard support.

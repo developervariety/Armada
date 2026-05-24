@@ -3,6 +3,7 @@ import { getSettings, updateSettings, getHealth } from '../api/client';
 import RefreshButton from '../components/shared/RefreshButton';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
+import { useProxySessionContext } from '../lib/useProxySessionContext';
 
 interface ServerSettings {
   admiralPort: number;
@@ -27,12 +28,14 @@ interface HealthInfo {
 
 export default function Settings() {
   const { t } = useLocale();
+  const proxyContext = useProxySessionContext();
   const [settings, setSettings] = useState<ServerSettings | null>(null);
   const [health, setHealth] = useState<HealthInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [toast, setToast] = useState('');
   const [saving, setSaving] = useState(false);
+  const remoteProxyMode = Boolean(proxyContext?.selectedInstanceId);
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -111,6 +114,14 @@ export default function Settings() {
           {toast}
         </div>
       )}
+      {remoteProxyMode && (
+        <div className="alert alert-warning" style={{ marginBottom: '1rem' }}>
+          {t(
+            'This page is connected through Armada.Proxy for {{instanceId}}. Editing general settings is blocked in remote mode.',
+            { instanceId: proxyContext?.selectedInstanceId ?? t('the selected deployment') },
+          )}
+        </div>
+      )}
 
       {/* Server Info */}
       {health && (
@@ -137,6 +148,7 @@ export default function Settings() {
 
       {settings && (
         <>
+          <fieldset disabled={remoteProxyMode} style={{ border: 'none', margin: 0, padding: 0 }}>
           {/* Server Configuration */}
           <div className="settings-section">
             <h3>{t('Server Configuration')}</h3>
@@ -243,6 +255,7 @@ export default function Settings() {
               </div>
             </div>
           </div>
+          </fieldset>
 
           {/* System Paths (read-only) */}
           <div className="settings-section" style={{ marginTop: '1.5rem' }}>
@@ -276,8 +289,8 @@ export default function Settings() {
             <button
               className="btn-primary"
               onClick={handleSaveAll}
-              disabled={saving}
-              title={t('Save all settings')}
+              disabled={saving || remoteProxyMode}
+              title={remoteProxyMode ? t('Settings are blocked in proxy mode') : t('Save all settings')}
             >
               {saving ? t('Saving...') : t('Save All Settings')}
             </button>

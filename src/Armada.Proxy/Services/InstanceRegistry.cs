@@ -11,6 +11,11 @@ namespace Armada.Proxy.Services
     /// </summary>
     public class InstanceRegistry
     {
+        /// <summary>
+        /// Fired when an inbound event envelope arrives for a connected instance.
+        /// </summary>
+        public event Action<string, RemoteTunnelEnvelope>? EventReceived;
+
         #region Constructors-and-Factories
 
         /// <summary>
@@ -167,6 +172,8 @@ namespace Armada.Proxy.Services
             {
                 record.RecordEvent(envelope, _UtcNow(), _Settings.MaxRecentEvents);
             }
+
+            EventReceived?.Invoke(instanceId, envelope);
         }
 
         /// <summary>

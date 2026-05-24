@@ -1,12 +1,13 @@
-import { useState, useMemo } from 'react';
-import type { Mission, Vessel, Fleet } from '../types/models';
+import { useEffect, useMemo, useState } from 'react';
+import { getMissionHistory } from '../api/client';
+import type { MissionHistorySummaryResult, Vessel, Fleet } from '../types/models';
 import { useLocale } from '../context/LocaleContext';
 
 const TIME_RANGES = [
-  { label: 'Last Hour', value: 'hour', hours: 1, stepMs: 60000 },
-  { label: 'Last Day', value: 'day', hours: 24, stepMs: 900000 },
-  { label: 'Last Week', value: 'week', hours: 168, stepMs: 3600000 },
-  { label: 'Last Month', value: 'month', hours: 720, stepMs: 21600000 },
+  { label: 'Last Hour', value: 'hour', hours: 1, stepMinutes: 1 },
+  { label: 'Last Day', value: 'day', hours: 24, stepMinutes: 15 },
+  { label: 'Last Week', value: 'week', hours: 168, stepMinutes: 60 },
+  { label: 'Last Month', value: 'month', hours: 720, stepMinutes: 360 },
 ] as const;
 
 type TimeRangeValue = typeof TIME_RANGES[number]['value'];
@@ -19,23 +20,9 @@ interface Bucket {
 }
 
 interface MissionHistoryChartProps {
-  missions: Mission[];
   vessels: Vessel[];
   fleets: Fleet[];
   onRefresh?: () => void;
-}
-
-function floorToStep(ts: number, stepMs: number): number {
-  return Math.floor(ts / stepMs) * stepMs;
-}
-
-function generateAllBuckets(startMs: number, endMs: number, stepMs: number): Bucket[] {
-  const buckets: Bucket[] = [];
-  const flooredStart = floorToStep(startMs, stepMs);
-  for (let t = flooredStart; t < endMs; t += stepMs) {
-    buckets.push({ timestampMs: t, complete: 0, failed: 0, other: 0 });
-  }
-  return buckets;
 }
 
 function computeYTicks(max: number): number[] {
@@ -47,9 +34,9 @@ function computeYTicks(max: number): number[] {
   return ticks;
 }
 
-function formatBucketLabel(ts: number, stepMs: number, hours: number): string {
+function formatBucketLabel(ts: number, stepMinutes: number, hours: number): string {
   const d = new Date(ts);
-  if (stepMs <= 900000) return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  if (stepMinutes <= 15) return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
   if (hours > 48) return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
   return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 }
@@ -59,12 +46,14 @@ function formatTooltipTime(ts: number): string {
   return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
-export default function MissionHistoryChart({ missions, vessels, fleets, onRefresh }: MissionHistoryChartProps) {
+export default function MissionHistoryChart({ vessels, fleets, onRefresh }: MissionHistoryChartProps) {
   const { t } = useLocale();
   const [timeRange, setTimeRange] = useState<TimeRangeValue>('week');
   const [fleetId, setFleetId] = useState('');
   const [vesselId, setVesselId] = useState('');
   const [hoveredBar, setHoveredBar] = useState<number | null>(null);
+  const [history, setHistory] = useState<MissionHistorySummaryResult | null>(null);
+  const [loading, setLoading] = useState(true);
 
   const filteredVessels = useMemo(() => {
     if (!fleetId) return vessels;
@@ -73,32 +62,52 @@ export default function MissionHistoryChart({ missions, vessels, fleets, onRefre
 
   const range = TIME_RANGES.find(r => r.value === timeRange)!;
 
-  const { buckets, totalComplete, totalFailed, totalOther } = useMemo(() => {
-    const endMs = Date.now();
-    const startMs = endMs - range.hours * 3600000;
-    const allBuckets = generateAllBuckets(startMs, endMs, range.stepMs);
-
-    const vesselIdsInFleet = fleetId ? new Set(filteredVessels.map(v => v.id)) : null;
-
-    let tc = 0, tf = 0, to = 0;
-    for (const m of missions) {
-      const mTime = new Date(m.createdUtc).getTime();
-      if (mTime < startMs || mTime >= endMs) continue;
-      if (vesselId && m.vesselId !== vesselId) continue;
-      if (vesselIdsInFleet && !vesselIdsInFleet.has(m.vesselId ?? '')) continue;
-
-      const bucketKey = floorToStep(mTime, range.stepMs);
-      const bucket = allBuckets.find(b => b.timestampMs === bucketKey);
-      if (!bucket) continue;
-
-      if (m.status === 'Complete') { bucket.complete++; tc++; }
-      else if (m.status === 'Failed' || m.status === 'LandingFailed') { bucket.failed++; tf++; }
-      else { bucket.other++; to++; }
+  useEffect(() => {
+    if (vesselId && !filteredVessels.some(v => v.id === vesselId)) {
+      setVesselId('');
     }
+  }, [filteredVessels, vesselId]);
 
-    return { buckets: allBuckets, totalComplete: tc, totalFailed: tf, totalOther: to };
-  }, [missions, timeRange, fleetId, vesselId, filteredVessels, range]);
+  useEffect(() => {
+    let cancelled = false;
+    const end = new Date();
+    const start = new Date(end.getTime() - range.hours * 3600000);
 
+    setLoading(true);
+    getMissionHistory({
+      fromUtc: start.toISOString(),
+      toUtc: end.toISOString(),
+      bucketMinutes: range.stepMinutes,
+      fleetId: fleetId || undefined,
+      vesselId: vesselId || undefined,
+    })
+      .then((result) => {
+        if (!cancelled) setHistory(result);
+      })
+      .catch(() => {
+        if (!cancelled) setHistory(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [fleetId, range.hours, range.stepMinutes, timeRange, vesselId]);
+
+  const buckets = useMemo<Bucket[]>(() => {
+    return (history?.buckets || []).map(bucket => ({
+      timestampMs: new Date(bucket.startUtc).getTime(),
+      complete: bucket.completeCount,
+      failed: bucket.failedCount,
+      other: bucket.otherCount,
+    }));
+  }, [history]);
+
+  const totalComplete = history?.completeCount ?? 0;
+  const totalFailed = history?.failedCount ?? 0;
+  const totalOther = history?.otherCount ?? 0;
   const maxCount = Math.max(1, ...buckets.map(b => b.complete + b.failed + b.other));
   const yTicks = computeYTicks(maxCount);
   const yMax = yTicks[yTicks.length - 1] || 1;
@@ -107,6 +116,23 @@ export default function MissionHistoryChart({ missions, vessels, fleets, onRefre
   const padTop = 20, padBot = 40, padLeft = 50, padRight = 16;
   const barAreaHeight = chartHeight - padTop - padBot;
   const barAreaWidth = 800 - padLeft - padRight;
+
+  const refresh = () => {
+    onRefresh?.();
+    const end = new Date();
+    const start = new Date(end.getTime() - range.hours * 3600000);
+    setLoading(true);
+    getMissionHistory({
+      fromUtc: start.toISOString(),
+      toUtc: end.toISOString(),
+      bucketMinutes: range.stepMinutes,
+      fleetId: fleetId || undefined,
+      vesselId: vesselId || undefined,
+    })
+      .then(setHistory)
+      .catch(() => setHistory(null))
+      .finally(() => setLoading(false));
+  };
 
   return (
     <div className="mission-history-section">
@@ -132,22 +158,22 @@ export default function MissionHistoryChart({ missions, vessels, fleets, onRefre
               </button>
             ))}
           </div>
-          {onRefresh && (
-            <button className="mission-history-refresh-btn" onClick={onRefresh} title={t('Refresh')}>
-              &#x21bb;
-            </button>
-          )}
+          <button className="mission-history-refresh-btn" onClick={refresh} title={t('Refresh')}>
+            &#x21bb;
+          </button>
         </div>
       </div>
 
       <div className="mission-history-stats">
-        <span><span className="mission-history-stat-value">{totalComplete + totalFailed + totalOther}</span> {t('Total')}</span>
+        <span><span className="mission-history-stat-value">{history?.totalCount ?? 0}</span> {t('Total')}</span>
         <span><span className="mission-history-stat-value" style={{ color: 'var(--green)' }}>{totalComplete}</span> {t('Complete')}</span>
         <span><span className="mission-history-stat-value" style={{ color: 'var(--red)' }}>{totalFailed}</span> {t('Failed')}</span>
         {totalOther > 0 && <span><span className="mission-history-stat-value" style={{ color: 'var(--text-dim)' }}>{totalOther}</span> {t('Other')}</span>}
       </div>
 
-      {buckets.length === 0 ? (
+      {loading ? (
+        <div className="mission-history-empty">{t('Loading mission history...')}</div>
+      ) : buckets.length === 0 ? (
         <div className="mission-history-empty">{t('No mission data for this time range')}</div>
       ) : (
         <div className="mission-history-chart-container">
@@ -170,7 +196,6 @@ export default function MissionHistoryChart({ missions, vessels, fleets, onRefre
               const labelInterval = Math.max(1, Math.ceil(buckets.length / maxLabels));
 
               return buckets.map((bucket, i) => {
-                const total = bucket.complete + bucket.failed + bucket.other;
                 const completeH = (bucket.complete / yMax) * barAreaHeight;
                 const failedH = (bucket.failed / yMax) * barAreaHeight;
                 const otherH = (bucket.other / yMax) * barAreaHeight;
@@ -189,7 +214,7 @@ export default function MissionHistoryChart({ missions, vessels, fleets, onRefre
                     {bucket.other > 0 && <rect x={x} y={otherY} width={barWidth} height={otherH} rx={2} fill="var(--text-dim)" opacity={isHovered ? 0.7 : 0.5} />}
                     {showLabel && (
                       <text x={padLeft + i * barGroupWidth + barGroupWidth / 2} y={chartHeight - 8} textAnchor="middle" fontSize="8" fill="var(--text-dim)">
-                        {formatBucketLabel(bucket.timestampMs, range.stepMs, range.hours)}
+                        {formatBucketLabel(bucket.timestampMs, range.stepMinutes, range.hours)}
                       </text>
                     )}
                   </g>

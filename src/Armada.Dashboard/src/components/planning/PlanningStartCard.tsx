@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import type { Captain, Fleet, Pipeline, SelectedPlaybook, Vessel } from '../../types/models';
+import { canCaptainStartPlanning } from '../../lib/captains';
 import PlaybookSelector from '../shared/PlaybookSelector';
 
 interface PlanningStartCardProps {
@@ -71,17 +72,17 @@ export default function PlanningStartCard(props: PlanningStartCardProps) {
         <p className="text-muted">{t('Loading planning catalog...')}</p>
       ) : (
         <div className="dispatch-form">
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0 1rem' }}>
-            <div className="form-group">
-              <label>{t('Title')}</label>
-              <input
-                value={title}
-                disabled={creating}
-                onChange={(event) => onTitleChange(event.target.value)}
-                placeholder={t('Optional planning session title')}
-              />
-            </div>
+          <div className="form-group planning-start-title-group">
+            <label>{t('Title')}</label>
+            <input
+              value={title}
+              disabled={creating}
+              onChange={(event) => onTitleChange(event.target.value)}
+              placeholder={t('Optional planning session title')}
+            />
+          </div>
 
+          <div className="planning-start-grid">
             <div className="form-group">
               <label>{t('Captain')}</label>
               <select value={captainId} disabled={creating} onChange={(event) => onCaptainChange(event.target.value)}>
@@ -90,7 +91,7 @@ export default function PlanningStartCard(props: PlanningStartCardProps) {
                   <option
                     key={captain.id}
                     value={captain.id}
-                    disabled={captain.state !== 'Idle' || !captain.supportsPlanningSessions}
+                    disabled={!canCaptainStartPlanning(captain)}
                   >
                     {`${captain.name} (${captain.runtime}) - ${captain.state}${captain.supportsPlanningSessions ? '' : ' - planning unsupported'}`}
                   </option>

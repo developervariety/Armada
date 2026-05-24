@@ -59,7 +59,11 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(Constants.ProductVersion, manifest.ArmadaVersion);
                 AssertContains("remoteControl.handshake", String.Join(",", manifest.Features), "Handshake capability should be advertised");
                 AssertContains("remoteControl.requests", String.Join(",", manifest.Features), "Request capability should be advertised");
-                AssertContains("status.health", String.Join(",", manifest.Features), "Health capability should be advertised");
+                AssertContains("dashboard.http.relay", String.Join(",", manifest.Features), "Dashboard HTTP relay capability should be advertised");
+                AssertContains("dashboard.websocket.relay", String.Join(",", manifest.Features), "Dashboard websocket relay capability should be advertised");
+                AssertEqual(6, manifest.Features.Count, "Relay-only capability manifest should stay intentionally small");
+                AssertFalse(manifest.Features.Contains("status.health"), "Legacy feature-specific capabilities should no longer be advertised");
+                AssertFalse(manifest.Features.Contains("objective.create"), "Legacy objective tunnel methods should no longer be advertised");
             });
 
             await RunTest("GetStatus DefaultsToDisabledWhenFeatureDisabled", () =>

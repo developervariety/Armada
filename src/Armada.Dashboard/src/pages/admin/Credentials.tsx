@@ -11,6 +11,7 @@ import { useAuth } from '../../context/AuthContext';
 import ErrorModal from '../../components/shared/ErrorModal';
 import { useLocale } from '../../context/LocaleContext';
 import { useNotifications } from '../../context/NotificationContext';
+import { useProxySessionContext } from '../../lib/useProxySessionContext';
 
 type SortField = 'name' | 'userId' | 'active' | 'createdUtc';
 type SortDir = 'asc' | 'desc';
@@ -19,6 +20,7 @@ export default function Credentials() {
   const { user, isAdmin, isTenantAdmin } = useAuth();
   const { t, formatRelativeTime, formatDateTime } = useLocale();
   const { pushToast } = useNotifications();
+  const proxyContext = useProxySessionContext();
   const [items, setItems] = useState<Credential[]>([]);
   const [users, setUsers] = useState<UserMaster[]>([]);
   const [tenants, setTenants] = useState<TenantMetadata[]>([]);
@@ -35,6 +37,7 @@ export default function Credentials() {
   const [pageSize, setPageSize] = useState(25);
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; resourceName?: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
+  const remoteProxyMode = Boolean(proxyContext?.selectedInstanceId);
 
   const userName = useCallback((id: string) => {
     const u = users.find(u => u.id === id);
@@ -103,6 +106,7 @@ export default function Credentials() {
   function toggleSelect(id: string) { setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]); }
 
   function openCreate() {
+    if (remoteProxyMode) return;
     setForm({
       userId: users[0]?.id ?? user?.user?.id ?? '',
       tenantId: tenants[0]?.id ?? user?.tenant?.id ?? '',
@@ -114,6 +118,10 @@ export default function Credentials() {
   }
 
   function openEdit(credential: Credential) {
+    if (remoteProxyMode) {
+      setJsonData({ open: true, title: `Credential: ${credential.name || credential.id}`, data: credential });
+      return;
+    }
     setForm({
       userId: credential.userId,
       tenantId: credential.tenantId,
@@ -200,13 +208,21 @@ export default function Credentials() {
           <p className="text-dim view-subtitle">{isAdmin ? t('Manage API bearer tokens across all tenants.') : isTenantAdmin ? t('Manage API bearer tokens within your tenant.') : t('Manage your API bearer tokens.')}</p>
         </div>
         <div className="view-actions">
-          {selected.length > 0 && <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>{t('Delete Selected')} ({selected.length})</button>}
-          <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Credential')}</button>
+          {!remoteProxyMode && selected.length > 0 && <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>{t('Delete Selected')} ({selected.length})</button>}
+          {!remoteProxyMode && <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Credential')}</button>}
           <RefreshButton onRefresh={load} title="Refresh credentials" />
         </div>
       </div>
 
       <ErrorModal error={error} onClose={() => setError('')} />
+      {remoteProxyMode && (
+        <div className="alert alert-warning" style={{ marginBottom: '1rem' }}>
+          {t(
+            'This page is connected through Armada.Proxy for {{instanceId}}. Credential create, edit, and delete actions are blocked in remote mode.',
+            { instanceId: proxyContext?.selectedInstanceId ?? t('the selected deployment') },
+          )}
+        </div>
+      )}
 
       {showForm && (
         <div className="modal-overlay" onClick={() => setShowForm(false)}>
@@ -303,7 +319,9 @@ export default function Credentials() {
                   <tr
                     key={c.id}
                     className="clickable"
-                    onClick={() => openEdit(c)}
+                    onClick={() => remoteProxyMode
+                      ? setJsonData({ open: true, title: `Credential: ${c.name || c.id}`, data: c })
+                      : openEdit(c)}
                   >
                     <td className="col-checkbox" onClick={e => e.stopPropagation()}><input type="checkbox" checked={selected.includes(c.id)} onChange={() => toggleSelect(c.id)} title={t('Select this credential')} /></td>
                     <td><strong>{c.name || '-'}</strong></td>
@@ -325,10 +343,10 @@ export default function Credentials() {
                     <td className="text-dim" title={formatDateTime(c.createdUtc)}>{formatRelativeTime(c.createdUtc)}</td>
                     <td className="text-right" onClick={e => e.stopPropagation()}>
                       <ActionMenu id={c.id} items={[
-                        { label: 'Edit', onClick: () => openEdit(c) },
+                        ...(remoteProxyMode ? [] : [{ label: 'Edit', onClick: () => openEdit(c) }]),
                         { label: 'Copy Token', onClick: () => { copyToClipboard(c.bearerToken).catch(() => {}); } },
                         { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `Credential: ${c.name || c.id}`, data: c }) },
-                        { label: 'Delete', danger: true, onClick: () => handleDelete(c.id, c.name ?? '') },
+                        ...(remoteProxyMode ? [] : [{ label: 'Delete', danger: true, onClick: () => handleDelete(c.id, c.name ?? '') }]),
                       ]} />
                     </td>
                   </tr>

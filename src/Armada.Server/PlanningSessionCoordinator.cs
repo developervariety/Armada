@@ -486,33 +486,48 @@ namespace Armada.Server
         /// </summary>
         public async Task MaintainSessionsAsync(CancellationToken token = default)
         {
-            if (_Settings.PlanningSessionInactivityTimeoutMinutes <= 0 && _Settings.PlanningSessionRetentionDays <= 0)
+            if (_Settings.PlanningSessionInactivityTimeoutMinutes <= 0 &&
+                _Settings.PlanningSessionAbandonmentTimeoutMinutes <= 0 &&
+                _Settings.PlanningSessionRetentionDays <= 0)
                 return;
 
             List<PlanningSession> sessions = await _Database.PlanningSessions.EnumerateAsync(token).ConfigureAwait(false);
+            DateTime nowUtc = DateTime.UtcNow;
+            HashSet<string> sessionsToStop = new HashSet<string>(StringComparer.Ordinal);
 
             if (_Settings.PlanningSessionInactivityTimeoutMinutes > 0)
             {
-                DateTime inactivityCutoff = DateTime.UtcNow.AddMinutes(-_Settings.PlanningSessionInactivityTimeoutMinutes);
-                foreach (PlanningSession session in sessions.Where(s =>
-                    s.Status == PlanningSessionStatusEnum.Active &&
-                    !s.ProcessId.HasValue &&
-                    s.LastUpdateUtc < inactivityCutoff))
+                DateTime inactivityCutoff = nowUtc.AddMinutes(-_Settings.PlanningSessionInactivityTimeoutMinutes);
+                foreach (PlanningSession session in sessions.Where(s => ShouldStopForInactivity(s, inactivityCutoff)))
                 {
-                    try
-                    {
-                        await StopAsync(session, token).ConfigureAwait(false);
-                    }
-                    catch (Exception ex)
-                    {
-                        _Logging.Warn(_Header + "planning inactivity stop failed for " + session.Id + ": " + ex.Message);
-                    }
+                    sessionsToStop.Add(session.Id);
+                }
+            }
+
+            if (_Settings.PlanningSessionAbandonmentTimeoutMinutes > 0)
+            {
+                DateTime abandonmentCutoff = nowUtc.AddMinutes(-_Settings.PlanningSessionAbandonmentTimeoutMinutes);
+                foreach (PlanningSession session in sessions.Where(s => ShouldStopForAbandonment(s, abandonmentCutoff)))
+                {
+                    sessionsToStop.Add(session.Id);
+                }
+            }
+
+            foreach (PlanningSession session in sessions.Where(s => sessionsToStop.Contains(s.Id)))
+            {
+                try
+                {
+                    await StopAsync(session, token).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "planning inactivity stop failed for " + session.Id + ": " + ex.Message);
                 }
             }
 
             if (_Settings.PlanningSessionRetentionDays > 0)
             {
-                DateTime retentionCutoff = DateTime.UtcNow.AddDays(-_Settings.PlanningSessionRetentionDays);
+                DateTime retentionCutoff = nowUtc.AddDays(-_Settings.PlanningSessionRetentionDays);
                 foreach (PlanningSession session in sessions.Where(s =>
                     (s.Status == PlanningSessionStatusEnum.Stopped || s.Status == PlanningSessionStatusEnum.Failed) &&
                     (s.CompletedUtc ?? s.LastUpdateUtc) < retentionCutoff))
@@ -537,6 +552,7 @@ namespace Armada.Server
             List<PlanningSession> active = await _Database.PlanningSessions
                 .EnumerateAsync(token)
                 .ConfigureAwait(false);
+            DateTime nowUtc = DateTime.UtcNow;
 
             foreach (PlanningSession session in active.Where(s =>
                 s.Status == PlanningSessionStatusEnum.Active ||
@@ -557,6 +573,12 @@ namespace Armada.Server
                     }
 
                     if (session.Status == PlanningSessionStatusEnum.Stopping)
+                    {
+                        await StopAsync(session, token).ConfigureAwait(false);
+                        continue;
+                    }
+
+                    if (ShouldStopOnRecovery(session, nowUtc))
                     {
                         await StopAsync(session, token).ConfigureAwait(false);
                         continue;
@@ -605,21 +627,28 @@ namespace Armada.Server
                         await _Database.PlanningSessionMessages.CreateAsync(interruption, token).ConfigureAwait(false);
                     }
 
+                    PlanningSession recoveredSession = await RequireSessionAsync(session.Id, token).ConfigureAwait(false);
+                    if (ShouldStopOnRecovery(recoveredSession, nowUtc))
+                    {
+                        await StopAsync(recoveredSession, token).ConfigureAwait(false);
+                        continue;
+                    }
+
                     captain.State = CaptainStateEnum.Planning;
                     captain.CurrentMissionId = null;
-                    captain.CurrentDockId = session.DockId;
+                    captain.CurrentDockId = recoveredSession.DockId;
                     captain.ProcessId = null;
                     captain.LastHeartbeatUtc = DateTime.UtcNow;
                     captain.LastUpdateUtc = DateTime.UtcNow;
                     await _Database.Captains.UpdateAsync(captain, token).ConfigureAwait(false);
                     _WebSocketHub?.BroadcastCaptainChange(captain.Id, captain.State.ToString(), captain.Name);
 
-                    if (session.Status == PlanningSessionStatusEnum.Responding)
+                    if (recoveredSession.Status == PlanningSessionStatusEnum.Responding)
                     {
-                        session.Status = PlanningSessionStatusEnum.Active;
-                        session.ProcessId = null;
-                        session.LastUpdateUtc = DateTime.UtcNow;
-                        await _Database.PlanningSessions.UpdateAsync(session, token).ConfigureAwait(false);
+                        recoveredSession.Status = PlanningSessionStatusEnum.Active;
+                        recoveredSession.ProcessId = null;
+                        recoveredSession.LastUpdateUtc = DateTime.UtcNow;
+                        await _Database.PlanningSessions.UpdateAsync(recoveredSession, token).ConfigureAwait(false);
                     }
                 }
                 catch (Exception ex)
@@ -806,6 +835,43 @@ namespace Armada.Server
             }
 
             return !_ActiveTurns.ContainsKey(sessionId);
+        }
+
+        private bool ShouldStopOnRecovery(PlanningSession session, DateTime nowUtc)
+        {
+            if (_Settings.PlanningSessionInactivityTimeoutMinutes > 0)
+            {
+                DateTime inactivityCutoff = nowUtc.AddMinutes(-_Settings.PlanningSessionInactivityTimeoutMinutes);
+                if (ShouldStopForInactivity(session, inactivityCutoff))
+                    return true;
+            }
+
+            if (_Settings.PlanningSessionAbandonmentTimeoutMinutes > 0)
+            {
+                DateTime abandonmentCutoff = nowUtc.AddMinutes(-_Settings.PlanningSessionAbandonmentTimeoutMinutes);
+                if (ShouldStopForAbandonment(session, abandonmentCutoff))
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static bool ShouldStopForInactivity(PlanningSession session, DateTime inactivityCutoffUtc)
+        {
+            return IsIdleSessionWithoutRunningProcess(session)
+                && session.LastUpdateUtc < inactivityCutoffUtc;
+        }
+
+        private static bool ShouldStopForAbandonment(PlanningSession session, DateTime abandonmentCutoffUtc)
+        {
+            return IsIdleSessionWithoutRunningProcess(session)
+                && session.LastUpdateUtc < abandonmentCutoffUtc;
+        }
+
+        private static bool IsIdleSessionWithoutRunningProcess(PlanningSession session)
+        {
+            return (session.Status == PlanningSessionStatusEnum.Active || session.Status == PlanningSessionStatusEnum.Responding)
+                && !session.ProcessId.HasValue;
         }
 
         private async Task<string> WritePromptFileAsync(

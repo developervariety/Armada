@@ -87,9 +87,8 @@ export default function App() {
                 <Suspense fallback={<RouteFallback />}>
                   <Routes>
                     <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-                      <Route index element={<Navigate to="/dashboard" replace />} />
-
-                      <Route path="dashboard" element={<Dashboard />} />
+                      <Route index element={<Dashboard />} />
+                      <Route path="dashboard" element={<Navigate to="/" replace />} />
                       <Route path="planning" element={<Planning />} />
                       <Route path="planning/:id" element={<Planning />} />
                       <Route path="dispatch" element={<Dispatch />} />

@@ -425,9 +425,8 @@ namespace Armada.Core.Services
                 + "-->" + Environment.NewLine + Environment.NewLine
                 + overviewMarkdown;
 
-            return new Playbook
+            Playbook playbook = new Playbook
             {
-                Id = existing?.Id ?? String.Empty,
                 TenantId = existing?.TenantId ?? auth.TenantId,
                 UserId = existing?.UserId ?? auth.UserId,
                 FileName = fileName,
@@ -437,6 +436,13 @@ namespace Armada.Core.Services
                 CreatedUtc = existing?.CreatedUtc ?? DateTime.UtcNow,
                 LastUpdateUtc = DateTime.UtcNow
             };
+
+            if (existing != null)
+            {
+                playbook.Id = existing.Id;
+            }
+
+            return playbook;
         }
 
         private async Task<List<RunbookExecution>> ReadAllExecutionsAsync(AuthContext auth, CancellationToken token)

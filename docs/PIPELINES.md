@@ -26,7 +26,7 @@ This document covers the complete pipeline implementation in Armada v0.8.0: data
 
 ## 1. Overview
 
-A **pipeline** is an ordered sequence of **persona stages** that a dispatch goes through. Without pipelines, every dispatch creates Worker missions that run independently. With pipelines, a single dispatch can flow through planning (Architect), implementation (Worker), testing (TestEngineer), and review (Judge) stages automatically.
+A **pipeline** is an ordered sequence of **persona stages** that a dispatch goes through. Without pipelines, every dispatch creates Worker missions that run independently. With pipelines, a single dispatch can flow through planning (Architect), implementation (Worker), testing (Test Engineer), and review (Judge) stages automatically.
 
 Key design decisions:
 - **Option B**: Persona is a property of the mission, not the captain. Any captain can fill any role.
@@ -61,7 +61,6 @@ Key design decisions:
 | `PersonaName` | string | Persona name for this stage (e.g. "Worker", "Judge") |
 | `IsOptional` | bool | If true, the Admiral may skip this stage |
 | `Description` | string? | What this stage does |
-| `PreferredModel` | string? | Optional per-stage tier or model pin. Specialist built-in stages use `high`. |
 
 **Source:** `src/Armada.Core/Models/PipelineStage.cs`
 
@@ -101,13 +100,7 @@ Key design decisions:
 | Worker | `persona.worker` | Standard mission executor -- writes code, makes changes, commits |
 | Architect | `persona.architect` | Plans work, decomposes goals into missions using `[ARMADA:MISSION]` markers |
 | Judge | `persona.judge` | Reviews diffs for correctness, completeness, scope, and style |
-| TestEngineer | `persona.test_engineer` | Writes tests for changes, follows existing test patterns |
-| DiagnosticProtocolReviewer | `persona.diagnostic_protocol_reviewer` | Reviews J1939, UDS, J1708, K-line, OEM seed-key/security access, diagnostic timing/framing, and banned reflash boundaries |
-| TenantSecurityReviewer | `persona.tenant_security_reviewer` | Reviews multi-tenant authz/authn, tenant isolation, secrets, auditability, and cross-tenant leak risk |
-| MigrationDataReviewer | `persona.migration_data_reviewer` | Reviews migrations, schema/provider parity, indexes, backfills, rollback/restart safety, and data-loss risk |
-| PerformanceMemoryReviewer | `persona.performance_memory_reviewer` | Reviews memory/allocations, retained object graphs, process output/log growth, DB materialization, throughput, and resource lifetime |
-| PortingReferenceAnalyst | `persona.porting_reference_analyst` | Reviews approved reference material, decompiler-derived notes, vendor traces, protocol captures, and semantic parity evidence for porting work |
-| FrontendWorkflowReviewer | `persona.frontend_workflow_reviewer` | Reviews frontend UX/workflow, accessibility, responsive states, i18n, errors, and design consistency |
+| Test Engineer | `persona.test_engineer` | Writes tests for changes, follows existing test patterns |
 
 ### Pipelines (seeded on startup by `PersonaSeedService`)
 
@@ -115,20 +108,8 @@ Key design decisions:
 |------|--------|-------------|
 | WorkerOnly | Worker | Backward-compatible default |
 | Reviewed | Worker -> Judge | Implementation + review |
-| Tested | Worker -> TestEngineer -> Judge | Implementation + testing + review |
-| FullPipeline | Architect -> Worker -> TestEngineer -> Judge | Planning + implementation + testing + review |
-| ProductDevelopment | Product Manager -> Architect -> Worker -> Usability Engineer -> TestEngineer -> Judge | Product-facing work that needs product intent and UX review |
-| DiagnosticProtocolTested | Worker -> DiagnosticProtocolReviewer -> TestEngineer -> Judge | Diagnostic protocol safety and compliance review before tests and final review |
-| TenantSecurityTested | Worker -> TenantSecurityReviewer -> TestEngineer -> Judge | Tenant isolation, auth, secret, audit, and cross-tenant leak review |
-| MigrationDataTested | Worker -> MigrationDataReviewer -> TestEngineer -> Judge | Migration, provider parity, backfill, index, rollback, and data-loss review |
-| PerformanceMemoryTested | Worker -> PerformanceMemoryReviewer -> TestEngineer -> Judge | Memory, allocation, output growth, throughput, and resource lifetime review |
-| ReferencePortingTested | Worker -> PortingReferenceAnalyst -> TestEngineer -> Judge | Evidence-based reference parity review for porting work |
-| FrontendWorkflowTested | Worker -> FrontendWorkflowReviewer -> TestEngineer -> Judge | UX workflow, accessibility, responsive, i18n, error, and design consistency review |
-
-For all six specialist pipelines, the specialist stage has `PreferredModel = "high"` so
-the dispatcher prefers the high-capability model tier for the domain review. Worker,
-TestEngineer, and Judge stages inherit the dispatch-level model selection unless their
-own pipeline stage is customized.
+| Tested | Worker -> Test Engineer -> Judge | Implementation + testing + review |
+| FullPipeline | Architect -> Worker -> Test Engineer -> Judge | Planning + implementation + testing + review |
 
 **Source:** `src/Armada.Core/Services/PersonaSeedService.cs`
 
@@ -348,7 +329,7 @@ When an Architect stage completes with parseable markers:
 2. Update the existing Worker mission (next stage) with the first definition
 3. Create N-1 additional Worker missions for the remaining definitions
 4. For each additional Worker:
-   - Clone the post-Worker stages (TestEngineer, Judge) as new missions
+   - Clone the post-Worker stages (Test Engineer, Judge) as new missions
    - Chain dependencies: additional Worker depends on Architect,
      cloned stages depend on their Worker
 5. Assign the first Worker mission
@@ -360,9 +341,9 @@ Result for an Architect that produces 2 mission definitions in a FullPipeline:
 ```
 [Architect] (completed)
   |
-  +-- [Worker 1] "Add CacheService" --> [TestEngineer 1] --> [Judge 1]
+  +-- [Worker 1] "Add CacheService" --> [Test Engineer 1] --> [Judge 1]
   |
-  +-- [Worker 2] "Add middleware"    --> [TestEngineer 2] --> [Judge 2]
+  +-- [Worker 2] "Add middleware"    --> [Test Engineer 2] --> [Judge 2]
 ```
 
 If no `[ARMADA:MISSION]` markers are found, the Architect's output falls through to normal stage handoff (context injection).
@@ -389,7 +370,7 @@ Template resolution order:
 Database (user customization) -> Embedded Default (shipped with code) -> Hardcoded Fallback
 ```
 
-All 24 built-in templates are seeded into the database on startup via `PromptTemplateService.SeedDefaultsAsync()`. Users can edit them via dashboard, MCP, or REST without touching code. Startup seeding inserts missing embedded defaults and reconciles built-in metadata without overwriting edited template content; use reset to restore the embedded content.
+All 18 built-in templates are seeded into the database on startup via `PromptTemplateService.SeedDefaultsAsync()`. Users can edit them via dashboard, MCP, or REST without touching code.
 
 **Source:** `src/Armada.Core/Services/MissionService.cs`, `src/Armada.Core/Services/PromptTemplateService.cs`
 
@@ -578,7 +559,7 @@ Assign captains to specific roles:
 
 // Sonnet captains for implementation and testing
 // update_captain
-{ "captainId": "cpt_sonnet", "allowedPersonas": "[\"Worker\",\"TestEngineer\"]" }
+{ "captainId": "cpt_sonnet", "allowedPersonas": "[\"Worker\",\"Test Engineer\"]" }
 ```
 
 ---

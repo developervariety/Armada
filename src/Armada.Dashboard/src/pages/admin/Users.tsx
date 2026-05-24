@@ -11,6 +11,7 @@ import { useAuth } from '../../context/AuthContext';
 import ErrorModal from '../../components/shared/ErrorModal';
 import { useLocale } from '../../context/LocaleContext';
 import { useNotifications } from '../../context/NotificationContext';
+import { useProxySessionContext } from '../../lib/useProxySessionContext';
 
 type SortField = 'email' | 'firstName' | 'isAdmin' | 'active' | 'createdUtc';
 type SortDir = 'asc' | 'desc';
@@ -19,6 +20,7 @@ export default function Users() {
   const { user, isAdmin, isTenantAdmin } = useAuth();
   const { t, formatRelativeTime, formatDateTime } = useLocale();
   const { pushToast } = useNotifications();
+  const proxyContext = useProxySessionContext();
   const [items, setItems] = useState<UserMaster[]>([]);
   const [tenants, setTenants] = useState<TenantMetadata[]>([]);
   const [loading, setLoading] = useState(true);
@@ -44,6 +46,7 @@ export default function Users() {
   const [pageSize, setPageSize] = useState(25);
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; resourceName?: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
+  const remoteProxyMode = Boolean(proxyContext?.selectedInstanceId);
 
   const tenantName = useCallback((id: string) => tenants.find(t => t.id === id)?.name ?? id, [tenants]);
 
@@ -108,6 +111,7 @@ export default function Users() {
   function toggleSelect(id: string) { setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]); }
 
   function openCreate() {
+    if (remoteProxyMode) return;
     setForm({
       email: '',
       firstName: '',
@@ -123,6 +127,10 @@ export default function Users() {
     setShowForm(true);
   }
   function openEdit(u: UserMaster) {
+    if (remoteProxyMode) {
+      setJsonData({ open: true, title: `User: ${u.email}`, data: u });
+      return;
+    }
     setForm({
       email: u.email,
       firstName: u.firstName ?? '',
@@ -226,13 +234,21 @@ export default function Users() {
           </p>
         </div>
         <div className="view-actions">
-          {(isAdmin || isTenantAdmin) && selected.length > 0 && <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>{t('Delete Selected')} ({selected.length})</button>}
-          {(isAdmin || isTenantAdmin) && <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('User')}</button>}
+          {(isAdmin || isTenantAdmin) && !remoteProxyMode && selected.length > 0 && <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>{t('Delete Selected')} ({selected.length})</button>}
+          {(isAdmin || isTenantAdmin) && !remoteProxyMode && <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('User')}</button>}
           <RefreshButton onRefresh={load} title="Refresh users" />
         </div>
       </div>
 
       <ErrorModal error={error} onClose={() => setError('')} />
+      {remoteProxyMode && (
+        <div className="alert alert-warning" style={{ marginBottom: '1rem' }}>
+          {t(
+            'This page is connected through Armada.Proxy for {{instanceId}}. User create, edit, and delete actions are blocked in remote mode.',
+            { instanceId: proxyContext?.selectedInstanceId ?? t('the selected deployment') },
+          )}
+        </div>
+      )}
 
       {showForm && (
         <div className="modal-overlay" onClick={() => setShowForm(false)}>
@@ -332,7 +348,13 @@ export default function Users() {
               </thead>
               <tbody>
                 {paginated.map(u => (
-                  <tr key={u.id} className="clickable" onClick={() => openEdit(u)}>
+                  <tr
+                    key={u.id}
+                    className="clickable"
+                    onClick={() => remoteProxyMode
+                      ? setJsonData({ open: true, title: `User: ${u.email}`, data: u })
+                      : openEdit(u)}
+                  >
                     <td className="col-checkbox" onClick={e => e.stopPropagation()}><input type="checkbox" checked={selected.includes(u.id)} onChange={() => toggleSelect(u.id)} title={t('Select this user')} /></td>
                     <td><strong>{u.email}</strong></td>
                     <td className="mono text-dim table-id-cell">
@@ -349,9 +371,9 @@ export default function Users() {
                     <td className="text-dim" title={formatDateTime(u.createdUtc)}>{formatRelativeTime(u.createdUtc)}</td>
                     <td className="text-right" onClick={e => e.stopPropagation()}>
                       <ActionMenu id={u.id} items={[
-                        { label: 'Edit', onClick: () => openEdit(u) },
+                        ...(remoteProxyMode ? [] : [{ label: 'Edit', onClick: () => openEdit(u) }]),
                         { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `User: ${u.email}`, data: u }) },
-                        ...((isAdmin || isTenantAdmin) ? [{ label: 'Delete', danger: true as const, onClick: () => handleDelete(u.id, u.email) }] : []),
+                        ...((isAdmin || isTenantAdmin) && !remoteProxyMode ? [{ label: 'Delete', danger: true as const, onClick: () => handleDelete(u.id, u.email) }] : []),
                       ]} />
                     </td>
                   </tr>

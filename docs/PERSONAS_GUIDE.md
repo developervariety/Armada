@@ -49,9 +49,8 @@ missions based on availability and persona preferences.
 
 ## 2. Built-in Personas
 
-Armada ships with ten built-in personas, seeded on startup. They cannot be deleted
-but their prompt templates can be customized. Startup seeding also reconciles built-in
-persona and pipeline names that were previously created as normal runtime rows.
+Armada ships with four built-in personas, seeded on first startup. They cannot be deleted
+but their prompt templates can be customized.
 
 ### Worker
 
@@ -80,9 +79,9 @@ Reviews completed work for correctness and completeness.
   completeness, correctness, scope, and style. Produce a verdict: PASS, FAIL, or
   NEEDS_REVISION.
 - **Prompt template:** `persona.judge`
-- **When to use:** Quality gate after Worker and/or TestEngineer stages.
+- **When to use:** Quality gate after Worker and/or Test Engineer stages.
 
-### TestEngineer
+### Test Engineer
 
 Writes tests for the changes produced by a Worker.
 
@@ -90,21 +89,6 @@ Writes tests for the changes produced by a Worker.
   unit/integration tests following the repository's existing patterns.
 - **Prompt template:** `persona.test_engineer`
 - **When to use:** After a Worker stage when you want automated test generation.
-
-### Specialist Review Personas
-
-Specialist reviewers run after Worker and before TestEngineer/Judge in the matching
-specialist pipelines. Use them when the mission has domain risk that a general Worker
-or Judge may not inspect deeply enough.
-
-| Persona | Prompt template | When to use |
-|---|---|---|
-| **DiagnosticProtocolReviewer** | `persona.diagnostic_protocol_reviewer` | J1939, UDS, J1708, K-line, OEM seed-key/security access, diagnostic timing/framing, and banned reflash boundary checks. |
-| **TenantSecurityReviewer** | `persona.tenant_security_reviewer` | Multi-tenant authz/authn, tenant isolation, secrets, auditability, and cross-tenant leak risk. |
-| **MigrationDataReviewer** | `persona.migration_data_reviewer` | Migrations, schema/provider parity, indexes, backfills, rollback/restart safety, and data-loss risk. |
-| **PerformanceMemoryReviewer** | `persona.performance_memory_reviewer` | Memory/allocations, retained object graphs, process output/log growth, DB materialization, throughput, and resource lifetime. |
-| **PortingReferenceAnalyst** | `persona.porting_reference_analyst` | Approved reference material, decompiler-derived notes, vendor traces, protocol captures, and semantic parity evidence for porting work. |
-| **FrontendWorkflowReviewer** | `persona.frontend_workflow_reviewer` | Frontend UX/workflow, accessibility, responsive states, i18n, errors, and design consistency. |
 
 ---
 
@@ -123,15 +107,8 @@ previous one.
 |---|---|---|
 | **WorkerOnly** | Worker | The default. Single-stage, backward-compatible behavior. |
 | **Reviewed** | Worker -> Judge | Work is implemented, then reviewed. |
-| **Tested** | Worker -> TestEngineer -> Judge | Work is implemented, tests are written, then everything is reviewed. |
-| **FullPipeline** | Architect -> Worker -> TestEngineer -> Judge | Full lifecycle: plan, implement, test, review. |
-| **ProductDevelopment** | Product Manager -> Architect -> Worker -> Usability Engineer -> TestEngineer -> Judge | Product-facing lifecycle: product intent, plan, implement, UX review, test, final review. |
-| **DiagnosticProtocolTested** | Worker -> DiagnosticProtocolReviewer -> TestEngineer -> Judge | Use for diagnostic protocol or ECU safety-sensitive work. |
-| **TenantSecurityTested** | Worker -> TenantSecurityReviewer -> TestEngineer -> Judge | Use for auth, tenant isolation, secrets, audit, or cross-tenant leak risk. |
-| **MigrationDataTested** | Worker -> MigrationDataReviewer -> TestEngineer -> Judge | Use for migrations, provider parity, backfills, indexes, or data-loss risk. |
-| **PerformanceMemoryTested** | Worker -> PerformanceMemoryReviewer -> TestEngineer -> Judge | Use for allocation, retention, throughput, output growth, or resource lifetime risk. |
-| **ReferencePortingTested** | Worker -> PortingReferenceAnalyst -> TestEngineer -> Judge | Use for evidence-based parity work against approved reference material, decompiler-derived notes, vendor traces, or protocol captures. |
-| **FrontendWorkflowTested** | Worker -> FrontendWorkflowReviewer -> TestEngineer -> Judge | Use for frontend workflow, accessibility, responsive, i18n, error, and design review. |
+| **Tested** | Worker -> Test Engineer -> Judge | Work is implemented, tests are written, then everything is reviewed. |
+| **FullPipeline** | Architect -> Worker -> Test Engineer -> Judge | Full lifecycle: plan, implement, test, review. |
 
 ### Pipeline Resolution Order (Precedence)
 
@@ -254,7 +231,7 @@ restrict a captain to specific personas:
 // update_captain
 {
   "captainId": "cpt_abc123",
-  "allowedPersonas": ["Worker", "TestEngineer"]
+  "allowedPersonas": ["Worker", "Test Engineer"]
 }
 ```
 
@@ -294,7 +271,7 @@ Dedicate a powerful model for Architect work and faster models for Worker tasks:
 {
   "name": "sonnet-worker-1",
   "runtime": "ClaudeCode",
-  "allowedPersonas": ["Worker", "TestEngineer"],
+  "allowedPersonas": ["Worker", "Test Engineer"],
   "preferredPersona": "Worker"
 }
 ```
@@ -313,7 +290,7 @@ defaults for all templates. You can customize any template and reset at any time
 
 | Category | Purpose | Examples |
 |---|---|---|
-| **persona** | Core and specialist persona instructions | `persona.worker`, `persona.architect`, `persona.judge`, `persona.test_engineer`, and the specialist persona templates |
+| **persona** | Core persona instructions | `persona.worker`, `persona.architect`, `persona.judge`, `persona.test_engineer` |
 | **mission** | Mission-level rules and constraints | `mission.rules`, `mission.context_conservation`, `mission.merge_conflict_avoidance`, `mission.progress_signals`, `mission.model_context_updates` |
 | **structure** | Layout wrappers for CLAUDE.md sections | `mission.metadata`, `mission.captain_instructions_wrapper`, `mission.project_context_wrapper`, `mission.code_style_wrapper`, `mission.model_context_wrapper`, `mission.existing_instructions_wrapper` |
 | **commit** | Commit message and trailer instructions | `commit.instructions_preamble` |

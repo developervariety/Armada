@@ -57,6 +57,21 @@ namespace Armada.Server
         public int? IdleCaptainTimeoutSeconds { get; set; }
 
         /// <summary>
+        /// Idle planning-session timeout in minutes (0 = disabled).
+        /// </summary>
+        public int? PlanningSessionInactivityTimeoutMinutes { get; set; }
+
+        /// <summary>
+        /// Abandonment timeout in minutes for planning sessions without a running process (0 = disabled).
+        /// </summary>
+        public int? PlanningSessionAbandonmentTimeoutMinutes { get; set; }
+
+        /// <summary>
+        /// Retention period in days for stopped or failed planning sessions (0 = disabled).
+        /// </summary>
+        public int? PlanningSessionRetentionDays { get; set; }
+
+        /// <summary>
         /// Whether to auto-create pull requests on mission completion.
         /// </summary>
         public bool? AutoCreatePr { get; set; }

@@ -8,11 +8,11 @@ import {
   stopCaptain,
   recallCaptain,
   getMission,
-  listMissions,
+  listMissionSummaries,
   updateCaptain,
   deleteCaptain,
 } from '../api/client';
-import type { Captain, Mission, LogResult, CaptainToolAccessResult } from '../types/models';
+import type { Captain, Mission, MissionSummary, LogResult, CaptainToolAccessResult } from '../types/models';
 import ActionMenu from '../components/shared/ActionMenu';
 import MuxRuntimeFields from '../components/captains/MuxRuntimeFields';
 import CaptainToolViewer from '../components/captains/CaptainToolViewer';
@@ -43,7 +43,7 @@ export default function CaptainDetail() {
   const navigate = useNavigate();
   const [captain, setCaptain] = useState<Captain | null>(null);
   const [currentMission, setCurrentMission] = useState<Mission | null>(null);
-  const [missions, setMissions] = useState<Mission[]>([]);
+  const [missions, setMissions] = useState<MissionSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -87,7 +87,7 @@ export default function CaptainDetail() {
       }
       // Load missions assigned to this captain
       try {
-        const mResult = await listMissions({ pageSize: 100, filters: { captainId: id } });
+        const mResult = await listMissionSummaries({ pageSize: 100, filters: { captainId: id } });
         setMissions(mResult.objects || []);
       } catch { setMissions([]); }
       if (isInitialLoad) setError('');

@@ -1,0 +1,13 @@
+services:
+  armada-proxy:
+    build:
+      context: ../..
+      dockerfile: src/Armada.Proxy/Dockerfile
+    ports:
+      - "7893:7893"
+    environment:
+      - ARMADA_PROXY_SETTINGS_FILE=/config/proxysettings.json
+    volumes:
+      - ./proxysettings.json:/config/proxysettings.json:ro
+      - ./data:/app/data
+      - ./logs:/app/data/logs

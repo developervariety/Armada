@@ -362,6 +362,15 @@ namespace Armada.Server.Routes
                 if (body.IdleCaptainTimeoutSeconds.HasValue)
                     _settings.IdleCaptainTimeoutSeconds = body.IdleCaptainTimeoutSeconds.Value;
 
+                if (body.PlanningSessionInactivityTimeoutMinutes.HasValue)
+                    _settings.PlanningSessionInactivityTimeoutMinutes = body.PlanningSessionInactivityTimeoutMinutes.Value;
+
+                if (body.PlanningSessionAbandonmentTimeoutMinutes.HasValue)
+                    _settings.PlanningSessionAbandonmentTimeoutMinutes = body.PlanningSessionAbandonmentTimeoutMinutes.Value;
+
+                if (body.PlanningSessionRetentionDays.HasValue)
+                    _settings.PlanningSessionRetentionDays = body.PlanningSessionRetentionDays.Value;
+
                 if (body.AutoCreatePr.HasValue)
                     _settings.AutoCreatePullRequests = body.AutoCreatePr.Value;
 
@@ -446,6 +455,9 @@ namespace Armada.Server.Routes
                 HeartbeatIntervalSeconds = _settings.HeartbeatIntervalSeconds,
                 StallThresholdMinutes = _settings.StallThresholdMinutes,
                 IdleCaptainTimeoutSeconds = _settings.IdleCaptainTimeoutSeconds,
+                PlanningSessionInactivityTimeoutMinutes = _settings.PlanningSessionInactivityTimeoutMinutes,
+                PlanningSessionAbandonmentTimeoutMinutes = _settings.PlanningSessionAbandonmentTimeoutMinutes,
+                PlanningSessionRetentionDays = _settings.PlanningSessionRetentionDays,
                 AutoCreatePr = _settings.AutoCreatePullRequests,
                 DataDirectory = _settings.DataDirectory,
                 DatabasePath = _settings.DatabasePath,

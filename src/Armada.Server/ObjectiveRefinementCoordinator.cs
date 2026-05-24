@@ -30,6 +30,7 @@ namespace Armada.Server
         private readonly AgentRuntimeFactory _RuntimeFactory;
         private readonly Func<string, string, string?, string?, string?, string?, string?, string?, Task> _EmitEventAsync;
         private readonly ArmadaWebSocketHub? _WebSocketHub;
+        private const int _MaxRefinementOutputChars = 131072;
         private readonly System.Collections.Concurrent.ConcurrentDictionary<string, TurnState> _ActiveTurns =
             new System.Collections.Concurrent.ConcurrentDictionary<string, TurnState>(StringComparer.Ordinal);
         private readonly System.Collections.Concurrent.ConcurrentDictionary<string, Task<ObjectiveRefinementSession>> _StopOperations =
@@ -587,8 +588,7 @@ namespace Armada.Server
                     string updatedContent;
                     lock (outputLock)
                     {
-                        if (output.Length > 0) output.AppendLine();
-                        output.Append(line);
+                        BoundedTextBuffer.AppendLine(output, line, _MaxRefinementOutputChars);
                         updatedContent = output.ToString();
                     }
 
@@ -850,8 +850,7 @@ namespace Armada.Server
             {
                 lock (outputLock)
                 {
-                    if (output.Length > 0) output.AppendLine();
-                    output.Append(line);
+                    BoundedTextBuffer.AppendLine(output, line, _MaxRefinementOutputChars);
                 }
             };
             runtime.OnProcessExited += (runtimeProcessId, exitCode) => exitSource.TrySetResult(exitCode);

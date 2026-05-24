@@ -69,9 +69,19 @@ namespace Armada.Core.Database.Interfaces
         }
 
         /// <summary>
+        /// Enumerate lightweight mission summary records with pagination and filtering.
+        /// </summary>
+        Task<EnumerationResult<MissionSummary>> EnumerateMissionSummariesAsync(EnumerationQuery query, CancellationToken token = default);
+
+        /// <summary>
         /// Enumerate missions by voyage identifier.
         /// </summary>
         Task<List<Mission>> EnumerateByVoyageAsync(string voyageId, CancellationToken token = default);
+
+        /// <summary>
+        /// Enumerate lightweight mission summary records by voyage identifier.
+        /// </summary>
+        Task<List<MissionSummary>> EnumerateMissionSummariesByVoyageAsync(string voyageId, CancellationToken token = default);
 
         /// <summary>
         /// Enumerate missions by vessel identifier.
@@ -79,9 +89,19 @@ namespace Armada.Core.Database.Interfaces
         Task<List<Mission>> EnumerateByVesselAsync(string vesselId, CancellationToken token = default);
 
         /// <summary>
+        /// Enumerate lightweight mission summary records by vessel identifier.
+        /// </summary>
+        Task<List<MissionSummary>> EnumerateMissionSummariesByVesselAsync(string vesselId, CancellationToken token = default);
+
+        /// <summary>
         /// Enumerate missions by captain identifier.
         /// </summary>
         Task<List<Mission>> EnumerateByCaptainAsync(string captainId, CancellationToken token = default);
+
+        /// <summary>
+        /// Enumerate lightweight mission summary records by captain identifier.
+        /// </summary>
+        Task<List<MissionSummary>> EnumerateMissionSummariesByCaptainAsync(string captainId, CancellationToken token = default);
 
         /// <summary>
         /// Enumerate missions by status.
@@ -94,6 +114,11 @@ namespace Armada.Core.Database.Interfaces
         /// where the full mission rows are not needed.
         /// </summary>
         Task<Dictionary<MissionStatusEnum, int>> CountByStatusAsync(CancellationToken token = default);
+
+        /// <summary>
+        /// Enumerate lightweight mission history points in the supplied time range.
+        /// </summary>
+        Task<List<MissionHistoryPoint>> EnumerateHistoryPointsAsync(MissionHistoryQuery query, CancellationToken token = default);
 
         /// <summary>
         /// Count missions grouped by status for a specific tenant without hydrating rows.
@@ -173,9 +198,19 @@ namespace Armada.Core.Database.Interfaces
         }
 
         /// <summary>
+        /// Enumerate lightweight mission summary records with pagination and filtering (tenant-scoped).
+        /// </summary>
+        Task<EnumerationResult<MissionSummary>> EnumerateMissionSummariesAsync(string tenantId, EnumerationQuery query, CancellationToken token = default);
+
+        /// <summary>
         /// Enumerate missions by tenant and voyage identifier (tenant-scoped).
         /// </summary>
         Task<List<Mission>> EnumerateByVoyageAsync(string tenantId, string voyageId, CancellationToken token = default);
+
+        /// <summary>
+        /// Enumerate lightweight mission summary records by tenant and voyage identifier.
+        /// </summary>
+        Task<List<MissionSummary>> EnumerateMissionSummariesByVoyageAsync(string tenantId, string voyageId, CancellationToken token = default);
 
         /// <summary>
         /// Enumerate missions by tenant and vessel identifier (tenant-scoped).
@@ -183,14 +218,29 @@ namespace Armada.Core.Database.Interfaces
         Task<List<Mission>> EnumerateByVesselAsync(string tenantId, string vesselId, CancellationToken token = default);
 
         /// <summary>
+        /// Enumerate lightweight mission summary records by tenant and vessel identifier.
+        /// </summary>
+        Task<List<MissionSummary>> EnumerateMissionSummariesByVesselAsync(string tenantId, string vesselId, CancellationToken token = default);
+
+        /// <summary>
         /// Enumerate missions by tenant and captain identifier (tenant-scoped).
         /// </summary>
         Task<List<Mission>> EnumerateByCaptainAsync(string tenantId, string captainId, CancellationToken token = default);
 
         /// <summary>
+        /// Enumerate lightweight mission summary records by tenant and captain identifier.
+        /// </summary>
+        Task<List<MissionSummary>> EnumerateMissionSummariesByCaptainAsync(string tenantId, string captainId, CancellationToken token = default);
+
+        /// <summary>
         /// Enumerate missions by tenant and status (tenant-scoped).
         /// </summary>
         Task<List<Mission>> EnumerateByStatusAsync(string tenantId, MissionStatusEnum status, CancellationToken token = default);
+
+        /// <summary>
+        /// Enumerate lightweight tenant-scoped mission history points in the supplied time range.
+        /// </summary>
+        Task<List<MissionHistoryPoint>> EnumerateHistoryPointsAsync(string tenantId, MissionHistoryQuery query, CancellationToken token = default);
 
         /// <summary>
         /// Check if a mission exists by tenant and identifier (tenant-scoped).
@@ -226,6 +276,16 @@ namespace Armada.Core.Database.Interfaces
             StripHeavyFields(result.Objects);
             return result;
         }
+
+        /// <summary>
+        /// Enumerate lightweight mission summary records with pagination and filtering (user-scoped).
+        /// </summary>
+        Task<EnumerationResult<MissionSummary>> EnumerateMissionSummariesAsync(string tenantId, string userId, EnumerationQuery query, CancellationToken token = default);
+
+        /// <summary>
+        /// Enumerate lightweight user-scoped mission history points in the supplied time range.
+        /// </summary>
+        Task<List<MissionHistoryPoint>> EnumerateHistoryPointsAsync(string tenantId, string userId, MissionHistoryQuery query, CancellationToken token = default);
 
         private static void StripHeavyFields(IEnumerable<Mission> missions)
         {

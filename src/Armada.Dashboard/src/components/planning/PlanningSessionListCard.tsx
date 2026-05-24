@@ -5,49 +5,103 @@ interface PlanningSessionListCardProps {
   t: (value: string, vars?: Record<string, string | number>) => string;
   sessions: PlanningSession[];
   activeSessionId?: string;
+  endingSessionId?: string | null;
   formatRelativeTime: (value: string) => string;
+  resolveCaptainName: (captainId: string) => string;
+  resolveVesselName: (vesselId: string) => string;
+  resolvePipelineName: (pipelineId: string | null) => string;
   onSelect: (sessionId: string) => void;
+  onEndSession: (session: PlanningSession) => void;
 }
 
 export default function PlanningSessionListCard(props: PlanningSessionListCardProps) {
-  const { t, sessions, activeSessionId, formatRelativeTime, onSelect } = props;
+  const {
+    t,
+    sessions,
+    activeSessionId,
+    endingSessionId,
+    formatRelativeTime,
+    resolveCaptainName,
+    resolveVesselName,
+    resolvePipelineName,
+    onSelect,
+    onEndSession,
+  } = props;
 
   return (
     <div className="card" style={{ padding: '1rem' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-        <h3>{t('Recent Sessions')}</h3>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', marginBottom: '0.75rem' }}>
+        <div>
+          <h3>{t('Recent Sessions')}</h3>
+          <p className="text-muted">
+            {t('Select a prior planning conversation to continue it, dispatch from it, or end an active session.')}
+          </p>
+        </div>
         <span className="text-muted">{t('{{count}} total', { count: sessions.length })}</span>
       </div>
 
       {sessions.length === 0 ? (
         <p className="text-muted">{t('No planning sessions yet.')}</p>
       ) : (
-        <div style={{ display: 'grid', gap: '0.5rem' }}>
-          {sessions.map((session) => (
-            <button
-              key={session.id}
-              type="button"
-              onClick={() => onSelect(session.id)}
-              className="btn"
-              style={{
-                textAlign: 'left',
-                padding: '0.75rem',
-                borderColor: activeSessionId === session.id ? 'var(--accent)' : undefined,
-                background: activeSessionId === session.id ? 'var(--surface-2)' : undefined,
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', alignItems: 'start' }}>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontWeight: 600 }}>{session.title}</div>
-                  <div className="text-dim mono" style={{ fontSize: '0.78rem' }}>{session.id}</div>
-                  <div className="text-dim" style={{ marginTop: '0.2rem', fontSize: '0.82rem' }}>
-                    {t('Updated {{time}}', { time: formatRelativeTime(session.lastUpdateUtc) })}
-                  </div>
-                </div>
-                <StatusBadge status={session.status} />
-              </div>
-            </button>
-          ))}
+        <div className="table-wrap">
+          <table className="planning-session-table">
+            <thead>
+              <tr>
+                <th>{t('Title')}</th>
+                <th>{t('Captain')}</th>
+                <th>{t('Vessel')}</th>
+                <th>{t('Pipeline')}</th>
+                <th>{t('Status')}</th>
+                <th>{t('Updated')}</th>
+                <th>{t('Actions')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sessions.map((session) => {
+                const canEndSession = session.status === 'Active' || session.status === 'Responding';
+                const ending = endingSessionId === session.id || session.status === 'Stopping';
+
+                return (
+                  <tr
+                    key={session.id}
+                    className={`clickable planning-session-row${activeSessionId === session.id ? ' is-active' : ''}`}
+                    onClick={() => onSelect(session.id)}
+                  >
+                    <td>
+                      <div className="planning-session-title">{session.title}</div>
+                      <div className="planning-session-subtitle mono">{session.id}</div>
+                    </td>
+                    <td>{resolveCaptainName(session.captainId)}</td>
+                    <td>{resolveVesselName(session.vesselId)}</td>
+                    <td>{resolvePipelineName(session.pipelineId)}</td>
+                    <td><StatusBadge status={session.status} /></td>
+                    <td>{formatRelativeTime(session.lastUpdateUtc)}</td>
+                    <td>
+                      <div className="planning-session-actions">
+                        {(canEndSession || ending) ? (
+                          <button
+                            type="button"
+                            className="btn btn-sm"
+                            disabled={ending}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              if (!ending) {
+                                onEndSession(session);
+                              }
+                            }}
+                          >
+                            {ending ? t('Ending...') : t('End Session')}
+                          </button>
+                        ) : (
+                          <span className="text-muted">-</span>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
     </div>

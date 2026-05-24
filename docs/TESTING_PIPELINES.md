@@ -17,16 +17,12 @@ Verify setup:
 // MCP: check built-in personas exist
 enumerate({ entityType: "personas" })
 
-// Expected: Worker, Architect, Judge, TestEngineer,
-// DiagnosticProtocolReviewer, TenantSecurityReviewer, MigrationDataReviewer,
-// PerformanceMemoryReviewer, PortingReferenceAnalyst, FrontendWorkflowReviewer
+// Expected: Worker, Architect, Judge, Test Engineer
 
 // MCP: check built-in pipelines exist
 enumerate({ entityType: "pipelines" })
 
-// Expected: WorkerOnly, Reviewed, Tested, FullPipeline, ProductDevelopment,
-// DiagnosticProtocolTested, TenantSecurityTested, MigrationDataTested,
-// PerformanceMemoryTested, ReferencePortingTested, FrontendWorkflowTested
+// Expected: WorkerOnly, Reviewed, Tested, FullPipeline
 ```
 
 ---
@@ -103,7 +99,7 @@ enumerate({
 
 ---
 
-## Example 3: FullPipeline (Architect + Worker + TestEngineer + Judge)
+## Example 3: FullPipeline (Architect + Worker + Test Engineer + Judge)
 
 This tests the complete four-stage pipeline, including the Architect's special handling.
 
@@ -127,8 +123,8 @@ dispatch({
 1. Four missions are created initially:
    - `"Add caching... [Architect]"` -- no dependency, assigned immediately
    - `"Add caching... [Worker]"` -- depends on Architect
-   - `"Add caching... [TestEngineer]"` -- depends on Worker
-   - `"Add caching... [Judge]"` -- depends on TestEngineer
+   - `"Add caching... [Test Engineer]"` -- depends on Worker
+   - `"Add caching... [Judge]"` -- depends on Test Engineer
 2. Only the Architect mission is assigned
 
 **After the Architect completes (with [ARMADA:MISSION] markers):**
@@ -148,13 +144,13 @@ Files: src/Middleware/CacheMiddleware.cs, src/Startup.cs
 
 3. The original Worker mission is updated with the first parsed mission's title and description
 4. A second Worker mission is created for the second parsed mission
-5. Each Worker mission gets its own TestEngineer and Judge stages chained after it
+5. Each Worker mission gets its own Test Engineer and Judge stages chained after it
 6. Worker missions are assigned to idle captains
 
 **After each Worker completes:**
-7. The corresponding TestEngineer mission receives the Worker's diff and branch
-8. TestEngineer writes tests, commits to the same branch
-9. After TestEngineer, the Judge reviews the combined diff
+7. The corresponding Test Engineer mission receives the Worker's diff and branch
+8. Test Engineer writes tests, commits to the same branch
+9. After Test Engineer, the Judge reviews the combined diff
 
 ```
 // Monitor the full pipeline
@@ -171,22 +167,6 @@ enumerate({
 ---
 
 ## Example 4: Custom Pipeline with a Security Auditor
-
-Before creating a custom reviewer, check whether one of the built-in specialist tested
-pipelines already matches the risk:
-
-| Pipeline | Choose it for |
-|---|---|
-| `DiagnosticProtocolTested` | J1939, UDS, J1708, K-line, OEM seed-key/security access, diagnostic timing/framing, and banned reflash boundary checks. |
-| `TenantSecurityTested` | Multi-tenant authz/authn, tenant isolation, secrets, auditability, and cross-tenant leak risk. |
-| `MigrationDataTested` | Migrations, schema/provider parity, indexes, backfills, rollback/restart safety, and data-loss risk. |
-| `PerformanceMemoryTested` | Memory/allocations, retained object graphs, process output/log growth, DB materialization, throughput, and resource lifetime. |
-| `ReferencePortingTested` | Approved reference material, decompiler-derived notes, vendor traces, protocol captures, and semantic parity evidence for porting work. |
-| `FrontendWorkflowTested` | Frontend UX/workflow, accessibility, responsive states, i18n, errors, and design consistency. |
-
-The expected mission chain is always Worker -> specialist reviewer -> TestEngineer -> Judge.
-Verify that the second mission uses the specialist persona and that the specialist stage
-has `preferredModel: "high"` when reading the pipeline definition.
 
 This tests creating a custom persona and pipeline from scratch.
 
@@ -264,7 +244,7 @@ update_captain({
 // Restrict a captain to Worker only
 update_captain({
   captainId: "<captain_2_id>",
-  allowedPersonas: "[\"Worker\", \"TestEngineer\"]"
+  allowedPersonas: "[\"Worker\", \"Test Engineer\"]"
 })
 
 // Leave a third captain unrestricted (can fill any role)

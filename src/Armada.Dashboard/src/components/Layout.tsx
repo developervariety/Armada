@@ -5,7 +5,7 @@ import { useLocale } from '../context/LocaleContext';
 import { useTheme } from '../context/ThemeContext';
 import { useWebSocket } from '../context/WebSocketContext';
 import { useNotifications } from '../context/NotificationContext';
-import { getHealth, listCaptains, listFleets, listVessels } from '../api/client';
+import { clearProxySessionInstance, getHealth, getProxySessionContext, listCaptains, listFleets, listVessels, logoutProxy, type ProxySessionContext } from '../api/client';
 import SetupWizard, { isSetupComplete } from './SetupWizard';
 import LanguageSelector from './shared/LanguageSelector';
 
@@ -26,7 +26,7 @@ interface NavSection {
 }
 
 const dashboardItem: NavItem = {
-  to: '/dashboard',
+  to: '/',
   label: 'Dashboard',
   tooltip: 'Overview of captains, missions, and voyages',
   icon: (
@@ -529,6 +529,7 @@ export default function Layout() {
     security: true,
   });
   const [healthStatus, setHealthStatus] = useState<HealthStatus>('unknown');
+  const [proxyContext, setProxyContext] = useState<ProxySessionContext | null>(null);
 
   useEffect(() => {
     try {
@@ -612,6 +613,22 @@ export default function Layout() {
     };
   }, []);
 
+  useEffect(() => {
+    let mounted = true;
+
+    getProxySessionContext()
+      .then((context) => {
+        if (mounted) setProxyContext(context);
+      })
+      .catch(() => {
+        if (mounted) setProxyContext(null);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [user?.user?.id]);
+
   const filteredSections = navSections
     .map((section) =>
       section.key !== 'security'
@@ -656,15 +673,67 @@ export default function Layout() {
     );
   }, [collapsed, isItemActive, t, unreadCount, wizardHighlights]);
 
+  const handleSwitchDeployment = useCallback(async () => {
+    try {
+      await clearProxySessionInstance();
+    } catch {
+      // Best effort. The portal is still the recovery path.
+    }
+    window.location.assign('/');
+  }, []);
+
+  const handleProxyLogout = useCallback(async () => {
+    try {
+      await logoutProxy();
+    } catch {
+      // Best effort logout.
+    }
+    logout();
+    window.location.assign('/');
+  }, [logout]);
+
   const layoutClassName = [
     'app-layout',
     showWizard ? 'wizard-active' : '',
     showWizard && wizardHighlights.length > 0 ? 'wizard-spotlight-active' : '',
   ].filter(Boolean).join(' ');
+  const proxyInstance = proxyContext?.selectedInstance;
+  const showProxyContext = !!proxyContext?.selectedInstanceId;
 
   return (
-    <div className={layoutClassName} style={{ gridTemplateColumns: collapsed ? '56px 1fr' : '180px 1fr' }}>
-      <aside className={`sidebar${collapsed ? ' sidebar-collapsed' : ''}`}>
+    <div className="app-shell">
+      {showProxyContext && (
+        <div className="proxy-context-strip proxy-context-shell-strip">
+          <div className="proxy-context-copy">
+            <span className="proxy-context-pill">{t('Proxy Mode')}</span>
+            <span>
+              {t('Remote dashboard for {{instanceId}}', {
+                instanceId: proxyInstance?.instanceId || proxyContext?.selectedInstanceId || '',
+              })}
+            </span>
+            <span className="proxy-context-meta">
+              {t('State: {{state}}', { state: proxyInstance?.state || 'unknown' })}
+            </span>
+            {proxyInstance?.armadaVersion && (
+              <span className="proxy-context-meta">
+                {t('Armada {{version}}', { version: proxyInstance.armadaVersion })}
+              </span>
+            )}
+          </div>
+
+          <div className="proxy-context-actions">
+            <button className="btn btn-sm" onClick={handleSwitchDeployment}>
+              {t('Switch Deployment')}
+            </button>
+            <button className="btn btn-sm" onClick={handleProxyLogout}>
+              {t('Proxy Logout')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className={layoutClassName} style={{ gridTemplateColumns: collapsed ? '56px 1fr' : '180px 1fr' }}>
+        <aside className={`sidebar${collapsed ? ' sidebar-collapsed' : ''}`}>
         <div className="sidebar-brand">
           <img
             src="/img/logo-light-grey.png"
@@ -726,65 +795,66 @@ export default function Layout() {
             </>
           )}
         </div>
-      </aside>
+        </aside>
 
-      <div className="main-content-area">
-        <div className="top-bar">
-          <NavLink to="/doctor" className="top-bar-health" title={t('Health: {{status}}', { status: t(healthStatus === 'healthy' ? 'Healthy' : healthStatus === 'warning' ? 'Degraded' : healthStatus === 'unknown' ? 'Checking...' : 'Unhealthy') })}>
-            <span
-              className={`status-dot ${
-                healthStatus === 'healthy' ? 'healthy' : healthStatus === 'warning' ? 'warning' : 'error'
-              }`}
-            />
-            <span className="top-bar-status-label">
-              {healthStatus === 'healthy'
-                ? t('Healthy')
-                : healthStatus === 'warning'
-                  ? t('Degraded')
-                  : healthStatus === 'unknown'
-                    ? t('Checking...')
-                    : t('Unhealthy')}
+        <div className="main-content-area">
+          <div className="top-bar">
+            <NavLink to="/doctor" className="top-bar-health" title={t('Health: {{status}}', { status: t(healthStatus === 'healthy' ? 'Healthy' : healthStatus === 'warning' ? 'Degraded' : healthStatus === 'unknown' ? 'Checking...' : 'Unhealthy') })}>
+              <span
+                className={`status-dot ${
+                  healthStatus === 'healthy' ? 'healthy' : healthStatus === 'warning' ? 'warning' : 'error'
+                }`}
+              />
+              <span className="top-bar-status-label">
+                {healthStatus === 'healthy'
+                  ? t('Healthy')
+                  : healthStatus === 'warning'
+                    ? t('Degraded')
+                    : healthStatus === 'unknown'
+                      ? t('Checking...')
+                      : t('Unhealthy')}
+              </span>
+            </NavLink>
+
+            <span className="top-bar-status" title={connected ? t('Live: WebSocket connected') : t('Disconnected')}>
+              <span className={`status-dot ${connected ? 'connected' : 'disconnected'}`} />
+              <span className="top-bar-status-label">{connected ? t('Live') : t('Offline')}</span>
             </span>
-          </NavLink>
 
-          <span className="top-bar-status" title={connected ? t('Live: WebSocket connected') : t('Disconnected')}>
-            <span className={`status-dot ${connected ? 'connected' : 'disconnected'}`} />
-            <span className="top-bar-status-label">{connected ? t('Live') : t('Offline')}</span>
-          </span>
+            {user && (
+              <>
+                {isAdmin && <span className="auth-badge auth-badge-admin">{t('Global Admin')}</span>}
+                {!isAdmin && isTenantAdmin && <span className="auth-badge auth-badge-tenant-admin">{t('Tenant Admin')}</span>}
+                <span className="auth-badge auth-badge-tenant">{user.tenant?.name}</span>
+                <span className="auth-badge auth-badge-user">{user.user?.email}</span>
+              </>
+            )}
 
-          {user && (
-            <>
-              {isAdmin && <span className="auth-badge auth-badge-admin">{t('Global Admin')}</span>}
-              {!isAdmin && isTenantAdmin && <span className="auth-badge auth-badge-tenant-admin">{t('Tenant Admin')}</span>}
-              <span className="auth-badge auth-badge-tenant">{user.tenant?.name}</span>
-              <span className="auth-badge auth-badge-user">{user.user?.email}</span>
-            </>
-          )}
+            <LanguageSelector className="topbar-language-select" compact />
 
-          <LanguageSelector className="topbar-language-select" compact />
-
-          <button className="theme-toggle" onClick={toggleTheme} title={darkMode ? t('Switch to light mode') : t('Switch to dark mode')}>
-            {darkMode ? '\u2600' : '\u263E'}
-          </button>
-
-          <a href="https://github.com/jchristn/Armada" target="_blank" rel="noopener noreferrer" className="github-link" title={t('View on GitHub')}>
-            <svg height="18" width="18" viewBox="0 0 16 16" fill="currentColor">
-              <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z" />
-            </svg>
-          </a>
-
-          {collapsed && (
-            <button className="btn btn-sm" onClick={logout} title={t('Sign out')}>
-              {t('Logout')}
+            <button className="theme-toggle" onClick={toggleTheme} title={darkMode ? t('Switch to light mode') : t('Switch to dark mode')}>
+              {darkMode ? '\u2600' : '\u263E'}
             </button>
-          )}
-        </div>
 
-        <main className="main">
-          <div className="view">
-            <Outlet />
+            <a href="https://github.com/jchristn/Armada" target="_blank" rel="noopener noreferrer" className="github-link" title={t('View on GitHub')}>
+              <svg height="18" width="18" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z" />
+              </svg>
+            </a>
+
+            {collapsed && (
+              <button className="btn btn-sm" onClick={logout} title={t('Sign out')}>
+                {t('Logout')}
+              </button>
+            )}
           </div>
-        </main>
+
+          <main className="main">
+            <div className="view">
+              <Outlet />
+            </div>
+          </main>
+        </div>
       </div>
 
       {toasts.length > 0 && (

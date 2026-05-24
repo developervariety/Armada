@@ -1,3 +1,13 @@
+# --- Dashboard build stage ---
+FROM node:20-alpine AS dashboard-build
+WORKDIR /dashboard
+
+COPY src/Armada.Dashboard/package.json src/Armada.Dashboard/package-lock.json* ./
+RUN npm ci
+
+COPY src/Armada.Dashboard/ ./
+RUN npm run build
+
 # --- Build stage ---
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
@@ -11,6 +21,8 @@ RUN dotnet restore src/Armada.Proxy/Armada.Proxy.csproj
 # Build
 COPY src/Armada.Core/ src/Armada.Core/
 COPY src/Armada.Proxy/ src/Armada.Proxy/
+COPY src/Armada.Server/wwwroot/i18n/ src/Armada.Server/wwwroot/i18n/
+COPY --from=dashboard-build /dashboard/dist/ src/Armada.Dashboard/dist/
 RUN dotnet publish src/Armada.Proxy -c Release -f net10.0 -o /app --no-restore
 
 # --- Runtime stage ---

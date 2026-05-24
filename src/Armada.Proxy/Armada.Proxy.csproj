@@ -6,13 +6,21 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Watson" Version="7.0.9" />
+    <PackageReference Include="Watson" Version="7.0.12" />
     <ProjectReference Include="..\Armada.Core\Armada.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <Content Include="wwwroot\**\*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\Armada.Dashboard\dist\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <TargetPath>dashboard\%(RecursiveDir)%(Filename)%(Extension)</TargetPath>
+    </Content>
+    <Content Include="..\Armada.Server\wwwroot\i18n\armada.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <TargetPath>dashboard\i18n\armada.json</TargetPath>
     </Content>
   </ItemGroup>
 

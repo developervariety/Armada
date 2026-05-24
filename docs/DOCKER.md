@@ -14,7 +14,7 @@ This guide covers running the Armada server and dashboard using Docker container
 ## Quick Start
 
 ```bash
-cd docker
+cd docker/armada
 docker compose up -d
 ```
 
@@ -67,22 +67,26 @@ That dashboard includes the planning workflow as well as direct dispatch: you ca
 
 ## Docker Compose Configuration
 
-The default `docker/compose.yaml`:
+The default Armada stack file is `docker/armada/compose.yaml`:
 
 ```yaml
 services:
   armada-server:
-    image: jchristn77/armada-server:v0.8.0
+    build:
+      context: ../..
+      dockerfile: src/Armada.Server/Dockerfile
     ports:
       - "7890:7890"
       - "7891:7891"
     volumes:
-      - ./server/armada.json:/app/data/armada.json
-      - ./armada/db:/app/data/db
-      - ./armada/logs:/app/data/logs
+      - ./armada.json:/app/data/armada.json
+      - ./db:/app/data/db
+      - ./logs:/app/data/logs
 
   armada-dashboard:
-    image: jchristn77/armada-dashboard:v0.8.0
+    build:
+      context: ../..
+      dockerfile: src/Armada.Dashboard/Dockerfile
     ports:
       - "3000:80"
     environment:
@@ -91,17 +95,38 @@ services:
       - armada-server
 ```
 
+The proxy stack file is `docker/proxy/compose.yaml`:
+
+```yaml
+services:
+  armada-proxy:
+    build:
+      context: ../..
+      dockerfile: src/Armada.Proxy/Dockerfile
+    ports:
+      - "7893:7893"
+    environment:
+      - ARMADA_PROXY_SETTINGS_FILE=/config/proxysettings.json
+    volumes:
+      - ./proxysettings.json:/config/proxysettings.json:ro
+      - ./data:/app/data
+      - ./logs:/app/data/logs
+```
+
 ### Volumes
 
 | Host Path | Container Path | Purpose |
 |-----------|----------------|---------|
-| `docker/server/armada.json` | `/app/data/armada.json` | Server configuration |
+| `docker/armada/armada.json` | `/app/data/armada.json` | Server configuration |
 | `docker/armada/db/` | `/app/data/db/` | SQLite database files |
 | `docker/armada/logs/` | `/app/data/logs/` | Server log files |
+| `docker/proxy/proxysettings.json` | `/config/proxysettings.json` | Proxy configuration |
+| `docker/proxy/data/` | `/app/data/` | Proxy state files |
+| `docker/proxy/logs/` | `/app/data/logs/` | Proxy log files |
 
 ### Server Configuration
 
-A default `docker/server/armada.json` is tracked in the repository so `docker compose up -d` works out of the box without manually creating the file. Edit `docker/server/armada.json` to customize (factory reset scripts preserve this file):
+Edit `docker/armada/armada.json` to customize:
 
 ```json
 {
@@ -147,8 +172,8 @@ Valid `type` values: `Sqlite`, `Mysql`, `Postgresql`, `SqlServer`.
 ## Stopping and Restarting
 
 ```bash
-# Stop containers (preserves data)
-cd docker
+# Stop Armada containers (preserves data)
+cd docker/armada
 docker compose down
 
 # Restart
@@ -159,6 +184,15 @@ docker compose logs -f armada-server
 docker compose logs -f armada-dashboard
 ```
 
+For the proxy stack:
+
+```bash
+cd docker/proxy
+docker compose down
+docker compose up -d
+docker compose logs -f armada-proxy
+```
+
 ---
 
 ## Factory Reset
@@ -167,13 +201,13 @@ To delete all data and start fresh while preserving configuration:
 
 **Windows:**
 ```bash
-cd docker/factory
+cd docker/armada/factory
 reset.bat
 ```
 
 **Linux / macOS:**
 ```bash
-cd docker/factory
+cd docker/armada/factory
 ./reset.sh
 ```
 
@@ -243,7 +277,7 @@ docker build -f src/Armada.Server/Dockerfile -t armada-server:local .
 docker build -f src/Armada.Dashboard/Dockerfile -t armada-dashboard:local .
 ```
 
-Then update `docker/compose.yaml` to reference your local tags instead of `jchristn77/...`.
+Then update `docker/armada/compose.yaml` or `docker/proxy/compose.yaml` to reference your local tags instead of local builds if you want to pin named images.
 
 ---
 
@@ -261,6 +295,7 @@ Then update `docker/compose.yaml` to reference your local tags instead of `jchri
 
 **Container won't start:**
 ```bash
+cd docker/armada
 docker compose logs armada-server
 ```
 Check that `armada.json` exists and has valid JSON.
@@ -276,3 +311,4 @@ The React dashboard makes API calls from the browser, not from the container. En
 
 **CORS errors:**
 The Armada server enables CORS on all routes by default. If you see CORS errors, verify you're accessing the correct port (7890 for the API).
+

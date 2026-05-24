@@ -229,9 +229,9 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("Captains")
                 .WithSummary("Describe captain tools")
-                .WithDescription("Returns the Armada MCP tool catalog available to the selected captain, including runtime-specific availability notes.")
+                .WithDescription("Returns the runtime-visible tool sources and named tools available to the selected captain, including runtime-specific availability notes.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Captain ID (cpt_ prefix)"))
-                .WithResponse(200, OpenApiJson.For<CaptainToolAccessResult>("Captain tool availability and catalog"))
+                .WithResponse(200, OpenApiJson.For<CaptainToolAccessResult>("Captain runtime tool availability and inventory"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 

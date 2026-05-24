@@ -200,6 +200,11 @@ namespace Armada.Core
         public static readonly int DefaultRequestHistoryMaxBodyBytes = 32768;
 
         /// <summary>
+        /// Default abandonment timeout in minutes for planning sessions with no active runtime process.
+        /// </summary>
+        public static readonly int DefaultPlanningSessionAbandonmentTimeoutMinutes = 0;
+
+        /// <summary>
         /// Branch prefix for Armada-managed branches.
         /// </summary>
         public static readonly string BranchPrefix = "armada/";
@@ -266,6 +271,11 @@ namespace Armada.Core
         public static readonly int DefaultProxyRequestTimeoutSeconds = 20;
 
         /// <summary>
+        /// Maximum request or response body size supported by the generic dashboard relay.
+        /// </summary>
+        public static readonly int DefaultRemoteRelayMaxBodyBytes = 8 * 1024 * 1024;
+
+        /// <summary>
         /// Tenant ID prefix.
         /// </summary>
         public static readonly string TenantIdPrefix = "ten_";
@@ -289,6 +299,11 @@ namespace Armada.Core
         /// Header name for authenticated Armada.Proxy browser sessions.
         /// </summary>
         public static readonly string ProxySessionTokenHeader = "X-Armada-Proxy-Session";
+
+        /// <summary>
+        /// Cookie name for authenticated Armada.Proxy browser sessions.
+        /// </summary>
+        public static readonly string ProxySessionCookieName = "armada_proxy_session";
 
         /// <summary>
         /// Default tenant identifier.

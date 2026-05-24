@@ -398,6 +398,50 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("MaintainSessionsAsync stops abandoned planning sessions when inactivity timeout is disabled", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                using (CoordinatorFixture fixture = new CoordinatorFixture(testDb.Driver))
+                {
+                    fixture.Settings.PlanningSessionInactivityTimeoutMinutes = 0;
+                    fixture.Settings.PlanningSessionAbandonmentTimeoutMinutes = 1;
+                    Vessel vessel = await fixture.CreateVesselAsync("planning-vessel-maintain-abandonment").ConfigureAwait(false);
+                    Captain captain = await fixture.CreateCaptainAsync("planner-maintain-abandonment").ConfigureAwait(false);
+
+                    PlanningSession session = await fixture.Coordinator.CreateAsync(
+                        null,
+                        null,
+                        captain,
+                        vessel,
+                        new PlanningSessionCreateRequest
+                        {
+                            Title = "Abandoned session"
+                        }).ConfigureAwait(false);
+
+                    using (SqliteConnection conn = new SqliteConnection(testDb.ConnectionString))
+                    {
+                        await conn.OpenAsync().ConfigureAwait(false);
+                        using (SqliteCommand cmd = conn.CreateCommand())
+                        {
+                            cmd.CommandText = "UPDATE planning_sessions SET last_update_utc = @lastUpdateUtc WHERE id = @id;";
+                            cmd.Parameters.AddWithValue("@id", session.Id);
+                            cmd.Parameters.AddWithValue("@lastUpdateUtc", DateTime.UtcNow.AddMinutes(-10).ToString("O"));
+                            await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
+                        }
+                    }
+
+                    await fixture.Coordinator.MaintainSessionsAsync().ConfigureAwait(false);
+
+                    PlanningSession? updatedSession = await testDb.Driver.PlanningSessions.ReadAsync(session.Id).ConfigureAwait(false);
+                    AssertNotNull(updatedSession);
+                    AssertEqual(PlanningSessionStatusEnum.Stopped, updatedSession!.Status);
+
+                    Captain? updatedCaptain = await testDb.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                    AssertNotNull(updatedCaptain);
+                    AssertEqual(CaptainStateEnum.Idle, updatedCaptain!.State);
+                }
+            });
+
             await RunTest("MaintainSessionsAsync deletes retained stopped sessions", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -480,6 +524,52 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(1, messages.Count);
                     AssertEqual("System", messages[0].Role);
                     AssertContains("interrupted during server recovery", messages[0].Content);
+                }
+            });
+
+            await RunTest("RecoverSessionsAsync stops abandoned active sessions and releases captains", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                using (CoordinatorFixture fixture = new CoordinatorFixture(testDb.Driver))
+                {
+                    fixture.Settings.PlanningSessionInactivityTimeoutMinutes = 0;
+                    fixture.Settings.PlanningSessionAbandonmentTimeoutMinutes = 1;
+                    Vessel vessel = await fixture.CreateVesselAsync("planning-vessel-recover-abandonment").ConfigureAwait(false);
+                    Captain captain = await fixture.CreateCaptainAsync("planner-recover-abandonment").ConfigureAwait(false);
+
+                    PlanningSession session = await fixture.Coordinator.CreateAsync(
+                        null,
+                        null,
+                        captain,
+                        vessel,
+                        new PlanningSessionCreateRequest
+                        {
+                            Title = "Recover abandoned session"
+                        }).ConfigureAwait(false);
+
+                    using (SqliteConnection conn = new SqliteConnection(testDb.ConnectionString))
+                    {
+                        await conn.OpenAsync().ConfigureAwait(false);
+                        using (SqliteCommand cmd = conn.CreateCommand())
+                        {
+                            cmd.CommandText = "UPDATE planning_sessions SET last_update_utc = @lastUpdateUtc WHERE id = @id;";
+                            cmd.Parameters.AddWithValue("@id", session.Id);
+                            cmd.Parameters.AddWithValue("@lastUpdateUtc", DateTime.UtcNow.AddMinutes(-10).ToString("O"));
+                            await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
+                        }
+                    }
+
+                    await fixture.Coordinator.RecoverSessionsAsync().ConfigureAwait(false);
+
+                    PlanningSession? recoveredSession = await testDb.Driver.PlanningSessions.ReadAsync(session.Id).ConfigureAwait(false);
+                    AssertNotNull(recoveredSession);
+                    AssertEqual(PlanningSessionStatusEnum.Stopped, recoveredSession!.Status);
+                    AssertNotNull(recoveredSession.CompletedUtc);
+
+                    Captain? recoveredCaptain = await testDb.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                    AssertNotNull(recoveredCaptain);
+                    AssertEqual(CaptainStateEnum.Idle, recoveredCaptain!.State);
+                    AssertNull(recoveredCaptain.CurrentDockId);
                 }
             });
 

@@ -330,6 +330,20 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Abandonment timeout in minutes for planning sessions with no running process.
+        /// Set to 0 to disable abandonment cleanup.
+        /// </summary>
+        public int PlanningSessionAbandonmentTimeoutMinutes
+        {
+            get => _PlanningSessionAbandonmentTimeoutMinutes;
+            set
+            {
+                if (value < 0) throw new ArgumentOutOfRangeException(nameof(PlanningSessionAbandonmentTimeoutMinutes), "Must be >= 0");
+                _PlanningSessionAbandonmentTimeoutMinutes = value;
+            }
+        }
+
+        /// <summary>
         /// Minimum number of idle captains to maintain.
         /// When idle count drops below this, new captains are spawned automatically.
         /// Set to 0 to disable auto-scaling. Must be >= 0.
@@ -875,6 +889,7 @@ namespace Armada.Core.Settings
         private int _RequestHistoryMaxBodyBytes = Constants.DefaultRequestHistoryMaxBodyBytes;
         private int _PlanningSessionRetentionDays = 0;
         private int _PlanningSessionInactivityTimeoutMinutes = 0;
+        private int _PlanningSessionAbandonmentTimeoutMinutes = Constants.DefaultPlanningSessionAbandonmentTimeoutMinutes;
         private int _MaxLandingRetries = 3;
         private int _MinIdleCaptains = 0;
         private int _MaxCaptains = 0;

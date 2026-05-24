@@ -387,7 +387,7 @@ export default function Dashboard() {
       </div>
 
       {/* Mission History Chart */}
-      <MissionHistoryChart missions={allMissions} vessels={vessels} fleets={fleets} onRefresh={loadAll} />
+      <MissionHistoryChart vessels={vessels} fleets={fleets} onRefresh={loadAll} />
 
       {/* Voyage Progress */}
       {status?.voyages && status.voyages.length > 0 && (
