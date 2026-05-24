@@ -31,7 +31,7 @@ namespace Armada.Core.Services
 
         private static readonly string[] _MidModels = new string[]
         {
-            "composer-2-fast",
+            "composer-2.5",
             "claude-sonnet-4-6",
             "gemini-3.5-pro",
             "gpt-5.3-codex",

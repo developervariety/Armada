@@ -185,7 +185,7 @@ namespace Armada.Server
             AdmiralService admiralService = new AdmiralService(_Logging, _Database, _Settings, captainService, missionService, voyageService, dockService, escalationService);
             _Admiral = admiralService;
             IMergeFailureClassifier mergeFailureClassifier = new MergeFailureClassifier();
-            _MergeQueue = new MergeQueueService(_Logging, _Database, _Settings, _Git, mergeFailureClassifier, prServiceFactory);
+            _MergeQueue = new MergeQueueService(_Logging, _Database, _Settings, _Git, mergeFailureClassifier, prServiceFactory, _CodeIndex);
 
             // Auto-recovery wiring: classifier -> router -> handler. The handler reads
             // the persisted classification on a Failed entry and routes to redispatch,
@@ -716,6 +716,10 @@ namespace Armada.Server
 
             // Backup & restore
             new BackupRoutes(_Database, _Settings, _JsonOptions)
+                .Register(_App, authenticate, _AuthorizationService);
+
+            // Code index graph queries
+            new CodeIndexRoutes(_CodeIndex, _Database, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
         }
 

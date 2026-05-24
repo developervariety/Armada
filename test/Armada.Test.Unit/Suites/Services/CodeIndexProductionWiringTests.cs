@@ -52,6 +52,10 @@ namespace Armada.Test.Unit.Suites.Services
                     "new CodeIndexService(_Logging, _Database, _Settings, _Git, embeddingClient, inferenceClient)",
                     contents,
                     "ArmadaServer should pass non-null embedding and inference clients into CodeIndexService");
+                AssertContains(
+                    "new MergeQueueService(_Logging, _Database, _Settings, _Git, mergeFailureClassifier, prServiceFactory, _CodeIndex)",
+                    contents,
+                    "ArmadaServer should pass CodeIndexService into MergeQueueService for post-land refreshes");
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
 
@@ -86,6 +90,10 @@ namespace Armada.Test.Unit.Suites.Services
                     "new CodeIndexService(logging, database, armadaSettings, git, embeddingClient, inferenceClient)",
                     contents,
                     "McpStdioCommand should pass non-null embedding and inference clients into CodeIndexService");
+                AssertContains(
+                    "new MergeQueueService(logging, database, armadaSettings, git, mergeFailureClassifier, codeIndexService: codeIndexService)",
+                    contents,
+                    "McpStdioCommand should pass CodeIndexService into MergeQueueService for post-land refreshes");
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
 

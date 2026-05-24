@@ -135,7 +135,7 @@ namespace Armada.Test.Unit.Suites.Services
                     ArmadaSettings settings = CreateSettings();
                     MissionService missions = CreateMissionService(testDb.Driver, settings);
                     Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
-                    await CreateCaptainAsync(testDb.Driver, "composer-worker", "composer-2-fast", "[\"Worker\"]").ConfigureAwait(false);
+                    await CreateCaptainAsync(testDb.Driver, "composer-worker", "composer-2.5", "[\"Worker\"]").ConfigureAwait(false);
                     Captain judgeCaptain = await CreateCaptainAsync(testDb.Driver, "sonnet-judge", "claude-sonnet-4-6", "[\"Judge\"]").ConfigureAwait(false);
                     Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "tier route", "mid", "Judge").ConfigureAwait(false);
 
@@ -174,7 +174,7 @@ namespace Armada.Test.Unit.Suites.Services
                     ArmadaSettings settings = CreateSettings();
                     MissionService missions = CreateMissionService(testDb.Driver, settings);
                     Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
-                    await CreateCaptainAsync(testDb.Driver, "only-captain", "composer-2-fast").ConfigureAwait(false);
+                    await CreateCaptainAsync(testDb.Driver, "only-captain", "composer-2.5").ConfigureAwait(false);
                     Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "literal no match", "claude-opus-4-7").ConfigureAwait(false);
 
                     bool assigned = await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false);

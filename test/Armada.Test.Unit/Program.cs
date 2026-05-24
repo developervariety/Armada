@@ -120,6 +120,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new ProtectedPathsTests());
             runner.AddSuite(new VesselAutoLandPredicateRoutesTests());
             runner.AddSuite(new VesselDefaultPlaybooksTests());
+            runner.AddSuite(new CodeIndexRoutesTests());
             runner.AddSuite(new AuditDrainerTests());
             runner.AddSuite(new ReflectionAuditDrainTests());
             runner.AddSuite(new ArchitectOutputParserTests());
@@ -131,6 +132,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new RemoteTriggerServiceTests());
             runner.AddSuite(new RemoteTriggerEventHookTests());
             runner.AddSuite(new MergeQueueBranchCleanupTests());
+            runner.AddSuite(new MergeQueueServiceTests());
             runner.AddSuite(new MergeQueueServiceClassificationTests());
             runner.AddSuite(new MergeFailureClassifierTests());
             runner.AddSuite(new RebaseCaptainDockSetupTests());
@@ -141,7 +143,12 @@ namespace Armada.Test.Unit
             runner.AddSuite(new PullRequestServiceTests());
             runner.AddSuite(new VoyageMissionPlaybookPropagationTests());
             runner.AddSuite(new MissionAliasResolverTests());
+            runner.AddSuite(new CSharpSymbolExtractorTests());
+            runner.AddSuite(new CSharpSymbolExtractorNegativePathTests());
             runner.AddSuite(new CodeIndexServiceTests());
+            runner.AddSuite(new CodeIndexServiceGraphSidecarTests());
+            runner.AddSuite(new CodeIndexServiceGraphQueryTests());
+            runner.AddSuite(new CodeIndexServiceGraphQueryNegativePathTests());
             runner.AddSuite(new CodeIndexServiceSignatureTests());
             runner.AddSuite(new CodeIndexServiceSummarizerTests());
             runner.AddSuite(new CodeIndexServiceSummarizerNegativePathTests());
