@@ -100,7 +100,7 @@ const DEFAULT_REMOTE_TUNNEL_URL = 'http://proxy.armadago.ai:7893/tunnel';
 
 const MCP_CLIENTS: McpClientReference[] = [
   { key: 'claude', title: 'Claude Code', location: '~/.claude.json -> mcpServers.armada' },
-  { key: 'codex', title: 'Codex', location: '~/.codex/config.json -> mcpServers.armada' },
+  { key: 'codex', title: 'Codex', location: '~/.codex/config.toml -> [mcp_servers.armada]' },
   { key: 'gemini', title: 'Gemini', location: '~/.gemini/settings.json -> mcpServers.armada' },
   { key: 'cursor', title: 'Cursor', location: '.cursor/mcp.json -> mcpServers.armada' },
 ];
@@ -427,8 +427,9 @@ export default function Server() {
     const rpcUrl = getMcpRpcUrl();
 
     switch (client) {
-      case 'claude':
       case 'codex':
+        return `[mcp_servers.armada]\nurl = "${rpcUrl}"`;
+      case 'claude':
         return JSON.stringify(
           {
             mcpServers: {
@@ -486,6 +487,7 @@ export default function Server() {
           2,
         );
       case 'codex':
+        return '[mcp_servers.armada]\ncommand = "armada"\nargs = ["mcp", "stdio"]\nstartup_timeout_sec = 120';
       case 'gemini':
         return JSON.stringify(
           {

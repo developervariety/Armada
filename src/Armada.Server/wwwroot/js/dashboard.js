@@ -1621,6 +1621,10 @@ function dashboard() {
         getMcpConfigHttp(client) {
             let rpcUrl = this.getMcpRpcUrl();
 
+            if (client === 'codex') {
+                return '[mcp_servers.armada]\nurl = "' + rpcUrl + '"';
+            }
+
             if (client === 'gemini') {
                 return JSON.stringify({ mcpServers: { armada: { httpUrl: rpcUrl } } }, null, 2);
             }
@@ -1639,6 +1643,10 @@ function dashboard() {
 
             if (client === 'cursor') {
                 return JSON.stringify({ mcpServers: { armada: { command: 'armada', args: ['mcp', 'stdio'] } } }, null, 2);
+            }
+
+            if (client === 'codex') {
+                return '[mcp_servers.armada]\ncommand = "armada"\nargs = ["mcp", "stdio"]\nstartup_timeout_sec = 120';
             }
 
             return JSON.stringify({ mcpServers: { armada: { type: 'stdio', command: 'armada', args: ['mcp', 'stdio'] } } }, null, 2);

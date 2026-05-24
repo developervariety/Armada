@@ -58,7 +58,6 @@ Edit `~/.codex/config.toml` (or `%USERPROFILE%\.codex\config.toml` on Windows). 
 ```toml
 [mcp_servers.armada]
 url = "http://localhost:7891/rpc"
-transport = "http"
 ```
 
 Codex auto-loads tools from configured MCP servers on session start; no restart needed beyond exiting the current session. Tools surface with the prefix configured by Codex (typically `armada__<tool>`).

@@ -178,6 +178,8 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("\"mcp\", \"add\", \"armada\", \"--\"", helper, "Codex install should use a subprocess separator for stdio");
                 AssertContains("BuildCodexStdioCommandParts()", helper, "Codex install should be backed by the stdio command builder");
                 AssertContains("\"armada\", \"mcp\", \"stdio\"", helper, "Codex fallback command should launch framed Armada stdio");
+                AssertContains("private const int CodexMcpStartupTimeoutSeconds = 120;", helper, "Codex install should pin a startup timeout for cold stdio launches");
+                AssertContains("EnsureTomlMcpServerStartupTimeoutAsync", helper, "Codex native CLI install should patch startup_timeout_sec after adding the server");
                 AssertContains("claude mcp add --transport http --scope user armada", helper, "Claude default install should remain HTTP");
                 AssertContains("claude mcp add --scope user armada -- armada mcp stdio", helper, "Claude stdio alternative should use the fixed Armada stdio path");
             }).ConfigureAwait(false);

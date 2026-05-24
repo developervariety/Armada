@@ -17,7 +17,8 @@ namespace Armada.Helm.Commands
             string[]? RemoveArgs = null,
             string? RemoveBeforeInstallName = null,
             string? ManualInstallCommand = null,
-            string? ManualRemoveCommand = null);
+            string? ManualRemoveCommand = null,
+            int? StartupTimeoutSeconds = null);
 
         internal sealed record ApplyResult(string ClientName, string FilePath, bool Changed, string Message, bool IsProjectScoped = false);
         internal sealed record InstructionTarget(string ClientName, string FilePath, string Content, bool IsProjectScoped = false);
@@ -26,6 +27,7 @@ namespace Armada.Helm.Commands
         private const string ManagedBlockStart = "<!-- armada:mcp:begin -->";
         private const string ManagedBlockEnd = "<!-- armada:mcp:end -->";
         private const string SourceMcpFramework = "net10.0";
+        private const int CodexMcpStartupTimeoutSeconds = 120;
 
         internal static string GetMcpRpcUrl(int mcpPort)
         {
@@ -93,7 +95,8 @@ namespace Armada.Helm.Commands
                     RemoveArgs: new[] { "mcp", "remove", "armada" },
                     RemoveBeforeInstallName: "armada",
                     ManualInstallCommand: BuildCodexManualInstallCommand(codexCommand),
-                    ManualRemoveCommand: codexCommand + " mcp remove armada"),
+                    ManualRemoveCommand: codexCommand + " mcp remove armada",
+                    StartupTimeoutSeconds: CodexMcpStartupTimeoutSeconds),
                 new(
                     "Gemini CLI",
                     GetGeminiConfigPath(),
@@ -139,13 +142,28 @@ namespace Armada.Helm.Commands
                     await RunCliCommandAsync(target.CliCommand, new[] { "mcp", "remove", target.RemoveBeforeInstallName }).ConfigureAwait(false);
 
                 bool success = await RunCliCommandAsync(target.CliCommand, target.InstallArgs).ConfigureAwait(false);
+                bool timeoutChanged = false;
+                if (success && target.StartupTimeoutSeconds.HasValue)
+                {
+                    timeoutChanged = await EnsureTomlMcpServerStartupTimeoutAsync(
+                        target.FilePath,
+                        "armada",
+                        target.StartupTimeoutSeconds.Value).ConfigureAwait(false);
+                }
+
+                string message = success
+                    ? "Configured Armada MCP entry via native CLI."
+                    : "Failed to configure Armada MCP entry via native CLI.";
+                if (timeoutChanged)
+                {
+                    message += " Set startup_timeout_sec to " + target.StartupTimeoutSeconds!.Value + ".";
+                }
+
                 return new ApplyResult(
                     target.ClientName,
                     target.FilePath,
-                    success,
-                    success
-                        ? "Configured Armada MCP entry via native CLI."
-                        : "Failed to configure Armada MCP entry via native CLI.",
+                    success || timeoutChanged,
+                    message,
                     target.IsProjectScoped);
             }
 
@@ -334,6 +352,60 @@ namespace Armada.Helm.Commands
         internal static string BuildCodexManualInstallCommand(string codexCommand)
         {
             return String.Join(" ", BuildCliCommandParts(codexCommand, BuildCodexInstallArgs()));
+        }
+
+        internal static async Task<bool> EnsureTomlMcpServerStartupTimeoutAsync(string filePath, string serverName, int timeoutSeconds)
+        {
+            if (!File.Exists(filePath))
+                return false;
+
+            List<string> lines = (await File.ReadAllLinesAsync(filePath).ConfigureAwait(false)).ToList();
+            string tableHeader = "[mcp_servers." + serverName + "]";
+            int tableStart = -1;
+            for (int i = 0; i < lines.Count; i++)
+            {
+                if (String.Equals(lines[i].Trim(), tableHeader, StringComparison.Ordinal))
+                {
+                    tableStart = i;
+                    break;
+                }
+            }
+
+            if (tableStart < 0)
+                return false;
+
+            int tableEnd = lines.Count;
+            for (int i = tableStart + 1; i < lines.Count; i++)
+            {
+                string trimmed = lines[i].Trim();
+                if (trimmed.StartsWith("[", StringComparison.Ordinal) && trimmed.EndsWith("]", StringComparison.Ordinal))
+                {
+                    tableEnd = i;
+                    break;
+                }
+            }
+
+            string desiredLine = "startup_timeout_sec = " + timeoutSeconds;
+            for (int i = tableStart + 1; i < tableEnd; i++)
+            {
+                string trimmed = lines[i].TrimStart();
+                if (!trimmed.StartsWith("startup_timeout_sec", StringComparison.Ordinal))
+                    continue;
+
+                int keyIndex = lines[i].IndexOf("startup_timeout_sec", StringComparison.Ordinal);
+                string prefix = keyIndex > 0 ? lines[i][..keyIndex] : String.Empty;
+                string updatedLine = prefix + desiredLine;
+                if (String.Equals(lines[i], updatedLine, StringComparison.Ordinal))
+                    return false;
+
+                lines[i] = updatedLine;
+                await File.WriteAllLinesAsync(filePath, lines).ConfigureAwait(false);
+                return true;
+            }
+
+            lines.Insert(tableEnd, desiredLine);
+            await File.WriteAllLinesAsync(filePath, lines).ConfigureAwait(false);
+            return true;
         }
 
         private static string[] BuildCodexInstallArgs()

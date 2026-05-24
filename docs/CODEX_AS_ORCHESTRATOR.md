@@ -16,15 +16,9 @@ armada mcp install
 
 This writes MCP configuration for all supported tools automatically. For Codex specifically, Armada uses the native `codex mcp add` flow and the current `~/.codex/config.toml` format. If you prefer to edit manually, add an Armada MCP server entry equivalent to:
 
-```json
-{
-  "mcpServers": {
-    "armada": {
-      "type": "http",
-      "url": "http://localhost:7891/rpc"
-    }
-  }
-}
+```toml
+[mcp_servers.armada]
+url = "http://localhost:7891/rpc"
 ```
 
 Use `--dry-run` to preview without writing.
@@ -76,27 +70,16 @@ If you prefer to configure MCP manually instead of using `armada mcp install`, a
 
 **HTTP Transport (recommended)** — requires Admiral server running (`armada server start`):
 
-```json
-{
-  "mcpServers": {
-    "armada": {
-      "type": "http",
-      "url": "http://localhost:7891/rpc"
-    }
-  }
-}
+```toml
+[mcp_servers.armada]
+url = "http://localhost:7891/rpc"
 ```
 
 **Stdio Transport** — no server required, Armada runs as a subprocess:
 
-```json
-{
-  "mcpServers": {
-    "armada": {
-      "type": "stdio",
-      "command": "armada",
-      "args": ["mcp", "stdio"]
-    }
-  }
-}
+```toml
+[mcp_servers.armada]
+command = "armada"
+args = ["mcp", "stdio"]
+startup_timeout_sec = 120
 ```
