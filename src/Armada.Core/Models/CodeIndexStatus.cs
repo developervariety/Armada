@@ -38,9 +38,19 @@ namespace Armada.Core.Models
         public DateTime? IndexedAtUtc { get; set; } = null;
 
         /// <summary>
-        /// Fresh, Stale, Missing, or Error.
+        /// Fresh, Stale, Missing, Error, or Updating.
         /// </summary>
         public string Freshness { get; set; } = "Missing";
+
+        /// <summary>
+        /// True when this Admiral process is currently refreshing the vessel index.
+        /// </summary>
+        public bool UpdateInProgress { get; set; } = false;
+
+        /// <summary>
+        /// Timestamp when the current in-process refresh started.
+        /// </summary>
+        public DateTime? UpdateStartedUtc { get; set; } = null;
 
         /// <summary>
         /// Number of files indexed.

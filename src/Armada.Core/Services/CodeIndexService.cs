@@ -1,6 +1,7 @@
 namespace Armada.Core.Services
 {
     using System;
+    using System.Collections.Concurrent;
     using System.Collections.Generic;
     using System.Diagnostics;
     using System.IO;
@@ -38,6 +39,7 @@ namespace Armada.Core.Services
         private IEmbeddingClient? _EmbeddingClient;
         private IInferenceClient? _InferenceClient;
         private PolyglotSymbolExtractor _SymbolExtractor = new PolyglotSymbolExtractor();
+        private static readonly ConcurrentDictionary<string, DateTime> _ActiveUpdates = new ConcurrentDictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
         private const int _DefaultGraphSearchLimit = 20;
         private const int _DefaultGraphNeighborLimit = 25;
         private const int _DefaultImpactDepth = 3;
@@ -94,6 +96,7 @@ namespace Armada.Core.Services
             status.IndexDirectory = GetVesselIndexDirectory(vessel.Id);
             status.CurrentCommitSha = await TryResolveCurrentCommitAsync(vessel, token).ConfigureAwait(false);
             status.Freshness = ResolveFreshness(status);
+            ApplyActiveUpdateStatus(status);
             return status;
         }
 
@@ -104,30 +107,39 @@ namespace Armada.Core.Services
             if (String.IsNullOrWhiteSpace(vesselId)) throw new ArgumentNullException(nameof(vesselId));
 
             Vessel vessel = await ReadVesselOrThrowAsync(vesselId, token).ConfigureAwait(false);
-            string repoPath = await ResolveRepositoryPathAsync(vessel, token).ConfigureAwait(false);
-
-            if (!String.IsNullOrWhiteSpace(vessel.RepoUrl))
+            DateTime updateStartedUtc = DateTime.UtcNow;
+            if (!_ActiveUpdates.TryAdd(vessel.Id, updateStartedUtc))
             {
-                try
-                {
-                    await _Git.FetchAsync(repoPath, token).ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    _Logging.Warn(_Header + "fetch failed for vessel " + vessel.Id + ": " + ex.Message);
-                }
+                CodeIndexStatus activeStatus = await GetStatusAsync(vessel.Id, token).ConfigureAwait(false);
+                throw new InvalidOperationException(BuildUpdateInProgressMessage(activeStatus));
             }
-
-            string commitSha = await ResolveDefaultBranchCommitAsync(repoPath, vessel.DefaultBranch, token).ConfigureAwait(false);
-            string vesselIndexDirectory = GetVesselIndexDirectory(vessel.Id);
-            Directory.CreateDirectory(vesselIndexDirectory);
-
-            string tempDirectory = Path.Combine(Path.GetTempPath(), "armada-code-index-" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(tempDirectory);
 
             try
             {
-                await ExtractCommitArchiveAsync(repoPath, commitSha, tempDirectory, token).ConfigureAwait(false);
+                string repoPath = await ResolveRepositoryPathAsync(vessel, token).ConfigureAwait(false);
+
+                if (!String.IsNullOrWhiteSpace(vessel.RepoUrl))
+                {
+                    try
+                    {
+                        await _Git.FetchAsync(repoPath, token).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        _Logging.Warn(_Header + "fetch failed for vessel " + vessel.Id + ": " + ex.Message);
+                    }
+                }
+
+                string commitSha = await ResolveDefaultBranchCommitAsync(repoPath, vessel.DefaultBranch, token).ConfigureAwait(false);
+                string vesselIndexDirectory = GetVesselIndexDirectory(vessel.Id);
+                Directory.CreateDirectory(vesselIndexDirectory);
+
+                string tempDirectory = Path.Combine(Path.GetTempPath(), "armada-code-index-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(tempDirectory);
+
+                try
+                {
+                    await ExtractCommitArchiveAsync(repoPath, commitSha, tempDirectory, token).ConfigureAwait(false);
 
                 List<CodeIndexRecord> records = BuildRecordsFromDirectory(vessel, commitSha, tempDirectory);
                 if (_Settings.CodeIndex.UseSemanticSearch && _EmbeddingClient != null)
@@ -215,23 +227,28 @@ namespace Armada.Core.Services
                     LastError = null
                 };
 
-                await WriteIndexAsync(vesselIndexDirectory, status, records, token).ConfigureAwait(false);
-                await WriteGraphSidecarsAsync(vesselIndexDirectory, vessel.Id, commitSha, tempDirectory, records, token).ConfigureAwait(false);
-                return status;
-            }
-            catch (Exception ex)
-            {
-                CodeIndexStatus errorStatus = BuildMissingStatus(vessel);
-                errorStatus.CurrentCommitSha = commitSha;
-                errorStatus.IndexedAtUtc = DateTime.UtcNow;
-                errorStatus.Freshness = "Error";
-                errorStatus.LastError = ex.Message;
-                await WriteStatusAsync(vesselIndexDirectory, errorStatus, token).ConfigureAwait(false);
-                throw;
+                    await WriteIndexAsync(vesselIndexDirectory, status, records, token).ConfigureAwait(false);
+                    await WriteGraphSidecarsAsync(vesselIndexDirectory, vessel.Id, commitSha, tempDirectory, records, token).ConfigureAwait(false);
+                    return status;
+                }
+                catch (Exception ex)
+                {
+                    CodeIndexStatus errorStatus = BuildMissingStatus(vessel);
+                    errorStatus.CurrentCommitSha = commitSha;
+                    errorStatus.IndexedAtUtc = DateTime.UtcNow;
+                    errorStatus.Freshness = "Error";
+                    errorStatus.LastError = ex.Message;
+                    await WriteStatusAsync(vesselIndexDirectory, errorStatus, token).ConfigureAwait(false);
+                    throw;
+                }
+                finally
+                {
+                    TryDeleteDirectory(tempDirectory);
+                }
             }
             finally
             {
-                TryDeleteDirectory(tempDirectory);
+                _ActiveUpdates.TryRemove(vessel.Id, out _);
             }
         }
 
@@ -1085,6 +1102,7 @@ namespace Armada.Core.Services
             // Deliberately omit TryResolveCurrentCommitAsync: graph queries must not clone or mutate vessel state.
             // Freshness is derived from persisted metadata only; CurrentCommitSha stays null.
             status.Freshness = ResolveFreshness(status);
+            ApplyActiveUpdateStatus(status);
             return status;
         }
 
@@ -1188,6 +1206,29 @@ namespace Armada.Core.Services
             return String.Equals(status.IndexedCommitSha, status.CurrentCommitSha, StringComparison.OrdinalIgnoreCase)
                 ? "Fresh"
                 : "Stale";
+        }
+
+        private static void ApplyActiveUpdateStatus(CodeIndexStatus status)
+        {
+            if (status == null) return;
+
+            if (_ActiveUpdates.TryGetValue(status.VesselId, out DateTime startedUtc))
+            {
+                status.UpdateInProgress = true;
+                status.UpdateStartedUtc = startedUtc;
+                status.Freshness = "Updating";
+                return;
+            }
+
+            status.UpdateInProgress = false;
+            status.UpdateStartedUtc = null;
+        }
+
+        private static string BuildUpdateInProgressMessage(CodeIndexStatus status)
+        {
+            string vesselName = String.IsNullOrWhiteSpace(status.VesselName) ? status.VesselId : status.VesselName;
+            string started = status.UpdateStartedUtc.HasValue ? status.UpdateStartedUtc.Value.ToString("o") : "unknown time";
+            return "Code index update already in progress for vessel " + status.VesselId + " (" + vesselName + ") since " + started + ".";
         }
 
         private async Task<CodeIndexStatus?> ReadPersistedStatusAsync(Vessel vessel)

@@ -198,6 +198,49 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Dispatch_BlocksWhenCodeIndexUpdateInProgress", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("index-running-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
+                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService();
+                    codeIndex.Status.UpdateInProgress = true;
+                    codeIndex.Status.UpdateStartedUtc = DateTime.UtcNow.AddMinutes(-2);
+
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null,
+                        null,
+                        null,
+                        codeIndex);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "blocked voyage",
+                        vesselId = vessel.Id,
+                        missions = new object[]
+                        {
+                            new { title = "Task A", description = "Should wait for fresh index" }
+                        }
+                    });
+
+                    object result = await dispatchHandler!(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+
+                    AssertContains("\"Error\"", resultJson);
+                    AssertContains("code_index_update_in_progress", resultJson);
+                    AssertContains("generated context packs and search results include the most recently landed code", resultJson);
+                    AssertEqual(0, codeIndex.ContextPackRequests.Count, "Dispatch should block before context pack generation");
+                    AssertFalse(admiralDouble.DispatchVoyageCalled, "Dispatch must not persist a voyage while the vessel index is refreshing");
+                }
+            });
+
             await RunTest("Dispatch_CodeContextOff_SkipsContextPack", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -865,10 +908,17 @@ namespace Armada.Test.Unit.Suites.Services
 
             public ContextPackResponse ContextPackResponse { get; } = new ContextPackResponse();
 
+            public CodeIndexStatus Status { get; } = new CodeIndexStatus();
+
             public Exception? BuildException { get; set; }
 
             public Task<CodeIndexStatus> GetStatusAsync(string vesselId, CancellationToken token = default)
-                => throw new NotImplementedException();
+            {
+                Status.VesselId = vesselId;
+                if (String.IsNullOrWhiteSpace(Status.VesselName))
+                    Status.VesselName = vesselId;
+                return Task.FromResult(Status);
+            }
 
             public Task<CodeIndexStatus> UpdateAsync(string vesselId, CancellationToken token = default)
                 => throw new NotImplementedException();

@@ -249,6 +249,25 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Voyage completion broadcast uses terminal voyage status", () =>
+            {
+                string source = ReadRepositoryFile("src", "Armada.Server", "MissionLandingHandler.cs");
+                string method = ExtractBetween(
+                    source,
+                    "public Task HandleVoyageCompleteAsync(Voyage voyage)",
+                    "public async Task<bool> HandleReconcilePullRequestAsync(Mission mission)");
+
+                AssertContains(
+                    "BroadcastVoyageChange(voyage.Id, voyage.Status.ToString(), voyage.Title)",
+                    method,
+                    "Voyage completion broadcast must use the persisted terminal voyage status.");
+                AssertDoesNotContain(
+                    "BroadcastVoyageChange(voyage.Id, VoyageStatusEnum.Complete.ToString(), voyage.Title)",
+                    method,
+                    "Failed voyages must not be broadcast as Complete.");
+                return Task.CompletedTask;
+            });
+
             // === Dock Reclaim Idempotency ===
 
             await RunTest("Double ReclaimAsync is safe (idempotent)", async () =>
@@ -417,6 +436,27 @@ namespace Armada.Test.Unit.Suites.Services
 
                 return Task.CompletedTask;
             });
+        }
+
+        private static string ExtractBetween(string contents, string startToken, string endToken)
+        {
+            int start = contents.IndexOf(startToken, StringComparison.Ordinal);
+            if (start < 0)
+                throw new Exception("Start token not found: " + startToken);
+
+            int end = contents.IndexOf(endToken, start + startToken.Length, StringComparison.Ordinal);
+            if (end < 0)
+                throw new Exception("End token not found: " + endToken);
+
+            return contents.Substring(start, end - start);
+        }
+
+        private void AssertDoesNotContain(string unexpected, string actual, string message)
+        {
+            if (actual.Contains(unexpected, StringComparison.Ordinal))
+            {
+                throw new Exception(message + " Unexpected text: " + unexpected);
+            }
         }
 
         private sealed class NoOpRemoteTriggerService : IRemoteTriggerService

@@ -34,6 +34,7 @@ namespace Armada.Server
         private IDockService _Docks;
         private ArmadaWebSocketHub? _WebSocketHub;
         private IRemoteTriggerService _RemoteTriggerService;
+        private ICodeIndexService? _CodeIndexService;
 
         /// <summary>
         /// Per-vessel semaphores to prevent concurrent merge operations on the same repository.
@@ -60,6 +61,7 @@ namespace Armada.Server
         /// <param name="docks">Dock service.</param>
         /// <param name="remoteTriggerService">Remote trigger service for drainer wake events.</param>
         /// <param name="webSocketHub">WebSocket hub (nullable).</param>
+        /// <param name="codeIndexService">Optional code index service refreshed after successful non-queue landings.</param>
         public MissionLandingHandler(
             LoggingModule logging,
             DatabaseDriver database,
@@ -73,7 +75,8 @@ namespace Armada.Server
             IPromptTemplateService? promptTemplateService,
             IDockService docks,
             IRemoteTriggerService remoteTriggerService,
-            ArmadaWebSocketHub? webSocketHub)
+            ArmadaWebSocketHub? webSocketHub,
+            ICodeIndexService? codeIndexService = null)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Database = database ?? throw new ArgumentNullException(nameof(database));
@@ -88,6 +91,7 @@ namespace Armada.Server
             _Docks = docks ?? throw new ArgumentNullException(nameof(docks));
             _RemoteTriggerService = remoteTriggerService ?? throw new ArgumentNullException(nameof(remoteTriggerService));
             _WebSocketHub = webSocketHub;
+            _CodeIndexService = codeIndexService;
         }
 
         #endregion
@@ -658,6 +662,7 @@ namespace Armada.Server
                     mission.LastUpdateUtc = DateTime.UtcNow;
                     await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
                     _Logging.Info(_Header + "mission " + mission.Id + " landed successfully, status set to Complete");
+                    FireIndexRefreshForVessel(mission.VesselId, "mission " + mission.Id + " landed successfully");
 
                     // Emit mission.completed event
                     try
@@ -756,11 +761,11 @@ namespace Armada.Server
         /// </summary>
         public Task HandleVoyageCompleteAsync(Voyage voyage)
         {
-            _Logging.Info(_Header + "voyage " + voyage.Id + " completed, broadcasting to dashboard");
+            _Logging.Info(_Header + "voyage " + voyage.Id + " reached terminal status " + voyage.Status + ", broadcasting to dashboard");
 
             if (_WebSocketHub != null)
             {
-                _WebSocketHub.BroadcastVoyageChange(voyage.Id, VoyageStatusEnum.Complete.ToString(), voyage.Title);
+                _WebSocketHub.BroadcastVoyageChange(voyage.Id, voyage.Status.ToString(), voyage.Title);
             }
 
             return Task.CompletedTask;
@@ -793,6 +798,7 @@ namespace Armada.Server
                     mission.LastUpdateUtc = DateTime.UtcNow;
                     await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
                     _Logging.Info(_Header + "PR reconciler: mission " + mission.Id + " PR merged, status set to Complete");
+                    FireIndexRefreshForVessel(mission.VesselId, "PR reconciler completed mission " + mission.Id);
 
                     // Pull latest into working directory if available
                     if (!String.IsNullOrEmpty(vessel?.WorkingDirectory))
@@ -850,6 +856,7 @@ namespace Armada.Server
                                 mission.LastUpdateUtc = DateTime.UtcNow;
                                 await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
                                 _Logging.Info(_Header + "mission " + missionId + " PR merged, status set to Complete");
+                                FireIndexRefreshForVessel(mission.VesselId, "PR poller completed mission " + missionId);
 
                                 // Emit mission.completed event
                                 try
@@ -930,6 +937,28 @@ namespace Armada.Server
             {
                 _Logging.Warn(_Header + "error polling/pulling after merge for mission " + missionId + ": " + ex.Message);
             }
+        }
+
+        private void FireIndexRefreshForVessel(string? vesselId, string reason)
+        {
+            ICodeIndexService? svc = _CodeIndexService;
+            if (svc == null || String.IsNullOrEmpty(vesselId)) return;
+
+            string capturedVesselId = vesselId;
+            string capturedReason = String.IsNullOrWhiteSpace(reason) ? "successful landing" : reason;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    _Logging.Info(_Header + "auto-refreshing code index for vessel " + capturedVesselId + " after " + capturedReason);
+                    await svc.UpdateAsync(capturedVesselId).ConfigureAwait(false);
+                    _Logging.Info(_Header + "code index refresh complete for vessel " + capturedVesselId);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "code index refresh failed for vessel " + capturedVesselId + ": " + ex.Message);
+                }
+            });
         }
 
         private async Task CleanupMissionBranchAsync(

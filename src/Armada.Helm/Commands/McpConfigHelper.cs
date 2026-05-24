@@ -421,7 +421,7 @@ namespace Armada.Helm.Commands
             {
                 return new[]
                 {
-                    "dotnet",
+                    ResolveDotnetCommand(),
                     helmAssemblyPath!,
                     "mcp",
                     "stdio"
@@ -429,6 +429,22 @@ namespace Armada.Helm.Commands
             }
 
             return new[] { "armada", "mcp", "stdio" };
+        }
+
+        private static string ResolveDotnetCommand()
+        {
+            if (!OperatingSystem.IsWindows())
+                return "dotnet";
+
+            string programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+            if (!String.IsNullOrWhiteSpace(programFiles))
+            {
+                string candidate = Path.Combine(programFiles, "dotnet", "dotnet.exe");
+                if (File.Exists(candidate))
+                    return candidate;
+            }
+
+            return "dotnet";
         }
 
         private static bool TryGetSourceHelmAssemblyPath(out string? helmAssemblyPath)

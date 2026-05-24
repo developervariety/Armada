@@ -158,7 +158,15 @@ namespace Armada.Server.Mcp.Tools
                     // Merge vessel DefaultPlaybooks with caller-supplied selectedPlaybooks.
                     // Start with the vessel defaults; caller entries override deliveryMode on collision and append new entries.
                     Vessel? dispatchVessel = await database.Vessels.ReadAsync(vesselId).ConfigureAwait(false);
+                    if (dispatchVessel == null) return (object)new { Error = "Vessel not found: " + vesselId };
+
                     List<SelectedPlaybook> mergedPlaybooks = MergePlaybooks(dispatchVessel?.GetDefaultPlaybooks(), callerPlaybooks);
+
+                    object? blockedByIndex = await CodeIndexDispatchGuard.BuildVoyageDispatchBlockedResponseAsync(
+                        codeIndexService,
+                        vesselId,
+                        "armada_dispatch").ConfigureAwait(false);
+                    if (blockedByIndex != null) return blockedByIndex;
 
                     // Resolve pipeline name to ID up front so both the alias path and
                     // the standard path see the same identifier.

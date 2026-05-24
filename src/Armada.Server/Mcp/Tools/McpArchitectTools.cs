@@ -107,6 +107,14 @@ namespace Armada.Server.Mcp.Tools
 
                     // Merge vessel DefaultPlaybooks with any caller-supplied selectedPlaybooks.
                     Vessel? dispatchVessel = await database.Vessels.ReadAsync(vesselId).ConfigureAwait(false);
+                    if (dispatchVessel == null) return (object)new { Error = "Vessel not found: " + vesselId };
+
+                    object? blockedByIndex = await CodeIndexDispatchGuard.BuildVoyageDispatchBlockedResponseAsync(
+                        codeIndexService,
+                        vesselId,
+                        "armada_decompose_plan").ConfigureAwait(false);
+                    if (blockedByIndex != null) return blockedByIndex;
+
                     List<SelectedPlaybook> callerPlaybooks = new List<SelectedPlaybook>();
                     if (args.Value.TryGetProperty("selectedPlaybooks", out JsonElement spElem) && spElem.ValueKind == JsonValueKind.Array)
                     {

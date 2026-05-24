@@ -657,8 +657,15 @@ namespace Armada.Test.Unit.Suites.Services
 
             public ContextPackResponse ContextPackResponse { get; } = new ContextPackResponse();
 
+            public CodeIndexStatus Status { get; } = new CodeIndexStatus();
+
             public Task<CodeIndexStatus> GetStatusAsync(string vesselId, CancellationToken token = default)
-                => throw new NotImplementedException();
+            {
+                Status.VesselId = vesselId;
+                if (String.IsNullOrWhiteSpace(Status.VesselName))
+                    Status.VesselName = vesselId;
+                return Task.FromResult(Status);
+            }
 
             public Task<CodeIndexStatus> UpdateAsync(string vesselId, CancellationToken token = default)
                 => throw new NotImplementedException();
