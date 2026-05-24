@@ -2653,7 +2653,7 @@ Restore Armada from a previously created backup ZIP file.
 
 ### armada_consolidate_memory
 
-Trigger a memory consolidation, reorganize, or pack-curate mission. v2-F4 extended the v1 surface with `mode`, `dualJudge`, and a cross-vessel fan-out semantic when `vesselId` is null. v2-F1 adds a fourth mode (`pack-curate`) and extends the fan-out semantic to it.
+Trigger a memory consolidation, reorganize, pack-curate, persona-curate, captain-curate, or fleet-curate mission. The target is mode-dependent: vessel modes use `vesselId`, identity modes use `personaName` or `captainId`, and fleet mode uses `fleetId`. Null targets fan out only for the modes that explicitly support fan-out.
 
 **Input Schema:**
 
@@ -2663,11 +2663,23 @@ Trigger a memory consolidation, reorganize, or pack-curate mission. v2-F4 extend
   "properties": {
     "vesselId": {
       "type": "string",
-      "description": "Target vessel ID (vsl_ prefix). Required unless mode in {reorganize, pack-curate}, in which case null fan-outs across active vessels."
+      "description": "Target vessel ID (vsl_ prefix). Required for consolidate/combined; optional null fan-out for reorganize/pack-curate; ignored for identity/fleet modes."
+    },
+    "personaName": {
+      "type": "string",
+      "description": "Persona name for persona-curate. Null fans out across active personas."
+    },
+    "captainId": {
+      "type": "string",
+      "description": "Captain ID for captain-curate. Null fan-out requires AllowCaptainCurateFanOut=true."
+    },
+    "fleetId": {
+      "type": "string",
+      "description": "Fleet ID for fleet-curate. Null fans out across active fleets."
     },
     "mode": {
       "type": "string",
-      "description": "consolidate (default) | reorganize | consolidate-and-reorganize | pack-curate"
+      "description": "consolidate (default) | reorganize | consolidate-and-reorganize | pack-curate | persona-curate | captain-curate | fleet-curate"
     },
     "dualJudge": {
       "type": "boolean",
@@ -2675,7 +2687,7 @@ Trigger a memory consolidation, reorganize, or pack-curate mission. v2-F4 extend
     },
     "sinceMissionId": {
       "type": "string",
-      "description": "Override the auto-computed evidence start point (msn_ prefix). Ignored in pure-reorganize and pack-curate modes."
+      "description": "Override the auto-computed evidence start point (msn_ prefix). Ignored in reorganize, pack-curate, persona-curate, captain-curate, and fleet-curate modes."
     },
     "instructions": {
       "type": "string",
@@ -2683,7 +2695,7 @@ Trigger a memory consolidation, reorganize, or pack-curate mission. v2-F4 extend
     },
     "tokenBudget": {
       "type": "integer",
-      "description": "Token budget for the brief (default 400000 for consolidate/combined/pack-curate, 30000 for reorganize)"
+      "description": "Token budget for the brief. Defaults are mode-specific."
     }
   }
 }
@@ -2691,10 +2703,13 @@ Trigger a memory consolidation, reorganize, or pack-curate mission. v2-F4 extend
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `vesselId` | string | Conditional | Target vessel ID (`vsl_`). Required unless `mode` is `reorganize` or `pack-curate` -- then null triggers fan-out. |
-| `mode` | string | No | One of `consolidate` (default), `reorganize`, `consolidate-and-reorganize`, `pack-curate`. |
+| `vesselId` | string | Conditional | Target vessel ID (`vsl_`). Required for `consolidate` / `consolidate-and-reorganize`; null fan-out is valid for `reorganize` and `pack-curate`. |
+| `personaName` | string | Conditional | Persona target for `persona-curate`; null fans out across active personas. Mutually exclusive with other target fields. |
+| `captainId` | string | Conditional | Captain target for `captain-curate`; null fan-out requires `AllowCaptainCurateFanOut=true`. Mutually exclusive with other target fields. |
+| `fleetId` | string | Conditional | Fleet target for `fleet-curate`; null fans out across active fleets. Mutually exclusive with other target fields. |
+| `mode` | string | No | One of `consolidate` (default), `reorganize`, `consolidate-and-reorganize`, `pack-curate`, `persona-curate`, `captain-curate`, `fleet-curate`. |
 | `dualJudge` | boolean | No | Use the `ReflectionsDualJudge` pipeline. Default false. |
-| `sinceMissionId` | string | No | Override the auto-computed start point (uses `Vessel.LastReflectionMissionId` if not provided). Ignored in pure reorganize. |
+| `sinceMissionId` | string | No | Override the auto-computed start point for consolidate/combined modes (uses `Vessel.LastReflectionMissionId` if not provided). Ignored in other modes. |
 | `instructions` | string | No | Extra guidance for the consolidator captain |
 | `tokenBudget` | integer | No | Token budget for the brief. Default depends on mode. |
 
@@ -2836,7 +2851,7 @@ dispatches exceed `IdentityCurateDualJudgeFanOutWarnThreshold`.
 
 | Error | When |
 |-------|------|
-| `target_ambiguous` | Multiple of `vesselId` / `personaName` / `captainId` supplied. |
+| `target_ambiguous` | Multiple of `vesselId` / `personaName` / `captainId` / `fleetId` supplied. |
 | `personaName_required` | `mode: "persona-curate"` with neither personaName nor fan-out (handled implicitly when the dispatcher infers fan-out). |
 | `captain_fan_out_disabled` | `mode: "captain-curate"` with `captainId: null` and `AllowCaptainCurateFanOut=false` (default). |
 | `persona_not_found` / `captain_not_found` | Single-target dispatch with unknown identity. |

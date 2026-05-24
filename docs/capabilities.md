@@ -163,7 +163,7 @@ Pass `dualJudge: true` to dispatch on the `ReflectionsDualJudge` pipeline (Worke
 
 ### Cross-Vessel Fan-Out
 
-`armada_consolidate_memory(vesselId: null, mode: "reorganize")` enumerates active vessels and dispatches a reorganize mission per vessel that has a populated `vessel-<repo>-learned` playbook with no in-flight MemoryConsolidator. Skipped vessels appear in the response under `skipped[]` with reasons `in_flight`, `no_playbook`, or `too_small`. Fan-out is only valid with `mode: "reorganize"` -- calling with `null` vesselId on `consolidate` or `consolidate-and-reorganize` returns `vesselId_required`. `dualJudge` propagates to every dispatched mission.
+`armada_consolidate_memory(vesselId: null, mode: "reorganize")` enumerates active vessels and dispatches a reorganize mission per vessel that has a populated `vessel-<repo>-learned` playbook with no in-flight MemoryConsolidator. Skipped vessels appear in the response under `skipped[]` with reasons `in_flight`, `no_playbook`, or `too_small`. Vessel fan-out is valid for `reorganize` and `pack-curate`; identity/fleet fan-outs use `personaName: null`, `captainId: null`, or `fleetId: null` in their respective modes. Calling with null `vesselId` on `consolidate` or `consolidate-and-reorganize` returns `vesselId_required`. `dualJudge` propagates to every dispatched mission.
 
 ### Audit-Drain Auto-Trigger and Anti-Thrash
 
