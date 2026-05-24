@@ -45,7 +45,7 @@ This configures Armada MCP for Claude Code, Codex, Gemini, and Cursor, and insta
 armada server start
 ```
 
-Leave this running. Open a new terminal for everything else.
+The CLI starts Admiral as a background process and waits for the health check. Use `armada server status` to verify it is healthy and `armada server stop` to shut it down.
 
 If you want Armada managed as a local deployment on your machine instead of a foreground terminal process, use the source-deployment scripts:
 
@@ -163,6 +163,8 @@ Now three agents work simultaneously on non-overlapping parts of the codebase:
 > 3. "Test suite. Create tests/test_books.py with pytest tests using FastAPI TestClient. Test: create a book, get it by ID, list all books, update a book, delete a book, get a missing book returns 404. Create tests/test_search.py testing search by title, search by author, and empty results. Import the app from src/main.py."
 
 Three captains spin up in isolated worktrees, each working on their own files.
+
+Armada builds a code context pack for each dispatch by default. After a voyage lands, Admiral refreshes that vessel's code index in the background so later searches and context packs use the landed code. If you dispatch while that refresh is still running, MCP returns a structured `code_index_update_in_progress` response with the vessel and index status; wait for `armada_index_status` to report `updateInProgress: false` and retry.
 
 ## Monitor progress
 

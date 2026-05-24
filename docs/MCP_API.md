@@ -224,6 +224,7 @@ Common error responses across tools:
 | `"Mission not found"` | Invalid or nonexistent mission ID |
 | `"Dock not found"` | Invalid or nonexistent dock ID |
 | `"Merge entry not found"` | Invalid or nonexistent merge queue entry ID |
+| `"Code index update in progress for vessel ..."` with `Code = "code_index_update_in_progress"` | `armada_dispatch` or architect dispatch was attempted while Admiral is refreshing that vessel's code index after a landing or manual index update |
 | `"ids is required and must not be empty"` | Bulk delete called with empty ID list |
 
 MCP tools do not return HTTP status codes (MCP uses JSON-RPC, not HTTP). The presence of an `Error` field in the response indicates failure. On success, the response contains the requested data (entity object, status, list, etc.) without an `Error` field.
@@ -430,7 +431,9 @@ Get code index status for a vessel, including indexed commit, current commit, ch
 }
 ```
 
-**Response:** `CodeIndexStatus` with vessel identity, index directory, indexed/current commit SHAs, freshness, document/chunk counts, and any last error.
+**Response:** `CodeIndexStatus` with vessel identity, index directory, indexed/current commit SHAs, freshness, document/chunk counts, active-update fields, and any last error.
+
+When an update is running, `freshness` is `Updating`, `updateInProgress` is `true`, and `updateStartedUtc` contains the UTC start time. Dispatch tools use these fields to avoid generating context packs against stale code after a voyage lands.
 
 ---
 
@@ -451,6 +454,8 @@ Refresh the Admiral-owned code index for a vessel's default branch. This rewrite
 ```
 
 **Response:** updated `CodeIndexStatus`.
+
+Only one update may run per vessel in a server process. A concurrent manual update returns a clear error that names the vessel and the start time of the already-running update.
 
 ---
 
@@ -753,6 +758,26 @@ Dispatch a new voyage with missions to a vessel. This is the primary way to assi
 | `pipelineId` | string | No | Pipeline ID to use for this voyage (overrides vessel/fleet default) |
 | `pipeline` | string | No | Pipeline name to use (convenience alias for `pipelineId` -- resolves by name) |
 | `selectedPlaybooks` | array | No | Ordered playbook selections for all missions. Merge hierarchy: vessel defaults < voyage `selectedPlaybooks` < per-mission `selectedPlaybooks`. Duplicate `playbookId` entries are not rendered twice -- the most-specific `deliveryMode` wins. |
+
+Before resolving pipelines or generating automatic context packs, `armada_dispatch` checks the target vessel's code-index status. If `updateInProgress` is true, dispatch is blocked and the response has this shape:
+
+```json
+{
+  "Error": "Code index update in progress for vessel bookshelf. Dispatch is blocked until the update completes so generated context packs and code search results include the most recently landed code.",
+  "Code": "code_index_update_in_progress",
+  "Reason": "Armada is refreshing the vessel code index in the background. Retry after codeIndex.updateInProgress is false.",
+  "Action": "armada_dispatch",
+  "VesselId": "vsl_abc123def456ghi789jk",
+  "VesselName": "bookshelf",
+  "CodeIndex": {
+    "freshness": "Updating",
+    "updateInProgress": true,
+    "updateStartedUtc": "2026-05-24T17:45:00Z"
+  }
+}
+```
+
+Treat this as a retryable pre-flight block, not a failed voyage. Poll `armada_index_status` for the same vessel and retry dispatch after `updateInProgress` is `false`.
 
 **Example Input:**
 

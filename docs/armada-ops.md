@@ -398,7 +398,7 @@ The Admiral-owned per-vessel code index supports hybrid lexical + semantic searc
 
 ### How to use
 
-**Dispatch-time auto-attach.** `armada_dispatch` defaults `codeContextMode` to `auto`. Every dock gets `_briefing/context-pack.md` staged automatically; captains are instructed (via `proj-corerules-summary` playbook) to read it before any `Grep`/`Glob`. Mode catalog:
+**Dispatch-time auto-attach.** `armada_dispatch` defaults `codeContextMode` to `auto`. Every dock gets `_briefing/context-pack.md` staged automatically; captains are instructed (via `proj-corerules-summary` playbook) to read it before any `Grep`/`Glob`. Before pipeline resolution or context-pack generation, MCP dispatch checks the vessel's code-index status. If a post-land or manual update is still running, dispatch returns `Code = "code_index_update_in_progress"` and includes `codeIndex.updateInProgress`, `updateStartedUtc`, freshness, vessel id, and vessel name so the orchestrator can explain the wait and retry after the index is current. Mode catalog:
 
 - `auto` -- generate pack from title + description (default).
 - `force` -- regenerate even if a captain returned an empty pack; useful when the first pack was thin.
@@ -411,6 +411,8 @@ The Admiral-owned per-vessel code index supports hybrid lexical + semantic searc
 - Search records may include `EmbeddingVector` when semantic indexing is enabled; keep `limit` low and prefer context packs for larger evidence transfer until the response-shaping follow-up redacts vectors by default.
 
 Phrase queries by intent (`"seed/key challenge response algorithm"`) rather than single common tokens (`"voyage"` gets swamped by domain noise -- "Voyage" is the orchestrator's dispatch-batch concept and dominates a lexical search).
+
+**Post-land refresh.** When a voyage lands through the local merge path or PR reconciler, Admiral starts a background `armada_index_update` for that vessel. This is intentionally asynchronous so landing is not held hostage by embedding/graph work, but it is treated as a dispatch pre-flight gate: do not dispatch more work for that vessel while `armada_index_status.updateInProgress` is true. The gate protects future missions from stale `armada_code_search` hits and context packs that miss the newly landed code.
 
 **`armada_context_pack`** -- build a dispatch-ready markdown briefing for a specific goal. Returns `Markdown`, `MaterializedPath`, and a `prestagedFiles` entry pointing at `_briefing/context-pack.md`. Pass the entry straight into `armada_dispatch` to override the auto pack with a tighter goal. Always list `_briefing/context-pack.md` in the mission's **Reads** section so the captain knows it is authoritative repo evidence.
 
@@ -441,7 +443,8 @@ These are the operationally-painful lessons encountered in the field. Treat them
 3. **`UseSemanticSearch=false` is a silent-fallback footgun.** Embeddings are generated only when the flag is `true`. If the flag is false, `armada_index_update` writes `chunks.jsonl` with `embeddingVector=null` and burns no API quota -- but search silently drops to lexical-only with no warning. Check the flag first when semantic results look wrong.
 4. **MCP client timeout vs Admin progress.** An MCP client (e.g. Claude Code) can hit its own response timeout on a long `armada_index_update` call and report failure, while the Admin keeps running the indexing job to completion. Don't re-dispatch on timeout -- re-check `armada_index_status` first; the job may already be done.
 5. **Captain dock MCP config is only seeded for new docks.** If a running captain cannot see `armada_code_search`, `armada_context_pack`, or graph tools, check whether the dock predates the seeding change, whether the runtime loads project MCP config, and whether Admiral's MCP endpoint is running on the configured port.
-6. **Stale memory checks are read-only.** Use `armada_check_stale_memory` to inspect accepted reflection anchors for missing files or missing source missions. The same warnings are fed into future vessel reflection briefs so MemoryConsolidator can propose disable/merge/rewrite updates through normal review; the diagnostic itself never edits playbooks or events.
+6. **Dispatch blocked by index update is expected.** If MCP returns `code_index_update_in_progress`, do not bypass with `codeContextMode=off` unless the user explicitly wants code-blind work. Poll `armada_index_status` until `updateInProgress` is false, then retry the same dispatch so the auto context pack is generated from the latest landed code.
+7. **Stale memory checks are read-only.** Use `armada_check_stale_memory` to inspect accepted reflection anchors for missing files or missing source missions. The same warnings are fed into future vessel reflection briefs so MemoryConsolidator can propose disable/merge/rewrite updates through normal review; the diagnostic itself never edits playbooks or events.
 
 ### CodeGraph implementation status
 
