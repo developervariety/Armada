@@ -12,6 +12,7 @@ namespace Armada.Server.Routes
 
     /// <summary>
     /// REST API routes for code graph query operations (symbol search, callers, callees, impact, affected tests).
+    /// All routes are vessel-scoped under /api/v1/vessels/{vesselId}/code-index/...
     /// </summary>
     public class CodeIndexRoutes
     {
@@ -50,7 +51,7 @@ namespace Armada.Server.Routes
             Func<WatsonWebserver.Core.HttpContextBase, Task<AuthContext>> authenticate,
             IAuthorizationService authz)
         {
-            app.Post<CodeGraphSymbolSearchRequest>("/api/v1/code-index/search-symbols", async (ApiRequest req) =>
+            app.Post<CodeGraphSymbolSearchRequest>("/api/v1/vessels/{vesselId}/code-index/search-symbols", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -63,14 +64,10 @@ namespace Armada.Server.Routes
                     };
                 }
 
+                string vesselId = req.Parameters["vesselId"];
                 CodeGraphSymbolSearchRequest request = JsonSerializer.Deserialize<CodeGraphSymbolSearchRequest>(req.Http.Request.DataAsString, _jsonOptions)
                     ?? new CodeGraphSymbolSearchRequest();
-
-                if (String.IsNullOrWhiteSpace(request.VesselId))
-                {
-                    req.Http.Response.StatusCode = 400;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "vesselId is required" };
-                }
+                request.VesselId = vesselId;
 
                 if (String.IsNullOrWhiteSpace(request.Query))
                 {
@@ -84,11 +81,12 @@ namespace Armada.Server.Routes
                 .WithTag("Code Index")
                 .WithSummary("Search graph symbols")
                 .WithDescription("Search symbols in a vessel's code graph sidecars. Returns ranked matches with kind, path, and qualified name. Sidecar freshness warnings are included. Vectors are never returned.")
+                .WithParameter(OpenApiParameterMetadata.Path("vesselId", "Vessel ID (vsl_ prefix)"))
                 .WithRequestBody(OpenApiJson.BodyFor<CodeGraphSymbolSearchRequest>("Symbol search request", true))
                 .WithResponse(200, OpenApiJson.For<CodeGraphSymbolSearchResponse>("Symbol search results"))
                 .WithSecurity("ApiKey"));
 
-            app.Post<CodeGraphNeighborsRequest>("/api/v1/code-index/callers", async (ApiRequest req) =>
+            app.Post<CodeGraphNeighborsRequest>("/api/v1/vessels/{vesselId}/code-index/callers", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -101,14 +99,10 @@ namespace Armada.Server.Routes
                     };
                 }
 
+                string vesselId = req.Parameters["vesselId"];
                 CodeGraphNeighborsRequest request = JsonSerializer.Deserialize<CodeGraphNeighborsRequest>(req.Http.Request.DataAsString, _jsonOptions)
                     ?? new CodeGraphNeighborsRequest();
-
-                if (String.IsNullOrWhiteSpace(request.VesselId))
-                {
-                    req.Http.Response.StatusCode = 400;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "vesselId is required" };
-                }
+                request.VesselId = vesselId;
 
                 if (String.IsNullOrWhiteSpace(request.Symbol))
                 {
@@ -122,11 +116,12 @@ namespace Armada.Server.Routes
                 .WithTag("Code Index")
                 .WithSummary("Get symbol callers")
                 .WithDescription("Resolve direct callers of a symbol from a vessel's code graph sidecars. Returns ranked neighbor results with edge kind and source path. Sidecar freshness warnings are included.")
+                .WithParameter(OpenApiParameterMetadata.Path("vesselId", "Vessel ID (vsl_ prefix)"))
                 .WithRequestBody(OpenApiJson.BodyFor<CodeGraphNeighborsRequest>("Callers request", true))
                 .WithResponse(200, OpenApiJson.For<CodeGraphNeighborsResponse>("Caller results"))
                 .WithSecurity("ApiKey"));
 
-            app.Post<CodeGraphNeighborsRequest>("/api/v1/code-index/callees", async (ApiRequest req) =>
+            app.Post<CodeGraphNeighborsRequest>("/api/v1/vessels/{vesselId}/code-index/callees", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -139,14 +134,10 @@ namespace Armada.Server.Routes
                     };
                 }
 
+                string vesselId = req.Parameters["vesselId"];
                 CodeGraphNeighborsRequest request = JsonSerializer.Deserialize<CodeGraphNeighborsRequest>(req.Http.Request.DataAsString, _jsonOptions)
                     ?? new CodeGraphNeighborsRequest();
-
-                if (String.IsNullOrWhiteSpace(request.VesselId))
-                {
-                    req.Http.Response.StatusCode = 400;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "vesselId is required" };
-                }
+                request.VesselId = vesselId;
 
                 if (String.IsNullOrWhiteSpace(request.Symbol))
                 {
@@ -160,11 +151,12 @@ namespace Armada.Server.Routes
                 .WithTag("Code Index")
                 .WithSummary("Get symbol callees")
                 .WithDescription("Resolve direct callees of a symbol from a vessel's code graph sidecars. Returns ranked neighbor results with edge kind and source path. Sidecar freshness warnings are included.")
+                .WithParameter(OpenApiParameterMetadata.Path("vesselId", "Vessel ID (vsl_ prefix)"))
                 .WithRequestBody(OpenApiJson.BodyFor<CodeGraphNeighborsRequest>("Callees request", true))
                 .WithResponse(200, OpenApiJson.For<CodeGraphNeighborsResponse>("Callee results"))
                 .WithSecurity("ApiKey"));
 
-            app.Post<CodeGraphImpactRequest>("/api/v1/code-index/impact", async (ApiRequest req) =>
+            app.Post<CodeGraphImpactRequest>("/api/v1/vessels/{vesselId}/code-index/impact", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -177,14 +169,10 @@ namespace Armada.Server.Routes
                     };
                 }
 
+                string vesselId = req.Parameters["vesselId"];
                 CodeGraphImpactRequest request = JsonSerializer.Deserialize<CodeGraphImpactRequest>(req.Http.Request.DataAsString, _jsonOptions)
                     ?? new CodeGraphImpactRequest();
-
-                if (String.IsNullOrWhiteSpace(request.VesselId))
-                {
-                    req.Http.Response.StatusCode = 400;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "vesselId is required" };
-                }
+                request.VesselId = vesselId;
 
                 if (String.IsNullOrWhiteSpace(request.Symbol))
                 {
@@ -198,11 +186,12 @@ namespace Armada.Server.Routes
                 .WithTag("Code Index")
                 .WithSummary("Get symbol impact")
                 .WithDescription("Traverse graph relationships from a seed symbol using bounded depth. Direction can be Callers, Callees, or Both. Returns impacted symbols with traversal depth and score. Sidecar freshness warnings are included.")
+                .WithParameter(OpenApiParameterMetadata.Path("vesselId", "Vessel ID (vsl_ prefix)"))
                 .WithRequestBody(OpenApiJson.BodyFor<CodeGraphImpactRequest>("Impact request", true))
                 .WithResponse(200, OpenApiJson.For<CodeGraphImpactResponse>("Impact traversal results"))
                 .WithSecurity("ApiKey"));
 
-            app.Post<CodeGraphAffectedTestsRequest>("/api/v1/code-index/affected-tests", async (ApiRequest req) =>
+            app.Post<CodeGraphAffectedTestsRequest>("/api/v1/vessels/{vesselId}/code-index/affected-tests", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -215,14 +204,10 @@ namespace Armada.Server.Routes
                     };
                 }
 
+                string vesselId = req.Parameters["vesselId"];
                 CodeGraphAffectedTestsRequest request = JsonSerializer.Deserialize<CodeGraphAffectedTestsRequest>(req.Http.Request.DataAsString, _jsonOptions)
                     ?? new CodeGraphAffectedTestsRequest();
-
-                if (String.IsNullOrWhiteSpace(request.VesselId))
-                {
-                    req.Http.Response.StatusCode = 400;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "vesselId is required" };
-                }
+                request.VesselId = vesselId;
 
                 if (String.IsNullOrWhiteSpace(request.Symbol))
                 {
@@ -236,6 +221,7 @@ namespace Armada.Server.Routes
                 .WithTag("Code Index")
                 .WithSummary("Suggest affected tests")
                 .WithDescription("Suggest test files likely affected by a symbol change using graph traversal and path-convention fallback. Returns ranked candidates with evidence depth and reasons. Sidecar freshness warnings are included.")
+                .WithParameter(OpenApiParameterMetadata.Path("vesselId", "Vessel ID (vsl_ prefix)"))
                 .WithRequestBody(OpenApiJson.BodyFor<CodeGraphAffectedTestsRequest>("Affected tests request", true))
                 .WithResponse(200, OpenApiJson.For<CodeGraphAffectedTestsResponse>("Affected test candidates"))
                 .WithSecurity("ApiKey"));
