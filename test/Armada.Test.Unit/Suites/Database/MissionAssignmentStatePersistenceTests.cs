@@ -1,6 +1,7 @@
 namespace Armada.Test.Unit.Suites.Database
 {
     using System;
+    using System.Text.Json;
     using System.Threading.Tasks;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
@@ -33,6 +34,10 @@ namespace Armada.Test.Unit.Suites.Database
             await Mission_NewlyCreated_DefaultsToPendingAssignmentState().ConfigureAwait(false);
             await Mission_RoundTrip_PreservesAssignmentState().ConfigureAwait(false);
             await Mission_LegacyRow_ReadsAsPendingDefault().ConfigureAwait(false);
+            await Mission_Updated_PersistsAssignmentStateChange().ConfigureAwait(false);
+            await Mission_UnknownAssignmentStateValue_FallsBackToPending().ConfigureAwait(false);
+            await MissionAssignmentStateEnum_HasExpectedValuesInOrder().ConfigureAwait(false);
+            await MissionAssignmentStateEnum_SerializesAsStringName().ConfigureAwait(false);
         }
 
         #endregion
@@ -110,6 +115,120 @@ namespace Armada.Test.Unit.Suites.Database
                     AssertNotNull(read);
                     AssertEqual(MissionAssignmentStateEnum.Pending, read!.AssignmentState);
                 }
+            }).ConfigureAwait(false);
+        }
+
+        private async Task Mission_Updated_PersistsAssignmentStateChange()
+        {
+            await RunTest("Mission_Updated_PersistsAssignmentStateChange", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+
+                    Mission mission = new Mission("Assignment state update mission");
+                    await db.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    Mission? afterCreate = await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertNotNull(afterCreate);
+                    AssertEqual(MissionAssignmentStateEnum.Pending, afterCreate!.AssignmentState);
+
+                    afterCreate.AssignmentState = MissionAssignmentStateEnum.WaitingForIdleCaptain;
+                    await db.Missions.UpdateAsync(afterCreate).ConfigureAwait(false);
+
+                    Mission? afterUpdate = await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertNotNull(afterUpdate);
+                    AssertEqual(MissionAssignmentStateEnum.WaitingForIdleCaptain, afterUpdate!.AssignmentState);
+
+                    afterUpdate.AssignmentState = MissionAssignmentStateEnum.Failed;
+                    await db.Missions.UpdateAsync(afterUpdate).ConfigureAwait(false);
+
+                    Mission? afterFailed = await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertNotNull(afterFailed);
+                    AssertEqual(MissionAssignmentStateEnum.Failed, afterFailed!.AssignmentState);
+                }
+            }).ConfigureAwait(false);
+        }
+
+        private async Task Mission_UnknownAssignmentStateValue_FallsBackToPending()
+        {
+            await RunTest("Mission_UnknownAssignmentStateValue_FallsBackToPending", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+
+                    Mission mission = new Mission("Unknown assignment state mission");
+                    mission.AssignmentState = MissionAssignmentStateEnum.Assigned;
+                    await db.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    using (SqliteConnection conn = new SqliteConnection(testDb.ConnectionString))
+                    {
+                        await conn.OpenAsync().ConfigureAwait(false);
+                        using (SqliteCommand cmd = conn.CreateCommand())
+                        {
+                            cmd.CommandText = "UPDATE missions SET mission_assignment_state = @value WHERE id = @id;";
+                            cmd.Parameters.AddWithValue("@value", "SomeFutureStateNotInEnum");
+                            cmd.Parameters.AddWithValue("@id", mission.Id);
+                            int affected = await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
+                            AssertEqual(1, affected, "raw UPDATE should affect exactly one row");
+                        }
+                    }
+
+                    Mission? read = await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+
+                    AssertNotNull(read);
+                    AssertEqual(
+                        MissionAssignmentStateEnum.Pending,
+                        read!.AssignmentState,
+                        "unknown DB values must fall back to Pending without throwing");
+                }
+            }).ConfigureAwait(false);
+        }
+
+        private async Task MissionAssignmentStateEnum_HasExpectedValuesInOrder()
+        {
+            await RunTest("MissionAssignmentStateEnum_HasExpectedValuesInOrder", () =>
+            {
+                MissionAssignmentStateEnum[] expected = new MissionAssignmentStateEnum[]
+                {
+                    MissionAssignmentStateEnum.Pending,
+                    MissionAssignmentStateEnum.WaitingForDependency,
+                    MissionAssignmentStateEnum.WaitingForVesselMutex,
+                    MissionAssignmentStateEnum.WaitingForIdleCaptain,
+                    MissionAssignmentStateEnum.Provisioning,
+                    MissionAssignmentStateEnum.Assigned,
+                    MissionAssignmentStateEnum.Failed
+                };
+
+                MissionAssignmentStateEnum[] actual = Enum.GetValues<MissionAssignmentStateEnum>();
+
+                AssertEqual(expected.Length, actual.Length, "enum value count is pinned by the assignment-pipeline contract");
+                for (int i = 0; i < expected.Length; i++)
+                {
+                    AssertEqual(expected[i], actual[i], "enum order at index " + i + " is pinned by the assignment-pipeline contract");
+                }
+
+                AssertEqual(0, (int)MissionAssignmentStateEnum.Pending, "Pending must remain the default (ordinal 0) so DB default 'Pending' aligns");
+
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+        }
+
+        private async Task MissionAssignmentStateEnum_SerializesAsStringName()
+        {
+            await RunTest("MissionAssignmentStateEnum_SerializesAsStringName", () =>
+            {
+                foreach (MissionAssignmentStateEnum state in Enum.GetValues<MissionAssignmentStateEnum>())
+                {
+                    string json = JsonSerializer.Serialize(state);
+                    AssertEqual("\"" + state.ToString() + "\"", json, "states must serialize as their member name, not an integer");
+
+                    MissionAssignmentStateEnum roundTripped = JsonSerializer.Deserialize<MissionAssignmentStateEnum>(json);
+                    AssertEqual(state, roundTripped, "JSON round-trip must preserve the state");
+                }
+
+                return Task.CompletedTask;
             }).ConfigureAwait(false);
         }
 
