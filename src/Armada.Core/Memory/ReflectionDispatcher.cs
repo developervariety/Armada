@@ -2,6 +2,7 @@ namespace Armada.Core.Memory
 {
     using System;
     using System.Collections.Generic;
+    using System.IO;
     using System.Linq;
     using System.Text;
     using System.Text.Json;
@@ -216,6 +217,7 @@ namespace Armada.Core.Memory
             List<string> recentCommitSubjects = mode == ReflectionMode.ConsolidateAndReorganize
                 ? await _Memory.ReadRecentCommitSubjectsAsync(vessel, _RecentCommitWindow, token).ConfigureAwait(false)
                 : new List<string>();
+            List<string> staleAnchorWarnings = await BuildStaleAnchorWarningLinesAsync(vessel, token).ConfigureAwait(false);
 
             // Cross-vessel suggestion pass (Reflections v2-F3 extension): scan every OTHER active
             // vessel in the same fleet for fact-strings whose 3-gram Jaccard similarity to the
@@ -227,12 +229,12 @@ namespace Armada.Core.Memory
 
             List<string> included = new List<string>(records);
             int skipped = 0;
-            string brief = ComposeBrief(vessel, learnedPlaybook, included, rejectedProposalNotes, skipped, mode, recentCommitSubjects, crossVesselSuggestions);
+            string brief = ComposeBrief(vessel, learnedPlaybook, included, rejectedProposalNotes, skipped, mode, recentCommitSubjects, crossVesselSuggestions, staleAnchorWarnings);
             while (included.Count > 1 && brief.Length > maxChars)
             {
                 included.RemoveAt(included.Count - 1);
                 skipped++;
-                brief = ComposeBrief(vessel, learnedPlaybook, included, rejectedProposalNotes, skipped, mode, recentCommitSubjects, crossVesselSuggestions);
+                brief = ComposeBrief(vessel, learnedPlaybook, included, rejectedProposalNotes, skipped, mode, recentCommitSubjects, crossVesselSuggestions, staleAnchorWarnings);
             }
 
             bool truncated = skipped > 0;
@@ -267,8 +269,9 @@ namespace Armada.Core.Memory
                 .ReadRejectedProposalNotesByModeAsync(vessel, ReflectionMode.Reorganize, token).ConfigureAwait(false);
             List<string> recentCommitSubjects = await _Memory
                 .ReadRecentCommitSubjectsAsync(vessel, _RecentCommitWindow, token).ConfigureAwait(false);
+            List<string> staleAnchorWarnings = await BuildStaleAnchorWarningLinesAsync(vessel, token).ConfigureAwait(false);
 
-            string brief = ComposeReorganizeBrief(vessel, learnedPlaybook, reorganizeRejections, recentCommitSubjects);
+            string brief = ComposeReorganizeBrief(vessel, learnedPlaybook, reorganizeRejections, recentCommitSubjects, staleAnchorWarnings);
             return new EvidenceBundleResult
             {
                 Brief = brief,
@@ -1163,6 +1166,56 @@ namespace Armada.Core.Memory
             }
         }
 
+        private async Task<List<string>> BuildStaleAnchorWarningLinesAsync(Vessel vessel, CancellationToken token)
+        {
+            List<string> lines = new List<string>();
+
+            try
+            {
+                StaleAnchorDetectionResult result = await StaleAnchorDetector
+                    .DetectAsync(_Database, vessel.Id, 200, token).ConfigureAwait(false);
+                foreach (StaleAnchorWarning warning in result.Warnings.Take(50))
+                {
+                    string target = warning.WarnKind == "missing_file"
+                        ? warning.AffectedPath ?? "(unknown path)"
+                        : warning.AffectedMissionId ?? "(unknown mission)";
+                    lines.Add(
+                        warning.WarnKind
+                        + " target=" + target
+                        + " eventId=" + warning.EventId
+                        + " playbookId=" + (warning.PlaybookId ?? "")
+                        + " sourceMissionId=" + (warning.SourceMissionId ?? "")
+                        + " detail=" + warning.Detail);
+                }
+
+                if (result.Warnings.Count > 50)
+                    lines.Add("Additional stale anchor warnings omitted: " + (result.Warnings.Count - 50));
+            }
+            catch (Exception ex) when (ex is JsonException || ex is InvalidOperationException || ex is IOException)
+            {
+                lines.Add("stale_anchor_scan_unavailable: " + ex.Message);
+            }
+
+            return lines;
+        }
+
+        private static void AppendStaleAnchorWarnings(StringBuilder sb, List<string> staleAnchorWarnings)
+        {
+            sb.AppendLine();
+            sb.AppendLine("## STALE MEMORY ANCHOR WARNINGS");
+            if (staleAnchorWarnings.Count == 0)
+            {
+                sb.AppendLine("No stale accepted-memory anchors detected.");
+                return;
+            }
+
+            sb.AppendLine("These read-only warnings come from accepted reflection anchors. Use them as evidence to disable, merge, or rewrite stale playbook entries; do not mutate memory outside the proposal.");
+            foreach (string warning in staleAnchorWarnings)
+            {
+                sb.AppendLine("- " + warning);
+            }
+        }
+
         private static string ComposeBrief(
             Vessel vessel,
             string learnedPlaybook,
@@ -1171,7 +1224,8 @@ namespace Armada.Core.Memory
             int skipped,
             ReflectionMode mode,
             List<string> recentCommitSubjects,
-            List<CrossVesselSuggestion> crossVesselSuggestions)
+            List<CrossVesselSuggestion> crossVesselSuggestions,
+            List<string> staleAnchorWarnings)
         {
             StringBuilder sb = new StringBuilder();
             sb.AppendLine("Persona: MemoryConsolidator");
@@ -1227,6 +1281,8 @@ namespace Armada.Core.Memory
                 }
             }
 
+            AppendStaleAnchorWarnings(sb, staleAnchorWarnings);
+
             sb.AppendLine();
             sb.AppendLine("## RECENTLY REJECTED PROPOSALS");
             if (rejectedProposalNotes.Count == 0)
@@ -1270,7 +1326,8 @@ namespace Armada.Core.Memory
             Vessel vessel,
             string learnedPlaybook,
             List<string> reorganizeRejections,
-            List<string> recentCommitSubjects)
+            List<string> recentCommitSubjects,
+            List<string> staleAnchorWarnings)
         {
             StringBuilder sb = new StringBuilder();
             sb.AppendLine("Persona: MemoryConsolidator");
@@ -1299,6 +1356,8 @@ namespace Armada.Core.Memory
                     sb.AppendLine("- " + line);
                 }
             }
+
+            AppendStaleAnchorWarnings(sb, staleAnchorWarnings);
 
             sb.AppendLine();
             sb.AppendLine("## RECENTLY REJECTED REORGANIZE PROPOSALS");

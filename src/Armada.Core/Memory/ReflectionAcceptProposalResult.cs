@@ -34,6 +34,9 @@ namespace Armada.Core.Memory
 
         /// <summary>v2-F1 pack-curate accept: non-blocking pack_hint_conflict warnings from conflict detection.</summary>
         public List<object>? ConflictWarnings { get; set; }
+
+        /// <summary>Structured anchors extracted from the accepted content: source mission IDs, file paths, confidence, and evidence kind.</summary>
+        public MemoryAnchor? Anchors { get; set; }
     }
 
     /// <summary>One Judge sibling's verdict observation when dual-Judge was enabled on a reflection dispatch.</summary>

@@ -151,6 +151,8 @@ F4 extends v1's MCP surface with a `mode` parameter, optional dual-Judge review,
 | `reorganize` | Restructure the playbook (group, merge near-duplicates, drop stale entries, reorder, reword). New facts forbidden. | Current playbook + last 20 commit subjects + reorganize-mode rejection feedback + reorganize-specific constraints. No evidence bundle. | 30000 |
 | `consolidate-and-reorganize` | Combined: mine new facts AND restructure in one mission. | Full v1 evidence bundle + reorganize instructions + recent commit subjects. | 400000 |
 
+Vessel-scoped reflection briefs also include read-only stale-anchor warnings from accepted reflection memory anchors. Missing files are reported when `Vessel.LocalPath` is available, and missing source missions are reported from the database. The MCP diagnostic `armada_check_stale_memory` returns the same warning shape without dispatching or mutating playbooks.
+
 A missing or unrecognized `mode` returns the new error `invalid_mode`.
 
 ### Optional Dual-Judge

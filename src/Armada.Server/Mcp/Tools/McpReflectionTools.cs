@@ -231,7 +231,15 @@ namespace Armada.Server.Mcp.Tools
                         judgeVerdicts = result.JudgeVerdicts,
                         appliedHintIds = result.AppliedHintIds,
                         pathWarnings = result.PathWarnings,
-                        conflictWarnings = result.ConflictWarnings
+                        conflictWarnings = result.ConflictWarnings,
+                        anchors = result.Anchors == null ? null : (object)new
+                        {
+                            sourceMissionIds = result.Anchors.SourceMissionIds,
+                            filePaths = result.Anchors.FilePaths,
+                            symbolNames = result.Anchors.SymbolNames,
+                            confidence = result.Anchors.Confidence,
+                            evidenceKind = result.Anchors.EvidenceKind,
+                        }
                     };
                 });
 
@@ -261,6 +269,40 @@ namespace Armada.Server.Mcp.Tools
                     }
 
                     return (object)new { status = "Rejected" };
+                });
+
+            register(
+                "armada_check_stale_memory",
+                "Check accepted reflection memory anchors against current vessel code/index evidence. Returns staleness warnings for missing files (requires vessel.LocalPath) and source missions that no longer exist in the database. Read-only: never modifies playbooks or memory. Feed warnings into a MemoryConsolidator brief to propose disable/merge/rewrite updates.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        vesselId = new { type = "string", description = "Vessel ID (vsl_ prefix) to scope the staleness check." },
+                        limit = new { type = "integer", description = "Maximum number of reflection.accepted events to inspect (default 200)." }
+                    },
+                    required = new[] { "vesselId" }
+                },
+                async (args) =>
+                {
+                    CheckStaleMemoryArgs request = JsonSerializer.Deserialize<CheckStaleMemoryArgs>(args!.Value, _JsonOptions)!;
+                    if (String.IsNullOrWhiteSpace(request.VesselId))
+                        return (object)new { Error = "vessel_id_required" };
+
+                    int limit = request.Limit > 0 ? request.Limit : 200;
+                    Armada.Core.Memory.StaleAnchorDetectionResult detection =
+                        await Armada.Core.Memory.StaleAnchorDetector.DetectAsync(database, request.VesselId, limit).ConfigureAwait(false);
+
+                    return (object)new
+                    {
+                        vesselId = detection.VesselId,
+                        checkedEvents = detection.CheckedEventCount,
+                        fileChecksAvailable = detection.FileChecksAvailable,
+                        fileCheckSkipReason = detection.SkipReason,
+                        warningCount = detection.Warnings.Count,
+                        warnings = detection.Warnings
+                    };
                 });
         }
 
@@ -856,6 +898,15 @@ namespace Armada.Server.Mcp.Tools
 
             /// <summary>The reason for rejection.</summary>
             public string Reason { get; set; } = "";
+        }
+
+        private sealed class CheckStaleMemoryArgs
+        {
+            /// <summary>The vessel ID to scope the staleness check.</summary>
+            public string VesselId { get; set; } = "";
+
+            /// <summary>Maximum number of reflection.accepted events to inspect.</summary>
+            public int Limit { get; set; } = 200;
         }
     }
 }

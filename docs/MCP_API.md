@@ -2754,7 +2754,52 @@ Trigger a memory consolidation, reorganize, or pack-curate mission. v2-F4 extend
 
 **Concurrency Rule:** At most ONE pending/running reflection mission per vessel, regardless of mode. If called while one is in-flight, returns the existing mission ID rather than dispatching a duplicate.
 
+**Stale-anchor feedback:** Vessel-scoped reflection briefs now include a `STALE MEMORY ANCHOR WARNINGS` section populated from accepted `reflection.accepted` anchors. The scan is read-only and vessel-scoped; it reports missing files when `Vessel.LocalPath` is available and missing source missions when anchored mission IDs no longer resolve. MemoryConsolidator should use these warnings as evidence to propose disable, merge, or rewrite updates rather than mutating memory directly.
+
 **Cross-Vessel Fan-Out:** With `vesselId: null, mode: "reorganize"`, admiral enumerates active vessels and dispatches a reorganize mission per vessel that (a) has no in-flight MemoryConsolidator and (b) has a populated playbook above `ReorganizePlaybookMinCharacters`. `dualJudge` propagates to every dispatched mission. Same shape applies for `mode: "pack-curate"` (skipped with reason `no_pack_evidence` when no terminal missions exist in the window). When fan-out dispatches more than `PackCurateDualJudgeFanOutWarnThreshold` (default 3) vessels with `dualJudge=true`, the response includes a `dual_judge_fan_out_starvation_risk` warning string.
+
+### armada_check_stale_memory
+
+Read-only diagnostic for accepted reflection memory anchors.
+
+**Request**
+
+```json
+{
+  "vesselId": "vsl_...",
+  "limit": 200
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `vesselId` | string | yes | Vessel ID that scopes the scan. |
+| `limit` | integer | no | Maximum `reflection.accepted` events to inspect. Defaults to 200 when omitted or non-positive. |
+
+**Response**
+
+```json
+{
+  "vesselId": "vsl_...",
+  "checkedEvents": 3,
+  "fileChecksAvailable": true,
+  "fileCheckSkipReason": null,
+  "warningCount": 1,
+  "warnings": [
+    {
+      "eventId": "evt_...",
+      "playbookId": "art_...",
+      "sourceMissionId": "msn_...",
+      "warnKind": "missing_mission",
+      "affectedPath": null,
+      "affectedMissionId": "msn_old",
+      "detail": "Source mission anchor no longer found in database: msn_old"
+    }
+  ]
+}
+```
+
+`warnKind` is `missing_file` or `missing_mission`. File checks require `Vessel.LocalPath`; when absent, file checks are skipped with `fileCheckSkipReason: "no_local_path"` while mission-anchor checks still run. The tool does not edit playbooks, events, or vessels.
 
 ### Pack-Curate Mode (v2-F1)
 

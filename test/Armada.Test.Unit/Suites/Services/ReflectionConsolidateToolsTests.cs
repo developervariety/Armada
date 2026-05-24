@@ -169,6 +169,54 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("BuildEvidenceBundle_IncludesStaleAnchorWarningsInBrief", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, "rc-stale-anchor-brief").ConfigureAwait(false);
+                    await CreateTerminalMissionAsync(testDb.Driver, vessel.Id, "evidence", DateTime.UtcNow.AddMinutes(-10)).ConfigureAwait(false);
+                    string phantomMissionId = "msn_stale_brief_phantom";
+                    await CreateAcceptedEventAsync(testDb.Driver, vessel.Id, phantomMissionId).ConfigureAwait(false);
+
+                    ReflectionDispatcher dispatcher = CreateDispatcher(
+                        testDb.Driver,
+                        new RecordingAdmiralService(testDb.Driver),
+                        new ArmadaSettings { InitialReflectionWindow = 10 });
+
+                    ReflectionDispatcher.EvidenceBundleResult bundle = await dispatcher.BuildEvidenceBundleAsync(
+                        vessel,
+                        null,
+                        8000).ConfigureAwait(false);
+
+                    AssertContains("## STALE MEMORY ANCHOR WARNINGS", bundle.Brief, "brief should include stale-anchor section");
+                    AssertContains("missing_mission", bundle.Brief, "brief should include missing mission warning kind");
+                    AssertContains(phantomMissionId, bundle.Brief, "brief should include affected stale mission ID");
+                }
+            });
+
+            await RunTest("BuildReorganizeBrief_IncludesStaleAnchorWarningsInBrief", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, "rc-stale-reorg-brief").ConfigureAwait(false);
+                    string phantomMissionId = "msn_stale_reorg_phantom";
+                    await CreateAcceptedEventAsync(testDb.Driver, vessel.Id, phantomMissionId).ConfigureAwait(false);
+
+                    ReflectionDispatcher dispatcher = CreateDispatcher(
+                        testDb.Driver,
+                        new RecordingAdmiralService(testDb.Driver),
+                        new ArmadaSettings());
+
+                    ReflectionDispatcher.EvidenceBundleResult bundle = await dispatcher.BuildReorganizeBriefAsync(
+                        vessel,
+                        8000).ConfigureAwait(false);
+
+                    AssertContains("## STALE MEMORY ANCHOR WARNINGS", bundle.Brief, "reorganize brief should include stale-anchor section");
+                    AssertContains("missing_mission", bundle.Brief, "reorganize brief should include missing mission warning kind");
+                    AssertContains(phantomMissionId, bundle.Brief, "reorganize brief should include affected stale mission ID");
+                }
+            });
+
             await RunTest("DispatchReflection_UsesReflectionsPipelineAndHighTier", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -278,6 +326,26 @@ namespace Armada.Test.Unit.Suites.Services
             mission.DiffSnapshot = diff ?? "diff " + title;
             mission.AgentOutput = "output " + title;
             return await database.Missions.CreateAsync(mission).ConfigureAwait(false);
+        }
+
+        private static async Task CreateAcceptedEventAsync(DatabaseDriver database, string vesselId, string phantomMissionId)
+        {
+            ArmadaEvent ev = new ArmadaEvent("reflection.accepted", "stale anchor test event");
+            ev.VesselId = vesselId;
+            ev.Payload = JsonSerializer.Serialize(new
+            {
+                playbookId = "art_stale_brief_test",
+                missionId = "msn_stale_source",
+                vesselId = vesselId,
+                anchors = new
+                {
+                    sourceMissionIds = new List<string> { phantomMissionId },
+                    filePaths = new List<string>(),
+                    confidence = "high",
+                    evidenceKind = "verbatim"
+                }
+            });
+            await database.Events.CreateAsync(ev).ConfigureAwait(false);
         }
 
         private sealed class RecordingAdmiralService : IAdmiralService
