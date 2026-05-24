@@ -58,8 +58,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = @"INSERT INTO missions (id, tenant_id, user_id, voyage_id, vessel_id, captain_id, title, description, status, priority, parent_mission_id, branch_name, dock_id, process_id, pr_url, commit_hash, diff_snapshot, agent_output, persona, depends_on_mission_id, failure_reason, total_runtime_ms, prestaged_files, preferred_model, requires_review, review_deny_action, review_comment, reviewed_by_user_id, review_requested_utc, reviewed_utc, recovery_attempts, last_recovery_action_utc, created_utc, started_utc, completed_utc, last_update_utc)
-                        VALUES (@id, @tenant_id, @user_id, @voyage_id, @vessel_id, @captain_id, @title, @description, @status, @priority, @parent_mission_id, @branch_name, @dock_id, @process_id, @pr_url, @commit_hash, @diff_snapshot, @agent_output, @persona, @depends_on_mission_id, @failure_reason, @total_runtime_ms, @prestaged_files, @preferred_model, @requires_review, @review_deny_action, @review_comment, @reviewed_by_user_id, @review_requested_utc, @reviewed_utc, @recovery_attempts, @last_recovery_action_utc, @created_utc, @started_utc, @completed_utc, @last_update_utc);";
+                    cmd.CommandText = @"INSERT INTO missions (id, tenant_id, user_id, voyage_id, vessel_id, captain_id, title, description, status, mission_assignment_state, priority, parent_mission_id, branch_name, dock_id, process_id, pr_url, commit_hash, diff_snapshot, agent_output, persona, depends_on_mission_id, failure_reason, total_runtime_ms, prestaged_files, preferred_model, requires_review, review_deny_action, review_comment, reviewed_by_user_id, review_requested_utc, reviewed_utc, recovery_attempts, last_recovery_action_utc, created_utc, started_utc, completed_utc, last_update_utc)
+                        VALUES (@id, @tenant_id, @user_id, @voyage_id, @vessel_id, @captain_id, @title, @description, @status, @mission_assignment_state, @priority, @parent_mission_id, @branch_name, @dock_id, @process_id, @pr_url, @commit_hash, @diff_snapshot, @agent_output, @persona, @depends_on_mission_id, @failure_reason, @total_runtime_ms, @prestaged_files, @preferred_model, @requires_review, @review_deny_action, @review_comment, @reviewed_by_user_id, @review_requested_utc, @reviewed_utc, @recovery_attempts, @last_recovery_action_utc, @created_utc, @started_utc, @completed_utc, @last_update_utc);";
                     cmd.Parameters.AddWithValue("@id", mission.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)mission.TenantId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@user_id", (object?)mission.UserId ?? DBNull.Value);
@@ -69,6 +69,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     cmd.Parameters.AddWithValue("@title", mission.Title);
                     cmd.Parameters.AddWithValue("@description", (object?)mission.Description ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@status", mission.Status.ToString());
+                    cmd.Parameters.AddWithValue("@mission_assignment_state", mission.AssignmentState.ToString());
                     cmd.Parameters.AddWithValue("@priority", mission.Priority);
                     cmd.Parameters.AddWithValue("@parent_mission_id", (object?)mission.ParentMissionId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@branch_name", (object?)mission.BranchName ?? DBNull.Value);
@@ -148,6 +149,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                         title = @title,
                         description = @description,
                         status = @status,
+                        mission_assignment_state = @mission_assignment_state,
                         priority = @priority,
                         parent_mission_id = @parent_mission_id,
                         branch_name = @branch_name,
@@ -184,6 +186,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     cmd.Parameters.AddWithValue("@title", mission.Title);
                     cmd.Parameters.AddWithValue("@description", (object?)mission.Description ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@status", mission.Status.ToString());
+                    cmd.Parameters.AddWithValue("@mission_assignment_state", mission.AssignmentState.ToString());
                     cmd.Parameters.AddWithValue("@priority", mission.Priority);
                     cmd.Parameters.AddWithValue("@parent_mission_id", (object?)mission.ParentMissionId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@branch_name", (object?)mission.BranchName ?? DBNull.Value);

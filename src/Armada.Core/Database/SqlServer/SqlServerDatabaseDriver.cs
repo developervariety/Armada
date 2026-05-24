@@ -443,6 +443,14 @@ namespace Armada.Core.Database.SqlServer
             mission.Title = reader["title"].ToString()!;
             mission.Description = NullableString(reader["description"]);
             mission.Status = Enum.Parse<MissionStatusEnum>(reader["status"].ToString()!);
+            try
+            {
+                string? assignmentState = reader["mission_assignment_state"]?.ToString();
+                mission.AssignmentState = Enum.TryParse<MissionAssignmentStateEnum>(assignmentState, out MissionAssignmentStateEnum parsed)
+                    ? parsed
+                    : MissionAssignmentStateEnum.Pending;
+            }
+            catch { }
             mission.Priority = Convert.ToInt32(reader["priority"]);
             mission.ParentMissionId = NullableString(reader["parent_mission_id"]);
             mission.BranchName = NullableString(reader["branch_name"]);

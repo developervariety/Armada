@@ -22,6 +22,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new CaptainDatabaseTests());
             runner.AddSuite(new CaptainTests());
             runner.AddSuite(new MissionDatabaseTests());
+            runner.AddSuite(new MissionAssignmentStatePersistenceTests());
             runner.AddSuite(new VoyageDatabaseTests());
             runner.AddSuite(new DockDatabaseTests());
             runner.AddSuite(new SignalDatabaseTests());
