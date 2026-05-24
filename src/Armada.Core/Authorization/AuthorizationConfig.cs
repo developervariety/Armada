@@ -63,7 +63,7 @@ namespace Armada.Core.Authorization
             if (path.EndsWith("/tenants") && method == "POST") return PermissionLevel.AdminOnly;
             if (_TenantIdPattern.IsMatch(path) && (method == "PUT" || method == "DELETE")) return PermissionLevel.AdminOnly;
 
-            // Code-index graph query routes use POST request bodies but are read-only.
+            // Code-index routes use POST bodies for search/graph reads and refresh requests.
             // Route handlers enforce the vessel ACL after authentication.
             if (path.StartsWith("/api/v1/vessels/") && path.Contains("/code-index/")) return PermissionLevel.Authenticated;
 

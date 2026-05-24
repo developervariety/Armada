@@ -1414,6 +1414,27 @@ tr.clickable { cursor: pointer; }
 .alert-warning { background: color-mix(in srgb, var(--yellow) 12%, var(--surface)); color: var(--text); border: 1px solid var(--yellow); }
 .alert-error { background: var(--tag-failed-bg); color: var(--tag-failed-fg); border: 1px solid var(--red); }
 
+.tabs {
+    display: inline-flex;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    background: var(--bg-card);
+}
+
+.tab {
+    border: 0;
+    border-right: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-dim);
+    padding: 0.45rem 0.75rem;
+    min-width: 76px;
+    cursor: pointer;
+}
+
+.tab:last-child { border-right: 0; }
+.tab.active { background: var(--accent); color: white; }
+
 /* Login overlay */
 [x-cloak] { display: none !important; }
 

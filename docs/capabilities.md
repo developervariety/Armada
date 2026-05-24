@@ -269,7 +269,39 @@ Context-pack responses also include additive quality metrics (`resultCount`,
 `includedFileCount`, `includedFiles`, `matchedHintCount`, `matchedHintIds`,
 `graphExpansionUsed`, `warningCount`, `isSummarized`, `prestagedFileCount`,
 `estimatedTokens`) so operators can inspect pack breadth and hint activation
-without parsing markdown.
+without parsing markdown. When graph sidecars resolve goal/search symbols,
+packs append a `Symbol Graph Context` section and return `graphIncludedFiles`;
+`graphExpansionUsed` reports whether that expansion was used.
+
+### Code Graph Sidecars
+
+The code-index update path also writes `symbols.jsonl` and `edges.jsonl`
+beside `chunks.jsonl` for supported source files. The dependency-free
+extractor covers C#, TypeScript/JavaScript, Python, Java/Kotlin, Go, and
+Rust symbols plus common framework endpoint patterns, endpoint-to-handler
+edges, simple import aliases, and known local call target qualification. The sidecars power MCP and REST graph
+queries:
+
+| Tool | Purpose |
+|------|---------|
+| `armada_graph_search_symbols` | Find symbols by simple/qualified name with optional kind/path filters. |
+| `armada_graph_get_callers` | Return direct callers of a seed symbol. |
+| `armada_graph_get_callees` | Return direct callees of a seed symbol. |
+| `armada_graph_get_node` | Return a symbol's direct callers/callees and optional source excerpt. |
+| `armada_graph_get_files` | Return indexed files grouped with their graph symbols. |
+| `armada_graph_explore` | Traverse a bounded graph neighborhood and group results by file. |
+| `armada_graph_get_impact` | Traverse callers, callees, or both with bounded depth. |
+| `armada_graph_suggest_affected_tests` | Rank likely test files using graph reachability plus test path/name conventions. |
+
+REST routes are vessel-scoped under
+`/api/v1/vessels/{vesselId}/code-index/...`. Graph responses carry sidecar
+freshness warnings so stale, missing, empty, or commit-mismatched sidecars are
+visible to orchestrators. The current extractor is lexical/regex-based rather
+than AST-backed; unsupported languages and complex dynamic call paths still
+fall back to lexical/semantic search. Parser replacement and ranking retunes
+are future feedback-log decisions, not open CodeGraph implementation blockers.
+The dashboard **Code Index** page provides operator status, refresh, search,
+symbol, file, and graph-explore views over the same vessel routes.
 
 Conflict resolution: higher priority wins; equal priority => exclude wins.
 

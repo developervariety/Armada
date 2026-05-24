@@ -11,6 +11,9 @@ namespace Armada.Core.Models
         /// <summary>Namespace declaration.</summary>
         Namespace,
 
+        /// <summary>Module or package declaration.</summary>
+        Module,
+
         /// <summary>Class declaration.</summary>
         Class,
 
@@ -40,6 +43,18 @@ namespace Armada.Core.Models
 
         /// <summary>Delegate declaration.</summary>
         Delegate,
+
+        /// <summary>Top-level function declaration.</summary>
+        Function,
+
+        /// <summary>UI component declaration.</summary>
+        Component,
+
+        /// <summary>Framework route or endpoint declaration.</summary>
+        Endpoint,
+
+        /// <summary>Constant declaration.</summary>
+        Constant,
 
         /// <summary>Unknown symbol kind.</summary>
         Unknown

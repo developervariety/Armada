@@ -152,6 +152,14 @@ namespace Armada.Test.Unit.Suites.Services
                     Dock? dock = await service.ProvisionAsync(vessel, captain, "armada/metadata/msn_one", "msn_one").ConfigureAwait(false);
                     AssertNotNull(dock, "Dock should be provisioned");
 
+                    string projectMcpPath = Path.Combine(dock!.WorktreePath!, ".mcp.json");
+                    string cursorMcpPath = Path.Combine(dock.WorktreePath!, ".cursor", "mcp.json");
+                    AssertTrue(File.Exists(projectMcpPath), "Dock provisioning should seed project MCP config");
+                    AssertTrue(File.Exists(cursorMcpPath), "Dock provisioning should seed Cursor MCP config");
+                    string projectMcp = await File.ReadAllTextAsync(projectMcpPath).ConfigureAwait(false);
+                    AssertContains("localhost:" + settings.McpPort, projectMcp, "Project MCP config should point at Armada MCP");
+                    AssertContains("\"armada\"", projectMcp, "Project MCP config should name the Armada server");
+
                     string metadataPath = Path.Combine(settings.LogDirectory, "docks", dock!.Id + ".start");
                     AssertTrue(File.Exists(metadataPath), "Dock provisioning should persist the start commit metadata");
                     AssertEqual("abc123", (await File.ReadAllTextAsync(metadataPath).ConfigureAwait(false)).Trim(), "Metadata should store the provisioned HEAD commit");

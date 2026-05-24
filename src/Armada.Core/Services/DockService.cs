@@ -211,6 +211,7 @@ namespace Armada.Core.Services
                 // Create worktree. If the branch already exists, GitService will attach to it
                 // instead of recreating it so downstream pipeline stages and retries preserve work.
                 await _Git.CreateWorktreeAsync(repoPath, worktreePath, branchName, vessel.DefaultBranch, token).ConfigureAwait(false);
+                await SeedDockMcpConfigAsync(worktreePath, token).ConfigureAwait(false);
 
                 string? headCommit = await _Git.GetHeadCommitHashAsync(worktreePath, token).ConfigureAwait(false);
                 if (String.IsNullOrEmpty(headCommit))
@@ -578,6 +579,102 @@ namespace Armada.Core.Services
                 string stderr = await proc.StandardError.ReadToEndAsync(token).ConfigureAwait(false);
                 throw new InvalidOperationException("git " + arguments + " failed (exit " + proc.ExitCode + "): " + stderr.Trim());
             }
+        }
+
+        private async Task SeedDockMcpConfigAsync(string worktreePath, CancellationToken token)
+        {
+            if (String.IsNullOrWhiteSpace(worktreePath) || !Directory.Exists(worktreePath)) return;
+
+            string rpcUrl = "http://localhost:" + _Settings.McpPort + "/rpc";
+            string projectConfig = "{\n" +
+                "  \"mcpServers\": {\n" +
+                "    \"armada\": {\n" +
+                "      \"type\": \"http\",\n" +
+                "      \"url\": \"" + rpcUrl + "\"\n" +
+                "    }\n" +
+                "  }\n" +
+                "}\n";
+
+            string cursorConfig = "{\n" +
+                "  \"mcpServers\": {\n" +
+                "    \"armada\": {\n" +
+                "      \"url\": \"" + rpcUrl + "\"\n" +
+                "    }\n" +
+                "  }\n" +
+                "}\n";
+
+            try
+            {
+                string projectMcpPath = Path.Combine(worktreePath, ".mcp.json");
+                if (!File.Exists(projectMcpPath))
+                {
+                    await File.WriteAllTextAsync(projectMcpPath, projectConfig, token).ConfigureAwait(false);
+                }
+
+                string cursorDir = Path.Combine(worktreePath, ".cursor");
+                Directory.CreateDirectory(cursorDir);
+                string cursorMcpPath = Path.Combine(cursorDir, "mcp.json");
+                if (!File.Exists(cursorMcpPath))
+                {
+                    await File.WriteAllTextAsync(cursorMcpPath, cursorConfig, token).ConfigureAwait(false);
+                }
+
+                string? excludePath = ResolveGitInfoExcludePath(worktreePath);
+                if (!String.IsNullOrWhiteSpace(excludePath))
+                {
+                    await EnsureGitExcludeEntryAsync(excludePath, ".mcp.json", token).ConfigureAwait(false);
+                    await EnsureGitExcludeEntryAsync(excludePath, ".cursor/mcp.json", token).ConfigureAwait(false);
+                }
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not seed dock MCP config for " + worktreePath + ": " + ex.Message);
+            }
+        }
+
+        private static string? ResolveGitInfoExcludePath(string worktreePath)
+        {
+            string dotGitPath = Path.Combine(worktreePath, ".git");
+            if (Directory.Exists(dotGitPath))
+            {
+                return Path.Combine(dotGitPath, "info", "exclude");
+            }
+
+            if (!File.Exists(dotGitPath)) return null;
+
+            string content = File.ReadAllText(dotGitPath).Trim();
+            const string prefix = "gitdir:";
+            if (!content.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return null;
+
+            string gitDir = content.Substring(prefix.Length).Trim();
+            if (!Path.IsPathRooted(gitDir))
+            {
+                gitDir = Path.GetFullPath(Path.Combine(worktreePath, gitDir));
+            }
+
+            return Path.Combine(gitDir, "info", "exclude");
+        }
+
+        private static async Task EnsureGitExcludeEntryAsync(string excludePath, string entry, CancellationToken token)
+        {
+            if (String.IsNullOrWhiteSpace(excludePath) || String.IsNullOrWhiteSpace(entry)) return;
+
+            string? dir = Path.GetDirectoryName(excludePath);
+            if (!String.IsNullOrWhiteSpace(dir)) Directory.CreateDirectory(dir);
+
+            string existing = File.Exists(excludePath)
+                ? await File.ReadAllTextAsync(excludePath, token).ConfigureAwait(false)
+                : "";
+
+            string normalizedEntry = entry.Trim().Replace("\\", "/");
+            bool alreadyPresent = existing
+                .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                .Any(line => String.Equals(line.Trim(), normalizedEntry, StringComparison.OrdinalIgnoreCase));
+
+            if (alreadyPresent) return;
+
+            string prefix = existing.Length > 0 && !existing.EndsWith("\n", StringComparison.Ordinal) ? "\n" : "";
+            await File.AppendAllTextAsync(excludePath, prefix + normalizedEntry + "\n", token).ConfigureAwait(false);
         }
 
         private async Task ForceRemoveDirectoryAsync(string path, CancellationToken token)

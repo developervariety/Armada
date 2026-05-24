@@ -288,6 +288,78 @@ namespace Armada.Server.Mcp.Tools
                     if (String.IsNullOrWhiteSpace(request.Symbol)) return (object)new { Error = "symbol is required" };
                     return (object)await codeIndex.SuggestAffectedTestsAsync(request).ConfigureAwait(false);
                 });
+
+            register(
+                "armada_graph_get_node",
+                "Resolve one graph symbol with direct callers, callees, and optional source excerpt.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        vesselId = new { type = "string", description = "Vessel ID (vsl_ prefix)" },
+                        symbol = new { type = "string", description = "Seed symbol name (qualified or simple)" },
+                        includeSource = new { type = "boolean", description = "Include source excerpt (default true)" },
+                        sourcePadding = new { type = "integer", description = "Additional lines around the symbol source range (default 2)" }
+                    },
+                    required = new[] { "vesselId", "symbol" }
+                },
+                async (args) =>
+                {
+                    if (!args.HasValue) return (object)new { Error = "missing args" };
+                    CodeGraphNodeRequest request = JsonSerializer.Deserialize<CodeGraphNodeRequest>(args.Value, _JsonOptions)!;
+                    if (String.IsNullOrWhiteSpace(request.VesselId)) return (object)new { Error = "vesselId is required" };
+                    if (String.IsNullOrWhiteSpace(request.Symbol)) return (object)new { Error = "symbol is required" };
+                    return (object)await codeIndex.GetNodeAsync(request).ConfigureAwait(false);
+                });
+
+            register(
+                "armada_graph_get_files",
+                "Return indexed file structure from graph sidecars, optionally including symbols per file.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        vesselId = new { type = "string", description = "Vessel ID (vsl_ prefix)" },
+                        pathPrefix = new { type = "string", description = "Optional repo-relative path prefix filter" },
+                        limit = new { type = "integer", description = "Maximum files to return (default 100)" },
+                        includeSymbols = new { type = "boolean", description = "Include symbols per file (default true)" }
+                    },
+                    required = new[] { "vesselId" }
+                },
+                async (args) =>
+                {
+                    if (!args.HasValue) return (object)new { Error = "missing args" };
+                    CodeGraphFileStructureRequest request = JsonSerializer.Deserialize<CodeGraphFileStructureRequest>(args.Value, _JsonOptions)!;
+                    if (String.IsNullOrWhiteSpace(request.VesselId)) return (object)new { Error = "vesselId is required" };
+                    return (object)await codeIndex.GetFileStructureAsync(request).ConfigureAwait(false);
+                });
+
+            register(
+                "armada_graph_explore",
+                "Explore graph relationships and source excerpts around a symbol query. Returns grouped files and relationship edges.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        vesselId = new { type = "string", description = "Vessel ID (vsl_ prefix)" },
+                        query = new { type = "string", description = "Symbol or conceptual symbol query" },
+                        maxDepth = new { type = "integer", description = "Maximum graph traversal depth (default 2)" },
+                        maxResults = new { type = "integer", description = "Maximum symbols to include (default 25)" },
+                        includeSource = new { type = "boolean", description = "Include source excerpts grouped by file (default true)" }
+                    },
+                    required = new[] { "vesselId", "query" }
+                },
+                async (args) =>
+                {
+                    if (!args.HasValue) return (object)new { Error = "missing args" };
+                    CodeGraphExploreRequest request = JsonSerializer.Deserialize<CodeGraphExploreRequest>(args.Value, _JsonOptions)!;
+                    if (String.IsNullOrWhiteSpace(request.VesselId)) return (object)new { Error = "vesselId is required" };
+                    if (String.IsNullOrWhiteSpace(request.Query)) return (object)new { Error = "query is required" };
+                    return (object)await codeIndex.ExploreAsync(request).ConfigureAwait(false);
+                });
         }
     }
 }

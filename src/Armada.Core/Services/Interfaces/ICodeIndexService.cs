@@ -1,5 +1,6 @@
 namespace Armada.Core.Services.Interfaces
 {
+    using System;
     using Armada.Core.Models;
 
     /// <summary>
@@ -61,5 +62,29 @@ namespace Armada.Core.Services.Interfaces
         /// Suggest affected tests from graph traversal evidence and path conventions.
         /// </summary>
         Task<CodeGraphAffectedTestsResponse> SuggestAffectedTestsAsync(CodeGraphAffectedTestsRequest request, CancellationToken token = default);
+
+        /// <summary>
+        /// Resolve one graph symbol with direct neighbors and optional source.
+        /// </summary>
+        Task<CodeGraphNodeResponse> GetNodeAsync(CodeGraphNodeRequest request, CancellationToken token = default)
+        {
+            throw new NotSupportedException();
+        }
+
+        /// <summary>
+        /// Return indexed file/symbol structure for a vessel.
+        /// </summary>
+        Task<CodeGraphFileStructureResponse> GetFileStructureAsync(CodeGraphFileStructureRequest request, CancellationToken token = default)
+        {
+            throw new NotSupportedException();
+        }
+
+        /// <summary>
+        /// Explore graph relationships and source sections around a query.
+        /// </summary>
+        Task<CodeGraphExploreResponse> ExploreAsync(CodeGraphExploreRequest request, CancellationToken token = default)
+        {
+            throw new NotSupportedException();
+        }
     }
 }

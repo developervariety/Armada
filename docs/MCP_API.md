@@ -1,6 +1,6 @@
 # Armada MCP API Reference
 
-**Version:** 0.7.0
+**Version:** 0.8.0
 **Default URL:** `http://localhost:7891`
 **Protocol:** [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) over HTTP
 **Server Library:** Voltaic (McpHttpServer)
@@ -8,7 +8,7 @@
 
 ## Remote Control Note
 
-`v0.7.0` does not proxy Armada MCP traffic through the new remote-control tunnel or `Armada.Proxy`.
+`v0.8.0` does not proxy Armada MCP traffic through the remote-control tunnel or `Armada.Proxy`.
 
 Remote control in this release is limited to:
 
@@ -35,6 +35,18 @@ If/when MCP-over-tunnel is added, this document will gain explicit routed-tool s
     - [armada_stop_server](#armada_stop_server)
   - **Enumeration**
     - [armada_enumerate](#armada_enumerate)
+  - **Code Index and Graph**
+    - [armada_index_status](#armada_index_status)
+    - [armada_index_update](#armada_index_update)
+    - [armada_code_search](#armada_code_search)
+    - [armada_context_pack](#armada_context_pack)
+    - [armada_fleet_code_search](#armada_fleet_code_search)
+    - [armada_fleet_context_pack](#armada_fleet_context_pack)
+    - [armada_graph_search_symbols](#armada_graph_search_symbols)
+    - [armada_graph_get_callers](#armada_graph_get_callers)
+    - [armada_graph_get_callees](#armada_graph_get_callees)
+    - [armada_graph_get_impact](#armada_graph_get_impact)
+    - [armada_graph_suggest_affected_tests](#armada_graph_suggest_affected_tests)
   - **Fleets**
     - [armada_get_fleet](#armada_get_fleet)
     - [armada_create_fleet](#armada_create_fleet)
@@ -272,7 +284,7 @@ No parameters required.
     "latencyMs": null,
     "capabilityManifest": {
       "protocolVersion": "2026-04-03",
-      "armadaVersion": "0.7.0",
+      "armadaVersion": "0.8.0",
       "features": [
         "remoteControl.handshake",
         "remoteControl.heartbeat",
@@ -399,6 +411,279 @@ Paginated enumeration of any entity type with filtering and sorting. This is the
 ```
 
 > **Note:** When enumerating `missions`, the `DiffSnapshot` field is excluded from results to keep payloads compact. Use `armada_get_mission_diff` to retrieve the full diff for a specific mission.
+
+---
+
+### armada_index_status
+
+Get code index status for a vessel, including indexed commit, current commit, chunk counts, and freshness.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "vesselId": { "type": "string", "description": "Vessel ID (vsl_ prefix)" }
+  },
+  "required": ["vesselId"]
+}
+```
+
+**Response:** `CodeIndexStatus` with vessel identity, index directory, indexed/current commit SHAs, freshness, document/chunk counts, and any last error.
+
+---
+
+### armada_index_update
+
+Refresh the Admiral-owned code index for a vessel's default branch. This rewrites `chunks.jsonl` and, for supported source files, the graph sidecars `symbols.jsonl` and `edges.jsonl`.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "vesselId": { "type": "string", "description": "Vessel ID (vsl_ prefix)" }
+  },
+  "required": ["vesselId"]
+}
+```
+
+**Response:** updated `CodeIndexStatus`.
+
+---
+
+### armada_code_search
+
+Search a vessel's code index. Results include vessel id, repo-relative path, commit SHA, content hash, language, line range, freshness, and score. Search records may include `embeddingVector` when semantic indexing is enabled; keep limits low and prefer context packs for larger evidence transfer until vector redaction lands.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "vesselId": { "type": "string" },
+    "query": { "type": "string" },
+    "limit": { "type": "integer", "description": "Default 10" },
+    "pathPrefix": { "type": "string" },
+    "language": { "type": "string", "description": "e.g. csharp or markdown" },
+    "includeContent": { "type": "boolean" },
+    "includeReferenceOnly": { "type": "boolean" }
+  },
+  "required": ["vesselId", "query"]
+}
+```
+
+---
+
+### armada_context_pack
+
+Build dispatch-ready markdown for a vessel and mission goal. Returns `markdown`, `materializedPath`, a `prestagedFiles` entry for `_briefing/context-pack.md`, warnings, and pack metrics.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "vesselId": { "type": "string" },
+    "goal": { "type": "string" },
+    "tokenBudget": { "type": "integer" },
+    "maxResults": { "type": "integer" }
+  },
+  "required": ["vesselId", "goal", "tokenBudget"]
+}
+```
+
+When graph sidecars resolve symbols from the goal or search results, the pack appends a `Symbol Graph Context` section with caller/callee neighborhoods and affected-test candidates. In that case `metrics.graphExpansionUsed` is `true` and `graphIncludedFiles` lists the additional files contributed by graph traversal.
+
+---
+
+### armada_fleet_code_search
+
+Search all vessels in a fleet and merge ranked results with vessel attribution.
+
+**Input Schema:** same as `armada_code_search`, replacing `vesselId` with required `fleetId`.
+
+---
+
+### armada_fleet_context_pack
+
+Build a combined context pack across all vessels in a fleet.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "fleetId": { "type": "string" },
+    "goal": { "type": "string" },
+    "tokenBudget": { "type": "integer" },
+    "maxResultsPerVessel": { "type": "integer" }
+  },
+  "required": ["fleetId", "goal", "tokenBudget"]
+}
+```
+
+---
+
+### armada_graph_search_symbols
+
+Search supported-language graph sidecar symbols by simple or qualified name. Responses include ranked symbol matches, symbol kind, repo path, line range, and sidecar freshness warnings.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "vesselId": { "type": "string" },
+    "query": { "type": "string" },
+    "limit": { "type": "integer", "description": "Default 20" },
+    "pathPrefix": { "type": "string" },
+    "kind": { "type": "string", "description": "Namespace, Module, Class, Interface, Record, Enum, Struct, Function, Method, Constructor, Property, Field, Delegate, Component, Endpoint, Constant, Unknown" }
+  },
+  "required": ["vesselId", "query"]
+}
+```
+
+---
+
+### armada_graph_get_callers
+
+Resolve direct callers of a seed symbol from graph sidecars.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "vesselId": { "type": "string" },
+    "symbol": { "type": "string" },
+    "limit": { "type": "integer", "description": "Default 25" }
+  },
+  "required": ["vesselId", "symbol"]
+}
+```
+
+---
+
+### armada_graph_get_callees
+
+Resolve direct callees of a seed symbol from graph sidecars. Input schema is the same as `armada_graph_get_callers`.
+
+---
+
+### armada_graph_get_node
+
+Resolve a symbol and return direct callers, direct callees, and an optional source excerpt for the primary match.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "vesselId": { "type": "string" },
+    "symbol": { "type": "string" },
+    "includeSource": { "type": "boolean", "description": "Default true" },
+    "sourcePadding": { "type": "integer", "description": "Default 2" }
+  },
+  "required": ["vesselId", "symbol"]
+}
+```
+
+---
+
+### armada_graph_get_files
+
+Return indexed files grouped with their graph symbols. Use `pathPrefix` to inspect a subtree.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "vesselId": { "type": "string" },
+    "pathPrefix": { "type": "string" },
+    "limit": { "type": "integer", "description": "Default 100" },
+    "includeSymbols": { "type": "boolean", "description": "Default true" }
+  },
+  "required": ["vesselId"]
+}
+```
+
+---
+
+### armada_graph_explore
+
+Explore a query or seed symbol, traverse related graph nodes, and return results grouped by file with relationships and optional source sections.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "vesselId": { "type": "string" },
+    "query": { "type": "string" },
+    "maxDepth": { "type": "integer", "description": "Default 2" },
+    "maxResults": { "type": "integer", "description": "Default 25" },
+    "includeSource": { "type": "boolean", "description": "Default true" }
+  },
+  "required": ["vesselId", "query"]
+}
+```
+
+---
+
+### armada_graph_get_impact
+
+Traverse graph relationships from a seed symbol using bounded depth.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "vesselId": { "type": "string" },
+    "symbol": { "type": "string" },
+    "direction": { "type": "string", "description": "Callers, Callees, or Both; default Both" },
+    "maxDepth": { "type": "integer", "description": "Default 3" },
+    "maxResults": { "type": "integer", "description": "Default 50" }
+  },
+  "required": ["vesselId", "symbol"]
+}
+```
+
+---
+
+### armada_graph_suggest_affected_tests
+
+Suggest test files likely affected by a symbol change using graph traversal and path/name convention fallback.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "vesselId": { "type": "string" },
+    "symbol": { "type": "string" },
+    "maxDepth": { "type": "integer", "description": "Default 3" },
+    "maxResults": { "type": "integer", "description": "Default 20" }
+  },
+  "required": ["vesselId", "symbol"]
+}
+```
+
+Newly provisioned docks are seeded with dock-local Armada MCP config for compatible clients, so captains can use these index and graph tools when their runtime loads project MCP config and Admiral is running. Existing docks need reprovisioning before they pick up the generated `.mcp.json` / `.cursor/mcp.json` files.
 
 ---
 

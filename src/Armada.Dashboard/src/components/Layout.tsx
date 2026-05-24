@@ -216,7 +216,7 @@ const navSections: NavSection[] = [
   {
     key: 'fleet',
     label: 'FLEET',
-    matchers: ['/fleets', '/vessels', '/workspace', '/captains', '/docks'],
+    matchers: ['/fleets', '/vessels', '/workspace', '/code-index', '/captains', '/docks'],
     items: [
       {
         to: '/fleets',
@@ -239,6 +239,21 @@ const navSections: NavSection[] = [
             <path d="M7 12h10" />
             <path d="M10 18h4" />
             <rect x="3" y="3" width="18" height="18" rx="2" />
+          </svg>
+        ),
+      },
+      {
+        to: '/code-index',
+        label: 'Code Index',
+        tooltip: 'Inspect indexed code search and symbol graph evidence',
+        icon: (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="6" cy="6" r="2" />
+            <circle cx="18" cy="6" r="2" />
+            <circle cx="12" cy="18" r="2" />
+            <path d="M8 7l3 8" />
+            <path d="M16 7l-3 8" />
+            <path d="M8 6h8" />
           </svg>
         ),
       },

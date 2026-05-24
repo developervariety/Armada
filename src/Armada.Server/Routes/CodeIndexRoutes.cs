@@ -12,7 +12,7 @@ namespace Armada.Server.Routes
     using Armada.Core.Services.Interfaces;
 
     /// <summary>
-    /// REST API routes for code graph query operations (symbol search, callers, callees, impact, affected tests).
+    /// REST API routes for code index and graph query operations.
     /// All routes are vessel-scoped under /api/v1/vessels/{vesselId}/code-index/...
     /// </summary>
     public class CodeIndexRoutes
@@ -55,6 +55,65 @@ namespace Armada.Server.Routes
             Func<WatsonWebserver.Core.HttpContextBase, Task<AuthContext>> authenticate,
             IAuthorizationService authz)
         {
+            app.Get("/api/v1/vessels/{vesselId}/code-index/status", async (ApiRequest req) =>
+            {
+                string vesselId = ReadRouteVesselId(req);
+                AuthContext? ctx = await AuthorizeVesselAccessAsync(req, authenticate, authz, vesselId).ConfigureAwait(false);
+                if (ctx == null) return BuildAuthError(req);
+
+                return await _codeIndex.GetStatusAsync(vesselId).ConfigureAwait(false);
+            },
+            api => api
+                .WithTag("Code Index")
+                .WithSummary("Get code index status")
+                .WithDescription("Return persisted index status for a vessel, including freshness, indexed commit, current commit, document count, and chunk count.")
+                .WithParameter(OpenApiParameterMetadata.Path("vesselId", "Vessel ID (vsl_ prefix)"))
+                .WithResponse(200, OpenApiJson.For<CodeIndexStatus>("Code index status"))
+                .WithSecurity("ApiKey"));
+
+            app.Post("/api/v1/vessels/{vesselId}/code-index/update", async (ApiRequest req) =>
+            {
+                string vesselId = ReadRouteVesselId(req);
+                AuthContext? ctx = await AuthorizeVesselAccessAsync(req, authenticate, authz, vesselId).ConfigureAwait(false);
+                if (ctx == null) return BuildAuthError(req);
+
+                return await _codeIndex.UpdateAsync(vesselId).ConfigureAwait(false);
+            },
+            api => api
+                .WithTag("Code Index")
+                .WithSummary("Refresh code index")
+                .WithDescription("Refresh the Admiral-owned code index for a vessel's default branch and rewrite chunks plus graph sidecars.")
+                .WithParameter(OpenApiParameterMetadata.Path("vesselId", "Vessel ID (vsl_ prefix)"))
+                .WithResponse(200, OpenApiJson.For<CodeIndexStatus>("Updated code index status"))
+                .WithSecurity("ApiKey"));
+
+            app.Post<CodeSearchRequest>("/api/v1/vessels/{vesselId}/code-index/search", async (ApiRequest req) =>
+            {
+                string vesselId = ReadRouteVesselId(req);
+                AuthContext? ctx = await AuthorizeVesselAccessAsync(req, authenticate, authz, vesselId).ConfigureAwait(false);
+                if (ctx == null) return BuildAuthError(req);
+
+                CodeSearchRequest searchRequest = JsonSerializer.Deserialize<CodeSearchRequest>(req.Http.Request.DataAsString, _jsonOptions)
+                    ?? new CodeSearchRequest();
+                searchRequest.VesselId = vesselId;
+
+                if (String.IsNullOrWhiteSpace(searchRequest.Query))
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "query is required" };
+                }
+
+                return await _codeIndex.SearchAsync(searchRequest).ConfigureAwait(false);
+            },
+            api => api
+                .WithTag("Code Index")
+                .WithSummary("Search code index")
+                .WithDescription("Search indexed code chunks for a vessel using lexical, semantic, signature, and graph-aware ranking signals according to server settings.")
+                .WithParameter(OpenApiParameterMetadata.Path("vesselId", "Vessel ID (vsl_ prefix)"))
+                .WithRequestBody(OpenApiJson.BodyFor<CodeSearchRequest>("Code search request", true))
+                .WithResponse(200, OpenApiJson.For<CodeSearchResponse>("Code search results"))
+                .WithSecurity("ApiKey"));
+
             app.Post<CodeGraphSymbolSearchRequest>("/api/v1/vessels/{vesselId}/code-index/search-symbols", async (ApiRequest req) =>
             {
                 string vesselId = req.Parameters["vesselId"];
@@ -189,6 +248,81 @@ namespace Armada.Server.Routes
                 .WithRequestBody(OpenApiJson.BodyFor<CodeGraphAffectedTestsRequest>("Affected tests request", true))
                 .WithResponse(200, OpenApiJson.For<CodeGraphAffectedTestsResponse>("Affected test candidates"))
                 .WithSecurity("ApiKey"));
+
+            app.Post<CodeGraphNodeRequest>("/api/v1/vessels/{vesselId}/code-index/node", async (ApiRequest req) =>
+            {
+                string vesselId = req.Parameters["vesselId"];
+                AuthContext? ctx = await AuthorizeVesselAccessAsync(req, authenticate, authz, vesselId).ConfigureAwait(false);
+                if (ctx == null) return BuildAuthError(req);
+
+                CodeGraphNodeRequest request = JsonSerializer.Deserialize<CodeGraphNodeRequest>(req.Http.Request.DataAsString, _jsonOptions)
+                    ?? new CodeGraphNodeRequest();
+                request.VesselId = vesselId;
+
+                if (String.IsNullOrWhiteSpace(request.Symbol))
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "symbol is required" };
+                }
+
+                return await _codeIndex.GetNodeAsync(request).ConfigureAwait(false);
+            },
+            api => api
+                .WithTag("Code Index")
+                .WithSummary("Get graph node")
+                .WithDescription("Resolve one graph symbol with direct callers, callees, and optional source excerpt. Sidecar freshness warnings are included.")
+                .WithParameter(OpenApiParameterMetadata.Path("vesselId", "Vessel ID (vsl_ prefix)"))
+                .WithRequestBody(OpenApiJson.BodyFor<CodeGraphNodeRequest>("Graph node request", true))
+                .WithResponse(200, OpenApiJson.For<CodeGraphNodeResponse>("Graph node detail"))
+                .WithSecurity("ApiKey"));
+
+            app.Post<CodeGraphFileStructureRequest>("/api/v1/vessels/{vesselId}/code-index/files", async (ApiRequest req) =>
+            {
+                string vesselId = req.Parameters["vesselId"];
+                AuthContext? ctx = await AuthorizeVesselAccessAsync(req, authenticate, authz, vesselId).ConfigureAwait(false);
+                if (ctx == null) return BuildAuthError(req);
+
+                CodeGraphFileStructureRequest request = JsonSerializer.Deserialize<CodeGraphFileStructureRequest>(req.Http.Request.DataAsString, _jsonOptions)
+                    ?? new CodeGraphFileStructureRequest();
+                request.VesselId = vesselId;
+
+                return await _codeIndex.GetFileStructureAsync(request).ConfigureAwait(false);
+            },
+            api => api
+                .WithTag("Code Index")
+                .WithSummary("Get indexed file structure")
+                .WithDescription("Return indexed file structure from graph sidecars, optionally including symbols per file.")
+                .WithParameter(OpenApiParameterMetadata.Path("vesselId", "Vessel ID (vsl_ prefix)"))
+                .WithRequestBody(OpenApiJson.BodyFor<CodeGraphFileStructureRequest>("File structure request", true))
+                .WithResponse(200, OpenApiJson.For<CodeGraphFileStructureResponse>("Indexed file structure"))
+                .WithSecurity("ApiKey"));
+
+            app.Post<CodeGraphExploreRequest>("/api/v1/vessels/{vesselId}/code-index/explore", async (ApiRequest req) =>
+            {
+                string vesselId = req.Parameters["vesselId"];
+                AuthContext? ctx = await AuthorizeVesselAccessAsync(req, authenticate, authz, vesselId).ConfigureAwait(false);
+                if (ctx == null) return BuildAuthError(req);
+
+                CodeGraphExploreRequest request = JsonSerializer.Deserialize<CodeGraphExploreRequest>(req.Http.Request.DataAsString, _jsonOptions)
+                    ?? new CodeGraphExploreRequest();
+                request.VesselId = vesselId;
+
+                if (String.IsNullOrWhiteSpace(request.Query))
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "query is required" };
+                }
+
+                return await _codeIndex.ExploreAsync(request).ConfigureAwait(false);
+            },
+            api => api
+                .WithTag("Code Index")
+                .WithSummary("Explore graph context")
+                .WithDescription("Explore graph relationships and source excerpts around a symbol query. Returns grouped files and relationship edges.")
+                .WithParameter(OpenApiParameterMetadata.Path("vesselId", "Vessel ID (vsl_ prefix)"))
+                .WithRequestBody(OpenApiJson.BodyFor<CodeGraphExploreRequest>("Graph explore request", true))
+                .WithResponse(200, OpenApiJson.For<CodeGraphExploreResponse>("Graph exploration results"))
+                .WithSecurity("ApiKey"));
         }
 
         #endregion
@@ -223,6 +357,11 @@ namespace Armada.Server.Routes
             if (ctx.IsAdmin) return await _database.Vessels.ReadAsync(vesselId).ConfigureAwait(false);
             if (ctx.IsTenantAdmin) return await _database.Vessels.ReadAsync(ctx.TenantId!, vesselId).ConfigureAwait(false);
             return await _database.Vessels.ReadAsync(ctx.TenantId!, ctx.UserId!, vesselId).ConfigureAwait(false);
+        }
+
+        private static string ReadRouteVesselId(ApiRequest req)
+        {
+            return req.Parameters.GetValueOrDefault("vesselId") ?? "";
         }
 
         private static ApiErrorResponse BuildAuthError(ApiRequest req)

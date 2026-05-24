@@ -47,7 +47,7 @@ Use your own file-reading tools, Workspace, and context packs to understand the 
 Do not treat Armada as only a mission launcher. For feature, bug, release, deployment, or incident work:
 
 1. Start from an objective/backlog item when the work has any lifespan.
-2. Use objective refinement, Planning, Workspace, and `armada_context_pack` to narrow scope before dispatch.
+2. Use objective refinement, Planning, Workspace, `armada_context_pack`, and graph tools (`armada_graph_*`) to narrow scope before dispatch.
 3. Use workflow profiles and structured check runs for repeatable validation.
 4. Use review gates (`requiresReview`, `reviewDenyAction`) for human approval points.
 5. Link check runs, releases, deployments, incidents, runbooks, request history, GitHub evidence, and final mission results back to the objective.

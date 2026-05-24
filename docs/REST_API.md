@@ -1,6 +1,6 @@
 # Armada REST API Reference
 
-**Version:** 0.7.0
+**Version:** 0.8.0
 **Base URL:** `http://localhost:7890`
 **Content-Type:** `application/json`
 
@@ -31,6 +31,7 @@
   - [Events](#events)
   - [Docks](#docks)
   - [Merge Queue](#merge-queue)
+  - [Code Index](#code-index)
   - [Playbooks](#playbooks)
   - [Prompt Templates](#prompt-templates)
   - [Personas](#personas)
@@ -683,7 +684,7 @@ Returns aggregate status including captain counts, mission breakdown, active voy
     "LatencyMs": null,
     "CapabilityManifest": {
       "ProtocolVersion": "2026-04-03",
-      "ArmadaVersion": "0.7.0",
+      "ArmadaVersion": "0.8.0",
       "Features": [
         "remoteControl.handshake",
         "remoteControl.heartbeat",
@@ -711,7 +712,7 @@ Health check endpoint. **Does not require authentication.**
   "Timestamp": "2026-03-07T12:00:00Z",
   "StartUtc": "2026-03-07T08:00:00Z",
   "Uptime": "0.04:00:00",
-  "Version": "0.7.0",
+  "Version": "0.8.0",
   "Ports": {
     "Admiral": 7890,
     "Mcp": 7891
@@ -2221,6 +2222,111 @@ Skipped entries include the entry ID and the reason (e.g., "Not found" or "Not i
 
 ---
 
+### Code Index
+
+Vessel-scoped repository search and symbol graph endpoints. All routes are authenticated and then checked against the vessel ACL.
+
+#### GET /api/v1/vessels/{vesselId}/code-index/status
+
+Return persisted code-index status for one vessel.
+
+**Response:** `200 OK` - `CodeIndexStatus`
+
+---
+
+#### POST /api/v1/vessels/{vesselId}/code-index/update
+
+Refresh chunks and supported-language graph sidecars for the vessel default branch.
+
+**Response:** `200 OK` - `CodeIndexStatus`
+
+---
+
+#### POST /api/v1/vessels/{vesselId}/code-index/search
+
+Search indexed chunks with lexical, semantic, file-signature, and graph-aware ranking signals.
+
+**Request Body:**
+
+```json
+{
+  "Query": "health route",
+  "Limit": 20,
+  "PathPrefix": "src/",
+  "Language": "typescript",
+  "IncludeContent": false,
+  "IncludeReferenceOnly": false
+}
+```
+
+**Response:** `200 OK` - `CodeSearchResponse`
+
+---
+
+#### POST /api/v1/vessels/{vesselId}/code-index/search-symbols
+
+Search graph sidecar symbols by simple or qualified name.
+
+**Response:** `200 OK` - `CodeGraphSymbolSearchResponse`
+
+---
+
+#### POST /api/v1/vessels/{vesselId}/code-index/callers
+
+Resolve direct callers for a symbol.
+
+**Response:** `200 OK` - `CodeGraphNeighborsResponse`
+
+---
+
+#### POST /api/v1/vessels/{vesselId}/code-index/callees
+
+Resolve direct callees for a symbol.
+
+**Response:** `200 OK` - `CodeGraphNeighborsResponse`
+
+---
+
+#### POST /api/v1/vessels/{vesselId}/code-index/node
+
+Resolve one graph node with direct callers, callees, and optional source excerpt.
+
+**Response:** `200 OK` - `CodeGraphNodeResponse`
+
+---
+
+#### POST /api/v1/vessels/{vesselId}/code-index/files
+
+Return indexed files grouped with graph symbols.
+
+**Response:** `200 OK` - `CodeGraphFileStructureResponse`
+
+---
+
+#### POST /api/v1/vessels/{vesselId}/code-index/explore
+
+Explore a bounded graph neighborhood grouped by file.
+
+**Response:** `200 OK` - `CodeGraphExploreResponse`
+
+---
+
+#### POST /api/v1/vessels/{vesselId}/code-index/impact
+
+Traverse caller/callee impact from a seed symbol.
+
+**Response:** `200 OK` - `CodeGraphImpactResponse`
+
+---
+
+#### POST /api/v1/vessels/{vesselId}/code-index/affected-tests
+
+Suggest likely affected tests using graph traversal and naming conventions.
+
+**Response:** `200 OK` - `CodeGraphAffectedTestsResponse`
+
+---
+
 ### Playbooks
 
 Playbooks are tenant-scoped markdown documents that can be attached to voyages or standalone missions. Each selection carries its own delivery mode so the model receives either the full content inline or a file path it should read.
@@ -3269,7 +3375,7 @@ Aggregate status summary returned by the status endpoint.
     "LatencyMs": null,
     "CapabilityManifest": {
       "ProtocolVersion": "2026-04-03",
-      "ArmadaVersion": "0.7.0",
+      "ArmadaVersion": "0.8.0",
       "Features": [
         "remoteControl.handshake",
         "remoteControl.heartbeat",
@@ -3797,6 +3903,17 @@ Response from `GET /api/v1/captains/{id}/log`.
 | 71 | GET | `/api/v1/merge-queue/{id}` | Get merge entry | Yes |
 | 72 | DELETE | `/api/v1/merge-queue/{id}` | Cancel merge entry | Yes |
 | 73 | POST | `/api/v1/merge-queue/process` | Process merge queue | Yes |
+| 74 | GET | `/api/v1/vessels/{vesselId}/code-index/status` | Get code-index status | Yes |
+| 75 | POST | `/api/v1/vessels/{vesselId}/code-index/update` | Refresh code index and graph sidecars | Yes |
+| 76 | POST | `/api/v1/vessels/{vesselId}/code-index/search` | Search indexed code chunks | Yes |
+| 77 | POST | `/api/v1/vessels/{vesselId}/code-index/search-symbols` | Search code graph symbols | Yes |
+| 78 | POST | `/api/v1/vessels/{vesselId}/code-index/callers` | Resolve direct symbol callers | Yes |
+| 79 | POST | `/api/v1/vessels/{vesselId}/code-index/callees` | Resolve direct symbol callees | Yes |
+| 80 | POST | `/api/v1/vessels/{vesselId}/code-index/node` | Resolve one graph node | Yes |
+| 81 | POST | `/api/v1/vessels/{vesselId}/code-index/files` | List graph files and symbols | Yes |
+| 82 | POST | `/api/v1/vessels/{vesselId}/code-index/explore` | Explore a bounded graph neighborhood | Yes |
+| 83 | POST | `/api/v1/vessels/{vesselId}/code-index/impact` | Traverse symbol impact | Yes |
+| 84 | POST | `/api/v1/vessels/{vesselId}/code-index/affected-tests` | Suggest affected tests | Yes |
 
 \* Gated by `AllowSelfRegistration` setting.
 \*\* Non-admin users are scoped to their own records only.

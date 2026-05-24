@@ -4,6 +4,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Collections.Generic;
     using System.Diagnostics;
     using System.IO;
+    using System.Linq;
     using System.Text.Json;
     using System.Threading.Tasks;
     using Armada.Core.Models;
@@ -16,7 +17,7 @@ namespace Armada.Test.Unit.Suites.Services
     /// <summary>
     /// End-to-end coverage for the graph sidecar emission added to <see cref="CodeIndexService.UpdateAsync"/>.
     /// Verifies that <c>symbols.jsonl</c> and <c>edges.jsonl</c> are produced next to <c>chunks.jsonl</c>
-    /// at index update time, that JSONL framing is preserved, and that non-C# files do not contribute.
+    /// at index update time, that JSONL framing is preserved, and that supported polyglot files contribute.
     /// </summary>
     public class CodeIndexServiceGraphSidecarTests : TestSuite
     {
@@ -126,10 +127,10 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("UpdateAsync_sidecars_only_carry_csharp_paths_not_markdown_or_other", async () =>
+            await RunTest("UpdateAsync_sidecars_include_supported_polyglot_paths_not_markdown", async () =>
             {
                 TestRepository repository = await CreateRepositoryAsync().ConfigureAwait(false);
-                string dataRoot = NewTempDirectory("armada-code-graph-sidecar-cs-only-");
+                string dataRoot = NewTempDirectory("armada-code-graph-sidecar-polyglot-");
 
                 try
                 {
@@ -143,14 +144,24 @@ namespace Armada.Test.Unit.Suites.Services
                         string symbolsPath = Path.Combine(status.IndexDirectory, "symbols.jsonl");
                         string[] symbolLines = await File.ReadAllLinesAsync(symbolsPath).ConfigureAwait(false);
 
+                        bool sawCSharp = false;
+                        bool sawTypeScript = false;
+                        bool sawPython = false;
                         foreach (string line in symbolLines)
                         {
                             if (String.IsNullOrWhiteSpace(line)) continue;
                             CodeGraphSymbolRecord? sym = JsonSerializer.Deserialize<CodeGraphSymbolRecord>(line, _IndexJsonOptions);
                             AssertNotNull(sym, "each line deserializes");
-                            AssertTrue(sym!.Path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase),
-                                "every symbol path must be .cs (got: " + sym.Path + ")");
+                            AssertFalse(sym!.Path.EndsWith(".md", StringComparison.OrdinalIgnoreCase),
+                                "markdown files must not contribute graph symbols");
+                            sawCSharp |= sym.Path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase);
+                            sawTypeScript |= sym.Path.EndsWith(".tsx", StringComparison.OrdinalIgnoreCase);
+                            sawPython |= sym.Path.EndsWith(".py", StringComparison.OrdinalIgnoreCase);
                         }
+
+                        AssertTrue(sawCSharp, "C# file should contribute graph symbols");
+                        AssertTrue(sawTypeScript, "TypeScript file should contribute graph symbols");
+                        AssertTrue(sawPython, "Python file should contribute graph symbols");
                     }
                 }
                 finally
@@ -160,7 +171,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("UpdateAsync_with_zero_csharp_files_still_writes_empty_sidecars", async () =>
+            await RunTest("UpdateAsync_with_zero_graph_supported_files_still_writes_empty_sidecars", async () =>
             {
                 TestRepository repository = await CreateMarkdownOnlyRepositoryAsync().ConfigureAwait(false);
                 string dataRoot = NewTempDirectory("armada-code-graph-sidecar-empty-");
@@ -181,8 +192,42 @@ namespace Armada.Test.Unit.Suites.Services
 
                         string symbolsContent = await File.ReadAllTextAsync(symbolsPath).ConfigureAwait(false);
                         string edgesContent = await File.ReadAllTextAsync(edgesPath).ConfigureAwait(false);
-                        AssertEqual(0, symbolsContent.Length, "symbols.jsonl must be empty when no .cs files were indexed");
-                        AssertEqual(0, edgesContent.Length, "edges.jsonl must be empty when no .cs files were indexed");
+                        AssertEqual(0, symbolsContent.Length, "symbols.jsonl must be empty when no graph-supported files were indexed");
+                        AssertEqual(0, edgesContent.Length, "edges.jsonl must be empty when no graph-supported files were indexed");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(repository.Root);
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("SearchAsync_boosts_graph_endpoint_file_over_lexical_noise", async () =>
+            {
+                TestRepository repository = await CreateRepositoryAsync().ConfigureAwait(false);
+                string dataRoot = NewTempDirectory("armada-code-graph-sidecar-search-boost-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Vessel vessel = await CreateVesselAsync(testDb, repository.Path).ConfigureAwait(false);
+                        CodeIndexService service = CreateService(testDb, dataRoot);
+
+                        await service.UpdateAsync(vessel.Id).ConfigureAwait(false);
+
+                        CodeSearchResponse response = await service.SearchAsync(new CodeSearchRequest
+                        {
+                            VesselId = vessel.Id,
+                            Query = "health",
+                            Limit = 3,
+                            IncludeContent = false
+                        }).ConfigureAwait(false);
+
+                        AssertTrue(response.Results.Count >= 2, "fixture should return both endpoint and lexical-noise results");
+                        AssertEqual("app/api.py", response.Results[0].Record.Path, "graph endpoint boost should rank route file first");
+                        AssertTrue(response.Results.Any(r => r.Record.Path == "docs/usage.md"), "lexical noise file should still be present");
                     }
                 }
                 finally
@@ -251,6 +296,7 @@ namespace Armada.Test.Unit.Suites.Services
                 await RunGitAsync(repo, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
 
                 Directory.CreateDirectory(Path.Combine(repo, "src"));
+                Directory.CreateDirectory(Path.Combine(repo, "app"));
                 Directory.CreateDirectory(Path.Combine(repo, "docs"));
 
                 await File.WriteAllTextAsync(
@@ -258,8 +304,21 @@ namespace Armada.Test.Unit.Suites.Services
                     "namespace Sample\n{\n    public class CodeIndexTarget\n    {\n        public string SearchKeyword() => \"dispatch evidence\";\n    }\n}\n").ConfigureAwait(false);
 
                 await File.WriteAllTextAsync(
+                    Path.Combine(repo, "src", "Widget.tsx"),
+                    "import React from 'react';\n" +
+                    "export function Widget() { return <div />; }\n").ConfigureAwait(false);
+
+                await File.WriteAllTextAsync(
+                    Path.Combine(repo, "app", "api.py"),
+                    "from fastapi import APIRouter\n" +
+                    "router = APIRouter()\n" +
+                    "@router.get('/health')\n" +
+                    "def health():\n" +
+                    "    return {'ok': True}\n").ConfigureAwait(false);
+
+                await File.WriteAllTextAsync(
                     Path.Combine(repo, "docs", "usage.md"),
-                    "# Usage\n\nThis is documentation, not code.\n").ConfigureAwait(false);
+                    "# Usage\n\nhealth health health health health health health health health health health health\n").ConfigureAwait(false);
 
                 await RunGitAsync(repo, "add", ".").ConfigureAwait(false);
                 await RunGitAsync(repo, "commit", "-m", "Initial graph fixture").ConfigureAwait(false);

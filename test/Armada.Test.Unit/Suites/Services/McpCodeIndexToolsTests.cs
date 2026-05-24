@@ -38,6 +38,9 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(handlers.ContainsKey("armada_graph_get_callees"));
                 AssertTrue(handlers.ContainsKey("armada_graph_get_impact"));
                 AssertTrue(handlers.ContainsKey("armada_graph_suggest_affected_tests"));
+                AssertTrue(handlers.ContainsKey("armada_graph_get_node"));
+                AssertTrue(handlers.ContainsKey("armada_graph_get_files"));
+                AssertTrue(handlers.ContainsKey("armada_graph_explore"));
             });
 
             await RunTest("armada_context_pack delegates and returns prestaged file", async () =>
@@ -343,6 +346,9 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("missing args", JsonSerializer.Serialize(await handlers["armada_graph_get_callees"](null).ConfigureAwait(false)));
                 AssertContains("missing args", JsonSerializer.Serialize(await handlers["armada_graph_get_impact"](null).ConfigureAwait(false)));
                 AssertContains("missing args", JsonSerializer.Serialize(await handlers["armada_graph_suggest_affected_tests"](null).ConfigureAwait(false)));
+                AssertContains("missing args", JsonSerializer.Serialize(await handlers["armada_graph_get_node"](null).ConfigureAwait(false)));
+                AssertContains("missing args", JsonSerializer.Serialize(await handlers["armada_graph_get_files"](null).ConfigureAwait(false)));
+                AssertContains("missing args", JsonSerializer.Serialize(await handlers["armada_graph_explore"](null).ConfigureAwait(false)));
 
                 // Missing vesselId on every neighbor/impact/affected-tests tool
                 JsonElement callerMissingVessel = JsonSerializer.SerializeToElement(new { symbol = "Foo" });
@@ -361,6 +367,18 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("vesselId is required", JsonSerializer.Serialize(await handlers["armada_graph_suggest_affected_tests"](affectedMissingVessel).ConfigureAwait(false)));
                 AssertNull(service.LastAffectedTestsRequest, "Invalid affected-tests request should not delegate to service");
 
+                JsonElement nodeMissingVessel = JsonSerializer.SerializeToElement(new { symbol = "Foo" });
+                AssertContains("vesselId is required", JsonSerializer.Serialize(await handlers["armada_graph_get_node"](nodeMissingVessel).ConfigureAwait(false)));
+                AssertNull(service.LastNodeRequest, "Invalid node request should not delegate to service");
+
+                JsonElement filesMissingVessel = JsonSerializer.SerializeToElement(new { pathPrefix = "src/" });
+                AssertContains("vesselId is required", JsonSerializer.Serialize(await handlers["armada_graph_get_files"](filesMissingVessel).ConfigureAwait(false)));
+                AssertNull(service.LastFileStructureRequest, "Invalid files request should not delegate to service");
+
+                JsonElement exploreMissingVessel = JsonSerializer.SerializeToElement(new { query = "Foo" });
+                AssertContains("vesselId is required", JsonSerializer.Serialize(await handlers["armada_graph_explore"](exploreMissingVessel).ConfigureAwait(false)));
+                AssertNull(service.LastExploreRequest, "Invalid explore request should not delegate to service");
+
                 // Missing symbol on callees and affected-tests (search_symbols/callers/impact are covered above)
                 JsonElement calleeMissingSymbol = JsonSerializer.SerializeToElement(new { vesselId = "vsl_test" });
                 AssertContains("symbol is required", JsonSerializer.Serialize(await handlers["armada_graph_get_callees"](calleeMissingSymbol).ConfigureAwait(false)));
@@ -369,6 +387,76 @@ namespace Armada.Test.Unit.Suites.Services
                 JsonElement affectedMissingSymbol = JsonSerializer.SerializeToElement(new { vesselId = "vsl_test" });
                 AssertContains("symbol is required", JsonSerializer.Serialize(await handlers["armada_graph_suggest_affected_tests"](affectedMissingSymbol).ConfigureAwait(false)));
                 AssertNull(service.LastAffectedTestsRequest, "Invalid affected-tests request without symbol should not delegate to service");
+
+                JsonElement nodeMissingSymbol = JsonSerializer.SerializeToElement(new { vesselId = "vsl_test" });
+                AssertContains("symbol is required", JsonSerializer.Serialize(await handlers["armada_graph_get_node"](nodeMissingSymbol).ConfigureAwait(false)));
+                AssertNull(service.LastNodeRequest, "Invalid node request without symbol should not delegate to service");
+
+                JsonElement exploreMissingQuery = JsonSerializer.SerializeToElement(new { vesselId = "vsl_test" });
+                AssertContains("query is required", JsonSerializer.Serialize(await handlers["armada_graph_explore"](exploreMissingQuery).ConfigureAwait(false)));
+                AssertNull(service.LastExploreRequest, "Invalid explore request without query should not delegate to service");
+            });
+
+            await RunTest("Graph node/files/explore tools delegate typed requests", async () =>
+            {
+                RecordingCodeIndexService service = new RecordingCodeIndexService();
+                service.NodeResponse = new CodeGraphNodeResponse
+                {
+                    RequestedSymbol = "Execute",
+                    Status = NewStatus("vsl_test")
+                };
+                service.FileStructureResponse = new CodeGraphFileStructureResponse
+                {
+                    Status = NewStatus("vsl_test")
+                };
+                service.ExploreResponse = new CodeGraphExploreResponse
+                {
+                    Query = "Execute",
+                    Status = NewStatus("vsl_test")
+                };
+
+                Dictionary<string, Func<JsonElement?, Task<object>>> handlers = RegisterHandlers(service);
+
+                object nodeResult = await handlers["armada_graph_get_node"](JsonSerializer.SerializeToElement(new
+                {
+                    vesselId = "vsl_test",
+                    symbol = "Execute",
+                    includeSource = true,
+                    sourcePadding = 4
+                })).ConfigureAwait(false);
+                AssertEqual("Execute", ((CodeGraphNodeResponse)nodeResult).RequestedSymbol);
+                AssertNotNull(service.LastNodeRequest);
+                AssertEqual("vsl_test", service.LastNodeRequest!.VesselId);
+                AssertEqual("Execute", service.LastNodeRequest.Symbol);
+                AssertEqual(4, service.LastNodeRequest.SourcePadding);
+
+                object filesResult = await handlers["armada_graph_get_files"](JsonSerializer.SerializeToElement(new
+                {
+                    vesselId = "vsl_test",
+                    pathPrefix = "src/",
+                    limit = 12,
+                    includeSymbols = false
+                })).ConfigureAwait(false);
+                AssertNotNull((CodeGraphFileStructureResponse)filesResult);
+                AssertNotNull(service.LastFileStructureRequest);
+                AssertEqual("src/", service.LastFileStructureRequest!.PathPrefix);
+                AssertEqual(12, service.LastFileStructureRequest.Limit);
+                AssertFalse(service.LastFileStructureRequest.IncludeSymbols);
+
+                object exploreResult = await handlers["armada_graph_explore"](JsonSerializer.SerializeToElement(new
+                {
+                    vesselId = "vsl_test",
+                    query = "Execute",
+                    maxDepth = 2,
+                    maxResults = 9,
+                    includeSource = true
+                })).ConfigureAwait(false);
+                AssertEqual("Execute", ((CodeGraphExploreResponse)exploreResult).Query);
+                AssertNotNull(service.LastExploreRequest);
+                AssertEqual("vsl_test", service.LastExploreRequest!.VesselId);
+                AssertEqual("Execute", service.LastExploreRequest.Query);
+                AssertEqual(2, service.LastExploreRequest.MaxDepth);
+                AssertEqual(9, service.LastExploreRequest.MaxResults);
             });
 
             await RunTest("Whitespace-only vesselId, query, and symbol are rejected", async () =>
@@ -642,6 +730,12 @@ namespace Armada.Test.Unit.Suites.Services
 
             public CodeGraphAffectedTestsRequest? LastAffectedTestsRequest { get; private set; }
 
+            public CodeGraphNodeRequest? LastNodeRequest { get; private set; }
+
+            public CodeGraphFileStructureRequest? LastFileStructureRequest { get; private set; }
+
+            public CodeGraphExploreRequest? LastExploreRequest { get; private set; }
+
             public string? LastStatusVesselId { get; private set; }
 
             public string? LastUpdateVesselId { get; private set; }
@@ -698,6 +792,23 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 Status = NewStatus("vsl_default"),
                 RequestedSymbol = "default"
+            };
+
+            public CodeGraphNodeResponse NodeResponse { get; set; } = new CodeGraphNodeResponse
+            {
+                Status = NewStatus("vsl_default"),
+                RequestedSymbol = "default"
+            };
+
+            public CodeGraphFileStructureResponse FileStructureResponse { get; set; } = new CodeGraphFileStructureResponse
+            {
+                Status = NewStatus("vsl_default")
+            };
+
+            public CodeGraphExploreResponse ExploreResponse { get; set; } = new CodeGraphExploreResponse
+            {
+                Status = NewStatus("vsl_default"),
+                Query = "default"
             };
 
             public Task<CodeIndexStatus> GetStatusAsync(string vesselId, CancellationToken token = default)
@@ -764,6 +875,24 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 LastAffectedTestsRequest = request;
                 return Task.FromResult(AffectedTestsResponse);
+            }
+
+            public Task<CodeGraphNodeResponse> GetNodeAsync(CodeGraphNodeRequest request, CancellationToken token = default)
+            {
+                LastNodeRequest = request;
+                return Task.FromResult(NodeResponse);
+            }
+
+            public Task<CodeGraphFileStructureResponse> GetFileStructureAsync(CodeGraphFileStructureRequest request, CancellationToken token = default)
+            {
+                LastFileStructureRequest = request;
+                return Task.FromResult(FileStructureResponse);
+            }
+
+            public Task<CodeGraphExploreResponse> ExploreAsync(CodeGraphExploreRequest request, CancellationToken token = default)
+            {
+                LastExploreRequest = request;
+                return Task.FromResult(ExploreResponse);
             }
         }
     }

@@ -21,7 +21,8 @@ namespace Armada.Test.Unit.Suites.Routes
     /// </summary>
     public class CodeIndexRoutesTests : TestSuite
     {
-        private const int GraphRouteCount = 5;
+        private const int GraphRouteCount = 8;
+        private const int CodeIndexRouteCount = 11;
 
         /// <summary>Suite name.</summary>
         public override string Name => "Code Index Routes";
@@ -66,12 +67,24 @@ namespace Armada.Test.Unit.Suites.Routes
             await RunTest("Graph REST routes are vessel-scoped under /api/v1/vessels/{vesselId}/code-index", () =>
             {
                 string routes = ReadRepositoryFile("src", "Armada.Server", "Routes", "CodeIndexRoutes.cs");
+                AssertContains("/api/v1/vessels/{vesselId}/code-index/status", routes,
+                    "status must be vessel-scoped");
+                AssertContains("/api/v1/vessels/{vesselId}/code-index/update", routes,
+                    "update must be vessel-scoped");
+                AssertContains("/api/v1/vessels/{vesselId}/code-index/search", routes,
+                    "search must be vessel-scoped");
                 AssertContains("/api/v1/vessels/{vesselId}/code-index/search-symbols", routes,
                     "search-symbols must be vessel-scoped");
                 AssertContains("/api/v1/vessels/{vesselId}/code-index/callers", routes,
                     "callers must be vessel-scoped");
                 AssertContains("/api/v1/vessels/{vesselId}/code-index/callees", routes,
                     "callees must be vessel-scoped");
+                AssertContains("/api/v1/vessels/{vesselId}/code-index/node", routes,
+                    "node must be vessel-scoped");
+                AssertContains("/api/v1/vessels/{vesselId}/code-index/files", routes,
+                    "files must be vessel-scoped");
+                AssertContains("/api/v1/vessels/{vesselId}/code-index/explore", routes,
+                    "explore must be vessel-scoped");
                 AssertContains("/api/v1/vessels/{vesselId}/code-index/impact", routes,
                     "impact must be vessel-scoped");
                 AssertContains("/api/v1/vessels/{vesselId}/code-index/affected-tests", routes,
@@ -96,9 +109,9 @@ namespace Armada.Test.Unit.Suites.Routes
                 int extractCount = CountOccurrences(routes, "req.Parameters[\"vesselId\"]");
                 int injectCount = CountOccurrences(routes, "request.VesselId = vesselId");
                 AssertEqual(GraphRouteCount, extractCount,
-                    "Each of the 5 graph routes must extract vesselId from URL parameters exactly once");
+                    "Each graph route must extract vesselId from URL parameters exactly once");
                 AssertEqual(GraphRouteCount, injectCount,
-                    "Each of the 5 graph routes must assign URL vesselId onto the deserialized request exactly once so a body-supplied VesselId cannot win");
+                    "Each graph route must assign URL vesselId onto the deserialized request exactly once so a body-supplied VesselId cannot win");
             });
 
             await RunTest("Graph routes assign URL vesselId AFTER deserializing the body, never before", () =>
@@ -124,47 +137,48 @@ namespace Armada.Test.Unit.Suites.Routes
                 string routes = ReadRepositoryFile("src", "Armada.Server", "Routes", "CodeIndexRoutes.cs");
                 MatchCollection authMatches = Regex.Matches(routes, @"AuthorizeVesselAccessAsync\(req");
                 MatchCollection deserializeMatches = Regex.Matches(routes, @"JsonSerializer\.Deserialize<CodeGraph\w+Request>");
-                AssertEqual(GraphRouteCount, authMatches.Count,
-                    "Each graph route must call the vessel-access authorization helper exactly once");
+                AssertEqual(CodeIndexRouteCount, authMatches.Count,
+                    "Each code-index route must call the vessel-access authorization helper exactly once");
                 AssertEqual(GraphRouteCount, deserializeMatches.Count,
                     "Each graph route must deserialize a CodeGraph*Request body exactly once");
+                int graphAuthOffset = authMatches.Count - deserializeMatches.Count;
                 for (int i = 0; i < GraphRouteCount; i++)
                 {
-                    AssertTrue(authMatches[i].Index < deserializeMatches[i].Index,
+                    AssertTrue(authMatches[i + graphAuthOffset].Index < deserializeMatches[i].Index,
                         "Route handler " + (i + 1) + ": vessel ACL must be checked before request body parsing and graph-service work");
                 }
             });
 
-            await RunTest("Graph routes call authorization service before delegating to ICodeIndexService", () =>
+            await RunTest("Code-index routes call authorization service before delegating to ICodeIndexService", () =>
             {
                 string routes = ReadRepositoryFile("src", "Armada.Server", "Routes", "CodeIndexRoutes.cs");
                 MatchCollection authzMatches = Regex.Matches(routes, @"AuthorizeVesselAccessAsync\(req");
                 MatchCollection serviceCallMatches = Regex.Matches(routes, @"_codeIndex\.\w+Async\(");
-                AssertEqual(GraphRouteCount, authzMatches.Count,
-                    "Each graph route must invoke the helper that performs authz plus vessel lookup exactly once");
-                AssertEqual(GraphRouteCount, serviceCallMatches.Count,
-                    "Each graph route must call exactly one ICodeIndexService method");
-                for (int i = 0; i < GraphRouteCount; i++)
+                AssertEqual(CodeIndexRouteCount, authzMatches.Count,
+                    "Each code-index route must invoke the helper that performs authz plus vessel lookup exactly once");
+                AssertEqual(CodeIndexRouteCount, serviceCallMatches.Count,
+                    "Each code-index route must call exactly one ICodeIndexService method");
+                for (int i = 0; i < CodeIndexRouteCount; i++)
                 {
                     AssertTrue(authzMatches[i].Index < serviceCallMatches[i].Index,
-                        "Route handler " + (i + 1) + ": authorization check must occur before service delegation so unauthorized callers never reach the graph service");
+                        "Route handler " + (i + 1) + ": authorization check must occur before service delegation so unauthorized callers never reach the code-index service");
                 }
             });
 
-            await RunTest("Graph routes declare vesselId as an OpenAPI path parameter", () =>
+            await RunTest("Code-index routes declare vesselId as an OpenAPI path parameter", () =>
             {
                 string routes = ReadRepositoryFile("src", "Armada.Server", "Routes", "CodeIndexRoutes.cs");
                 int pathParamCount = CountOccurrences(routes, "OpenApiParameterMetadata.Path(\"vesselId\"");
-                AssertEqual(GraphRouteCount, pathParamCount,
-                    "Each of the 5 graph routes must declare vesselId as an OpenAPI path parameter so the generated spec advertises vessel scoping to clients");
+                AssertEqual(CodeIndexRouteCount, pathParamCount,
+                    "Each code-index route must declare vesselId as an OpenAPI path parameter so the generated spec advertises vessel scoping to clients");
             });
 
-            await RunTest("Graph routes all use the vessel-scoped path prefix exclusively", () =>
+            await RunTest("Code-index routes all use the vessel-scoped path prefix exclusively", () =>
             {
                 string routes = ReadRepositoryFile("src", "Armada.Server", "Routes", "CodeIndexRoutes.cs");
                 int scopedRouteRegistrationCount = CountOccurrences(routes, "\"/api/v1/vessels/{vesselId}/code-index/");
-                AssertEqual(GraphRouteCount, scopedRouteRegistrationCount,
-                    "Exactly 5 vessel-scoped graph route string literals must be registered");
+                AssertEqual(CodeIndexRouteCount, scopedRouteRegistrationCount,
+                    "Every vessel-scoped code-index route string literal must be registered");
                 AssertFalse(routes.Contains("\"/api/v1/code-index/"),
                     "The flat /api/v1/code-index/ prefix must not appear anywhere -- it bypasses the vessel hierarchy and is the regression this slice fixes");
             });
@@ -206,6 +220,21 @@ namespace Armada.Test.Unit.Suites.Routes
                     "{\"VesselId\":\"vsl_spoof\",\"Symbol\":\"S\"}", jsonOptions)!;
                 affected.VesselId = urlVesselId;
                 AssertEqual(urlVesselId, affected.VesselId, "AffectedTests request: URL vesselId must override body");
+
+                CodeGraphNodeRequest node = JsonSerializer.Deserialize<CodeGraphNodeRequest>(
+                    "{\"VesselId\":\"vsl_spoof\",\"Symbol\":\"S\"}", jsonOptions)!;
+                node.VesselId = urlVesselId;
+                AssertEqual(urlVesselId, node.VesselId, "Node request: URL vesselId must override body");
+
+                CodeGraphFileStructureRequest files = JsonSerializer.Deserialize<CodeGraphFileStructureRequest>(
+                    "{\"VesselId\":\"vsl_spoof\",\"PathPrefix\":\"src\"}", jsonOptions)!;
+                files.VesselId = urlVesselId;
+                AssertEqual(urlVesselId, files.VesselId, "Files request: URL vesselId must override body");
+
+                CodeGraphExploreRequest explore = JsonSerializer.Deserialize<CodeGraphExploreRequest>(
+                    "{\"VesselId\":\"vsl_spoof\",\"Query\":\"S\"}", jsonOptions)!;
+                explore.VesselId = urlVesselId;
+                AssertEqual(urlVesselId, explore.VesselId, "Explore request: URL vesselId must override body");
             });
 
             await RunTest("Missing body still yields a usable request with URL vesselId", () =>

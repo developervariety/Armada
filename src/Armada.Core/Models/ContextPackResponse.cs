@@ -45,6 +45,11 @@ namespace Armada.Core.Models
         public List<CodeSearchResult> Results { get; set; } = new List<CodeSearchResult>();
 
         /// <summary>
+        /// Distinct files contributed only by graph expansion.
+        /// </summary>
+        public List<string> GraphIncludedFiles { get; set; } = new List<string>();
+
+        /// <summary>
         /// Identifiers of <c>vessel_pack_hints</c> rows that fired during pre-selection (v2-F1).
         /// Empty when no pack hints matched the goal text. Returned as an empty array (not null)
         /// for consistent caller handling.

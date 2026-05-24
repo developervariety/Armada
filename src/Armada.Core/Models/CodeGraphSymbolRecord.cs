@@ -1,5 +1,7 @@
 namespace Armada.Core.Models
 {
+    using System.Collections.Generic;
+
     /// <summary>
     /// A single symbol extracted from a source file during code indexing.
     /// Emitted to the <c>symbols.jsonl</c> sidecar alongside <c>chunks.jsonl</c>.
@@ -54,6 +56,21 @@ namespace Armada.Core.Models
         /// Matches <see cref="CodeIndexRecord.ContentHash"/> for the same file.
         /// </summary>
         public string ContentHash { get; set; } = "";
+
+        /// <summary>
+        /// Detected source language for the symbol when known.
+        /// </summary>
+        public string Language { get; set; } = "";
+
+        /// <summary>
+        /// Recognized framework or platform context, e.g. aspnet, react, express, fastapi, spring.
+        /// </summary>
+        public string Framework { get; set; } = "";
+
+        /// <summary>
+        /// Additional symbol tags used for ranking and diagnostics.
+        /// </summary>
+        public List<string> Tags { get; set; } = new List<string>();
 
         #endregion
     }

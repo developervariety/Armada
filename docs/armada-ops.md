@@ -394,7 +394,7 @@ learned playbook with explicit `disableFromVessels` ripples.
 
 ## Codebase index and context packs
 
-The Admiral-owned per-vessel code index supports hybrid lexical + semantic search, cross-vessel fleet queries, and file-level signatures. The default embedding endpoint is DeepSeek-compatible (`EmbeddingModel = "deepseek-embedding"`), and settings can point the embedding/inference clients at another compatible service. Embeddings live inline with each chunk in `~/.armada/code-index/<vesselId>/chunks.jsonl`. The index is for repo discovery/evidence -- playbooks, vessel `CLAUDE.md`, and project `CLAUDE.md` win on conflict.
+The Admiral-owned per-vessel code index supports hybrid lexical + semantic search, cross-vessel fleet queries, supported-language symbol graph sidecars, graph-aware search boosts, and file-level signatures. The dashboard's **Code Index** page exposes vessel status/update controls plus search, symbol, file, and graph-explore views. The default embedding endpoint is DeepSeek-compatible (`EmbeddingModel = "deepseek-embedding"`), and settings can point the embedding/inference clients at another compatible service. Embeddings live inline with each chunk in `~/.armada/code-index/<vesselId>/chunks.jsonl`; graph sidecars live beside them as `symbols.jsonl` and `edges.jsonl`. The index is for repo discovery/evidence -- playbooks, vessel `CLAUDE.md`, and project `CLAUDE.md` win on conflict.
 
 ### How to use
 
@@ -408,17 +408,29 @@ The Admiral-owned per-vessel code index supports hybrid lexical + semantic searc
 
 - Lexical-only baseline clusters in the 60-200 range.
 - Hybrid (semantic + lexical) lifts conceptually relevant hits into the 300-700+ range.
-- `EmbeddingVector` is redacted from JSON responses (vectors stay on disk).
+- Search records may include `EmbeddingVector` when semantic indexing is enabled; keep `limit` low and prefer context packs for larger evidence transfer until the response-shaping follow-up redacts vectors by default.
 
 Phrase queries by intent (`"seed/key challenge response algorithm"`) rather than single common tokens (`"voyage"` gets swamped by domain noise -- "Voyage" is the orchestrator's dispatch-batch concept and dominates a lexical search).
 
 **`armada_context_pack`** -- build a dispatch-ready markdown briefing for a specific goal. Returns `Markdown`, `MaterializedPath`, and a `prestagedFiles` entry pointing at `_briefing/context-pack.md`. Pass the entry straight into `armada_dispatch` to override the auto pack with a tighter goal. Always list `_briefing/context-pack.md` in the mission's **Reads** section so the captain knows it is authoritative repo evidence.
 
-Context-pack responses include a `metrics` object: `resultCount`, `includedFileCount`, `includedFiles`, `matchedHintCount`, `matchedHintIds`, `graphExpansionUsed`, `warningCount`, `isSummarized`, `prestagedFileCount`, and `estimatedTokens`. Fleet packs aggregate the same shape across vessels and prefix included files with `<vesselId>:`. Use these fields to compare pack breadth and hint usefulness before dispatching; use later pack-curate evidence (`filesReadFromPack`, `filesIgnoredFromPack`, `filesGrepDiscovered`, `filesEdited`) to judge whether the pack actually covered what the captain used.
+Context-pack responses include a `metrics` object: `resultCount`, `includedFileCount`, `includedFiles`, `matchedHintCount`, `matchedHintIds`, `graphExpansionUsed`, `warningCount`, `isSummarized`, `prestagedFileCount`, and `estimatedTokens`. When graph sidecars resolve symbols from the goal or search results, `armada_context_pack` appends a `Symbol Graph Context` section with caller/callee neighborhoods, affected-test candidates, and `graphIncludedFiles`; in that case `graphExpansionUsed` is `true`. Fleet packs aggregate the same metric shape across vessels and prefix included files with `<vesselId>:`. Use these fields to compare pack breadth and hint usefulness before dispatching; use later pack-curate evidence (`filesReadFromPack`, `filesIgnoredFromPack`, `filesGrepDiscovered`, `filesEdited`) to judge whether the pack actually covered what the captain used.
+
+**Graph tools** -- after `armada_index_update`, supported source files are scanned into symbol and edge sidecars. The extractor covers C#, TypeScript/JavaScript, Python, Java/Kotlin, Go, and Rust symbols plus common ASP.NET, Express/router, FastAPI, Spring, and Go HTTP endpoint patterns. Use these when the question is symbol-oriented rather than full-text-oriented:
+
+- `armada_graph_search_symbols` finds symbols by simple or qualified name, with optional `kind` and `pathPrefix` filters.
+- `armada_graph_get_callers` / `armada_graph_get_callees` return direct neighbors for a seed symbol.
+- `armada_graph_get_node` returns resolved symbols, direct callers/callees, and an optional source excerpt for one symbol.
+- `armada_graph_get_files` returns indexed files grouped with their graph symbols.
+- `armada_graph_explore` returns a bounded graph neighborhood grouped by file, including relationships and optional source sections.
+- `armada_graph_get_impact` traverses callers, callees, or both with bounded depth.
+- `armada_graph_suggest_affected_tests` ranks likely test files using graph traversal plus path/name convention fallback.
+
+REST equivalents live under `/api/v1/vessels/{vesselId}/code-index/...`: `status`, `update`, `search`, `search-symbols`, `callers`, `callees`, `node`, `files`, `explore`, `impact`, and `affected-tests`. Graph responses include sidecar freshness warnings; refresh the index when the sidecars are missing, empty, stale, or commit-mismatched. Current scope remains a dependency-free lexical/regex extractor rather than a full AST parser; the extractor handles common endpoint-to-handler edges, simple import aliases, and known local call target qualification, while unsupported languages and complex dynamic call paths still rely on lexical/semantic search.
 
 **Semantic vs lexical activation.** Semantic ranking only kicks in when **both** `CodeIndex.UseSemanticSearch = true` and `CodeIndex.EmbeddingApiKey` are populated in settings. Without both, search silently degrades to lexical-only -- check this first when semantic results look weak.
 
-**Captain-side note.** Captains running inside dock worktrees consume the pre-attached `_briefing/context-pack.md` but do not currently have direct access to `armada_code_search` / `armada_context_pack` MCP tools themselves. Orchestrate pack quality at dispatch time; if a captain reports a thin pack, re-dispatch with `codeContextMode=force` or build a custom pack with a tighter goal.
+**Captain-side note.** Newly provisioned docks are seeded with dock-local Armada MCP config (`.mcp.json` and `.cursor/mcp.json`) that points compatible clients at the local Admiral MCP endpoint. Captains should still start with the pre-attached `_briefing/context-pack.md`; direct `armada_code_search`, `armada_context_pack`, and graph-tool use depends on the captain runtime loading project MCP config and Admiral staying available. Existing docks must be reprovisioned before they receive the generated config.
 
 ### Operator gotchas
 
@@ -428,8 +440,12 @@ These are the operationally-painful lessons encountered in the field. Treat them
 2. **MCP HTTP host: `localhost`, not `127.0.0.1`.** Use `http://localhost:7891`. HTTP.sys URL ACLs are registered only for `localhost`; the loopback IP returns `400 Invalid Hostname`.
 3. **`UseSemanticSearch=false` is a silent-fallback footgun.** Embeddings are generated only when the flag is `true`. If the flag is false, `armada_index_update` writes `chunks.jsonl` with `embeddingVector=null` and burns no API quota -- but search silently drops to lexical-only with no warning. Check the flag first when semantic results look wrong.
 4. **MCP client timeout vs Admin progress.** An MCP client (e.g. Claude Code) can hit its own response timeout on a long `armada_index_update` call and report failure, while the Admin keeps running the indexing job to completion. Don't re-dispatch on timeout -- re-check `armada_index_status` first; the job may already be done.
-5. **Captain dock MCP surface is narrower than the orchestrator's.** `armada_code_search` and `armada_context_pack` are orchestrator-side only; captains read the prestaged pack. Don't ask a captain to "search for X" -- generate the pack with a tighter goal yourself and re-stage.
+5. **Captain dock MCP config is only seeded for new docks.** If a running captain cannot see `armada_code_search`, `armada_context_pack`, or graph tools, check whether the dock predates the seeding change, whether the runtime loads project MCP config, and whether Admiral's MCP endpoint is running on the configured port.
 6. **Stale memory checks are read-only.** Use `armada_check_stale_memory` to inspect accepted reflection anchors for missing files or missing source missions. The same warnings are fed into future vessel reflection briefs so MemoryConsolidator can propose disable/merge/rewrite updates through normal review; the diagnostic itself never edits playbooks or events.
+
+### CodeGraph implementation status
+
+The CodeGraph-inspired implementation is complete for Armada's current indexing/search scope: supported-language sidecars, graph query APIs, graph-expanded context packs, dock-local MCP config seeding, framework endpoint symbols, endpoint-handler and import-alias call edges, known local call target qualification, configurable graph-aware search boosts, vessel-scoped REST code-index routes, and the dashboard Code Index page are all shipped. Future parser swaps should be driven by concrete misses in the feedback log rather than treated as required remaining work.
 
 Notable misses, wins, and miss-class taxonomy live in `project/docs/armada-code-index-feedback.md`. When `armada_code_search` or a context pack misses badly enough to change the workflow, append an entry there per the templates at the top of that doc; captain-sourced feedback (the `[CONTEXT-PACK-FEEDBACK]` block in a final report) is transcribed by the orchestrator into the same log.
 
@@ -457,6 +473,12 @@ All settings live under `CodeIndex` in `~/.armada/settings.json`:
 | `UseFileSignatures` | `false` | boolean | Generate per-file natural-language signatures and embed them for file-level relevance boosting. |
 | `SignatureModel` | `""` | string | Model for signature generation. Falls back to `SummarizerModel` when empty. |
 | `FileSignatureBoostWeight` | `0.2` | 0.0-1.0 | Additive boost applied to chunk scores when a file's signature matches the query. |
+| `UseGraphSearchBoosts` | `true` | boolean | Apply graph-derived additive boosts when fresh sidecars can resolve query or result symbols. |
+| `GraphSeedBoost` | `18.0` | 0.0-100.0 | Boost applied to direct seed-symbol result files. |
+| `GraphNeighborBoost` | `8.0` | 0.0-100.0 | Boost applied to caller/callee neighbor files. |
+| `GraphEndpointBoost` | `12.0` | 0.0-100.0 | Boost applied to framework endpoint symbol files. |
+| `GraphFrameworkBoost` | `10.0` | 0.0-100.0 | Boost applied when framework-derived graph symbols match. |
+| `GraphTagBoost` | `6.0` | 0.0-100.0 | Boost applied to graph tag/path classification matches. |
 
 Each weight is clamped to 0.0-1.0 individually at config-load; weights are not renormalized at runtime, so the blended score magnitude scales with their sum.
 
@@ -547,7 +569,13 @@ Performance note: signature generation costs one inference call plus one embeddi
     "maxSummaryOutputTokens": 2048,
     "useFileSignatures": true,
     "signatureModel": "",
-    "fileSignatureBoostWeight": 0.2
+    "fileSignatureBoostWeight": 0.2,
+    "useGraphSearchBoosts": true,
+    "graphSeedBoost": 18.0,
+    "graphNeighborBoost": 8.0,
+    "graphEndpointBoost": 12.0,
+    "graphFrameworkBoost": 10.0,
+    "graphTagBoost": 6.0
   }
 }
 ```

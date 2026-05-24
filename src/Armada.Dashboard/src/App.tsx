@@ -12,6 +12,7 @@ import './App.css';
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Fleets = lazy(() => import('./pages/Fleets'));
 const Vessels = lazy(() => import('./pages/Vessels'));
+const CodeIndex = lazy(() => import('./pages/CodeIndex'));
 const Captains = lazy(() => import('./pages/Captains'));
 const Missions = lazy(() => import('./pages/Missions'));
 const Voyages = lazy(() => import('./pages/Voyages'));
@@ -101,6 +102,7 @@ export default function App() {
                       <Route path="fleets/:id" element={<FleetDetail />} />
 
                       <Route path="vessels" element={<Vessels />} />
+                      <Route path="code-index" element={<CodeIndex />} />
                       <Route path="vessels/:id" element={<VesselDetail />} />
                       <Route path="vessels/:id/onboarding" element={<VesselOnboarding />} />
                       <Route path="workspace" element={<Workspace />} />

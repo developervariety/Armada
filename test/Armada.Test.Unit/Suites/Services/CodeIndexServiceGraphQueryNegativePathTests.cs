@@ -1080,6 +1080,135 @@ namespace Armada.Test.Unit.Suites.Services
                     TryDeleteDirectory(dataRoot);
                 }
             });
+
+            await RunTest("GetNodeAsync_ReturnsNeighborsAndSourceExcerpt", async () =>
+            {
+                string dataRoot = NewTempDirectory("armada-code-graph-node-source-");
+                try
+                {
+                    using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        ArmadaSettings settings = BuildSettings(dataRoot);
+                        Vessel vessel = await CreateFixtureVesselAsync(db).ConfigureAwait(false);
+                        WriteGraphFixture(settings, vessel, freshness: "Fresh", includeGraphFiles: true, includeExplicitTest: true);
+
+                        CodeIndexService service = CreateService(db, settings);
+                        CodeGraphNodeResponse response = await service.GetNodeAsync(new CodeGraphNodeRequest
+                        {
+                            VesselId = vessel.Id,
+                            Symbol = "Armada.App.Service.Execute",
+                            IncludeSource = true,
+                            SourcePadding = 1
+                        }).ConfigureAwait(false);
+
+                        AssertTrue(response.ResolvedSymbols.Count > 0, "node should resolve at least one symbol");
+                        AssertTrue(response.Callers.Count > 0, "node should include direct callers");
+                        AssertTrue(response.Callees.Count > 0, "node should include direct callees");
+                        AssertNotNull(response.Source);
+                        AssertContains("Execute", response.Source!.Content);
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("ExploreAsync_GroupsSymbolsByFileAndReturnsRelationships", async () =>
+            {
+                string dataRoot = NewTempDirectory("armada-code-graph-explore-");
+                try
+                {
+                    using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        ArmadaSettings settings = BuildSettings(dataRoot);
+                        Vessel vessel = await CreateFixtureVesselAsync(db).ConfigureAwait(false);
+                        WriteGraphFixture(settings, vessel, freshness: "Fresh", includeGraphFiles: true, includeExplicitTest: true);
+
+                        CodeIndexService service = CreateService(db, settings);
+                        CodeGraphExploreResponse response = await service.ExploreAsync(new CodeGraphExploreRequest
+                        {
+                            VesselId = vessel.Id,
+                            Query = "Execute",
+                            MaxDepth = 2,
+                            MaxResults = 10,
+                            IncludeSource = true
+                        }).ConfigureAwait(false);
+
+                        AssertTrue(response.Files.Count > 0, "explore should return grouped files");
+                        AssertTrue(response.Relationships.Count > 0, "explore should return relationship edges");
+                        AssertTrue(response.Files.Any(f => f.SourceSections.Count > 0), "explore should include source sections");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("GetFileStructureAsync_ReturnsGroupedSymbols", async () =>
+            {
+                string dataRoot = NewTempDirectory("armada-code-graph-files-");
+                try
+                {
+                    using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        ArmadaSettings settings = BuildSettings(dataRoot);
+                        Vessel vessel = await CreateFixtureVesselAsync(db).ConfigureAwait(false);
+                        WriteGraphFixture(settings, vessel, freshness: "Fresh", includeGraphFiles: true, includeExplicitTest: true);
+
+                        CodeIndexService service = CreateService(db, settings);
+                        CodeGraphFileStructureResponse response = await service.GetFileStructureAsync(new CodeGraphFileStructureRequest
+                        {
+                            VesselId = vessel.Id,
+                            PathPrefix = "src/",
+                            IncludeSymbols = true,
+                            Limit = 10
+                        }).ConfigureAwait(false);
+
+                        CodeGraphFileStructureEntry serviceFile = response.Files.First(f => f.Path == "src/Service.cs");
+                        AssertTrue(serviceFile.SymbolCount >= 2, "file structure should group symbols by indexed file");
+                        AssertTrue(serviceFile.Symbols.Any(s => s.QualifiedName == "Armada.App.Service.Execute"),
+                            "file structure should include symbols when requested");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("BuildContextPackAsync_UsesGraphExpansionWhenSidecarsResolveSeeds", async () =>
+            {
+                string dataRoot = NewTempDirectory("armada-code-graph-context-pack-");
+                try
+                {
+                    using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        ArmadaSettings settings = BuildSettings(dataRoot);
+                        Vessel vessel = await CreateFixtureVesselAsync(db).ConfigureAwait(false);
+                        WriteGraphFixture(settings, vessel, freshness: "Fresh", includeGraphFiles: true, includeExplicitTest: true);
+
+                        CodeIndexService service = CreateService(db, settings);
+                        ContextPackResponse response = await service.BuildContextPackAsync(new ContextPackRequest
+                        {
+                            VesselId = vessel.Id,
+                            Goal = "Change Execute behavior",
+                            TokenBudget = 4000,
+                            MaxResults = 4
+                        }).ConfigureAwait(false);
+
+                        AssertTrue(response.Metrics.GraphExpansionUsed, "context pack should report graph expansion");
+                        AssertContains("## Symbol Graph Context", response.Markdown);
+                        AssertTrue(response.Metrics.IncludedFiles.Any(f => f.Contains("Worker", StringComparison.OrdinalIgnoreCase)),
+                            "graph expansion should contribute related files to metrics");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
         }
 
         #endregion
@@ -1166,6 +1295,83 @@ namespace Armada.Test.Unit.Suites.Services
                 return;
             }
 
+            List<CodeIndexRecord> records = new List<CodeIndexRecord>
+            {
+                new CodeIndexRecord
+                {
+                    VesselId = vessel.Id,
+                    Path = "src/Service.cs",
+                    CommitSha = "deadbeef",
+                    ContentHash = "h1",
+                    Language = "csharp",
+                    StartLine = 1,
+                    EndLine = 35,
+                    Content = BuildSourceWithLines(35, new Dictionary<int, string>
+                    {
+                        [1] = "namespace Armada.App;",
+                        [2] = "public class Service",
+                        [3] = "{",
+                        [10] = "    public void Execute()",
+                        [11] = "    {",
+                        [12] = "        var worker = new Worker();",
+                        [13] = "        worker.Run();",
+                        [14] = "    }",
+                        [18] = "    public void Orchestrate()",
+                        [19] = "    {",
+                        [20] = "        new WorkerSpec().Run_should_dispatch();",
+                        [21] = "    }",
+                        [35] = "}"
+                    })
+                },
+                new CodeIndexRecord
+                {
+                    VesselId = vessel.Id,
+                    Path = "src/Worker.cs",
+                    CommitSha = "deadbeef",
+                    ContentHash = "h2",
+                    Language = "csharp",
+                    StartLine = 1,
+                    EndLine = 25,
+                    Content = BuildSourceWithLines(25, new Dictionary<int, string>
+                    {
+                        [1] = "namespace Armada.App;",
+                        [2] = "public class Worker",
+                        [3] = "{",
+                        [4] = "    public void Run()",
+                        [5] = "    {",
+                        [7] = "        Helper();",
+                        [10] = "    }",
+                        [12] = "    public void Helper()",
+                        [13] = "    {",
+                        [14] = "        new Service().Execute();",
+                        [15] = "        new WorkerSpec();",
+                        [20] = "    }",
+                        [25] = "}"
+                    })
+                },
+                new CodeIndexRecord
+                {
+                    VesselId = vessel.Id,
+                    Path = "test/WorkerTests.cs",
+                    CommitSha = "deadbeef",
+                    ContentHash = "h5",
+                    Language = "csharp",
+                    StartLine = 1,
+                    EndLine = 25,
+                    Content = BuildSourceWithLines(25, new Dictionary<int, string>
+                    {
+                        [1] = "namespace Armada.Tests;",
+                        [2] = "public class WorkerTests",
+                        [3] = "{",
+                        [11] = "    public void Run_should_dispatch()",
+                        [12] = "    {",
+                        [14] = "        new Armada.App.Service().Execute();",
+                        [25] = "}"
+                    })
+                }
+            };
+            WriteJsonl(Path.Combine(indexDir, "chunks.jsonl"), records);
+
             List<CodeGraphSymbolRecord> symbols = new List<CodeGraphSymbolRecord>
             {
                 new CodeGraphSymbolRecord { VesselId = vessel.Id, CommitSha = sidecarCommitSha, Path = "src/Service.cs", Kind = CodeGraphSymbolKindEnum.Method, SimpleName = "Execute", QualifiedName = "Armada.App.Service.Execute", StartLine = 10, EndLine = 15, ContentHash = "h1" },
@@ -1218,6 +1424,16 @@ namespace Armada.Test.Unit.Suites.Services
 
             WriteJsonl(Path.Combine(indexDir, "symbols.jsonl"), symbols);
             WriteJsonl(Path.Combine(indexDir, "edges.jsonl"), edges);
+        }
+
+        private static string BuildSourceWithLines(int lineCount, Dictionary<int, string> linesByNumber)
+        {
+            List<string> lines = new List<string>();
+            for (int i = 1; i <= lineCount; i++)
+            {
+                lines.Add(linesByNumber.TryGetValue(i, out string? line) ? line : "");
+            }
+            return String.Join("\n", lines);
         }
 
         private static void WriteConventionOnlyFixture(ArmadaSettings settings, Vessel vessel)

@@ -238,6 +238,81 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Whether search ranking should use graph sidecar matches as additional evidence.
+        /// </summary>
+        public bool UseGraphSearchBoosts { get; set; } = true;
+
+        /// <summary>
+        /// Score boost applied to files containing symbols that directly match the query.
+        /// </summary>
+        public double GraphSeedBoost
+        {
+            get => _GraphSeedBoost;
+            set
+            {
+                if (value < 0.0) value = 0.0;
+                if (value > 100.0) value = 100.0;
+                _GraphSeedBoost = value;
+            }
+        }
+
+        /// <summary>
+        /// Score boost applied to direct caller/callee files for matched query symbols.
+        /// </summary>
+        public double GraphNeighborBoost
+        {
+            get => _GraphNeighborBoost;
+            set
+            {
+                if (value < 0.0) value = 0.0;
+                if (value > 100.0) value = 100.0;
+                _GraphNeighborBoost = value;
+            }
+        }
+
+        /// <summary>
+        /// Additional score boost for endpoint/route symbols.
+        /// </summary>
+        public double GraphEndpointBoost
+        {
+            get => _GraphEndpointBoost;
+            set
+            {
+                if (value < 0.0) value = 0.0;
+                if (value > 100.0) value = 100.0;
+                _GraphEndpointBoost = value;
+            }
+        }
+
+        /// <summary>
+        /// Score boost applied when a query names a detected framework.
+        /// </summary>
+        public double GraphFrameworkBoost
+        {
+            get => _GraphFrameworkBoost;
+            set
+            {
+                if (value < 0.0) value = 0.0;
+                if (value > 100.0) value = 100.0;
+                _GraphFrameworkBoost = value;
+            }
+        }
+
+        /// <summary>
+        /// Score boost applied when a query names a graph symbol tag.
+        /// </summary>
+        public double GraphTagBoost
+        {
+            get => _GraphTagBoost;
+            set
+            {
+                if (value < 0.0) value = 0.0;
+                if (value > 100.0) value = 100.0;
+                _GraphTagBoost = value;
+            }
+        }
+
+        /// <summary>
         /// Directory names excluded from indexing.
         /// </summary>
         public List<string> ExcludedDirectoryNames { get; set; } = new List<string>
@@ -360,6 +435,11 @@ namespace Armada.Core.Settings
         private int _MaxSummaryOutputTokens = 2048;
         private string _SignatureModel = string.Empty;
         private double _FileSignatureBoostWeight = 0.2;
+        private double _GraphSeedBoost = 18.0;
+        private double _GraphNeighborBoost = 8.0;
+        private double _GraphEndpointBoost = 12.0;
+        private double _GraphFrameworkBoost = 10.0;
+        private double _GraphTagBoost = 6.0;
 
         #endregion
     }
