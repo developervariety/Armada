@@ -216,6 +216,9 @@ namespace Armada.Core.Services
                 if (dependency == null)
                 {
                     _Logging.Warn(_Header + "mission " + mission.Id + " depends on " + mission.DependsOnMissionId + " which was not found -- skipping assignment");
+                    mission.AssignmentState = MissionAssignmentStateEnum.WaitingForDependency;
+                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                    _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState);
                     return false;
                 }
 
@@ -231,6 +234,9 @@ namespace Armada.Core.Services
                     // dependents per the breaking-change PR-fallback design: the captain
                     // branch is finalized + push at PR-open time, so downstreams can
                     // continue chaining off it without waiting for the PR to merge.
+                    mission.AssignmentState = MissionAssignmentStateEnum.WaitingForDependency;
+                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                    _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState);
                     return false;
                 }
 
@@ -243,6 +249,9 @@ namespace Armada.Core.Services
                 {
                     _Logging.Info(_Header + "mission " + mission.Id + " depends on " + dependency.Id +
                         " on a different vessel (" + dependency.VesselId + ") which is still WorkProduced -- waiting for Complete before assigning");
+                    mission.AssignmentState = MissionAssignmentStateEnum.WaitingForDependency;
+                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                    _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState);
                     return false;
                 }
 
@@ -255,6 +264,9 @@ namespace Armada.Core.Services
                 {
                     _Logging.Info(_Header + "mission " + mission.Id + " depends on " + dependency.Id +
                         " which is WorkProduced, but handoff is not prepared yet -- deferring assignment");
+                    mission.AssignmentState = MissionAssignmentStateEnum.WaitingForDependency;
+                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                    _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState);
                     return false;
                 }
             }
@@ -263,6 +275,9 @@ namespace Armada.Core.Services
             {
                 _Logging.Info(_Header + "mission " + mission.Id +
                     " is architect-marked as sequential after implementation work -- deferring assignment");
+                mission.AssignmentState = MissionAssignmentStateEnum.WaitingForDependency;
+                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState);
                 return false;
             }
 
@@ -275,6 +290,9 @@ namespace Armada.Core.Services
             if (broadMissions.Count > 0)
             {
                 _Logging.Warn(_Header + "vessel " + vessel.Id + " has a broad-scope mission in progress -- deferring assignment of " + mission.Id);
+                mission.AssignmentState = MissionAssignmentStateEnum.WaitingForVesselMutex;
+                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState);
                 return false;
             }
 
@@ -285,6 +303,9 @@ namespace Armada.Core.Services
             if (IsBroadScope(mission) && concurrentCount > 0)
             {
                 _Logging.Warn(_Header + "broad-scope mission " + mission.Id + " deferred -- vessel " + vessel.Id + " has " + concurrentCount + " active mission(s)");
+                mission.AssignmentState = MissionAssignmentStateEnum.WaitingForVesselMutex;
+                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState);
                 return false;
             }
 
@@ -292,6 +313,9 @@ namespace Armada.Core.Services
             if (!vessel.AllowConcurrentMissions && concurrentCount > 0)
             {
                 _Logging.Info(_Header + "vessel " + vessel.Id + " already has " + concurrentCount + " active mission(s); deferring " + mission.Id + " (AllowConcurrentMissions=false)");
+                mission.AssignmentState = MissionAssignmentStateEnum.WaitingForVesselMutex;
+                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState);
                 return false;
             }
 
@@ -309,6 +333,9 @@ namespace Armada.Core.Services
                 _Logging.Warn(_Header + "no idle captains available for mission " + mission.Id +
                     (mission.Persona != null ? " (persona: " + mission.Persona + ")" : "") +
                     (!String.IsNullOrEmpty(mission.PreferredModel) ? " (preferredModel: " + mission.PreferredModel + ")" : ""));
+                mission.AssignmentState = MissionAssignmentStateEnum.WaitingForIdleCaptain;
+                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState);
                 return false;
             }
 
@@ -325,8 +352,10 @@ namespace Armada.Core.Services
             mission.BranchName = branchName;
             mission.CaptainId = captain.Id;
             mission.Status = MissionStatusEnum.Assigned;
+            mission.AssignmentState = MissionAssignmentStateEnum.Provisioning;
             mission.LastUpdateUtc = DateTime.UtcNow;
             await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+            _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState);
 
             // Provision dock (worktree) and launch agent
             Dock? dock;
@@ -339,7 +368,8 @@ namespace Armada.Core.Services
             {
                 _Logging.Warn(_Header + "dock provisioning threw for mission " + mission.Id + " vessel " + vessel.Id + " captain " + captain.Id + ": " + ex.Message);
 
-                // Revert mission to Pending
+                // Revert mission to Pending; mark assignment as Failed for operator visibility
+                mission.AssignmentState = MissionAssignmentStateEnum.Failed;
                 mission.Status = MissionStatusEnum.Pending;
                 mission.CaptainId = null;
                 if (!preserveInheritedBranch)
@@ -348,6 +378,7 @@ namespace Armada.Core.Services
                 mission.DockId = null;
                 mission.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState);
 
                 // Release captain back to Idle
                 await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
@@ -357,8 +388,9 @@ namespace Armada.Core.Services
 
             if (dock == null)
             {
-                // Provisioning failed — revert mission assignment
-                _Logging.Warn(_Header + "dock provisioning failed for captain " + captain.Id + " vessel " + vessel.Id + " mission " + mission.Id + " — reverting to Pending");
+                // Provisioning failed — revert mission assignment; mark as Failed for operator visibility
+                _Logging.Warn(_Header + "dock provisioning failed for captain " + captain.Id + " vessel " + vessel.Id + " mission " + mission.Id + " -- reverting to Pending");
+                mission.AssignmentState = MissionAssignmentStateEnum.Failed;
                 mission.Status = MissionStatusEnum.Pending;
                 mission.CaptainId = null;
                 if (!preserveInheritedBranch)
@@ -366,6 +398,7 @@ namespace Armada.Core.Services
                 mission.DockId = null;
                 mission.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState);
                 return false;
             }
 
@@ -455,9 +488,11 @@ namespace Armada.Core.Services
 
                     mission.ProcessId = processId;
                     mission.Status = MissionStatusEnum.InProgress;
+                    mission.AssignmentState = MissionAssignmentStateEnum.Assigned;
                     mission.StartedUtc = DateTime.UtcNow;
                     mission.LastUpdateUtc = DateTime.UtcNow;
                     await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                    _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState);
 
                     _Logging.Info(_Header + "launched agent process " + processId + " for captain " + captain.Id);
                 }
@@ -468,7 +503,8 @@ namespace Armada.Core.Services
                     // Rollback captain state — release back to idle so it can accept future work
                     await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
 
-                    // Rollback mission state — revert to Pending for re-dispatch
+                    // Rollback mission state — revert to Pending for re-dispatch; mark Failed for operator visibility
+                    mission.AssignmentState = MissionAssignmentStateEnum.Failed;
                     mission.Status = MissionStatusEnum.Pending;
                     mission.CaptainId = null;
                     mission.BranchName = null;
@@ -477,6 +513,7 @@ namespace Armada.Core.Services
                     mission.StartedUtc = null;
                     mission.LastUpdateUtc = DateTime.UtcNow;
                     await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                    _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState);
 
                     try
                     {
