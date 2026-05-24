@@ -394,7 +394,7 @@ learned playbook with explicit `disableFromVessels` ripples.
 
 ## Codebase index and context packs
 
-The Admiral-owned per-vessel code index supports hybrid lexical + semantic search (Voyage AI `voyage-code-3` embeddings, 1024-dim), cross-vessel fleet queries, and file-level signatures. Embeddings live inline with each chunk in `~/.armada/code-index/<vesselId>/chunks.jsonl`. The index is for repo discovery/evidence -- playbooks, vessel `CLAUDE.md`, and project `CLAUDE.md` win on conflict.
+The Admiral-owned per-vessel code index supports hybrid lexical + semantic search, cross-vessel fleet queries, and file-level signatures. The default embedding endpoint is DeepSeek-compatible (`EmbeddingModel = "deepseek-embedding"`), and settings can point the embedding/inference clients at another compatible service. Embeddings live inline with each chunk in `~/.armada/code-index/<vesselId>/chunks.jsonl`. The index is for repo discovery/evidence -- playbooks, vessel `CLAUDE.md`, and project `CLAUDE.md` win on conflict.
 
 ### How to use
 
