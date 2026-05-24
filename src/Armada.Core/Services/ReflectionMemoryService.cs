@@ -391,6 +391,9 @@ namespace Armada.Core.Services
                 tokensBefore = metrics.TokensBefore,
                 tokensAfter = metrics.TokensAfter,
                 judgeVerdicts = outcome.JudgeVerdicts,
+                anchorSourceMissionCount = anchors.SourceMissionIds.Count,
+                anchorFilePathCount = anchors.FilePaths.Count,
+                anchorSymbolCount = anchors.SymbolNames.Count,
                 anchors = new
                 {
                     sourceMissionIds = anchors.SourceMissionIds,

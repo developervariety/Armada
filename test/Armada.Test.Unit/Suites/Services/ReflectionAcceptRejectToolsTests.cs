@@ -305,6 +305,9 @@ namespace Armada.Test.Unit.Suites.Services
                     {
                         int length = payloadDoc.RootElement.GetProperty("appliedContentLength").GetInt32();
                         AssertTrue(length > 0, "appliedContentLength should be positive for non-empty apply");
+                        AssertTrue(payloadDoc.RootElement.GetProperty("anchorSourceMissionCount").GetInt32() >= 1, "Anchor source mission count should be recorded");
+                        AssertEqual(0, payloadDoc.RootElement.GetProperty("anchorFilePathCount").GetInt32(), "No file anchors expected in this fixture");
+                        AssertEqual(0, payloadDoc.RootElement.GetProperty("anchorSymbolCount").GetInt32(), "No symbol anchors expected in this fixture");
                     }
                 }
             });

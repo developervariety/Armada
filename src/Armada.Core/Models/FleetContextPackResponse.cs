@@ -54,6 +54,11 @@ namespace Armada.Core.Models
         /// </summary>
         public List<string> Warnings { get; set; } = new List<string>();
 
+        /// <summary>
+        /// Operator-facing quality metrics aggregated across the per-vessel packs.
+        /// </summary>
+        public ContextPackMetrics Metrics { get; set; } = new ContextPackMetrics();
+
         #endregion
     }
 }

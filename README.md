@@ -211,7 +211,7 @@ A by-category inventory of what Armada actually ships. Each feature is implement
 - **Voyage->mission propagation.** Voyage-level `selectedPlaybooks` plus per-mission `selectedPlaybooks` merge before persisting the per-mission snapshot. Standard, pipeline-expansion, and alias-aware multi-stage dispatch paths all merge and snapshot consistently -- including downstream pipeline stages.
 - **Three delivery modes.** `InlineFullContent` (template substitution), `InstructionWithReference` (path reference), `AttachIntoWorktree` (file copy into dock).
 - **Materialization snapshot.** Mission persists a frozen `PlaybookSnapshots` copy at dispatch so mid-flight playbook edits don't change what the captain sees.
-- **Code-index context packs.** Use `armada_context_pack` or `armada_fleet_context_pack` to inject targeted repository discovery snippets, ranked file excerpts, freshness metadata, and optional summaries as a `prestagedFiles` entry alongside the captain brief. Context packs are a focused supplement to existing playbook guidance, not a replacement for it.
+- **Code-index context packs.** Use `armada_context_pack` or `armada_fleet_context_pack` to inject targeted repository discovery snippets, ranked file excerpts, freshness metadata, optional summaries, and additive quality metrics (`resultCount`, `includedFiles`, `matchedHintIds`, warnings, summarization, and prestaged-file counts) as a `prestagedFiles` entry alongside the captain brief. Context packs are a focused supplement to existing playbook guidance, not a replacement for it.
 
 ### Reflections (Memory Consolidation Pipeline)
 

@@ -520,6 +520,7 @@ namespace Armada.Core.Services
                 response.MatchedHintIds.Add(h.Id);
             foreach (string w in warnings)
                 response.Warnings.Add(w);
+            response.Metrics = BuildContextPackMetrics(response, graphExpansionUsed: false, vesselCount: 1);
             return response;
         }
 
@@ -548,6 +549,10 @@ namespace Armada.Core.Services
             builder.AppendLine("This is repo discovery evidence from Armada's code index across fleet vessels. Playbooks, vessel CLAUDE.md, and project CLAUDE.md rules win on conflict.");
 
             List<string> warnings = new List<string>();
+            List<string> includedFiles = new List<string>();
+            List<string> matchedHintIds = new List<string>();
+            int resultCount = 0;
+            bool graphExpansionUsed = false;
             foreach (Vessel vessel in vessels)
             {
                 try
@@ -566,6 +571,16 @@ namespace Armada.Core.Services
                     builder.AppendLine();
                     builder.AppendLine(vesselPack.Markdown.Trim());
 
+                    resultCount += vesselPack.Metrics.ResultCount;
+                    graphExpansionUsed = graphExpansionUsed || vesselPack.Metrics.GraphExpansionUsed;
+                    foreach (string file in vesselPack.Metrics.IncludedFiles)
+                    {
+                        includedFiles.Add(vessel.Id + ":" + file);
+                    }
+                    foreach (string hintId in vesselPack.Metrics.MatchedHintIds)
+                    {
+                        matchedHintIds.Add(hintId);
+                    }
                     foreach (string warning in vesselPack.Warnings)
                     {
                         warnings.Add("vessel " + vessel.Id + " (" + vessel.Name + "): " + warning);
@@ -620,6 +635,20 @@ namespace Armada.Core.Services
                 Warnings = warnings
             };
             response.PrestagedFiles.Add(new PrestagedFile(materializedPath, "_briefing/context-pack.md"));
+            response.Metrics = new ContextPackMetrics
+            {
+                ResultCount = resultCount,
+                IncludedFileCount = includedFiles.Distinct(StringComparer.OrdinalIgnoreCase).Count(),
+                IncludedFiles = includedFiles.Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(p => p, StringComparer.OrdinalIgnoreCase).ToList(),
+                MatchedHintCount = matchedHintIds.Distinct(StringComparer.OrdinalIgnoreCase).Count(),
+                MatchedHintIds = matchedHintIds.Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(id => id, StringComparer.OrdinalIgnoreCase).ToList(),
+                GraphExpansionUsed = graphExpansionUsed,
+                WarningCount = warnings.Count,
+                IsSummarized = isSummarized,
+                PrestagedFileCount = response.PrestagedFiles.Count,
+                EstimatedTokens = response.EstimatedTokens,
+                VesselCount = vessels.Count
+            };
             return response;
         }
 
@@ -2094,6 +2123,34 @@ namespace Armada.Core.Services
             }
 
             return builder.ToString().TrimEnd() + "\n";
+        }
+
+        private static ContextPackMetrics BuildContextPackMetrics(ContextPackResponse response, bool graphExpansionUsed, int vesselCount)
+        {
+            List<string> includedFiles = response.Results
+                .Select(r => r.Record?.Path ?? "")
+                .Where(p => !String.IsNullOrWhiteSpace(p))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            return new ContextPackMetrics
+            {
+                ResultCount = response.Results.Count,
+                IncludedFileCount = includedFiles.Count,
+                IncludedFiles = includedFiles,
+                MatchedHintCount = response.MatchedHintIds.Count,
+                MatchedHintIds = response.MatchedHintIds
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
+                    .ToList(),
+                GraphExpansionUsed = graphExpansionUsed,
+                WarningCount = response.Warnings.Count,
+                IsSummarized = response.IsSummarized,
+                PrestagedFileCount = response.PrestagedFiles.Count,
+                EstimatedTokens = response.EstimatedTokens,
+                VesselCount = vesselCount
+            };
         }
 
         private async Task<string> WriteContextPackAsync(string vesselId, string markdown, CancellationToken token)

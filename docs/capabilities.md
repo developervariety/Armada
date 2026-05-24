@@ -265,6 +265,11 @@ response includes a `dual_judge_fan_out_starvation_risk` warning string.
 text), applies hard `mustInclude` and `mustExclude` before lexical
 ranking, and returns `matchedHintIds` + `warnings` in the response.
 Empty `vessel_pack_hints` table preserves prior behavior.
+Context-pack responses also include additive quality metrics (`resultCount`,
+`includedFileCount`, `includedFiles`, `matchedHintCount`, `matchedHintIds`,
+`graphExpansionUsed`, `warningCount`, `isSummarized`, `prestagedFileCount`,
+`estimatedTokens`) so operators can inspect pack breadth and hint activation
+without parsing markdown.
 
 Conflict resolution: higher priority wins; equal priority => exclude wins.
 

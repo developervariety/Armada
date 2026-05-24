@@ -187,6 +187,12 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertTrue(File.Exists(response.MaterializedPath), "Combined context pack should be materialized");
                         AssertEqual(1, response.PrestagedFiles.Count);
                         AssertEqual("_briefing/context-pack.md", response.PrestagedFiles[0].DestPath);
+                        AssertEqual(2, response.Metrics.VesselCount, "Metrics should count vessels considered");
+                        AssertEqual(2, response.Metrics.ResultCount, "Metrics should aggregate per-vessel result counts");
+                        AssertEqual(2, response.Metrics.IncludedFileCount, "Metrics should count distinct included fleet files");
+                        AssertTrue(response.Metrics.IncludedFiles.Contains(vesselA.Id + ":src/a.cs"), "Metrics should include vessel A file");
+                        AssertTrue(response.Metrics.IncludedFiles.Contains(vesselB.Id + ":src/b.cs"), "Metrics should include vessel B file");
+                        AssertEqual(1, response.Metrics.PrestagedFileCount, "Metrics should count returned fleet prestaged file");
                     }
                 }
                 finally

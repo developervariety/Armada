@@ -140,6 +140,13 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertEqual(response.MaterializedPath, response.PrestagedFiles[0].SourcePath);
                         AssertEqual("_briefing/context-pack.md", response.PrestagedFiles[0].DestPath);
                         AssertTrue(response.EstimatedTokens > 0, "Estimated tokens should be set");
+                        AssertTrue(response.Metrics.ResultCount > 0, "Metrics should include result count");
+                        AssertEqual(1, response.Metrics.IncludedFileCount, "Metrics should count distinct included files");
+                        AssertTrue(response.Metrics.IncludedFiles.Contains("src/CodeIndexTarget.cs"), "Metrics should list included file paths");
+                        AssertEqual(0, response.Metrics.MatchedHintCount, "No pack hints should match in this fixture");
+                        AssertFalse(response.Metrics.GraphExpansionUsed, "Context pack should report no graph expansion when none is used");
+                        AssertEqual(1, response.Metrics.PrestagedFileCount, "Metrics should count prestaged file entries");
+                        AssertEqual(response.EstimatedTokens, response.Metrics.EstimatedTokens, "Metrics should mirror estimated tokens");
                     }
                 }
                 finally
