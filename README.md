@@ -69,7 +69,7 @@ Everything else in Armada exists to support that: isolated worktrees, parallel d
 
 ## Fork features vs upstream
 
-Last upstream sync: `9fcfe995` (20 upstream commits absorbed) on 2026-05-15.
+Last upstream sync: `e9e3021f` (21 upstream commits absorbed) on 2026-05-24.
 
 This fork (`developervariety/Armada`) is based on `jchristn/Armada` and keeps upstream's v0.8.0 delivery-management work while adding orchestration features for multi-vessel, multi-runtime dispatch with auto-recovery, reflection memory, and human-review gating.
 
@@ -93,7 +93,7 @@ This fork (`developervariety/Armada`) is based on `jchristn/Armada` and keeps up
 - **Mission/dashboard/MCP memory hardening.** Mission stdout/stderr buffers are capped, planning-session live output is tail-bounded, status/progress APIs use grouped counts instead of hydrating all mission rows, mission list and MCP enumerate/status paths project lightweight summaries that omit `description`, `diff_snapshot`, and `agent_output`, and the embedded dashboard coalesces refreshes while avoiding background merge-queue enrichment outside the merge view. This fixes the observed Admiral memory growth and browser out-of-memory failure when many missions or planning turns carry large logs/output. (`0fe4411c`, `22869d01`, `c6b8ffe1`, `7cf460e9`)
 
 - **Alias-dispatch playbook snapshot fix.** Downstream pipeline stages in alias-aware multi-stage dispatch now persist `MissionPlaybookSnapshot` rows the same way the first stage does. Previously, Judge and subsequent stages had no snapshots, so playbook content was missing from the rendered captain brief. Also clarifies the merge hierarchy (vessel defaults < voyage `selectedPlaybooks` < per-mission `selectedPlaybooks`) in docs and duplicate-prevention behavior in code and docs.
-- **Tracked default `docker/server/armada.json`.** A default server config template is now committed at `docker/server/armada.json` and included via `.gitignore` whitelist so fresh clones work with `docker compose up -d` without manually creating the file. Factory reset scripts already preserved `armada.json`; the `.gitignore` now explicitly allows it. (partial port of `28d0f846`)
+- **Tracked default `docker/armada/armada.json`.** A default server config template is committed with the Armada Docker compose stack so fresh clones work from `docker/armada` without manually creating the file. Factory reset scripts preserve `armada.json` while clearing local database and log state.
 - **Reflections memory pipeline.** Post-mission reflection system for vessel, pack, persona, captain, and fleet learned playbooks. Armada can auto-dispatch a `MemoryConsolidator` after enough completed missions, reorganize stale learned memory with dual-Judge validation, mine frequently referenced context packs into structured pack hints, consolidate persona/captain behavior anchors, and promote cross-vessel fleet hints with fan-out and anti-thrash controls. Accepted proposals emit quality metrics on `reflection.accepted` events so operators can inspect growth, removals, merges, evidence confidence, and Judge verdicts. Schemas v40-v47. (`30855c67`, `7266a77a`, `6f2f01ff`, `aacd963c`, `98e2c739`, `f4000735`, `a6d9126c`, `56063c33`, `86e5efbf`, `465a687a`, `dffd0bb9`, `1f760248`, `b75053b0`, `de0b3567`, `9c223800`, `29ccadd4`, `cc2067ad`, `7286cf22`, `c43c35b2`, `ab96624d`, `5b45b421`, `7566191f`, `ecec69f4`, `3a4775ee`, `4ba68598`, `0b90da99`, `a865e366`, `1bec855f`, `b3188c23`, `9096c102`, `0f816b50`, `0b94a1d0`, `0bfa999a`, `eb7c5f86`, `38c20f0f`, `bace72d7`, `eec40778`)
 - **Parallel pipeline stages.** Schema v42 allows same-order pipeline stages to dispatch as parallel siblings instead of sequentially. `AdmiralService` groups stages by `Order` when expanding a pipeline into missions. (`5e2a993f`)
 - **Hybrid code index, graph sidecars, fleet retrieval, and context-pack compression.** `DeepSeekEmbeddingClient` (implements `IEmbeddingClient`) and `DeepSeekInferenceClient` (implements `IInferenceClient`) wire into `CodeIndexService` for hybrid embedding+lexical search. `CodeIndexSettings.UseSemanticSearch` (default `false`) activates semantic score blending with configurable `SemanticWeight`/`LexicalWeight`; `armada_fleet_code_search` and `armada_fleet_context_pack` merge evidence across a fleet. Index refreshes also emit supported-language symbol graph sidecars (`symbols.jsonl`, `edges.jsonl`) used by graph search, caller/callee, bounded impact, and affected-test tools. The graph extractor covers C#, TypeScript/JavaScript, Python, Java/Kotlin, Go, and Rust symbols, common framework route endpoints, endpoint-handler and import-alias call edges, known local call target qualification, and configurable graph-aware ranking boosts. The dashboard Code Index page exposes status/update, search, symbol, file, and graph-explore views. Optional summarization (`UseSummarizer`), file signatures (`UseFileSignatures`), and OpenCode Server inference can compress context packs and boost file-level relevance while keeping lexical-only search as the default fallback. (`d242cc7b`, `c2ec68f1`, `86724a1d`, `2883cb21`, `9716f670`, `7af1bf9c`)
@@ -113,6 +113,7 @@ This fork (`developervariety/Armada`) is based on `jchristn/Armada` and keeps up
 - **GitHub delivery evidence.** Global and per-vessel GitHub tokens, issue/PR objective import, GitHub Actions sync, and PR review/check evidence are available to connect external repository signals to Armada objectives, checks, missions, and releases. (`63d19996`)
 - **Pipeline and mission review gates.** Upstream review gates are integrated with fork pipeline expansion and persistence across SQLite, MySQL, PostgreSQL, and SQL Server. A stage can require explicit approval, and denial either retries the stage with feedback or fails the pipeline. (`dd3d52c8`, `aef283b0`)
 - **Captain tool visibility.** Captain list/detail pages and `GET /api/v1/captains/{id}/tools` expose the effective Armada MCP tool catalog for a selected captain, helping operators diagnose runtime/tool availability before dispatch. (`e5fe494d`)
+- **Shared remote dashboard through Armada.Proxy.** The proxy now serves the same React dashboard bundle at `/dashboard`, relays `/api/v1/*` and `/ws` through the outbound tunnel, and keeps destructive local-only server actions blocked by proxy policy. Proxy browser sessions use a cookie-backed login flow plus selected-instance context, so operators can use one dashboard shell for local and remote deployments.
 - **Windows and dashboard deploy hardening.** The sync also brought shorter MCP tool names, dashboard deploy fixes, Docker database assets, and framework/script ergonomics that reduce setup friction on Windows and Docker hosts. (`270a9c53`, `28d0f846`, `1a46c2fb`)
 
 ### Upstream features in-tree but not actively wired
@@ -136,7 +137,7 @@ A by-category inventory of what Armada actually ships. Each feature is implement
 - **Code index context packs and graph queries.** `armada_index_status`, `armada_index_update`, `armada_code_search`, `armada_context_pack`, `armada_fleet_code_search`, and `armada_fleet_context_pack` provide Admiral-owned repository retrieval for one vessel or a fleet. `armada_graph_search_symbols`, callers/callees, node, files, explore, impact, and affected-test tools query symbol graph sidecars for supported C#, TypeScript/JavaScript, Python, Java/Kotlin, Go, and Rust repositories; the dashboard Code Index page exposes the same vessel-scoped REST surface for operators. Context-pack tools build dispatch-ready markdown for a mission goal and return a `prestagedFiles` entry for `_briefing/context-pack.md`; packs can append graph-expanded caller/callee context when fresh sidecars exist. Index records include vessel id, repo-relative path, commit SHA, content hash, language, line range, and freshness/staleness. Hybrid search adds DeepSeek-powered embedding + lexical ranking with configurable blend weights (`SemanticWeight`/`LexicalWeight`, default 0.7/0.3) plus configurable graph boosts. Optional summarization and file signatures can compress context packs and boost file-level relevance. Enabled via `CodeIndexSettings.UseSemanticSearch: true`; lexical-only remains the default fallback.
 - **Preferred captain / preferred model.** Pin a mission to a specific captain id, or use `preferredModel` for model routing. Pass `low`, `mid`, or `high` for tiered random selection (Armada picks a peer model within the tier from available captains); pass a literal model name (e.g. `claude-opus-4-7`) to pin to a specific model as an escape hatch. Tier: low=`kimi-k2.5`, mid=`composer-2.5`/`claude-sonnet-4-6`/`gemini-3.5-pro`, high=`claude-opus-4-7`/`gpt-5.5`. When the requested tier has no available captains, Armada upgrades upward (low->mid->high, mid->high). Both honored across all dispatch paths (standard, alias, pipeline).
 - **Architect-mode dispatch.** `armada_decompose_plan` runs an Architect captain that produces a markdown plan + N `[ARMADA:MISSION]` blocks; `armada_parse_architect_output` parses to a structured plan. Spec → architect → captain missions in one flow.
-- **Planning Sessions (interactive plan-to-dispatch).** `PlanningSession` + `PlanningSessionMessage` persist a multi-turn planning conversation with a captain in the dashboard; `PlanningSessionCoordinator` reserves a captain + dock for the session lifetime, re-launching the captain with a `context.md` (instructions + vessel context + selected playbooks + transcript-so-far) on each user turn. `/api/v1/planning-sessions/{id}/dispatch` converts a chosen assistant message into one voyage with one seeded mission; `Voyage.SourcePlanningSessionId` + `SourcePlanningMessageId` preserve lineage. Captain enters `CaptainStateEnum.Planning` for the session lifetime and cannot accept other missions. The dashboard planning flow is SQLite-only and single-mission; use Architect-mode dispatch for multi-mission decomposition. Design doc: [`PLANNING.md`](PLANNING.md).
+- **Planning Sessions (interactive plan-to-dispatch).** `PlanningSession` + `PlanningSessionMessage` persist a multi-turn planning conversation with a captain in the dashboard; `PlanningSessionCoordinator` reserves a captain + dock for the session lifetime, re-launching the captain with a `context.md` (instructions + vessel context + selected playbooks + transcript-so-far) on each user turn. `/api/v1/planning-sessions/{id}/dispatch` converts a chosen assistant message into one voyage with one seeded mission; `Voyage.SourcePlanningSessionId` + `SourcePlanningMessageId` preserve lineage. Captain enters `CaptainStateEnum.Planning` for the session lifetime and cannot accept other missions. The dashboard planning flow is SQLite-only and single-mission; use Architect-mode dispatch for multi-mission decomposition. Design doc: [archive/PLANNING.md](archive/PLANNING.md).
 
 ### Backlog, Objectives & Workspace
 
@@ -390,7 +391,7 @@ If a captain crashes, the Admiral can repair the worktree and relaunch the agent
 ### Install
 
 ```bash
-git clone https://github.com/jchristn/armada.git
+git clone https://github.com/developervariety/Armada.git
 cd armada
 ```
 
@@ -880,6 +881,7 @@ armada config init              # Interactive setup (optional)
 | `TerminalBell` | true | Ring terminal bell during `armada watch` |
 | `DefaultRuntime` | null (auto-detect) | Default agent runtime |
 | `PlanningSessionInactivityTimeoutMinutes` | 0 | Automatically stop idle planning sessions after this many minutes; 0 disables the timeout |
+| `PlanningSessionAbandonmentTimeoutMinutes` | 0 | Optional hard stop for old planning sessions with no running process; 0 disables abandonment cleanup |
 | `PlanningSessionRetentionDays` | 0 | Automatically delete stopped or failed planning transcripts after this many days; 0 disables retention cleanup |
 
 ### Remote trigger / AgentWake
@@ -1024,7 +1026,7 @@ Repo-relative startup helpers: `scripts/linux/install-systemd-user.sh`, `scripts
 ### Foreground Development Run
 
 ```bash
-git clone https://github.com/jchristn/armada.git
+git clone https://github.com/developervariety/Armada.git
 cd armada
 
 # Build the solution
@@ -1071,7 +1073,7 @@ Docker Compose can run the server and the optional React dashboard in containers
 ### Start
 
 ```bash
-cd docker
+cd docker/armada
 docker compose up -d
 ```
 
@@ -1084,6 +1086,15 @@ docker compose up -d
 
 Both dashboards connect to the same server. The embedded dashboard at port 7890 is always available. The React dashboard at port 3000 is an optional separate frontend.
 
+To run only the remote dashboard proxy stack:
+
+```bash
+cd docker/proxy
+docker compose up -d
+```
+
+The proxy listens on `http://localhost:7893`, serves its portal at `/`, serves the shared dashboard at `/dashboard`, and accepts Armada outbound tunnel connections at `/tunnel`. See [docs/PROXY_API.md](docs/PROXY_API.md) and [docs/TUNNEL_OPERATIONS.md](docs/TUNNEL_OPERATIONS.md) for the relay model and operating notes.
+
 ### Data Persistence
 
 Docker volumes are mapped to `docker/armada/`:
@@ -1091,16 +1102,22 @@ Docker volumes are mapped to `docker/armada/`:
 ```
 docker/
 +-- armada/
+|   +-- armada.json  # Server configuration
+|   +-- compose.yaml
 |   +-- db/          # SQLite database (persistent across restarts)
 |   +-- logs/        # Server logs
-+-- server/
-|   +-- armada.json  # Server configuration
-+-- compose.yaml
+|   +-- factory/     # Reset scripts
++-- proxy/
+|   +-- proxysettings.json
+|   +-- compose.yaml
+|   +-- data/        # Proxy session and instance state
+|   +-- logs/        # Proxy logs
 ```
 
-To change settings, edit `docker/server/armada.json` and restart:
+To change Armada server settings, edit `docker/armada/armada.json` and restart from the Armada stack directory:
 
 ```bash
+cd docker/armada
 docker compose restart armada-server
 ```
 
@@ -1109,7 +1126,7 @@ docker compose restart armada-server
 To delete all data and start fresh (preserves configuration):
 
 ```bash
-cd docker/factory
+cd docker/armada/factory
 
 # Linux/macOS
 ./reset.sh
@@ -1121,7 +1138,7 @@ reset.bat
 ### Stop
 
 ```bash
-cd docker
+cd docker/armada
 docker compose down
 ```
 
@@ -1345,8 +1362,8 @@ Key changes:
 
 ## Issues and Discussions
 
-- **Bug reports and feature requests**: [Open an issue](https://github.com/jchristn/armada/issues) on GitHub. Please include your OS, .NET version, agent runtime, and steps to reproduce.
-- **Questions and discussions**: [Start a discussion](https://github.com/jchristn/armada/discussions) on GitHub for general questions, ideas, or feedback.
+- **Bug reports and feature requests**: [Open an issue](https://github.com/developervariety/Armada/issues) on GitHub. Please include your OS, .NET version, agent runtime, and steps to reproduce.
+- **Questions and discussions**: [Start a discussion](https://github.com/developervariety/Armada/discussions) on GitHub for general questions, ideas, or feedback.
 
 When filing an issue, include:
 
