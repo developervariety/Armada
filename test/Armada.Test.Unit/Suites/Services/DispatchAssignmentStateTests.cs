@@ -317,7 +317,20 @@ namespace Armada.Test.Unit.Suites.Services
 
                     AssertTrue(sawFailed, "Mission must reach AssignmentState=Failed after dock provisioning exception");
 
-                    // Retry via TryAssignAsync -- faultyDock.ProvisionAsync now succeeds
+                    // Retry via TryAssignAsync -- faultyDock.ProvisionAsync now succeeds.
+                    // The catch handler in TryAssignAsync writes mission.AssignmentState=Failed
+                    // BEFORE awaiting _Captains.ReleaseAsync(captain), so there is a short
+                    // window where the mission shows Failed but the captain is still in Assigned
+                    // state. Wait for the captain to be released back to Idle so FindAvailableCaptainAsync
+                    // can pick it up on the retry.
+                    Stopwatch waitCaptain = Stopwatch.StartNew();
+                    while (waitCaptain.ElapsedMilliseconds < 2000)
+                    {
+                        Captain? c = await testDb.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                        if (c != null && c.State == CaptainStateEnum.Idle) break;
+                        await Task.Delay(25).ConfigureAwait(false);
+                    }
+
                     Mission? toRetry = await testDb.Driver.Missions.ReadAsync(missionId).ConfigureAwait(false);
                     AssertNotNull(toRetry, "Mission must still exist after failure");
                     AssertEqual(MissionStatusEnum.Pending.ToString(), toRetry!.Status.ToString(), "Mission status must be Pending for retry");
@@ -361,6 +374,220 @@ namespace Armada.Test.Unit.Suites.Services
                     }
 
                     AssertTrue(threw, "DispatchVoyageAsync must throw InvalidOperationException for unknown vessel ID");
+                }
+            });
+
+            await RunTest("TryAssign_MissionWithUnknownDependency_ShowsWaitingForDependency", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+
+                    Vessel vessel = new Vessel("missing-dep-vessel", "https://github.com/test/repo.git");
+                    vessel.DefaultBranch = "main";
+                    vessel.AllowConcurrentMissions = true;
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain captain = new Captain("missing-dep-captain");
+                    captain.State = CaptainStateEnum.Idle;
+                    await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    // AdmiralService.DispatchVoyageAsync rejects unknown DependsOnMissionId
+                    // at validation time, so the "dependency == null" gate in TryAssignAsync
+                    // is reachable only when a dependency record has been deleted (or never
+                    // persisted) after the mission row was created. Seed that state directly.
+                    Mission orphan = new Mission("Orphaned dependent", "Dependency was deleted.");
+                    orphan.VesselId = vessel.Id;
+                    orphan.Status = MissionStatusEnum.Pending;
+                    orphan.DependsOnMissionId = "msn_dep_does_not_exist";
+                    orphan = await testDb.Driver.Missions.CreateAsync(orphan).ConfigureAwait(false);
+
+                    bool assigned = await missionService.TryAssignAsync(orphan, vessel).ConfigureAwait(false);
+
+                    AssertFalse(assigned, "TryAssignAsync must return false when DependsOnMissionId resolves to no row");
+
+                    Mission? readBack = await testDb.Driver.Missions.ReadAsync(orphan.Id).ConfigureAwait(false);
+                    AssertNotNull(readBack, "Mission must still exist after deferred assignment");
+                    AssertEqual(MissionAssignmentStateEnum.WaitingForDependency, readBack!.AssignmentState,
+                        "Missing dependency must surface as WaitingForDependency, not Pending");
+                    AssertEqual(MissionStatusEnum.Pending, readBack.Status, "Status must remain Pending while waiting on dependency");
+                    AssertNull(readBack.CaptainId, "Captain must not be claimed when assignment is deferred for a dependency");
+
+                    Captain? captainAfter = await testDb.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                    AssertNotNull(captainAfter, "Captain must still exist");
+                    AssertEqual(CaptainStateEnum.Idle, captainAfter!.State,
+                        "Captain must remain Idle when the dependency gate defers assignment");
+                }
+            });
+
+            await RunTest("Dispatch_MissionWithPendingDependency_ShowsWaitingForDependency", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    IVoyageService voyageService = new VoyageService(logging, testDb.Driver);
+                    IAdmiralService admiral = new AdmiralService(logging, testDb.Driver, settings, captainService, missionService, voyageService, dockService);
+                    admiral.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
+
+                    Vessel vessel = new Vessel("pending-dep-vessel", "https://github.com/test/repo.git");
+                    vessel.DefaultBranch = "main";
+                    vessel.AllowConcurrentMissions = true;
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain captain = new Captain("pending-dep-captain");
+                    captain.State = CaptainStateEnum.Idle;
+                    await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    // Precursor mission seeded directly into DB in Pending state -- never
+                    // dispatched so it stays Pending and blocks the dependent's assignment.
+                    Mission precursor = new Mission("Precursor mission", "Stays Pending forever.");
+                    precursor.VesselId = vessel.Id;
+                    precursor.Status = MissionStatusEnum.Pending;
+                    precursor = await testDb.Driver.Missions.CreateAsync(precursor).ConfigureAwait(false);
+
+                    List<MissionDescription> missions = new List<MissionDescription>
+                    {
+                        new MissionDescription
+                        {
+                            Title = "Dependent mission",
+                            Description = "Waits for the precursor.",
+                            DependsOnMissionId = precursor.Id
+                        }
+                    };
+
+                    Voyage voyage = await admiral.DispatchVoyageAsync("Pending-dep voyage", "Test", vessel.Id, missions).ConfigureAwait(false);
+                    List<Mission> voyageMissions = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+                    string dependentId = voyageMissions[0].Id;
+
+                    bool sawWaiting = false;
+                    Stopwatch poll = Stopwatch.StartNew();
+                    while (poll.ElapsedMilliseconds < 2000)
+                    {
+                        Mission? m = await testDb.Driver.Missions.ReadAsync(dependentId).ConfigureAwait(false);
+                        if (m != null && m.AssignmentState == MissionAssignmentStateEnum.WaitingForDependency)
+                        {
+                            sawWaiting = true;
+                            break;
+                        }
+                        await Task.Delay(50).ConfigureAwait(false);
+                    }
+
+                    AssertTrue(sawWaiting, "Mission with Pending dependency must reach WaitingForDependency within 2s");
+
+                    Mission? finalDependent = await testDb.Driver.Missions.ReadAsync(dependentId).ConfigureAwait(false);
+                    AssertNotNull(finalDependent, "Dependent mission must still exist");
+                    AssertEqual(MissionStatusEnum.Pending, finalDependent!.Status, "Dependent mission status must remain Pending while waiting");
+                }
+            });
+
+            await RunTest("Dispatch_VoyageRemainsOpen_AfterDispatchReturns", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+
+                    IDockService realDock = new DockService(logging, testDb.Driver, settings, git);
+                    DelayingDockService delayingDock = new DelayingDockService(realDock, delayMs: 1000);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, delayingDock);
+                    captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, delayingDock, captainService);
+                    IVoyageService voyageService = new VoyageService(logging, testDb.Driver);
+                    IAdmiralService admiral = new AdmiralService(logging, testDb.Driver, settings, captainService, missionService, voyageService, delayingDock);
+                    admiral.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
+
+                    Vessel vessel = new Vessel("voyage-state-vessel", "https://github.com/test/repo.git");
+                    vessel.DefaultBranch = "main";
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain captain = new Captain("voyage-state-captain");
+                    captain.State = CaptainStateEnum.Idle;
+                    await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    List<MissionDescription> missions = new List<MissionDescription>
+                    {
+                        new MissionDescription { Title = "Voyage state probe", Description = "Voyage must stay Open right after dispatch." }
+                    };
+
+                    Voyage voyage = await admiral.DispatchVoyageAsync("Voyage state voyage", "Test", vessel.Id, missions).ConfigureAwait(false);
+
+                    // Background assignment is delayed by 1s -- read back the voyage from the
+                    // database immediately and assert it is Open. Pre-M2 this would already be
+                    // InProgress because assignment ran synchronously inside dispatch.
+                    AssertEqual(VoyageStatusEnum.Open, voyage.Status, "Returned Voyage must be Open immediately after dispatch (no synchronous transition)");
+
+                    Voyage? readBack = await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
+                    AssertNotNull(readBack, "Voyage must be persisted");
+                    AssertEqual(VoyageStatusEnum.Open, readBack!.Status, "Persisted voyage must be Open immediately after dispatch");
+                }
+            });
+
+            await RunTest("Dispatch_PersistsPendingAssignmentState_BeforeBackgroundTaskRuns", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+
+                    // Long delay in the dock keeps the background task busy so we can observe
+                    // the persisted Pending state before any transition happens.
+                    IDockService realDock = new DockService(logging, testDb.Driver, settings, git);
+                    DelayingDockService delayingDock = new DelayingDockService(realDock, delayMs: 5000);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, delayingDock);
+                    captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, delayingDock, captainService);
+                    IVoyageService voyageService = new VoyageService(logging, testDb.Driver);
+                    IAdmiralService admiral = new AdmiralService(logging, testDb.Driver, settings, captainService, missionService, voyageService, delayingDock);
+                    admiral.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
+
+                    Vessel vessel = new Vessel("pending-state-vessel", "https://github.com/test/repo.git");
+                    vessel.DefaultBranch = "main";
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain captain = new Captain("pending-state-captain");
+                    captain.State = CaptainStateEnum.Idle;
+                    await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    List<MissionDescription> missions = new List<MissionDescription>
+                    {
+                        new MissionDescription { Title = "Pending persistence probe", Description = "AssignmentState=Pending must be persisted by dispatch." }
+                    };
+
+                    Voyage voyage = await admiral.DispatchVoyageAsync("Pending state voyage", "Test", vessel.Id, missions).ConfigureAwait(false);
+
+                    List<Mission> voyageMissions = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+                    AssertTrue(voyageMissions.Count == 1, "Voyage should have one mission");
+                    string missionId = voyageMissions[0].Id;
+
+                    // Read mission immediately after dispatch returns. Either we observe Pending
+                    // (background task hasn't transitioned yet) or Provisioning (background task
+                    // started but is still in dock.ProvisionAsync due to the 5s delay).
+                    // Crucially, the row must NOT contain the legacy default of an uninitialized
+                    // assignment state -- some persisted value must exist.
+                    Mission? snapshot = await testDb.Driver.Missions.ReadAsync(missionId).ConfigureAwait(false);
+                    AssertNotNull(snapshot, "Mission must be persisted immediately after dispatch returns");
+
+                    bool initialIsValid =
+                        snapshot!.AssignmentState == MissionAssignmentStateEnum.Pending ||
+                        snapshot!.AssignmentState == MissionAssignmentStateEnum.Provisioning;
+                    AssertTrue(initialIsValid,
+                        "Immediately after dispatch, mission AssignmentState must be Pending (persisted by dispatch) or Provisioning (background task already past captain claim); was " + snapshot!.AssignmentState);
                 }
             });
         }
