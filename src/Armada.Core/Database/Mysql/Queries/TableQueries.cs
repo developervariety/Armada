@@ -837,6 +837,14 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
+        /// Migration v48 statements for adding mission assignment state.
+        /// </summary>
+        public static readonly string[] MigrationV48Statements = new string[]
+        {
+            @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS mission_assignment_state VARCHAR(64) NOT NULL DEFAULT 'Pending';"
+        };
+
+        /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
         public static readonly string[] Indexes = new string[]

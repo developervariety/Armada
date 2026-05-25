@@ -526,6 +526,11 @@ namespace Armada.Core.Database.Mysql
                     46,
                     "Add pipeline and mission review gates",
                     TableQueries.MigrationV46Statements
+                ),
+                new SchemaMigration(
+                    48,
+                    "Add mission assignment state column to missions",
+                    TableQueries.MigrationV48Statements
                 )
             };
         }

@@ -563,6 +563,13 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"
                     IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID('missions') AND name = 'idx_missions_requires_review')
                         CREATE INDEX idx_missions_requires_review ON missions(requires_review);"
+                ),
+                new SchemaMigration(
+                    48,
+                    "Add mission assignment state column to missions",
+                    @"
+                    IF COL_LENGTH('missions','mission_assignment_state') IS NULL
+                        ALTER TABLE missions ADD mission_assignment_state NVARCHAR(64) NOT NULL CONSTRAINT DF_missions_mission_assignment_state DEFAULT 'Pending';"
                 )
             };
         }

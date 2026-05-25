@@ -644,6 +644,9 @@ namespace Armada.Core.Database.Postgresql.Queries
                     @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS review_requested_utc TIMESTAMP NULL;",
                     @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS reviewed_utc TIMESTAMP NULL;",
                     @"CREATE INDEX IF NOT EXISTS idx_missions_requires_review ON missions(requires_review);"
+                ),
+                new SchemaMigration(48, "Add mission assignment state column to missions",
+                    @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS mission_assignment_state TEXT NOT NULL DEFAULT 'Pending';"
                 )
             };
         }

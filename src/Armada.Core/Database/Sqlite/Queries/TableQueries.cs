@@ -1236,6 +1236,9 @@ namespace Armada.Core.Database.Sqlite.Queries
                     @"CREATE INDEX IF NOT EXISTS idx_objective_refinement_sessions_captain_status ON objective_refinement_sessions(captain_id, status);",
                     @"CREATE INDEX IF NOT EXISTS idx_objective_refinement_messages_session_sequence ON objective_refinement_messages(objective_refinement_session_id, sequence);",
                     @"CREATE INDEX IF NOT EXISTS idx_objective_refinement_messages_objective_created ON objective_refinement_messages(objective_id, created_utc);"
+                ),
+                new SchemaMigration(48, "Add mission assignment state column to missions",
+                    @"ALTER TABLE missions ADD COLUMN mission_assignment_state TEXT NOT NULL DEFAULT 'Pending';"
                 )
             };
         }
