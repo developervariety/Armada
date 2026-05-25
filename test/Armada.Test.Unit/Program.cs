@@ -103,6 +103,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new PersonaSeedServiceTests());
             runner.AddSuite(new PersonaPipelineDbTests());
             runner.AddSuite(new PipelineDispatchTests());
+            runner.AddSuite(new DispatchAssignmentStateTests());
             runner.AddSuite(new PerStagePreferredModelTests());
             runner.AddSuite(new AliasPipelineDispatchTests());
             runner.AddSuite(new CrossVesselDependencyTests());

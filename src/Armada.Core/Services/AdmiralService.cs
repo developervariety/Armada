@@ -188,6 +188,7 @@ namespace Armada.Core.Services
                 mission.PreferredModel = md.PreferredModel;
                 if (!String.IsNullOrEmpty(md.DependsOnMissionId))
                     mission.DependsOnMissionId = md.DependsOnMissionId;
+                mission.AssignmentState = MissionAssignmentStateEnum.Pending;
                 mission = await _Database.Missions.CreateAsync(mission, token).ConfigureAwait(false);
                 List<SelectedPlaybook> perMissionPlaybooks = PlaybookMerge.MergeWithVesselDefaults(
                     voyage.SelectedPlaybooks,
@@ -195,21 +196,26 @@ namespace Armada.Core.Services
                 await PersistMissionPlaybooksAsync(mission, perMissionPlaybooks, token).ConfigureAwait(false);
                 _Logging.Info(_Header + "created mission " + mission.Id + ": " + md.Title);
 
-                // Try to auto-assign
-                await _Missions.TryAssignAsync(mission, vessel, token).ConfigureAwait(false);
+                // Schedule assignment as background task so dispatch returns immediately after persistence.
+                string capturedMissionId = mission.Id;
+                Vessel capturedVessel = vessel;
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        Mission? toAssign = await _Database.Missions.ReadAsync(capturedMissionId).ConfigureAwait(false);
+                        if (toAssign == null) return;
+                        await _Missions.TryAssignAsync(toAssign, capturedVessel).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        _Logging.Error(_Header + "background assignment threw for mission " + capturedMissionId + ": " + ex.Message);
+                    }
+                });
             }
 
-            // Update voyage status - only transition to InProgress if at least one mission was assigned
-            List<Mission> voyageMissions = await _Database.Missions.EnumerateByVoyageAsync(voyage.Id, token).ConfigureAwait(false);
-            bool anyAssigned = voyageMissions.Any(m =>
-                m.Status == MissionStatusEnum.Assigned ||
-                m.Status == MissionStatusEnum.InProgress);
-
-            if (anyAssigned)
-            {
-                voyage.Status = VoyageStatusEnum.InProgress;
-            }
-
+            // Voyage remains Open; background assignment transitions it when a mission starts.
+            _Logging.Info(_Header + "voyage " + voyage.Id + " left at Open -- assignment state transitions are deferred to background tasks");
             voyage.LastUpdateUtc = DateTime.UtcNow;
             await _Database.Voyages.UpdateAsync(voyage, token).ConfigureAwait(false);
 
@@ -321,6 +327,7 @@ namespace Armada.Core.Services
                             mission.PrestagedFiles = ClonePrestagedFiles(md.PrestagedFiles);
                         }
 
+                        mission.AssignmentState = MissionAssignmentStateEnum.Pending;
                         mission = await _Database.Missions.CreateAsync(mission, token).ConfigureAwait(false);
                         List<SelectedPlaybook> perMissionPlaybooks = PlaybookMerge.MergeWithVesselDefaults(
                             voyage.SelectedPlaybooks,
@@ -330,10 +337,24 @@ namespace Armada.Core.Services
                             " (stage " + stage.Order + "/" + pipeline.Stages.Count + ", persona: " + stage.PersonaName +
                             (groupDependencyId != null ? ", depends on: " + groupDependencyId : "") + ")");
 
-                        // Try to auto-assign only the very first mission in the chain.
+                        // Schedule assignment as background task for the first chain mission only.
                         if (isFirstChainMission)
                         {
-                            await _Missions.TryAssignAsync(mission, vessel, token).ConfigureAwait(false);
+                            string capturedPipelineMissionId = mission.Id;
+                            Vessel capturedPipelineVessel = vessel;
+                            _ = Task.Run(async () =>
+                            {
+                                try
+                                {
+                                    Mission? toAssign = await _Database.Missions.ReadAsync(capturedPipelineMissionId).ConfigureAwait(false);
+                                    if (toAssign == null) return;
+                                    await _Missions.TryAssignAsync(toAssign, capturedPipelineVessel).ConfigureAwait(false);
+                                }
+                                catch (Exception ex)
+                                {
+                                    _Logging.Error(_Header + "background assignment threw for mission " + capturedPipelineMissionId + ": " + ex.Message);
+                                }
+                            });
                         }
 
                         lastMissionInGroup = mission.Id;
@@ -343,17 +364,8 @@ namespace Armada.Core.Services
                 }
             }
 
-            // Update voyage status
-            List<Mission> voyageMissions = await _Database.Missions.EnumerateByVoyageAsync(voyage.Id, token).ConfigureAwait(false);
-            bool anyAssigned = voyageMissions.Any(m =>
-                m.Status == MissionStatusEnum.Assigned ||
-                m.Status == MissionStatusEnum.InProgress);
-
-            if (anyAssigned)
-            {
-                voyage.Status = VoyageStatusEnum.InProgress;
-            }
-
+            // Voyage remains Open; background assignment transitions it when a mission starts.
+            _Logging.Info(_Header + "voyage " + voyage.Id + " left at Open -- assignment state transitions are deferred to background tasks");
             voyage.LastUpdateUtc = DateTime.UtcNow;
             await _Database.Voyages.UpdateAsync(voyage, token).ConfigureAwait(false);
 

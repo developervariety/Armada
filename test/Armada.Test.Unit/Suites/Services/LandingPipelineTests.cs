@@ -1,5 +1,6 @@
 namespace Armada.Test.Unit.Suites.Services
 {
+    using System.IO;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -483,6 +484,31 @@ namespace Armada.Test.Unit.Suites.Services
                 => Task.FromResult(0);
             public Task<int> ReconcilePullRequestEntriesAsync(CancellationToken token = default) => Task.FromResult(0);
             public Task<bool> TryOpenPullRequestForRecoveryAsync(string mergeEntryId, CancellationToken token = default) => Task.FromResult(false);
+        }
+
+        private static string ReadRepositoryFile(params string[] segments)
+        {
+            string path = FindRepositoryRoot();
+            foreach (string segment in segments)
+            {
+                path = Path.Combine(path, segment);
+            }
+
+            return File.ReadAllText(path);
+        }
+
+        private static string FindRepositoryRoot()
+        {
+            DirectoryInfo? directory = new DirectoryInfo(AppContext.BaseDirectory);
+            while (directory != null)
+            {
+                if (File.Exists(Path.Combine(directory.FullName, "src", "Armada.sln")))
+                    return directory.FullName;
+
+                directory = directory.Parent;
+            }
+
+            throw new InvalidDataException("Unable to find repository root.");
         }
     }
 }
