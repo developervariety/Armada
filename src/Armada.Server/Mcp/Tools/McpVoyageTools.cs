@@ -158,7 +158,14 @@ namespace Armada.Server.Mcp.Tools
                     // Merge vessel DefaultPlaybooks with caller-supplied selectedPlaybooks.
                     // Start with the vessel defaults; caller entries override deliveryMode on collision and append new entries.
                     Vessel? dispatchVessel = await database.Vessels.ReadAsync(vesselId).ConfigureAwait(false);
-                    if (dispatchVessel == null) return (object)new { Error = "Vessel not found: " + vesselId };
+                    if (dispatchVessel == null) return (object)new
+                    {
+                        Error = "Vessel not found: " + vesselId,
+                        Code = "vessel_not_found",
+                        Reason = "Vessel " + vesselId + " does not exist in this admiral.",
+                        Action = "Register the vessel via armada_add_vessel or verify the vesselId.",
+                        VesselId = vesselId
+                    };
 
                     List<SelectedPlaybook> mergedPlaybooks = MergePlaybooks(dispatchVessel?.GetDefaultPlaybooks(), callerPlaybooks);
 
@@ -175,7 +182,14 @@ namespace Armada.Server.Mcp.Tools
                     {
                         Pipeline? namedPipeline = await database.Pipelines.ReadByNameAsync(request.Pipeline).ConfigureAwait(false);
                         if (namedPipeline != null) pipelineId = namedPipeline.Id;
-                        else return (object)new { Error = "Pipeline not found: " + request.Pipeline };
+                        else return (object)new
+                        {
+                            Error = "Pipeline not found: " + request.Pipeline,
+                            Code = "pipeline_not_found",
+                            Reason = "Pipeline named \"" + request.Pipeline + "\" does not exist in this admiral.",
+                            Action = "Verify the pipeline name via armada_enumerate(entityType=\"pipelines\").",
+                            Pipeline = request.Pipeline
+                        };
                     }
 
                     string? codeContextError = await ApplyDispatchCodeContextAsync(
@@ -234,11 +248,21 @@ namespace Armada.Server.Mcp.Tools
                     {
                         Dictionary<MissionStatusEnum, int> statusCounts = await database.Missions.CountByVoyageStatusAsync(voyageId).ConfigureAwait(false);
                         Dictionary<string, int> counts = statusCounts.ToDictionary(kvp => kvp.Key.ToString(), kvp => kvp.Value);
+                        EnumerationQuery summaryAssignmentQuery = new EnumerationQuery
+                        {
+                            VoyageId = voyageId,
+                            PageSize = 1000
+                        };
+                        List<Mission> summaryMissions = (await database.Missions.EnumerateSummariesAsync(summaryAssignmentQuery).ConfigureAwait(false)).Objects;
+                        Dictionary<string, int> assignmentCounts = summaryMissions
+                            .GroupBy(m => m.AssignmentState.ToString())
+                            .ToDictionary(g => g.Key, g => g.Count());
                         return (object)new
                         {
                             Voyage = new { voyage.Id, voyage.Title, voyage.Description, voyage.Status, voyage.CreatedUtc, voyage.LastUpdateUtc },
                             TotalMissions = counts.Values.Sum(),
-                            MissionCountsByStatus = counts
+                            MissionCountsByStatus = counts,
+                            MissionCountsByAssignmentState = assignmentCounts
                         };
                     }
 

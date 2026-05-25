@@ -168,6 +168,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new McpCaptainDiagnosticsToolsTests());
             runner.AddSuite(new McpStdioServerTests());
             runner.AddSuite(new McpVoyageToolsTests());
+            runner.AddSuite(new VoyageStatusAssignmentSurfaceTests());
             runner.AddSuite(new McpMissionToolsTests());
             runner.AddSuite(new PreferredModelTierSelectorTests());
             runner.AddSuite(new PreferredModelUserGuidanceTests());
