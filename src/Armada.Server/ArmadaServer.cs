@@ -1,5 +1,6 @@
 namespace Armada.Server
 {
+    using System.Collections.Generic;
     using System.IO;
     using System.Net.Http;
     using System.Runtime.CompilerServices;
@@ -89,6 +90,9 @@ namespace Armada.Server
         private DeploymentService _DeploymentService = null!;
         private IncidentService _IncidentService = null!;
         private RunbookService _RunbookService = null!;
+        private AutomaticCheckRunOrchestrator _AutomaticCheckRuns = null!;
+        private AutonomousRecoveryOrchestrator _AutonomousRecovery = null!;
+        private IncidentLifecycleOrchestrator _IncidentLifecycle = null!;
         private GitHubIntegrationService _GitHubIntegrationService = null!;
         private LandingPreviewService _LandingPreviewService = null!;
         private HistoricalTimelineService _HistoricalTimelineService = null!;
@@ -169,6 +173,11 @@ namespace Armada.Server
             // Prompt template service must be created before MissionService so it can resolve templates
             _PromptTemplateService = new PromptTemplateService(_Database, _Logging);
             HttpClient codeIndexHttpClient = new HttpClient();
+            foreach (string warning in BuildCodeIndexConfigurationWarnings(_Settings.CodeIndex))
+            {
+                _Logging.Warn(_Header + warning);
+            }
+
             IEmbeddingClient embeddingClient = new DeepSeekEmbeddingClient(_Settings.CodeIndex, _Logging, codeIndexHttpClient);
             _OpenCodeServerLauncher = new OpenCodeServerLauncher(_Settings, _Logging, codeIndexHttpClient);
             IInferenceClient inferenceClient = string.Equals(_Settings.CodeIndex.InferenceClient, "OpenCodeServer", StringComparison.OrdinalIgnoreCase)
@@ -214,6 +223,9 @@ namespace Armada.Server
             _DeploymentService = new DeploymentService(_Database, _WorkflowProfileService, _EnvironmentService, _CheckRunService, _Logging);
             _IncidentService = new IncidentService(_Database);
             _RunbookService = new RunbookService(_Database, _Logging);
+            _AutomaticCheckRuns = new AutomaticCheckRunOrchestrator(_Database, _CheckRunService, _ReleaseService, _IncidentService, _Logging);
+            _AutonomousRecovery = new AutonomousRecoveryOrchestrator(_Database, _Admiral, _IncidentService, _RunbookService, _Settings, _Logging);
+            _IncidentLifecycle = new IncidentLifecycleOrchestrator(_Database, _IncidentService, _Settings, _Logging);
             _GitHubIntegrationService = new GitHubIntegrationService(_Database, _ObjectiveService, _CheckRunService, _DeploymentService, _Settings, _Logging);
             _LandingPreviewService = new LandingPreviewService(_Database, _Logging);
             _HistoricalTimelineService = new HistoricalTimelineService(_Database);
@@ -283,7 +295,12 @@ namespace Armada.Server
             _Admiral.OnIsProcessExitHandled = _AgentLifecycle.IsProcessExitHandled;
             missionService.OnGetMissionOutput = _AgentLifecycle.GetAndClearMissionOutput;
             MissionOutcomeWakeHandler outcomeWake = new MissionOutcomeWakeHandler(_RemoteTriggerService, _Logging);
-            missionService.OnMissionOutcome = (Mission mission, bool willInvokeLanding) => outcomeWake.HandleAsync(mission, willInvokeLanding);
+            missionService.OnMissionOutcome = async (Mission mission, bool willInvokeLanding) =>
+            {
+                await outcomeWake.HandleAsync(mission, willInvokeLanding).ConfigureAwait(false);
+                await _AutonomousRecovery.HandleMissionOutcomeAsync(mission, willInvokeLanding).ConfigureAwait(false);
+                _IncidentLifecycle.TriggerBackgroundSweep();
+            };
             _Admiral.OnMissionComplete = _MissionLanding.HandleMissionCompleteAsync;
             _Admiral.OnVoyageComplete = _MissionLanding.HandleVoyageCompleteAsync;
             _Admiral.OnReconcilePullRequest = _MissionLanding.HandleReconcilePullRequestAsync;
@@ -477,6 +494,30 @@ namespace Armada.Server
 
             // Start health check loop
             _HealthCheckTask = HealthCheckLoopAsync(_TokenSource.Token);
+        }
+
+        /// <summary>
+        /// Build startup warnings for code-index settings that otherwise silently degrade.
+        /// </summary>
+        public static IReadOnlyList<string> BuildCodeIndexConfigurationWarnings(CodeIndexSettings settings)
+        {
+            if (settings == null) throw new ArgumentNullException(nameof(settings));
+
+            List<string> warnings = new List<string>();
+            if (!String.IsNullOrWhiteSpace(settings.EmbeddingApiKey) && !settings.UseSemanticSearch)
+            {
+                warnings.Add("EmbeddingApiKey is configured but UseSemanticSearch=false; semantic search will not run. Set CodeIndex:UseSemanticSearch=true to enable.");
+            }
+
+            bool inferenceKeyConfigured =
+                !String.IsNullOrWhiteSpace(settings.SummarizerApiKey) ||
+                !String.IsNullOrWhiteSpace(settings.EmbeddingApiKey);
+            if (inferenceKeyConfigured && !settings.UseSummarizer)
+            {
+                warnings.Add("SummarizerApiKey is configured but UseSummarizer=false; summarization will not run. Set CodeIndex:UseSummarizer=true to enable.");
+            }
+
+            return warnings;
         }
 
         /// <summary>
@@ -732,8 +773,60 @@ namespace Armada.Server
                 }
             }
 
+            string? sourceDashboardDist = TryFindSourceDashboardDist();
+            if (sourceDashboardDist != null)
+            {
+                Dashboard.StaticFileHandler.SetExternalPath(sourceDashboardDist);
+                _Logging.Info(_Header + "dashboard auto-detected source React build at: " + sourceDashboardDist);
+                return;
+            }
+
             // Fallback: use embedded wwwroot resources (legacy dashboard)
             _Logging.Info(_Header + "using embedded legacy dashboard (no external dashboard found)");
+        }
+
+        private static string? TryFindSourceDashboardDist()
+        {
+            List<string> startDirectories = new List<string>();
+            AddCandidateStart(startDirectories, AppContext.BaseDirectory);
+            AddCandidateStart(startDirectories, Directory.GetCurrentDirectory());
+
+            string? exeDir = Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
+            AddCandidateStart(startDirectories, exeDir);
+
+            foreach (string startDirectory in startDirectories)
+            {
+                DirectoryInfo? current = new DirectoryInfo(startDirectory);
+                for (int depth = 0; current != null && depth < 8; depth++, current = current.Parent)
+                {
+                    foreach (string candidate in EnumerateSourceDashboardCandidates(current.FullName))
+                    {
+                        if (Directory.Exists(candidate) && File.Exists(Path.Combine(candidate, "index.html")))
+                        {
+                            return Path.GetFullPath(candidate);
+                        }
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        private static IEnumerable<string> EnumerateSourceDashboardCandidates(string baseDirectory)
+        {
+            yield return Path.Combine(baseDirectory, "src", "Armada.Dashboard", "dist");
+            yield return Path.Combine(baseDirectory, "Armada.Dashboard", "dist");
+            yield return Path.Combine(baseDirectory, "dist");
+        }
+
+        private static void AddCandidateStart(List<string> directories, string? directory)
+        {
+            if (String.IsNullOrWhiteSpace(directory)) return;
+
+            string fullPath = Path.GetFullPath(directory);
+            if (directories.Contains(fullPath)) return;
+
+            directories.Add(fullPath);
         }
 
         private static void ApplyCorsHeaders(HttpContextBase ctx)
@@ -1084,6 +1177,9 @@ namespace Armada.Server
             try
             {
                 await _Admiral.HealthCheckAsync(token).ConfigureAwait(false);
+                _AutomaticCheckRuns.TriggerBackgroundSweep(token);
+                _AutonomousRecovery.TriggerBackgroundSweep(token);
+                _IncidentLifecycle.TriggerBackgroundSweep(token);
                 _Logging.Info(_Header + "startup health check completed");
             }
             catch (Exception ex)
@@ -1097,6 +1193,9 @@ namespace Armada.Server
                 {
                     await Task.Delay(_Settings.HeartbeatIntervalSeconds * 1000, token).ConfigureAwait(false);
                     await _Admiral.HealthCheckAsync(token).ConfigureAwait(false);
+                    _AutomaticCheckRuns.TriggerBackgroundSweep(token);
+                    _AutonomousRecovery.TriggerBackgroundSweep(token);
+                    _IncidentLifecycle.TriggerBackgroundSweep(token);
 
                     // Run log rotation every 10 health check cycles
                     _HealthCheckCycles++;

@@ -1,6 +1,7 @@
 namespace Armada.Test.Unit.Suites.Services
 {
     using System;
+    using System.Collections.Generic;
     using System.Net;
     using System.Net.Http;
     using System.Text;
@@ -70,6 +71,46 @@ namespace Armada.Test.Unit.Suites.Services
                 float[] result = await client.EmbedAsync("hello world").ConfigureAwait(false);
 
                 AssertEqual(0, result.Length);
+            });
+
+            await RunTest("EmbedAsync_429ThenSuccess_RetriesAndReturnsEmbedding", async () =>
+            {
+                SequenceHttpMessageHandler handler = new SequenceHttpMessageHandler(
+                    (HttpStatusCode.TooManyRequests, "{\"error\":\"rate limited\"}"),
+                    (HttpStatusCode.OK, "{\"data\":[{\"embedding\":[0.75]}]}"));
+                HttpClient http = new HttpClient(handler);
+                CodeIndexSettings settings = new CodeIndexSettings
+                {
+                    EmbeddingApiBaseUrl = "https://api.deepseek.com",
+                    EmbeddingApiKey = "k"
+                };
+                DeepSeekEmbeddingClient client = new DeepSeekEmbeddingClient(settings, new LoggingModule(), http);
+
+                float[] result = await client.EmbedAsync("hello").ConfigureAwait(false);
+
+                AssertEqual(1, result.Length);
+                AssertEqual(0.75f, result[0]);
+                AssertEqual(2, handler.RequestCount);
+            });
+
+            await RunTest("EmbedAsync_5xxExhausted_TriesThreeTimes", async () =>
+            {
+                SequenceHttpMessageHandler handler = new SequenceHttpMessageHandler(
+                    (HttpStatusCode.InternalServerError, "{\"error\":\"server error\"}"),
+                    (HttpStatusCode.BadGateway, "{\"error\":\"bad gateway\"}"),
+                    (HttpStatusCode.ServiceUnavailable, "{\"error\":\"unavailable\"}"));
+                HttpClient http = new HttpClient(handler);
+                CodeIndexSettings settings = new CodeIndexSettings
+                {
+                    EmbeddingApiBaseUrl = "https://api.deepseek.com",
+                    EmbeddingApiKey = "k"
+                };
+                DeepSeekEmbeddingClient client = new DeepSeekEmbeddingClient(settings, new LoggingModule(), http);
+
+                float[] result = await client.EmbedAsync("hello").ConfigureAwait(false);
+
+                AssertEqual(0, result.Length);
+                AssertEqual(3, handler.RequestCount);
             });
 
             await RunTest("EmbedAsync_EmptyApiKey_OmitsAuthorizationHeader", async () =>
@@ -309,6 +350,30 @@ namespace Armada.Test.Unit.Suites.Services
                     Content = new StringContent(_Body, Encoding.UTF8, "application/json")
                 };
                 return response;
+            }
+        }
+
+        private sealed class SequenceHttpMessageHandler : HttpMessageHandler
+        {
+            private readonly Queue<(HttpStatusCode StatusCode, string Body)> _Responses;
+
+            public int RequestCount { get; private set; }
+
+            public SequenceHttpMessageHandler(params (HttpStatusCode StatusCode, string Body)[] responses)
+            {
+                _Responses = new Queue<(HttpStatusCode StatusCode, string Body)>(responses);
+            }
+
+            protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+            {
+                RequestCount++;
+                (HttpStatusCode StatusCode, string Body) response = _Responses.Count > 0
+                    ? _Responses.Dequeue()
+                    : (HttpStatusCode.OK, "{\"data\":[{\"embedding\":[0.0]}]}");
+                return Task.FromResult(new HttpResponseMessage(response.StatusCode)
+                {
+                    Content = new StringContent(response.Body, Encoding.UTF8, "application/json")
+                });
             }
         }
 

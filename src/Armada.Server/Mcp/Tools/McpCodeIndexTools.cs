@@ -81,6 +81,7 @@ namespace Armada.Server.Mcp.Tools
                         pathPrefix = new { type = "string", description = "Optional repo-relative path prefix filter" },
                         language = new { type = "string", description = "Optional language filter, e.g. csharp or markdown" },
                         includeContent = new { type = "boolean", description = "Include full chunk content in results" },
+                        includeEmbeddings = new { type = "boolean", description = "Include embedding vectors in results for debugging (default false)" },
                         includeReferenceOnly = new { type = "boolean", description = "Include records marked reference-only" }
                     },
                     required = new[] { "vesselId", "query" }
@@ -88,10 +89,11 @@ namespace Armada.Server.Mcp.Tools
                 async (args) =>
                 {
                     if (!args.HasValue) return (object)new { Error = "missing args" };
-                    CodeSearchRequest request = JsonSerializer.Deserialize<CodeSearchRequest>(args.Value, _JsonOptions)!;
+                    CodeSearchMcpArgs request = JsonSerializer.Deserialize<CodeSearchMcpArgs>(args.Value, _JsonOptions)!;
                     if (String.IsNullOrWhiteSpace(request.VesselId)) return (object)new { Error = "vesselId is required" };
                     if (String.IsNullOrWhiteSpace(request.Query)) return (object)new { Error = "query is required" };
-                    return (object)await codeIndex.SearchAsync(request).ConfigureAwait(false);
+                    CodeSearchResponse response = await codeIndex.SearchAsync(request.ToSearchRequest()).ConfigureAwait(false);
+                    return request.IncludeEmbeddings ? response : ShapeCodeSearchResponse(response);
                 });
 
             register(
@@ -132,6 +134,7 @@ namespace Armada.Server.Mcp.Tools
                         pathPrefix = new { type = "string", description = "Optional repo-relative path prefix filter" },
                         language = new { type = "string", description = "Optional language filter, e.g. csharp or markdown" },
                         includeContent = new { type = "boolean", description = "Include full chunk content in results" },
+                        includeEmbeddings = new { type = "boolean", description = "Include embedding vectors in results for debugging (default false)" },
                         includeReferenceOnly = new { type = "boolean", description = "Include records marked reference-only" }
                     },
                     required = new[] { "fleetId", "query" }
@@ -139,10 +142,11 @@ namespace Armada.Server.Mcp.Tools
                 async (args) =>
                 {
                     if (!args.HasValue) return (object)new { Error = "missing args" };
-                    FleetCodeSearchRequest request = JsonSerializer.Deserialize<FleetCodeSearchRequest>(args.Value, _JsonOptions)!;
+                    FleetCodeSearchMcpArgs request = JsonSerializer.Deserialize<FleetCodeSearchMcpArgs>(args.Value, _JsonOptions)!;
                     if (String.IsNullOrWhiteSpace(request.FleetId)) return (object)new { Error = "fleetId is required" };
                     if (String.IsNullOrWhiteSpace(request.Query)) return (object)new { Error = "query is required" };
-                    return (object)await codeIndex.SearchFleetAsync(request).ConfigureAwait(false);
+                    FleetCodeSearchResponse response = await codeIndex.SearchFleetAsync(request.ToSearchRequest()).ConfigureAwait(false);
+                    return request.IncludeEmbeddings ? response : ShapeFleetCodeSearchResponse(response);
                 });
 
             register(
@@ -360,6 +364,123 @@ namespace Armada.Server.Mcp.Tools
                     if (String.IsNullOrWhiteSpace(request.Query)) return (object)new { Error = "query is required" };
                     return (object)await codeIndex.ExploreAsync(request).ConfigureAwait(false);
                 });
+        }
+
+        private static object ShapeCodeSearchResponse(CodeSearchResponse response)
+        {
+            return new
+            {
+                response.Status,
+                response.Query,
+                Results = response.Results.Select(r => new
+                {
+                    r.Score,
+                    Record = ShapeRecordWithoutEmbedding(r.Record),
+                    r.Excerpt
+                }).ToList()
+            };
+        }
+
+        private static object ShapeFleetCodeSearchResponse(FleetCodeSearchResponse response)
+        {
+            return new
+            {
+                response.FleetId,
+                response.Query,
+                Results = response.Results.Select(r => new
+                {
+                    r.VesselId,
+                    r.VesselName,
+                    r.Score,
+                    Record = ShapeRecordWithoutEmbedding(r.Record),
+                    r.Excerpt
+                }).ToList(),
+                response.Warnings
+            };
+        }
+
+        private static object ShapeRecordWithoutEmbedding(CodeIndexRecord record)
+        {
+            return new
+            {
+                record.VesselId,
+                record.Path,
+                record.CommitSha,
+                record.ContentHash,
+                record.Language,
+                record.StartLine,
+                record.EndLine,
+                record.Freshness,
+                record.IndexedAtUtc,
+                record.IsReferenceOnly,
+                record.Content
+            };
+        }
+
+        private sealed class CodeSearchMcpArgs
+        {
+            public string VesselId { get; set; } = "";
+
+            public string Query { get; set; } = "";
+
+            public int Limit { get; set; } = 10;
+
+            public string? PathPrefix { get; set; }
+
+            public string? Language { get; set; }
+
+            public bool IncludeContent { get; set; }
+
+            public bool IncludeEmbeddings { get; set; }
+
+            public bool IncludeReferenceOnly { get; set; }
+
+            public CodeSearchRequest ToSearchRequest()
+            {
+                return new CodeSearchRequest
+                {
+                    VesselId = VesselId,
+                    Query = Query,
+                    Limit = Limit,
+                    PathPrefix = PathPrefix,
+                    Language = Language,
+                    IncludeContent = IncludeContent,
+                    IncludeReferenceOnly = IncludeReferenceOnly
+                };
+            }
+        }
+
+        private sealed class FleetCodeSearchMcpArgs
+        {
+            public string FleetId { get; set; } = "";
+
+            public string Query { get; set; } = "";
+
+            public int Limit { get; set; } = 10;
+
+            public string? PathPrefix { get; set; }
+
+            public string? Language { get; set; }
+
+            public bool IncludeContent { get; set; }
+
+            public bool IncludeEmbeddings { get; set; }
+
+            public bool IncludeReferenceOnly { get; set; }
+
+            public FleetCodeSearchRequest ToSearchRequest()
+            {
+                return new FleetCodeSearchRequest
+                {
+                    FleetId = FleetId,
+                    Query = Query,
+                    Limit = Limit,
+                    PathPrefix = PathPrefix,
+                    Language = Language,
+                    IncludeContent = IncludeContent,
+                    IncludeReferenceOnly = IncludeReferenceOnly
+                };
+            }
         }
     }
 }

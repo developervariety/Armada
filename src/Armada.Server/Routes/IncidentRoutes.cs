@@ -59,6 +59,7 @@ namespace Armada.Server.Routes
                 .WithParameter(OpenApiParameterMetadata.Query("pageSize", "Page size", false, OpenApiSchemaMetadata.Integer()))
                 .WithParameter(OpenApiParameterMetadata.Query("vesselId", "Optional vessel filter", false))
                 .WithParameter(OpenApiParameterMetadata.Query("environmentId", "Optional environment filter", false))
+                .WithParameter(OpenApiParameterMetadata.Query("checkRunId", "Optional check-run filter", false))
                 .WithParameter(OpenApiParameterMetadata.Query("deploymentId", "Optional deployment filter", false))
                 .WithParameter(OpenApiParameterMetadata.Query("releaseId", "Optional release filter", false))
                 .WithParameter(OpenApiParameterMetadata.Query("missionId", "Optional mission filter", false))
@@ -217,6 +218,7 @@ namespace Armada.Server.Routes
 
             query.VesselId = NormalizeEmpty(req.Query.GetValueOrDefault("vesselId")) ?? query.VesselId;
             query.EnvironmentId = NormalizeEmpty(req.Query.GetValueOrDefault("environmentId")) ?? query.EnvironmentId;
+            query.CheckRunId = NormalizeEmpty(req.Query.GetValueOrDefault("checkRunId")) ?? query.CheckRunId;
             query.DeploymentId = NormalizeEmpty(req.Query.GetValueOrDefault("deploymentId")) ?? query.DeploymentId;
             query.ReleaseId = NormalizeEmpty(req.Query.GetValueOrDefault("releaseId")) ?? query.ReleaseId;
             query.MissionId = NormalizeEmpty(req.Query.GetValueOrDefault("missionId")) ?? query.MissionId;

@@ -21,6 +21,12 @@ Armada currently supports:
 - `System > Runbooks` for step-by-step operational runbooks linked to deployments and incidents
 - `Activity > History` for reconstructing what happened across releases, deployments, incidents, checks, requests, and runbook executions
 
+Pending check runs are durable gates. Armada's server heartbeat resolves eligible non-deployment gates automatically in bounded batches: voyage and mission checks after completion, release checks after linked work completes, and vessel baseline checks when the vessel is idle. Deployment-linked gates are resolved by `DeploymentService` during deploy, verify, rollback, and rollout-monitoring actions so deployment aggregate state remains authoritative. Deploy and rollback commands remain explicit deployment actions and still honor environment approval requirements.
+
+Autonomous mission recovery is also Armada-native. When a mission reaches `Failed` or `LandingFailed`, Armada opens or updates an Incident and records a completed `Autonomous Mission Recovery` runbook execution. Recoverable non-landing failures can dispatch bounded linked rescue missions. Landing and merge failures stay under landing/merge recovery ownership instead of receiving generic rescue work. Cancelled parent voyages suppress new rescue work and cancel any active linked rescue so operator cancellation does not produce surprise follow-up missions. Serious blockers such as auth/quota, review denial, protected paths, dependency failures, or exhausted recovery budgets remain as open incidents for human review. Live but quiet captains may receive throttled Mail nudges before the hard stall threshold; terminal failed missions should be recovered through incidents/runbooks/rescue dispatch instead of Mail.
+
+Incident resolution is evidence-driven. Failed automatic checks open incidents linked to the failed `chk_` record. Later matching passing checks, completed linked rescue missions, successful verified deployments, shipped releases, or completed rollbacks can automatically mitigate or roll back the incident. Mitigated incidents close after `settings.incidentLifecycle.closeQuietPeriodMinutes`; newer matching failures reopen mitigated incidents and raise severity to at least `High`. A later same-vessel passing check also supersedes stale infrastructure-blocked check incidents, and cancelled/superseded mission evidence can close stale rescue/landing incidents after the quiet window. Operators should produce the linked check/deployment/release/rollback evidence instead of manually closing incidents from prose status alone.
+
 Armada does not yet support:
 
 - provider-backed PR release evidence
@@ -52,6 +58,10 @@ Use:
 - `Delivery > Checks`
 
 to confirm the vessel is ready before operating on releases or deployments.
+
+Create Pending check records as soon as the delivery intent is known. The automatic resolver updates those records in-place when they become eligible; it does not invent green evidence and it does not bypass approval-gated deploy or rollback actions.
+
+When a check failure blocks delivery, keep retry evidence in Checks. Retrying or recording a newer passing check with the same vessel, context, and check type gives the incident lifecycle enough evidence to mitigate the incident. A newer failed matching check keeps or reopens the incident.
 
 ## 2. Draft A Release
 
@@ -118,7 +128,15 @@ After deployment starts or completes, use deployment detail to inspect:
 
 Use `Verify` when you need to re-run the deployment verification path without re-running the original deployment command.
 
+When verification starts, Armada first looks for a matching Pending check run and executes it in-place. If no matching Pending record exists, it creates a new run so verification evidence is still preserved.
+
 Use `Activity > History` and `Activity > Requests` when you need supporting evidence beyond the deployment record itself.
+
+## Dispatch And Code-Index Preflight
+
+MCP dispatch is durable-first. A successful `armada_dispatch` response means the voyage and mission records were created; assignment, dock provisioning, worktree setup, and captain launch may still be queued. This is expected on first use of a large repository or a serialized vessel. Poll voyage or mission status instead of retrying immediately.
+
+Before dispatch attaches automatic context packs, Armada checks the vessel code-index state. If a post-land or manual refresh is running, dispatch returns `code_index_update_in_progress` and does not create a voyage. Poll `armada_index_status` until `updateInProgress` is false, then retry. Refreshes reuse unchanged chunk embeddings and graph sidecars where possible, so post-land refreshes are incremental rather than full cold re-indexes.
 
 ## 5. Roll Back A Failed Release
 
@@ -191,11 +209,16 @@ When you need to understand what happened after the fact, use:
 
 For the cleanest operator experience, treat these as required:
 
+- workflow profiles should own repeatable build, test, release, deploy, rollback, and verification commands
+- checks should be created for meaningful validation instead of leaving proof only in mission logs; eligible non-deployment Pending gates are auto-run, while deployment gates are resolved through deployment actions
 - releases should link to the work and checks that justify them
-- deployments should target named environments rather than ad-hoc host notes
+- deployments should target named environments rather than ad-hoc host notes or mission prose
 - verification should be captured on the deployment record
 - rollback should be performed through deployment detail when possible
 - incidents should be created from the affected deployment or environment so context is not retyped and lost
+- runbooks should be used for repeated release, deploy, rollback, migration, or incident steps
+
+Mission and voyage descriptions should stay narrow: they identify the worker task, file boundaries, and related structured IDs. Scope belongs in objectives/backlog, commands in workflow profiles, proof in checks, rollout state in deployments, operational failure history in incidents, and repeated procedure history in runbook executions.
 
 ## Current Limitations
 

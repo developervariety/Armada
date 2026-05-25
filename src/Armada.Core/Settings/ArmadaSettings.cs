@@ -847,6 +847,24 @@ namespace Armada.Core.Settings
         public RemoteTriggerSettings? RemoteTrigger { get; set; }
 
         /// <summary>
+        /// Armada-native mission failure recovery policy.
+        /// </summary>
+        public AutonomousRecoverySettings AutonomousRecovery
+        {
+            get => _AutonomousRecovery;
+            set => _AutonomousRecovery = value ?? new AutonomousRecoverySettings();
+        }
+
+        /// <summary>
+        /// Armada-native incident mitigation and closure policy.
+        /// </summary>
+        public IncidentLifecycleSettings IncidentLifecycle
+        {
+            get => _IncidentLifecycle;
+            set => _IncidentLifecycle = value ?? new IncidentLifecycleSettings();
+        }
+
+        /// <summary>
         /// Codebase indexing settings.
         /// </summary>
         public CodeIndexSettings CodeIndex
@@ -918,6 +936,8 @@ namespace Armada.Core.Settings
         private RemoteControlSettings _RemoteControl = new RemoteControlSettings();
         private DatabaseSettings _Database = new DatabaseSettings();
         private CodeIndexSettings _CodeIndex = new CodeIndexSettings();
+        private AutonomousRecoverySettings _AutonomousRecovery = new AutonomousRecoverySettings();
+        private IncidentLifecycleSettings _IncidentLifecycle = new IncidentLifecycleSettings();
         private bool _DatabasePathConfigured = false;
 
         #endregion

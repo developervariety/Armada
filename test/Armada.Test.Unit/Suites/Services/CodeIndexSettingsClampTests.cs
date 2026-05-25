@@ -24,6 +24,9 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(string.Empty, settings.EmbeddingApiKey);
                 AssertEqual(0.7, settings.SemanticWeight);
                 AssertEqual(0.3, settings.LexicalWeight);
+                AssertEqual(32, settings.EmbeddingBatchSize);
+                AssertEqual(200, settings.EmbeddingProgressLogInterval);
+                AssertEqual(30, settings.PostLandRefreshDebounceSeconds);
 
                 AssertFalse(settings.UseSummarizer, "UseSummarizer default must be false");
                 AssertEqual("Http", settings.InferenceClient);
@@ -104,6 +107,69 @@ namespace Armada.Test.Unit.Suites.Services
                 CodeIndexSettings settings = new CodeIndexSettings();
                 settings.MaxSummaryOutputTokens = 1024;
                 AssertEqual(1024, settings.MaxSummaryOutputTokens);
+            });
+
+            await RunTest("EmbeddingBatchSize_BelowMinimum_ClampsToOne", () =>
+            {
+                CodeIndexSettings settings = new CodeIndexSettings();
+                settings.EmbeddingBatchSize = 0;
+                AssertEqual(1, settings.EmbeddingBatchSize);
+            });
+
+            await RunTest("EmbeddingBatchSize_AboveMaximum_ClampsTo256", () =>
+            {
+                CodeIndexSettings settings = new CodeIndexSettings();
+                settings.EmbeddingBatchSize = 1_000_000;
+                AssertEqual(256, settings.EmbeddingBatchSize);
+            });
+
+            await RunTest("EmbeddingBatchSize_WithinRange_AssignedExactly", () =>
+            {
+                CodeIndexSettings settings = new CodeIndexSettings();
+                settings.EmbeddingBatchSize = 64;
+                AssertEqual(64, settings.EmbeddingBatchSize);
+            });
+
+            await RunTest("EmbeddingProgressLogInterval_BelowMinimum_ClampsTo50", () =>
+            {
+                CodeIndexSettings settings = new CodeIndexSettings();
+                settings.EmbeddingProgressLogInterval = 1;
+                AssertEqual(50, settings.EmbeddingProgressLogInterval);
+            });
+
+            await RunTest("EmbeddingProgressLogInterval_AboveMaximum_ClampsTo2000", () =>
+            {
+                CodeIndexSettings settings = new CodeIndexSettings();
+                settings.EmbeddingProgressLogInterval = 10_000;
+                AssertEqual(2000, settings.EmbeddingProgressLogInterval);
+            });
+
+            await RunTest("EmbeddingProgressLogInterval_WithinRange_AssignedExactly", () =>
+            {
+                CodeIndexSettings settings = new CodeIndexSettings();
+                settings.EmbeddingProgressLogInterval = 500;
+                AssertEqual(500, settings.EmbeddingProgressLogInterval);
+            });
+
+            await RunTest("PostLandRefreshDebounceSeconds_BelowMinimum_ClampsToZero", () =>
+            {
+                CodeIndexSettings settings = new CodeIndexSettings();
+                settings.PostLandRefreshDebounceSeconds = -1;
+                AssertEqual(0, settings.PostLandRefreshDebounceSeconds);
+            });
+
+            await RunTest("PostLandRefreshDebounceSeconds_AboveMaximum_ClampsTo3600", () =>
+            {
+                CodeIndexSettings settings = new CodeIndexSettings();
+                settings.PostLandRefreshDebounceSeconds = 10_000;
+                AssertEqual(3600, settings.PostLandRefreshDebounceSeconds);
+            });
+
+            await RunTest("PostLandRefreshDebounceSeconds_WithinRange_AssignedExactly", () =>
+            {
+                CodeIndexSettings settings = new CodeIndexSettings();
+                settings.PostLandRefreshDebounceSeconds = 45;
+                AssertEqual(45, settings.PostLandRefreshDebounceSeconds);
             });
 
             await RunTest("FileSignatureBoostWeight_AboveOne_ClampsToOne", () =>
@@ -236,6 +302,21 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(256, settings.MaxSummaryOutputTokens);
                 settings.MaxSummaryOutputTokens = 8192;
                 AssertEqual(8192, settings.MaxSummaryOutputTokens);
+
+                settings.EmbeddingBatchSize = 1;
+                AssertEqual(1, settings.EmbeddingBatchSize);
+                settings.EmbeddingBatchSize = 256;
+                AssertEqual(256, settings.EmbeddingBatchSize);
+
+                settings.EmbeddingProgressLogInterval = 50;
+                AssertEqual(50, settings.EmbeddingProgressLogInterval);
+                settings.EmbeddingProgressLogInterval = 2000;
+                AssertEqual(2000, settings.EmbeddingProgressLogInterval);
+
+                settings.PostLandRefreshDebounceSeconds = 0;
+                AssertEqual(0, settings.PostLandRefreshDebounceSeconds);
+                settings.PostLandRefreshDebounceSeconds = 3600;
+                AssertEqual(3600, settings.PostLandRefreshDebounceSeconds);
             });
         }
     }

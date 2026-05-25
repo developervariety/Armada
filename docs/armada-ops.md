@@ -6,17 +6,96 @@ This document describes operational workflows for the Armada multi-agent orchest
 
 ## Current Operator Notes
 
-Last upstream sync: upstream `e5fe494d` via merge `9fcfe995` on 2026-05-15. The fork now includes upstream v0.8.0 delivery-management surfaces plus fork orchestration features.
+Last upstream sync: upstream `e9e3021f` via merge `cb9030bd` on 2026-05-24. The fork now includes upstream v0.8.0 delivery-management surfaces plus fork orchestration features.
 
 For non-trivial work, start from an objective/backlog item and keep the evidence there. Use objective refinement or Planning for fuzzy scope, Workspace/context packs for file-grounded scope, and structured check runs for repeatable validation. Dispatch missions with objective IDs, selected playbooks, expected checks, and explicit file boundaries.
+
+Armada should be the system of record for autonomous operation. Do not build parallel TODO/spec/memory-note workflows when an Armada surface exists:
+
+- Objectives and Backlog are the durable work queue, including nightly or unattended continuation candidates.
+- Planning Sessions replace ad-hoc markdown specs for interactive refinement and plan-to-dispatch handoff.
+- Workflow Profiles define commands; Pending Checks define gates; check execution provides the evidence.
+- Releases, Deployments, Incidents, and Runbooks own operational progress and recovery.
+- History and Requests own replay/audit evidence.
+- External resume mechanisms such as AgentWake are transports, not the work queue. Autonomous rescue and continuation loops should read Armada records first.
+- Autonomous mission recovery is server-side Armada policy. Failed and landing-failed missions are classified, linked to an Incident, and recorded through the system `Autonomous Mission Recovery` runbook. Recoverable non-landing mission failures receive a bounded linked rescue mission. Cancellation is authoritative: cancelled parent voyages suppress new rescue work and cancel active linked rescues. Landing/merge failures stay owned by landing and merge recovery workflows. Auth/quota/review/protected-path/dependency/recovery-exhausted failures stay as open incidents for human review.
+- Incident lifecycle is also server-side Armada policy. Failed checks open incidents with the failed `chk_` link attached. Later passing matching check evidence, successful rescue missions, shipped releases, successful verified deployments, completed rollbacks, or superseding cancellation/shipping evidence move incidents through `Mitigated`, `RolledBack`, and `Closed` after the quiet window. New matching failures reopen mitigated incidents and raise severity rather than hiding regressions.
 
 Use these upstream surfaces when they fit:
 
 - `list_objectives`, `create_objective`, `update_objective`, and backlog aliases for durable scope, priority, acceptance criteria, rollout constraints, and evidence links.
-- `run_check`, `get_check_run`, and `retry_check_run` for build/test/deploy validation records instead of only mission logs.
+- `run_check`, `get_check_run`, and `retry_check_run` for build/test/deploy validation records instead of only mission logs. Pending check records are durable gates; the server heartbeat auto-runs eligible non-deployment gates when linked voyages/missions complete, releases become ready, or vessels are idle. Deployment-linked gates are resolved by `DeploymentService` during deploy, verify, rollback, and rollout-monitoring actions.
 - `create_release`, `create_deployment`, deployment approval/verify/rollback tools, and runbook tools for release and operations work.
 - Workspace, request history/API Explorer, history timeline, GitHub evidence, and captain tool visibility from the dashboard when investigating or resuming work.
 - Pipeline review gates for human checkpoints; approve or deny via mission detail or `/api/v1/missions/{id}/review/*` before merge queue/audit/PR fallback.
+
+### Autonomous Recovery Policy
+
+The server heartbeat and mission-outcome hook run `AutonomousRecoveryOrchestrator` when `settings.autonomousRecovery.enabled` is true. The default policy is intentionally bounded:
+
+- Live captains that go quiet before the hard stall threshold receive a throttled `Mail` nudge with an `ARMADA_AUTO_NUDGE` marker. Mail is only for live work; terminal failed missions get rescue records instead.
+- Terminal `Failed` and `LandingFailed` missions create or update an Incident with vessel/mission/voyage context.
+- Armada creates a runbook execution against the system `Autonomous Mission Recovery` runbook so the decision is visible in Runbooks and History.
+- Recoverable non-landing failures dispatch standalone rescue missions with `ParentMissionId` set to the failed mission. The default budget is one rescue; raising `maxMissionRecoveryAttempts` allows another rescue only after prior rescue missions have reached a retryable terminal failure.
+- Cancelled missions and voyages do not create new rescue missions. If a linked rescue is still active when the parent voyage is cancelled, Armada cancels the rescue too.
+- A captain marked Working on an active mission with no recorded process id is treated as a fail-loud recovery case. Armada fails the mission with an explicit missing-PID reason, halts the voyage, releases the captain, and records incident evidence instead of treating the missing process as success.
+- Landing and merge failures do not receive generic rescue missions; those remain under landing, merge-queue, and merge-recovery ownership.
+- Serious blockers do not dispatch rescue work. They remain open incidents for human action.
+
+Tune this with `autonomousRecovery.dispatchRescueMissions`, `maxMissionRecoveryAttempts`, `failedMissionLookbackHours`, `sendStallMailNudges`, `stallMailNudgeThresholdRatio`, and `stallMailNudgeCooldownMinutes`.
+
+### Incident Lifecycle Policy
+
+The server heartbeat and mission-outcome hook run `IncidentLifecycleOrchestrator` when `settings.incidentLifecycle.enabled` is true. The policy is evidence-gated:
+
+- Failed automatic checks create incidents linked to the exact failed `CheckRunId`.
+- A newer matching passed check for the same vessel/context/type mitigates the incident.
+- A completed linked rescue mission mitigates the failed-mission incident that spawned it.
+- A verified successful deployment or shipped release mitigates linked delivery incidents.
+- A completed rollback moves linked incidents to `RolledBack`.
+- A later matching passing check for the same vessel can close stale infrastructure-blocked check incidents, including stale Docker/setup failures that were superseded by later shipped work.
+- Cancelled/superseded mission evidence can close stale rescue and landing incidents once the linked work is no longer actionable.
+- Mitigated incidents close automatically only after `closeQuietPeriodMinutes` and no newer linked failure evidence.
+- Newer matching failures reopen `Mitigated`/`Monitoring` incidents to `Open` and raise severity to at least `High`.
+
+Tune this with `incidentLifecycle.enabled`, `autoMitigate`, `autoClose`, `closeQuietPeriodMinutes`, and `maxIncidentsPerSweep`. Do not manually close incidents just because a mission says "done"; close them by producing the linked check, rescue, release, deployment, or rollback evidence Armada can read.
+
+## Structured-First Operating Contract
+
+Treat the dashboard sections as first-class records with ownership boundaries:
+
+| Surface | Use it for | Do not pack this into |
+|---------|------------|-----------------------|
+| Backlog/Objectives | Scope, acceptance criteria, priority, rollout constraints, evidence links | Mission prose, release notes |
+| Planning | Fuzzy discovery, transcript-backed decomposition, dispatch handoff | Ad-hoc chat summaries |
+| Workflow Profiles | Build/test/package/release/deploy/rollback/verify command definitions | Per-mission shell instructions |
+| Checks | Repeatable validation runs, logs, artifacts, parsed test/coverage summaries, pending gates auto-resolved from lifecycle state | Mission final comments |
+| Environments | Named rollout targets, URLs, approval policy, access/deployment rules | Deployment notes only |
+| Releases | Candidate/shipped work, version/tag, linked voyages/missions/checks/artifacts | Voyage descriptions |
+| Deployments | Rollout approval, execution, verification, monitoring, rollback | Incident notes only |
+| Incidents | Impact, root cause, recovery, rollback, hotfix handoff, postmortem | Dispatch prompts |
+| Runbooks | Repeatable operational steps and execution history | Freeform operator memory |
+| History/Requests | Cross-entity chronology and API/request evidence | Manual status summaries |
+
+Default flow for meaningful work:
+
+1. Find or create an objective/backlog item.
+2. Scope with Planning, objective refinement, Workspace, context packs, and graph tools.
+3. Confirm or create the workflow profile and environments needed for checks, releases, and deployments.
+4. Dispatch with `objectiveId`, pipeline/playbook selections, expected checks, and tight file boundaries.
+5. Record validation with `run_check`/Checks, not just mission logs. Create Pending gates early; Armada resolves eligible non-destructive gates automatically, and deployment actions consume matching Pending deploy/verify/rollback checks.
+6. Create release and deployment records when work is a candidate for shipping or has rolled out anywhere.
+7. Create incidents from affected deployments/environments when regressions occur.
+8. Start runbook executions for repeatable release, deploy, rollback, migration, or incident procedures.
+9. Link every produced check, release, deployment, incident, and final mission result back to the objective before closing it.
+
+Only skip a structured record when the work is genuinely ephemeral and has no expected future audit, release, deployment, incident, or repeatable validation value.
+
+### Dispatch Preflight And Code Indexing
+
+`armada_dispatch` is durable-first. It returns after the voyage and mission rows are persisted; assignment, dock provisioning, worktree setup, and captain launch run asynchronously. If the response is successful but missions remain `Pending`, check `armada_voyage_status`, vessel serialization (`AllowConcurrentMissions=false`), captain persona/model filters, and active code-index updates before redispatching.
+
+Code indexing is incremental where possible. Post-land refreshes reuse unchanged chunk embeddings and graph sidecars, batch embedding-provider calls, and keep lexical search as the reliable fallback even when semantic search is disabled. Dispatch blocks only while a refresh is currently in progress and returns `code_index_update_in_progress` without creating a voyage. Poll `armada_index_status` and retry once `updateInProgress` is false.
 
 ## Pipeline Selection
 
@@ -404,6 +483,8 @@ The Admiral-owned per-vessel code index supports hybrid lexical + semantic searc
 - `force` -- regenerate even if a captain returned an empty pack; useful when the first pack was thin.
 - `off` -- skip entirely. Reserve for intentionally code-blind missions (pure docs, pure ops).
 
+Automatic dispatch-time context generation is bounded. In `auto` mode, a slow context-pack build logs a warning and dispatch continues without the pack so a voyage record is still created. In `force` mode, the same timeout returns a clear pre-dispatch error. The default timeout is 45 seconds and can be overridden with `ARMADA_CODE_CONTEXT_TIMEOUT_MS`.
+
 **`armada_code_search`** -- inspect the index directly when you want raw results, cross-vessel discovery, or to verify a captain's evidence. Filters narrow scope: `pathPrefix` clips to a directory, `language` filters by detected language (`csharp`, `markdown`, etc.). `Score` interpretation:
 
 - Lexical-only baseline clusters in the 60-200 range.
@@ -412,7 +493,7 @@ The Admiral-owned per-vessel code index supports hybrid lexical + semantic searc
 
 Phrase queries by intent (`"seed/key challenge response algorithm"`) rather than single common tokens (`"voyage"` gets swamped by domain noise -- "Voyage" is the orchestrator's dispatch-batch concept and dominates a lexical search).
 
-**Post-land refresh.** When a voyage lands through the local merge path or PR reconciler, Admiral starts a background `armada_index_update` for that vessel. This is intentionally asynchronous so landing is not held hostage by embedding/graph work, but it is treated as a dispatch pre-flight gate: do not dispatch more work for that vessel while `armada_index_status.updateInProgress` is true. The gate protects future missions from stale `armada_code_search` hits and context packs that miss the newly landed code.
+**Post-land refresh.** When a voyage lands through the local merge path or PR reconciler, Admiral starts a background `armada_index_update` for that vessel. This is intentionally asynchronous so landing is not held hostage by embedding/graph work, but it is treated as a dispatch pre-flight gate: do not dispatch more work for that vessel while `armada_index_status.updateInProgress` is true or `freshness` is `Stale`. The gate protects future missions from stale `armada_code_search` hits and context packs that miss the newly landed code.
 
 **`armada_context_pack`** -- build a dispatch-ready markdown briefing for a specific goal. Returns `Markdown`, `MaterializedPath`, and a `prestagedFiles` entry pointing at `_briefing/context-pack.md`. Pass the entry straight into `armada_dispatch` to override the auto pack with a tighter goal. Always list `_briefing/context-pack.md` in the mission's **Reads** section so the captain knows it is authoritative repo evidence.
 
@@ -466,8 +547,11 @@ All settings live under `CodeIndex` in `~/.armada/settings.json`:
 | `EmbeddingModel` | `"deepseek-embedding"` | string | Model name passed to the embedding endpoint. |
 | `EmbeddingApiBaseUrl` | `"https://api.deepseek.com"` | string | Base URL for embedding API calls. |
 | `EmbeddingApiKey` | `""` | string | API key for embedding calls. Store the secret here; never commit real keys to git. |
+| `EmbeddingBatchSize` | `32` | 1-256 | Number of chunks sent per embedding request during index updates. |
+| `EmbeddingProgressLogInterval` | `200` | 50-2000 | Number of embedded chunks between progress log entries during index updates. |
 | `SemanticWeight` | `0.7` | 0.0-1.0 | Weight applied to semantic cosine similarity in hybrid scoring. |
 | `LexicalWeight` | `0.3` | 0.0-1.0 | Weight applied to lexical substring/term-occurrence score in hybrid scoring. |
+| `PostLandRefreshDebounceSeconds` | `30` | 0-3600 | Debounce window for coalescing post-land index refreshes per vessel. |
 | `UseSummarizer` | `false` | boolean | Enable context pack summarization via inference client. |
 | `SummarizerModel` | `"deepseek-chat"` | string | Model name for summarization calls. |
 | `SummarizerApiBaseUrl` | `""` | string | Falls back to `EmbeddingApiBaseUrl` when empty. |

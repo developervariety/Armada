@@ -329,6 +329,287 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("RunPendingOrNewAsync resolves matching pending run in-place", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                WorkflowProfileService workflowProfiles = new WorkflowProfileService(testDb.Driver, logging);
+                VesselReadinessService readiness = new VesselReadinessService(testDb.Driver, workflowProfiles, logging);
+                CheckRunService checkRuns = new CheckRunService(testDb.Driver, workflowProfiles, readiness, logging);
+
+                await EnsureTenantAndUserAsync(testDb, "ten_pending", "usr_pending").ConfigureAwait(false);
+
+                string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-check-pending-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(workingDirectory);
+
+                try
+                {
+                    Vessel vessel = CreateVessel("ten_pending", "usr_pending", workingDirectory);
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    WorkflowProfile profile = new WorkflowProfile
+                    {
+                        TenantId = "ten_pending",
+                        UserId = "usr_pending",
+                        Name = "Pending Workflow",
+                        Scope = WorkflowProfileScopeEnum.Vessel,
+                        VesselId = vessel.Id,
+                        BuildCommand = "dotnet --version"
+                    };
+                    await testDb.Driver.WorkflowProfiles.CreateAsync(profile).ConfigureAwait(false);
+
+                    CheckRun pending = new CheckRun
+                    {
+                        TenantId = "ten_pending",
+                        UserId = "usr_pending",
+                        VesselId = vessel.Id,
+                        WorkflowProfileId = profile.Id,
+                        Type = CheckRunTypeEnum.Build,
+                        Status = CheckRunStatusEnum.Pending,
+                        Label = "Build",
+                        Command = "dotnet --version"
+                    };
+                    await testDb.Driver.CheckRuns.CreateAsync(pending).ConfigureAwait(false);
+
+                    AuthContext auth = AuthContext.Authenticated("ten_pending", "usr_pending", false, false, "UnitTest");
+                    CheckRun run = await checkRuns.RunPendingOrNewAsync(auth, new CheckRunRequest
+                    {
+                        VesselId = vessel.Id,
+                        WorkflowProfileId = profile.Id,
+                        Type = CheckRunTypeEnum.Build,
+                        Label = "Build"
+                    }).ConfigureAwait(false);
+
+                    AssertEqual(pending.Id, run.Id);
+                    AssertEqual(CheckRunStatusEnum.Passed, run.Status);
+                    AssertEqual(0, run.ExitCode ?? -1);
+                    AssertTrue(run.StartedUtc.HasValue, "Expected pending run to be started.");
+                    AssertTrue(run.CompletedUtc.HasValue, "Expected pending run to be completed.");
+
+                    EnumerationResult<CheckRun> allRuns = await testDb.Driver.CheckRuns.EnumerateAsync(new CheckRunQuery
+                    {
+                        TenantId = "ten_pending",
+                        UserId = "usr_pending",
+                        VesselId = vessel.Id,
+                        PageNumber = 1,
+                        PageSize = 10
+                    }).ConfigureAwait(false);
+                    AssertEqual(1L, allRuns.TotalRecords);
+                }
+                finally
+                {
+                    TryDeleteDirectory(workingDirectory);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("RunPendingAsync fails unresolved placeholder command instead of passing", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                WorkflowProfileService workflowProfiles = new WorkflowProfileService(testDb.Driver, logging);
+                VesselReadinessService readiness = new VesselReadinessService(testDb.Driver, workflowProfiles, logging);
+                CheckRunService checkRuns = new CheckRunService(testDb.Driver, workflowProfiles, readiness, logging);
+
+                await EnsureTenantAndUserAsync(testDb, "ten_pending_placeholder", "usr_pending_placeholder").ConfigureAwait(false);
+
+                string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-check-pending-placeholder-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(workingDirectory);
+
+                try
+                {
+                    Vessel vessel = CreateVessel("ten_pending_placeholder", "usr_pending_placeholder", workingDirectory);
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    CheckRun pending = new CheckRun
+                    {
+                        TenantId = "ten_pending_placeholder",
+                        UserId = "usr_pending_placeholder",
+                        VesselId = vessel.Id,
+                        Type = CheckRunTypeEnum.Build,
+                        Status = CheckRunStatusEnum.Pending,
+                        Label = "Build"
+                    };
+                    await testDb.Driver.CheckRuns.CreateAsync(pending).ConfigureAwait(false);
+
+                    AuthContext auth = AuthContext.Authenticated("ten_pending_placeholder", "usr_pending_placeholder", false, false, "UnitTest");
+                    CheckRun run = await checkRuns.RunPendingAsync(auth, pending.Id).ConfigureAwait(false);
+
+                    AssertEqual(pending.Id, run.Id);
+                    AssertEqual(CheckRunStatusEnum.Failed, run.Status);
+                    AssertEqual(-1, run.ExitCode ?? 0);
+                    AssertContains("workflow profile", run.Output ?? String.Empty);
+
+                    EnumerationResult<CheckRun> allRuns = await testDb.Driver.CheckRuns.EnumerateAsync(new CheckRunQuery
+                    {
+                        TenantId = "ten_pending_placeholder",
+                        UserId = "usr_pending_placeholder",
+                        VesselId = vessel.Id,
+                        PageNumber = 1,
+                        PageSize = 10
+                    }).ConfigureAwait(false);
+                    AssertEqual(1L, allRuns.TotalRecords);
+                }
+                finally
+                {
+                    TryDeleteDirectory(workingDirectory);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("RetryAsync blocks deployment-linked pending checks outside deployment workflow", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                WorkflowProfileService workflowProfiles = new WorkflowProfileService(testDb.Driver, logging);
+                VesselReadinessService readiness = new VesselReadinessService(testDb.Driver, workflowProfiles, logging);
+                CheckRunService checkRuns = new CheckRunService(testDb.Driver, workflowProfiles, readiness, logging);
+
+                await EnsureTenantAndUserAsync(testDb, "ten_deploy_guard", "usr_deploy_guard").ConfigureAwait(false);
+
+                string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-check-deploy-guard-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(workingDirectory);
+
+                try
+                {
+                    Vessel vessel = CreateVessel("ten_deploy_guard", "usr_deploy_guard", workingDirectory);
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                    Deployment deployment = new Deployment
+                    {
+                        TenantId = "ten_deploy_guard",
+                        UserId = "usr_deploy_guard",
+                        VesselId = vessel.Id,
+                        Title = "Guarded deployment",
+                        EnvironmentName = "staging",
+                        Status = DeploymentStatusEnum.PendingApproval,
+                        ApprovalRequired = true
+                    };
+                    await testDb.Driver.Deployments.CreateAsync(deployment).ConfigureAwait(false);
+
+                    CheckRun pending = new CheckRun
+                    {
+                        TenantId = "ten_deploy_guard",
+                        UserId = "usr_deploy_guard",
+                        VesselId = vessel.Id,
+                        DeploymentId = deployment.Id,
+                        Type = CheckRunTypeEnum.Deploy,
+                        Status = CheckRunStatusEnum.Pending,
+                        Label = "Deploy staging",
+                        Command = "dotnet --version"
+                    };
+                    await testDb.Driver.CheckRuns.CreateAsync(pending).ConfigureAwait(false);
+
+                    CheckRun pendingVerification = new CheckRun
+                    {
+                        TenantId = "ten_deploy_guard",
+                        UserId = "usr_deploy_guard",
+                        VesselId = vessel.Id,
+                        DeploymentId = deployment.Id,
+                        Type = CheckRunTypeEnum.DeploymentVerification,
+                        Status = CheckRunStatusEnum.Pending,
+                        Label = "Verify staging",
+                        Command = "dotnet --version"
+                    };
+                    await testDb.Driver.CheckRuns.CreateAsync(pendingVerification).ConfigureAwait(false);
+
+                    AuthContext auth = AuthContext.Authenticated("ten_deploy_guard", "usr_deploy_guard", false, false, "UnitTest");
+                    await AssertThrowsAsync<InvalidOperationException>(async () =>
+                    {
+                        await checkRuns.RetryAsync(auth, pending.Id).ConfigureAwait(false);
+                    }).ConfigureAwait(false);
+
+                    await AssertThrowsAsync<InvalidOperationException>(async () =>
+                    {
+                        await checkRuns.RetryAsync(auth, pendingVerification.Id).ConfigureAwait(false);
+                    }).ConfigureAwait(false);
+
+                    CheckRun? readBack = await testDb.Driver.CheckRuns.ReadAsync(pending.Id).ConfigureAwait(false);
+                    AssertNotNull(readBack);
+                    AssertEqual(CheckRunStatusEnum.Pending, readBack!.Status);
+
+                    CheckRun? verificationReadBack = await testDb.Driver.CheckRuns.ReadAsync(pendingVerification.Id).ConfigureAwait(false);
+                    AssertNotNull(verificationReadBack);
+                    AssertEqual(CheckRunStatusEnum.Pending, verificationReadBack!.Status);
+                }
+                finally
+                {
+                    TryDeleteDirectory(workingDirectory);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("RecordCompletedAsync consumes matching pending run in-place", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+
+                await EnsureTenantAndUserAsync(testDb, "ten_record_pending", "usr_record_pending").ConfigureAwait(false);
+                string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-check-record-pending-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(workingDirectory);
+
+                try
+                {
+                    Vessel vessel = CreateVessel("ten_record_pending", "usr_record_pending", workingDirectory);
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                    Deployment deployment = new Deployment
+                    {
+                        TenantId = "ten_record_pending",
+                        UserId = "usr_record_pending",
+                        VesselId = vessel.Id,
+                        Title = "Record pending deployment",
+                        EnvironmentName = "staging",
+                        Status = DeploymentStatusEnum.Running
+                    };
+                    await testDb.Driver.Deployments.CreateAsync(deployment).ConfigureAwait(false);
+
+                    CheckRun pending = new CheckRun
+                    {
+                        TenantId = "ten_record_pending",
+                        UserId = "usr_record_pending",
+                        VesselId = vessel.Id,
+                        DeploymentId = deployment.Id,
+                        Type = CheckRunTypeEnum.HealthCheck,
+                        Status = CheckRunStatusEnum.Pending,
+                        EnvironmentName = "staging",
+                        Label = "Health Check staging"
+                    };
+                    await testDb.Driver.CheckRuns.CreateAsync(pending).ConfigureAwait(false);
+
+                    LoggingModule logging = CreateLogging();
+                    WorkflowProfileService workflowProfiles = new WorkflowProfileService(testDb.Driver, logging);
+                    VesselReadinessService readiness = new VesselReadinessService(testDb.Driver, workflowProfiles, logging);
+                    CheckRunService checkRuns = new CheckRunService(testDb.Driver, workflowProfiles, readiness, logging);
+
+                    CheckRun completed = await checkRuns.RecordCompletedAsync(new CheckRun
+                    {
+                        TenantId = "ten_record_pending",
+                        UserId = "usr_record_pending",
+                        VesselId = vessel.Id,
+                        DeploymentId = deployment.Id,
+                        Type = CheckRunTypeEnum.HealthCheck,
+                        Status = CheckRunStatusEnum.Passed,
+                        EnvironmentName = "staging",
+                        Label = "Health Check staging",
+                        Command = "GET /health",
+                        ExitCode = 0,
+                        Output = "healthy"
+                    }).ConfigureAwait(false);
+
+                    AssertEqual(pending.Id, completed.Id);
+                    AssertEqual(CheckRunStatusEnum.Passed, completed.Status);
+
+                    EnumerationResult<CheckRun> allRuns = await testDb.Driver.CheckRuns.EnumerateAsync(new CheckRunQuery
+                    {
+                        TenantId = "ten_record_pending",
+                        UserId = "usr_record_pending",
+                        VesselId = vessel.Id,
+                        PageNumber = 1,
+                        PageSize = 10
+                    }).ConfigureAwait(false);
+                    AssertEqual(1L, allRuns.TotalRecords);
+                }
+                finally
+                {
+                    TryDeleteDirectory(workingDirectory);
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("RetryAsync re-executes prior check run", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

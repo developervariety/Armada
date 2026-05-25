@@ -433,13 +433,13 @@ Get code index status for a vessel, including indexed commit, current commit, ch
 
 **Response:** `CodeIndexStatus` with vessel identity, index directory, indexed/current commit SHAs, freshness, document/chunk counts, active-update fields, and any last error.
 
-When an update is running, `freshness` is `Updating`, `updateInProgress` is `true`, and `updateStartedUtc` contains the UTC start time. Dispatch tools use these fields to avoid generating context packs against stale code after a voyage lands.
+When an update is running, `freshness` is `Updating`, `updateInProgress` is `true`, and `updateStartedUtc` contains the UTC start time. Dispatch tools use these fields to avoid generating context packs against stale code after a voyage lands. Refreshes are incremental where possible: unchanged files and chunks reuse prior metadata and embeddings, and embedding providers are called in batches instead of one chunk at a time.
 
 ---
 
 ### armada_index_update
 
-Refresh the Admiral-owned code index for a vessel's default branch. This rewrites `chunks.jsonl` and, for supported source files, the graph sidecars `symbols.jsonl` and `edges.jsonl`.
+Refresh the Admiral-owned code index for a vessel's default branch. This updates `chunks.jsonl` and, for supported source files, the graph sidecars `symbols.jsonl` and `edges.jsonl`. Unchanged chunks reuse prior embeddings and graph sidecars when signatures match, so routine post-land refreshes are much faster than full cold indexes while preserving retrieval quality.
 
 **Input Schema:**
 
@@ -455,13 +455,13 @@ Refresh the Admiral-owned code index for a vessel's default branch. This rewrite
 
 **Response:** updated `CodeIndexStatus`.
 
-Only one update may run per vessel in a server process. A concurrent manual update returns a clear error that names the vessel and the start time of the already-running update.
+Only one update may run per vessel in a server process. A concurrent manual update returns a clear error that names the vessel and the start time of the already-running update. A successful voyage landing schedules a background refresh for the vessel; use manual `armada_index_update` when you need to force a refresh outside that lifecycle.
 
 ---
 
 ### armada_code_search
 
-Search a vessel's code index. Results include vessel id, repo-relative path, commit SHA, content hash, language, line range, freshness, and score. Search records may include `embeddingVector` when semantic indexing is enabled; keep limits low and prefer context packs for larger evidence transfer until vector redaction lands.
+Search a vessel's code index. Results include vessel id, repo-relative path, commit SHA, content hash, language, line range, freshness, and score. Search records omit `embeddingVector` by default; pass `includeEmbeddings=true` only for debugging or export flows that genuinely need raw vectors.
 
 **Input Schema:**
 
@@ -475,6 +475,7 @@ Search a vessel's code index. Results include vessel id, repo-relative path, com
     "pathPrefix": { "type": "string" },
     "language": { "type": "string", "description": "e.g. csharp or markdown" },
     "includeContent": { "type": "boolean" },
+    "includeEmbeddings": { "type": "boolean", "description": "Default false" },
     "includeReferenceOnly": { "type": "boolean" }
   },
   "required": ["vesselId", "query"]
@@ -694,7 +695,9 @@ Newly provisioned docks are seeded with dock-local Armada MCP config for compati
 
 ### armada_dispatch
 
-Dispatch a new voyage with missions to a vessel. This is the primary way to assign work to the Armada system.
+Dispatch a new voyage with missions to a vessel. This is the primary way to assign work to the Armada system. For non-trivial feature, bug, release, deployment, or incident work, pass `objectiveId` so the backlog/objective record carries the voyage and mission lineage.
+
+`armada_dispatch` returns after the voyage and mission records are durably created. Assignment, dock provisioning, worktree setup, and captain launch are queued in the background. This keeps stdio clients responsive even when first-time repository setup is slow. A successful response means the voyage exists; use `armada_voyage_status`, `armada_mission_status`, or `armada_enumerate` to watch missions move from `Pending` to `Assigned` or `InProgress`.
 
 **Input Schema:**
 
@@ -732,6 +735,10 @@ Dispatch a new voyage with missions to a vessel. This is the primary way to assi
       "type": "string",
       "description": "Optional pipeline name to use for this voyage (convenience alias for pipelineId -- resolves by name)"
     },
+    "objectiveId": {
+      "type": "string",
+      "description": "Optional objective/backlog item ID to link to the dispatched voyage"
+    },
     "selectedPlaybooks": {
       "type": "array",
       "description": "Optional ordered playbook selections for all missions in this voyage. Merges with vessel DefaultPlaybooks (voyage wins on collision). Each mission may also carry its own selectedPlaybooks for per-mission overrides.",
@@ -757,6 +764,7 @@ Dispatch a new voyage with missions to a vessel. This is the primary way to assi
 | `missions` | array | Yes | Array of mission objects with `title` and optional `description` |
 | `pipelineId` | string | No | Pipeline ID to use for this voyage (overrides vessel/fleet default) |
 | `pipeline` | string | No | Pipeline name to use (convenience alias for `pipelineId` -- resolves by name) |
+| `objectiveId` | string | No | Objective/backlog item ID (prefix `obj_`) to link to the dispatched voyage and its missions. |
 | `selectedPlaybooks` | array | No | Ordered playbook selections for all missions. Merge hierarchy: vessel defaults < voyage `selectedPlaybooks` < per-mission `selectedPlaybooks`. Duplicate `playbookId` entries are not rendered twice -- the most-specific `deliveryMode` wins. |
 
 Before resolving pipelines or generating automatic context packs, `armada_dispatch` checks the target vessel's code-index status. If `updateInProgress` is true, dispatch is blocked and the response has this shape:
@@ -779,6 +787,8 @@ Before resolving pipelines or generating automatic context packs, `armada_dispat
 
 Treat this as a retryable pre-flight block, not a failed voyage. Poll `armada_index_status` for the same vessel and retry dispatch after `updateInProgress` is `false`.
 
+If dispatch succeeds but every mission is still `Pending`, check vessel capacity, `AllowConcurrentMissions`, available captain persona/model filters, and code-index freshness. For serialized vessels (`AllowConcurrentMissions=false`), this is expected while another mission on the same vessel is active.
+
 **Example Input:**
 
 ```json
@@ -786,6 +796,7 @@ Treat this as a retryable pre-flight block, not a failed voyage. Poll `armada_in
   "title": "Implement authentication",
   "description": "Add JWT auth to the API",
   "vesselId": "vsl_abc123def456ghi789jk",
+  "objectiveId": "obj_abc123def456ghi789jk",
   "selectedPlaybooks": [
     {
       "playbookId": "pbk_abc123",

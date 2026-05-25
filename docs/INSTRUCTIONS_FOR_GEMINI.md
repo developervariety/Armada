@@ -21,7 +21,8 @@ You have access to the Armada multi-agent orchestration system via MCP tools. Yo
 | **Check Run** | Structured validation result | `chk_` |
 | **Release** | Candidate or shipped release record | `rel_` |
 | **Deployment** | Environment rollout/verification/rollback record | `dpl_` |
-| **Runbook** | Repeatable operational procedure | `rbk_` |
+| **Runbook** | Repeatable operational procedure backed by a playbook | `pbk_` |
+| **Runbook Execution** | Concrete run of a runbook/playbook | `rbx_` |
 
 ## Core Workflow
 
@@ -51,6 +52,21 @@ Do not treat Armada as only a mission launcher. For feature, bug, release, deplo
 3. Use workflow profiles and structured check runs for repeatable validation.
 4. Use review gates (`requiresReview`, `reviewDenyAction`) for human approval points.
 5. Link check runs, releases, deployments, incidents, runbooks, request history, GitHub evidence, and final mission results back to the objective.
+
+### Structured-First Discipline
+
+Use the dashboard surfaces as system-of-record entities, not as after-the-fact notes:
+
+- Scope and acceptance criteria belong in `Objective`/Backlog records.
+- Build, test, package, release, deploy, rollback, and verification commands belong in Workflow Profiles.
+- Validation evidence belongs in structured Check Runs. Pending gates are durable records; Armada auto-runs eligible non-destructive gates from lifecycle state, while deploy and rollback gates stay tied to explicit deployment actions.
+- Candidate/shipped work belongs in Releases.
+- Runtime targets belong in Environments.
+- Rollout, approval, verification, and rollback history belongs in Deployments.
+- Outages, regressions, hotfix handoff, and postmortems belong in Incidents.
+- Repeatable operational procedures belong in Runbooks and Runbook Executions.
+
+Mission descriptions should carry only the worker-specific delta: files to read/edit, expected behavior, boundaries, and links to the relevant structured IDs. Do not pack release notes, deploy plans, incident context, or validation logs into mission prose when a first-class Armada record exists for that information.
 
 ### 2. Decompose
 
@@ -96,6 +112,7 @@ If a mission might touch these, either assign ALL such work to one mission or se
 armada_dispatch({
   title: "Add input validation to API",
   vesselId: "vsl_abc123",
+  objectiveId: "obj_abc123",
   missions: [
     {
       title: "Validate user endpoints",
@@ -111,7 +128,9 @@ armada_dispatch({
 })
 ```
 
-Returns a Voyage object with all missions created. Save the `voyageId` for monitoring.
+Returns a Voyage object after the voyage and mission rows are durably created. Assignment, dock provisioning, worktree setup, and captain launch continue in the background, so the first status check may show `Pending` while Armada reserves a captain. Save the `voyageId` and monitor instead of redispatching.
+
+If dispatch returns `code_index_update_in_progress`, no voyage was created. Poll `armada_index_status` for the vessel and retry after `updateInProgress` is false; Armada is waiting for the latest landed code to be searchable and available for context packs.
 
 Use `preferredModel` as a work complexity tier: `low`, `mid`, or `high`. Omit it when default routing is fine; Armada selects an available model in the requested tier.
 
@@ -138,10 +157,13 @@ Returns the voyage and all its missions with current statuses. Mission statuses:
 | `Pending` | Waiting for a captain to be assigned |
 | `Assigned` | Captain assigned, not yet started |
 | `InProgress` | Captain is actively working |
+| `WorkProduced` | Captain finished and landing/review is processing |
+| `PullRequestOpen` | Pull request fallback opened and is waiting for human merge |
 | `Testing` | Work complete, tests running |
 | `Review` | Ready for review |
 | `Complete` | Done |
 | `Failed` | Captain encountered an error |
+| `LandingFailed` | Work was produced but could not land cleanly |
 | `Cancelled` | Cancelled by orchestrator |
 
 To see what a captain is doing right now:
@@ -223,7 +245,7 @@ Use dedicated tools for v0.8.0 delivery records: `list_objectives`, `create_obje
 
 | Tool | Parameters | Description |
 |------|-----------|-------------|
-| `armada_dispatch` | `title` (required), `vesselId` (required), `missions` (required: array of {title, description}), `description` | Dispatch a voyage with missions -- the primary way to create work |
+| `armada_dispatch` | `title` (required), `vesselId` (required), `missions` (required: array of {title, description}), `description`, `objectiveId` | Dispatch a voyage with missions -- the primary way to create work. Pass `objectiveId` for non-trivial work so scope and evidence stay linked. |
 | `armada_voyage_status` | `voyageId` (required), `summary` (default true), `includeMissions` (default false), `includeDescription` (default false), `includeDiffs` (default false), `includeLogs` (default false) | Get voyage status. Default summary mode returns voyage metadata and mission counts by status. Set `includeMissions: true` for full mission details. |
 | `armada_cancel_voyage` | `voyageId` (required) | Cancel voyage and all pending missions |
 | `armada_purge_voyage` | `voyageId` (required) | Permanently delete voyage and all missions (cannot be undone) |

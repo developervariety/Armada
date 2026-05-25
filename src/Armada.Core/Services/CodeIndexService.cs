@@ -133,6 +133,25 @@ namespace Armada.Core.Services
                 string commitSha = await ResolveDefaultBranchCommitAsync(repoPath, vessel.DefaultBranch, token).ConfigureAwait(false);
                 string vesselIndexDirectory = GetVesselIndexDirectory(vessel.Id);
                 Directory.CreateDirectory(vesselIndexDirectory);
+                string indexSettingsFingerprint = BuildIndexSettingsFingerprint();
+                string embeddingSettingsFingerprint = BuildEmbeddingSettingsFingerprint();
+                CodeIndexStatus? previousStatus = await ReadPersistedStatusAsync(vessel).ConfigureAwait(false);
+
+                if (CanReusePersistedIndex(previousStatus, commitSha, indexSettingsFingerprint, embeddingSettingsFingerprint))
+                {
+                    previousStatus!.CurrentCommitSha = commitSha;
+                    previousStatus.Freshness = "Fresh";
+                    previousStatus.IndexDirectory = vesselIndexDirectory;
+                    await WriteStatusAsync(vesselIndexDirectory, previousStatus, token).ConfigureAwait(false);
+                    return previousStatus;
+                }
+
+                List<CodeIndexRecord> previousRecords = await ReadRecordsAsync(vessel.Id, "Fresh", token).ConfigureAwait(false);
+                bool canReuseFileRecords = CanReuseFileRecords(previousStatus, indexSettingsFingerprint, previousRecords);
+                bool canReuseEmbeddings = CanReuseEmbeddings(previousStatus, embeddingSettingsFingerprint, previousRecords);
+                HashSet<string>? changedPaths = canReuseFileRecords
+                    ? await TryGetChangedPathsAsync(repoPath, previousStatus!.IndexedCommitSha!, commitSha, token).ConfigureAwait(false)
+                    : null;
 
                 string tempDirectory = Path.Combine(Path.GetTempPath(), "armada-code-index-" + Guid.NewGuid().ToString("N"));
                 Directory.CreateDirectory(tempDirectory);
@@ -141,91 +160,108 @@ namespace Armada.Core.Services
                 {
                     await ExtractCommitArchiveAsync(repoPath, commitSha, tempDirectory, token).ConfigureAwait(false);
 
-                List<CodeIndexRecord> records = BuildRecordsFromDirectory(vessel, commitSha, tempDirectory);
-                if (_Settings.CodeIndex.UseSemanticSearch && _EmbeddingClient != null)
-                {
-                    foreach (CodeIndexRecord record in records)
+                    List<CodeIndexRecord> records;
+                    if (canReuseFileRecords && changedPaths != null)
                     {
-                        try
-                        {
-                            float[] vector = await _EmbeddingClient.EmbedAsync(record.Content ?? "", token).ConfigureAwait(false);
-                            if (vector != null && vector.Length > 0)
-                                record.EmbeddingVector = vector;
-                        }
-                        catch (Exception ex)
-                        {
-                            _Logging.Warn(_Header + "embedding failed for chunk " + record.Path + ": " + ex.Message);
-                        }
+                        DateTime reusedAtUtc = DateTime.UtcNow;
+                        records = previousRecords
+                            .Where(r => !changedPaths.Contains(NormalizeRepoPath(r.Path)))
+                            .Select(r => CloneRecordForCommit(r, commitSha, reusedAtUtc))
+                            .ToList();
+                        records.AddRange(BuildRecordsFromDirectory(vessel, commitSha, tempDirectory, changedPaths));
+                        records = records
+                            .OrderBy(r => r.Path, StringComparer.OrdinalIgnoreCase)
+                            .ThenBy(r => r.StartLine)
+                            .ToList();
                     }
-                }
-
-                List<FileSignatureRecord> signatures = new List<FileSignatureRecord>();
-                if (_Settings.CodeIndex.UseFileSignatures && _InferenceClient != null && _EmbeddingClient != null)
-                {
-                    const string signatureSystemPrompt =
-                        "You are a codebase analyst. Describe the purpose of the following source file in 1-2 sentences, naming the main types and their responsibilities. Output only the description.";
-                    foreach (IGrouping<string, CodeIndexRecord> group in records.GroupBy(r => r.Path, StringComparer.OrdinalIgnoreCase))
+                    else
                     {
-                        CodeIndexRecord representative = group
-                            .OrderBy(r => r.StartLine)
-                            .First();
-
-                        string excerpt = representative.Content ?? "";
-                        if (excerpt.Length > 2000)
-                        {
-                            excerpt = excerpt.Substring(0, 2000);
-                        }
-
-                        string userMessage = "File: " + representative.Path + "\n\n" + excerpt;
-                        try
-                        {
-                            string signature = (await _InferenceClient.CompleteAsync(signatureSystemPrompt, userMessage, token).ConfigureAwait(false) ?? "").Trim();
-                            if (String.IsNullOrWhiteSpace(signature))
-                            {
-                                continue;
-                            }
-
-                            float[] vector = await _EmbeddingClient.EmbedAsync(signature, token).ConfigureAwait(false);
-                            if (vector == null || vector.Length == 0)
-                            {
-                                continue;
-                            }
-
-                            signatures.Add(new FileSignatureRecord
-                            {
-                                VesselId = representative.VesselId,
-                                Path = representative.Path,
-                                CommitSha = representative.CommitSha,
-                                ContentHash = representative.ContentHash,
-                                Language = representative.Language,
-                                Signature = signature,
-                                SignatureVector = vector,
-                                GeneratedAtUtc = DateTime.UtcNow
-                            });
-                        }
-                        catch (Exception ex)
-                        {
-                            _Logging.Warn(_Header + "signature generation failed for file " + representative.Path + ": " + ex.Message);
-                        }
+                        records = BuildRecordsFromDirectory(vessel, commitSha, tempDirectory);
                     }
 
-                    await WriteSignaturesAsync(vessel.Id, signatures, token).ConfigureAwait(false);
-                }
+                    if (_Settings.CodeIndex.UseSemanticSearch && _EmbeddingClient != null)
+                    {
+                        await PopulateEmbeddingsAsync(vessel.Id, records, canReuseEmbeddings ? previousRecords : new List<CodeIndexRecord>(), token).ConfigureAwait(false);
+                    }
 
-                CodeIndexStatus status = new CodeIndexStatus
-                {
-                    VesselId = vessel.Id,
-                    VesselName = vessel.Name,
-                    DefaultBranch = vessel.DefaultBranch,
-                    IndexedCommitSha = commitSha,
-                    CurrentCommitSha = commitSha,
-                    IndexedAtUtc = DateTime.UtcNow,
-                    Freshness = "Fresh",
-                    DocumentCount = CountDocuments(records),
-                    ChunkCount = records.Count,
-                    IndexDirectory = vesselIndexDirectory,
-                    LastError = null
-                };
+                    List<FileSignatureRecord> signatures = new List<FileSignatureRecord>();
+                    if (_Settings.CodeIndex.UseFileSignatures && _InferenceClient != null && _EmbeddingClient != null)
+                    {
+                        const string signatureSystemPrompt =
+                            "You are a codebase analyst. Describe the purpose of the following source file in 1-2 sentences, naming the main types and their responsibilities. Output only the description.";
+                        List<IGrouping<string, CodeIndexRecord>> signatureGroups = records.GroupBy(r => r.Path, StringComparer.OrdinalIgnoreCase).ToList();
+                        int signatureProcessed = 0;
+                        foreach (IGrouping<string, CodeIndexRecord> group in signatureGroups)
+                        {
+                            CodeIndexRecord representative = group
+                                .OrderBy(r => r.StartLine)
+                                .First();
+
+                            string excerpt = representative.Content ?? "";
+                            if (excerpt.Length > 2000)
+                            {
+                                excerpt = excerpt.Substring(0, 2000);
+                            }
+
+                            string userMessage = "File: " + representative.Path + "\n\n" + excerpt;
+                            try
+                            {
+                                string signature = (await _InferenceClient.CompleteAsync(signatureSystemPrompt, userMessage, token).ConfigureAwait(false) ?? "").Trim();
+                                if (String.IsNullOrWhiteSpace(signature))
+                                {
+                                    continue;
+                                }
+
+                                float[] vector = await _EmbeddingClient.EmbedAsync(signature, token).ConfigureAwait(false);
+                                if (vector == null || vector.Length == 0)
+                                {
+                                    continue;
+                                }
+
+                                signatures.Add(new FileSignatureRecord
+                                {
+                                    VesselId = representative.VesselId,
+                                    Path = representative.Path,
+                                    CommitSha = representative.CommitSha,
+                                    ContentHash = representative.ContentHash,
+                                    Language = representative.Language,
+                                    Signature = signature,
+                                    SignatureVector = vector,
+                                    GeneratedAtUtc = DateTime.UtcNow
+                                });
+                            }
+                            catch (Exception ex)
+                            {
+                                _Logging.Warn(_Header + "signature generation failed for file " + representative.Path + ": " + ex.Message);
+                            }
+                            finally
+                            {
+                                signatureProcessed++;
+                                LogEmbeddingProgress(signatureProcessed, signatureGroups.Count, vessel.Id, "Embedded file signatures");
+                            }
+                        }
+
+                        await WriteSignaturesAsync(vessel.Id, signatures, token).ConfigureAwait(false);
+                    }
+
+                    CodeIndexStatus status = new CodeIndexStatus
+                    {
+                        VesselId = vessel.Id,
+                        VesselName = vessel.Name,
+                        DefaultBranch = vessel.DefaultBranch,
+                        IndexedCommitSha = commitSha,
+                        CurrentCommitSha = commitSha,
+                        IndexedAtUtc = DateTime.UtcNow,
+                        Freshness = "Fresh",
+                        DocumentCount = CountDocuments(records),
+                        ChunkCount = records.Count,
+                        IndexDirectory = vesselIndexDirectory,
+                        LastError = null,
+                        IndexSettingsFingerprint = indexSettingsFingerprint,
+                        EmbeddingSettingsFingerprint = embeddingSettingsFingerprint,
+                        UseSemanticSearch = _Settings.CodeIndex.UseSemanticSearch,
+                        EmbeddingModel = _Settings.CodeIndex.UseSemanticSearch ? _Settings.CodeIndex.EmbeddingModel : null
+                    };
 
                     await WriteIndexAsync(vesselIndexDirectory, status, records, token).ConfigureAwait(false);
                     await WriteGraphSidecarsAsync(vesselIndexDirectory, vessel.Id, commitSha, tempDirectory, records, token).ConfigureAwait(false);
@@ -1996,7 +2032,11 @@ namespace Armada.Core.Services
             }
         }
 
-        private List<CodeIndexRecord> BuildRecordsFromDirectory(Vessel vessel, string commitSha, string rootDirectory)
+        private List<CodeIndexRecord> BuildRecordsFromDirectory(
+            Vessel vessel,
+            string commitSha,
+            string rootDirectory,
+            HashSet<string>? includeOnlyPaths = null)
         {
             List<CodeIndexRecord> records = new List<CodeIndexRecord>();
             string[] files = Directory.GetFiles(rootDirectory, "*", SearchOption.AllDirectories);
@@ -2004,6 +2044,7 @@ namespace Armada.Core.Services
             foreach (string file in files)
             {
                 string relativePath = NormalizeRepoPath(Path.GetRelativePath(rootDirectory, file));
+                if (includeOnlyPaths != null && !includeOnlyPaths.Contains(relativePath)) continue;
                 if (!ShouldIndexPath(relativePath, file)) continue;
 
                 string content;
@@ -2047,6 +2088,194 @@ namespace Armada.Core.Services
             }
 
             return records;
+        }
+
+        private async Task PopulateEmbeddingsAsync(
+            string vesselId,
+            List<CodeIndexRecord> records,
+            List<CodeIndexRecord> previousRecords,
+            CancellationToken token)
+        {
+            if (_EmbeddingClient == null) return;
+
+            Dictionary<string, float[]> reusableVectors = new Dictionary<string, float[]>(StringComparer.Ordinal);
+            foreach (CodeIndexRecord previous in previousRecords)
+            {
+                if (previous.EmbeddingVector == null || previous.EmbeddingVector.Length == 0) continue;
+                string chunkHash = ComputeSha256(previous.Content ?? "");
+                if (!reusableVectors.ContainsKey(chunkHash))
+                {
+                    reusableVectors[chunkHash] = previous.EmbeddingVector.ToArray();
+                }
+            }
+
+            List<CodeIndexRecord> missing = new List<CodeIndexRecord>();
+            foreach (CodeIndexRecord record in records)
+            {
+                if (record.EmbeddingVector != null && record.EmbeddingVector.Length > 0) continue;
+
+                string chunkHash = ComputeSha256(record.Content ?? "");
+                if (reusableVectors.TryGetValue(chunkHash, out float[]? vector))
+                {
+                    record.EmbeddingVector = vector.ToArray();
+                    continue;
+                }
+
+                missing.Add(record);
+            }
+
+            int batchSize = Math.Max(1, _Settings.CodeIndex.EmbeddingBatchSize);
+            int embedded = 0;
+            for (int start = 0; start < missing.Count; start += batchSize)
+            {
+                List<CodeIndexRecord> batch = missing.Skip(start).Take(batchSize).ToList();
+                List<string> inputs = batch.Select(r => r.Content ?? "").ToList();
+                IReadOnlyList<float[]> vectors;
+                try
+                {
+                    vectors = await _EmbeddingClient.EmbedBatchAsync(inputs, token).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "embedding batch failed: " + ex.Message);
+                    vectors = Array.Empty<float[]>();
+                }
+
+                if (vectors.Count == batch.Count)
+                {
+                    for (int i = 0; i < batch.Count; i++)
+                    {
+                        float[] vector = vectors[i];
+                        if (vector != null && vector.Length > 0)
+                        {
+                            batch[i].EmbeddingVector = vector;
+                        }
+                    }
+
+                    embedded += batch.Count;
+                    LogEmbeddingProgress(embedded, missing.Count, vesselId, "Embedded");
+                    continue;
+                }
+
+                for (int i = 0; i < batch.Count; i++)
+                {
+                    CodeIndexRecord record = batch[i];
+                    try
+                    {
+                        float[] vector = await _EmbeddingClient.EmbedAsync(record.Content ?? "", token).ConfigureAwait(false);
+                        if (vector != null && vector.Length > 0)
+                            record.EmbeddingVector = vector;
+                    }
+                    catch (Exception ex)
+                    {
+                        _Logging.Warn(_Header + "embedding failed for chunk " + record.Path + ": " + ex.Message);
+                    }
+                    finally
+                    {
+                        embedded++;
+                        LogEmbeddingProgress(embedded, missing.Count, vesselId, "Embedded");
+                    }
+                }
+            }
+        }
+
+        private void LogEmbeddingProgress(int done, int total, string vesselId, string label)
+        {
+            if (total <= 0) return;
+            int interval = Math.Max(1, _Settings.CodeIndex.EmbeddingProgressLogInterval);
+            if (done < total && done % interval != 0) return;
+            _Logging.Info(_Header + label + " " + done + "/" + total + " chunks for vessel " + vesselId);
+        }
+
+        private bool CanReusePersistedIndex(
+            CodeIndexStatus? previousStatus,
+            string commitSha,
+            string indexSettingsFingerprint,
+            string embeddingSettingsFingerprint)
+        {
+            if (previousStatus == null) return false;
+            if (String.IsNullOrWhiteSpace(previousStatus.IndexedCommitSha)) return false;
+            if (!String.Equals(previousStatus.IndexedCommitSha, commitSha, StringComparison.OrdinalIgnoreCase)) return false;
+            if (!String.Equals(previousStatus.IndexSettingsFingerprint, indexSettingsFingerprint, StringComparison.Ordinal)) return false;
+            if (!String.Equals(previousStatus.EmbeddingSettingsFingerprint, embeddingSettingsFingerprint, StringComparison.Ordinal)) return false;
+            return File.Exists(GetChunksPath(previousStatus.VesselId));
+        }
+
+        private bool CanReuseFileRecords(
+            CodeIndexStatus? previousStatus,
+            string indexSettingsFingerprint,
+            List<CodeIndexRecord> previousRecords)
+        {
+            return previousStatus != null
+                && !String.IsNullOrWhiteSpace(previousStatus.IndexedCommitSha)
+                && previousRecords.Count > 0
+                && String.Equals(previousStatus.IndexSettingsFingerprint, indexSettingsFingerprint, StringComparison.Ordinal);
+        }
+
+        private bool CanReuseEmbeddings(
+            CodeIndexStatus? previousStatus,
+            string embeddingSettingsFingerprint,
+            List<CodeIndexRecord> previousRecords)
+        {
+            return previousStatus != null
+                && _Settings.CodeIndex.UseSemanticSearch
+                && previousRecords.Any(r => r.EmbeddingVector != null && r.EmbeddingVector.Length > 0)
+                && String.Equals(previousStatus.EmbeddingSettingsFingerprint, embeddingSettingsFingerprint, StringComparison.Ordinal);
+        }
+
+        private static CodeIndexRecord CloneRecordForCommit(CodeIndexRecord source, string commitSha, DateTime indexedAtUtc)
+        {
+            return new CodeIndexRecord
+            {
+                VesselId = source.VesselId,
+                Path = source.Path,
+                CommitSha = commitSha,
+                ContentHash = source.ContentHash,
+                Language = source.Language,
+                StartLine = source.StartLine,
+                EndLine = source.EndLine,
+                Freshness = "Fresh",
+                IndexedAtUtc = indexedAtUtc,
+                IsReferenceOnly = source.IsReferenceOnly,
+                Content = source.Content,
+                EmbeddingVector = source.EmbeddingVector == null ? null : source.EmbeddingVector.ToArray()
+            };
+        }
+
+        private async Task<HashSet<string>?> TryGetChangedPathsAsync(
+            string repoPath,
+            string fromCommit,
+            string toCommit,
+            CancellationToken token)
+        {
+            try
+            {
+                string output = await RunGitAsync(repoPath, token, "diff", "--name-status", "-M", fromCommit, toCommit).ConfigureAwait(false);
+                HashSet<string> paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (string raw in output.Split('\n'))
+                {
+                    string line = raw.Trim();
+                    if (String.IsNullOrEmpty(line)) continue;
+                    string[] parts = line.Split('\t', StringSplitOptions.RemoveEmptyEntries);
+                    if (parts.Length == 0) continue;
+                    if (parts[0].StartsWith("R", StringComparison.OrdinalIgnoreCase) && parts.Length >= 3)
+                    {
+                        paths.Add(NormalizeRepoPath(parts[1]));
+                        paths.Add(NormalizeRepoPath(parts[2]));
+                    }
+                    else if (parts.Length >= 2)
+                    {
+                        paths.Add(NormalizeRepoPath(parts[1]));
+                    }
+                }
+
+                return paths;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not compute incremental changed paths: " + ex.Message);
+                return null;
+            }
         }
 
         private bool ShouldIndexPath(string relativePath, string absolutePath)
@@ -2168,6 +2397,41 @@ namespace Armada.Core.Services
             }
 
             return builder.ToString();
+        }
+
+        private string BuildIndexSettingsFingerprint()
+        {
+            object payload = new
+            {
+                _Settings.CodeIndex.MaxFileBytes,
+                _Settings.CodeIndex.MaxChunkLines,
+                ExcludedDirectoryNames = NormalizeList(_Settings.CodeIndex.ExcludedDirectoryNames),
+                ExcludedFileNames = NormalizeList(_Settings.CodeIndex.ExcludedFileNames),
+                ExcludedExtensions = NormalizeList(_Settings.CodeIndex.ExcludedExtensions),
+                ExcludedPathFragments = NormalizeList(_Settings.CodeIndex.ExcludedPathFragments),
+                ReferenceOnlyPathFragments = NormalizeList(_Settings.CodeIndex.ReferenceOnlyPathFragments)
+            };
+            return ComputeSha256(JsonSerializer.Serialize(payload, _JsonOptions));
+        }
+
+        private string BuildEmbeddingSettingsFingerprint()
+        {
+            object payload = new
+            {
+                _Settings.CodeIndex.UseSemanticSearch,
+                Model = _Settings.CodeIndex.UseSemanticSearch ? _Settings.CodeIndex.EmbeddingModel : "",
+                BaseUrl = _Settings.CodeIndex.UseSemanticSearch ? _Settings.CodeIndex.EmbeddingApiBaseUrl : ""
+            };
+            return ComputeSha256(JsonSerializer.Serialize(payload, _JsonOptions));
+        }
+
+        private static List<string> NormalizeList(List<string> values)
+        {
+            return values
+                .Where(v => !String.IsNullOrWhiteSpace(v))
+                .Select(v => v.Trim().Replace('\\', '/').ToLowerInvariant())
+                .OrderBy(v => v, StringComparer.Ordinal)
+                .ToList();
         }
 
         private static int CountDocuments(List<CodeIndexRecord> records)

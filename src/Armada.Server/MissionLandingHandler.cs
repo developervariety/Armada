@@ -1,6 +1,7 @@
 namespace Armada.Server
 {
     using System.Collections.Concurrent;
+    using System.Diagnostics;
     using System.IO;
     using System.Text.Json;
     using SyslogLogging;
@@ -498,6 +499,16 @@ namespace Armada.Server
                     try
                     {
                         string targetBranch = vessel?.DefaultBranch ?? "main";
+                        string? noOpReason = await DetectMergeQueueNoOpAsync(mission, dock, vessel, targetBranch).ConfigureAwait(false);
+                        if (!String.IsNullOrEmpty(noOpReason))
+                        {
+                            landingAttempted = true;
+                            landingSucceeded = false;
+                            landingFailureReason = noOpReason;
+                            _Logging.Warn(_Header + "refusing merge-queue enqueue for mission " + mission.Id + ": " + noOpReason);
+                        }
+                        else
+                        {
                         MergeEntry entry = new MergeEntry(dock.BranchName, targetBranch);
                         entry.MissionId = mission.Id;
                         entry.VesselId = mission.VesselId;
@@ -632,6 +643,7 @@ namespace Armada.Server
                         catch (Exception firEx)
                         {
                             _Logging.Warn(_Header + "FireDrainerAsync failed for WorkProduced event: " + firEx.Message);
+                        }
                         }
                     }
                     catch (Exception mqEx)
@@ -939,26 +951,80 @@ namespace Armada.Server
             }
         }
 
+        private async Task<string?> DetectMergeQueueNoOpAsync(Mission mission, Dock dock, Vessel? vessel, string targetBranch)
+        {
+            if (vessel == null || String.IsNullOrWhiteSpace(vessel.LocalPath)) return null;
+            if (String.IsNullOrWhiteSpace(targetBranch)) return null;
+
+            string? targetHead = await TryResolveGitRefAsync(vessel.LocalPath, targetBranch).ConfigureAwait(false)
+                ?? await TryResolveGitRefAsync(vessel.LocalPath, "refs/heads/" + targetBranch).ConfigureAwait(false)
+                ?? await TryResolveGitRefAsync(vessel.LocalPath, "refs/remotes/origin/" + targetBranch).ConfigureAwait(false);
+            if (String.IsNullOrWhiteSpace(targetHead)) return null;
+
+            string? captainHead = null;
+            if (!String.IsNullOrWhiteSpace(dock.BranchName))
+            {
+                captainHead = await TryResolveGitRefAsync(vessel.LocalPath, dock.BranchName).ConfigureAwait(false)
+                    ?? await TryResolveGitRefAsync(vessel.LocalPath, "refs/heads/" + dock.BranchName).ConfigureAwait(false);
+            }
+
+            if (String.IsNullOrWhiteSpace(captainHead) && !String.IsNullOrWhiteSpace(mission.CommitHash))
+            {
+                captainHead = mission.CommitHash.Trim();
+            }
+
+            if (String.IsNullOrWhiteSpace(captainHead)) return null;
+            if (!String.Equals(captainHead, targetHead, StringComparison.OrdinalIgnoreCase)) return null;
+
+            return "No-op merge queue enqueue refused: captain branch " + (dock.BranchName ?? "(unknown)") +
+                " is already at target branch " + targetBranch + " HEAD " + targetHead;
+        }
+
+        private async Task<string?> TryResolveGitRefAsync(string repoPath, string refName)
+        {
+            try
+            {
+                ProcessStartInfo startInfo = new ProcessStartInfo
+                {
+                    FileName = "git",
+                    WorkingDirectory = repoPath,
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true
+                };
+                startInfo.ArgumentList.Add("rev-parse");
+                startInfo.ArgumentList.Add("--verify");
+                startInfo.ArgumentList.Add(refName);
+
+                using (Process process = new Process { StartInfo = startInfo })
+                {
+                    process.Start();
+                    string stdout = await process.StandardOutput.ReadToEndAsync().ConfigureAwait(false);
+                    await process.StandardError.ReadToEndAsync().ConfigureAwait(false);
+                    await process.WaitForExitAsync().ConfigureAwait(false);
+                    if (process.ExitCode != 0) return null;
+
+                    string commit = stdout.Trim();
+                    return String.IsNullOrWhiteSpace(commit) ? null : commit;
+                }
+            }
+            catch (Exception ex)
+            {
+                _Logging.Debug(_Header + "could not resolve git ref " + refName + " in " + repoPath + ": " + ex.Message);
+                return null;
+            }
+        }
+
         private void FireIndexRefreshForVessel(string? vesselId, string reason)
         {
-            ICodeIndexService? svc = _CodeIndexService;
-            if (svc == null || String.IsNullOrEmpty(vesselId)) return;
-
-            string capturedVesselId = vesselId;
-            string capturedReason = String.IsNullOrWhiteSpace(reason) ? "successful landing" : reason;
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    _Logging.Info(_Header + "auto-refreshing code index for vessel " + capturedVesselId + " after " + capturedReason);
-                    await svc.UpdateAsync(capturedVesselId).ConfigureAwait(false);
-                    _Logging.Info(_Header + "code index refresh complete for vessel " + capturedVesselId);
-                }
-                catch (Exception ex)
-                {
-                    _Logging.Warn(_Header + "code index refresh failed for vessel " + capturedVesselId + ": " + ex.Message);
-                }
-            });
+            CodeIndexRefreshScheduler.Schedule(
+                _CodeIndexService,
+                _Settings.CodeIndex,
+                _Logging,
+                _Header,
+                vesselId,
+                reason);
         }
 
         private async Task CleanupMissionBranchAsync(

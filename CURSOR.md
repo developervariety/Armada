@@ -157,11 +157,15 @@ target vessel's `CLAUDE.md`. This playbook distils the project-wide
     commits, or tracked specs.** Inline the *why*, not "see plan §3"
     / "per the Phase 4 spec" / "tracked in TODO.md". They rot
     independently.
-13. **Planning artifacts under `project/docs/superpowers/` or
-    `project/TODO.md`.** Never inside a repo subdir (the only
-    exception is each repo's own `CLAUDE.md`).
-14. **Update planning records when work lands.** TODO close-out
-    happens in the same session as the landing.
+13. **Planning state lives in Armada first.** Objectives/Backlog,
+    Planning Sessions, Checks, Releases, Deployments, Incidents,
+    Runbooks, History, and Requests are the durable store. Legacy
+    `project/docs/superpowers/` and `project/TODO.md` artifacts are
+    migration/export material only.
+14. **Update Armada records when work lands.** Link final
+    mission/voyage/check/release/deployment evidence back to the
+    objective. TODO close-out applies only to legacy rows not yet
+    migrated into Armada.
 15. **All code changes go through Armada.** Orchestrator does NOT
     Edit/Write tracked code in repo subdirs. Bug fixes, features,
     refactors flow through `armada_dispatch`. (You are the captain
@@ -596,7 +600,7 @@ These rules apply to every mission against the configured project repos. Read th
 6. **J1939 sentinels are "not available", not zero.** `0xFF` (8-bit), `0xFFFF` (16-bit), `0xFFFFFFFF` (32-bit) are SAE-defined "signal not available" sentinels. Decode -> check sentinel -> only then trust the value. Properties stay null on sentinel; consumers skip rather than fail.
 7. **Test files live at the ROOT of the test project.** Flat layout, NOT mirrored under feature folders. File name `{ClassUnderTest}Tests.cs`. Method name `{Behavior}_{Condition}_{Expected}`.
 8. **Do not reference plan / spec / roadmap docs from code comments.** Plans rot or move; comments must be self-contained. Never write `see docs/superpowers/plans/...`, `per the Phase 4 spec`, `see TODO.md`, or `library Spec D5` style references. Inline the WHY in the comment itself.
-9. **Update planning records when work lands.** If `project/TODO.md` is reachable from your worktree (it usually isn't -- see Dock isolation below), flip the relevant item to shipped with this commit's SHA. If unreachable, surface in your result and the orchestrator will update it.
+9. **Update Armada records when work lands.** Link final evidence back to the Armada objective/backlog item, checks, releases, deployments, and incidents. `project/TODO.md` is legacy migration material only; if the mission references a legacy row, surface the commit SHA and the orchestrator will migrate or close it.
 
 ## Dock isolation (Windows + Armada specific)
 

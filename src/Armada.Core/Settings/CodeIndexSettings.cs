@@ -210,6 +210,49 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Maximum number of chunks sent to the embedding provider in one request.
+        /// </summary>
+        public int EmbeddingBatchSize
+        {
+            get => _EmbeddingBatchSize;
+            set
+            {
+                if (value < 1) value = 1;
+                if (value > 256) value = 256;
+                _EmbeddingBatchSize = value;
+            }
+        }
+
+        /// <summary>
+        /// Number of embedded chunks between progress log entries during index updates.
+        /// </summary>
+        public int EmbeddingProgressLogInterval
+        {
+            get => _EmbeddingProgressLogInterval;
+            set
+            {
+                if (value < 50) value = 50;
+                if (value > 2000) value = 2000;
+                _EmbeddingProgressLogInterval = value;
+            }
+        }
+
+        /// <summary>
+        /// Delay used to coalesce post-landing code-index refreshes for the same vessel.
+        /// Set to 0 to refresh immediately.
+        /// </summary>
+        public int PostLandRefreshDebounceSeconds
+        {
+            get => _PostLandRefreshDebounceSeconds;
+            set
+            {
+                if (value < 0) value = 0;
+                if (value > 3600) value = 3600;
+                _PostLandRefreshDebounceSeconds = value;
+            }
+        }
+
+        /// <summary>
         /// Whether file signatures are enabled.
         /// </summary>
         public bool UseFileSignatures { get; set; } = false;
@@ -433,6 +476,9 @@ namespace Armada.Core.Settings
         private string _SummarizerApiBaseUrl = string.Empty;
         private string _SummarizerApiKey = string.Empty;
         private int _MaxSummaryOutputTokens = 2048;
+        private int _EmbeddingBatchSize = 32;
+        private int _EmbeddingProgressLogInterval = 200;
+        private int _PostLandRefreshDebounceSeconds = 30;
         private string _SignatureModel = string.Empty;
         private double _FileSignatureBoostWeight = 0.2;
         private double _GraphSeedBoost = 18.0;

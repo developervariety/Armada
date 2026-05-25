@@ -63,6 +63,26 @@ namespace Armada.Core.Models
         public int ChunkCount { get; set; } = 0;
 
         /// <summary>
+        /// Fingerprint of settings that affect file inclusion and chunk boundaries.
+        /// </summary>
+        public string? IndexSettingsFingerprint { get; set; } = null;
+
+        /// <summary>
+        /// Fingerprint of settings that affect semantic embedding compatibility.
+        /// </summary>
+        public string? EmbeddingSettingsFingerprint { get; set; } = null;
+
+        /// <summary>
+        /// Whether semantic vectors were requested for this index run.
+        /// </summary>
+        public bool UseSemanticSearch { get; set; } = false;
+
+        /// <summary>
+        /// Embedding model used for vectors, when semantic search is enabled.
+        /// </summary>
+        public string? EmbeddingModel { get; set; } = null;
+
+        /// <summary>
         /// Absolute path to the Admiral-owned index directory for this vessel.
         /// </summary>
         public string IndexDirectory { get; set; } = "";

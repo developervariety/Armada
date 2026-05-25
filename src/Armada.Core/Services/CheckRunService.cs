@@ -1,6 +1,7 @@
 namespace Armada.Core.Services
 {
     using System;
+    using System.Collections.Concurrent;
     using System.Collections.Generic;
     using System.Diagnostics;
     using System.IO;
@@ -26,6 +27,8 @@ namespace Armada.Core.Services
         private readonly VesselReadinessService _Readiness;
         private readonly LoggingModule _Logging;
         private readonly TimeSpan _DefaultTimeout = TimeSpan.FromMinutes(30);
+        private static readonly ConcurrentDictionary<string, SemaphoreSlim> _PendingRunLocks =
+            new ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.Ordinal);
 
         /// <summary>
         /// Instantiate.
@@ -118,6 +121,14 @@ namespace Armada.Core.Services
             {
                 execution = await ExecuteCommandAsync(run.Command, run.WorkingDirectory!, _DefaultTimeout, token).ConfigureAwait(false);
             }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                run.Status = CheckRunStatusEnum.Pending;
+                run.LastUpdateUtc = DateTime.UtcNow;
+                run = await _Database.CheckRuns.UpdateAsync(run, CancellationToken.None).ConfigureAwait(false);
+                OnCheckRunChanged?.Invoke(run);
+                throw;
+            }
             catch (Exception ex)
             {
                 execution = new CommandExecutionResult
@@ -143,6 +154,120 @@ namespace Armada.Core.Services
             run = await _Database.CheckRuns.UpdateAsync(run, token).ConfigureAwait(false);
             OnCheckRunChanged?.Invoke(run);
             return run;
+        }
+
+        /// <summary>
+        /// Execute an existing pending check run in-place, preserving its durable links.
+        /// </summary>
+        public async Task<CheckRun> RunPendingAsync(
+            AuthContext auth,
+            string id,
+            bool allowDeploymentExecution = false,
+            CancellationToken token = default)
+        {
+            if (auth == null) throw new ArgumentNullException(nameof(auth));
+            if (String.IsNullOrWhiteSpace(id)) throw new ArgumentNullException(nameof(id));
+
+            SemaphoreSlim runLock = _PendingRunLocks.GetOrAdd(id, _ => new SemaphoreSlim(1, 1));
+            await runLock.WaitAsync(token).ConfigureAwait(false);
+            try
+            {
+                return await RunPendingCoreAsync(auth, id, allowDeploymentExecution, token).ConfigureAwait(false);
+            }
+            finally
+            {
+                runLock.Release();
+            }
+        }
+
+        private async Task<CheckRun> RunPendingCoreAsync(
+            AuthContext auth,
+            string id,
+            bool allowDeploymentExecution,
+            CancellationToken token)
+        {
+            CheckRun? run = await _Database.CheckRuns.ReadAsync(id, BuildScopeQuery(auth), token).ConfigureAwait(false);
+            if (run == null) throw new InvalidOperationException("Check run not found.");
+            if (run.Status != CheckRunStatusEnum.Pending) return run;
+
+            if (!String.IsNullOrWhiteSpace(run.DeploymentId) && !allowDeploymentExecution)
+            {
+                throw new InvalidOperationException("Deployment-linked checks must be executed through the deployment workflow.");
+            }
+
+            if (IsDeploymentExecutionType(run.Type))
+            {
+                if (String.IsNullOrWhiteSpace(run.DeploymentId))
+                    throw new InvalidOperationException(run.Type + " checks must be linked to a deployment.");
+            }
+
+            if (String.IsNullOrWhiteSpace(run.VesselId))
+                return await CompleteExistingRunAsFailureAsync(run, "Check run has no vessel association.", token).ConfigureAwait(false);
+
+            Vessel? vessel = await ReadAccessibleVesselAsync(auth, run.VesselId!, token).ConfigureAwait(false);
+            if (vessel == null)
+                return await CompleteExistingRunAsFailureAsync(run, "Vessel not found or not accessible.", token).ConfigureAwait(false);
+
+            bool needsProfileCommand = ShouldResolvePendingCommand(run);
+            VesselReadinessResult readiness = await _Readiness.EvaluateAsync(
+                auth,
+                vessel,
+                run.WorkflowProfileId,
+                needsProfileCommand ? run.Type : null,
+                run.EnvironmentName,
+                includeWorkflowRequirements: needsProfileCommand,
+                token: token).ConfigureAwait(false);
+            if (!readiness.IsReady)
+            {
+                string message = String.Join(" ", readiness.Issues
+                    .Where(issue => issue.Severity == ReadinessSeverityEnum.Error)
+                    .Select(issue => issue.Message)
+                    .Distinct(StringComparer.Ordinal));
+                return await CompleteExistingRunAsFailureAsync(run, String.IsNullOrWhiteSpace(message)
+                    ? "This vessel is not ready for the requested check run."
+                    : message, token).ConfigureAwait(false);
+            }
+
+            WorkflowProfile? profile = !String.IsNullOrWhiteSpace(run.WorkflowProfileId) || needsProfileCommand
+                ? await _WorkflowProfiles.ResolveForVesselAsync(auth, vessel, run.WorkflowProfileId, token).ConfigureAwait(false)
+                : null;
+
+            if (needsProfileCommand && profile == null)
+                return await CompleteExistingRunAsFailureAsync(run, "No active workflow profile could be resolved for this pending check run.", token).ConfigureAwait(false);
+
+            if (needsProfileCommand && profile != null)
+            {
+                string? resolved = _WorkflowProfiles.ResolveCommand(profile, run.Type, run.EnvironmentName);
+                if (!String.IsNullOrWhiteSpace(resolved))
+                {
+                    run.Command = resolved;
+                }
+                else
+                {
+                    return await CompleteExistingRunAsFailureAsync(run, "No command is configured for " + run.Type + ".", token).ConfigureAwait(false);
+                }
+            }
+
+            return await ExecuteExistingRunAsync(run, vessel, profile, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Execute a matching pending check run when one exists; otherwise create and execute a new run.
+        /// </summary>
+        public async Task<CheckRun> RunPendingOrNewAsync(
+            AuthContext auth,
+            CheckRunRequest request,
+            bool allowDeploymentExecution = false,
+            CancellationToken token = default)
+        {
+            if (auth == null) throw new ArgumentNullException(nameof(auth));
+            if (request == null) throw new ArgumentNullException(nameof(request));
+
+            CheckRun? pending = await FindMatchingPendingRunAsync(auth, request, token).ConfigureAwait(false);
+            if (pending != null)
+                return await RunPendingAsync(auth, pending.Id, allowDeploymentExecution, token).ConfigureAwait(false);
+
+            return await RunAsync(auth, request, token).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -219,6 +344,17 @@ namespace Armada.Core.Services
             if (String.IsNullOrWhiteSpace(run.Summary))
                 run.Summary = BuildSummary(run, null);
 
+            CheckRun? pending = await FindMatchingPendingRunForCompletedAsync(run, token).ConfigureAwait(false);
+            if (pending != null)
+            {
+                run.Id = pending.Id;
+                run.CreatedUtc = pending.CreatedUtc;
+                run.LastUpdateUtc = DateTime.UtcNow;
+                CheckRun updated = await _Database.CheckRuns.UpdateAsync(run, token).ConfigureAwait(false);
+                OnCheckRunChanged?.Invoke(updated);
+                return updated;
+            }
+
             CheckRun created = await _Database.CheckRuns.CreateAsync(run, token).ConfigureAwait(false);
             OnCheckRunChanged?.Invoke(created);
             return created;
@@ -235,6 +371,10 @@ namespace Armada.Core.Services
             CheckRunQuery scope = BuildScopeQuery(auth);
             CheckRun? prior = await _Database.CheckRuns.ReadAsync(id, scope, token).ConfigureAwait(false);
             if (prior == null) throw new InvalidOperationException("Check run not found.");
+            if (!String.IsNullOrWhiteSpace(prior.DeploymentId))
+                throw new InvalidOperationException("Deployment-linked checks must be retried through the deployment workflow.");
+            if (prior.Status == CheckRunStatusEnum.Pending)
+                return await RunPendingAsync(auth, prior.Id, allowDeploymentExecution: false, token).ConfigureAwait(false);
 
             return await RunAsync(auth, new CheckRunRequest
             {
@@ -259,6 +399,161 @@ namespace Armada.Core.Services
                 TenantId = auth.IsAdmin ? null : auth.TenantId,
                 UserId = auth.IsAdmin || auth.IsTenantAdmin ? null : auth.UserId
             };
+        }
+
+        private async Task<CheckRun?> FindMatchingPendingRunAsync(
+            AuthContext auth,
+            CheckRunRequest request,
+            CancellationToken token)
+        {
+            if (String.IsNullOrWhiteSpace(request.VesselId)) return null;
+
+            CheckRunQuery query = BuildScopeQuery(auth);
+            query.VesselId = request.VesselId;
+            query.Type = request.Type;
+            query.Status = CheckRunStatusEnum.Pending;
+            query.Source = CheckRunSourceEnum.Armada;
+            query.PageNumber = 1;
+            query.PageSize = 200;
+
+            if (!String.IsNullOrWhiteSpace(request.DeploymentId))
+                query.DeploymentId = request.DeploymentId;
+            if (!String.IsNullOrWhiteSpace(request.MissionId))
+                query.MissionId = request.MissionId;
+            if (!String.IsNullOrWhiteSpace(request.VoyageId))
+                query.VoyageId = request.VoyageId;
+            if (!String.IsNullOrWhiteSpace(request.EnvironmentName))
+                query.EnvironmentName = request.EnvironmentName;
+
+            EnumerationResult<CheckRun> results = await _Database.CheckRuns.EnumerateAsync(query, token).ConfigureAwait(false);
+            return results.Objects
+                .Where(run => String.IsNullOrWhiteSpace(request.WorkflowProfileId)
+                    || String.Equals(run.WorkflowProfileId, request.WorkflowProfileId, StringComparison.OrdinalIgnoreCase))
+                .Where(run => String.IsNullOrWhiteSpace(request.Label)
+                    || String.Equals(run.Label, request.Label, StringComparison.OrdinalIgnoreCase))
+                .Where(run => String.IsNullOrWhiteSpace(request.BranchName)
+                    || String.IsNullOrWhiteSpace(run.BranchName)
+                    || String.Equals(run.BranchName, request.BranchName, StringComparison.OrdinalIgnoreCase))
+                .Where(run => String.IsNullOrWhiteSpace(request.CommitHash)
+                    || String.IsNullOrWhiteSpace(run.CommitHash)
+                    || String.Equals(run.CommitHash, request.CommitHash, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(run => run.CreatedUtc)
+                .FirstOrDefault();
+        }
+
+        private static bool ShouldResolvePendingCommand(CheckRun run)
+        {
+            return String.IsNullOrWhiteSpace(run.Command)
+                || String.Equals(run.Command, "echo", StringComparison.Ordinal);
+        }
+
+        private static bool IsDeploymentExecutionType(CheckRunTypeEnum type)
+        {
+            return type == CheckRunTypeEnum.Deploy || type == CheckRunTypeEnum.Rollback;
+        }
+
+        private async Task<CheckRun?> FindMatchingPendingRunForCompletedAsync(CheckRun run, CancellationToken token)
+        {
+            CheckRunQuery query = new CheckRunQuery
+            {
+                TenantId = run.TenantId,
+                UserId = run.UserId,
+                VesselId = run.VesselId,
+                Type = run.Type,
+                Status = CheckRunStatusEnum.Pending,
+                Source = CheckRunSourceEnum.Armada,
+                PageNumber = 1,
+                PageSize = 200
+            };
+
+            if (!String.IsNullOrWhiteSpace(run.DeploymentId))
+                query.DeploymentId = run.DeploymentId;
+            if (!String.IsNullOrWhiteSpace(run.MissionId))
+                query.MissionId = run.MissionId;
+            if (!String.IsNullOrWhiteSpace(run.VoyageId))
+                query.VoyageId = run.VoyageId;
+            if (!String.IsNullOrWhiteSpace(run.EnvironmentName))
+                query.EnvironmentName = run.EnvironmentName;
+
+            EnumerationResult<CheckRun> results = await _Database.CheckRuns.EnumerateAsync(query, token).ConfigureAwait(false);
+            return results.Objects
+                .Where(candidate => String.Equals(candidate.WorkflowProfileId ?? String.Empty, run.WorkflowProfileId ?? String.Empty, StringComparison.OrdinalIgnoreCase))
+                .Where(candidate => String.Equals(candidate.Label ?? String.Empty, run.Label ?? String.Empty, StringComparison.OrdinalIgnoreCase))
+                .Where(candidate => String.IsNullOrWhiteSpace(run.BranchName)
+                    || String.IsNullOrWhiteSpace(candidate.BranchName)
+                    || String.Equals(candidate.BranchName, run.BranchName, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(candidate => candidate.CreatedUtc)
+                .FirstOrDefault();
+        }
+
+        private async Task<CheckRun> ExecuteExistingRunAsync(
+            CheckRun run,
+            Vessel vessel,
+            WorkflowProfile? profile,
+            CancellationToken token)
+        {
+            if (String.IsNullOrWhiteSpace(vessel.WorkingDirectory) || !Directory.Exists(vessel.WorkingDirectory))
+                return await CompleteExistingRunAsFailureAsync(run, "This vessel does not have a usable working directory.", token).ConfigureAwait(false);
+
+            if (String.IsNullOrWhiteSpace(run.Command))
+                return await CompleteExistingRunAsFailureAsync(run, "No command is configured for " + run.Type + ".", token).ConfigureAwait(false);
+
+            run.WorkingDirectory = vessel.WorkingDirectory;
+            run.Status = CheckRunStatusEnum.Running;
+            run.StartedUtc = DateTime.UtcNow;
+            run.LastUpdateUtc = DateTime.UtcNow;
+            run = await _Database.CheckRuns.UpdateAsync(run, token).ConfigureAwait(false);
+            OnCheckRunChanged?.Invoke(run);
+
+            Stopwatch sw = Stopwatch.StartNew();
+            CommandExecutionResult execution;
+
+            try
+            {
+                execution = await ExecuteCommandAsync(run.Command, run.WorkingDirectory!, _DefaultTimeout, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                execution = new CommandExecutionResult
+                {
+                    ExitCode = -1,
+                    Output = ex.Message
+                };
+            }
+
+            sw.Stop();
+
+            run.ExitCode = execution.ExitCode;
+            run.Output = execution.Output;
+            run.DurationMs = Convert.ToInt64(Math.Round(sw.Elapsed.TotalMilliseconds));
+            run.CompletedUtc = DateTime.UtcNow;
+            run.LastUpdateUtc = DateTime.UtcNow;
+            run.Status = execution.ExitCode == 0 ? CheckRunStatusEnum.Passed : CheckRunStatusEnum.Failed;
+            run.Artifacts = CollectArtifacts(run.WorkingDirectory!, profile?.ExpectedArtifacts);
+            run.TestSummary = CheckRunParsingService.ParseTestSummary(run.Output, run.WorkingDirectory, run.Artifacts);
+            run.CoverageSummary = CheckRunParsingService.ParseCoverageSummary(run.WorkingDirectory, run.Artifacts);
+            run.Summary = BuildSummary(run, profile);
+
+            run = await _Database.CheckRuns.UpdateAsync(run, token).ConfigureAwait(false);
+            OnCheckRunChanged?.Invoke(run);
+            return run;
+        }
+
+        private async Task<CheckRun> CompleteExistingRunAsFailureAsync(CheckRun run, string output, CancellationToken token)
+        {
+            DateTime now = DateTime.UtcNow;
+            run.Status = CheckRunStatusEnum.Failed;
+            run.ExitCode = -1;
+            run.Output = output;
+            run.StartedUtc ??= now;
+            run.CompletedUtc = now;
+            run.DurationMs ??= 0;
+            run.LastUpdateUtc = now;
+            run.Summary = BuildSummary(run, null);
+
+            run = await _Database.CheckRuns.UpdateAsync(run, token).ConfigureAwait(false);
+            OnCheckRunChanged?.Invoke(run);
+            return run;
         }
 
         private async Task<WorkflowProfile?> ResolveImportProfileAsync(

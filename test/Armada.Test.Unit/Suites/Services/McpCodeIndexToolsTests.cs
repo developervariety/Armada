@@ -91,7 +91,8 @@ namespace Armada.Test.Unit.Suites.Services
                     vesselId = "vsl_test",
                     query = "needle",
                     limit = 2,
-                    includeContent = true
+                    includeContent = true,
+                    includeEmbeddings = true
                 });
 
                 object result = await handlers["armada_code_search"](args).ConfigureAwait(false);
@@ -103,6 +104,57 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(2, service.LastSearchRequest.Limit);
                 AssertTrue(service.LastSearchRequest.IncludeContent);
                 AssertEqual("needle", response.Query);
+            });
+
+            await RunTest("armada_code_search omits embedding vectors by default and restores them when requested", async () =>
+            {
+                RecordingCodeIndexService service = new RecordingCodeIndexService();
+                service.SearchResponse = new CodeSearchResponse
+                {
+                    Status = NewStatus("vsl_test"),
+                    Query = "needle"
+                };
+                service.SearchResponse.Results.Add(new CodeSearchResult
+                {
+                    Score = 42,
+                    Excerpt = "needle",
+                    Record = new CodeIndexRecord
+                    {
+                        VesselId = "vsl_test",
+                        Path = "src/Foo.cs",
+                        CommitSha = "abc123",
+                        ContentHash = "hash",
+                        Language = "csharp",
+                        StartLine = 1,
+                        EndLine = 2,
+                        Freshness = "Fresh",
+                        Content = "needle",
+                        EmbeddingVector = new[] { 0.25f, 0.5f }
+                    }
+                });
+
+                Dictionary<string, Func<JsonElement?, Task<object>>> handlers = RegisterHandlers(service);
+                JsonElement defaultArgs = JsonSerializer.SerializeToElement(new
+                {
+                    vesselId = "vsl_test",
+                    query = "needle"
+                });
+                string defaultJson = JsonSerializer.Serialize(await handlers["armada_code_search"](defaultArgs).ConfigureAwait(false));
+
+                AssertFalse(defaultJson.Contains("EmbeddingVector", StringComparison.OrdinalIgnoreCase),
+                    "default MCP search response should not include embedding vectors");
+                AssertContains("src/Foo.cs", defaultJson);
+
+                JsonElement debugArgs = JsonSerializer.SerializeToElement(new
+                {
+                    vesselId = "vsl_test",
+                    query = "needle",
+                    includeEmbeddings = true
+                });
+                string debugJson = JsonSerializer.Serialize(await handlers["armada_code_search"](debugArgs).ConfigureAwait(false));
+
+                AssertContains("EmbeddingVector", debugJson);
+                AssertContains("0.25", debugJson);
             });
 
             await RunTest("armada_fleet_code_search delegates typed request", async () =>
@@ -120,7 +172,8 @@ namespace Armada.Test.Unit.Suites.Services
                     fleetId = "flt_test",
                     query = "needle",
                     limit = 2,
-                    includeContent = true
+                    includeContent = true,
+                    includeEmbeddings = true
                 });
 
                 object result = await handlers["armada_fleet_code_search"](args).ConfigureAwait(false);

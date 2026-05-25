@@ -52,6 +52,8 @@ namespace Armada.Core.Services
                 filtered = filtered.Where(item => String.Equals(item.VesselId, query.VesselId, StringComparison.OrdinalIgnoreCase));
             if (!String.IsNullOrWhiteSpace(query.EnvironmentId))
                 filtered = filtered.Where(item => String.Equals(item.EnvironmentId, query.EnvironmentId, StringComparison.OrdinalIgnoreCase));
+            if (!String.IsNullOrWhiteSpace(query.CheckRunId))
+                filtered = filtered.Where(item => String.Equals(item.CheckRunId, query.CheckRunId, StringComparison.OrdinalIgnoreCase));
             if (!String.IsNullOrWhiteSpace(query.DeploymentId))
                 filtered = filtered.Where(item => String.Equals(item.DeploymentId, query.DeploymentId, StringComparison.OrdinalIgnoreCase));
             if (!String.IsNullOrWhiteSpace(query.ReleaseId))
@@ -129,6 +131,7 @@ namespace Armada.Core.Services
                 Severity = request.Severity ?? IncidentSeverityEnum.High,
                 EnvironmentId = Normalize(request.EnvironmentId),
                 EnvironmentName = Normalize(request.EnvironmentName),
+                CheckRunId = Normalize(request.CheckRunId),
                 DeploymentId = Normalize(request.DeploymentId),
                 ReleaseId = Normalize(request.ReleaseId),
                 VesselId = Normalize(request.VesselId),
@@ -169,6 +172,7 @@ namespace Armada.Core.Services
             incident.Severity = request.Severity ?? incident.Severity;
             incident.EnvironmentId = request.EnvironmentId != null ? Normalize(request.EnvironmentId) : incident.EnvironmentId;
             incident.EnvironmentName = request.EnvironmentName != null ? Normalize(request.EnvironmentName) : incident.EnvironmentName;
+            incident.CheckRunId = request.CheckRunId != null ? Normalize(request.CheckRunId) : incident.CheckRunId;
             incident.DeploymentId = request.DeploymentId != null ? Normalize(request.DeploymentId) : incident.DeploymentId;
             incident.ReleaseId = request.ReleaseId != null ? Normalize(request.ReleaseId) : incident.ReleaseId;
             incident.VesselId = request.VesselId != null ? Normalize(request.VesselId) : incident.VesselId;
@@ -243,9 +247,13 @@ namespace Armada.Core.Services
             if (!String.IsNullOrWhiteSpace(incidentId))
             {
                 if (auth.IsAdmin)
-                    return await _Database.Events.EnumerateByEntityAsync("incident", incidentId, 500, token).ConfigureAwait(false);
+                    return (await _Database.Events.EnumerateByEntityAsync("incident", incidentId, 500, token).ConfigureAwait(false))
+                        .Where(IsIncidentSnapshotEvent)
+                        .ToList();
                 if (auth.IsTenantAdmin)
-                    return await _Database.Events.EnumerateByEntityAsync(auth.TenantId!, "incident", incidentId, 500, token).ConfigureAwait(false);
+                    return (await _Database.Events.EnumerateByEntityAsync(auth.TenantId!, "incident", incidentId, 500, token).ConfigureAwait(false))
+                        .Where(IsIncidentSnapshotEvent)
+                        .ToList();
                 return (await _Database.Events.EnumerateAsync(auth.TenantId!, auth.UserId!, new EnumerationQuery
                 {
                     PageNumber = 1,
@@ -347,6 +355,12 @@ namespace Armada.Core.Services
             string candidateId = candidate.Id ?? String.Empty;
             string existingId = existing.Id ?? String.Empty;
             return StringComparer.Ordinal.Compare(candidateId, existingId) > 0;
+        }
+
+        private static bool IsIncidentSnapshotEvent(ArmadaEvent item)
+        {
+            return String.Equals(item.EntityType, "incident", StringComparison.OrdinalIgnoreCase)
+                && String.Equals(item.EventType, "incident.snapshot", StringComparison.OrdinalIgnoreCase);
         }
 
         private static void ApplyLifecycleTimestamps(Incident incident)

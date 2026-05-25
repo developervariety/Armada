@@ -28,6 +28,11 @@ namespace Armada.Core.Models
         public string? EnvironmentId { get; set; } = null;
 
         /// <summary>
+        /// Optional check-run filter.
+        /// </summary>
+        public string? CheckRunId { get; set; } = null;
+
+        /// <summary>
         /// Optional deployment filter.
         /// </summary>
         public string? DeploymentId { get; set; } = null;

@@ -5,6 +5,7 @@ namespace Armada.Server.Mcp.Tools
     using System.IO;
     using System.Linq;
     using System.Text.Json;
+    using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core;
     using ArmadaConstants = Armada.Core.Constants;
@@ -31,6 +32,8 @@ namespace Armada.Server.Mcp.Tools
         private const string CodeContextModeOff = "off";
         private const string CodeContextModeForce = "force";
         private const int DefaultCodeContextTokenBudget = 3000;
+        private const int DefaultCodeContextTimeoutSeconds = 45;
+        private const string CodeContextTimeoutEnvVar = "ARMADA_CODE_CONTEXT_TIMEOUT_MS";
 
         /// <summary>
         /// Registers voyage MCP tools with the server.
@@ -46,6 +49,7 @@ namespace Armada.Server.Mcp.Tools
         /// snapshot persistence; when null a silent fallback is created so snapshots are always persisted
         /// regardless of whether the caller threads logging in.</param>
         /// <param name="codeIndexService">Optional code index service used to auto-attach context packs.</param>
+        /// <param name="objectiveService">Optional objective service used to validate and link voyage scope.</param>
         /// <remarks>
         /// armada_dispatch accepts an optional <c>prestagedFiles</c> array on each
         /// mission entry. Each entry copies an absolute <c>sourcePath</c> on the
@@ -61,11 +65,12 @@ namespace Armada.Server.Mcp.Tools
             ArmadaSettings? settings = null,
             Func<string, Task>? onStopCaptain = null,
             LoggingModule? logging = null,
-            ICodeIndexService? codeIndexService = null)
+            ICodeIndexService? codeIndexService = null,
+            ObjectiveService? objectiveService = null)
         {
             register(
                 "armada_dispatch",
-                "Dispatch a new voyage with missions to a vessel. Each mission may include an optional prestagedFiles array of {sourcePath, destPath} entries; the Admiral copies sourcePath (absolute, on the Admiral host) into destPath (relative, inside the dock worktree) after the dock is created and before the captain spawns. Code-index context packs are attached by default when available; set codeContextMode to off to opt out or force to require generation. Each mission may use preferredModel with a complexity tier: low, mid, or high.",
+                "Dispatch a new voyage with missions to a vessel. Link objectiveId for non-trivial work so the objective/backlog item carries scope and evidence lineage. Each mission may include an optional prestagedFiles array of {sourcePath, destPath} entries; the Admiral copies sourcePath (absolute, on the Admiral host) into destPath (relative, inside the dock worktree) after the dock is created and before the captain spawns. Code-index context packs are attached by default when available; set codeContextMode to off to opt out or force to require generation. Each mission may use preferredModel with a complexity tier: low, mid, or high.",
                 new
                 {
                     type = "object",
@@ -128,6 +133,7 @@ namespace Armada.Server.Mcp.Tools
                         codeContextMaxResults = new { type = "integer", description = "Optional maximum number of code-index evidence results per context pack. Omit to use CodeIndex settings." },
                         pipelineId = new { type = "string", description = "Pipeline ID to use for this dispatch (overrides vessel/fleet default)" },
                         pipeline = new { type = "string", description = "Pipeline name to use (convenience alias for pipelineId -- resolves by name)" },
+                        objectiveId = new { type = "string", description = "Optional objective/backlog item ID (obj_ prefix) to link to the dispatched voyage" },
                         selectedPlaybooks = new
                         {
                             type = "array",
@@ -154,6 +160,7 @@ namespace Armada.Server.Mcp.Tools
                     string vesselId = request.VesselId;
                     List<MissionDescription> missions = request.Missions;
                     List<SelectedPlaybook> callerPlaybooks = request.SelectedPlaybooks ?? new List<SelectedPlaybook>();
+                    string? objectiveId = NormalizeEmpty(request.ObjectiveId);
 
                     // Merge vessel DefaultPlaybooks with caller-supplied selectedPlaybooks.
                     // Start with the vessel defaults; caller entries override deliveryMode on collision and append new entries.
@@ -166,6 +173,17 @@ namespace Armada.Server.Mcp.Tools
                         Action = "Register the vessel via armada_add_vessel or verify the vesselId.",
                         VesselId = vesselId
                     };
+
+                    if (!String.IsNullOrEmpty(objectiveId))
+                    {
+                        if (objectiveService == null)
+                            return (object)new { Error = "Objective service unavailable; cannot link objectiveId " + objectiveId };
+
+                        AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
+                        Objective? objective = await objectiveService.ReadAsync(auth, objectiveId).ConfigureAwait(false);
+                        if (objective == null)
+                            return (object)new { Error = "Objective not found: " + objectiveId };
+                    }
 
                     List<SelectedPlaybook> mergedPlaybooks = MergePlaybooks(dispatchVessel?.GetDefaultPlaybooks(), callerPlaybooks);
 
@@ -209,13 +227,14 @@ namespace Armada.Server.Mcp.Tools
                         !String.IsNullOrEmpty(m.Alias) || !String.IsNullOrEmpty(m.DependsOnMissionAlias));
                     if (hasAliases)
                     {
-                        return await DispatchWithAliasesAsync(
+                        object aliasResult = await DispatchWithAliasesAsync(
                             database, admiral, logging, title, description, vesselId,
                             dispatchVessel, missions, mergedPlaybooks, pipelineId).ConfigureAwait(false);
+                        return await LinkObjectiveToVoyageResultAsync(objectiveService, objectiveId, aliasResult).ConfigureAwait(false);
                     }
 
-                    Voyage voyage = await admiral.DispatchVoyageAsync(title, description, vesselId, missions, pipelineId, mergedPlaybooks).ConfigureAwait(false);
-                    return (object)voyage;
+                    Voyage voyage = await admiral.DispatchVoyageQueuedAsync(title, description, vesselId, missions, pipelineId, mergedPlaybooks).ConfigureAwait(false);
+                    return await LinkObjectiveToVoyageResultAsync(objectiveService, objectiveId, voyage).ConfigureAwait(false);
                 });
 
             register(
@@ -572,8 +591,7 @@ namespace Armada.Server.Mcp.Tools
 
                 try
                 {
-                    ContextPackResponse contextPack = await codeIndexService
-                        .BuildContextPackAsync(contextRequest)
+                    ContextPackResponse contextPack = await BuildContextPackWithTimeoutAsync(codeIndexService, contextRequest)
                         .ConfigureAwait(false);
 
                     if (contextPack.PrestagedFiles == null || contextPack.PrestagedFiles.Count == 0)
@@ -597,6 +615,63 @@ namespace Armada.Server.Mcp.Tools
             }
 
             return null;
+        }
+
+        private static async Task<ContextPackResponse> BuildContextPackWithTimeoutAsync(
+            ICodeIndexService codeIndexService,
+            ContextPackRequest contextRequest)
+        {
+            TimeSpan timeout = GetCodeContextTimeout();
+            CancellationTokenSource timeoutCts = new CancellationTokenSource();
+            Task<ContextPackResponse> buildTask;
+
+            try
+            {
+                buildTask = codeIndexService.BuildContextPackAsync(contextRequest, timeoutCts.Token);
+            }
+            catch
+            {
+                timeoutCts.Dispose();
+                throw;
+            }
+
+            Task completed = await Task.WhenAny(buildTask, Task.Delay(timeout)).ConfigureAwait(false);
+            if (completed != buildTask)
+            {
+                try { timeoutCts.Cancel(); }
+                catch (ObjectDisposedException) { }
+
+                _ = buildTask.ContinueWith(
+                    task =>
+                    {
+                        _ = task.Exception;
+                        timeoutCts.Dispose();
+                    },
+                    CancellationToken.None,
+                    TaskContinuationOptions.ExecuteSynchronously,
+                    TaskScheduler.Default);
+
+                throw new TimeoutException(
+                    "code context generation exceeded " + timeout.TotalSeconds.ToString("F0") + " seconds");
+            }
+
+            try
+            {
+                return await buildTask.ConfigureAwait(false);
+            }
+            finally
+            {
+                timeoutCts.Dispose();
+            }
+        }
+
+        private static TimeSpan GetCodeContextTimeout()
+        {
+            string? configured = Environment.GetEnvironmentVariable(CodeContextTimeoutEnvVar);
+            if (Int32.TryParse(configured, out int milliseconds) && milliseconds > 0)
+                return TimeSpan.FromMilliseconds(Math.Clamp(milliseconds, 100, 300_000));
+
+            return TimeSpan.FromSeconds(DefaultCodeContextTimeoutSeconds);
         }
 
         private static bool TryNormalizeCodeContextMode(string? value, string fallback, out string normalized)
@@ -671,6 +746,29 @@ namespace Armada.Server.Mcp.Tools
         {
             if (logging == null) return;
             logging.Warn("[McpVoyageTools] " + message);
+        }
+
+        private static string? NormalizeEmpty(string? value)
+        {
+            if (String.IsNullOrWhiteSpace(value)) return null;
+            return value.Trim();
+        }
+
+        private static async Task<object> LinkObjectiveToVoyageResultAsync(
+            ObjectiveService? objectiveService,
+            string? objectiveId,
+            object result)
+        {
+            if (String.IsNullOrEmpty(objectiveId)) return result;
+            if (objectiveService == null) return result;
+
+            if (result is Voyage voyage)
+            {
+                AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
+                await objectiveService.LinkVoyageAsync(auth, objectiveId, voyage.Id).ConfigureAwait(false);
+            }
+
+            return result;
         }
 
         /// <summary>
@@ -769,7 +867,7 @@ namespace Armada.Server.Mcp.Tools
                     mission.SelectedPlaybooks = ClonePlaybookSelectionsLocal(mergedForMission);
                     mission.DependsOnMissionId = externalDep;
 
-                    mission = await admiral.DispatchMissionAsync(mission).ConfigureAwait(false);
+                    mission = await admiral.DispatchMissionQueuedAsync(mission).ConfigureAwait(false);
 
                     if (mission.Status == MissionStatusEnum.Assigned || mission.Status == MissionStatusEnum.InProgress)
                         anyAssigned = true;
@@ -822,7 +920,7 @@ namespace Armada.Server.Mcp.Tools
                             // First mission of the chain: dispatch through admiral so it gets
                             // the standard create + try-assign treatment (deps still gate
                             // assignment via MissionService.TryAssignAsync).
-                            stageMission = await admiral.DispatchMissionAsync(stageMission).ConfigureAwait(false);
+                            stageMission = await admiral.DispatchMissionQueuedAsync(stageMission).ConfigureAwait(false);
                             if (stageMission.Status == MissionStatusEnum.Assigned || stageMission.Status == MissionStatusEnum.InProgress)
                                 anyAssigned = true;
                         }

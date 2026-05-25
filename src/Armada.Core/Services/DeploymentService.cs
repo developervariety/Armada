@@ -281,7 +281,7 @@ namespace Armada.Core.Services
             deployment = await _Database.Deployments.UpdateAsync(deployment, token).ConfigureAwait(false);
             EmitChanged(deployment);
 
-            CheckRun rollbackRun = await _CheckRuns.RunAsync(auth, new CheckRunRequest
+            CheckRun rollbackRun = await _CheckRuns.RunPendingOrNewAsync(auth, new CheckRunRequest
             {
                 VesselId = vessel.Id,
                 WorkflowProfileId = profile.Id,
@@ -291,7 +291,7 @@ namespace Armada.Core.Services
                 Type = CheckRunTypeEnum.Rollback,
                 EnvironmentName = deployment.EnvironmentName,
                 Label = "Rollback " + deployment.EnvironmentName
-            }, token).ConfigureAwait(false);
+            }, allowDeploymentExecution: true, token: token).ConfigureAwait(false);
             AppendCheckRun(deployment, rollbackRun.Id);
             deployment.RollbackCheckRunId = rollbackRun.Id;
 
@@ -310,7 +310,7 @@ namespace Armada.Core.Services
             string? rollbackVerificationCommand = _WorkflowProfiles.ResolveCommand(profile, CheckRunTypeEnum.RollbackVerification, deployment.EnvironmentName);
             if (!String.IsNullOrWhiteSpace(rollbackVerificationCommand))
             {
-                CheckRun verificationRun = await _CheckRuns.RunAsync(auth, new CheckRunRequest
+                CheckRun verificationRun = await _CheckRuns.RunPendingOrNewAsync(auth, new CheckRunRequest
                 {
                     VesselId = vessel.Id,
                     WorkflowProfileId = profile.Id,
@@ -320,7 +320,7 @@ namespace Armada.Core.Services
                     Type = CheckRunTypeEnum.RollbackVerification,
                     EnvironmentName = deployment.EnvironmentName,
                     Label = "Rollback Verify " + deployment.EnvironmentName
-                }, token).ConfigureAwait(false);
+                }, token: token).ConfigureAwait(false);
                 AppendCheckRun(deployment, verificationRun.Id);
                 deployment.RollbackVerificationCheckRunId = verificationRun.Id;
                 if (verificationRun.Status != CheckRunStatusEnum.Passed)
@@ -432,7 +432,7 @@ namespace Armada.Core.Services
             deployment = await _Database.Deployments.UpdateAsync(deployment, token).ConfigureAwait(false);
             EmitChanged(deployment);
 
-            CheckRun deployRun = await _CheckRuns.RunAsync(auth, new CheckRunRequest
+            CheckRun deployRun = await _CheckRuns.RunPendingOrNewAsync(auth, new CheckRunRequest
             {
                 VesselId = vessel.Id,
                 WorkflowProfileId = resolvedProfile.Id,
@@ -443,7 +443,7 @@ namespace Armada.Core.Services
                 EnvironmentName = environment.Name,
                 Label = "Deploy " + environment.Name,
                 BranchName = deployment.SourceRef
-            }, token).ConfigureAwait(false);
+            }, allowDeploymentExecution: true, token: token).ConfigureAwait(false);
             AppendCheckRun(deployment, deployRun.Id);
             deployment.DeployCheckRunId = deployRun.Id;
 
@@ -486,7 +486,7 @@ namespace Armada.Core.Services
             if (!String.IsNullOrWhiteSpace(smokeCommand))
             {
                 anyVerificationConfigured = true;
-                CheckRun smokeRun = await _CheckRuns.RunAsync(auth, new CheckRunRequest
+                CheckRun smokeRun = await _CheckRuns.RunPendingOrNewAsync(auth, new CheckRunRequest
                 {
                     VesselId = vessel.Id,
                     WorkflowProfileId = resolvedProfile!.Id,
@@ -496,7 +496,7 @@ namespace Armada.Core.Services
                     Type = CheckRunTypeEnum.SmokeTest,
                     EnvironmentName = environment.Name,
                     Label = "Smoke " + environment.Name
-                }, token).ConfigureAwait(false);
+                }, token: token).ConfigureAwait(false);
                 verificationRuns.Add(smokeRun);
                 AppendCheckRun(deployment, smokeRun.Id);
                 deployment.SmokeTestCheckRunId = smokeRun.Id;
@@ -540,7 +540,7 @@ namespace Armada.Core.Services
             if (!String.IsNullOrWhiteSpace(verificationCommand))
             {
                 anyVerificationConfigured = true;
-                CheckRun verifyRun = await _CheckRuns.RunAsync(auth, new CheckRunRequest
+                CheckRun verifyRun = await _CheckRuns.RunPendingOrNewAsync(auth, new CheckRunRequest
                 {
                     VesselId = vessel.Id,
                     WorkflowProfileId = resolvedProfile!.Id,
@@ -550,7 +550,7 @@ namespace Armada.Core.Services
                     Type = CheckRunTypeEnum.DeploymentVerification,
                     EnvironmentName = environment.Name,
                     Label = "Deploy Verify " + environment.Name
-                }, token).ConfigureAwait(false);
+                }, token: token).ConfigureAwait(false);
                 verificationRuns.Add(verifyRun);
                 AppendCheckRun(deployment, verifyRun.Id);
                 deployment.DeploymentVerificationCheckRunId = verifyRun.Id;

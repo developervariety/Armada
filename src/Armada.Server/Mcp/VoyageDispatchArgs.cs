@@ -55,6 +55,11 @@ namespace Armada.Server.Mcp
         public string? Pipeline { get; set; }
 
         /// <summary>
+        /// Optional objective/backlog item ID to link to the dispatched voyage.
+        /// </summary>
+        public string? ObjectiveId { get; set; }
+
+        /// <summary>
         /// Ordered playbooks to apply during dispatch.
         /// </summary>
         public List<SelectedPlaybook> SelectedPlaybooks { get; set; } = new List<SelectedPlaybook>();

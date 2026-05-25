@@ -373,6 +373,179 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
+        public async Task<Voyage> DispatchVoyageQueuedAsync(
+            string title,
+            string description,
+            string vesselId,
+            List<MissionDescription> missionDescriptions,
+            string? pipelineId,
+            List<SelectedPlaybook>? selectedPlaybooks,
+            CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(title)) throw new ArgumentNullException(nameof(title));
+            if (String.IsNullOrEmpty(vesselId)) throw new ArgumentNullException(nameof(vesselId));
+            if (missionDescriptions == null || missionDescriptions.Count == 0)
+                throw new ArgumentException("At least one mission is required", nameof(missionDescriptions));
+
+            Vessel? vessel = await _Database.Vessels.ReadAsync(vesselId, token).ConfigureAwait(false);
+            if (vessel == null) throw new InvalidOperationException("Vessel not found: " + vesselId);
+            if (selectedPlaybooks != null && selectedPlaybooks.Count > 0 && !String.IsNullOrEmpty(vessel.TenantId))
+            {
+                await _Playbooks.ResolveSelectionsAsync(vessel.TenantId, selectedPlaybooks, token).ConfigureAwait(false);
+            }
+
+            // Validate request-shaped inputs before creating any durable voyage state.
+            ValidatePrestagedFilesOrThrow(missionDescriptions);
+            await ValidateDependsOnReferencesOrThrowAsync(missionDescriptions, token).ConfigureAwait(false);
+
+            Pipeline? pipeline = await ResolvePipelineAsync(pipelineId, vessel, token).ConfigureAwait(false);
+            bool isMultiStage = pipeline != null
+                && !(pipeline.Stages.Count == 1 && pipeline.Stages[0].PersonaName == "Worker");
+
+            Voyage voyage = new Voyage(title, description);
+            voyage.TenantId = vessel.TenantId;
+            voyage.UserId = vessel.UserId;
+            voyage.Status = VoyageStatusEnum.Open;
+            voyage = await _Database.Voyages.CreateAsync(voyage, token).ConfigureAwait(false);
+            voyage.SelectedPlaybooks = ClonePlaybookSelections(selectedPlaybooks);
+            if (voyage.SelectedPlaybooks.Count > 0)
+            {
+                await _Database.Playbooks.SetVoyageSelectionsAsync(voyage.Id, voyage.SelectedPlaybooks, token).ConfigureAwait(false);
+            }
+
+            _Logging.Info(_Header + "created queued voyage " + voyage.Id + ": " + title +
+                (isMultiStage ? " (pipeline: " + pipeline!.Name + ")" : ""));
+
+            List<string> assignmentMissionIds = new List<string>();
+
+            if (!isMultiStage)
+            {
+                foreach (MissionDescription md in missionDescriptions)
+                {
+                    Mission mission = new Mission(md.Title, md.Description);
+                    mission.TenantId = vessel.TenantId;
+                    mission.UserId = vessel.UserId;
+                    mission.VoyageId = voyage.Id;
+                    mission.VesselId = vesselId;
+                    mission.PrestagedFiles = ClonePrestagedFiles(md.PrestagedFiles);
+                    mission.PreferredModel = md.PreferredModel;
+                    if (!String.IsNullOrEmpty(md.DependsOnMissionId))
+                        mission.DependsOnMissionId = md.DependsOnMissionId;
+
+                    mission = await _Database.Missions.CreateAsync(mission, token).ConfigureAwait(false);
+                    List<SelectedPlaybook> perMissionPlaybooks = PlaybookMerge.MergeWithVesselDefaults(
+                        voyage.SelectedPlaybooks,
+                        md.SelectedPlaybooks ?? new List<SelectedPlaybook>());
+                    await PersistMissionPlaybooksAsync(mission, perMissionPlaybooks, token).ConfigureAwait(false);
+                    assignmentMissionIds.Add(mission.Id);
+                    _Logging.Info(_Header + "created queued mission " + mission.Id + ": " + md.Title);
+                }
+            }
+            else
+            {
+                foreach (MissionDescription md in missionDescriptions)
+                {
+                    string baseTitle = md.Title.Length > 60 ? md.Title.Substring(0, 60).TrimEnd() + "..." : md.Title;
+                    IOrderedEnumerable<IGrouping<int, PipelineStage>> stageGroups =
+                        pipeline!.Stages.GroupBy(s => s.Order).OrderBy(g => g.Key);
+
+                    string? previousOrderLastMissionId = null;
+
+                    foreach (IGrouping<int, PipelineStage> stageGroup in stageGroups)
+                    {
+                        string? groupDependencyId = previousOrderLastMissionId
+                            ?? (String.IsNullOrEmpty(md.DependsOnMissionId) ? null : md.DependsOnMissionId);
+
+                        string? lastMissionInGroup = null;
+
+                        foreach (PipelineStage stage in stageGroup)
+                        {
+                            Mission mission = new Mission("[" + stage.PersonaName + "] " + baseTitle, md.Description);
+                            mission.TenantId = vessel.TenantId;
+                            mission.UserId = vessel.UserId;
+                            mission.VoyageId = voyage.Id;
+                            mission.VesselId = vesselId;
+                            mission.Persona = stage.PersonaName;
+                            mission.DependsOnMissionId = groupDependencyId;
+                            mission.PreferredModel = PreferredModelTierSelector.EnforceHighTierForPersona(
+                                stage.PreferredModel ?? md.PreferredModel,
+                                stage.PersonaName);
+
+                            bool isFirstChainMission = previousOrderLastMissionId == null && lastMissionInGroup == null;
+                            if (isFirstChainMission)
+                                mission.PrestagedFiles = ClonePrestagedFiles(md.PrestagedFiles);
+
+                            mission = await _Database.Missions.CreateAsync(mission, token).ConfigureAwait(false);
+                            List<SelectedPlaybook> perMissionPlaybooks = PlaybookMerge.MergeWithVesselDefaults(
+                                voyage.SelectedPlaybooks,
+                                md.SelectedPlaybooks ?? new List<SelectedPlaybook>());
+                            await PersistMissionPlaybooksAsync(mission, perMissionPlaybooks, token).ConfigureAwait(false);
+
+                            if (isFirstChainMission)
+                                assignmentMissionIds.Add(mission.Id);
+
+                            _Logging.Info(_Header + "created queued pipeline mission " + mission.Id + ": " + mission.Title +
+                                " (stage " + stage.Order + "/" + pipeline.Stages.Count + ", persona: " + stage.PersonaName +
+                                (groupDependencyId != null ? ", depends on: " + groupDependencyId : "") + ")");
+
+                            lastMissionInGroup = mission.Id;
+                        }
+
+                        previousOrderLastMissionId = lastMissionInGroup;
+                    }
+                }
+            }
+
+            voyage.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.Voyages.UpdateAsync(voyage, token).ConfigureAwait(false);
+            QueueVoyageAssignments(voyage.Id, vessel.Id, assignmentMissionIds);
+
+            return voyage;
+        }
+
+        /// <inheritdoc />
+        public async Task<Mission> DispatchMissionQueuedAsync(Mission mission, CancellationToken token = default)
+        {
+            if (mission == null) throw new ArgumentNullException(nameof(mission));
+            if (mission.SelectedPlaybooks != null && mission.SelectedPlaybooks.Count > 0 && !String.IsNullOrEmpty(mission.TenantId))
+            {
+                await _Playbooks.ResolveSelectionsAsync(mission.TenantId, mission.SelectedPlaybooks, token).ConfigureAwait(false);
+            }
+
+            if (mission.PrestagedFiles != null && mission.PrestagedFiles.Count > 0)
+            {
+                List<string> prestageErrors = PrestagedFileValidator.Validate(mission.PrestagedFiles);
+                if (prestageErrors.Count > 0)
+                {
+                    throw new ArgumentException(
+                        "Invalid prestagedFiles for mission '" + mission.Title + "': " +
+                        String.Join("; ", prestageErrors),
+                        nameof(mission));
+                }
+            }
+
+            if (!String.IsNullOrEmpty(mission.DependsOnMissionId))
+            {
+                Mission? referenced = await _Database.Missions.ReadAsync(mission.DependsOnMissionId, token).ConfigureAwait(false);
+                if (referenced == null)
+                {
+                    throw new InvalidOperationException("dependsOnMissionId not found: " + mission.DependsOnMissionId);
+                }
+            }
+
+            mission = await _Database.Missions.CreateAsync(mission, token).ConfigureAwait(false);
+            await PersistMissionPlaybooksAsync(mission, mission.SelectedPlaybooks, token).ConfigureAwait(false);
+            _Logging.Info(_Header + "created queued mission " + mission.Id + ": " + mission.Title);
+
+            if (!String.IsNullOrEmpty(mission.VesselId))
+            {
+                QueueVoyageAssignments(mission.VoyageId, mission.VesselId, new List<string> { mission.Id });
+            }
+
+            return mission;
+        }
+
+        /// <inheritdoc />
         public async Task<Mission> DispatchMissionAsync(Mission mission, CancellationToken token = default)
         {
             if (mission == null) throw new ArgumentNullException(nameof(mission));
@@ -432,6 +605,63 @@ namespace Armada.Core.Services
             }
 
             return mission;
+        }
+
+        private void QueueVoyageAssignments(string? voyageId, string vesselId, List<string> missionIds)
+        {
+            if (String.IsNullOrEmpty(vesselId) || missionIds == null || missionIds.Count == 0) return;
+
+            List<string> queuedMissionIds = missionIds
+                .Where(id => !String.IsNullOrEmpty(id))
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+            if (queuedMissionIds.Count == 0) return;
+
+            string voyageLabel = String.IsNullOrEmpty(voyageId) ? "standalone" : voyageId!;
+            _Logging.Info(_Header + "queued assignment for " + queuedMissionIds.Count +
+                " mission(s) on voyage " + voyageLabel + " vessel " + vesselId);
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    Vessel? vessel = await _Database.Vessels.ReadAsync(vesselId, CancellationToken.None).ConfigureAwait(false);
+                    if (vessel == null)
+                    {
+                        _Logging.Warn(_Header + "queued assignment skipped because vessel was not found: " + vesselId);
+                        return;
+                    }
+
+                    bool anyAssigned = false;
+                    foreach (string missionId in queuedMissionIds)
+                    {
+                        Mission? mission = await _Database.Missions.ReadAsync(missionId, CancellationToken.None).ConfigureAwait(false);
+                        if (mission == null)
+                        {
+                            _Logging.Warn(_Header + "queued assignment skipped missing mission " + missionId);
+                            continue;
+                        }
+
+                        bool assigned = await _Missions.TryAssignAsync(mission, vessel, CancellationToken.None).ConfigureAwait(false);
+                        anyAssigned |= assigned;
+                    }
+
+                    if (anyAssigned && !String.IsNullOrEmpty(voyageId))
+                    {
+                        Voyage? voyage = await _Database.Voyages.ReadAsync(voyageId!, CancellationToken.None).ConfigureAwait(false);
+                        if (voyage != null && voyage.Status == VoyageStatusEnum.Open)
+                        {
+                            voyage.Status = VoyageStatusEnum.InProgress;
+                            voyage.LastUpdateUtc = DateTime.UtcNow;
+                            await _Database.Voyages.UpdateAsync(voyage, CancellationToken.None).ConfigureAwait(false);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "queued assignment failed for voyage " + voyageLabel + ": " + ex.Message);
+                }
+            });
         }
 
         private List<SelectedPlaybook> ClonePlaybookSelections(List<SelectedPlaybook>? selections)
@@ -988,7 +1218,20 @@ namespace Armada.Core.Services
 
             // Determine the process ID to check
             int? processId = captain.ProcessId ?? mission?.ProcessId;
-            if (processId == null) return;
+            if (processId == null)
+            {
+                if (isActive && mission != null)
+                {
+                    string failureReason = "Captain is marked Working on active mission " + mission.Id +
+                        " but no process ID is recorded; agent completion cannot be verified.";
+                    _Logging.Warn(_Header + "captain " + captain.Id + " has active mission " + mission.Id +
+                        " without a process id -- failing loudly instead of treating it as success");
+                    await HandleTerminalProcessExitFailureAsync(captain, mission, mission.Id, failureReason, token).ConfigureAwait(false);
+                    return;
+                }
+
+                return;
+            }
 
             bool isAlive = false;
             int exitCode = -1;

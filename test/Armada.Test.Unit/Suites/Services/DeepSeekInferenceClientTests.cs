@@ -1,6 +1,7 @@
 namespace Armada.Test.Unit.Suites.Services
 {
     using System;
+    using System.Collections.Generic;
     using System.Net;
     using System.Net.Http;
     using System.Text;
@@ -74,6 +75,47 @@ namespace Armada.Test.Unit.Suites.Services
                 string result = await client.CompleteAsync("system prompt", "user message").ConfigureAwait(false);
 
                 AssertEqual(string.Empty, result);
+            });
+
+            await RunTest("CompleteAsync_429ThenSuccess_RetriesAndReturnsCompletion", async () =>
+            {
+                SequenceHttpMessageHandler handler = new SequenceHttpMessageHandler(
+                    (HttpStatusCode.TooManyRequests, "{\"error\":\"rate limited\"}"),
+                    (HttpStatusCode.OK, "{\"choices\":[{\"message\":{\"content\":\"summary text\"}}]}"));
+                HttpClient http = new HttpClient(handler);
+                CodeIndexSettings settings = new CodeIndexSettings
+                {
+                    EmbeddingApiBaseUrl = "https://api.deepseek.com",
+                    SummarizerApiBaseUrl = "https://api.deepseek.com",
+                    SummarizerApiKey = "k"
+                };
+                DeepSeekInferenceClient client = new DeepSeekInferenceClient(settings, new LoggingModule(), http);
+
+                string result = await client.CompleteAsync("sys", "user").ConfigureAwait(false);
+
+                AssertEqual("summary text", result);
+                AssertEqual(2, handler.RequestCount);
+            });
+
+            await RunTest("CompleteAsync_5xxExhausted_TriesThreeTimes", async () =>
+            {
+                SequenceHttpMessageHandler handler = new SequenceHttpMessageHandler(
+                    (HttpStatusCode.InternalServerError, "{\"error\":\"server error\"}"),
+                    (HttpStatusCode.BadGateway, "{\"error\":\"bad gateway\"}"),
+                    (HttpStatusCode.ServiceUnavailable, "{\"error\":\"unavailable\"}"));
+                HttpClient http = new HttpClient(handler);
+                CodeIndexSettings settings = new CodeIndexSettings
+                {
+                    EmbeddingApiBaseUrl = "https://api.deepseek.com",
+                    SummarizerApiBaseUrl = "https://api.deepseek.com",
+                    SummarizerApiKey = "k"
+                };
+                DeepSeekInferenceClient client = new DeepSeekInferenceClient(settings, new LoggingModule(), http);
+
+                string result = await client.CompleteAsync("sys", "user").ConfigureAwait(false);
+
+                AssertEqual(string.Empty, result);
+                AssertEqual(3, handler.RequestCount);
             });
 
             await RunTest("CompleteAsync_EmptySummarizerBaseUrl_FallsBackToEmbeddingBaseUrl", async () =>
@@ -382,6 +424,30 @@ namespace Armada.Test.Unit.Suites.Services
                     Content = new StringContent(_Body, Encoding.UTF8, "application/json")
                 };
                 return response;
+            }
+        }
+
+        private sealed class SequenceHttpMessageHandler : HttpMessageHandler
+        {
+            private readonly Queue<(HttpStatusCode StatusCode, string Body)> _Responses;
+
+            public int RequestCount { get; private set; }
+
+            public SequenceHttpMessageHandler(params (HttpStatusCode StatusCode, string Body)[] responses)
+            {
+                _Responses = new Queue<(HttpStatusCode StatusCode, string Body)>(responses);
+            }
+
+            protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+            {
+                RequestCount++;
+                (HttpStatusCode StatusCode, string Body) response = _Responses.Count > 0
+                    ? _Responses.Dequeue()
+                    : (HttpStatusCode.OK, "{\"choices\":[{\"message\":{\"content\":\"ok\"}}]}");
+                return Task.FromResult(new HttpResponseMessage(response.StatusCode)
+                {
+                    Content = new StringContent(response.Body, Encoding.UTF8, "application/json")
+                });
             }
         }
 

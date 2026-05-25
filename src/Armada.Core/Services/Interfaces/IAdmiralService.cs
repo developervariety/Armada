@@ -133,6 +133,43 @@ namespace Armada.Core.Services.Interfaces
             CancellationToken token = default);
 
         /// <summary>
+        /// Dispatch a voyage and return after the voyage and mission records have been
+        /// durably persisted. Assignment/provisioning is queued in the background so
+        /// request/stdio callers do not block on first-time worktree setup.
+        /// </summary>
+        /// <param name="title">Voyage title.</param>
+        /// <param name="description">Voyage description.</param>
+        /// <param name="vesselId">Target vessel identifier.</param>
+        /// <param name="missionDescriptions">List of mission title/description pairs.</param>
+        /// <param name="pipelineId">Optional pipeline ID. Resolved using the standard dispatch precedence.</param>
+        /// <param name="selectedPlaybooks">Ordered playbooks to apply to every mission in the voyage.</param>
+        /// <param name="token">Cancellation token for durable creation only.</param>
+        /// <returns>The created voyage, usually still Open until queued assignment starts.</returns>
+        Task<Voyage> DispatchVoyageQueuedAsync(
+            string title,
+            string description,
+            string vesselId,
+            List<MissionDescription> missionDescriptions,
+            string? pipelineId,
+            List<SelectedPlaybook>? selectedPlaybooks,
+            CancellationToken token = default)
+        {
+            return DispatchVoyageAsync(title, description, vesselId, missionDescriptions, pipelineId, selectedPlaybooks, token);
+        }
+
+        /// <summary>
+        /// Dispatch a single mission and return after the mission record has been
+        /// persisted. Assignment/provisioning is queued in the background.
+        /// </summary>
+        /// <param name="mission">Mission to dispatch.</param>
+        /// <param name="token">Cancellation token for durable creation only.</param>
+        /// <returns>The created mission, usually still Pending until queued assignment starts.</returns>
+        Task<Mission> DispatchMissionQueuedAsync(Mission mission, CancellationToken token = default)
+        {
+            return DispatchMissionAsync(mission, token);
+        }
+
+        /// <summary>
         /// Dispatch a single mission.
         /// </summary>
         /// <param name="mission">Mission to dispatch.</param>

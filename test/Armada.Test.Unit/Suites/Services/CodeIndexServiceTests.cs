@@ -583,6 +583,94 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("UpdateAsync_SemanticSearchOn_UsesEmbeddingBatchRequests", async () =>
+            {
+                TestRepository repository = await CreateRepositoryAsync().ConfigureAwait(false);
+                string dataRoot = NewTempDirectory("armada-code-index-data-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Vessel vessel = await CreateVesselAsync(testDb, repository.Path).ConfigureAwait(false);
+                        BatchRecordingEmbeddingClient recording = new BatchRecordingEmbeddingClient(new float[] { 0.25F, 0.5F, 1F });
+                        CodeIndexService service = CreateService(
+                            testDb,
+                            dataRoot,
+                            recording,
+                            ci =>
+                            {
+                                ci.UseSemanticSearch = true;
+                                ci.EmbeddingBatchSize = 2;
+                            });
+
+                        CodeIndexStatus status = await service.UpdateAsync(vessel.Id).ConfigureAwait(false);
+
+                        AssertTrue(status.ChunkCount > 1, "fixture should produce multiple chunks");
+                        AssertTrue(recording.BatchCallCount > 0, "semantic indexing should use batched embedding calls");
+                        AssertEqual(0, recording.SingleCallCount, "per-chunk fallback should not run when batch returns complete vectors");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(repository.Root);
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("UpdateAsync_ReusesUnchangedChunkEmbeddings_AfterSmallCommit", async () =>
+            {
+                TestRepository repository = await CreateRepositoryAsync().ConfigureAwait(false);
+                string dataRoot = NewTempDirectory("armada-code-index-data-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Vessel vessel = await CreateVesselAsync(testDb, repository.Path).ConfigureAwait(false);
+                        RecordingEmbeddingClient first = new RecordingEmbeddingClient(new float[] { 0.5F, 0.25F, -0.125F });
+                        CodeIndexService firstService = CreateService(
+                            testDb,
+                            dataRoot,
+                            first,
+                            ci => { ci.UseSemanticSearch = true; });
+
+                        CodeIndexStatus firstStatus = await firstService.UpdateAsync(vessel.Id).ConfigureAwait(false);
+                        AssertTrue(firstStatus.ChunkCount > 1, "fixture should produce more than one chunk");
+                        AssertTrue(first.CallCount >= firstStatus.ChunkCount, "first index should embed every chunk");
+
+                        await File.WriteAllTextAsync(
+                            Path.Combine(repository.Path, "docs", "usage.md"),
+                            "# Usage\n\nThis document mentions context packs for mission briefs.\n\nSmall follow-up change.\n").ConfigureAwait(false);
+                        await RunGitAsync(repository.Path, "add", ".").ConfigureAwait(false);
+                        await RunGitAsync(repository.Path, "commit", "-m", "Update one indexed file").ConfigureAwait(false);
+
+                        RecordingEmbeddingClient second = new RecordingEmbeddingClient(new float[] { 0.75F, 0.125F, -0.5F });
+                        CodeIndexService secondService = CreateService(
+                            testDb,
+                            dataRoot,
+                            second,
+                            ci => { ci.UseSemanticSearch = true; });
+
+                        CodeIndexStatus secondStatus = await secondService.UpdateAsync(vessel.Id).ConfigureAwait(false);
+
+                        AssertEqual("Fresh", secondStatus.Freshness);
+                        AssertTrue(secondStatus.ChunkCount >= firstStatus.ChunkCount, "second index should preserve unchanged chunks");
+                        AssertTrue(second.CallCount < secondStatus.ChunkCount,
+                            "second index should only embed chunks whose content was not already present");
+                        AssertTrue(second.Inputs.Any(i => i.Contains("Small follow-up change", StringComparison.Ordinal)),
+                            "changed chunk should be embedded");
+                        AssertFalse(second.Inputs.Any(i => i.Contains("SearchKeyword", StringComparison.Ordinal)),
+                            "unchanged source chunk should reuse its existing embedding");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(repository.Root);
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
             await RunTest("UpdateAsync_SemanticSearchOn_PerChunkEmbeddingFailureDoesNotAbortUpdate", async () =>
             {
                 TestRepository repository = await CreateRepositoryAsync().ConfigureAwait(false);
@@ -953,6 +1041,33 @@ namespace Armada.Test.Unit.Suites.Services
                 CallCount++;
                 Inputs.Add(text ?? string.Empty);
                 return Task.FromResult(_Vector);
+            }
+        }
+
+        private sealed class BatchRecordingEmbeddingClient : IEmbeddingClient
+        {
+            private readonly float[] _Vector;
+
+            public int BatchCallCount { get; private set; }
+
+            public int SingleCallCount { get; private set; }
+
+            public BatchRecordingEmbeddingClient(float[] vector)
+            {
+                _Vector = vector ?? throw new ArgumentNullException(nameof(vector));
+            }
+
+            public Task<float[]> EmbedAsync(string text, CancellationToken token = default)
+            {
+                SingleCallCount++;
+                return Task.FromResult(_Vector);
+            }
+
+            public Task<IReadOnlyList<float[]>> EmbedBatchAsync(IReadOnlyList<string> texts, CancellationToken token = default)
+            {
+                BatchCallCount++;
+                IReadOnlyList<float[]> vectors = texts.Select(_ => _Vector).ToList();
+                return Task.FromResult(vectors);
             }
         }
 

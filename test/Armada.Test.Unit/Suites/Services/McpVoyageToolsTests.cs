@@ -10,6 +10,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
     using Armada.Server.Mcp;
@@ -133,6 +134,67 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Dispatch_ObjectiveId_LinksVoyageAndMissionsToObjective", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("objective-linked-vessel", "https://github.com/test/repo.git")
+                        {
+                            TenantId = Constants.DefaultTenantId,
+                            UserId = Constants.DefaultUserId
+                        }).ConfigureAwait(false);
+
+                    ObjectiveService objectives = new ObjectiveService(testDb.Driver);
+                    AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
+                    Objective objective = await objectives.CreateAsync(auth, new ObjectiveUpsertRequest
+                    {
+                        Title = "Use structured delivery records",
+                        VesselIds = new List<string> { vessel.Id }
+                    }).ConfigureAwait(false);
+
+                    ReflectionDrainRecordingAdmiral admiralDouble = new ReflectionDrainRecordingAdmiral(testDb.Driver);
+
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null,
+                        null,
+                        null,
+                        null,
+                        objectives);
+
+                    AssertNotNull(dispatchHandler);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "objective linked voyage",
+                        description = "structured-first dispatch",
+                        vesselId = vessel.Id,
+                        objectiveId = objective.Id,
+                        missions = new object[]
+                        {
+                            new { title = "Task A", description = "Implement a narrow scoped change" }
+                        }
+                    });
+
+                    object result = await dispatchHandler!(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+
+                    AssertFalse(resultJson.Contains("\"Error\""), "Should not return error: " + resultJson);
+
+                    Objective? linked = await objectives.ReadAsync(auth, objective.Id).ConfigureAwait(false);
+                    AssertNotNull(linked);
+                    AssertEqual(ObjectiveStatusEnum.InProgress, linked.Status);
+                    AssertEqual(ObjectiveBacklogStateEnum.Dispatched, linked.BacklogState);
+                    AssertEqual(1, linked.VoyageIds.Count);
+                    AssertEqual(1, linked.MissionIds.Count);
+                    AssertTrue(linked.VesselIds.Contains(vessel.Id), "Expected linked objective to retain vessel lineage.");
+                }
+            });
+
             await RunTest("Dispatch_CodeContextAuto_AttachesContextPackAndPreservesPrestagedFiles", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -241,6 +303,50 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Dispatch_BlocksWhenCodeIndexStale", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("index-stale-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
+                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService();
+                    codeIndex.Status.Freshness = "Stale";
+                    codeIndex.Status.IndexedCommitSha = "old";
+                    codeIndex.Status.CurrentCommitSha = "new";
+
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null,
+                        null,
+                        null,
+                        codeIndex);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "stale index voyage",
+                        vesselId = vessel.Id,
+                        missions = new object[]
+                        {
+                            new { title = "Task A", description = "Should wait for fresh index" }
+                        }
+                    });
+
+                    object result = await dispatchHandler!(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+
+                    AssertContains("\"Error\"", resultJson);
+                    AssertContains("code_index_stale", resultJson);
+                    AssertContains("Run armada_index_update", resultJson);
+                    AssertEqual(0, codeIndex.ContextPackRequests.Count, "Dispatch should block before stale context pack generation");
+                    AssertFalse(admiralDouble.DispatchVoyageCalled, "Dispatch must not persist a voyage while the vessel index is stale");
+                }
+            });
+
             await RunTest("Dispatch_CodeContextOff_SkipsContextPack", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -323,6 +429,58 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Dispatch_CodeContextAuto_ContinuesWhenGenerationTimesOut", async () =>
+            {
+                string? priorTimeout = Environment.GetEnvironmentVariable("ARMADA_CODE_CONTEXT_TIMEOUT_MS");
+                Environment.SetEnvironmentVariable("ARMADA_CODE_CONTEXT_TIMEOUT_MS", "100");
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                            new Vessel("code-context-auto-timeout-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                        RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
+                        RecordingCodeIndexService codeIndex = new RecordingCodeIndexService
+                        {
+                            NeverCompleteBuild = true
+                        };
+
+                        Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                        McpVoyageTools.Register(
+                            (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                            testDb.Driver,
+                            admiralDouble,
+                            null,
+                            null,
+                            null,
+                            codeIndex);
+
+                        JsonElement args = JsonSerializer.SerializeToElement(new
+                        {
+                            title = "auto timeout voyage",
+                            vesselId = vessel.Id,
+                            missions = new object[]
+                            {
+                                new { title = "Task A", description = "Auto mode should continue after a slow context pack" }
+                            }
+                        });
+
+                        object result = await dispatchHandler!(args).ConfigureAwait(false);
+                        string resultJson = JsonSerializer.Serialize(result);
+
+                        AssertFalse(resultJson.Contains("\"Error\""), "Auto mode should continue after context generation timeout: " + resultJson);
+                        AssertEqual(1, codeIndex.ContextPackRequests.Count, "Auto mode should attempt context generation");
+                        AssertTrue(admiralDouble.DispatchVoyageCalled, "Auto generation timeout should not block dispatch persistence");
+                        AssertNull(admiralDouble.LastMissionDescriptions[0].PrestagedFiles, "Timed-out auto generation should not add prestaged files");
+                    }
+                }
+                finally
+                {
+                    Environment.SetEnvironmentVariable("ARMADA_CODE_CONTEXT_TIMEOUT_MS", priorTimeout);
+                }
+            });
+
             await RunTest("Dispatch_CodeContextForce_ReturnsErrorWhenUnavailable", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -399,6 +557,59 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertContains("index crashed", resultJson);
                     AssertEqual(1, codeIndex.ContextPackRequests.Count, "Force mode should attempt context generation once");
                     AssertFalse(admiralDouble.DispatchVoyageCalled, "Force generation failure should happen before dispatch persistence");
+                }
+            });
+
+            await RunTest("Dispatch_CodeContextForce_ReturnsErrorWhenGenerationTimesOut", async () =>
+            {
+                string? priorTimeout = Environment.GetEnvironmentVariable("ARMADA_CODE_CONTEXT_TIMEOUT_MS");
+                Environment.SetEnvironmentVariable("ARMADA_CODE_CONTEXT_TIMEOUT_MS", "100");
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                            new Vessel("code-context-force-timeout-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                        RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
+                        RecordingCodeIndexService codeIndex = new RecordingCodeIndexService
+                        {
+                            NeverCompleteBuild = true
+                        };
+
+                        Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                        McpVoyageTools.Register(
+                            (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                            testDb.Driver,
+                            admiralDouble,
+                            null,
+                            null,
+                            null,
+                            codeIndex);
+
+                        JsonElement args = JsonSerializer.SerializeToElement(new
+                        {
+                            title = "force timeout voyage",
+                            vesselId = vessel.Id,
+                            codeContextMode = "force",
+                            missions = new object[]
+                            {
+                                new { title = "Task A", description = "Force mode should fail clearly after a slow context pack" }
+                            }
+                        });
+
+                        object result = await dispatchHandler!(args).ConfigureAwait(false);
+                        string resultJson = JsonSerializer.Serialize(result);
+
+                        AssertContains("\"Error\"", resultJson);
+                        AssertContains("code context generation failed", resultJson);
+                        AssertContains("exceeded", resultJson);
+                        AssertFalse(admiralDouble.DispatchVoyageCalled, "Force timeout should happen before dispatch persistence");
+                    }
+                }
+                finally
+                {
+                    Environment.SetEnvironmentVariable("ARMADA_CODE_CONTEXT_TIMEOUT_MS", priorTimeout);
                 }
             });
 
@@ -846,10 +1057,16 @@ namespace Armada.Test.Unit.Suites.Services
                 CancellationToken token = default)
             {
                 DispatchCount++;
-                Voyage voyage = await _Database.Voyages.CreateAsync(new Voyage(title, description), token).ConfigureAwait(false);
+                Voyage voyage = await _Database.Voyages.CreateAsync(new Voyage(title, description)
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId
+                }, token).ConfigureAwait(false);
                 foreach (MissionDescription md in missionDescriptions)
                 {
                     Mission mission = new Mission(md.Title, md.Description);
+                    mission.TenantId = Constants.DefaultTenantId;
+                    mission.UserId = Constants.DefaultUserId;
                     mission.VoyageId = voyage.Id;
                     mission.VesselId = vesselId;
                     mission.Persona = pipelineId == "Reflections" ? "MemoryConsolidator" : "Worker";
@@ -912,6 +1129,8 @@ namespace Armada.Test.Unit.Suites.Services
 
             public Exception? BuildException { get; set; }
 
+            public bool NeverCompleteBuild { get; set; }
+
             public Task<CodeIndexStatus> GetStatusAsync(string vesselId, CancellationToken token = default)
             {
                 Status.VesselId = vesselId;
@@ -926,11 +1145,14 @@ namespace Armada.Test.Unit.Suites.Services
             public Task<CodeSearchResponse> SearchAsync(CodeSearchRequest request, CancellationToken token = default)
                 => throw new NotImplementedException();
 
-            public Task<ContextPackResponse> BuildContextPackAsync(ContextPackRequest request, CancellationToken token = default)
+            public async Task<ContextPackResponse> BuildContextPackAsync(ContextPackRequest request, CancellationToken token = default)
             {
                 ContextPackRequests.Add(request);
                 if (BuildException != null) throw BuildException;
-                return Task.FromResult(ContextPackResponse);
+                if (NeverCompleteBuild)
+                    await Task.Delay(Timeout.InfiniteTimeSpan, token).ConfigureAwait(false);
+
+                return ContextPackResponse;
             }
 
             public Task<FleetCodeSearchResponse> SearchFleetAsync(FleetCodeSearchRequest request, CancellationToken token = default)

@@ -122,6 +122,128 @@ namespace Armada.Test.Unit
                 }
             });
 
+            await RunTest("LandEntry_SynchronizesBareTargetBranchAfterPush", async () =>
+            {
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_sync_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir).ConfigureAwait(false);
+
+                    string initialLocalMain = (await RunGitAsync(repos.BareDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+                    string captainHead = (await RunGitAsync(repos.BareDir, "rev-parse", "refs/heads/" + repos.CaptainBranch).ConfigureAwait(false)).Trim();
+                    AssertTrue(!String.Equals(initialLocalMain, captainHead, StringComparison.OrdinalIgnoreCase),
+                        "Fixture should start with captain branch ahead of local main");
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        GitService git = new GitService(logging);
+
+                        Vessel vessel = new Vessel("mqsync-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.WorkingDirectory = repos.WorkingDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.LocalOnly;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.BranchName = repos.CaptainBranch;
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(
+                            logging,
+                            testDb.Driver,
+                            settings,
+                            git,
+                            new MergeFailureClassifier());
+
+                        MergeEntry? afterProcess = await service.ProcessSingleAsync(entry.Id).ConfigureAwait(false);
+                        AssertNotNull(afterProcess, "Entry after process");
+                        AssertEqual(MergeStatusEnum.Landed, afterProcess!.Status, "Expected Landed merge entry");
+
+                        string localMain = (await RunGitAsync(repos.BareDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+                        string originMain = (await RunGitAsync(repos.BareDir, "rev-parse", "refs/remotes/origin/main").ConfigureAwait(false)).Trim();
+
+                        AssertEqual(originMain, localMain, "Bare repo local main must be synchronized to origin/main after land");
+                        AssertTrue(!String.Equals(initialLocalMain, localMain, StringComparison.OrdinalIgnoreCase),
+                            "Local main should advance from the pre-land commit");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { /* best-effort */ }
+                }
+            });
+
+            await RunTest("ProcessSingle_FailsNoOpIdentityMerge", async () =>
+            {
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_noop_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir).ConfigureAwait(false);
+
+                    string noOpBranch = "armada/captain-1/msn_noop";
+                    await RunGitAsync(repos.BareDir, "update-ref", "refs/heads/" + noOpBranch, "refs/heads/main").ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        GitService git = new GitService(logging);
+
+                        Vessel vessel = new Vessel("mqnoop-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.WorkingDirectory = repos.WorkingDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.LocalOnly;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        Mission mission = new Mission("no-op merge queue mission");
+                        mission.VesselId = vessel.Id;
+                        mission.Status = MissionStatusEnum.WorkProduced;
+                        mission = await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.MissionId = mission.Id;
+                        entry.BranchName = noOpBranch;
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(
+                            logging,
+                            testDb.Driver,
+                            settings,
+                            git,
+                            new MergeFailureClassifier());
+
+                        MergeEntry? afterProcess = await service.ProcessSingleAsync(entry.Id).ConfigureAwait(false);
+                        AssertNotNull(afterProcess, "Entry after process");
+                        AssertEqual(MergeStatusEnum.Failed, afterProcess!.Status, "No-op merge entry must fail, not land");
+                        AssertContains("No-op merge queue entry", afterProcess.TestOutput ?? "", "Failure reason should be structured");
+
+                        Mission? readMission = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                        AssertNotNull(readMission, "Mission should still exist");
+                        AssertEqual(MissionStatusEnum.LandingFailed, readMission!.Status, "Linked mission should become LandingFailed");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { /* best-effort */ }
+                }
+            });
+
             await RunTest("ReconcilePullRequest_FiresIndexRefresh_WhenMissionComplete", async () =>
             {
                 // Pins the second call site added by the Worker: after the PR reconciler
@@ -271,6 +393,23 @@ namespace Armada.Test.Unit
                         "UpdateAsync should have been attempted before throwing");
                 }
             });
+
+            await RunTest("CodeIndexRefreshScheduler_CoalescesRapidRequestsForSameVessel", async () =>
+            {
+                RecordingCodeIndexService recordingIndex = new RecordingCodeIndexService();
+                ArmadaSettings settings = CreateSettings();
+                settings.CodeIndex.PostLandRefreshDebounceSeconds = 1;
+                string vesselId = "vsl_debounce_" + Guid.NewGuid().ToString("N");
+
+                CodeIndexRefreshScheduler.Schedule(recordingIndex, settings.CodeIndex, CreateLogging(), "[test] ", vesselId, "first landing");
+                CodeIndexRefreshScheduler.Schedule(recordingIndex, settings.CodeIndex, CreateLogging(), "[test] ", vesselId, "second landing");
+                CodeIndexRefreshScheduler.Schedule(recordingIndex, settings.CodeIndex, CreateLogging(), "[test] ", vesselId, "third landing");
+
+                await WaitUntilAsync(() => recordingIndex.HasUpdateForVessel(vesselId), maxAttempts: 40, delayMs: 100).ConfigureAwait(false);
+                await Task.Delay(300).ConfigureAwait(false);
+                AssertEqual(1, recordingIndex.UpdateAsyncVesselIds.Count(id => id == vesselId),
+                    "rapid refresh requests for one vessel should be coalesced into one update");
+            });
         }
 
         /// <summary>
@@ -333,6 +472,7 @@ namespace Armada.Test.Unit
             settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_mq_idx_docks_" + Guid.NewGuid().ToString("N"));
             settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_mq_idx_repos_" + Guid.NewGuid().ToString("N"));
             settings.BranchCleanupPolicy = BranchCleanupPolicyEnum.LocalOnly;
+            settings.CodeIndex.PostLandRefreshDebounceSeconds = 0;
             return settings;
         }
 

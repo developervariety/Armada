@@ -6,6 +6,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
+    using Armada.Server;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
     using SyslogLogging;
@@ -56,6 +57,65 @@ namespace Armada.Test.Unit.Suites.Services
                     "new MergeQueueService(_Logging, _Database, _Settings, _Git, mergeFailureClassifier, prServiceFactory, _CodeIndex)",
                     contents,
                     "ArmadaServer should pass CodeIndexService into MergeQueueService for post-land refreshes");
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            await RunTest("ArmadaServer source runs can auto-detect the React dashboard build", () =>
+            {
+                string path = Path.Combine(FindRepositoryRoot(), "src", "Armada.Server", "ArmadaServer.cs");
+                string contents = File.ReadAllText(path);
+                AssertContains(
+                    "TryFindSourceDashboardDist()",
+                    contents,
+                    "ArmadaServer should fall back to the source React dashboard build before using the embedded legacy dashboard");
+                AssertContains(
+                    "src\", \"Armada.Dashboard\", \"dist",
+                    contents,
+                    "Source dashboard auto-detection should look for src/Armada.Dashboard/dist so direct /dashboard/code-index loads in repo runs");
+                AssertTrue(
+                    contents.IndexOf("TryFindSourceDashboardDist()", StringComparison.Ordinal) <
+                    contents.IndexOf("using embedded legacy dashboard", StringComparison.Ordinal),
+                    "Source React dashboard detection must happen before the legacy embedded dashboard fallback");
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            await RunTest("ArmadaServer warns on silent code-index feature disables", () =>
+            {
+                CodeIndexSettings settings = new CodeIndexSettings
+                {
+                    EmbeddingApiKey = "configured",
+                    SummarizerApiKey = "configured",
+                    UseSemanticSearch = false,
+                    UseSummarizer = false
+                };
+
+                IReadOnlyList<string> warnings = ArmadaServer.BuildCodeIndexConfigurationWarnings(settings);
+
+                AssertEqual(2, warnings.Count);
+                AssertTrue(warnings.Any(w => w.Contains("EmbeddingApiKey is configured but UseSemanticSearch=false", StringComparison.Ordinal)));
+                AssertTrue(warnings.Any(w => w.Contains("SummarizerApiKey is configured but UseSummarizer=false", StringComparison.Ordinal)));
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            await RunTest("ArmadaServer emits no code-index warnings for consistent settings", () =>
+            {
+                CodeIndexSettings allOff = new CodeIndexSettings
+                {
+                    EmbeddingApiKey = string.Empty,
+                    SummarizerApiKey = string.Empty,
+                    UseSemanticSearch = false,
+                    UseSummarizer = false
+                };
+                AssertEqual(0, ArmadaServer.BuildCodeIndexConfigurationWarnings(allOff).Count);
+
+                CodeIndexSettings allOn = new CodeIndexSettings
+                {
+                    EmbeddingApiKey = "configured",
+                    SummarizerApiKey = "configured",
+                    UseSemanticSearch = true,
+                    UseSummarizer = true
+                };
+                AssertEqual(0, ArmadaServer.BuildCodeIndexConfigurationWarnings(allOn).Count);
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
 

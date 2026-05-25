@@ -472,6 +472,7 @@ namespace Armada.Core.Services
 
                 // Create a temporary worktree from the current target branch
                 await _Git.CreateWorktreeAsync(repoPath, integrationPath, integrationBranch, entry.TargetBranch, token).ConfigureAwait(false);
+                string targetHeadBeforeMerge = await ResolveCommitAsync(integrationPath, "HEAD", token).ConfigureAwait(false);
 
                 // Merge the entry's branch
                 MergeAttemptResult mergeAttempt = await MergeBranchAsync(integrationPath, entry.BranchName, token).ConfigureAwait(false);
@@ -501,6 +502,18 @@ namespace Armada.Core.Services
                     await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
                     await CleanupWorktreeAsync(integrationPath, token).ConfigureAwait(false);
                     FireRecoveryHandlerForEntry(entry.Id);
+                    return;
+                }
+
+                string integrationHeadAfterMerge = await ResolveCommitAsync(integrationPath, "HEAD", token).ConfigureAwait(false);
+                if (String.Equals(targetHeadBeforeMerge, integrationHeadAfterMerge, StringComparison.OrdinalIgnoreCase))
+                {
+                    string failureReason = "No-op merge queue entry: branch " + entry.BranchName +
+                        " does not advance target branch " + entry.TargetBranch +
+                        " (HEAD remains " + integrationHeadAfterMerge + ")";
+                    _Logging.Warn(_Header + failureReason + " for " + entryTag);
+                    await TransitionEntryToFailureAsync(entry, failureReason, token, fireRecovery: false).ConfigureAwait(false);
+                    await CleanupWorktreeAsync(integrationPath, token).ConfigureAwait(false);
                     return;
                 }
 
@@ -935,22 +948,13 @@ namespace Armada.Core.Services
         /// </summary>
         private void FireIndexRefreshForVessel(string? vesselId)
         {
-            ICodeIndexService? svc = _CodeIndexService;
-            if (svc == null || String.IsNullOrEmpty(vesselId)) return;
-            string capturedVesselId = vesselId;
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    _Logging.Info(_Header + "auto-refreshing code index for vessel " + capturedVesselId);
-                    await svc.UpdateAsync(capturedVesselId).ConfigureAwait(false);
-                    _Logging.Info(_Header + "code index refresh complete for vessel " + capturedVesselId);
-                }
-                catch (Exception ex)
-                {
-                    _Logging.Warn(_Header + "code index refresh failed for vessel " + capturedVesselId + ": " + ex.Message);
-                }
-            });
+            CodeIndexRefreshScheduler.Schedule(
+                _CodeIndexService,
+                _Settings.CodeIndex,
+                _Logging,
+                _Header,
+                vesselId,
+                "merge queue landed entry");
         }
 
         /// <summary>
@@ -961,6 +965,7 @@ namespace Armada.Core.Services
             try
             {
                 await _Git.PushRefSpecAsync(repoPath, integrationBranch, entry.TargetBranch, token).ConfigureAwait(false);
+                await SynchronizeTargetBranchAfterPushAsync(repoPath, entry.TargetBranch, token).ConfigureAwait(false);
 
                 entry.Status = MergeStatusEnum.Landed;
                 entry.CompletedUtc = DateTime.UtcNow;
@@ -999,6 +1004,53 @@ namespace Armada.Core.Services
                 await ReconcileMissionStatusAsync(entry.MissionId, MissionStatusEnum.LandingFailed,
                     "Merge queue landing failed: " + ex.Message, token, entry.TenantId).ConfigureAwait(false);
             }
+        }
+
+        /// <summary>
+        /// After a successful push, make the bare repository's local target branch
+        /// match the fetched remote target before advertising the merge as landed.
+        /// </summary>
+        private async Task SynchronizeTargetBranchAfterPushAsync(string repoPath, string targetBranch, CancellationToken token)
+        {
+            if (String.IsNullOrWhiteSpace(repoPath)) throw new ArgumentNullException(nameof(repoPath));
+            if (String.IsNullOrWhiteSpace(targetBranch)) throw new ArgumentNullException(nameof(targetBranch));
+
+            await _Git.FetchAsync(repoPath, token).ConfigureAwait(false);
+
+            string remoteRef = "refs/remotes/origin/" + targetBranch;
+            string localRef = "refs/heads/" + targetBranch;
+            string remoteHead = (await RunGitCapturingAsync(repoPath, token, "rev-parse", "--verify", remoteRef).ConfigureAwait(false)).StandardOutput.Trim();
+            if (String.IsNullOrWhiteSpace(remoteHead))
+            {
+                throw new InvalidOperationException("Unable to verify remote target branch " + remoteRef + " after push");
+            }
+
+            if (await IsBranchCheckedOutInWorktreeAsync(repoPath, targetBranch, token).ConfigureAwait(false))
+            {
+                throw new InvalidOperationException("Unable to update local target branch " + targetBranch + " because it is checked out in a worktree");
+            }
+
+            await RunGitAsync(repoPath, token, "branch", "-f", targetBranch, remoteRef).ConfigureAwait(false);
+
+            string localHead = (await RunGitCapturingAsync(repoPath, token, "rev-parse", "--verify", localRef).ConfigureAwait(false)).StandardOutput.Trim();
+            if (!String.Equals(localHead, remoteHead, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("Post-push target sync failed for " + targetBranch + ": local " + localHead + " != origin " + remoteHead);
+            }
+
+            _Logging.Info(_Header + "synced local target branch " + targetBranch + " to origin/" + targetBranch + " at " + localHead);
+        }
+
+        private async Task<string> ResolveCommitAsync(string workingDir, string refName, CancellationToken token)
+        {
+            GitProcessResult result = await RunGitCapturingAsync(workingDir, token, "rev-parse", "--verify", refName).ConfigureAwait(false);
+            string commit = result.StandardOutput.Trim();
+            if (String.IsNullOrWhiteSpace(commit))
+            {
+                throw new InvalidOperationException("Unable to resolve git ref " + refName + " in " + workingDir);
+            }
+
+            return commit;
         }
 
         /// <summary>
@@ -1317,6 +1369,26 @@ namespace Armada.Core.Services
 
                 return new GitProcessResult(process.ExitCode, stdout, stderr);
             }
+        }
+
+        private async Task<bool> IsBranchCheckedOutInWorktreeAsync(string repoPath, string branchName, CancellationToken token)
+        {
+            GitProcessResult result = await RunGitCapturingAsync(repoPath, token, "worktree", "list", "--porcelain").ConfigureAwait(false);
+            if (result.ExitCode != 0)
+            {
+                throw new InvalidOperationException("git worktree list failed: " + result.StandardError.Trim());
+            }
+
+            string targetRef = "branch refs/heads/" + branchName;
+            foreach (string line in result.StandardOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (String.Equals(line.Trim(), targetRef, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private sealed record GitProcessResult(int ExitCode, string StandardOutput, string StandardError);

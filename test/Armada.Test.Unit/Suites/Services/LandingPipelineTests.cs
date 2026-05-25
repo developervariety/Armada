@@ -269,6 +269,29 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("MergeQueue landing refuses no-op branch before enqueue", () =>
+            {
+                string source = ReadRepositoryFile("src", "Armada.Server", "MissionLandingHandler.cs");
+                string method = ExtractBetween(
+                    source,
+                    "else if (landingModeIsMergeQueue)",
+                    "// Mission stays as WorkProduced; merge queue processing will land it");
+
+                AssertContains(
+                    "DetectMergeQueueNoOpAsync(mission, dock, vessel, targetBranch)",
+                    method,
+                    "MergeQueue landing must check for no-op branch identity before enqueue.");
+                AssertContains(
+                    "landingAttempted = true;",
+                    method,
+                    "No-op refusal should drive the landing result block.");
+                AssertContains(
+                    "_MergeQueue.EnqueueAsync(entry)",
+                    method,
+                    "The normal non-no-op path should still enqueue.");
+                return Task.CompletedTask;
+            });
+
             // === Dock Reclaim Idempotency ===
 
             await RunTest("Double ReclaimAsync is safe (idempotent)", async () =>
@@ -452,6 +475,28 @@ namespace Armada.Test.Unit.Suites.Services
             return contents.Substring(start, end - start);
         }
 
+        private static string ReadRepositoryFile(params string[] relativePath)
+        {
+            return File.ReadAllText(Path.Combine(FindRepositoryRoot(), Path.Combine(relativePath)));
+        }
+
+        private static string FindRepositoryRoot()
+        {
+            DirectoryInfo? current = new DirectoryInfo(AppContext.BaseDirectory);
+            while (current != null)
+            {
+                if (Directory.Exists(Path.Combine(current.FullName, "src")) &&
+                    Directory.Exists(Path.Combine(current.FullName, "test")))
+                {
+                    return current.FullName;
+                }
+
+                current = current.Parent;
+            }
+
+            throw new DirectoryNotFoundException("Could not locate repository root from test base directory.");
+        }
+
         private void AssertDoesNotContain(string unexpected, string actual, string message)
         {
             if (actual.Contains(unexpected, StringComparison.Ordinal))
@@ -486,29 +531,5 @@ namespace Armada.Test.Unit.Suites.Services
             public Task<bool> TryOpenPullRequestForRecoveryAsync(string mergeEntryId, CancellationToken token = default) => Task.FromResult(false);
         }
 
-        private static string ReadRepositoryFile(params string[] segments)
-        {
-            string path = FindRepositoryRoot();
-            foreach (string segment in segments)
-            {
-                path = Path.Combine(path, segment);
-            }
-
-            return File.ReadAllText(path);
-        }
-
-        private static string FindRepositoryRoot()
-        {
-            DirectoryInfo? directory = new DirectoryInfo(AppContext.BaseDirectory);
-            while (directory != null)
-            {
-                if (File.Exists(Path.Combine(directory.FullName, "src", "Armada.sln")))
-                    return directory.FullName;
-
-                directory = directory.Parent;
-            }
-
-            throw new InvalidDataException("Unable to find repository root.");
-        }
     }
 }

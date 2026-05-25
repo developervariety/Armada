@@ -315,6 +315,62 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("DispatchVoyageQueuedAsync ReturnsBeforeAssignmentLaunchCompletes", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    StubGitService git = new StubGitService();
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), db, CreateSettings(), git);
+
+                    TaskCompletionSource<bool> launchStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    TaskCompletionSource<int> releaseLaunch = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    service.OnLaunchAgent = (captain, mission, dock) =>
+                    {
+                        launchStarted.TrySetResult(true);
+                        return releaseLaunch.Task;
+                    };
+
+                    Vessel vessel = new Vessel("QueuedVessel", "https://github.com/test/repo");
+                    vessel.DefaultBranch = "main";
+                    await db.Vessels.CreateAsync(vessel);
+
+                    Captain captain = new Captain("queued-captain");
+                    captain.State = CaptainStateEnum.Idle;
+                    await db.Captains.CreateAsync(captain);
+
+                    Task<Voyage> dispatchTask = service.DispatchVoyageQueuedAsync(
+                        "Queued Voyage", "A queued test", vessel.Id,
+                        new List<MissionDescription> { new MissionDescription("Queued Mission", "Desc") },
+                        null,
+                        null);
+
+                    Task completed = await Task.WhenAny(dispatchTask, Task.Delay(1000)).ConfigureAwait(false);
+                    AssertTrue(Object.ReferenceEquals(dispatchTask, completed), "Queued dispatch should return before the launch delegate completes");
+
+                    Voyage voyage = await dispatchTask.ConfigureAwait(false);
+                    AssertEqual(VoyageStatusEnum.Open, voyage.Status, "Queued voyage should remain Open until background assignment advances it");
+
+                    completed = await Task.WhenAny(launchStarted.Task, Task.Delay(2000)).ConfigureAwait(false);
+                    AssertTrue(Object.ReferenceEquals(launchStarted.Task, completed), "Background assignment should still start after durable creation");
+
+                    releaseLaunch.SetResult(424242);
+
+                    Mission? mission = null;
+                    for (int i = 0; i < 20; i++)
+                    {
+                        List<Mission> missions = await db.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+                        mission = missions.SingleOrDefault();
+                        if (mission != null && mission.Status == MissionStatusEnum.InProgress) break;
+                        await Task.Delay(100).ConfigureAwait(false);
+                    }
+
+                    AssertNotNull(mission, "Queued mission should exist");
+                    AssertEqual(MissionStatusEnum.InProgress, mission!.Status, "Queued mission should finish background assignment once launch completes");
+                    AssertEqual(424242, mission.ProcessId, "Queued assignment should persist the launched process id");
+                }
+            });
+
             await RunTest("RecallCaptainAsync NullId Throws", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
@@ -495,6 +551,44 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Captain? result = await db.Captains.ReadAsync(captain.Id);
                     AssertEqual(CaptainStateEnum.Idle, result!.State);
+                }
+            });
+
+            await RunTest("HealthCheckAsync WorkingCaptainNoProcessId ActiveMission FailsLoud", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    StubGitService git = new StubGitService();
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), db, CreateSettings(), git);
+
+                    Voyage voyage = new Voyage("Missing PID Voyage");
+                    voyage.Status = VoyageStatusEnum.InProgress;
+                    voyage = await db.Voyages.CreateAsync(voyage);
+
+                    Mission mission = new Mission("Missing PID Mission");
+                    mission.VoyageId = voyage.Id;
+                    mission.Status = MissionStatusEnum.InProgress;
+                    mission.ProcessId = null;
+                    mission = await db.Missions.CreateAsync(mission);
+
+                    Captain captain = new Captain("missing-pid-captain");
+                    captain.State = CaptainStateEnum.Working;
+                    captain.CurrentMissionId = mission.Id;
+                    captain.ProcessId = null;
+                    await db.Captains.CreateAsync(captain);
+
+                    await service.HealthCheckAsync();
+
+                    Mission? updatedMission = await db.Missions.ReadAsync(mission.Id);
+                    Captain? updatedCaptain = await db.Captains.ReadAsync(captain.Id);
+                    Voyage? updatedVoyage = await db.Voyages.ReadAsync(voyage.Id);
+
+                    AssertNotNull(updatedMission, "Mission should still exist");
+                    AssertEqual(MissionStatusEnum.Failed, updatedMission!.Status, "Active mission without a PID should fail loudly");
+                    AssertContains("no process ID", updatedMission.FailureReason ?? String.Empty, "Failure should explain the missing process id");
+                    AssertEqual(CaptainStateEnum.Idle, updatedCaptain!.State, "Captain should be released after the missing-PID failure");
+                    AssertEqual(VoyageStatusEnum.Cancelled, updatedVoyage!.Status, "Voyage should halt after the missing-PID mission failure");
                 }
             });
 

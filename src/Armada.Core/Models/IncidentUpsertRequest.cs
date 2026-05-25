@@ -40,6 +40,11 @@ namespace Armada.Core.Models
         public string? EnvironmentName { get; set; } = null;
 
         /// <summary>
+        /// Optional check-run identifier.
+        /// </summary>
+        public string? CheckRunId { get; set; } = null;
+
+        /// <summary>
         /// Optional deployment identifier.
         /// </summary>
         public string? DeploymentId { get; set; } = null;
