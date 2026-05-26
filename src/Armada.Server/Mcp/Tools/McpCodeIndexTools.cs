@@ -2,6 +2,7 @@ namespace Armada.Server.Mcp.Tools
 {
     using System;
     using System.Text.Json;
+    using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
@@ -16,6 +17,8 @@ namespace Armada.Server.Mcp.Tools
             PropertyNameCaseInsensitive = true,
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase
         };
+        private const int DefaultContextPackTimeoutMs = 30_000;
+        private const string ContextPackTimeoutEnvVar = "ARMADA_CODE_CONTEXT_TIMEOUT_MS";
 
         /// <summary>
         /// Register code index MCP tools.
@@ -107,7 +110,8 @@ namespace Armada.Server.Mcp.Tools
                         vesselId = new { type = "string", description = "Vessel ID (vsl_ prefix)" },
                         goal = new { type = "string", description = "Mission goal or implementation objective" },
                         tokenBudget = new { type = "integer", description = "Approximate markdown token budget" },
-                        maxResults = new { type = "integer", description = "Optional maximum evidence snippets" }
+                        maxResults = new { type = "integer", description = "Optional maximum evidence snippets" },
+                        timeoutMs = new { type = "integer", description = "Optional server-side timeout in milliseconds (default from ARMADA_CODE_CONTEXT_TIMEOUT_MS or 30000)" }
                     },
                     required = new[] { "vesselId", "goal", "tokenBudget" }
                 },
@@ -117,7 +121,25 @@ namespace Armada.Server.Mcp.Tools
                     ContextPackRequest request = JsonSerializer.Deserialize<ContextPackRequest>(args.Value, _JsonOptions)!;
                     if (String.IsNullOrWhiteSpace(request.VesselId)) return (object)new { Error = "vesselId is required" };
                     if (String.IsNullOrWhiteSpace(request.Goal)) return (object)new { Error = "goal is required" };
-                    return (object)await codeIndex.BuildContextPackAsync(request).ConfigureAwait(false);
+                    TimeSpan timeout = ResolveContextPackTimeout(args.Value);
+                    try
+                    {
+                        return (object)await RunWithTimeoutAsync(
+                            token => codeIndex.BuildContextPackAsync(request, token),
+                            timeout).ConfigureAwait(false);
+                    }
+                    catch (TimeoutException ex)
+                    {
+                        return (object)new
+                        {
+                            Error = ex.Message,
+                            Code = "code_context_timeout",
+                            request.VesselId,
+                            request.Goal,
+                            TimeoutMs = (int)timeout.TotalMilliseconds,
+                            Action = "Use armada_code_search with a focused query, or retry armada_context_pack with a smaller tokenBudget/maxResults."
+                        };
+                    }
                 });
 
             register(
@@ -160,7 +182,8 @@ namespace Armada.Server.Mcp.Tools
                         fleetId = new { type = "string", description = "Fleet ID (flt_ prefix)" },
                         goal = new { type = "string", description = "Mission goal or implementation objective" },
                         tokenBudget = new { type = "integer", description = "Approximate markdown token budget" },
-                        maxResultsPerVessel = new { type = "integer", description = "Optional maximum evidence snippets per vessel" }
+                        maxResultsPerVessel = new { type = "integer", description = "Optional maximum evidence snippets per vessel" },
+                        timeoutMs = new { type = "integer", description = "Optional server-side timeout in milliseconds (default from ARMADA_CODE_CONTEXT_TIMEOUT_MS or 30000)" }
                     },
                     required = new[] { "fleetId", "goal", "tokenBudget" }
                 },
@@ -170,7 +193,25 @@ namespace Armada.Server.Mcp.Tools
                     FleetContextPackRequest request = JsonSerializer.Deserialize<FleetContextPackRequest>(args.Value, _JsonOptions)!;
                     if (String.IsNullOrWhiteSpace(request.FleetId)) return (object)new { Error = "fleetId is required" };
                     if (String.IsNullOrWhiteSpace(request.Goal)) return (object)new { Error = "goal is required" };
-                    return (object)await codeIndex.BuildFleetContextPackAsync(request).ConfigureAwait(false);
+                    TimeSpan timeout = ResolveContextPackTimeout(args.Value);
+                    try
+                    {
+                        return (object)await RunWithTimeoutAsync(
+                            token => codeIndex.BuildFleetContextPackAsync(request, token),
+                            timeout).ConfigureAwait(false);
+                    }
+                    catch (TimeoutException ex)
+                    {
+                        return (object)new
+                        {
+                            Error = ex.Message,
+                            Code = "code_context_timeout",
+                            request.FleetId,
+                            request.Goal,
+                            TimeoutMs = (int)timeout.TotalMilliseconds,
+                            Action = "Use armada_fleet_code_search with a focused query, or retry armada_fleet_context_pack with a smaller tokenBudget/maxResultsPerVessel."
+                        };
+                    }
                 });
 
             register(
@@ -379,6 +420,70 @@ namespace Armada.Server.Mcp.Tools
                     r.Excerpt
                 }).ToList()
             };
+        }
+
+        private static TimeSpan ResolveContextPackTimeout(JsonElement args)
+        {
+            if (args.TryGetProperty("timeoutMs", out JsonElement timeoutElement)
+                && timeoutElement.ValueKind == JsonValueKind.Number
+                && timeoutElement.TryGetInt32(out int requestedTimeout)
+                && requestedTimeout > 0)
+            {
+                return TimeSpan.FromMilliseconds(Math.Clamp(requestedTimeout, 100, 300_000));
+            }
+
+            string? configured = Environment.GetEnvironmentVariable(ContextPackTimeoutEnvVar);
+            if (Int32.TryParse(configured, out int configuredTimeout) && configuredTimeout > 0)
+                return TimeSpan.FromMilliseconds(Math.Clamp(configuredTimeout, 100, 300_000));
+
+            return TimeSpan.FromMilliseconds(DefaultContextPackTimeoutMs);
+        }
+
+        private static async Task<T> RunWithTimeoutAsync<T>(
+            Func<CancellationToken, Task<T>> operation,
+            TimeSpan timeout)
+        {
+            CancellationTokenSource timeoutCts = new CancellationTokenSource();
+            Task<T> task;
+
+            try
+            {
+                task = operation(timeoutCts.Token);
+            }
+            catch
+            {
+                timeoutCts.Dispose();
+                throw;
+            }
+
+            Task completed = await Task.WhenAny(task, Task.Delay(timeout)).ConfigureAwait(false);
+            if (completed != task)
+            {
+                try { timeoutCts.Cancel(); }
+                catch (ObjectDisposedException) { }
+
+                _ = task.ContinueWith(
+                    completedTask =>
+                    {
+                        _ = completedTask.Exception;
+                        timeoutCts.Dispose();
+                    },
+                    CancellationToken.None,
+                    TaskContinuationOptions.ExecuteSynchronously,
+                    TaskScheduler.Default);
+
+                throw new TimeoutException(
+                    "code context generation exceeded " + timeout.TotalSeconds.ToString("F0") + " seconds");
+            }
+
+            try
+            {
+                return await task.ConfigureAwait(false);
+            }
+            finally
+            {
+                timeoutCts.Dispose();
+            }
         }
 
         private static object ShapeFleetCodeSearchResponse(FleetCodeSearchResponse response)

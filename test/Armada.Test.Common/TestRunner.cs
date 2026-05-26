@@ -40,7 +40,7 @@ namespace Armada.Test.Common
         /// <summary>
         /// Run all suites sequentially, print results, and return the exit code (0 = pass, 1 = fail).
         /// </summary>
-        public async Task<int> RunAllAsync()
+        public async Task<int> RunAllAsync(IEnumerable<string>? suiteFilters = null)
         {
             Console.WriteLine();
             Console.WriteLine("================================================================================");
@@ -48,8 +48,19 @@ namespace Armada.Test.Common
             Console.WriteLine("================================================================================");
 
             Stopwatch totalTimer = Stopwatch.StartNew();
+            List<string> filters = suiteFilters?
+                .Where(f => !String.IsNullOrWhiteSpace(f))
+                .Select(f => f.Trim())
+                .ToList() ?? new List<string>();
+            IEnumerable<TestSuite> suites = _Suites;
+            if (filters.Count > 0)
+            {
+                suites = suites.Where(suite => filters.Any(filter =>
+                    suite.Name.IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0
+                    || suite.GetType().Name.IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0));
+            }
 
-            foreach (TestSuite suite in _Suites)
+            foreach (TestSuite suite in suites)
             {
                 Console.WriteLine();
                 Console.WriteLine("--- " + suite.Name + " ---");

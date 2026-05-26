@@ -7,6 +7,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
+    using Armada.Server.Mcp.Tools;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
 
@@ -21,6 +22,44 @@ namespace Armada.Test.Unit.Suites.Services
         /// <inheritdoc />
         protected override async Task RunTestsAsync()
         {
+            await RunTest("MCP incident tools expose list get create update and delete", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                Dictionary<string, Func<JsonElement?, Task<object>>> handlers = RegisterIncidentHandlers(incidents);
+
+                AssertTrue(handlers.ContainsKey("armada_list_incidents"));
+                AssertTrue(handlers.ContainsKey("armada_get_incident"));
+                AssertTrue(handlers.ContainsKey("armada_create_incident"));
+                AssertTrue(handlers.ContainsKey("armada_update_incident"));
+                AssertTrue(handlers.ContainsKey("armada_delete_incident"));
+
+                using JsonDocument createDoc = JsonDocument.Parse("{\"title\":\"MCP incident\",\"severity\":\"High\",\"status\":\"Open\",\"vesselId\":\"vsl_mcp\"}");
+                object createResult = await handlers["armada_create_incident"](createDoc.RootElement).ConfigureAwait(false);
+                Incident created = (Incident)createResult;
+                AssertEqual("MCP incident", created.Title);
+
+                using JsonDocument listDoc = JsonDocument.Parse("{\"vesselId\":\"vsl_mcp\"}");
+                object listResult = await handlers["armada_list_incidents"](listDoc.RootElement).ConfigureAwait(false);
+                EnumerationResult<Incident> listed = (EnumerationResult<Incident>)listResult;
+                AssertEqual(1, listed.Objects.Count);
+
+                using JsonDocument getDoc = JsonDocument.Parse("{\"incidentId\":\"" + created.Id + "\"}");
+                object getResult = await handlers["armada_get_incident"](getDoc.RootElement).ConfigureAwait(false);
+                AssertEqual(created.Id, ((Incident)getResult).Id);
+
+                using JsonDocument updateDoc = JsonDocument.Parse("{\"incidentId\":\"" + created.Id + "\",\"status\":\"Closed\",\"recoveryNotes\":\"resolved\"}");
+                object updateResult = await handlers["armada_update_incident"](updateDoc.RootElement).ConfigureAwait(false);
+                Incident updated = (Incident)updateResult;
+                AssertEqual(IncidentStatusEnum.Closed, updated.Status);
+                AssertEqual("resolved", updated.RecoveryNotes);
+
+                using JsonDocument deleteDoc = JsonDocument.Parse("{\"incidentId\":\"" + created.Id + "\"}");
+                object deleteResult = await handlers["armada_delete_incident"](deleteDoc.RootElement).ConfigureAwait(false);
+                string deleteJson = JsonSerializer.Serialize(deleteResult);
+                AssertContains("\"Deleted\":true", deleteJson);
+            }).ConfigureAwait(false);
+
             await RunTest("CreateUpdateReadAndEnumerateAsync preserve rollback and delivery context", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -279,6 +318,15 @@ namespace Armada.Test.Unit.Suites.Services
         {
             if (incident == null) throw new InvalidOperationException("Expected incident to exist.");
             return incident;
+        }
+
+        private static Dictionary<string, Func<JsonElement?, Task<object>>> RegisterIncidentHandlers(IncidentService incidents)
+        {
+            Dictionary<string, Func<JsonElement?, Task<object>>> handlers = new Dictionary<string, Func<JsonElement?, Task<object>>>();
+            McpIncidentTools.Register(
+                (name, description, schema, handler) => handlers[name] = handler,
+                incidents);
+            return handlers;
         }
 
         private static async Task EnsureTenantAndUserAsync(TestDatabase testDb, string tenantId, string userId)

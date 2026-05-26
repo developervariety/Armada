@@ -115,7 +115,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("GenerateClaudeMdAsync includes code context section only when context pack exists", async () =>
+            await RunTest("GenerateClaudeMdAsync includes code retrieval guidance with or without context pack", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
@@ -138,7 +138,9 @@ namespace Armada.Test.Unit.Suites.Services
 
                         await service.GenerateClaudeMdAsync(noPackDir, mission, vessel);
                         string withoutContext = await File.ReadAllTextAsync(Path.Combine(noPackDir, "CLAUDE.md"));
-                        AssertFalse(withoutContext.Contains("## Code Index Context"), "Context section should be omitted when no context pack is present");
+                        AssertContains("## Code Index Context", withoutContext);
+                        AssertContains("No generated `_briefing/context-pack.md` is staged", withoutContext);
+                        AssertContains("Use Armada MCP code search before broad Grep/Glob", withoutContext);
 
                         string briefingDir = Path.Combine(withPackDir, "_briefing");
                         Directory.CreateDirectory(briefingDir);
@@ -150,6 +152,7 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertContains("Read it before broad code search.", withContext);
                         AssertContains("discovery evidence, not authority", withContext);
                         AssertContains("verified against the current branch before editing", withContext);
+                        AssertContains("Final report must include one `Pack:` line", withContext);
                     }
                     finally
                     {

@@ -603,6 +603,17 @@ namespace Armada.Core.Services
                 "  }\n" +
                 "}\n";
 
+            string codexConfig = "[mcp_servers.armada]\n" +
+                "url = \"" + rpcUrl + "\"\n";
+
+            string geminiConfig = "{\n" +
+                "  \"mcpServers\": {\n" +
+                "    \"armada\": {\n" +
+                "      \"httpUrl\": \"" + rpcUrl + "\"\n" +
+                "    }\n" +
+                "  }\n" +
+                "}\n";
+
             try
             {
                 string projectMcpPath = Path.Combine(worktreePath, ".mcp.json");
@@ -619,11 +630,29 @@ namespace Armada.Core.Services
                     await File.WriteAllTextAsync(cursorMcpPath, cursorConfig, token).ConfigureAwait(false);
                 }
 
+                string codexDir = Path.Combine(worktreePath, ".codex");
+                Directory.CreateDirectory(codexDir);
+                string codexMcpPath = Path.Combine(codexDir, "config.toml");
+                if (!File.Exists(codexMcpPath))
+                {
+                    await File.WriteAllTextAsync(codexMcpPath, codexConfig, token).ConfigureAwait(false);
+                }
+
+                string geminiDir = Path.Combine(worktreePath, ".gemini");
+                Directory.CreateDirectory(geminiDir);
+                string geminiMcpPath = Path.Combine(geminiDir, "settings.json");
+                if (!File.Exists(geminiMcpPath))
+                {
+                    await File.WriteAllTextAsync(geminiMcpPath, geminiConfig, token).ConfigureAwait(false);
+                }
+
                 string? excludePath = ResolveGitInfoExcludePath(worktreePath);
                 if (!String.IsNullOrWhiteSpace(excludePath))
                 {
                     await EnsureGitExcludeEntryAsync(excludePath, ".mcp.json", token).ConfigureAwait(false);
                     await EnsureGitExcludeEntryAsync(excludePath, ".cursor/mcp.json", token).ConfigureAwait(false);
+                    await EnsureGitExcludeEntryAsync(excludePath, ".codex/config.toml", token).ConfigureAwait(false);
+                    await EnsureGitExcludeEntryAsync(excludePath, ".gemini/settings.json", token).ConfigureAwait(false);
                 }
             }
             catch (Exception ex)

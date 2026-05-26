@@ -79,6 +79,23 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(t.FilesIgnoredFromPack.Contains("src/Ignored.cs"), "Ignored.cs ignored");
             });
 
+            await RunTest("F1_PackUsageMiner_ClassifiesContextPackBeforeSearch", () =>
+            {
+                Mission mission = new Mission("Smoke", "Smoke mission");
+                mission.PrestagedFiles = new List<PrestagedFile>
+                {
+                    new PrestagedFile("/abs/_briefing/context-pack.md", "_briefing/context-pack.md"),
+                };
+                string log = "{\"name\":\"Read\",\"file_path\":\"_briefing/context-pack.md\"}\n"
+                    + "{\"name\":\"Grep\",\"pattern\":\"Foo\"}\n";
+                PackUsageTriple t = PackUsageMiner.Mine(mission, log);
+                AssertTrue(t.ContextPackStaged, "context pack staged");
+                AssertEqual("ReadBeforeSearch", t.ContextPackCompliance);
+                AssertEqual(1, t.SearchToolCallCount);
+                AssertTrue(t.FirstContextPackReadOffset.HasValue, "pack read offset observed");
+                AssertTrue(t.FirstSearchToolOffset.HasValue, "search offset observed");
+            });
+
             await RunTest("F1_DispatchPackCurate_AcceptApplies_AndContextPackUsesHints", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

@@ -72,6 +72,8 @@ namespace Armada.Helm.Commands
             IGitService gitService = git;
             IMergeFailureClassifier mergeFailureClassifier = new MergeFailureClassifier();
             LandingService landingService = new LandingService(logging, database, armadaSettings, git);
+            ObjectiveService objectiveService = new ObjectiveService(database);
+            IncidentService incidentService = new IncidentService(database);
             HttpClient codeIndexHttpClient = new HttpClient();
             IEmbeddingClient embeddingClient = new DeepSeekEmbeddingClient(armadaSettings.CodeIndex, logging, codeIndexHttpClient);
             OpenCodeServerLauncher openCodeServerLauncher = new OpenCodeServerLauncher(armadaSettings, logging, codeIndexHttpClient);
@@ -83,7 +85,21 @@ namespace Armada.Helm.Commands
                 await openCodeServerLauncher.StartAsync(cancellationToken).ConfigureAwait(false);
                 ICodeIndexService codeIndexService = new CodeIndexService(logging, database, armadaSettings, git, embeddingClient, inferenceClient);
                 IMergeQueueService mergeQueueService = new MergeQueueService(logging, database, armadaSettings, git, mergeFailureClassifier, codeIndexService: codeIndexService);
-                McpToolRegistrar.RegisterAll(mcpServer.RegisterTool, database, admiral, armadaSettings, gitService, mergeQueueService, dockService, landingService, agentLifecycle: agentLifecycle, templateService: promptTemplateService, logging: logging, codeIndexService: codeIndexService);
+                McpToolRegistrar.RegisterAll(
+                    mcpServer.RegisterTool,
+                    database,
+                    admiral,
+                    armadaSettings,
+                    gitService,
+                    mergeQueueService,
+                    dockService,
+                    landingService,
+                    agentLifecycle: agentLifecycle,
+                    templateService: promptTemplateService,
+                    logging: logging,
+                    codeIndexService: codeIndexService,
+                    objectiveService: objectiveService,
+                    incidentService: incidentService);
 
                 // Run until stdin closes or process is killed
                 using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);

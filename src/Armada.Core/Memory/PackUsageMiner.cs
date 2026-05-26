@@ -98,7 +98,11 @@ namespace Armada.Core.Memory
             PackUsageTriple triple = new PackUsageTriple
             {
                 MissionId = mission.Id,
-                LogAvailable = false
+                LogAvailable = false,
+                ContextPackStaged = HasContextPack(mission),
+                ContextPackCompliance = HasContextPack(mission)
+                    ? "LogUnavailablePackStaged"
+                    : "LogUnavailableNoPackStaged"
             };
 
             string logPath = Path.Combine(_MissionLogDirectory, mission.Id + ".log");
@@ -170,14 +174,19 @@ namespace Armada.Core.Memory
                 foreach (PrestagedFile pf in mission.PrestagedFiles)
                 {
                     string normalized = NormalizePath(pf.DestPath);
-                    if (!String.IsNullOrEmpty(normalized)) prestaged.Add(normalized);
+                    if (!String.IsNullOrEmpty(normalized))
+                    {
+                        prestaged.Add(normalized);
+                    }
                 }
             }
 
             PackUsageTriple triple = new PackUsageTriple
             {
                 MissionId = mission.Id,
-                LogAvailable = true
+                LogAvailable = true,
+                ContextPackStaged = HasContextPack(mission),
+                SearchToolCallCount = searchOffsets.Count
             };
 
             // Bucket 1: filesReadFromPack -- prestaged files that were Read.
@@ -223,12 +232,82 @@ namespace Armada.Core.Memory
                 triple.FilesEdited.Add(edited);
             }
 
+            ApplyContextPackCompliance(triple, readMatches, searchOffsets);
+
             return triple;
         }
 
         #endregion
 
         #region Private-Methods
+
+        private static void ApplyContextPackCompliance(
+            PackUsageTriple triple,
+            List<(int Offset, string Path)> readMatches,
+            List<int> searchOffsets)
+        {
+            int? firstPackRead = null;
+            foreach ((int offset, string path) in readMatches)
+            {
+                if (!IsContextPackPath(path)) continue;
+                if (!firstPackRead.HasValue || offset < firstPackRead.Value)
+                    firstPackRead = offset;
+            }
+
+            int? firstSearch = null;
+            foreach (int offset in searchOffsets)
+            {
+                if (!firstSearch.HasValue || offset < firstSearch.Value)
+                    firstSearch = offset;
+            }
+
+            triple.FirstContextPackReadOffset = firstPackRead;
+            triple.FirstSearchToolOffset = firstSearch;
+
+            if (!triple.ContextPackStaged)
+            {
+                triple.ContextPackCompliance = firstSearch.HasValue
+                    ? "NoPackStagedSearchUsed"
+                    : "NoPackStagedNoSearch";
+                return;
+            }
+
+            if (!firstPackRead.HasValue)
+            {
+                triple.ContextPackCompliance = firstSearch.HasValue
+                    ? "SearchWithoutPackRead"
+                    : "PackStagedNoSearchNoRead";
+                return;
+            }
+
+            if (!firstSearch.HasValue)
+            {
+                triple.ContextPackCompliance = "PackReadNoSearch";
+                return;
+            }
+
+            triple.ContextPackCompliance = firstPackRead.Value <= firstSearch.Value
+                ? "ReadBeforeSearch"
+                : "SearchBeforeRead";
+        }
+
+        private static bool IsContextPackPath(string path)
+        {
+            string normalized = NormalizePath(path);
+            return String.Equals(normalized, "_briefing/context-pack.md", StringComparison.OrdinalIgnoreCase)
+                || normalized.EndsWith("/_briefing/context-pack.md", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool HasContextPack(Mission mission)
+        {
+            if (mission.PrestagedFiles == null) return false;
+            foreach (PrestagedFile pf in mission.PrestagedFiles)
+            {
+                if (IsContextPackPath(pf.DestPath)) return true;
+            }
+
+            return false;
+        }
 
         /// <summary>Normalize a raw path for case-insensitive comparison and forward-slash form.</summary>
         private static string NormalizePath(string? raw)
@@ -252,6 +331,26 @@ namespace Armada.Core.Memory
 
         /// <summary>Whether the captain log file existed and was readable.</summary>
         public bool LogAvailable { get; set; }
+
+        /// <summary>Whether the mission had a prestaged _briefing/context-pack.md entry.</summary>
+        public bool ContextPackStaged { get; set; }
+
+        /// <summary>
+        /// Compliance classification for pack-first discovery:
+        /// ReadBeforeSearch, SearchBeforeRead, PackReadNoSearch, SearchWithoutPackRead,
+        /// PackStagedNoSearchNoRead, NoPackStagedSearchUsed, NoPackStagedNoSearch,
+        /// LogUnavailablePackStaged, or LogUnavailableNoPackStaged.
+        /// </summary>
+        public string ContextPackCompliance { get; set; } = "";
+
+        /// <summary>First log offset where _briefing/context-pack.md was read, if observed.</summary>
+        public int? FirstContextPackReadOffset { get; set; }
+
+        /// <summary>First log offset where Grep/Glob/armada_code_search was observed, if any.</summary>
+        public int? FirstSearchToolOffset { get; set; }
+
+        /// <summary>Number of Grep/Glob/armada_code_search-style tool calls observed.</summary>
+        public int SearchToolCallCount { get; set; }
 
         /// <summary>Prestaged files the captain Read.</summary>
         public List<string> FilesReadFromPack { get; set; } = new List<string>();

@@ -64,6 +64,7 @@ namespace Armada.Server.Mcp
         /// <param name="releaseService">Optional release service for delivery release workflows.</param>
         /// <param name="deploymentService">Optional deployment service for delivery deployment workflows.</param>
         /// <param name="runbookService">Optional runbook service for guided operational workflows.</param>
+        /// <param name="incidentService">Optional incident service for operational incident workflows.</param>
         public static void RegisterAll(
             RegisterToolDelegate register,
             DatabaseDriver database,
@@ -88,7 +89,8 @@ namespace Armada.Server.Mcp
             ObjectiveRefinementCoordinator? objectiveRefinementCoordinator = null,
             ReleaseService? releaseService = null,
             DeploymentService? deploymentService = null,
-            RunbookService? runbookService = null)
+            RunbookService? runbookService = null,
+            IncidentService? incidentService = null)
         {
             ArmadaSettings effectiveSettings = settings ?? new ArmadaSettings();
             ReflectionDispatcher effectiveReflectionDispatcher = reflectionDispatcher
@@ -112,6 +114,7 @@ namespace Armada.Server.Mcp
             if (releaseService != null) McpReleaseTools.Register(register, releaseService);
             if (deploymentService != null) McpDeploymentTools.Register(register, deploymentService);
             if (runbookService != null) McpRunbookTools.Register(register, runbookService);
+            if (incidentService != null) McpIncidentTools.Register(register, incidentService, objectiveService);
             if (templateService != null) McpPromptTemplateTools.Register(register, database, templateService);
             McpPersonaTools.Register(register, database, reflectionBootstrap);
             McpPipelineTools.Register(register, database);
@@ -142,6 +145,7 @@ namespace Armada.Server.Mcp
             ReleaseService? releaseService = null,
             DeploymentService? deploymentService = null,
             RunbookService? runbookService = null,
+            IncidentService? incidentService = null,
             Action? onStop = null,
             Func<string, Task>? onStopCaptain = null,
             AgentLifecycleHandler? agentLifecycle = null,
@@ -186,7 +190,8 @@ namespace Armada.Server.Mcp
                 objectiveRefinementCoordinator,
                 releaseService,
                 deploymentService,
-                runbookService);
+                runbookService,
+                incidentService);
 
             return tools
                 .OrderBy(t => t.Name, StringComparer.OrdinalIgnoreCase)

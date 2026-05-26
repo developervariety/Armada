@@ -12,6 +12,12 @@ namespace Armada.Test.Unit
         public static async Task<int> Main(string[] args)
         {
             bool noCleanup = args.Contains("--no-cleanup");
+            List<string> suiteFilters = new List<string>();
+            for (int i = 0; i < args.Length; i++)
+            {
+                if (!String.Equals(args[i], "--suite", StringComparison.OrdinalIgnoreCase)) continue;
+                if (i + 1 < args.Length) suiteFilters.Add(args[++i]);
+            }
 
             TestRunner runner = new TestRunner("ARMADA UNIT TEST SUITE");
 
@@ -133,6 +139,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new RemoteTriggerHttpClientTests());
             runner.AddSuite(new RemoteTriggerServiceTests());
             runner.AddSuite(new RemoteTriggerEventHookTests());
+            runner.AddSuite(new IncidentServiceTests());
             runner.AddSuite(new AutonomousRecoveryOrchestratorTests());
             runner.AddSuite(new IncidentLifecycleOrchestratorTests());
             runner.AddSuite(new MergeQueueBranchCleanupTests());
@@ -190,7 +197,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new VesselReflectionThresholdRoutesTests());
             runner.AddSuite(new VesselReorganizeThresholdRoutesTests());
 
-            int exitCode = await runner.RunAllAsync().ConfigureAwait(false);
+            int exitCode = await runner.RunAllAsync(suiteFilters).ConfigureAwait(false);
             return exitCode;
         }
     }

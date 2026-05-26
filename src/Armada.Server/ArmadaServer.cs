@@ -1110,7 +1110,8 @@ namespace Armada.Server
                 objectiveRefinementCoordinator: _ObjectiveRefinementSessions,
                 releaseService: _ReleaseService,
                 deploymentService: _DeploymentService,
-                runbookService: _RunbookService);
+                runbookService: _RunbookService,
+                incidentService: _IncidentService);
         }
 
         private async Task EmitEventAsync(string eventType, string message,

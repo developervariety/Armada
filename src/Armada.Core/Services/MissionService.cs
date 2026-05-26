@@ -1,8 +1,10 @@
 namespace Armada.Core.Services
 {
+    using System.Text.Json;
     using SyslogLogging;
     using Armada.Core.Database;
     using Armada.Core.Enums;
+    using Armada.Core.Memory;
     using Armada.Core.Models;
     using Armada.Core.Settings;
     using Armada.Core.Services.Interfaces;
@@ -898,6 +900,7 @@ namespace Armada.Core.Services
             }
 
             await EmitMissionOutcomeTelemetryAsync(mission, captain, token).ConfigureAwait(false);
+            await EmitContextPackUsageTelemetryAsync(mission, captain, token).ConfigureAwait(false);
 
             bool shouldAttemptLanding =
                 !preparedDownstreamStages &&
@@ -1104,12 +1107,8 @@ namespace Armada.Core.Services
                 content += "\n";
             }
 
-            string codeContextPackSection = BuildCodeContextPackSection(worktreePath);
-            if (!String.IsNullOrEmpty(codeContextPackSection))
-            {
-                content += codeContextPackSection;
-                content += "\n";
-            }
+            content += BuildCodeRetrievalSection(worktreePath, mission);
+            content += "\n";
 
             // Mission preamble and metadata -- resolve persona prompt first, then inject into metadata template
             string personaPrompt = await ResolvePersonaPromptAsync(mission.Persona, templateParams, token).ConfigureAwait(false);
@@ -1192,20 +1191,64 @@ namespace Armada.Core.Services
             _Logging.Info(_Header + "generated mission instructions at " + instructionsPath);
         }
 
-        private static string BuildCodeContextPackSection(string worktreePath)
+        private static string BuildCodeRetrievalSection(string worktreePath, Mission mission)
         {
             string contextPackPath = Path.Combine(worktreePath, "_briefing", "context-pack.md");
-            if (!File.Exists(contextPackPath)) return "";
+            bool hasPack = File.Exists(contextPackPath);
+            string vesselId = mission.VesselId ?? "";
+            string goal = BuildCodeRetrievalGoal(mission);
+            string escapedGoal = goal.Replace("`", "\\`");
 
-            return
-                "## Code Index Context\n" +
-                "A generated code-index context pack is available at `_briefing/context-pack.md`. " +
-                "Read it before broad code search.\n" +
+            string content = "## Code Index Context\n";
+            if (hasPack)
+            {
+                content += "A generated code-index context pack is available at `_briefing/context-pack.md`. " +
+                    "Read it before broad code search.\n";
+            }
+            else
+            {
+                content += "No generated `_briefing/context-pack.md` is staged in this dock. " +
+                    "Use Armada MCP code search before broad Grep/Glob when the runtime exposes MCP tools.\n";
+            }
+
+            content +=
                 "\n" +
                 "Treat it as discovery evidence, not authority. Playbooks, vessel CLAUDE.md, " +
                 "project CLAUDE.md, and these mission instructions win on conflict.\n" +
                 "\n" +
-                "Snippets may reflect the default branch and must be verified against the current branch before editing.\n";
+                "Snippets may reflect the default branch and must be verified against the current branch before editing.\n" +
+                "\n";
+
+            if (!String.IsNullOrWhiteSpace(vesselId))
+            {
+                content +=
+                    "If the pack is absent or misses material files, call `armada_code_search` with " +
+                    "`vesselId: \"" + vesselId + "\"` and a focused query before falling back to broad Grep/Glob. " +
+                    "For a fresh pack, call `armada_context_pack` with the same vessel id and this mission goal: `" +
+                    escapedGoal + "`.\n";
+            }
+            else
+            {
+                content +=
+                    "If the pack is absent or misses material files, use `armada_code_search` or " +
+                    "`armada_context_pack` with this mission's vessel id before falling back to broad Grep/Glob.\n";
+            }
+
+            content +=
+                "\n" +
+                "Final report must include one `Pack:` line: `read before search`, `search before read`, " +
+                "`not staged`, or `miss`, with a short reason.\n";
+
+            return content;
+        }
+
+        private static string BuildCodeRetrievalGoal(Mission mission)
+        {
+            string title = mission.Title ?? "";
+            string description = mission.Description ?? "";
+            if (String.IsNullOrWhiteSpace(description)) return title.Trim();
+            if (String.IsNullOrWhiteSpace(title)) return description.Trim();
+            return (title.Trim() + " -- " + description.Trim()).Replace("\r", " ").Replace("\n", " ");
         }
 
         /// <summary>
@@ -2990,6 +3033,51 @@ namespace Armada.Core.Services
             catch (Exception evtEx)
             {
                 _Logging.Warn(_Header + "error emitting mission outcome event for " + mission.Id + ": " + evtEx.Message);
+            }
+        }
+
+        private async Task EmitContextPackUsageTelemetryAsync(Mission mission, Captain captain, CancellationToken token)
+        {
+            if (mission == null) throw new ArgumentNullException(nameof(mission));
+            if (captain == null) throw new ArgumentNullException(nameof(captain));
+
+            try
+            {
+                string missionLogDir = Path.Combine(_Settings.LogDirectory, "missions");
+                PackUsageMiner miner = new PackUsageMiner(missionLogDir);
+                PackUsageTriple usage = await miner.MineAsync(mission, token).ConfigureAwait(false);
+
+                ArmadaEvent usageEvent = new ArmadaEvent(
+                    "mission.context_pack_usage",
+                    "Context pack usage: " + usage.ContextPackCompliance);
+                usageEvent.TenantId = mission.TenantId;
+                usageEvent.UserId = mission.UserId;
+                usageEvent.EntityType = "mission";
+                usageEvent.EntityId = mission.Id;
+                usageEvent.CaptainId = captain.Id;
+                usageEvent.MissionId = mission.Id;
+                usageEvent.VesselId = mission.VesselId;
+                usageEvent.VoyageId = mission.VoyageId;
+                usageEvent.Payload = JsonSerializer.Serialize(new
+                {
+                    usage.MissionId,
+                    usage.LogAvailable,
+                    usage.ContextPackStaged,
+                    usage.ContextPackCompliance,
+                    usage.FirstContextPackReadOffset,
+                    usage.FirstSearchToolOffset,
+                    usage.SearchToolCallCount,
+                    usage.FilesReadFromPack,
+                    usage.FilesIgnoredFromPack,
+                    usage.FilesGrepDiscovered,
+                    usage.FilesEdited
+                });
+
+                await _Database.Events.CreateAsync(usageEvent, token).ConfigureAwait(false);
+            }
+            catch (Exception evtEx)
+            {
+                _Logging.Warn(_Header + "error emitting context pack usage event for " + mission.Id + ": " + evtEx.Message);
             }
         }
 

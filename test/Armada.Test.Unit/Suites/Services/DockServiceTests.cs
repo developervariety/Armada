@@ -154,11 +154,21 @@ namespace Armada.Test.Unit.Suites.Services
 
                     string projectMcpPath = Path.Combine(dock!.WorktreePath!, ".mcp.json");
                     string cursorMcpPath = Path.Combine(dock.WorktreePath!, ".cursor", "mcp.json");
+                    string codexMcpPath = Path.Combine(dock.WorktreePath!, ".codex", "config.toml");
+                    string geminiMcpPath = Path.Combine(dock.WorktreePath!, ".gemini", "settings.json");
                     AssertTrue(File.Exists(projectMcpPath), "Dock provisioning should seed project MCP config");
                     AssertTrue(File.Exists(cursorMcpPath), "Dock provisioning should seed Cursor MCP config");
+                    AssertTrue(File.Exists(codexMcpPath), "Dock provisioning should seed Codex MCP config");
+                    AssertTrue(File.Exists(geminiMcpPath), "Dock provisioning should seed Gemini MCP config");
                     string projectMcp = await File.ReadAllTextAsync(projectMcpPath).ConfigureAwait(false);
                     AssertContains("localhost:" + settings.McpPort, projectMcp, "Project MCP config should point at Armada MCP");
                     AssertContains("\"armada\"", projectMcp, "Project MCP config should name the Armada server");
+                    string codexMcp = await File.ReadAllTextAsync(codexMcpPath).ConfigureAwait(false);
+                    AssertContains("localhost:" + settings.McpPort, codexMcp, "Codex MCP config should point at Armada MCP");
+                    AssertContains("mcp_servers.armada", codexMcp, "Codex MCP config should name the Armada server");
+                    string geminiMcp = await File.ReadAllTextAsync(geminiMcpPath).ConfigureAwait(false);
+                    AssertContains("localhost:" + settings.McpPort, geminiMcp, "Gemini MCP config should point at Armada MCP");
+                    AssertContains("\"armada\"", geminiMcp, "Gemini MCP config should name the Armada server");
 
                     string metadataPath = Path.Combine(settings.LogDirectory, "docks", dock!.Id + ".start");
                     AssertTrue(File.Exists(metadataPath), "Dock provisioning should persist the start commit metadata");

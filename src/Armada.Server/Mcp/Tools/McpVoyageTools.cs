@@ -32,7 +32,7 @@ namespace Armada.Server.Mcp.Tools
         private const string CodeContextModeOff = "off";
         private const string CodeContextModeForce = "force";
         private const int DefaultCodeContextTokenBudget = 3000;
-        private const int DefaultCodeContextTimeoutSeconds = 45;
+        private const int DefaultCodeContextTimeoutSeconds = 15;
         private const string CodeContextTimeoutEnvVar = "ARMADA_CODE_CONTEXT_TIMEOUT_MS";
 
         /// <summary>

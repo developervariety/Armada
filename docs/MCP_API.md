@@ -125,6 +125,12 @@ If/when MCP-over-tunnel is added, this document will gain explicit routed-tool s
     - [armada_get_pipeline](#armada_get_pipeline)
     - [armada_update_pipeline](#armada_update_pipeline)
     - [armada_delete_pipeline](#armada_delete_pipeline)
+  - **Incidents**
+    - [armada_list_incidents](#armada_list_incidents)
+    - [armada_get_incident](#armada_get_incident)
+    - [armada_create_incident](#armada_create_incident)
+    - [armada_update_incident](#armada_update_incident)
+    - [armada_delete_incident](#armada_delete_incident)
   - **Backup and Restore**
     - [armada_backup](#armada_backup)
     - [armada_restore](#armada_restore)
@@ -157,6 +163,7 @@ Armada exposes a full MCP server that allows AI agents and MCP-compatible client
 - Send signals to captains
 - Stop individual captains or all captains (emergency stop)
 - Manage the merge queue (enqueue, cancel, process, inspect)
+- Manage operational incidents (list, inspect, create, update, delete)
 
 The MCP server shares the same tool implementations as the stdio transport, registered via `McpToolRegistrar.RegisterAll()`.
 
@@ -497,13 +504,16 @@ Build dispatch-ready markdown for a vessel and mission goal. Returns `markdown`,
     "vesselId": { "type": "string" },
     "goal": { "type": "string" },
     "tokenBudget": { "type": "integer" },
-    "maxResults": { "type": "integer" }
+    "maxResults": { "type": "integer" },
+    "timeoutMs": { "type": "integer", "description": "Optional server-side timeout; default 30000 or ARMADA_CODE_CONTEXT_TIMEOUT_MS" }
   },
   "required": ["vesselId", "goal", "tokenBudget"]
 }
 ```
 
 When graph sidecars resolve symbols from the goal or search results, the pack appends a `Symbol Graph Context` section with caller/callee neighborhoods and affected-test candidates. In that case `metrics.graphExpansionUsed` is `true` and `graphIncludedFiles` lists the additional files contributed by graph traversal.
+
+If generation exceeds the timeout, the tool returns `{ "code": "code_context_timeout" }` with guidance to use focused `armada_code_search` or retry with a smaller pack.
 
 ---
 
@@ -528,7 +538,8 @@ Build a combined context pack across all vessels in a fleet.
     "fleetId": { "type": "string" },
     "goal": { "type": "string" },
     "tokenBudget": { "type": "integer" },
-    "maxResultsPerVessel": { "type": "integer" }
+    "maxResultsPerVessel": { "type": "integer" },
+    "timeoutMs": { "type": "integer", "description": "Optional server-side timeout; default 30000 or ARMADA_CODE_CONTEXT_TIMEOUT_MS" }
   },
   "required": ["fleetId", "goal", "tokenBudget"]
 }
@@ -3516,6 +3527,54 @@ The `armada_drain_audit_queue` response includes a `reflectionsDispatched` field
 - If count >= `Vessel.ReflectionThreshold` (or `AdmiralOptions.DefaultReflectionThreshold` if null), a consolidation mission is auto-dispatched.
 - **Reorganize threshold (F4):** When `Vessel.ReorganizeThreshold` is set and the learned playbook size (token-count via 4-chars-per-token estimator) meets or exceeds it, a reorganize mission auto-dispatches after the consolidate-threshold check. Anti-thrash skips repeat fires when the most recent reorganize-mode `reflection.accepted` has not grown by `ReorganizeAntiThrashGrowthRatio` (default 0.10) AND has not gained `ReorganizeAntiThrashMinNewEntries` (default 5) worth of new content.
 - **Active Vessel Filter:** Only active vessels are considered for auto-dispatch. Inactive vessels are skipped.
+
+---
+
+### armada_list_incidents
+
+Enumerate operational incidents with optional vessel, environment, check-run, deployment, release, mission, voyage, status, severity, and free-text filters.
+
+**Input Schema:** `IncidentQuery` fields: `vesselId`, `environmentId`, `checkRunId`, `deploymentId`, `releaseId`, `missionId`, `voyageId`, `status`, `severity`, `search`, `pageNumber`, and `pageSize`.
+
+---
+
+### armada_get_incident
+
+Inspect one operational incident by ID.
+
+**Input Schema:**
+
+```json
+{ "incidentId": "inc_..." }
+```
+
+---
+
+### armada_create_incident
+
+Create an operational incident tied to delivery entities such as vessels, missions, voyages, checks, releases, or deployments. Optional `objectiveIds` are validated and linked when the objective service is available.
+
+**Input Schema:** `IncidentUpsertRequest`; `title` is required. Supports `summary`, `status`, `severity`, delivery link IDs, `impact`, `rootCause`, `recoveryNotes`, `postmortem`, and lifecycle timestamps.
+
+---
+
+### armada_update_incident
+
+Update an operational incident's status, severity, delivery links, impact, recovery notes, root cause, or postmortem.
+
+**Input Schema:** `incidentId` plus any `IncidentUpsertRequest` fields.
+
+---
+
+### armada_delete_incident
+
+Delete one operational incident and its event snapshots.
+
+**Input Schema:**
+
+```json
+{ "incidentId": "inc_..." }
+```
 
 ---
 
