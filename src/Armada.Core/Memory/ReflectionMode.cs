@@ -56,5 +56,13 @@ namespace Armada.Core.Memory
         /// promotion gates (>=2 vessels, >=3 missions) and vessel-fleet conflict detection BLOCK.
         /// </summary>
         FleetCurate = 6,
+
+        /// <summary>
+        /// v2 playbook-curate mode: mine mission briefs plus captain search/read/edit signals
+        /// for places where the vessel learned playbook did not carry enough guidance, then
+        /// propose updates to the per-vessel learned-facts playbook. Unlike pack-curate this
+        /// writes markdown playbook content, not vessel_pack_hints rows.
+        /// </summary>
+        PlaybookCurate = 7,
     }
 }

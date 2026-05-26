@@ -37,21 +37,21 @@ namespace Armada.Server.Mcp.Tools
         {
             register(
                 "armada_consolidate_memory",
-                "Trigger Reflections memory consolidation. v2-F3 extends with fleet-curate mode (project-wide / fleet-scoped memory). Mode-dependent required params: vesselId for consolidate/reorganize/consolidate-and-reorganize/pack-curate; personaName for persona-curate; captainId for captain-curate; fleetId for fleet-curate. At most one of vesselId/personaName/captainId/fleetId may be supplied. Null target fans out across active targets for reorganize/pack-curate/persona-curate/fleet-curate; captain-curate fan-out is gated by AllowCaptainCurateFanOut.",
+                "Trigger Reflections memory consolidation. Mode-dependent required params: vesselId for consolidate/reorganize/consolidate-and-reorganize/pack-curate/playbook-curate; personaName for persona-curate; captainId for captain-curate; fleetId for fleet-curate. At most one of vesselId/personaName/captainId/fleetId may be supplied. Null target fans out across active targets for reorganize/pack-curate/playbook-curate/persona-curate/fleet-curate; captain-curate fan-out is gated by AllowCaptainCurateFanOut.",
                 new
                 {
                     type = "object",
                     properties = new
                     {
-                        vesselId = new { type = "string", description = "Vessel ID (vsl_ prefix). Required for consolidate/combined modes; optional (null fan-outs) for reorganize/pack-curate; ignored for persona-curate/captain-curate/fleet-curate." },
+                        vesselId = new { type = "string", description = "Vessel ID (vsl_ prefix). Required for consolidate/combined modes; optional (null fan-outs) for reorganize/pack-curate/playbook-curate; ignored for persona-curate/captain-curate/fleet-curate." },
                         personaName = new { type = "string", description = "Persona name (e.g. Architect). Required for persona-curate; null fan-outs across registered personas. Mutually exclusive with vesselId/captainId/fleetId." },
                         captainId = new { type = "string", description = "Captain id (cpt_ prefix). Required for captain-curate; null fan-out gated by AllowCaptainCurateFanOut. Mutually exclusive with vesselId/personaName/fleetId." },
                         fleetId = new { type = "string", description = "Fleet id (flt_ prefix). Required for fleet-curate (single-target); null fan-outs across active fleets. Mutually exclusive with vesselId/personaName/captainId." },
-                        mode = new { type = "string", description = "consolidate (default) | reorganize | consolidate-and-reorganize | pack-curate | persona-curate | captain-curate | fleet-curate" },
+                        mode = new { type = "string", description = "consolidate (default) | reorganize | consolidate-and-reorganize | pack-curate | playbook-curate | persona-curate | captain-curate | fleet-curate" },
                         dualJudge = new { type = "boolean", description = "When true, dispatches the ReflectionsDualJudge pipeline; default false" },
-                        sinceMissionId = new { type = "string", description = "Optional mission ID whose completion time starts the evidence window. Ignored in reorganize, pack-curate, persona-curate, captain-curate, and fleet-curate modes." },
+                        sinceMissionId = new { type = "string", description = "Optional mission ID whose completion time starts the evidence window. Ignored in reorganize, pack-curate, playbook-curate, persona-curate, captain-curate, and fleet-curate modes." },
                         instructions = new { type = "string", description = "Optional extra guidance for the consolidator" },
-                        tokenBudget = new { type = "integer", description = "Optional token budget. Defaults: 400000 (consolidate/combined/pack-curate/persona-curate/captain-curate/fleet-curate); 30000 (reorganize)." }
+                        tokenBudget = new { type = "integer", description = "Optional token budget. Defaults: 400000 (consolidate/combined/pack-curate/playbook-curate/persona-curate/captain-curate/fleet-curate); 30000 (reorganize)." }
                     }
                 },
                 async (args) =>
@@ -102,7 +102,9 @@ namespace Armada.Server.Mcp.Tools
 
                     if (String.IsNullOrEmpty(request.VesselId))
                     {
-                        if (mode != ReflectionMode.Reorganize && mode != ReflectionMode.PackCurate)
+                        if (mode != ReflectionMode.Reorganize
+                            && mode != ReflectionMode.PackCurate
+                            && mode != ReflectionMode.PlaybookCurate)
                         {
                             return (object)new { Error = "vesselId_required" };
                         }
@@ -127,10 +129,13 @@ namespace Armada.Server.Mcp.Tools
                     {
                         ReflectionMode.Reorganize => settings.DefaultReorganizeTokenBudget,
                         ReflectionMode.PackCurate => settings.DefaultPackCurateTokenBudget,
+                        ReflectionMode.PlaybookCurate => settings.DefaultReflectionTokenBudget,
                         _ => settings.DefaultReflectionTokenBudget,
                     };
 
-                    string? sinceMissionId = (mode == ReflectionMode.Reorganize || mode == ReflectionMode.PackCurate)
+                    string? sinceMissionId = (mode == ReflectionMode.Reorganize
+                            || mode == ReflectionMode.PackCurate
+                            || mode == ReflectionMode.PlaybookCurate)
                         ? null
                         : request.SinceMissionId;
 
@@ -168,6 +173,13 @@ namespace Armada.Server.Mcp.Tools
                         if (bundle.EvidenceMissionCount == 0 && bundle.RejectedProposalCount == 0)
                         {
                             return (object)new { Error = "no_pack_evidence_available" };
+                        }
+                    }
+                    else if (mode == ReflectionMode.PlaybookCurate)
+                    {
+                        if (bundle.EvidenceMissionCount == 0 && bundle.RejectedProposalCount == 0)
+                        {
+                            return (object)new { Error = "no_playbook_gap_evidence_available" };
                         }
                     }
 
@@ -319,9 +331,12 @@ namespace Armada.Server.Mcp.Tools
             List<object> dispatchedMissions = new List<object>();
             List<object> skipped = new List<object>();
             List<string> warnings = new List<string>();
-            int defaultTokenBudget = mode == ReflectionMode.PackCurate
-                ? settings.DefaultPackCurateTokenBudget
-                : settings.DefaultReorganizeTokenBudget;
+            int defaultTokenBudget = mode switch
+            {
+                ReflectionMode.PackCurate => settings.DefaultPackCurateTokenBudget,
+                ReflectionMode.PlaybookCurate => settings.DefaultReflectionTokenBudget,
+                _ => settings.DefaultReorganizeTokenBudget,
+            };
 
             foreach (Vessel vessel in allVessels)
             {
@@ -363,6 +378,14 @@ namespace Armada.Server.Mcp.Tools
                     && bundle.RejectedProposalCount == 0)
                 {
                     skipped.Add(new { vesselId = vessel.Id, reason = "no_pack_evidence" });
+                    continue;
+                }
+
+                if (mode == ReflectionMode.PlaybookCurate
+                    && bundle.EvidenceMissionCount == 0
+                    && bundle.RejectedProposalCount == 0)
+                {
+                    skipped.Add(new { vesselId = vessel.Id, reason = "no_playbook_gap_evidence" });
                     continue;
                 }
 

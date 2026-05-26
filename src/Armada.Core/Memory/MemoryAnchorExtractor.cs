@@ -116,6 +116,9 @@ namespace Armada.Core.Memory
             if (String.Equals(modeWireString, "pack-curate", StringComparison.OrdinalIgnoreCase))
                 return "pack_curate";
 
+            if (String.Equals(modeWireString, "playbook-curate", StringComparison.OrdinalIgnoreCase))
+                return "playbook_curate";
+
             if (String.Equals(modeWireString, "persona-curate", StringComparison.OrdinalIgnoreCase)
                 || String.Equals(modeWireString, "captain-curate", StringComparison.OrdinalIgnoreCase))
                 return "identity_curate";

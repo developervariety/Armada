@@ -170,6 +170,7 @@ namespace Armada.Core.Memory
                 {
                     ReflectionMode.Reorganize => _Settings.DefaultReorganizeTokenBudget,
                     ReflectionMode.PackCurate => _Settings.DefaultPackCurateTokenBudget,
+                    ReflectionMode.PlaybookCurate => _Settings.DefaultReflectionTokenBudget,
                     _ => _Settings.DefaultReflectionTokenBudget,
                 };
             }
@@ -182,6 +183,11 @@ namespace Armada.Core.Memory
             if (mode == ReflectionMode.PackCurate)
             {
                 return await BuildPackCurateBriefAsync(vessel, tokenBudget, token).ConfigureAwait(false);
+            }
+
+            if (mode == ReflectionMode.PlaybookCurate)
+            {
+                return await BuildPlaybookCurateBriefAsync(vessel, tokenBudget, token).ConfigureAwait(false);
             }
 
             if (mode == ReflectionMode.PersonaCurate || mode == ReflectionMode.CaptainCurate)
@@ -343,6 +349,69 @@ namespace Armada.Core.Memory
                 RejectedProposalCount = packCurateRejections.Count,
                 Truncated = skipped > 0,
                 Mode = ReflectionMode.PackCurate
+            };
+        }
+
+        /// <summary>
+        /// Build the playbook-curate brief: current vessel learned playbook plus terminal
+        /// mission briefs and search/read/edit evidence. This mode is specifically aimed at
+        /// "captain had to search because the playbook/context did not say" patterns, and
+        /// accepts through the normal learned-playbook markdown path.
+        /// </summary>
+        /// <param name="vessel">Vessel being curated.</param>
+        /// <param name="tokenBudget">Approximate token budget for the brief.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Evidence bundle result with EvidenceMissionCount = mined-mission count.</returns>
+        public async Task<EvidenceBundleResult> BuildPlaybookCurateBriefAsync(
+            Vessel vessel,
+            int tokenBudget,
+            CancellationToken token = default)
+        {
+            if (vessel == null) throw new ArgumentNullException(nameof(vessel));
+            if (tokenBudget < 1) tokenBudget = _Settings.DefaultReflectionTokenBudget;
+
+            string learnedPlaybook = await _Memory.ReadLearnedPlaybookContentAsync(vessel, token).ConfigureAwait(false);
+            List<string> rejections = await _Memory
+                .ReadRejectedProposalNotesByModeAsync(vessel, ReflectionMode.PlaybookCurate, token).ConfigureAwait(false);
+            List<Mission> evidenceMissions = await SelectPlaybookCurateEvidenceMissionsAsync(vessel, token).ConfigureAwait(false);
+
+            List<PackUsageTriple> triples = new List<PackUsageTriple>();
+            if (_PackUsageMiner != null)
+            {
+                foreach (Mission m in evidenceMissions)
+                {
+                    PackUsageTriple t = await _PackUsageMiner.MineAsync(m, token).ConfigureAwait(false);
+                    triples.Add(t);
+                }
+            }
+            else
+            {
+                foreach (Mission m in evidenceMissions)
+                {
+                    triples.Add(new PackUsageTriple { MissionId = m.Id, LogAvailable = false });
+                }
+            }
+
+            long maxChars = (long)tokenBudget * _CharactersPerToken;
+            if (maxChars > Int32.MaxValue) maxChars = Int32.MaxValue;
+
+            int includedCount = triples.Count;
+            int skipped = 0;
+            string brief = ComposePlaybookCurateBrief(vessel, learnedPlaybook, evidenceMissions, triples, rejections, includedCount, skipped);
+            while (includedCount > 1 && brief.Length > maxChars)
+            {
+                includedCount--;
+                skipped++;
+                brief = ComposePlaybookCurateBrief(vessel, learnedPlaybook, evidenceMissions, triples, rejections, includedCount, skipped);
+            }
+
+            return new EvidenceBundleResult
+            {
+                Brief = brief,
+                EvidenceMissionCount = includedCount,
+                RejectedProposalCount = rejections.Count,
+                Truncated = skipped > 0,
+                Mode = ReflectionMode.PlaybookCurate
             };
         }
 
@@ -706,6 +775,7 @@ namespace Armada.Core.Memory
                 ReflectionMode.Reorganize => "Reorganize learned-facts playbook for " + vessel.Name,
                 ReflectionMode.ConsolidateAndReorganize => "Consolidate and reorganize learned-facts playbook for " + vessel.Name,
                 ReflectionMode.PackCurate => "Curate context-pack hints for " + vessel.Name,
+                ReflectionMode.PlaybookCurate => "Curate learned-playbook gaps for " + vessel.Name,
                 _ => "Consolidate learned-facts playbook for " + vessel.Name,
             };
             string pipelineId = dualJudge ? "ReflectionsDualJudge" : "Reflections";
@@ -1488,6 +1558,26 @@ namespace Armada.Core.Memory
             return terminal.Take(_Settings.PackCurateInitialWindow).ToList();
         }
 
+        private async Task<List<Mission>> SelectPlaybookCurateEvidenceMissionsAsync(Vessel vessel, CancellationToken token)
+        {
+            List<Mission> all = await _Database.Missions.EnumerateByVesselAsync(vessel.Id, token).ConfigureAwait(false);
+            List<Mission> terminal = all
+                .Where(m => IsTerminal(m.Status))
+                .Where(m => !String.Equals(m.Persona, "MemoryConsolidator", StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(GetEvidenceTime)
+                .ToList();
+
+            DateTime? sinceUtc = await ResolveLastAcceptedPlaybookCurateAtAsync(vessel, token).ConfigureAwait(false);
+            if (sinceUtc.HasValue)
+            {
+                return terminal
+                    .Where(m => m.CompletedUtc.HasValue && m.CompletedUtc.Value > sinceUtc.Value)
+                    .ToList();
+            }
+
+            return terminal.Take(_Settings.InitialReflectionWindow).ToList();
+        }
+
         private async Task<DateTime?> ResolveLastAcceptedPackCurateAtAsync(Vessel vessel, CancellationToken token)
         {
             EnumerationQuery query = new EnumerationQuery
@@ -1507,6 +1597,38 @@ namespace Armada.Core.Memory
                     if (doc.RootElement.TryGetProperty("mode", out JsonElement modeEl)
                         && modeEl.ValueKind == JsonValueKind.String
                         && String.Equals(modeEl.GetString(), "pack-curate", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return evt.CreatedUtc;
+                    }
+                }
+                catch (JsonException)
+                {
+                    continue;
+                }
+            }
+
+            return null;
+        }
+
+        private async Task<DateTime?> ResolveLastAcceptedPlaybookCurateAtAsync(Vessel vessel, CancellationToken token)
+        {
+            EnumerationQuery query = new EnumerationQuery
+            {
+                VesselId = vessel.Id,
+                EventType = "reflection.accepted",
+                PageNumber = 1,
+                PageSize = 50
+            };
+            EnumerationResult<ArmadaEvent> page = await _Database.Events.EnumerateAsync(query, token).ConfigureAwait(false);
+            foreach (ArmadaEvent evt in page.Objects.OrderByDescending(e => e.CreatedUtc))
+            {
+                if (String.IsNullOrEmpty(evt.Payload)) continue;
+                try
+                {
+                    using JsonDocument doc = JsonDocument.Parse(evt.Payload);
+                    if (doc.RootElement.TryGetProperty("mode", out JsonElement modeEl)
+                        && modeEl.ValueKind == JsonValueKind.String
+                        && String.Equals(modeEl.GetString(), "playbook-curate", StringComparison.OrdinalIgnoreCase))
                     {
                         return evt.CreatedUtc;
                     }
@@ -1657,6 +1779,92 @@ namespace Armada.Core.Memory
             sb.AppendLine("- The reflections-diff block is JSON: {\"added\":[\"N new hints\"], \"modified\":[...], \"disabled\":[...], \"evidenceConfidence\":\"high|mixed|low\", \"missionsExamined\":N, \"notes\":\"one paragraph\"}.");
             sb.AppendLine("- Never propose CLAUDE.md edits or code changes.");
             sb.AppendLine("- Never add facts to the learned-facts playbook in this mode.");
+            return sb.ToString();
+        }
+
+        private static string ComposePlaybookCurateBrief(
+            Vessel vessel,
+            string learnedPlaybook,
+            List<Mission> evidenceMissions,
+            List<PackUsageTriple> triples,
+            List<string> playbookCurateRejections,
+            int includedCount,
+            int skipped)
+        {
+            StringBuilder sb = new StringBuilder();
+            sb.AppendLine("Persona: MemoryConsolidator");
+            sb.AppendLine("Pipeline: Reflections");
+            sb.AppendLine("PreferredModel: high");
+            sb.AppendLine("Title: Curate learned-playbook gaps for " + vessel.Name);
+            sb.AppendLine("Mode: playbook-curate");
+            sb.AppendLine();
+
+            sb.AppendLine("## CURRENT PLAYBOOK");
+            sb.AppendLine(learnedPlaybook);
+            sb.AppendLine();
+            sb.AppendLine("## INSTRUCTIONS (playbook-curate-specific)");
+            sb.AppendLine("Mine the mission briefs, captain outputs, and tool-use evidence below for gaps in the per-vessel learned playbook.");
+            sb.AppendLine("Prioritize additions when a captain had to use Grep, Glob, or armada_code_search to discover repo facts that should have been available in the learned playbook.");
+            sb.AppendLine("Also consider explicit captain/Judge wording like \"had to grep\", \"had to search\", \"not in the playbook\", \"context pack did not mention\", or \"guidance missing\".");
+            sb.AppendLine("Permitted: add or rewrite learned-playbook facts grounded in this evidence, dedupe stale overlap, and mark low-confidence notes when the evidence is only one mission.");
+            sb.AppendLine("Forbidden: propose context-pack hint rows, CLAUDE.md edits, or code changes.");
+            sb.AppendLine();
+
+            sb.AppendLine("## GAP EVIDENCE BUNDLE");
+            if (includedCount == 0)
+            {
+                sb.AppendLine("No terminal mission evidence available since last accepted playbook-curate.");
+            }
+            else
+            {
+                int emitted = 0;
+                for (int i = 0; i < evidenceMissions.Count && emitted < includedCount; i++)
+                {
+                    Mission m = evidenceMissions[i];
+                    PackUsageTriple t = triples[i];
+                    sb.AppendLine();
+                    sb.AppendLine("### Mission " + m.Id);
+                    sb.AppendLine("- voyageId: " + (m.VoyageId ?? ""));
+                    sb.AppendLine("- title: " + (m.Title ?? ""));
+                    sb.AppendLine("- persona: " + (m.Persona ?? "Worker"));
+                    sb.AppendLine("- status: " + m.Status);
+                    sb.AppendLine("- completedUtc: " + (m.CompletedUtc.HasValue ? m.CompletedUtc.Value.ToString("O") : ""));
+                    sb.AppendLine("- logAvailable: " + (t.LogAvailable ? "true" : "false"));
+                    sb.AppendLine("- contextPackCompliance: " + (String.IsNullOrEmpty(t.ContextPackCompliance) ? "unknown" : t.ContextPackCompliance));
+                    sb.AppendLine("- searchToolCallCount: " + t.SearchToolCallCount);
+                    AppendBlock(sb, "Mission brief", Tail(m.Description, _MaxEventMessageChars));
+                    AppendBlock(sb, "Agent output or judge notes", Tail(m.AgentOutput, _MaxAgentOutputChars));
+                    AppendBucket(sb, "filesReadFromPack", t.FilesReadFromPack);
+                    AppendBucket(sb, "filesGrepDiscovered", t.FilesGrepDiscovered);
+                    AppendBucket(sb, "filesEdited", t.FilesEdited);
+                    emitted++;
+                }
+            }
+
+            if (skipped > 0)
+            {
+                sb.AppendLine();
+                sb.AppendLine("Evidence truncated, " + skipped + " missions skipped to fit token budget.");
+            }
+
+            sb.AppendLine();
+            sb.AppendLine("## RECENTLY REJECTED PLAYBOOK-CURATE PROPOSALS");
+            if (playbookCurateRejections.Count == 0)
+            {
+                sb.AppendLine("No rejected playbook-curate proposals recorded.");
+            }
+            else
+            {
+                foreach (string note in playbookCurateRejections)
+                    sb.AppendLine("- " + note);
+            }
+
+            sb.AppendLine();
+            sb.AppendLine("## CONSTRAINTS");
+            sb.AppendLine("- Output must be exactly two fenced blocks named reflections-candidate and reflections-diff.");
+            sb.AppendLine("- The reflections-candidate block is markdown for the full replacement vessel learned playbook.");
+            sb.AppendLine("- The reflections-diff block is JSON with evidenceConfidence high|mixed|low and missionsExamined.");
+            sb.AppendLine("- Never propose context-pack hint JSON, CLAUDE.md edits, or code changes.");
             return sb.ToString();
         }
 

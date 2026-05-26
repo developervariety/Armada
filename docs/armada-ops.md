@@ -333,6 +333,30 @@ Returns immediately with the dispatched mission ID. The mission runs asynchronou
 
 6. **Inactive vessel handling:** If you need reflections on an inactive vessel, manually trigger with `armada_consolidate_memory` rather than relying on auto-dispatch.
 
+## Playbook-Curate Operator Workflow
+
+Use `playbook-curate` when a captain had to search because the learned
+playbook did not contain enough repo-specific guidance. It is a manual
+reflection mode; it writes through the same `armada_accept_memory_proposal`
+review path as `consolidate`, but its brief is tuned to mission briefs plus
+Grep/Glob/`armada_code_search` evidence.
+
+1. **Single vessel:** call `armada_consolidate_memory` with
+   `vesselId` and `mode: "playbook-curate"`. Add `instructions` when you
+   want it to focus on a known search gap.
+
+2. **Active-vessel sweep:** call with `vesselId: null` and
+   `mode: "playbook-curate"`. Vessels without terminal missions in the
+   playbook-curate window are skipped with `no_playbook_gap_evidence`.
+
+3. **Review candidate carefully:** accept only durable facts that should
+   reduce future blind searching: repo locations, conventions, validation
+   commands, known pitfalls, or stable cross-file relationships. Reject or
+   edit one-off implementation detail.
+
+4. **Do not confuse stores:** use `pack-curate` for context-pack hint rows
+   and `playbook-curate` for vessel learned-playbook markdown.
+
 ## Identity-Curate Operator Workflow (Reflections v2-F2)
 
 Persona-curate and captain-curate add cross-vessel identity-pinned

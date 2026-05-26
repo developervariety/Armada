@@ -3084,18 +3084,19 @@ Trigger a memory consolidation, reorganize, pack-curate, persona-curate, captain
 | `mode` | string | Echoes the resolved mode |
 | `dualJudge` | boolean | Echoes the dualJudge flag |
 | `dispatchedMissions` | array | Fan-out only: `{vesselId, missionId, voyageId}` per vessel that dispatched |
-| `skipped` | array | Fan-out only: `{vesselId, reason}` per skipped vessel; reason in `in_flight | no_playbook | too_small` |
+| `skipped` | array | Fan-out only: `{vesselId, reason}` per skipped vessel; reason in `in_flight | no_playbook | too_small | no_pack_evidence | no_playbook_gap_evidence` |
 
 **Errors:**
 
 | Error | When |
 |-------|------|
 | `vessel_not_found` | Invalid or nonexistent vessel ID (single-vessel mode) |
-| `vesselId_required` | `vesselId: null` with mode not in {reorganize, pack-curate} |
+| `vesselId_required` | `vesselId: null` with mode not in {reorganize, pack-curate, playbook-curate} |
 | `invalid_mode` | `mode` value not in the enum |
 | `reflection_already_in_flight` | A reflection is already running for this vessel. Returns existing `missionId` in error payload. |
 | `no_evidence_available` | Mode is consolidate or combined and vessel has zero terminal missions since the start point |
 | `no_pack_evidence_available` | Mode is `pack-curate` and vessel has zero terminal missions since the start point (v2-F1) |
+| `no_playbook_gap_evidence_available` | Mode is `playbook-curate` and vessel has zero terminal missions since the last accepted playbook-curate |
 | `playbook_empty` | Single-vessel reorganize on a bootstrap-empty learned playbook |
 | `playbook_too_small` | Single-vessel reorganize on a populated playbook below `ArmadaSettings.ReorganizePlaybookMinCharacters` |
 
@@ -3103,7 +3104,7 @@ Trigger a memory consolidation, reorganize, pack-curate, persona-curate, captain
 
 **Stale-anchor feedback:** Vessel-scoped reflection briefs now include a `STALE MEMORY ANCHOR WARNINGS` section populated from accepted `reflection.accepted` anchors. The scan is read-only and vessel-scoped; it reports missing files when `Vessel.LocalPath` is available and missing source missions when anchored mission IDs no longer resolve. MemoryConsolidator should use these warnings as evidence to propose disable, merge, or rewrite updates rather than mutating memory directly.
 
-**Cross-Vessel Fan-Out:** With `vesselId: null, mode: "reorganize"`, admiral enumerates active vessels and dispatches a reorganize mission per vessel that (a) has no in-flight MemoryConsolidator and (b) has a populated playbook above `ReorganizePlaybookMinCharacters`. `dualJudge` propagates to every dispatched mission. Same shape applies for `mode: "pack-curate"` (skipped with reason `no_pack_evidence` when no terminal missions exist in the window). When fan-out dispatches more than `PackCurateDualJudgeFanOutWarnThreshold` (default 3) vessels with `dualJudge=true`, the response includes a `dual_judge_fan_out_starvation_risk` warning string.
+**Cross-Vessel Fan-Out:** With `vesselId: null, mode: "reorganize"`, admiral enumerates active vessels and dispatches a reorganize mission per vessel that (a) has no in-flight MemoryConsolidator and (b) has a populated playbook above `ReorganizePlaybookMinCharacters`. `dualJudge` propagates to every dispatched mission. Same shape applies for `mode: "pack-curate"` (skipped with reason `no_pack_evidence`) and `mode: "playbook-curate"` (skipped with reason `no_playbook_gap_evidence`) when no terminal missions exist in the mode's evidence window. When fan-out dispatches more than `PackCurateDualJudgeFanOutWarnThreshold` (default 3) vessels with `dualJudge=true`, the response includes a `dual_judge_fan_out_starvation_risk` warning string.
 
 ### armada_check_stale_memory
 
@@ -3157,6 +3158,24 @@ Accept-time validation pipeline runs anti-pattern checks (`pack_hint_pattern_too
 Audit-drain auto-trigger fires pack-curate when `Vessel.PackCurateThreshold` is set and exceeded by terminal-mission count since last accepted pack-curate, no MemoryConsolidator is in-flight, and at least one mission since the last accept has non-empty `filesGrepDiscovered` (anti-thrash).
 
 Hint mutations land **only** through the pack-curate reflection -> orchestrator review path. There is no dedicated `armada_update_pack_hint` tool.
+
+### Playbook-Curate Mode
+
+`playbook-curate` dispatches a `MemoryConsolidator` mission that mines the current vessel learned playbook plus terminal mission titles, mission briefs, captain/Judge output, and captain log tool-use evidence. It is for the pattern where a captain had to use Grep, Glob, or `armada_code_search` to discover repository facts that should become durable learned-playbook guidance.
+
+The candidate fence is markdown for the full replacement vessel learned playbook, using the same accept path as `consolidate`. The diff fence is JSON with `evidenceConfidence`, `missionsExamined`, and summary fields. This mode does **not** write `vessel_pack_hints`; use `pack-curate` for context-pack preselection hints.
+
+Manual usage:
+
+```json
+{
+  "vesselId": "vsl_...",
+  "mode": "playbook-curate",
+  "instructions": "Focus on places captains searched before reading context-pack guidance."
+}
+```
+
+For fleet-wide manual sweeps, pass `vesselId: null` with `mode: "playbook-curate"`. The response uses the standard fan-out shape and skips vessels with `no_playbook_gap_evidence`.
 
 ### Persona-Curate / Captain-Curate Modes (v2-F2)
 

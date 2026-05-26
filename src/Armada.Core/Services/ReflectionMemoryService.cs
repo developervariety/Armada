@@ -2066,6 +2066,9 @@ namespace Armada.Core.Services
             if (String.Equals(trimmed, "fleet-curate", StringComparison.OrdinalIgnoreCase)
                 || String.Equals(trimmed, "fleetcurate", StringComparison.OrdinalIgnoreCase))
                 return ReflectionMode.FleetCurate;
+            if (String.Equals(trimmed, "playbook-curate", StringComparison.OrdinalIgnoreCase)
+                || String.Equals(trimmed, "playbookcurate", StringComparison.OrdinalIgnoreCase))
+                return ReflectionMode.PlaybookCurate;
             return null;
         }
 
@@ -2084,6 +2087,7 @@ namespace Armada.Core.Services
                 ReflectionMode.PersonaCurate => "persona-curate",
                 ReflectionMode.CaptainCurate => "captain-curate",
                 ReflectionMode.FleetCurate => "fleet-curate",
+                ReflectionMode.PlaybookCurate => "playbook-curate",
                 _ => "consolidate"
             };
         }

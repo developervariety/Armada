@@ -2,6 +2,7 @@ namespace Armada.Test.Unit.Suites.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.IO;
     using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
@@ -215,6 +216,81 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertContains("missing_mission", bundle.Brief, "reorganize brief should include missing mission warning kind");
                     AssertContains(phantomMissionId, bundle.Brief, "reorganize brief should include affected stale mission ID");
                 }
+            });
+
+            await RunTest("BuildPlaybookCurateBrief_IncludesBriefAndSearchEvidence", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, "rc-playbook-curate").ConfigureAwait(false);
+                    Mission mission = await CreateTerminalMissionAsync(
+                        testDb.Driver,
+                        vessel.Id,
+                        "search-driven fix",
+                        DateTime.UtcNow.AddMinutes(-10)).ConfigureAwait(false);
+                    mission.Description = "Update auth routing; current learned playbook does not mention src/AuthRouter.cs.";
+                    mission.AgentOutput = "I had to grep for AuthRouter because the playbook did not say where auth routing lives.";
+                    await testDb.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
+
+                    string tempLogDir = Path.Combine(Path.GetTempPath(), "armada-playbook-curate-" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(tempLogDir);
+                    try
+                    {
+                        await File.WriteAllTextAsync(
+                            Path.Combine(tempLogDir, mission.Id + ".log"),
+                            "{\"name\":\"Grep\",\"pattern\":\"AuthRouter\"}\n{\"name\":\"Read\",\"file_path\":\"src/AuthRouter.cs\"}\n").ConfigureAwait(false);
+
+                        ReflectionDispatcher dispatcher = new ReflectionDispatcher(
+                            testDb.Driver,
+                            new RecordingAdmiralService(testDb.Driver),
+                            new ArmadaSettings { InitialReflectionWindow = 10 },
+                            new ReflectionMemoryService(testDb.Driver),
+                            new PackUsageMiner(tempLogDir));
+
+                        ReflectionDispatcher.EvidenceBundleResult bundle = await dispatcher.BuildEvidenceBundleAsync(
+                            vessel,
+                            null,
+                            8000,
+                            ReflectionMode.PlaybookCurate).ConfigureAwait(false);
+
+                        AssertEqual(1, bundle.EvidenceMissionCount, "playbook-curate should include terminal mission evidence");
+                        AssertEqual(ReflectionMode.PlaybookCurate, bundle.Mode, "bundle mode");
+                        AssertContains("Mode: playbook-curate", bundle.Brief, "brief mode");
+                        AssertContains("Mission brief", bundle.Brief, "brief should include mission description");
+                        AssertContains("src/AuthRouter.cs", bundle.Brief, "brief should include grep-discovered file");
+                        AssertContains("had to grep", bundle.Brief, "brief should include captain missing-guidance wording");
+                    }
+                    finally
+                    {
+                        Directory.Delete(tempLogDir, true);
+                    }
+                }
+            });
+
+            await RunTest("PlaybookCurate_ModeRoundTrips", () =>
+            {
+                AssertEqual(
+                    ReflectionMode.PlaybookCurate,
+                    ReflectionMemoryService.ParseModeString("playbook-curate") ?? ReflectionMode.Consolidate,
+                    "playbook-curate parses");
+                AssertEqual(
+                    ReflectionMode.PlaybookCurate,
+                    ReflectionMemoryService.ParseModeString("playbookcurate") ?? ReflectionMode.Consolidate,
+                    "playbookcurate alias parses");
+                AssertEqual(
+                    "playbook-curate",
+                    ReflectionMemoryService.ModeToWireString(ReflectionMode.PlaybookCurate),
+                    "playbook-curate wire string");
+                AssertEqual(
+                    "playbook_curate",
+                    MemoryAnchorExtractor.Extract(
+                        "# Learned\n\nSource: msn_abc",
+                        "{\"evidenceConfidence\":\"mixed\"}",
+                        false,
+                        "msn_reflection",
+                        "playbook-curate").EvidenceKind,
+                    "playbook-curate anchors should have a distinct evidence kind");
+                return Task.CompletedTask;
             });
 
             await RunTest("DispatchReflection_UsesReflectionsPipelineAndHighTier", async () =>

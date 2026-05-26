@@ -364,6 +364,47 @@ consolidate-threshold and reorganize-threshold checks. Fires when:
   reflection -> orchestrator review path.
 - No auto-disable of stale hints without orchestrator review.
 
+## Playbook-Curate Mode
+
+`playbook-curate` is a vessel-scoped reflection mode for learned-playbook
+gaps. It mines terminal mission titles, mission briefs, captain/Judge
+output, and captain log search/read/edit evidence, then asks
+MemoryConsolidator to propose a full replacement for the vessel learned
+playbook. Use it when captains repeatedly had to use Grep, Glob, or
+`armada_code_search` because a repository convention, important file
+location, validation command, or cross-file relationship was not captured
+in the learned playbook.
+
+It differs from `pack-curate`:
+
+| Mode | Writes | Best for |
+|------|--------|----------|
+| `pack-curate` | `vessel_pack_hints` JSON deltas | Improving context-pack file preselection. |
+| `playbook-curate` | Vessel learned-playbook markdown | Turning searched-for repo facts into durable guidance. |
+
+Manual single-vessel run:
+
+```json
+{
+  "vesselId": "vsl_...",
+  "mode": "playbook-curate"
+}
+```
+
+Manual active-vessel sweep:
+
+```json
+{
+  "vesselId": null,
+  "mode": "playbook-curate"
+}
+```
+
+Accept with `armada_accept_memory_proposal` after reviewing the candidate.
+Reject with a specific reason when the proposal turns one-off discovery
+into overly broad guidance; the rejection is fed into the next
+`playbook-curate` brief.
+
 ## Reflections v2-F2 (Persona/Captain Identity Memory)
 
 F2 extends `armada_consolidate_memory` with two cross-vessel modes
