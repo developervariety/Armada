@@ -17,7 +17,7 @@ namespace Armada.Server.Mcp.Tools
             PropertyNameCaseInsensitive = true,
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase
         };
-        private const int DefaultContextPackTimeoutMs = 30_000;
+        private const int DefaultContextPackTimeoutMs = 120_000;
         private const string ContextPackTimeoutEnvVar = "ARMADA_CODE_CONTEXT_TIMEOUT_MS";
 
         /// <summary>
@@ -111,7 +111,7 @@ namespace Armada.Server.Mcp.Tools
                         goal = new { type = "string", description = "Mission goal or implementation objective" },
                         tokenBudget = new { type = "integer", description = "Approximate markdown token budget" },
                         maxResults = new { type = "integer", description = "Optional maximum evidence snippets" },
-                        timeoutMs = new { type = "integer", description = "Optional server-side timeout in milliseconds (default from ARMADA_CODE_CONTEXT_TIMEOUT_MS or 30000)" }
+                        timeoutMs = new { type = "integer", description = "Optional server-side timeout in milliseconds (default from ARMADA_CODE_CONTEXT_TIMEOUT_MS or 120000)" }
                     },
                     required = new[] { "vesselId", "goal", "tokenBudget" }
                 },
@@ -183,7 +183,7 @@ namespace Armada.Server.Mcp.Tools
                         goal = new { type = "string", description = "Mission goal or implementation objective" },
                         tokenBudget = new { type = "integer", description = "Approximate markdown token budget" },
                         maxResultsPerVessel = new { type = "integer", description = "Optional maximum evidence snippets per vessel" },
-                        timeoutMs = new { type = "integer", description = "Optional server-side timeout in milliseconds (default from ARMADA_CODE_CONTEXT_TIMEOUT_MS or 30000)" }
+                        timeoutMs = new { type = "integer", description = "Optional server-side timeout in milliseconds (default from ARMADA_CODE_CONTEXT_TIMEOUT_MS or 120000)" }
                     },
                     required = new[] { "fleetId", "goal", "tokenBudget" }
                 },

@@ -842,6 +842,7 @@ namespace Armada.Core.Services
 
             // Recent signals
             status.RecentSignals = await _Database.Signals.EnumerateRecentAsync(10, token).ConfigureAwait(false);
+            status.StructuredDelivery = await BuildStructuredDeliveryStatusAsync(token).ConfigureAwait(false);
 
             if (OnGetRemoteTunnelStatus != null)
             {
@@ -849,6 +850,89 @@ namespace Armada.Core.Services
             }
 
             return status;
+        }
+
+        private async Task<StructuredDeliveryStatus> BuildStructuredDeliveryStatusAsync(CancellationToken token)
+        {
+            StructuredDeliveryStatus status = new StructuredDeliveryStatus();
+            AuthContext auth = AuthContext.Authenticated(Constants.DefaultTenantId, Constants.DefaultUserId, true, true, "Status");
+            ObjectiveService objectives = new ObjectiveService(_Database);
+            IncidentService incidents = new IncidentService(_Database);
+
+            foreach (ObjectiveStatusEnum value in Enum.GetValues<ObjectiveStatusEnum>())
+            {
+                EnumerationResult<Objective> page = await objectives.EnumerateAsync(auth, new ObjectiveQuery
+                {
+                    Status = value,
+                    PageNumber = 1,
+                    PageSize = 1
+                }, token).ConfigureAwait(false);
+                if (page.TotalRecords > 0) status.ObjectivesByStatus[value.ToString()] = ClampStatusCount(page.TotalRecords);
+            }
+
+            foreach (ObjectiveBacklogStateEnum value in Enum.GetValues<ObjectiveBacklogStateEnum>())
+            {
+                EnumerationResult<Objective> page = await objectives.EnumerateAsync(auth, new ObjectiveQuery
+                {
+                    BacklogState = value,
+                    PageNumber = 1,
+                    PageSize = 1
+                }, token).ConfigureAwait(false);
+                if (page.TotalRecords > 0) status.BacklogByState[value.ToString()] = ClampStatusCount(page.TotalRecords);
+            }
+
+            foreach (CheckRunStatusEnum value in Enum.GetValues<CheckRunStatusEnum>())
+            {
+                EnumerationResult<CheckRun> page = await _Database.CheckRuns.EnumerateAsync(new CheckRunQuery
+                {
+                    Status = value,
+                    PageNumber = 1,
+                    PageSize = 1
+                }, token).ConfigureAwait(false);
+                if (page.TotalRecords > 0) status.CheckRunsByStatus[value.ToString()] = ClampStatusCount(page.TotalRecords);
+            }
+
+            foreach (ReleaseStatusEnum value in Enum.GetValues<ReleaseStatusEnum>())
+            {
+                EnumerationResult<Release> page = await _Database.Releases.EnumerateAsync(new ReleaseQuery
+                {
+                    Status = value,
+                    PageNumber = 1,
+                    PageSize = 1
+                }, token).ConfigureAwait(false);
+                if (page.TotalRecords > 0) status.ReleasesByStatus[value.ToString()] = ClampStatusCount(page.TotalRecords);
+            }
+
+            foreach (DeploymentStatusEnum value in Enum.GetValues<DeploymentStatusEnum>())
+            {
+                EnumerationResult<Deployment> page = await _Database.Deployments.EnumerateAsync(new DeploymentQuery
+                {
+                    Status = value,
+                    PageNumber = 1,
+                    PageSize = 1
+                }, token).ConfigureAwait(false);
+                if (page.TotalRecords > 0) status.DeploymentsByStatus[value.ToString()] = ClampStatusCount(page.TotalRecords);
+            }
+
+            foreach (IncidentStatusEnum value in Enum.GetValues<IncidentStatusEnum>())
+            {
+                EnumerationResult<Incident> page = await incidents.EnumerateAsync(auth, new IncidentQuery
+                {
+                    Status = value,
+                    PageNumber = 1,
+                    PageSize = 1
+                }, token).ConfigureAwait(false);
+                if (page.TotalRecords > 0) status.IncidentsByStatus[value.ToString()] = ClampStatusCount(page.TotalRecords);
+            }
+
+            return status;
+        }
+
+        private static int ClampStatusCount(long value)
+        {
+            if (value <= 0) return 0;
+            if (value > Int32.MaxValue) return Int32.MaxValue;
+            return (int)value;
         }
 
         /// <inheritdoc />

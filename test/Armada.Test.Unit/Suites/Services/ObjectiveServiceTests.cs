@@ -7,6 +7,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
+    using Armada.Server.Mcp.Tools;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
 
@@ -327,6 +328,40 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(latest.BacklogState, stored.BacklogState);
                 AssertEqual(latest.Effort, stored.Effort);
                 AssertEqual(latest.RefinementSummary, stored.RefinementSummary);
+            }).ConfigureAwait(false);
+
+            await RunTest("MCP update_backlog_item returns structured errors and accepts backlogItemId alias", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                ObjectiveService objectives = new ObjectiveService(testDb.Driver);
+                Dictionary<string, Func<JsonElement?, Task<object>>> handlers = new Dictionary<string, Func<JsonElement?, Task<object>>>();
+                McpObjectiveTools.Register(
+                    (name, _, _, handler) => handlers[name] = handler,
+                    testDb.Driver,
+                    objectives);
+
+                AuthContext auth = AuthContext.Authenticated(Armada.Core.Constants.DefaultTenantId, Armada.Core.Constants.DefaultUserId, false, true, "UnitTest");
+                Objective objective = await objectives.CreateAsync(auth, new ObjectiveUpsertRequest
+                {
+                    Title = "MCP backlog update",
+                    Status = ObjectiveStatusEnum.Draft
+                }).ConfigureAwait(false);
+
+                using JsonDocument aliasDoc = JsonDocument.Parse("{\"backlogItemId\":\"" + objective.Id + "\",\"status\":\"Completed\",\"refinementSummary\":\"done\"}");
+                object aliasResult = await handlers["update_backlog_item"](aliasDoc.RootElement).ConfigureAwait(false);
+                Objective updated = (Objective)aliasResult;
+                AssertEqual(ObjectiveStatusEnum.Completed, updated.Status);
+                AssertEqual("done", updated.RefinementSummary);
+
+                using JsonDocument missingDoc = JsonDocument.Parse("{\"backlogItemId\":\"obj_missing\",\"status\":\"Completed\"}");
+                object missingResult = await handlers["update_backlog_item"](missingDoc.RootElement).ConfigureAwait(false);
+                string missingJson = JsonSerializer.Serialize(missingResult);
+                AssertContains("backlog_update_failed", missingJson);
+                AssertContains("Objective not found", missingJson);
+
+                using JsonDocument noIdDoc = JsonDocument.Parse("{\"status\":\"Completed\"}");
+                object noIdResult = await handlers["update_backlog_item"](noIdDoc.RootElement).ConfigureAwait(false);
+                AssertContains("backlog_item_id_required", JsonSerializer.Serialize(noIdResult));
             }).ConfigureAwait(false);
         }
 

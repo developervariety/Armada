@@ -130,6 +130,7 @@ If/when MCP-over-tunnel is added, this document will gain explicit routed-tool s
     - [armada_get_incident](#armada_get_incident)
     - [armada_create_incident](#armada_create_incident)
     - [armada_update_incident](#armada_update_incident)
+    - [armada_close_incident](#armada_close_incident)
     - [armada_delete_incident](#armada_delete_incident)
   - **Backup and Restore**
     - [armada_backup](#armada_backup)
@@ -271,6 +272,14 @@ No parameters required.
     "InProgress": 2,
     "Complete": 10,
     "Failed": 1
+  },
+  "structuredDelivery": {
+    "objectivesByStatus": { "Completed": 7, "InProgress": 2 },
+    "backlogByState": { "Inbox": 12, "Dispatched": 4 },
+    "checkRunsByStatus": { "Passed": 14, "Failed": 1 },
+    "releasesByStatus": { "Shipped": 3 },
+    "deploymentsByStatus": { "Succeeded": 2 },
+    "incidentsByStatus": { "Open": 1, "Closed": 8 }
   },
   "voyages": [
     {
@@ -440,7 +449,21 @@ Get code index status for a vessel, including indexed commit, current commit, ch
 
 **Response:** `CodeIndexStatus` with vessel identity, index directory, indexed/current commit SHAs, freshness, document/chunk counts, active-update fields, and any last error.
 
-When an update is running, `freshness` is `Updating`, `updateInProgress` is `true`, and `updateStartedUtc` contains the UTC start time. Dispatch tools use these fields to avoid generating context packs against stale code after a voyage lands. Refreshes are incremental where possible: unchanged files and chunks reuse prior metadata and embeddings, and embedding providers are called in batches instead of one chunk at a time.
+When an update is running, `freshness` is `Updating`, `updateInProgress` is `true`, and `updateStartedUtc` contains the UTC start time. Active updates also report `updateHeartbeatUtc`, `updateStage`, `updateProgressDone`, `updateProgressTotal`, and `updateProgressPercent` so operators can distinguish a slow index from a stalled one. Dispatch tools use these fields to avoid generating context packs against stale code after a voyage lands. Refreshes are incremental where possible: unchanged files and chunks reuse prior metadata and embeddings, and embedding providers are called in batches instead of one chunk at a time.
+
+Example active update fields:
+
+```json
+{
+  "updateInProgress": true,
+  "updateStartedUtc": "2026-05-26T22:12:00Z",
+  "updateHeartbeatUtc": "2026-05-26T22:12:43Z",
+  "updateStage": "embedding chunks",
+  "updateProgressDone": 320,
+  "updateProgressTotal": 920,
+  "updateProgressPercent": 34.78
+}
+```
 
 ---
 
@@ -505,7 +528,7 @@ Build dispatch-ready markdown for a vessel and mission goal. Returns `markdown`,
     "goal": { "type": "string" },
     "tokenBudget": { "type": "integer" },
     "maxResults": { "type": "integer" },
-    "timeoutMs": { "type": "integer", "description": "Optional server-side timeout; default 30000 or ARMADA_CODE_CONTEXT_TIMEOUT_MS" }
+    "timeoutMs": { "type": "integer", "description": "Optional server-side timeout; default 120000 or ARMADA_CODE_CONTEXT_TIMEOUT_MS" }
   },
   "required": ["vesselId", "goal", "tokenBudget"]
 }
@@ -539,7 +562,7 @@ Build a combined context pack across all vessels in a fleet.
     "goal": { "type": "string" },
     "tokenBudget": { "type": "integer" },
     "maxResultsPerVessel": { "type": "integer" },
-    "timeoutMs": { "type": "integer", "description": "Optional server-side timeout; default 30000 or ARMADA_CODE_CONTEXT_TIMEOUT_MS" }
+    "timeoutMs": { "type": "integer", "description": "Optional server-side timeout; default 120000 or ARMADA_CODE_CONTEXT_TIMEOUT_MS" }
   },
   "required": ["fleetId", "goal", "tokenBudget"]
 }
@@ -3585,6 +3608,26 @@ Update an operational incident's status, severity, delivery links, impact, recov
 
 ---
 
+### armada_close_incident
+
+Close one operational incident while preserving its delivery links.
+
+**Input Schema:**
+
+```json
+{
+  "incidentId": "inc_...",
+  "recoveryNotes": "Optional closure notes",
+  "rootCause": "Optional root cause",
+  "postmortem": "Optional postmortem",
+  "closedUtc": "2026-05-26T12:34:56Z"
+}
+```
+
+`closedUtc` defaults to the server's current UTC time when omitted.
+
+---
+
 ### armada_delete_incident
 
 Delete one operational incident and its event snapshots.
@@ -3611,6 +3654,7 @@ Delete one operational incident and its event snapshots.
 | `stalledCaptains` | int | Captains in Stalled state |
 | `activeVoyages` | int | Number of active (non-complete) voyages |
 | `missionsByStatus` | object | Map of status string to count (e.g., `{"Pending": 3}`) |
+| `structuredDelivery` | object | Lightweight grouped counts for objectives, backlog states, check runs, releases, deployments, and incidents |
 | `voyages` | array | List of [VoyageProgress](#voyageprogress) objects |
 | `recentSignals` | array | List of recent [Signal](#signal) objects |
 | `remoteTunnel` | [RemoteTunnelStatus](#remotetunnelstatus) | Current outbound remote tunnel status |

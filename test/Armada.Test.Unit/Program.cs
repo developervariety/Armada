@@ -140,6 +140,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new RemoteTriggerServiceTests());
             runner.AddSuite(new RemoteTriggerEventHookTests());
             runner.AddSuite(new IncidentServiceTests());
+            runner.AddSuite(new ObjectiveServiceTests());
             runner.AddSuite(new AutonomousRecoveryOrchestratorTests());
             runner.AddSuite(new IncidentLifecycleOrchestratorTests());
             runner.AddSuite(new MergeQueueBranchCleanupTests());

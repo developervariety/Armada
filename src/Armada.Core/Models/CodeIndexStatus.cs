@@ -53,6 +53,31 @@ namespace Armada.Core.Models
         public DateTime? UpdateStartedUtc { get; set; } = null;
 
         /// <summary>
+        /// Last heartbeat emitted by the current in-process refresh.
+        /// </summary>
+        public DateTime? UpdateHeartbeatUtc { get; set; } = null;
+
+        /// <summary>
+        /// Human-readable stage for the current in-process refresh.
+        /// </summary>
+        public string? UpdateStage { get; set; } = null;
+
+        /// <summary>
+        /// Completed work units in the current stage, when known.
+        /// </summary>
+        public int? UpdateProgressDone { get; set; } = null;
+
+        /// <summary>
+        /// Total work units in the current stage, when known.
+        /// </summary>
+        public int? UpdateProgressTotal { get; set; } = null;
+
+        /// <summary>
+        /// Percent complete for the current stage, when known.
+        /// </summary>
+        public double? UpdateProgressPercent { get; set; } = null;
+
+        /// <summary>
         /// Number of files indexed.
         /// </summary>
         public int DocumentCount { get; set; } = 0;

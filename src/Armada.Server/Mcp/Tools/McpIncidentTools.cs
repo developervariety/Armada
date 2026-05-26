@@ -126,6 +126,46 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
+                "armada_close_incident",
+                "Close one operational incident while preserving its delivery links. Optional recovery notes, root cause, and postmortem fields are appended through the incident update surface.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        incidentId = new { type = "string", description = "Incident ID (inc_ prefix)" },
+                        recoveryNotes = new { type = "string", description = "Optional recovery notes" },
+                        rootCause = new { type = "string", description = "Optional root-cause notes" },
+                        postmortem = new { type = "string", description = "Optional postmortem notes" },
+                        closedUtc = new { type = "string", description = "Optional closure timestamp in UTC; defaults to now" }
+                    },
+                    required = new[] { "incidentId" }
+                },
+                async (args) =>
+                {
+                    IncidentCloseArgs request = JsonSerializer.Deserialize<IncidentCloseArgs>(args!.Value, _JsonOptions)
+                        ?? throw new InvalidOperationException("Could not deserialize IncidentCloseArgs.");
+                    if (String.IsNullOrWhiteSpace(request.IncidentId)) return (object)new { Error = "incidentId is required" };
+                    AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
+                    try
+                    {
+                        Incident incident = await incidentService.UpdateAsync(auth, request.IncidentId, new IncidentUpsertRequest
+                        {
+                            Status = IncidentStatusEnum.Closed,
+                            RecoveryNotes = request.RecoveryNotes,
+                            RootCause = request.RootCause,
+                            Postmortem = request.Postmortem,
+                            ClosedUtc = request.ClosedUtc ?? DateTime.UtcNow
+                        }).ConfigureAwait(false);
+                        return (object)incident;
+                    }
+                    catch (InvalidOperationException ex)
+                    {
+                        return (object)new { Error = ex.Message };
+                    }
+                });
+
+            register(
                 "armada_delete_incident",
                 "Delete one operational incident and its event snapshots.",
                 new
@@ -285,6 +325,19 @@ namespace Armada.Server.Mcp.Tools
                     ClosedUtc = ClosedUtc
                 };
             }
+        }
+
+        private sealed class IncidentCloseArgs
+        {
+            public string IncidentId { get; set; } = "";
+
+            public string? RecoveryNotes { get; set; } = null;
+
+            public string? RootCause { get; set; } = null;
+
+            public string? Postmortem { get; set; } = null;
+
+            public DateTime? ClosedUtc { get; set; } = null;
         }
     }
 }

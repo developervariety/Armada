@@ -28,6 +28,8 @@ namespace Armada.Test.Unit.Suites.Models
                 AssertTrue(status.TimestampUtc <= DateTime.UtcNow);
                 AssertNotNull(status.RemoteTunnel);
                 AssertEqual(RemoteTunnelStateEnum.Disabled, status.RemoteTunnel.State);
+                AssertNotNull(status.StructuredDelivery);
+                AssertEqual(0, status.StructuredDelivery.ObjectivesByStatus.Count);
             });
 
             await RunTest("ArmadaStatus MissionsByStatus NullSetterResetsToEmpty", () =>
@@ -60,6 +62,14 @@ namespace Armada.Test.Unit.Suites.Models
                 status.RemoteTunnel = null!;
                 AssertNotNull(status.RemoteTunnel);
                 AssertEqual(RemoteTunnelStateEnum.Disabled, status.RemoteTunnel.State);
+            });
+
+            await RunTest("ArmadaStatus StructuredDelivery NullSetterResetsToDefault", () =>
+            {
+                ArmadaStatus status = new ArmadaStatus();
+                status.StructuredDelivery = null!;
+                AssertNotNull(status.StructuredDelivery);
+                AssertEqual(0, status.StructuredDelivery.CheckRunsByStatus.Count);
             });
 
             await RunTest("ArmadaStatus MissionsByStatus PopulateAndRead", () =>
@@ -102,6 +112,8 @@ namespace Armada.Test.Unit.Suites.Models
                 status.StalledCaptains = 1;
                 status.ActiveVoyages = 3;
                 status.MissionsByStatus["Pending"] = 4;
+                status.StructuredDelivery.ObjectivesByStatus["Completed"] = 7;
+                status.StructuredDelivery.IncidentsByStatus["Open"] = 2;
                 status.RemoteTunnel.State = RemoteTunnelStateEnum.Connected;
                 status.RemoteTunnel.TunnelUrl = "wss://control.example.com/tunnel";
                 status.RemoteTunnel.InstanceId = "armada-abc123";
@@ -115,6 +127,8 @@ namespace Armada.Test.Unit.Suites.Models
                 AssertEqual(2, deserialized.WorkingCaptains);
                 AssertEqual(1, deserialized.StalledCaptains);
                 AssertEqual(3, deserialized.ActiveVoyages);
+                AssertEqual(7, deserialized.StructuredDelivery.ObjectivesByStatus["Completed"]);
+                AssertEqual(2, deserialized.StructuredDelivery.IncidentsByStatus["Open"]);
                 AssertEqual(RemoteTunnelStateEnum.Connected, deserialized.RemoteTunnel.State);
                 AssertEqual("wss://control.example.com/tunnel", deserialized.RemoteTunnel.TunnelUrl);
             });

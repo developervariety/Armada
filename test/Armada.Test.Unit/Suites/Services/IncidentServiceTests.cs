@@ -22,7 +22,7 @@ namespace Armada.Test.Unit.Suites.Services
         /// <inheritdoc />
         protected override async Task RunTestsAsync()
         {
-            await RunTest("MCP incident tools expose list get create update and delete", async () =>
+            await RunTest("MCP incident tools expose list get create update close and delete", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 IncidentService incidents = new IncidentService(testDb.Driver);
@@ -32,6 +32,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(handlers.ContainsKey("armada_get_incident"));
                 AssertTrue(handlers.ContainsKey("armada_create_incident"));
                 AssertTrue(handlers.ContainsKey("armada_update_incident"));
+                AssertTrue(handlers.ContainsKey("armada_close_incident"));
                 AssertTrue(handlers.ContainsKey("armada_delete_incident"));
 
                 using JsonDocument createDoc = JsonDocument.Parse("{\"title\":\"MCP incident\",\"severity\":\"High\",\"status\":\"Open\",\"vesselId\":\"vsl_mcp\"}");
@@ -53,6 +54,16 @@ namespace Armada.Test.Unit.Suites.Services
                 Incident updated = (Incident)updateResult;
                 AssertEqual(IncidentStatusEnum.Closed, updated.Status);
                 AssertEqual("resolved", updated.RecoveryNotes);
+
+                using JsonDocument reopenDoc = JsonDocument.Parse("{\"incidentId\":\"" + created.Id + "\",\"status\":\"Open\"}");
+                await handlers["armada_update_incident"](reopenDoc.RootElement).ConfigureAwait(false);
+
+                using JsonDocument closeDoc = JsonDocument.Parse("{\"incidentId\":\"" + created.Id + "\",\"recoveryNotes\":\"closed by MCP\"}");
+                object closeResult = await handlers["armada_close_incident"](closeDoc.RootElement).ConfigureAwait(false);
+                Incident closed = (Incident)closeResult;
+                AssertEqual(IncidentStatusEnum.Closed, closed.Status);
+                AssertEqual("closed by MCP", closed.RecoveryNotes);
+                AssertTrue(closed.ClosedUtc.HasValue, "Expected close tool to stamp ClosedUtc.");
 
                 using JsonDocument deleteDoc = JsonDocument.Parse("{\"incidentId\":\"" + created.Id + "\"}");
                 object deleteResult = await handlers["armada_delete_incident"](deleteDoc.RootElement).ConfigureAwait(false);

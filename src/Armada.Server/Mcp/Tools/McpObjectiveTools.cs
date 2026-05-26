@@ -248,6 +248,8 @@ namespace Armada.Server.Mcp.Tools
                     properties = new
                     {
                         objectiveId = new { type = "string", description = "Objective ID (obj_ prefix)" },
+                        backlogItemId = new { type = "string", description = "Alias for objectiveId when using backlog terminology" },
+                        id = new { type = "string", description = "Alias for objectiveId" },
                         title = new { type = "string", description = "Optional title override" },
                         description = new { type = "string", description = "Optional long-form description" },
                         status = new { type = "string", description = "Optional lifecycle status" },
@@ -280,14 +282,28 @@ namespace Armada.Server.Mcp.Tools
                         deploymentIds = new { type = "array", items = new { type = "string" }, description = "Linked deployment IDs" },
                         incidentIds = new { type = "array", items = new { type = "string" }, description = "Linked incident IDs" }
                     },
-                    required = new[] { "objectiveId" }
+                    anyOf = new object[]
+                    {
+                        new { required = new[] { "objectiveId" } },
+                        new { required = new[] { "backlogItemId" } },
+                        new { required = new[] { "id" } }
+                    }
                 },
                 async (args) =>
                 {
                     UpdateObjectiveArgs request = JsonSerializer.Deserialize<UpdateObjectiveArgs>(args!.Value, _JsonOptions)
                         ?? throw new InvalidOperationException("Could not deserialize UpdateObjectiveArgs.");
                     AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
-                    return (object)await objectiveService.UpdateAsync(auth, request.ObjectiveId, request.ToUpsertRequest()).ConfigureAwait(false);
+                    string objectiveId = request.ResolveObjectiveId();
+                    if (String.IsNullOrWhiteSpace(objectiveId)) return (object)new { Error = "objectiveId is required" };
+                    try
+                    {
+                        return (object)await objectiveService.UpdateAsync(auth, objectiveId, request.ToUpsertRequest()).ConfigureAwait(false);
+                    }
+                    catch (InvalidOperationException ex)
+                    {
+                        return (object)new { Error = ex.Message, Code = "objective_update_failed", ObjectiveId = objectiveId };
+                    }
                 });
 
             register(
@@ -299,6 +315,8 @@ namespace Armada.Server.Mcp.Tools
                     properties = new
                     {
                         objectiveId = new { type = "string", description = "Backlog item ID (obj_ prefix)" },
+                        backlogItemId = new { type = "string", description = "Alias for objectiveId" },
+                        id = new { type = "string", description = "Alias for objectiveId" },
                         title = new { type = "string", description = "Optional title override" },
                         description = new { type = "string", description = "Optional long-form description" },
                         status = new { type = "string", description = "Optional lifecycle status" },
@@ -331,14 +349,28 @@ namespace Armada.Server.Mcp.Tools
                         deploymentIds = new { type = "array", items = new { type = "string" }, description = "Linked deployment IDs" },
                         incidentIds = new { type = "array", items = new { type = "string" }, description = "Linked incident IDs" }
                     },
-                    required = new[] { "objectiveId" }
+                    anyOf = new object[]
+                    {
+                        new { required = new[] { "objectiveId" } },
+                        new { required = new[] { "backlogItemId" } },
+                        new { required = new[] { "id" } }
+                    }
                 },
                 async (args) =>
                 {
                     UpdateObjectiveArgs request = JsonSerializer.Deserialize<UpdateObjectiveArgs>(args!.Value, _JsonOptions)
                         ?? throw new InvalidOperationException("Could not deserialize UpdateObjectiveArgs.");
                     AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
-                    return (object)await objectiveService.UpdateAsync(auth, request.ObjectiveId, request.ToUpsertRequest()).ConfigureAwait(false);
+                    string objectiveId = request.ResolveObjectiveId();
+                    if (String.IsNullOrWhiteSpace(objectiveId)) return (object)new { Error = "objectiveId is required", Code = "backlog_item_id_required" };
+                    try
+                    {
+                        return (object)await objectiveService.UpdateAsync(auth, objectiveId, request.ToUpsertRequest()).ConfigureAwait(false);
+                    }
+                    catch (InvalidOperationException ex)
+                    {
+                        return (object)new { Error = ex.Message, Code = "backlog_update_failed", ObjectiveId = objectiveId };
+                    }
                 });
 
             register(
@@ -961,6 +993,18 @@ namespace Armada.Server.Mcp.Tools
         private sealed class UpdateObjectiveArgs : ObjectiveUpsertRequest
         {
             public string ObjectiveId { get; set; } = String.Empty;
+
+            public string BacklogItemId { get; set; } = String.Empty;
+
+            public string Id { get; set; } = String.Empty;
+
+            public string ResolveObjectiveId()
+            {
+                if (!String.IsNullOrWhiteSpace(ObjectiveId)) return ObjectiveId.Trim();
+                if (!String.IsNullOrWhiteSpace(BacklogItemId)) return BacklogItemId.Trim();
+                if (!String.IsNullOrWhiteSpace(Id)) return Id.Trim();
+                return String.Empty;
+            }
 
             public ObjectiveUpsertRequest ToUpsertRequest()
             {

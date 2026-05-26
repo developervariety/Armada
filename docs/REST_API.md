@@ -2228,7 +2228,7 @@ Vessel-scoped repository search and symbol graph endpoints. All routes are authe
 
 #### GET /api/v1/vessels/{vesselId}/code-index/status
 
-Return persisted code-index status for one vessel.
+Return persisted code-index status for one vessel. When a refresh is active, the response includes `UpdateStartedUtc`, `UpdateHeartbeatUtc`, `UpdateStage`, `UpdateProgressDone`, `UpdateProgressTotal`, and `UpdateProgressPercent` in addition to `UpdateInProgress` so clients can show live progress without waiting on the update call.
 
 **Response:** `200 OK` - `CodeIndexStatus`
 

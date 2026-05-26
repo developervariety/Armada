@@ -39,7 +39,7 @@ namespace Armada.Core.Services
         private IEmbeddingClient? _EmbeddingClient;
         private IInferenceClient? _InferenceClient;
         private PolyglotSymbolExtractor _SymbolExtractor = new PolyglotSymbolExtractor();
-        private static readonly ConcurrentDictionary<string, DateTime> _ActiveUpdates = new ConcurrentDictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+        private static readonly ConcurrentDictionary<string, CodeIndexActiveUpdate> _ActiveUpdates = new ConcurrentDictionary<string, CodeIndexActiveUpdate>(StringComparer.OrdinalIgnoreCase);
         private const int _DefaultGraphSearchLimit = 20;
         private const int _DefaultGraphNeighborLimit = 25;
         private const int _DefaultImpactDepth = 3;
@@ -107,8 +107,13 @@ namespace Armada.Core.Services
             if (String.IsNullOrWhiteSpace(vesselId)) throw new ArgumentNullException(nameof(vesselId));
 
             Vessel vessel = await ReadVesselOrThrowAsync(vesselId, token).ConfigureAwait(false);
-            DateTime updateStartedUtc = DateTime.UtcNow;
-            if (!_ActiveUpdates.TryAdd(vessel.Id, updateStartedUtc))
+            CodeIndexActiveUpdate activeUpdate = new CodeIndexActiveUpdate
+            {
+                StartedUtc = DateTime.UtcNow,
+                HeartbeatUtc = DateTime.UtcNow,
+                Stage = "starting"
+            };
+            if (!_ActiveUpdates.TryAdd(vessel.Id, activeUpdate))
             {
                 CodeIndexStatus activeStatus = await GetStatusAsync(vessel.Id, token).ConfigureAwait(false);
                 throw new InvalidOperationException(BuildUpdateInProgressMessage(activeStatus));
@@ -116,12 +121,14 @@ namespace Armada.Core.Services
 
             try
             {
+                SetActiveUpdateProgress(vessel.Id, "resolving repository", null, null);
                 string repoPath = await ResolveRepositoryPathAsync(vessel, token).ConfigureAwait(false);
 
                 if (!String.IsNullOrWhiteSpace(vessel.RepoUrl))
                 {
                     try
                     {
+                        SetActiveUpdateProgress(vessel.Id, "fetching", null, null);
                         await _Git.FetchAsync(repoPath, token).ConfigureAwait(false);
                     }
                     catch (Exception ex)
@@ -130,6 +137,7 @@ namespace Armada.Core.Services
                     }
                 }
 
+                SetActiveUpdateProgress(vessel.Id, "resolving commit", null, null);
                 string commitSha = await ResolveDefaultBranchCommitAsync(repoPath, vessel.DefaultBranch, token).ConfigureAwait(false);
                 string vesselIndexDirectory = GetVesselIndexDirectory(vessel.Id);
                 Directory.CreateDirectory(vesselIndexDirectory);
@@ -158,8 +166,10 @@ namespace Armada.Core.Services
 
                 try
                 {
+                    SetActiveUpdateProgress(vessel.Id, "extracting archive", null, null);
                     await ExtractCommitArchiveAsync(repoPath, commitSha, tempDirectory, token).ConfigureAwait(false);
 
+                    SetActiveUpdateProgress(vessel.Id, "scanning files", null, null);
                     List<CodeIndexRecord> records;
                     if (canReuseFileRecords && changedPaths != null)
                     {
@@ -181,12 +191,14 @@ namespace Armada.Core.Services
 
                     if (_Settings.CodeIndex.UseSemanticSearch && _EmbeddingClient != null)
                     {
+                        SetActiveUpdateProgress(vessel.Id, "embedding chunks", 0, records.Count);
                         await PopulateEmbeddingsAsync(vessel.Id, records, canReuseEmbeddings ? previousRecords : new List<CodeIndexRecord>(), token).ConfigureAwait(false);
                     }
 
                     List<FileSignatureRecord> signatures = new List<FileSignatureRecord>();
                     if (_Settings.CodeIndex.UseFileSignatures && _InferenceClient != null && _EmbeddingClient != null)
                     {
+                        SetActiveUpdateProgress(vessel.Id, "embedding file signatures", 0, records.GroupBy(r => r.Path, StringComparer.OrdinalIgnoreCase).Count());
                         const string signatureSystemPrompt =
                             "You are a codebase analyst. Describe the purpose of the following source file in 1-2 sentences, naming the main types and their responsibilities. Output only the description.";
                         List<IGrouping<string, CodeIndexRecord>> signatureGroups = records.GroupBy(r => r.Path, StringComparer.OrdinalIgnoreCase).ToList();
@@ -263,7 +275,9 @@ namespace Armada.Core.Services
                         EmbeddingModel = _Settings.CodeIndex.UseSemanticSearch ? _Settings.CodeIndex.EmbeddingModel : null
                     };
 
+                    SetActiveUpdateProgress(vessel.Id, "writing index", null, null);
                     await WriteIndexAsync(vesselIndexDirectory, status, records, token).ConfigureAwait(false);
+                    SetActiveUpdateProgress(vessel.Id, "writing graph sidecars", null, null);
                     await WriteGraphSidecarsAsync(vesselIndexDirectory, vessel.Id, commitSha, tempDirectory, records, token).ConfigureAwait(false);
                     return status;
                 }
@@ -1248,23 +1262,37 @@ namespace Armada.Core.Services
         {
             if (status == null) return;
 
-            if (_ActiveUpdates.TryGetValue(status.VesselId, out DateTime startedUtc))
+            if (_ActiveUpdates.TryGetValue(status.VesselId, out CodeIndexActiveUpdate? active))
             {
                 status.UpdateInProgress = true;
-                status.UpdateStartedUtc = startedUtc;
+                status.UpdateStartedUtc = active.StartedUtc;
+                status.UpdateHeartbeatUtc = active.HeartbeatUtc;
+                status.UpdateStage = active.Stage;
+                status.UpdateProgressDone = active.ProgressDone;
+                status.UpdateProgressTotal = active.ProgressTotal;
+                status.UpdateProgressPercent = active.ProgressTotal.HasValue && active.ProgressTotal.Value > 0 && active.ProgressDone.HasValue
+                    ? Math.Round((double)active.ProgressDone.Value / active.ProgressTotal.Value * 100d, 2)
+                    : null;
                 status.Freshness = "Updating";
                 return;
             }
 
             status.UpdateInProgress = false;
             status.UpdateStartedUtc = null;
+            status.UpdateHeartbeatUtc = null;
+            status.UpdateStage = null;
+            status.UpdateProgressDone = null;
+            status.UpdateProgressTotal = null;
+            status.UpdateProgressPercent = null;
         }
 
         private static string BuildUpdateInProgressMessage(CodeIndexStatus status)
         {
             string vesselName = String.IsNullOrWhiteSpace(status.VesselName) ? status.VesselId : status.VesselName;
             string started = status.UpdateStartedUtc.HasValue ? status.UpdateStartedUtc.Value.ToString("o") : "unknown time";
-            return "Code index update already in progress for vessel " + status.VesselId + " (" + vesselName + ") since " + started + ".";
+            string heartbeat = status.UpdateHeartbeatUtc.HasValue ? status.UpdateHeartbeatUtc.Value.ToString("o") : "unknown heartbeat";
+            string stage = String.IsNullOrWhiteSpace(status.UpdateStage) ? "unknown stage" : status.UpdateStage!;
+            return "Code index update already in progress for vessel " + status.VesselId + " (" + vesselName + ") since " + started + "; stage " + stage + "; heartbeat " + heartbeat + ".";
         }
 
         private async Task<CodeIndexStatus?> ReadPersistedStatusAsync(Vessel vessel)
@@ -2182,9 +2210,21 @@ namespace Armada.Core.Services
         private void LogEmbeddingProgress(int done, int total, string vesselId, string label)
         {
             if (total <= 0) return;
+            SetActiveUpdateProgress(vesselId, label, done, total);
             int interval = Math.Max(1, _Settings.CodeIndex.EmbeddingProgressLogInterval);
             if (done < total && done % interval != 0) return;
             _Logging.Info(_Header + label + " " + done + "/" + total + " chunks for vessel " + vesselId);
+        }
+
+        private static void SetActiveUpdateProgress(string vesselId, string stage, int? done, int? total)
+        {
+            if (String.IsNullOrWhiteSpace(vesselId)) return;
+            if (!_ActiveUpdates.TryGetValue(vesselId, out CodeIndexActiveUpdate? active)) return;
+
+            active.HeartbeatUtc = DateTime.UtcNow;
+            active.Stage = stage;
+            active.ProgressDone = done;
+            active.ProgressTotal = total;
         }
 
         private bool CanReusePersistedIndex(
@@ -3157,6 +3197,19 @@ namespace Armada.Core.Services
             {
                 Path = path ?? "";
             }
+        }
+
+        private sealed class CodeIndexActiveUpdate
+        {
+            public DateTime StartedUtc { get; set; } = DateTime.UtcNow;
+
+            public DateTime HeartbeatUtc { get; set; } = DateTime.UtcNow;
+
+            public string Stage { get; set; } = "starting";
+
+            public int? ProgressDone { get; set; } = null;
+
+            public int? ProgressTotal { get; set; } = null;
         }
 
         private string GetVesselIndexDirectory(string vesselId)

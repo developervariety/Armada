@@ -1,8 +1,5 @@
 namespace Armada.Core.Models
 {
-    using System.Text.Json.Serialization;
-    using Armada.Core.Enums;
-
     /// <summary>
     /// Aggregate status summary across all active work.
     /// </summary>
@@ -76,6 +73,15 @@ namespace Armada.Core.Models
             set => _RemoteTunnel = value ?? new RemoteTunnelStatus();
         }
 
+        /// <summary>
+        /// Lightweight counts for structured delivery records.
+        /// </summary>
+        public StructuredDeliveryStatus StructuredDelivery
+        {
+            get => _StructuredDelivery;
+            set => _StructuredDelivery = value ?? new StructuredDeliveryStatus();
+        }
+
         #endregion
 
         #region Private-Members
@@ -84,6 +90,7 @@ namespace Armada.Core.Models
         private List<VoyageProgress> _Voyages = new List<VoyageProgress>();
         private List<Signal> _RecentSignals = new List<Signal>();
         private RemoteTunnelStatus _RemoteTunnel = new RemoteTunnelStatus();
+        private StructuredDeliveryStatus _StructuredDelivery = new StructuredDeliveryStatus();
 
         #endregion
 
@@ -97,5 +104,72 @@ namespace Armada.Core.Models
         }
 
         #endregion
+    }
+
+    /// <summary>
+    /// Aggregate counts for structured delivery records exposed on Armada status.
+    /// </summary>
+    public class StructuredDeliveryStatus
+    {
+        /// <summary>
+        /// Objectives grouped by lifecycle status.
+        /// </summary>
+        public Dictionary<string, int> ObjectivesByStatus
+        {
+            get => _ObjectivesByStatus;
+            set => _ObjectivesByStatus = value ?? new Dictionary<string, int>();
+        }
+
+        /// <summary>
+        /// Backlog items grouped by backlog state.
+        /// </summary>
+        public Dictionary<string, int> BacklogByState
+        {
+            get => _BacklogByState;
+            set => _BacklogByState = value ?? new Dictionary<string, int>();
+        }
+
+        /// <summary>
+        /// Check runs grouped by status.
+        /// </summary>
+        public Dictionary<string, int> CheckRunsByStatus
+        {
+            get => _CheckRunsByStatus;
+            set => _CheckRunsByStatus = value ?? new Dictionary<string, int>();
+        }
+
+        /// <summary>
+        /// Releases grouped by status.
+        /// </summary>
+        public Dictionary<string, int> ReleasesByStatus
+        {
+            get => _ReleasesByStatus;
+            set => _ReleasesByStatus = value ?? new Dictionary<string, int>();
+        }
+
+        /// <summary>
+        /// Deployments grouped by status.
+        /// </summary>
+        public Dictionary<string, int> DeploymentsByStatus
+        {
+            get => _DeploymentsByStatus;
+            set => _DeploymentsByStatus = value ?? new Dictionary<string, int>();
+        }
+
+        /// <summary>
+        /// Incidents grouped by status.
+        /// </summary>
+        public Dictionary<string, int> IncidentsByStatus
+        {
+            get => _IncidentsByStatus;
+            set => _IncidentsByStatus = value ?? new Dictionary<string, int>();
+        }
+
+        private Dictionary<string, int> _ObjectivesByStatus = new Dictionary<string, int>();
+        private Dictionary<string, int> _BacklogByState = new Dictionary<string, int>();
+        private Dictionary<string, int> _CheckRunsByStatus = new Dictionary<string, int>();
+        private Dictionary<string, int> _ReleasesByStatus = new Dictionary<string, int>();
+        private Dictionary<string, int> _DeploymentsByStatus = new Dictionary<string, int>();
+        private Dictionary<string, int> _IncidentsByStatus = new Dictionary<string, int>();
     }
 }
