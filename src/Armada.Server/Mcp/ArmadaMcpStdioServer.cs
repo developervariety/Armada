@@ -68,47 +68,44 @@ namespace Armada.Server.Mcp
         }
 
         /// <summary>
-        /// Runs the stdio server using the provided streams.
+        /// Runs the stdio server using the provided streams. Responses mirror the framing of the
+        /// most recent inbound message: Content-Length framed in, Content-Length framed out;
+        /// line-delimited in, line-delimited out. Errors triggered before a framing decision is
+        /// possible (parse failures on the first line) are emitted line-delimited.
         /// </summary>
         /// <param name="input">Input stream containing line-delimited or Content-Length framed JSON-RPC messages.</param>
-        /// <param name="output">Output stream receiving line-delimited JSON-RPC responses.</param>
+        /// <param name="output">Output stream receiving JSON-RPC responses framed to match the inbound request.</param>
         /// <param name="token">Cancellation token.</param>
         public async Task RunAsync(Stream input, Stream output, CancellationToken token = default)
         {
             if (input == null) throw new ArgumentNullException(nameof(input));
             if (output == null) throw new ArgumentNullException(nameof(output));
 
-            using StreamWriter writer = new StreamWriter(output, _Utf8, bufferSize: 8192, leaveOpen: true)
-            {
-                AutoFlush = true,
-                NewLine = "\n"
-            };
-
             while (!token.IsCancellationRequested)
             {
-                string? message;
-                try { message = await ReadMessageAsync(input, token).ConfigureAwait(false); }
+                ReadMessageResult? messageRead;
+                try { messageRead = await ReadMessageAsync(input, token).ConfigureAwait(false); }
                 catch (InvalidDataException ex)
                 {
                     string error = CreateErrorResponse(null, -32700, ex.Message);
-                    await WriteMessageAsync(writer, error, token).ConfigureAwait(false);
+                    await WriteMessageAsync(output, error, framed: false, token).ConfigureAwait(false);
                     return;
                 }
-                if (message == null) return;
+                if (messageRead == null) return;
 
-                string? response = await HandleMessageAsync(message).ConfigureAwait(false);
+                string? response = await HandleMessageAsync(messageRead.Body).ConfigureAwait(false);
                 if (response != null)
-                    await WriteMessageAsync(writer, response, token).ConfigureAwait(false);
+                    await WriteMessageAsync(output, response, messageRead.Framed, token).ConfigureAwait(false);
             }
         }
 
-        private async Task<string?> ReadMessageAsync(Stream input, CancellationToken token)
+        private async Task<ReadMessageResult?> ReadMessageAsync(Stream input, CancellationToken token)
         {
             byte[]? lineBytes = await ReadLineBytesAsync(input, token).ConfigureAwait(false);
             if (lineBytes == null) return null;
             string line = DecodeLine(lineBytes);
             if (!line.StartsWith("Content-Length:", StringComparison.OrdinalIgnoreCase))
-                return line;
+                return new ReadMessageResult(line, false);
 
             int contentLength = ParseContentLengthLine(line);
             if (contentLength < 0 || contentLength > _MAX_BODY_BYTES)
@@ -123,7 +120,7 @@ namespace Armada.Server.Mcp
             }
 
             byte[] bodyBytes = await ReadExactBytesAsync(input, contentLength, token).ConfigureAwait(false);
-            return _Utf8.GetString(bodyBytes);
+            return new ReadMessageResult(_Utf8.GetString(bodyBytes), true);
         }
 
         private static async Task<byte[]?> ReadLineBytesAsync(Stream input, CancellationToken token)
@@ -181,10 +178,23 @@ namespace Armada.Server.Mcp
             throw new InvalidDataException("MCP frame Content-Length is invalid.");
         }
 
-        private static async Task WriteMessageAsync(StreamWriter writer, string message, CancellationToken token)
+        private static async Task WriteMessageAsync(Stream output, string message, bool framed, CancellationToken token)
         {
-            await writer.WriteLineAsync(message.AsMemory(), token).ConfigureAwait(false);
-            await writer.FlushAsync(token).ConfigureAwait(false);
+            byte[] bodyBytes = _Utf8.GetBytes(message);
+            if (framed)
+            {
+                byte[] headerBytes = Encoding.ASCII.GetBytes("Content-Length: " + bodyBytes.Length + "\r\n\r\n");
+                await output.WriteAsync(headerBytes.AsMemory(), token).ConfigureAwait(false);
+                await output.WriteAsync(bodyBytes.AsMemory(), token).ConfigureAwait(false);
+            }
+            else
+            {
+                byte[] terminator = new byte[] { 10 };
+                await output.WriteAsync(bodyBytes.AsMemory(), token).ConfigureAwait(false);
+                await output.WriteAsync(terminator.AsMemory(), token).ConfigureAwait(false);
+            }
+
+            await output.FlushAsync(token).ConfigureAwait(false);
         }
 
         private async Task<string?> HandleMessageAsync(string message)
@@ -395,6 +405,8 @@ namespace Armada.Server.Mcp
             string Description,
             object InputSchema,
             Func<JsonElement?, Task<object>> Handler);
+
+        private sealed record ReadMessageResult(string Body, bool Framed);
 
         private sealed class JsonRpcMethodException : Exception
         {
