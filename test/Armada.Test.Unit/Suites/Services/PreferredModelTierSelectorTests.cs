@@ -244,6 +244,19 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("SelectModel_High_SelectsCaptainWithClaudeOpus47ThinkingMax", () =>
+            {
+                List<Captain> captains = new List<Captain>
+                {
+                    MakeCaptain("claude-opus-4-7-thinking-max")
+                };
+
+                string? selected = PreferredModelTierSelector.SelectModel("high", captains, null, _ => 0);
+                AssertNotNull(selected, "High tier should match Cursor opus 4.7 thinking-max alias");
+                AssertEqual("claude-opus-4-7-thinking-max", selected, "Exact model string should round-trip");
+                return Task.CompletedTask;
+            });
+
             await RunTest("SelectModel_Mid_SelectsClaude46SonnetMedium", () =>
             {
                 List<Captain> captains = new List<Captain>
