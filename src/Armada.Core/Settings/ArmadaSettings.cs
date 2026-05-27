@@ -138,6 +138,16 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Stage-level watchdog timeout in minutes for Assigned/WorkProduced missions
+        /// that have no captain/process heartbeat. Clamped to [5, 180].
+        /// </summary>
+        public int StageWatchdogTimeoutMinutes
+        {
+            get => _StageWatchdogTimeoutMinutes;
+            set => _StageWatchdogTimeoutMinutes = Math.Max(5, Math.Min(180, value));
+        }
+
+        /// <summary>
         /// Maximum number of automatic landing retries when landing fails due to target-branch drift.
         /// Set to 0 to disable auto-retry. Must be in range [0, 10].
         /// </summary>
@@ -899,6 +909,7 @@ namespace Armada.Core.Settings
         private int _McpPort = Constants.DefaultMcpPort;
         private int _HeartbeatIntervalSeconds = Constants.DefaultHeartbeatIntervalSeconds;
         private int _StallThresholdMinutes = Constants.DefaultStallThresholdMinutes;
+        private int _StageWatchdogTimeoutMinutes = 30;
         private int _MaxRecoveryAttempts = Constants.DefaultMaxRecoveryAttempts;
         private long _MaxLogFileSizeBytes = Constants.DefaultMaxLogFileSizeBytes;
         private int _MaxLogFileCount = Constants.DefaultMaxLogFileCount;

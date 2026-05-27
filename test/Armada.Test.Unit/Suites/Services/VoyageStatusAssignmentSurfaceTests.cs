@@ -128,6 +128,63 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("VoyageStatusFull_TruncatesLargeMissionPayloadsAndHonorsIncludeFields", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("slim-status-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(
+                        new Voyage("slim status voyage", new string('v', 128))).ConfigureAwait(false);
+
+                    Mission mission = new Mission("Slim status mission", new string('d', 5000));
+                    mission.VoyageId = voyage.Id;
+                    mission.VesselId = vessel.Id;
+                    mission.Status = MissionStatusEnum.WorkProduced;
+                    mission.AgentOutput = new string('o', 5000);
+                    mission = await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    MinimalAdmiralDouble admiralDouble = new MinimalAdmiralDouble();
+                    Func<JsonElement?, Task<object>>? statusHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_voyage_status") statusHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null);
+
+                    AssertNotNull(statusHandler, "armada_voyage_status handler must be registered");
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        voyageId = voyage.Id,
+                        summary = false,
+                        includeMissions = true,
+                        includeFields = new[] { "statuses" }
+                    });
+                    object result = await statusHandler!(args).ConfigureAwait(false);
+
+                    JsonDocument doc = JsonDocument.Parse(JsonSerializer.Serialize(result));
+                    JsonElement root = doc.RootElement;
+                    JsonElement missionStatus = root.GetProperty("Missions")[0];
+                    JsonElement agentOutput = missionStatus.GetProperty("AgentOutput");
+                    JsonElement description = missionStatus.GetProperty("Description");
+
+                    AssertEqual(128, root.GetProperty("Voyage").GetProperty("DescriptionLength").GetInt32());
+                    JsonElement status = missionStatus.GetProperty("Status");
+                    bool statusMatches = status.ValueKind == JsonValueKind.String
+                        ? status.GetString() == "WorkProduced"
+                        : status.GetInt32() == (int)MissionStatusEnum.WorkProduced;
+                    AssertTrue(statusMatches, "Status should be present when statuses is requested");
+                    AssertTrue(agentOutput.GetProperty("Truncated").GetBoolean(), "AgentOutput should be capped in voyage status responses");
+                    AssertEqual(5000, agentOutput.GetProperty("FullLength").GetInt32());
+                    AssertEqual(4096, agentOutput.GetProperty("Text").GetString()!.Length);
+                    AssertTrue(description.GetProperty("Truncated").GetBoolean(), "Description should be capped in voyage status responses");
+                    AssertEqual(5000, description.GetProperty("FullLength").GetInt32());
+                    AssertEqual(JsonValueKind.Null, missionStatus.GetProperty("Title").ValueKind, "Title should be omitted unless requested by includeFields");
+                }
+            });
+
             await RunTest("Dispatch_BadVesselId_ReturnsStructuredCodeReasonAction", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

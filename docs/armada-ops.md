@@ -97,6 +97,18 @@ Only skip a structured record when the work is genuinely ephemeral and has no ex
 
 Code indexing is incremental where possible. Post-land refreshes reuse unchanged chunk embeddings and graph sidecars, batch embedding-provider calls, and keep lexical search as the reliable fallback even when semantic search is disabled. Dispatch blocks only while a refresh is currently in progress and returns `code_index_update_in_progress` without creating a voyage. Poll `armada_index_status` and retry once `updateInProgress` is false.
 
+`armada_index_status` includes active-update heartbeat, stage, progress percent, `lastEmbeddingBatchUtc`, and `chunksEmbeddedSinceStart`. Treat a moving heartbeat or embedding batch timestamp as slow progress, not a stall. Context pack calls default to a longer direct timeout and return `code_context_timeout` with an action hint when they still cannot finish.
+
+### MCP Operations Surface
+
+Use MCP for normal structured-delivery triage. `armada_enumerate` covers objectives/backlog, incidents, checks, releases, and deployments in addition to core Armada entities. Writers are available for incident close/update, check resolution, release update, deployment update, and backlog/objective create/update, with enum errors returned as structured responses rather than generic JSON-RPC `-32603`.
+
+For large voyages, call `armada_voyage_status` in summary mode first. When mission details are needed, use `summary=false`, `includeMissions=true`, and `includeFields` to opt into only the fields needed; mission descriptions and agent output are capped with `truncated`/`fullLength` metadata.
+
+### Recovery Watchdogs
+
+`StageWatchdogTimeoutMinutes` defaults to 30 minutes and is clamped between 5 and 180. Health checks fail stale `Assigned` or `WorkProduced` missions that have no captain/process heartbeat with `stage_watchdog_no_captain_heartbeat` and emit an error signal, while preserving already-running work that still has captain and process IDs.
+
 ## Pipeline Selection
 
 Choose the default pipeline per vessel based on the repository's dominant risk profile, then override per voyage when the work calls for a different review path.

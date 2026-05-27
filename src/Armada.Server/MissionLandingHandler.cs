@@ -499,13 +499,35 @@ namespace Armada.Server
                     try
                     {
                         string targetBranch = vessel?.DefaultBranch ?? "main";
-                        string? noOpReason = await DetectMergeQueueNoOpAsync(mission, dock, vessel, targetBranch).ConfigureAwait(false);
-                        if (!String.IsNullOrEmpty(noOpReason))
+                        MergeQueueNoOpDecision? noOpDecision = await DetectMergeQueueNoOpAsync(mission, dock, vessel, targetBranch).ConfigureAwait(false);
+                        if (noOpDecision != null)
                         {
                             landingAttempted = true;
-                            landingSucceeded = false;
-                            landingFailureReason = noOpReason;
-                            _Logging.Warn(_Header + "refusing merge-queue enqueue for mission " + mission.Id + ": " + noOpReason);
+                            landingSucceeded = noOpDecision.TreatAsSuccess;
+                            landingFailureReason = noOpDecision.TreatAsSuccess ? null : noOpDecision.Reason;
+                            if (noOpDecision.TreatAsSuccess)
+                            {
+                                _Logging.Info(_Header + "mission " + mission.Id + " merge-queue enqueue is a no-op already integrated case: " + noOpDecision.Reason);
+                                try
+                                {
+                                    ArmadaEvent noOpEvent = new ArmadaEvent("mission.noop_already_integrated", noOpDecision.Reason);
+                                    noOpEvent.EntityType = "mission";
+                                    noOpEvent.EntityId = mission.Id;
+                                    noOpEvent.MissionId = mission.Id;
+                                    noOpEvent.VesselId = mission.VesselId;
+                                    noOpEvent.VoyageId = mission.VoyageId;
+                                    noOpEvent.CaptainId = mission.CaptainId;
+                                    await _Database.Events.CreateAsync(noOpEvent).ConfigureAwait(false);
+                                }
+                                catch (Exception evtEx)
+                                {
+                                    _Logging.Warn(_Header + "error emitting no-op already-integrated event for " + mission.Id + ": " + evtEx.Message);
+                                }
+                            }
+                            else
+                            {
+                                _Logging.Warn(_Header + "refusing merge-queue enqueue for mission " + mission.Id + ": " + noOpDecision.Reason);
+                            }
                         }
                         else
                         {
@@ -951,7 +973,7 @@ namespace Armada.Server
             }
         }
 
-        private async Task<string?> DetectMergeQueueNoOpAsync(Mission mission, Dock dock, Vessel? vessel, string targetBranch)
+        private async Task<MergeQueueNoOpDecision?> DetectMergeQueueNoOpAsync(Mission mission, Dock dock, Vessel? vessel, string targetBranch)
         {
             if (vessel == null || String.IsNullOrWhiteSpace(vessel.LocalPath)) return null;
             if (String.IsNullOrWhiteSpace(targetBranch)) return null;
@@ -976,9 +998,15 @@ namespace Armada.Server
             if (String.IsNullOrWhiteSpace(captainHead)) return null;
             if (!String.Equals(captainHead, targetHead, StringComparison.OrdinalIgnoreCase)) return null;
 
-            return "No-op merge queue enqueue refused: captain branch " + (dock.BranchName ?? "(unknown)") +
+            string persona = mission.Persona ?? "Worker";
+            bool reviewOnly = persona.IndexOf("judge", StringComparison.OrdinalIgnoreCase) >= 0
+                || persona.IndexOf("review", StringComparison.OrdinalIgnoreCase) >= 0;
+            string reason = "No-op merge queue enqueue: captain branch " + (dock.BranchName ?? "(unknown)") +
                 " is already at target branch " + targetBranch + " HEAD " + targetHead;
+            return new MergeQueueNoOpDecision(!reviewOnly && !String.IsNullOrWhiteSpace(mission.CommitHash), reason);
         }
+
+        private sealed record MergeQueueNoOpDecision(bool TreatAsSuccess, string Reason);
 
         private async Task<string?> TryResolveGitRefAsync(string repoPath, string refName)
         {

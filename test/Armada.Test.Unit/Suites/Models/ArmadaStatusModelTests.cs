@@ -114,6 +114,11 @@ namespace Armada.Test.Unit.Suites.Models
                 status.MissionsByStatus["Pending"] = 4;
                 status.StructuredDelivery.ObjectivesByStatus["Completed"] = 7;
                 status.StructuredDelivery.IncidentsByStatus["Open"] = 2;
+                status.StructuredDelivery.OpenIncidentsBySeverity["Critical"] = 1;
+                status.StructuredDelivery.PendingChecksRequired = 3;
+                status.StructuredDelivery.PendingChecksOptional = 0;
+                status.StructuredDelivery.InFlightReleasesCount = 2;
+                status.StructuredDelivery.UnverifiedDeploymentsCount = 4;
                 status.RemoteTunnel.State = RemoteTunnelStateEnum.Connected;
                 status.RemoteTunnel.TunnelUrl = "wss://control.example.com/tunnel";
                 status.RemoteTunnel.InstanceId = "armada-abc123";
@@ -129,6 +134,11 @@ namespace Armada.Test.Unit.Suites.Models
                 AssertEqual(3, deserialized.ActiveVoyages);
                 AssertEqual(7, deserialized.StructuredDelivery.ObjectivesByStatus["Completed"]);
                 AssertEqual(2, deserialized.StructuredDelivery.IncidentsByStatus["Open"]);
+                AssertEqual(1, deserialized.StructuredDelivery.OpenIncidentsBySeverity["Critical"]);
+                AssertEqual(3, deserialized.StructuredDelivery.PendingChecksRequired);
+                AssertEqual(0, deserialized.StructuredDelivery.PendingChecksOptional);
+                AssertEqual(2, deserialized.StructuredDelivery.InFlightReleasesCount);
+                AssertEqual(4, deserialized.StructuredDelivery.UnverifiedDeploymentsCount);
                 AssertEqual(RemoteTunnelStateEnum.Connected, deserialized.RemoteTunnel.State);
                 AssertEqual("wss://control.example.com/tunnel", deserialized.RemoteTunnel.TunnelUrl);
             });

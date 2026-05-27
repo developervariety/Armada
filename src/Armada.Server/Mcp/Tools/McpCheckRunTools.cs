@@ -4,6 +4,7 @@ namespace Armada.Server.Mcp.Tools
     using System.Text.Json;
     using System.Text.Json.Serialization;
     using Armada.Core.Database;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
 
@@ -93,6 +94,60 @@ namespace Armada.Server.Mcp.Tools
                     AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
                     return (object)await checkRunService.RetryAsync(auth, request.CheckRunId).ConfigureAwait(false);
                 });
+
+            register(
+                "armada_resolve_check",
+                "Update a structured check run status and optional output without dropping to REST.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        checkRunId = new { type = "string", description = "Check run ID (chk_ prefix)" },
+                        status = new { type = "string", description = "Pending, Running, Passed, Failed, or Canceled" },
+                        output = new { type = "string", description = "Optional output/details" },
+                        summary = new { type = "string", description = "Optional human-readable summary" },
+                        exitCode = new { type = "integer", description = "Optional exit code" }
+                    },
+                    required = new[] { "checkRunId", "status" }
+                },
+                async (args) =>
+                {
+                    CheckResolveArgs request = JsonSerializer.Deserialize<CheckResolveArgs>(args!.Value, _JsonOptions)
+                        ?? throw new InvalidOperationException("Could not deserialize CheckResolveArgs.");
+                    if (!Enum.TryParse(request.Status, true, out CheckRunStatusEnum status))
+                        return (object)new { Error = "Invalid status: " + request.Status, ValidValues = Enum.GetNames<CheckRunStatusEnum>() };
+
+                    CheckRun? run = await database.CheckRuns.ReadAsync(request.CheckRunId).ConfigureAwait(false);
+                    if (run == null) return (object)new { Error = "Check run not found" };
+
+                    run.Status = status;
+                    if (request.Output != null) run.Output = request.Output;
+                    if (request.Summary != null) run.Summary = request.Summary;
+                    if (request.ExitCode.HasValue) run.ExitCode = request.ExitCode.Value;
+                    if (status == CheckRunStatusEnum.Running && run.StartedUtc == null) run.StartedUtc = DateTime.UtcNow;
+                    if (status == CheckRunStatusEnum.Passed || status == CheckRunStatusEnum.Failed || status == CheckRunStatusEnum.Canceled)
+                    {
+                        run.CompletedUtc ??= DateTime.UtcNow;
+                    }
+                    run.LastUpdateUtc = DateTime.UtcNow;
+                    run = await database.CheckRuns.UpdateAsync(run).ConfigureAwait(false);
+                    checkRunService.OnCheckRunChanged?.Invoke(run);
+                    return (object)run;
+                });
+        }
+
+        private sealed class CheckResolveArgs
+        {
+            public string CheckRunId { get; set; } = "";
+
+            public string Status { get; set; } = "";
+
+            public string? Output { get; set; } = null;
+
+            public string? Summary { get; set; } = null;
+
+            public int? ExitCode { get; set; } = null;
         }
     }
 }

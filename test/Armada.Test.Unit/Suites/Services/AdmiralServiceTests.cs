@@ -752,6 +752,37 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("HealthCheckAsync StageWatchdogFailsStaleMissionWithoutCaptainHeartbeat", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    StubGitService git = new StubGitService();
+                    ArmadaSettings settings = CreateSettings();
+                    settings.StageWatchdogTimeoutMinutes = 5;
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), db, settings, git);
+
+                    Mission mission = new Mission("Stale stage mission");
+                    mission.Status = MissionStatusEnum.WorkProduced;
+                    mission.CaptainId = null;
+                    mission.ProcessId = null;
+                    mission = await db.Missions.CreateAsync(mission);
+                    await SetMissionLastUpdateUtcAsync(testDb, mission.Id, DateTime.UtcNow.AddMinutes(-6));
+
+                    await service.HealthCheckAsync();
+
+                    Mission? updatedMission = await db.Missions.ReadAsync(mission.Id);
+                    AssertNotNull(updatedMission, "Mission should still exist");
+                    AssertEqual(MissionStatusEnum.Failed, updatedMission!.Status, "Stage watchdog should fail stale stage missions without a captain/process heartbeat");
+                    AssertEqual("stage_watchdog_no_captain_heartbeat", updatedMission.FailureReason);
+
+                    EnumerationResult<Signal> signals = await db.Signals.EnumerateAsync(new EnumerationQuery { PageNumber = 1, PageSize = 10 }).ConfigureAwait(false);
+                    AssertEqual(1, signals.Objects.Count, "Stage watchdog should emit an operator-visible error signal");
+                    AssertEqual(SignalTypeEnum.Error, signals.Objects[0].Type);
+                    AssertContains("stage_watchdog_no_captain_heartbeat", signals.Objects[0].Payload);
+                }
+            });
+
             await RunTest("HealthCheckAsync ChecksVoyageCompletions", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

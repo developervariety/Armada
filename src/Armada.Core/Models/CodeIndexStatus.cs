@@ -58,6 +58,11 @@ namespace Armada.Core.Models
         public DateTime? UpdateHeartbeatUtc { get; set; } = null;
 
         /// <summary>
+        /// Timestamp of the most recent completed embedding progress checkpoint.
+        /// </summary>
+        public DateTime? LastEmbeddingBatchUtc { get; set; } = null;
+
+        /// <summary>
         /// Human-readable stage for the current in-process refresh.
         /// </summary>
         public string? UpdateStage { get; set; } = null;
@@ -66,6 +71,11 @@ namespace Armada.Core.Models
         /// Completed work units in the current stage, when known.
         /// </summary>
         public int? UpdateProgressDone { get; set; } = null;
+
+        /// <summary>
+        /// Number of chunks embedded since this update started, when currently embedding.
+        /// </summary>
+        public int? ChunksEmbeddedSinceStart { get; set; } = null;
 
         /// <summary>
         /// Total work units in the current stage, when known.

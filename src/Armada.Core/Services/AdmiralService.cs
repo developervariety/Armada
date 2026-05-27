@@ -891,6 +891,10 @@ namespace Armada.Core.Services
                 }, token).ConfigureAwait(false);
                 if (page.TotalRecords > 0) status.CheckRunsByStatus[value.ToString()] = ClampStatusCount(page.TotalRecords);
             }
+            status.PendingChecksRequired = status.CheckRunsByStatus.TryGetValue(CheckRunStatusEnum.Pending.ToString(), out int pendingChecks)
+                ? pendingChecks
+                : 0;
+            status.PendingChecksOptional = 0;
 
             foreach (ReleaseStatusEnum value in Enum.GetValues<ReleaseStatusEnum>())
             {
@@ -902,6 +906,11 @@ namespace Armada.Core.Services
                 }, token).ConfigureAwait(false);
                 if (page.TotalRecords > 0) status.ReleasesByStatus[value.ToString()] = ClampStatusCount(page.TotalRecords);
             }
+            status.InFlightReleasesCount = status.ReleasesByStatus
+                .Where(kvp => !String.Equals(kvp.Key, ReleaseStatusEnum.Shipped.ToString(), StringComparison.OrdinalIgnoreCase)
+                    && !String.Equals(kvp.Key, ReleaseStatusEnum.Failed.ToString(), StringComparison.OrdinalIgnoreCase)
+                    && !String.Equals(kvp.Key, ReleaseStatusEnum.RolledBack.ToString(), StringComparison.OrdinalIgnoreCase))
+                .Sum(kvp => kvp.Value);
 
             foreach (DeploymentStatusEnum value in Enum.GetValues<DeploymentStatusEnum>())
             {
@@ -913,6 +922,11 @@ namespace Armada.Core.Services
                 }, token).ConfigureAwait(false);
                 if (page.TotalRecords > 0) status.DeploymentsByStatus[value.ToString()] = ClampStatusCount(page.TotalRecords);
             }
+            status.UnverifiedDeploymentsCount = status.DeploymentsByStatus
+                .Where(kvp => !String.Equals(kvp.Key, DeploymentStatusEnum.Succeeded.ToString(), StringComparison.OrdinalIgnoreCase)
+                    && !String.Equals(kvp.Key, DeploymentStatusEnum.RolledBack.ToString(), StringComparison.OrdinalIgnoreCase)
+                    && !String.Equals(kvp.Key, DeploymentStatusEnum.Denied.ToString(), StringComparison.OrdinalIgnoreCase))
+                .Sum(kvp => kvp.Value);
 
             foreach (IncidentStatusEnum value in Enum.GetValues<IncidentStatusEnum>())
             {
@@ -923,6 +937,17 @@ namespace Armada.Core.Services
                     PageSize = 1
                 }, token).ConfigureAwait(false);
                 if (page.TotalRecords > 0) status.IncidentsByStatus[value.ToString()] = ClampStatusCount(page.TotalRecords);
+            }
+            foreach (IncidentSeverityEnum value in Enum.GetValues<IncidentSeverityEnum>())
+            {
+                EnumerationResult<Incident> page = await incidents.EnumerateAsync(auth, new IncidentQuery
+                {
+                    Status = IncidentStatusEnum.Open,
+                    Severity = value,
+                    PageNumber = 1,
+                    PageSize = 1
+                }, token).ConfigureAwait(false);
+                if (page.TotalRecords > 0) status.OpenIncidentsBySeverity[value.ToString()] = ClampStatusCount(page.TotalRecords);
             }
 
             return status;
@@ -992,6 +1017,7 @@ namespace Armada.Core.Services
             // This catches any mission that was left InProgress due to a captain being
             // reassigned before the health check could detect the old process exit.
             await RecoverOrphanedMissionsAsync(token).ConfigureAwait(false);
+            await RecoverStageWatchdogMissionsAsync(token).ConfigureAwait(false);
 
             // Check for completed voyages
             List<Voyage> completedVoyages = await _Voyages.CheckCompletionsAsync(token).ConfigureAwait(false);
@@ -1716,6 +1742,41 @@ namespace Armada.Core.Services
                             vesselId: mission.VesselId, voyageId: mission.VoyageId, token: token).ConfigureAwait(false);
                     }
                 }
+            }
+        }
+
+        private async Task RecoverStageWatchdogMissionsAsync(CancellationToken token)
+        {
+            DateTime cutoff = DateTime.UtcNow.AddMinutes(-_Settings.StageWatchdogTimeoutMinutes);
+            List<Mission> assigned = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Assigned, token).ConfigureAwait(false);
+            List<Mission> workProduced = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.WorkProduced, token).ConfigureAwait(false);
+            foreach (Mission mission in assigned.Concat(workProduced))
+            {
+                if (mission.LastUpdateUtc > cutoff) continue;
+                if (!String.IsNullOrWhiteSpace(mission.CaptainId) && mission.ProcessId.HasValue) continue;
+
+                mission.Status = MissionStatusEnum.Failed;
+                mission.FailureReason = "stage_watchdog_no_captain_heartbeat";
+                mission.CompletedUtc = DateTime.UtcNow;
+                mission.LastUpdateUtc = DateTime.UtcNow;
+                mission.CaptainId = null;
+                mission.ProcessId = null;
+                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+
+                await _Database.Signals.CreateAsync(new Signal
+                {
+                    FromCaptainId = null,
+                    ToCaptainId = null,
+                    Type = SignalTypeEnum.Error,
+                    Payload = "Mission " + mission.Id + " failed: stage_watchdog_no_captain_heartbeat",
+                    CreatedUtc = DateTime.UtcNow
+                }, token).ConfigureAwait(false);
+
+                await EmitEventAsync("mission.failed",
+                    "Mission failed by stage watchdog: " + mission.Title,
+                    entityType: "mission", entityId: mission.Id,
+                    missionId: mission.Id, vesselId: mission.VesselId, voyageId: mission.VoyageId, token: token).ConfigureAwait(false);
+                _Logging.Warn(_Header + "stage watchdog failed mission " + mission.Id + " after " + _Settings.StageWatchdogTimeoutMinutes + " minute(s) without captain/process heartbeat");
             }
         }
 

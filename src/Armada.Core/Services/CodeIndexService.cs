@@ -1267,8 +1267,12 @@ namespace Armada.Core.Services
                 status.UpdateInProgress = true;
                 status.UpdateStartedUtc = active.StartedUtc;
                 status.UpdateHeartbeatUtc = active.HeartbeatUtc;
+                status.LastEmbeddingBatchUtc = active.LastEmbeddingBatchUtc;
                 status.UpdateStage = active.Stage;
                 status.UpdateProgressDone = active.ProgressDone;
+                status.ChunksEmbeddedSinceStart = String.Equals(active.Stage, "embedding chunks", StringComparison.OrdinalIgnoreCase)
+                    ? active.ProgressDone
+                    : null;
                 status.UpdateProgressTotal = active.ProgressTotal;
                 status.UpdateProgressPercent = active.ProgressTotal.HasValue && active.ProgressTotal.Value > 0 && active.ProgressDone.HasValue
                     ? Math.Round((double)active.ProgressDone.Value / active.ProgressTotal.Value * 100d, 2)
@@ -1280,8 +1284,10 @@ namespace Armada.Core.Services
             status.UpdateInProgress = false;
             status.UpdateStartedUtc = null;
             status.UpdateHeartbeatUtc = null;
+            status.LastEmbeddingBatchUtc = null;
             status.UpdateStage = null;
             status.UpdateProgressDone = null;
+            status.ChunksEmbeddedSinceStart = null;
             status.UpdateProgressTotal = null;
             status.UpdateProgressPercent = null;
         }
@@ -2225,6 +2231,8 @@ namespace Armada.Core.Services
             active.Stage = stage;
             active.ProgressDone = done;
             active.ProgressTotal = total;
+            if (String.Equals(stage, "embedding chunks", StringComparison.OrdinalIgnoreCase) && done.HasValue)
+                active.LastEmbeddingBatchUtc = active.HeartbeatUtc;
         }
 
         private bool CanReusePersistedIndex(
@@ -3204,6 +3212,8 @@ namespace Armada.Core.Services
             public DateTime StartedUtc { get; set; } = DateTime.UtcNow;
 
             public DateTime HeartbeatUtc { get; set; } = DateTime.UtcNow;
+
+            public DateTime? LastEmbeddingBatchUtc { get; set; } = null;
 
             public string Stage { get; set; } = "starting";
 

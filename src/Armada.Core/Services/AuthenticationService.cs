@@ -80,8 +80,8 @@ namespace Armada.Core.Services
                 if (apiKeyHeader == _Settings.ApiKey)
                 {
                     return AuthContext.Authenticated(
-                        Constants.SystemTenantId,
-                        Constants.SystemUserId,
+                        Constants.DefaultTenantId,
+                        Constants.DefaultUserId,
                         true,
                         true,
                         "ApiKey",

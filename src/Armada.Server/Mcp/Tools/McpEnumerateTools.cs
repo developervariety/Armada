@@ -7,7 +7,9 @@ namespace Armada.Server.Mcp.Tools
     using System.Threading.Tasks;
     using Armada.Core;
     using Armada.Core.Database;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
 
     /// <summary>
@@ -33,13 +35,13 @@ namespace Armada.Server.Mcp.Tools
         {
             register(
                 "armada_enumerate",
-                "Find and browse entities with paginated, filtered, sorted access to: fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, personas, prompt_templates, pipelines, playbooks. Returns paginated results with total counts. Filter by vesselId, fleetId, captainId, voyageId, status, date range, and more.",
+                "Find and browse entities with paginated, filtered, sorted access to: fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, personas, prompt_templates, pipelines, playbooks, objectives, incidents, checks, releases, deployments. Returns paginated results with total counts. Filter by vesselId, fleetId, captainId, voyageId, status, date range, and more.",
                 new
                 {
                     type = "object",
                     properties = new
                     {
-                        entityType = new { type = "string", description = "Entity type to enumerate: fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, personas, prompt_templates, pipelines, playbooks" },
+                        entityType = new { type = "string", description = "Entity type to enumerate: fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, personas, prompt_templates, pipelines, playbooks, objectives, incidents, checks, releases, deployments" },
                         pageNumber = new { type = "integer", description = "Page number (1-based, default 1)" },
                         pageSize = new { type = "integer", description = "Results per page (default 10, max 1000)" },
                         order = new { type = "string", description = "Sort order: CreatedAscending, CreatedDescending (default)" },
@@ -300,10 +302,167 @@ namespace Armada.Server.Mcp.Tools
                                 return (object)projectedPlaybooks;
                             }
                             return (object)playbooks;
+                        case "objectives":
+                        case "objective":
+                        case "backlog":
+                        case "backlog_items":
+                            ObjectiveService objectiveService = new ObjectiveService(database);
+                            return (object)await objectiveService.EnumerateAsync(
+                                McpToolHelpers.CreateDefaultTenantAdminContext(),
+                                request.ToObjectiveQuery()).ConfigureAwait(false);
+                        case "incidents":
+                        case "incident":
+                            IncidentService incidentService = new IncidentService(database);
+                            return (object)await incidentService.EnumerateAsync(
+                                McpToolHelpers.CreateDefaultTenantAdminContext(),
+                                request.ToIncidentQuery()).ConfigureAwait(false);
+                        case "checks":
+                        case "check":
+                        case "check_runs":
+                        case "check_run":
+                            return (object)await database.CheckRuns.EnumerateAsync(request.ToCheckRunQuery()).ConfigureAwait(false);
+                        case "releases":
+                        case "release":
+                            return (object)await database.Releases.EnumerateAsync(request.ToReleaseQuery()).ConfigureAwait(false);
+                        case "deployments":
+                        case "deployment":
+                            return (object)await database.Deployments.EnumerateAsync(request.ToDeploymentQuery()).ConfigureAwait(false);
                         default:
-                            return (object)new { Error = "Unknown entity type: " + entityType + ". Valid types: fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, personas, prompt_templates, pipelines, playbooks" };
+                            return (object)new { Error = "Unknown entity type: " + entityType + ". Valid types: fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, personas, prompt_templates, pipelines, playbooks, objectives, incidents, checks, releases, deployments" };
                     }
                 });
+        }
+
+        private sealed class EnumerateArgs
+        {
+            public string? EntityType { get; set; }
+            public int? PageNumber { get; set; }
+            public int? PageSize { get; set; }
+            public string? Order { get; set; }
+            public DateTime? CreatedAfter { get; set; }
+            public DateTime? CreatedBefore { get; set; }
+            public string? Status { get; set; }
+            public string? FleetId { get; set; }
+            public string? VesselId { get; set; }
+            public string? CaptainId { get; set; }
+            public string? VoyageId { get; set; }
+            public string? MissionId { get; set; }
+            public string? EventType { get; set; }
+            public string? SignalType { get; set; }
+            public string? ToCaptainId { get; set; }
+            public bool? UnreadOnly { get; set; }
+            public bool? IncludeDescription { get; set; }
+            public bool? IncludeContext { get; set; }
+            public bool? IncludeTestOutput { get; set; }
+            public bool? IncludePayload { get; set; }
+            public bool? IncludeMessage { get; set; }
+
+            public EnumerationQuery ToEnumerationQuery()
+            {
+                EnumerationQuery query = new EnumerationQuery
+                {
+                    PageNumber = PageNumber ?? 1,
+                    PageSize = PageSize ?? 10,
+                    Order = ParseEnum(Order, EnumerationOrderEnum.CreatedDescending),
+                    CreatedAfter = CreatedAfter,
+                    CreatedBefore = CreatedBefore,
+                    Status = Status,
+                    FleetId = FleetId,
+                    VesselId = VesselId,
+                    CaptainId = CaptainId,
+                    VoyageId = VoyageId,
+                    MissionId = MissionId,
+                    EventType = EventType,
+                    SignalType = SignalType,
+                    ToCaptainId = ToCaptainId,
+                    UnreadOnly = UnreadOnly
+                };
+                return query;
+            }
+
+            public ObjectiveQuery ToObjectiveQuery()
+            {
+                return new ObjectiveQuery
+                {
+                    VesselId = VesselId,
+                    FleetId = FleetId,
+                    VoyageId = VoyageId,
+                    MissionId = MissionId,
+                    Status = ParseNullableEnum<ObjectiveStatusEnum>(Status),
+                    PageNumber = PageNumber ?? 1,
+                    PageSize = PageSize ?? 25,
+                    FromUtc = CreatedAfter,
+                    ToUtc = CreatedBefore
+                };
+            }
+
+            public IncidentQuery ToIncidentQuery()
+            {
+                return new IncidentQuery
+                {
+                    VesselId = VesselId,
+                    MissionId = MissionId,
+                    VoyageId = VoyageId,
+                    Status = ParseNullableEnum<IncidentStatusEnum>(Status),
+                    PageNumber = PageNumber ?? 1,
+                    PageSize = PageSize ?? 25
+                };
+            }
+
+            public CheckRunQuery ToCheckRunQuery()
+            {
+                return new CheckRunQuery
+                {
+                    VesselId = VesselId,
+                    MissionId = MissionId,
+                    VoyageId = VoyageId,
+                    Status = ParseNullableEnum<CheckRunStatusEnum>(Status),
+                    PageNumber = PageNumber ?? 1,
+                    PageSize = PageSize ?? 25,
+                    FromUtc = CreatedAfter,
+                    ToUtc = CreatedBefore
+                };
+            }
+
+            public ReleaseQuery ToReleaseQuery()
+            {
+                return new ReleaseQuery
+                {
+                    VesselId = VesselId,
+                    MissionId = MissionId,
+                    VoyageId = VoyageId,
+                    Status = ParseNullableEnum<ReleaseStatusEnum>(Status),
+                    PageNumber = PageNumber ?? 1,
+                    PageSize = PageSize ?? 25,
+                    FromUtc = CreatedAfter,
+                    ToUtc = CreatedBefore
+                };
+            }
+
+            public DeploymentQuery ToDeploymentQuery()
+            {
+                return new DeploymentQuery
+                {
+                    VesselId = VesselId,
+                    MissionId = MissionId,
+                    VoyageId = VoyageId,
+                    Status = ParseNullableEnum<DeploymentStatusEnum>(Status),
+                    PageNumber = PageNumber ?? 1,
+                    PageSize = PageSize ?? 25,
+                    FromUtc = CreatedAfter,
+                    ToUtc = CreatedBefore
+                };
+            }
+        }
+
+        private static TEnum ParseEnum<TEnum>(string? value, TEnum fallback) where TEnum : struct
+        {
+            return Enum.TryParse(value, true, out TEnum parsed) ? parsed : fallback;
+        }
+
+        private static TEnum? ParseNullableEnum<TEnum>(string? value) where TEnum : struct
+        {
+            return Enum.TryParse(value, true, out TEnum parsed) ? parsed : null;
         }
     }
 }

@@ -239,7 +239,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_voyage_status",
-                "Get status of a specific voyage. Returns summary with mission counts by default; opt-in to full mission details.",
+                "Get status of a specific voyage. Returns summary with mission counts by default; opt in to compact mission details with includeMissions/includeFields.",
                 new
                 {
                     type = "object",
@@ -250,7 +250,8 @@ namespace Armada.Server.Mcp.Tools
                         includeMissions = new { type = "boolean", description = "Include full mission objects (default false). Only used when summary=false." },
                         includeDescription = new { type = "boolean", description = "Include Description on embedded missions (default false)" },
                         includeDiffs = new { type = "boolean", description = "Include saved diff for each mission (default false)" },
-                        includeLogs = new { type = "boolean", description = "Include log excerpt for each mission (default false). Currently reserved for future use." }
+                        includeLogs = new { type = "boolean", description = "Include log excerpt for each mission (default false). Currently reserved for future use." },
+                        includeFields = new { type = "array", items = new { type = "string" }, description = "Optional mission fields: titles, statuses, commitHashes, dependsOn, prestaged, persona, model" }
                     },
                     required = new[] { "voyageId" }
                 },
@@ -290,16 +291,20 @@ namespace Armada.Server.Mcp.Tools
                         VoyageId = voyageId,
                         PageSize = 1000
                     };
-                    List<Mission> missions = (await database.Missions.EnumerateSummariesAsync(missionQuery).ConfigureAwait(false)).Objects;
+                    List<Mission> missionSummaries = (await database.Missions.EnumerateSummariesAsync(missionQuery).ConfigureAwait(false)).Objects;
 
                     // Non-summary: optionally include mission objects
                     if (request.IncludeMissions != true)
                     {
-                        return (object)new { Voyage = voyage, TotalMissions = missions.Count };
+                        return (object)new { Voyage = voyage, TotalMissions = missionSummaries.Count };
                     }
 
-                    // Mission objects are lightweight summaries. Logs and diffs are available through mission-specific tools.
-                    return (object)new { Voyage = voyage, Missions = missions };
+                    List<Mission> missions = await database.Missions.EnumerateByVoyageAsync(voyageId).ConfigureAwait(false);
+                    return (object)new
+                    {
+                        Voyage = new { voyage.Id, voyage.Title, voyage.Status, voyage.CreatedUtc, voyage.CompletedUtc, voyage.LastUpdateUtc, DescriptionLength = voyage.Description?.Length ?? 0 },
+                        Missions = missions.Select(m => BuildSlimMissionStatus(m, request.IncludeFields)).ToList()
+                    };
                 });
 
             register(
@@ -1026,6 +1031,42 @@ namespace Armada.Server.Mcp.Tools
             LoggingModule logging = new LoggingModule();
             logging.Settings.EnableConsole = false;
             return logging;
+        }
+
+        private static object BuildSlimMissionStatus(Mission mission, List<string>? includeFields)
+        {
+            HashSet<string> fields = new HashSet<string>(includeFields ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
+            bool defaultSlim = fields.Count == 0;
+            return new
+            {
+                mission.Id,
+                Title = defaultSlim || fields.Contains("titles") ? mission.Title : null,
+                Status = defaultSlim || fields.Contains("statuses") ? mission.Status : (MissionStatusEnum?)null,
+                Persona = defaultSlim || fields.Contains("persona") ? mission.Persona : null,
+                PreferredModel = defaultSlim || fields.Contains("model") ? mission.PreferredModel : null,
+                CommitHash = defaultSlim || fields.Contains("commitHashes") ? mission.CommitHash : null,
+                DependsOnMissionId = defaultSlim || fields.Contains("dependsOn") ? mission.DependsOnMissionId : null,
+                PrestagedFiles = fields.Contains("prestaged") ? mission.PrestagedFiles : null,
+                mission.AssignmentState,
+                mission.CaptainId,
+                mission.ProcessId,
+                mission.DockId,
+                mission.BranchName,
+                mission.FailureReason,
+                mission.CreatedUtc,
+                mission.LastUpdateUtc,
+                mission.StartedUtc,
+                mission.CompletedUtc,
+                Description = TruncateForStatus(mission.Description, 4096),
+                AgentOutput = TruncateForStatus(mission.AgentOutput, 4096)
+            };
+        }
+
+        private static object? TruncateForStatus(string? value, int maxChars)
+        {
+            if (String.IsNullOrEmpty(value)) return null;
+            if (value.Length <= maxChars) return new { Text = value, Truncated = false, FullLength = value.Length };
+            return new { Text = value.Substring(0, maxChars), Truncated = true, FullLength = value.Length };
         }
     }
 }

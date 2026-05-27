@@ -165,11 +165,46 @@ namespace Armada.Core.Models
             set => _IncidentsByStatus = value ?? new Dictionary<string, int>();
         }
 
+        /// <summary>
+        /// Open incidents grouped by severity.
+        /// </summary>
+        public Dictionary<string, int> OpenIncidentsBySeverity
+        {
+            get => _OpenIncidentsBySeverity;
+            set => _OpenIncidentsBySeverity = value ?? new Dictionary<string, int>();
+        }
+
+        /// <summary>
+        /// Pending required check count.
+        /// </summary>
+        public int PendingChecksRequired { get; set; } = 0;
+
+        /// <summary>
+        /// Pending optional check count.
+        /// </summary>
+        public int PendingChecksOptional { get; set; } = 0;
+
+        /// <summary>
+        /// Count of releases not yet shipped.
+        /// </summary>
+        public int InFlightReleasesCount { get; set; } = 0;
+
+        /// <summary>
+        /// Count of deployments that have not reached verified terminal state.
+        /// </summary>
+        public int UnverifiedDeploymentsCount { get; set; } = 0;
+
+        /// <summary>
+        /// Count of overdue runbook executions, when that surface can be computed cheaply.
+        /// </summary>
+        public int OverdueRunbookExecutionsCount { get; set; } = 0;
+
         private Dictionary<string, int> _ObjectivesByStatus = new Dictionary<string, int>();
         private Dictionary<string, int> _BacklogByState = new Dictionary<string, int>();
         private Dictionary<string, int> _CheckRunsByStatus = new Dictionary<string, int>();
         private Dictionary<string, int> _ReleasesByStatus = new Dictionary<string, int>();
         private Dictionary<string, int> _DeploymentsByStatus = new Dictionary<string, int>();
         private Dictionary<string, int> _IncidentsByStatus = new Dictionary<string, int>();
+        private Dictionary<string, int> _OpenIncidentsBySeverity = new Dictionary<string, int>();
     }
 }

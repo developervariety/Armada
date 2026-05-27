@@ -8,7 +8,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Test.Common;
 
     /// <summary>
-    /// Tests for the Armada-owned MCP stdio Content-Length transport.
+    /// Tests for the Armada-owned MCP stdio transport.
     /// </summary>
     public class McpStdioServerTests : TestSuite
     {
@@ -22,14 +22,14 @@ namespace Armada.Test.Unit.Suites.Services
         /// </summary>
         protected override async Task RunTestsAsync()
         {
-            await RunTest("FramedInitialize_ReturnsFramedServerInfo", async () =>
+            await RunTest("FramedInitialize_ReturnsLineDelimitedServerInfo", async () =>
             {
                 ArmadaMcpStdioServer server = CreateServer();
                 string request = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-03-26\",\"capabilities\":{},\"clientInfo\":{\"name\":\"codex\",\"version\":\"1.0\"}}}";
 
                 byte[] output = await RunServerAsync(server, CreateFrame(request)).ConfigureAwait(false);
-                FrameReadResult frame = ReadSingleFrame(output);
-                JsonElement response = JsonSerializer.Deserialize<JsonElement>(frame.Body);
+                MessageReadResult message = ReadSingleMessage(output);
+                JsonElement response = JsonSerializer.Deserialize<JsonElement>(message.Body);
                 JsonElement result = response.GetProperty("result");
                 JsonElement serverInfo = result.GetProperty("serverInfo");
 
@@ -37,7 +37,37 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(1, response.GetProperty("id").GetInt32());
                 AssertEqual("Armada Test", serverInfo.GetProperty("name").GetString());
                 AssertEqual("9.9.9", serverInfo.GetProperty("version").GetString());
-                AssertTrue(output.Length == frame.TotalBytesRead, "stdout should contain only one framed initialize response");
+                AssertTrue(output.Length == message.TotalBytesRead, "stdout should contain only one line-delimited initialize response");
+            }).ConfigureAwait(false);
+
+            await RunTest("LineDelimitedInitialize_ReturnsLineDelimitedServerInfo", async () =>
+            {
+                ArmadaMcpStdioServer server = CreateServer();
+                string request = "{\"jsonrpc\":\"2.0\",\"id\":11,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-03-26\",\"capabilities\":{},\"clientInfo\":{\"name\":\"codex\",\"version\":\"1.0\"}}}\n";
+
+                byte[] output = await RunServerAsync(server, Encoding.UTF8.GetBytes(request)).ConfigureAwait(false);
+                MessageReadResult message = ReadSingleMessage(output);
+                JsonElement response = JsonSerializer.Deserialize<JsonElement>(message.Body);
+
+                AssertEqual("2.0", response.GetProperty("jsonrpc").GetString());
+                AssertEqual(11, response.GetProperty("id").GetInt32());
+                AssertEqual("Armada Test", response.GetProperty("result").GetProperty("serverInfo").GetProperty("name").GetString());
+                AssertFalse(message.Body.StartsWith("Content-Length", StringComparison.OrdinalIgnoreCase), "stdout should be bare JSON-RPC, not Content-Length framed");
+                AssertTrue(output.Length == message.TotalBytesRead, "stdout should contain only one line-delimited initialize response");
+            }).ConfigureAwait(false);
+
+            await RunTest("FramedInitialize_WithUtf8Payload_UsesByteContentLength", async () =>
+            {
+                ArmadaMcpStdioServer server = CreateServer();
+                string request = "{\"jsonrpc\":\"2.0\",\"id\":12,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-03-26\",\"capabilities\":{},\"clientInfo\":{\"name\":\"cod\u00e9x\",\"version\":\"1.0\"}}}";
+
+                byte[] output = await RunServerAsync(server, CreateFrame(request)).ConfigureAwait(false);
+                MessageReadResult message = ReadSingleMessage(output);
+                JsonElement response = JsonSerializer.Deserialize<JsonElement>(message.Body);
+
+                AssertEqual(12, response.GetProperty("id").GetInt32());
+                AssertEqual("Armada Test", response.GetProperty("result").GetProperty("serverInfo").GetProperty("name").GetString());
+                AssertTrue(output.Length == message.TotalBytesRead, "stdout should contain only one line-delimited initialize response");
             }).ConfigureAwait(false);
 
             await RunTest("FramedToolsList_ReturnsRegisteredTools", async () =>
@@ -59,7 +89,7 @@ namespace Armada.Test.Unit.Suites.Services
                 string request = "{\"jsonrpc\":\"2.0\",\"id\":\"tools-1\",\"method\":\"tools/list\",\"params\":{}}";
 
                 byte[] output = await RunServerAsync(server, CreateFrame(request)).ConfigureAwait(false);
-                JsonElement response = JsonSerializer.Deserialize<JsonElement>(ReadSingleFrame(output).Body);
+                JsonElement response = JsonSerializer.Deserialize<JsonElement>(ReadSingleMessage(output).Body);
                 JsonElement tools = response.GetProperty("result").GetProperty("tools");
 
                 AssertEqual(1, tools.GetArrayLength());
@@ -89,8 +119,8 @@ namespace Armada.Test.Unit.Suites.Services
                 string request = "{\"jsonrpc\":\"2.0\",\"id\":\"call-1\",\"method\":\"tools/call\",\"params\":{\"name\":\"armada_echo\",\"arguments\":{\"value\":\"codex\"}}}";
 
                 byte[] output = await RunServerAsync(server, CreateFrame(request)).ConfigureAwait(false);
-                FrameReadResult frame = ReadSingleFrame(output);
-                JsonElement response = JsonSerializer.Deserialize<JsonElement>(frame.Body);
+                MessageReadResult message = ReadSingleMessage(output);
+                JsonElement response = JsonSerializer.Deserialize<JsonElement>(message.Body);
                 JsonElement content = response.GetProperty("result").GetProperty("content");
                 string text = content[0].GetProperty("text").GetString()!;
 
@@ -100,7 +130,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("text", content[0].GetProperty("type").GetString());
                 AssertContains("\"status\":\"ok\"", text);
                 AssertContains("\"echo\":\"codex\"", text);
-                AssertEqual(output.Length, frame.TotalBytesRead, "stdout should contain only the framed tools/call response");
+                AssertEqual(output.Length, message.TotalBytesRead, "stdout should contain only the line-delimited tools/call response");
             }).ConfigureAwait(false);
 
             await RunTest("FramedNotificationBeforeRequest_OnlyWritesRequestResponse", async () =>
@@ -110,46 +140,46 @@ namespace Armada.Test.Unit.Suites.Services
                 string request = "{\"jsonrpc\":\"2.0\",\"id\":22,\"method\":\"initialize\",\"params\":{}}";
 
                 byte[] output = await RunServerAsync(server, CombineFrames(notification, request)).ConfigureAwait(false);
-                FrameReadResult frame = ReadSingleFrame(output);
-                JsonElement response = JsonSerializer.Deserialize<JsonElement>(frame.Body);
+                MessageReadResult message = ReadSingleMessage(output);
+                JsonElement response = JsonSerializer.Deserialize<JsonElement>(message.Body);
 
                 AssertEqual(22, response.GetProperty("id").GetInt32());
                 AssertTrue(response.TryGetProperty("result", out _), "initialize request should still receive a response");
-                AssertEqual(output.Length, frame.TotalBytesRead, "notification should not produce an extra stdout frame");
+                AssertEqual(output.Length, message.TotalBytesRead, "notification should not produce an extra stdout line");
             }).ConfigureAwait(false);
 
-            await RunTest("FramedError_DoesNotWriteUnframedText", async () =>
+            await RunTest("Error_DoesNotWriteContentLengthFrame", async () =>
             {
                 ArmadaMcpStdioServer server = CreateServer();
                 string request = "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"missing/method\",\"params\":{}}";
 
                 byte[] output = await RunServerAsync(server, CreateFrame(request)).ConfigureAwait(false);
-                FrameReadResult frame = ReadSingleFrame(output);
-                JsonElement response = JsonSerializer.Deserialize<JsonElement>(frame.Body);
+                MessageReadResult message = ReadSingleMessage(output);
+                JsonElement response = JsonSerializer.Deserialize<JsonElement>(message.Body);
 
-                AssertTrue(Encoding.ASCII.GetString(output, 0, Math.Min(output.Length, 15)).StartsWith("Content-Length"), "stdout should start with an MCP frame header");
-                AssertEqual(output.Length, frame.TotalBytesRead, "stdout should not contain trailing unframed text");
-                AssertTrue(response.TryGetProperty("error", out JsonElement error), "unknown method should return a framed JSON-RPC error");
+                AssertFalse(Encoding.ASCII.GetString(output, 0, Math.Min(output.Length, 15)).StartsWith("Content-Length"), "stdout should not start with an MCP frame header");
+                AssertEqual(output.Length, message.TotalBytesRead, "stdout should not contain trailing text");
+                AssertTrue(response.TryGetProperty("error", out JsonElement error), "unknown method should return a JSON-RPC error");
                 AssertEqual(-32601, error.GetProperty("code").GetInt32());
                 AssertContains("Method not found", error.GetProperty("message").GetString()!);
             }).ConfigureAwait(false);
 
-            await RunTest("FrameMissingContentLength_ReturnsFramedParseError", async () =>
+            await RunTest("LineInvalidJson_ReturnsLineDelimitedParseError", async () =>
             {
                 ArmadaMcpStdioServer server = CreateServer();
-                byte[] input = Encoding.ASCII.GetBytes("Content-Type: application/json\r\n\r\n{}");
+                byte[] input = Encoding.ASCII.GetBytes("not-json\n");
 
                 byte[] output = await RunServerAsync(server, input).ConfigureAwait(false);
-                FrameReadResult frame = ReadSingleFrame(output);
-                JsonElement response = JsonSerializer.Deserialize<JsonElement>(frame.Body);
+                MessageReadResult message = ReadSingleMessage(output);
+                JsonElement response = JsonSerializer.Deserialize<JsonElement>(message.Body);
                 JsonElement error = response.GetProperty("error");
 
                 AssertEqual(-32700, error.GetProperty("code").GetInt32());
-                AssertContains("missing Content-Length", error.GetProperty("message").GetString()!);
-                AssertEqual(output.Length, frame.TotalBytesRead, "parser error should be framed with no trailing stdout");
+                AssertContains("Parse error", error.GetProperty("message").GetString()!);
+                AssertEqual(output.Length, message.TotalBytesRead, "parser error should be line-delimited with no trailing stdout");
             }).ConfigureAwait(false);
 
-            await RunTest("ToolCallErrorResult_ReturnsFramedInternalError", async () =>
+            await RunTest("ToolCallErrorResult_ReturnsLineDelimitedInternalError", async () =>
             {
                 ArmadaMcpStdioServer server = CreateServer();
                 server.RegisterTool(
@@ -161,14 +191,14 @@ namespace Armada.Test.Unit.Suites.Services
                 string request = "{\"jsonrpc\":\"2.0\",\"id\":\"fail-1\",\"method\":\"tools/call\",\"params\":{\"name\":\"armada_fail\",\"arguments\":{}}}";
 
                 byte[] output = await RunServerAsync(server, CreateFrame(request)).ConfigureAwait(false);
-                FrameReadResult frame = ReadSingleFrame(output);
-                JsonElement response = JsonSerializer.Deserialize<JsonElement>(frame.Body);
+                MessageReadResult message = ReadSingleMessage(output);
+                JsonElement response = JsonSerializer.Deserialize<JsonElement>(message.Body);
                 JsonElement error = response.GetProperty("error");
 
                 AssertEqual("fail-1", response.GetProperty("id").GetString());
                 AssertEqual(-32603, error.GetProperty("code").GetInt32());
                 AssertContains("tool failed", error.GetProperty("message").GetString()!);
-                AssertEqual(output.Length, frame.TotalBytesRead, "tool errors should not write unframed stdout");
+                AssertEqual(output.Length, message.TotalBytesRead, "tool errors should not write trailing stdout");
             }).ConfigureAwait(false);
 
             await RunTest("McpConfigHelper_CodexUsesStdioAndClaudeRemainsHttp", () =>
@@ -177,7 +207,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 AssertContains("\"mcp\", \"add\", \"armada\", \"--\"", helper, "Codex install should use a subprocess separator for stdio");
                 AssertContains("BuildCodexStdioCommandParts()", helper, "Codex install should be backed by the stdio command builder");
-                AssertContains("\"armada\", \"mcp\", \"stdio\"", helper, "Codex fallback command should launch framed Armada stdio");
+                AssertContains("\"armada\", \"mcp\", \"stdio\"", helper, "Codex fallback command should launch Armada stdio");
                 AssertContains("private const int CodexMcpStartupTimeoutSeconds = 120;", helper, "Codex install should pin a startup timeout for cold stdio launches");
                 AssertContains("EnsureTomlMcpServerStartupTimeoutAsync", helper, "Codex native CLI install should patch startup_timeout_sec after adding the server");
                 AssertContains("claude mcp add --transport http --scope user armada", helper, "Claude default install should remain HTTP");
@@ -224,43 +254,20 @@ namespace Armada.Test.Unit.Suites.Services
             return stream.ToArray();
         }
 
-        private static FrameReadResult ReadSingleFrame(byte[] output)
+        private static MessageReadResult ReadSingleMessage(byte[] output)
         {
-            byte[] delimiter = new byte[] { 13, 10, 13, 10 };
-            int headerEnd = -1;
-            for (int i = 0; i <= output.Length - delimiter.Length; i++)
-            {
-                if (output[i] == delimiter[0]
-                    && output[i + 1] == delimiter[1]
-                    && output[i + 2] == delimiter[2]
-                    && output[i + 3] == delimiter[3])
-                {
-                    headerEnd = i;
-                    break;
-                }
-            }
+            string text = Encoding.UTF8.GetString(output);
+            int newlineIndex = text.IndexOf('\n');
+            if (newlineIndex < 0)
+                throw new InvalidDataException("No line-delimited MCP response found.");
 
-            if (headerEnd < 0)
-                throw new InvalidDataException("No MCP frame header delimiter found.");
+            string body = text.Substring(0, newlineIndex).TrimEnd('\r');
+            string trailing = text.Substring(newlineIndex + 1);
+            if (!String.IsNullOrWhiteSpace(trailing))
+                throw new InvalidDataException("Unexpected extra line-delimited MCP response.");
 
-            string header = Encoding.ASCII.GetString(output, 0, headerEnd);
-            int contentLength = 0;
-            string[] headerLines = header.Split(new[] { "\r\n" }, StringSplitOptions.RemoveEmptyEntries);
-            foreach (string line in headerLines)
-            {
-                if (!line.StartsWith("Content-Length:", StringComparison.OrdinalIgnoreCase)) continue;
-                contentLength = Int32.Parse(line.Substring("Content-Length:".Length).Trim());
-            }
-
-            if (contentLength <= 0)
-                throw new InvalidDataException("No Content-Length header found.");
-
-            int bodyStart = headerEnd + delimiter.Length;
-            if (output.Length < bodyStart + contentLength)
-                throw new InvalidDataException("Incomplete MCP frame body.");
-
-            string body = Encoding.UTF8.GetString(output, bodyStart, contentLength);
-            return new FrameReadResult(body, bodyStart + contentLength);
+            int bytesRead = Encoding.UTF8.GetByteCount(text.Substring(0, newlineIndex + 1));
+            return new MessageReadResult(body, bytesRead);
         }
 
         private static string ReadRepositoryFile(params string[] segments)
@@ -288,6 +295,6 @@ namespace Armada.Test.Unit.Suites.Services
             throw new InvalidDataException("Unable to find repository root.");
         }
 
-        private sealed record FrameReadResult(string Body, int TotalBytesRead);
+        private sealed record MessageReadResult(string Body, int TotalBytesRead);
     }
 }

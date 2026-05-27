@@ -37,5 +37,11 @@ namespace Armada.Server.Mcp
         /// and are not available on the mission object.
         /// </summary>
         public bool? IncludeLogs { get; set; }
+
+        /// <summary>
+        /// Optional mission fields to include in slim mission responses.
+        /// Supported: titles, statuses, commitHashes, dependsOn, prestaged, persona, model.
+        /// </summary>
+        public List<string>? IncludeFields { get; set; }
     }
 }

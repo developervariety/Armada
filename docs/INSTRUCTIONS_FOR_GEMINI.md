@@ -246,7 +246,7 @@ Use dedicated tools for v0.8.0 delivery records: `list_objectives`, `create_obje
 | Tool | Parameters | Description |
 |------|-----------|-------------|
 | `armada_dispatch` | `title` (required), `vesselId` (required), `missions` (required: array of {title, description}), `description`, `objectiveId` | Dispatch a voyage with missions -- the primary way to create work. Pass `objectiveId` for non-trivial work so scope and evidence stay linked. |
-| `armada_voyage_status` | `voyageId` (required), `summary` (default true), `includeMissions` (default false), `includeDescription` (default false), `includeDiffs` (default false), `includeLogs` (default false) | Get voyage status. Default summary mode returns voyage metadata and mission counts by status. Set `includeMissions: true` for full mission details. |
+| `armada_voyage_status` | `voyageId` (required), `summary` (default true), `includeMissions` (default false), `includeFields` (optional), `includeDescription` (default false), `includeDiffs` (default false), `includeLogs` (default false) | Get voyage status. Default summary mode returns voyage metadata and mission counts by status. Use `includeMissions: true` with `includeFields` for selected mission fields; descriptions/output are capped with truncation metadata. |
 | `armada_cancel_voyage` | `voyageId` (required) | Cancel voyage and all pending missions |
 | `armada_purge_voyage` | `voyageId` (required) | Permanently delete voyage and all missions (cannot be undone) |
 

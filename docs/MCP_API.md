@@ -279,7 +279,13 @@ No parameters required.
     "checkRunsByStatus": { "Passed": 14, "Failed": 1 },
     "releasesByStatus": { "Shipped": 3 },
     "deploymentsByStatus": { "Succeeded": 2 },
-    "incidentsByStatus": { "Open": 1, "Closed": 8 }
+    "incidentsByStatus": { "Open": 1, "Closed": 8 },
+    "openIncidentsBySeverity": { "Critical": 1 },
+    "pendingChecksRequired": 2,
+    "pendingChecksOptional": 0,
+    "inFlightReleasesCount": 1,
+    "unverifiedDeploymentsCount": 1,
+    "overdueRunbookExecutionsCount": 0
   },
   "voyages": [
     {
@@ -344,7 +350,7 @@ No parameters required.
 
 ### armada_enumerate
 
-Paginated enumeration of any entity type with filtering and sorting. This is the MCP equivalent of the `POST /api/v1/{entity}/enumerate` REST endpoints. Returns paginated results with total counts, page metadata, and query timing. Supports: fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, playbooks, personas, prompt_templates, pipelines.
+Paginated enumeration of any entity type with filtering and sorting. This is the MCP equivalent of the `POST /api/v1/{entity}/enumerate` REST endpoints. Returns paginated results with total counts, page metadata, and query timing. Supports: fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, playbooks, personas, prompt_templates, pipelines, objectives/backlog, incidents, checks, releases, and deployments.
 
 **Input Schema:**
 
@@ -352,7 +358,7 @@ Paginated enumeration of any entity type with filtering and sorting. This is the
 {
   "type": "object",
   "properties": {
-    "entityType": { "type": "string", "description": "Entity type to enumerate (fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, playbooks, personas, prompt_templates, pipelines)" },
+    "entityType": { "type": "string", "description": "Entity type to enumerate (fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, playbooks, personas, prompt_templates, pipelines, objectives, incidents, checks, releases, deployments)" },
     "pageNumber": { "type": "integer", "description": "Page number (1-based, default 1)" },
     "pageSize": { "type": "integer", "description": "Results per page (default 10, max 1000)" },
     "order": { "type": "string", "description": "Sort order: CreatedAscending, CreatedDescending" },
@@ -364,6 +370,12 @@ Paginated enumeration of any entity type with filtering and sorting. This is the
     "captainId": { "type": "string", "description": "Filter by captain ID (missions, events, signals)" },
     "voyageId": { "type": "string", "description": "Filter by voyage ID (missions, events)" },
     "missionId": { "type": "string", "description": "Filter by mission ID (events)" },
+    "environmentId": { "type": "string", "description": "Filter by environment ID (deployments, incidents)" },
+    "checkRunId": { "type": "string", "description": "Filter by check-run ID (incidents)" },
+    "deploymentId": { "type": "string", "description": "Filter by deployment ID (checks, incidents)" },
+    "releaseId": { "type": "string", "description": "Filter by release ID (checks, deployments, incidents)" },
+    "severity": { "type": "string", "description": "Filter by severity (incidents)" },
+    "search": { "type": "string", "description": "Free-text search where supported" },
     "eventType": { "type": "string", "description": "Filter by event type (events only)" },
     "signalType": { "type": "string", "description": "Filter by signal type (signals only)" },
     "toCaptainId": { "type": "string", "description": "Filter by recipient captain (signals only)" },
@@ -393,6 +405,11 @@ Paginated enumeration of any entity type with filtering and sorting. This is the
 | `playbooks` | `createdAfter`, `createdBefore` |
 | `prompt_templates` | `createdAfter`, `createdBefore` |
 | `pipelines` | `createdAfter`, `createdBefore` |
+| `objectives`, `backlog` | `status`, `vesselId`, `voyageId`, `missionId`, `createdAfter`, `createdBefore` |
+| `incidents` | `status`, `severity`, `vesselId`, `environmentId`, `checkRunId`, `deploymentId`, `releaseId`, `missionId`, `voyageId`, `search` |
+| `checks` | `status`, `vesselId`, `missionId`, `voyageId`, `deploymentId`, `releaseId`, `createdAfter`, `createdBefore` |
+| `releases` | `status`, `vesselId`, `createdAfter`, `createdBefore` |
+| `deployments` | `status`, `vesselId`, `environmentId`, `releaseId`, `missionId`, `voyageId`, `createdAfter`, `createdBefore` |
 
 | Include flag | Applies to | Default | Description |
 |---|---|---|---|
@@ -449,7 +466,7 @@ Get code index status for a vessel, including indexed commit, current commit, ch
 
 **Response:** `CodeIndexStatus` with vessel identity, index directory, indexed/current commit SHAs, freshness, document/chunk counts, active-update fields, and any last error.
 
-When an update is running, `freshness` is `Updating`, `updateInProgress` is `true`, and `updateStartedUtc` contains the UTC start time. Active updates also report `updateHeartbeatUtc`, `updateStage`, `updateProgressDone`, `updateProgressTotal`, and `updateProgressPercent` so operators can distinguish a slow index from a stalled one. Dispatch tools use these fields to avoid generating context packs against stale code after a voyage lands. Refreshes are incremental where possible: unchanged files and chunks reuse prior metadata and embeddings, and embedding providers are called in batches instead of one chunk at a time.
+When an update is running, `freshness` is `Updating`, `updateInProgress` is `true`, and `updateStartedUtc` contains the UTC start time. Active updates also report `updateHeartbeatUtc`, `updateStage`, `updateProgressDone`, `updateProgressTotal`, `updateProgressPercent`, `lastEmbeddingBatchUtc`, and `chunksEmbeddedSinceStart` so operators can distinguish a slow index from a stalled one. `lastEmbeddingBatchUtc` and `chunksEmbeddedSinceStart` are nullable outside embedding stages. Dispatch tools use these fields to avoid generating context packs against stale code after a voyage lands. Refreshes are incremental where possible: unchanged files and chunks reuse prior metadata and embeddings, and embedding providers are called in batches instead of one chunk at a time.
 
 Example active update fields:
 
@@ -461,7 +478,9 @@ Example active update fields:
   "updateStage": "embedding chunks",
   "updateProgressDone": 320,
   "updateProgressTotal": 920,
-  "updateProgressPercent": 34.78
+  "updateProgressPercent": 34.78,
+  "lastEmbeddingBatchUtc": "2026-05-26T22:12:43Z",
+  "chunksEmbeddedSinceStart": 320
 }
 ```
 
@@ -891,6 +910,11 @@ Get status of a specific voyage. Returns summary with mission counts by default;
     "includeLogs": {
       "type": "boolean",
       "description": "Include session logs on missions (default false)"
+    },
+    "includeFields": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Optional mission fields to include in non-summary mission details: titles, statuses, commitHashes, dependsOn, prestaged, persona, model"
     }
   },
   "required": ["voyageId"]
@@ -905,6 +929,7 @@ Get status of a specific voyage. Returns summary with mission counts by default;
 | `includeDescription` | boolean | No | `false` | Include full Description on voyage and missions |
 | `includeDiffs` | boolean | No | `false` | Include DiffSnapshot on missions |
 | `includeLogs` | boolean | No | `false` | Include session logs on missions |
+| `includeFields` | string[] | No | default slim set | Opt into mission fields in non-summary mode: `titles`, `statuses`, `commitHashes`, `dependsOn`, `prestaged`, `persona`, `model` |
 
 **Response (default summary mode):**
 
@@ -1300,6 +1325,10 @@ Stop a specific captain agent.
   "captainId": "cpt_abc123def456ghi789jk"
 }
 ```
+
+**Response (non-summary mission details):**
+
+When `summary=false` and `includeMissions=true`, mission details are projected into a compact shape. `Description` and `AgentOutput` are capped at 4096 characters and returned as `{ "text": "...", "truncated": true, "fullLength": 12345 }` when present. Use `includeFields` to request only the mission fields an orchestrator needs; omitted opt-in fields are returned as `null`.
 
 ---
 
@@ -3572,6 +3601,22 @@ The `armada_drain_audit_queue` response includes a `reflectionsDispatched` field
 
 ---
 
+### Structured Delivery Writers
+
+These MCP tools mirror the REST-only delivery operations so orchestrators can triage without leaving MCP:
+
+| Tool | Purpose |
+|---|---|
+| `armada_resolve_check` | Update a check run's status plus optional output, summary, and exit code. `status` is parsed case-insensitively and invalid values return valid enum names instead of a generic `-32603`. |
+| `armada_update_release` | Update an existing release using `releaseId` plus `ReleaseUpsertRequest` fields. |
+| `armada_update_deployment` | Update an existing deployment using `deploymentId` plus `DeploymentUpsertRequest` fields. |
+| `armada_update_incident` | Update incident lifecycle, severity, links, notes, root cause, or postmortem fields. |
+| `armada_close_incident` | Close one incident with optional recovery notes, root cause, postmortem, and `closedUtc`. |
+
+Backlog/objective MCP create and update tools return structured `Code` values and valid enum maps for bad input instead of surfacing generic JSON-RPC internal errors.
+
+---
+
 ### armada_list_incidents
 
 Enumerate operational incidents with optional vessel, environment, check-run, deployment, release, mission, voyage, status, severity, and free-text filters.
@@ -3654,7 +3699,7 @@ Delete one operational incident and its event snapshots.
 | `stalledCaptains` | int | Captains in Stalled state |
 | `activeVoyages` | int | Number of active (non-complete) voyages |
 | `missionsByStatus` | object | Map of status string to count (e.g., `{"Pending": 3}`) |
-| `structuredDelivery` | object | Lightweight grouped counts for objectives, backlog states, check runs, releases, deployments, and incidents |
+| `structuredDelivery` | object | Lightweight grouped counts for objectives, backlog states, check runs, releases, deployments, incidents, open incidents by severity, pending checks, in-flight releases, unverified deployments, and overdue runbooks |
 | `voyages` | array | List of [VoyageProgress](#voyageprogress) objects |
 | `recentSignals` | array | List of recent [Signal](#signal) objects |
 | `remoteTunnel` | [RemoteTunnelStatus](#remotetunnelstatus) | Current outbound remote tunnel status |

@@ -73,6 +73,68 @@ namespace Armada.Server.Mcp.Tools
                     AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
                     return (object)await releaseService.CreateAsync(auth, request).ConfigureAwait(false);
                 });
+
+            register(
+                "armada_update_release",
+                "Update one release record without dropping to REST.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        releaseId = new { type = "string", description = "Release ID (rel_ prefix)" },
+                        vesselId = new { type = "string", description = "Optional vessel ID (vsl_ prefix)" },
+                        workflowProfileId = new { type = "string", description = "Optional workflow profile override (wfp_ prefix)" },
+                        title = new { type = "string", description = "Optional release title override" },
+                        version = new { type = "string", description = "Optional version label" },
+                        tagName = new { type = "string", description = "Optional git tag or image tag" },
+                        summary = new { type = "string", description = "Optional short release summary" },
+                        notes = new { type = "string", description = "Optional long-form release notes" },
+                        status = new { type = "string", description = "Draft, Candidate, Shipped, Failed, or RolledBack" },
+                        voyageIds = new { type = "array", items = new { type = "string" }, description = "Linked voyage IDs" },
+                        missionIds = new { type = "array", items = new { type = "string" }, description = "Linked mission IDs" },
+                        checkRunIds = new { type = "array", items = new { type = "string" }, description = "Linked check-run IDs" }
+                    },
+                    required = new[] { "releaseId" }
+                },
+                async (args) =>
+                {
+                    ReleaseUpdateArgs request = JsonSerializer.Deserialize<ReleaseUpdateArgs>(args!.Value, _JsonOptions)
+                        ?? throw new InvalidOperationException("Could not deserialize ReleaseUpdateArgs.");
+                    AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
+                    try
+                    {
+                        return (object)await releaseService.UpdateAsync(auth, request.ReleaseId, request.ToUpsertRequest()).ConfigureAwait(false);
+                    }
+                    catch (Exception ex) when (ex is JsonException || ex is InvalidOperationException || ex is ArgumentException)
+                    {
+                        return (object)new { Error = ex.Message, ValidStatusValues = Enum.GetNames<Armada.Core.Enums.ReleaseStatusEnum>() };
+                    }
+                });
+        }
+
+        private sealed class ReleaseUpdateArgs : ReleaseUpsertRequest
+        {
+            public string ReleaseId { get; set; } = "";
+
+            public ReleaseUpsertRequest ToUpsertRequest()
+            {
+                return new ReleaseUpsertRequest
+                {
+                    VesselId = VesselId,
+                    WorkflowProfileId = WorkflowProfileId,
+                    Title = Title,
+                    Version = Version,
+                    TagName = TagName,
+                    Summary = Summary,
+                    Notes = Notes,
+                    Status = Status,
+                    VoyageIds = VoyageIds,
+                    MissionIds = MissionIds,
+                    CheckRunIds = CheckRunIds,
+                    ObjectiveIds = ObjectiveIds
+                };
+            }
         }
     }
 }

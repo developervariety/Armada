@@ -183,10 +183,17 @@ namespace Armada.Server.Mcp.Tools
                 },
                 async (args) =>
                 {
-                    ObjectiveUpsertRequest request = JsonSerializer.Deserialize<ObjectiveUpsertRequest>(args!.Value, _JsonOptions)
-                        ?? throw new InvalidOperationException("Could not deserialize ObjectiveUpsertRequest.");
-                    AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
-                    return (object)await objectiveService.CreateAsync(auth, request).ConfigureAwait(false);
+                    try
+                    {
+                        ObjectiveUpsertRequest request = JsonSerializer.Deserialize<ObjectiveUpsertRequest>(args!.Value, _JsonOptions)
+                            ?? throw new InvalidOperationException("Could not deserialize ObjectiveUpsertRequest.");
+                        AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
+                        return (object)await objectiveService.CreateAsync(auth, request).ConfigureAwait(false);
+                    }
+                    catch (Exception ex) when (ex is JsonException || ex is InvalidOperationException || ex is ArgumentException)
+                    {
+                        return (object)new { Error = ex.Message, Code = "objective_create_failed", ValidEnums = BuildValidEnumMap() };
+                    }
                 });
 
             register(
@@ -233,10 +240,17 @@ namespace Armada.Server.Mcp.Tools
                 },
                 async (args) =>
                 {
-                    ObjectiveUpsertRequest request = JsonSerializer.Deserialize<ObjectiveUpsertRequest>(args!.Value, _JsonOptions)
-                        ?? throw new InvalidOperationException("Could not deserialize ObjectiveUpsertRequest.");
-                    AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
-                    return (object)await objectiveService.CreateAsync(auth, request).ConfigureAwait(false);
+                    try
+                    {
+                        ObjectiveUpsertRequest request = JsonSerializer.Deserialize<ObjectiveUpsertRequest>(args!.Value, _JsonOptions)
+                            ?? throw new InvalidOperationException("Could not deserialize ObjectiveUpsertRequest.");
+                        AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
+                        return (object)await objectiveService.CreateAsync(auth, request).ConfigureAwait(false);
+                    }
+                    catch (Exception ex) when (ex is JsonException || ex is InvalidOperationException || ex is ArgumentException)
+                    {
+                        return (object)new { Error = ex.Message, Code = "backlog_create_failed", ValidEnums = BuildValidEnumMap() };
+                    }
                 });
 
             register(
@@ -780,6 +794,18 @@ namespace Armada.Server.Mcp.Tools
                     await objectiveService.DeleteAsync(auth, request.ObjectiveId).ConfigureAwait(false);
                     return (object)new { Success = true, ObjectiveId = request.ObjectiveId };
                 });
+        }
+
+        private static object BuildValidEnumMap()
+        {
+            return new
+            {
+                status = Enum.GetNames<ObjectiveStatusEnum>(),
+                kind = Enum.GetNames<ObjectiveKindEnum>(),
+                priority = Enum.GetNames<ObjectivePriorityEnum>(),
+                backlogState = Enum.GetNames<ObjectiveBacklogStateEnum>(),
+                effort = Enum.GetNames<ObjectiveEffortEnum>()
+            };
         }
 
         private static async Task<List<ObjectiveRefinementSession>> EnumerateObjectiveRefinementSessionsAsync(

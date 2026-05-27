@@ -363,6 +363,31 @@ namespace Armada.Test.Unit.Suites.Services
                 object noIdResult = await handlers["update_backlog_item"](noIdDoc.RootElement).ConfigureAwait(false);
                 AssertContains("backlog_item_id_required", JsonSerializer.Serialize(noIdResult));
             }).ConfigureAwait(false);
+
+            await RunTest("MCP create_backlog_item creates records and returns structured enum errors", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                ObjectiveService objectives = new ObjectiveService(testDb.Driver);
+                Dictionary<string, Func<JsonElement?, Task<object>>> handlers = new Dictionary<string, Func<JsonElement?, Task<object>>>();
+                McpObjectiveTools.Register(
+                    (name, _, _, handler) => handlers[name] = handler,
+                    testDb.Driver,
+                    objectives);
+
+                using JsonDocument validDoc = JsonDocument.Parse("{\"title\":\"MCP backlog create\",\"kind\":\"Bug\",\"priority\":\"P0\",\"status\":\"Scoped\"}");
+                object validResult = await handlers["create_backlog_item"](validDoc.RootElement).ConfigureAwait(false);
+                Objective created = (Objective)validResult;
+                AssertStartsWith("obj_", created.Id);
+                AssertEqual(ObjectiveKindEnum.Bug, created.Kind);
+                AssertEqual(ObjectivePriorityEnum.P0, created.Priority);
+
+                using JsonDocument invalidEnumDoc = JsonDocument.Parse("{\"title\":\"Bad backlog create\",\"kind\":\"NotARealKind\"}");
+                object invalidEnumResult = await handlers["create_backlog_item"](invalidEnumDoc.RootElement).ConfigureAwait(false);
+                string invalidJson = JsonSerializer.Serialize(invalidEnumResult);
+                AssertContains("backlog_create_failed", invalidJson);
+                AssertContains("ValidEnums", invalidJson);
+                AssertContains("Feature", invalidJson);
+            }).ConfigureAwait(false);
         }
 
         private static async Task EnsureTenantAndUserAsync(TestDatabase testDb, string tenantId, string userId)

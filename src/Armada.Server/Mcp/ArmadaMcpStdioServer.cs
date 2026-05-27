@@ -8,7 +8,7 @@ namespace Armada.Server.Mcp
     using System.Threading.Tasks;
 
     /// <summary>
-    /// MCP stdio server that uses Content-Length framed JSON-RPC messages.
+    /// MCP stdio server that emits one JSON-RPC message per line.
     /// </summary>
     public sealed class ArmadaMcpStdioServer
     {
@@ -70,111 +70,121 @@ namespace Armada.Server.Mcp
         /// <summary>
         /// Runs the stdio server using the provided streams.
         /// </summary>
-        /// <param name="input">Input stream containing framed JSON-RPC messages.</param>
-        /// <param name="output">Output stream receiving framed JSON-RPC responses.</param>
+        /// <param name="input">Input stream containing line-delimited or Content-Length framed JSON-RPC messages.</param>
+        /// <param name="output">Output stream receiving line-delimited JSON-RPC responses.</param>
         /// <param name="token">Cancellation token.</param>
         public async Task RunAsync(Stream input, Stream output, CancellationToken token = default)
         {
             if (input == null) throw new ArgumentNullException(nameof(input));
             if (output == null) throw new ArgumentNullException(nameof(output));
 
+            using StreamWriter writer = new StreamWriter(output, _Utf8, bufferSize: 8192, leaveOpen: true)
+            {
+                AutoFlush = true,
+                NewLine = "\n"
+            };
+
             while (!token.IsCancellationRequested)
             {
                 string? message;
-                try
-                {
-                    message = await ReadFrameAsync(input, token).ConfigureAwait(false);
-                }
+                try { message = await ReadMessageAsync(input, token).ConfigureAwait(false); }
                 catch (InvalidDataException ex)
                 {
                     string error = CreateErrorResponse(null, -32700, ex.Message);
-                    await WriteFrameAsync(output, error, token).ConfigureAwait(false);
+                    await WriteMessageAsync(writer, error, token).ConfigureAwait(false);
                     return;
                 }
-
                 if (message == null) return;
 
                 string? response = await HandleMessageAsync(message).ConfigureAwait(false);
                 if (response != null)
-                    await WriteFrameAsync(output, response, token).ConfigureAwait(false);
+                    await WriteMessageAsync(writer, response, token).ConfigureAwait(false);
             }
         }
 
-        private async Task<string?> ReadFrameAsync(Stream input, CancellationToken token)
+        private async Task<string?> ReadMessageAsync(Stream input, CancellationToken token)
         {
-            MemoryStream headerBytes = new MemoryStream();
-            int matchIndex = 0;
-            byte[] delimiter = new byte[] { 13, 10, 13, 10 };
-            byte[] oneByte = new byte[1];
+            byte[]? lineBytes = await ReadLineBytesAsync(input, token).ConfigureAwait(false);
+            if (lineBytes == null) return null;
+            string line = DecodeLine(lineBytes);
+            if (!line.StartsWith("Content-Length:", StringComparison.OrdinalIgnoreCase))
+                return line;
 
-            while (true)
-            {
-                int read = await input.ReadAsync(oneByte.AsMemory(0, 1), token).ConfigureAwait(false);
-                if (read == 0)
-                {
-                    if (headerBytes.Length == 0) return null;
-                    throw new InvalidDataException("Unexpected end of stream while reading MCP frame headers.");
-                }
-
-                byte value = oneByte[0];
-                headerBytes.WriteByte(value);
-                if (value == delimiter[matchIndex])
-                {
-                    matchIndex++;
-                    if (matchIndex == delimiter.Length) break;
-                }
-                else
-                {
-                    matchIndex = value == delimiter[0] ? 1 : 0;
-                }
-
-                if (headerBytes.Length > _MAX_HEADER_BYTES)
-                    throw new InvalidDataException("MCP frame header is too large.");
-            }
-
-            string header = Encoding.ASCII.GetString(headerBytes.ToArray());
-            int contentLength = ParseContentLength(header);
+            int contentLength = ParseContentLengthLine(line);
             if (contentLength < 0 || contentLength > _MAX_BODY_BYTES)
                 throw new InvalidDataException("MCP frame Content-Length is invalid.");
 
-            byte[] bodyBytes = new byte[contentLength];
-            int offset = 0;
-            while (offset < contentLength)
+            while (true)
             {
-                int read = await input.ReadAsync(bodyBytes.AsMemory(offset, contentLength - offset), token).ConfigureAwait(false);
+                byte[]? headerLineBytes = await ReadLineBytesAsync(input, token).ConfigureAwait(false);
+                if (headerLineBytes == null)
+                    throw new InvalidDataException("Unexpected end of stream while reading MCP frame headers.");
+                if (DecodeLine(headerLineBytes).Length == 0) break;
+            }
+
+            byte[] bodyBytes = await ReadExactBytesAsync(input, contentLength, token).ConfigureAwait(false);
+            return _Utf8.GetString(bodyBytes);
+        }
+
+        private static async Task<byte[]?> ReadLineBytesAsync(Stream input, CancellationToken token)
+        {
+            MemoryStream line = new MemoryStream();
+            byte[] buffer = new byte[1];
+            while (true)
+            {
+                int read = await input.ReadAsync(buffer.AsMemory(0, 1), token).ConfigureAwait(false);
+                if (read == 0)
+                {
+                    if (line.Length == 0) return null;
+                    break;
+                }
+
+                byte value = buffer[0];
+                line.WriteByte(value);
+                if (value == 10) break;
+                if (line.Length > _MAX_HEADER_BYTES)
+                    throw new InvalidDataException("MCP message line is too large.");
+            }
+
+            return line.ToArray();
+        }
+
+        private static async Task<byte[]> ReadExactBytesAsync(Stream input, int length, CancellationToken token)
+        {
+            byte[] bytes = new byte[length];
+            int offset = 0;
+            while (offset < length)
+            {
+                int read = await input.ReadAsync(bytes.AsMemory(offset, length - offset), token).ConfigureAwait(false);
                 if (read == 0)
                     throw new InvalidDataException("Unexpected end of stream while reading MCP frame body.");
                 offset += read;
             }
 
-            return _Utf8.GetString(bodyBytes);
+            return bytes;
         }
 
-        private static int ParseContentLength(string header)
+        private static string DecodeLine(byte[] bytes)
         {
-            string[] lines = header.Split(new[] { "\r\n" }, StringSplitOptions.RemoveEmptyEntries);
-            foreach (string line in lines)
-            {
-                int colonIndex = line.IndexOf(':');
-                if (colonIndex <= 0) continue;
-
-                string name = line.Substring(0, colonIndex).Trim();
-                if (!String.Equals(name, "Content-Length", StringComparison.OrdinalIgnoreCase)) continue;
-
-                string value = line.Substring(colonIndex + 1).Trim();
-                if (Int32.TryParse(value, out int length)) return length;
-            }
-
-            throw new InvalidDataException("MCP frame is missing Content-Length.");
+            int length = bytes.Length;
+            if (length > 0 && bytes[length - 1] == 10) length--;
+            if (length > 0 && bytes[length - 1] == 13) length--;
+            return _Utf8.GetString(bytes, 0, length);
         }
 
-        private async Task WriteFrameAsync(Stream output, string message, CancellationToken token)
+        private static int ParseContentLengthLine(string line)
         {
-            byte[] bodyBytes = _Utf8.GetBytes(message);
-            byte[] headerBytes = Encoding.ASCII.GetBytes("Content-Length: " + bodyBytes.Length + "\r\n\r\n");
-            await output.WriteAsync(headerBytes.AsMemory(0, headerBytes.Length), token).ConfigureAwait(false);
-            await output.WriteAsync(bodyBytes.AsMemory(0, bodyBytes.Length), token).ConfigureAwait(false);
-            await output.FlushAsync(token).ConfigureAwait(false);
+            int colonIndex = line.IndexOf(':');
+            if (colonIndex <= 0) throw new InvalidDataException("MCP frame is missing Content-Length.");
+            string value = line.Substring(colonIndex + 1).Trim();
+            if (Int32.TryParse(value, out int length)) return length;
+            throw new InvalidDataException("MCP frame Content-Length is invalid.");
+        }
+
+        private static async Task WriteMessageAsync(StreamWriter writer, string message, CancellationToken token)
+        {
+            await writer.WriteLineAsync(message.AsMemory(), token).ConfigureAwait(false);
+            await writer.FlushAsync(token).ConfigureAwait(false);
         }
 
         private async Task<string?> HandleMessageAsync(string message)
