@@ -31,13 +31,15 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// Reasoning-effort tiers accepted for Cursor agent validation. cursor-agent CLI
-        /// v2026.04.29-c83a488 does not expose a --thinking-effort / --reasoning-effort flag;
+        /// v2026.05.24-dda726e does not expose a --thinking-effort / --reasoning-effort flag;
         /// values in this set are validated and stored but NOT forwarded to cursor-agent
-        /// invocations (parked until cursor-agent CLI gains the flag).
+        /// invocations (parked until cursor-agent CLI gains the flag). xhigh is accepted so
+        /// operators can pre-configure Cursor captains without needing to update settings
+        /// once cursor-agent exposes the flag.
         /// </summary>
         public static readonly IReadOnlySet<string> CursorReasoningEfforts = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            "low", "medium", "high"
+            "low", "medium", "high", "xhigh"
         };
 
         #endregion
@@ -131,7 +133,7 @@ namespace Armada.Core.Services
 
                 case AgentRuntimeEnum.Cursor:
                     if (!CursorReasoningEfforts.Contains(trimmed))
-                        return $"reasoningEffort '{trimmed}' is not supported for Cursor captains. Accepted values: low, medium, high.";
+                        return $"reasoningEffort '{trimmed}' is not supported for Cursor captains. Accepted values: low, medium, high, xhigh.";
                     return null;
 
                 default:

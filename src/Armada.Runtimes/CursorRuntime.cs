@@ -9,11 +9,13 @@ namespace Armada.Runtimes
     /// Agent runtime adapter for Cursor agent CLI.
     /// </summary>
     /// <remarks>
-    /// KNOWN LIMITATION -- reasoning effort not forwarded (cursor-agent CLI v2026.04.29-c83a488):
+    /// KNOWN LIMITATION -- reasoning effort not forwarded (cursor-agent CLI v2026.05.24-dda726e):
     /// cursor-agent exposes no <c>--thinking-effort</c> or <c>--reasoning-effort</c> flag as of
-    /// this version. The value from <c>CaptainRuntimeOptions.ReasoningEffort</c> is validated and
-    /// stored in RuntimeOptionsJson but NOT forwarded to the process. When cursor-agent CLI gains
-    /// this flag, wire it in <c>BuildArguments</c> at the marked comment block.
+    /// this version (rechecked 2026-05-26; previously confirmed v2026.04.29-c83a488). The value
+    /// from <c>CaptainRuntimeOptions.ReasoningEffort</c> is validated and stored in
+    /// RuntimeOptionsJson (accepted: low/medium/high/xhigh) but NOT forwarded to the process.
+    /// When cursor-agent CLI gains this flag, wire it in <c>BuildArguments</c> at the marked
+    /// comment block.
     ///
     /// KNOWN ISSUE -- silent no-op failure (orchestrator-observed 2026-05-03):
     /// Cursor-agent headless invocations from within Armada dock worktrees can silently produce
@@ -161,8 +163,9 @@ namespace Armada.Runtimes
             }
 
             // reasoningEffort from CaptainRuntimeOptions is validated and stored but not
-            // forwarded: cursor-agent CLI v2026.04.29-c83a488 exposes no --thinking-effort /
-            // --reasoning-effort flag. Wire this block when cursor-agent CLI gains the flag.
+            // forwarded: cursor-agent CLI v2026.05.24-dda726e exposes no --thinking-effort /
+            // --reasoning-effort flag (rechecked 2026-05-26). Wire this block when cursor-agent
+            // CLI gains the flag.
 
             args.Add("--force");
             args.Add("--trust");
