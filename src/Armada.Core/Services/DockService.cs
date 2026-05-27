@@ -281,31 +281,39 @@ namespace Armada.Core.Services
 
             if (!String.IsNullOrEmpty(dock.WorktreePath))
             {
-                try
+                if (await IsWorktreeOwnedByAnotherActiveDockAsync(dock, token).ConfigureAwait(false))
                 {
-                    Vessel? vessel = await _Database.Vessels.ReadAsync(dock.VesselId, token).ConfigureAwait(false);
-                    bool isRegistered = !String.IsNullOrEmpty(vessel?.LocalPath) &&
-                        await _Git.IsWorktreeRegisteredAsync(vessel.LocalPath, dock.WorktreePath, token).ConfigureAwait(false);
-
-                    if (isRegistered)
-                    {
-                        await _Git.RemoveWorktreeAsync(dock.WorktreePath, token).ConfigureAwait(false);
-                        _Logging.Info(_Header + "reclaimed dock " + dockId + " at " + dock.WorktreePath);
-                    }
-                    else
-                    {
-                        _Logging.Debug(_Header + "dock " + dockId + " worktree " + dock.WorktreePath +
-                            " is not registered -- removing directory directly");
-                    }
+                    _Logging.Warn(_Header + "skipping worktree removal for dock " + dockId +
+                        " because another active dock now owns path " + dock.WorktreePath);
                 }
-                catch (Exception ex)
+                else
                 {
-                    _Logging.Warn(_Header + "error removing worktree for dock " + dockId + ": " + ex.Message);
-                }
+                    try
+                    {
+                        Vessel? vessel = await _Database.Vessels.ReadAsync(dock.VesselId, token).ConfigureAwait(false);
+                        bool isRegistered = !String.IsNullOrEmpty(vessel?.LocalPath) &&
+                            await _Git.IsWorktreeRegisteredAsync(vessel.LocalPath, dock.WorktreePath, token).ConfigureAwait(false);
 
-                // Ensure the directory is actually removed -- on Windows, file handles
-                // from the just-exited agent process can linger and block deletion.
-                await ForceRemoveDirectoryAsync(dock.WorktreePath, token).ConfigureAwait(false);
+                        if (isRegistered)
+                        {
+                            await _Git.RemoveWorktreeAsync(dock.WorktreePath, token).ConfigureAwait(false);
+                            _Logging.Info(_Header + "reclaimed dock " + dockId + " at " + dock.WorktreePath);
+                        }
+                        else
+                        {
+                            _Logging.Debug(_Header + "dock " + dockId + " worktree " + dock.WorktreePath +
+                                " is not registered -- removing directory directly");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _Logging.Warn(_Header + "error removing worktree for dock " + dockId + ": " + ex.Message);
+                    }
+
+                    // Ensure the directory is actually removed -- on Windows, file handles
+                    // from the just-exited agent process can linger and block deletion.
+                    await ForceRemoveDirectoryAsync(dock.WorktreePath, token).ConfigureAwait(false);
+                }
             }
 
             TryDeleteDockStartCommitFile(dock.Id);
@@ -498,6 +506,24 @@ namespace Armada.Core.Services
             }
         }
 
+        private async Task<bool> IsWorktreeOwnedByAnotherActiveDockAsync(Dock dock, CancellationToken token)
+        {
+            if (String.IsNullOrWhiteSpace(dock.WorktreePath)) return false;
+
+            string dockPath = NormalizePath(dock.WorktreePath);
+            List<Dock> vesselDocks = await _Database.Docks.EnumerateByVesselAsync(dock.VesselId, token).ConfigureAwait(false);
+            return vesselDocks.Any(other =>
+                other.Active &&
+                !String.Equals(other.Id, dock.Id, StringComparison.OrdinalIgnoreCase) &&
+                !String.IsNullOrWhiteSpace(other.WorktreePath) &&
+                String.Equals(NormalizePath(other.WorktreePath!), dockPath, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static string NormalizePath(string path)
+        {
+            return Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        }
+
         /// <summary>
         /// Forcefully remove a directory with retry logic to handle locked files.
         /// On Windows, file handles from recently-exited processes can linger and
@@ -604,7 +630,9 @@ namespace Armada.Core.Services
                 "}\n";
 
             string codexConfig = "[mcp_servers.armada]\n" +
-                "url = \"" + rpcUrl + "\"\n";
+                "command = \"armada\"\n" +
+                "args = [\"mcp\", \"stdio\"]\n" +
+                "startup_timeout_sec = 120\n";
 
             string geminiConfig = "{\n" +
                 "  \"mcpServers\": {\n" +

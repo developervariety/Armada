@@ -84,6 +84,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new GitServiceTests());
             runner.AddSuite(new GitServiceIsPrMergedTests());
             runner.AddSuite(new GitInferenceTests());
+            runner.AddSuite(new DockServiceTests());
             runner.AddSuite(new LogRotationServiceTests());
             runner.AddSuite(new DataExpiryServiceTests());
             runner.AddSuite(new NotificationServiceTests());
@@ -175,6 +176,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new OpenCodeServerLauncherNegativePathTests());
             runner.AddSuite(new CodeIndexProductionWiringTests());
             runner.AddSuite(new McpCodeIndexToolsTests());
+            runner.AddSuite(new McpCheckRunToolsTests());
             runner.AddSuite(new McpCaptainDiagnosticsToolsTests());
             runner.AddSuite(new McpStdioServerTests());
             runner.AddSuite(new McpVoyageToolsTests());

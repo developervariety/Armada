@@ -164,7 +164,9 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertContains("localhost:" + settings.McpPort, projectMcp, "Project MCP config should point at Armada MCP");
                     AssertContains("\"armada\"", projectMcp, "Project MCP config should name the Armada server");
                     string codexMcp = await File.ReadAllTextAsync(codexMcpPath).ConfigureAwait(false);
-                    AssertContains("localhost:" + settings.McpPort, codexMcp, "Codex MCP config should point at Armada MCP");
+                    AssertContains("command = \"armada\"", codexMcp, "Codex MCP config should launch Armada over stdio");
+                    AssertContains("args = [\"mcp\", \"stdio\"]", codexMcp, "Codex MCP config should use the stdio MCP command");
+                    AssertContains("startup_timeout_sec = 120", codexMcp, "Codex MCP config should allow Armada MCP to start");
                     AssertContains("mcp_servers.armada", codexMcp, "Codex MCP config should name the Armada server");
                     string geminiMcp = await File.ReadAllTextAsync(geminiMcpPath).ConfigureAwait(false);
                     AssertContains("localhost:" + settings.McpPort, geminiMcp, "Gemini MCP config should point at Armada MCP");
@@ -176,6 +178,58 @@ namespace Armada.Test.Unit.Suites.Services
 
                     await service.ReclaimAsync(dock.Id).ConfigureAwait(false);
                     AssertFalse(File.Exists(metadataPath), "Dock reclaim should remove the start commit metadata");
+                }
+            });
+
+            await RunTest("ReclaimAsync does not delete worktree path owned by newer active dock", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+
+                    LockingGitService git = new LockingGitService();
+                    DockService service = new DockService(logging, testDb.Driver, settings, git);
+
+                    string sharedWorktree = Path.Combine(settings.DocksDirectory, "shared-mission");
+                    Directory.CreateDirectory(sharedWorktree);
+                    await File.WriteAllTextAsync(Path.Combine(sharedWorktree, "sentinel.txt"), "new dock owns this path").ConfigureAwait(false);
+
+                    Vessel vessel = new Vessel("shared-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(settings.ReposDirectory, vessel.Name + ".git");
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Dock oldDock = new Dock(vessel.Id)
+                    {
+                        WorktreePath = sharedWorktree,
+                        BranchName = "armada/old",
+                        Active = true
+                    };
+                    oldDock = await testDb.Driver.Docks.CreateAsync(oldDock).ConfigureAwait(false);
+
+                    Dock newerDock = new Dock(vessel.Id)
+                    {
+                        WorktreePath = sharedWorktree,
+                        BranchName = "armada/new",
+                        Active = true
+                    };
+                    newerDock = await testDb.Driver.Docks.CreateAsync(newerDock).ConfigureAwait(false);
+
+                    await service.ReclaimAsync(oldDock.Id).ConfigureAwait(false);
+
+                    Dock? reloadedOld = await testDb.Driver.Docks.ReadAsync(oldDock.Id).ConfigureAwait(false);
+                    Dock? reloadedNewer = await testDb.Driver.Docks.ReadAsync(newerDock.Id).ConfigureAwait(false);
+
+                    AssertNotNull(reloadedOld, "Old dock should remain readable");
+                    AssertFalse(reloadedOld!.Active, "Old dock should be marked inactive");
+                    AssertNotNull(reloadedNewer, "Newer dock should remain readable");
+                    AssertTrue(reloadedNewer!.Active, "Newer dock should remain active");
+                    AssertTrue(File.Exists(Path.Combine(sharedWorktree, "sentinel.txt")), "Reclaiming the old dock must not delete a path owned by the newer active dock");
                 }
             });
         }

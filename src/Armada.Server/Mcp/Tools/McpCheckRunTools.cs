@@ -39,10 +39,25 @@ namespace Armada.Server.Mcp.Tools
                 },
                 async (args) =>
                 {
-                    CheckRunIdArgs request = JsonSerializer.Deserialize<CheckRunIdArgs>(args!.Value, _JsonOptions)
-                        ?? throw new InvalidOperationException("Could not deserialize CheckRunIdArgs.");
+                    CheckRunIdArgs request;
+                    try
+                    {
+                        request = DeserializeArgs<CheckRunIdArgs>(args, "get_check_run");
+                    }
+                    catch (Exception ex) when (IsExpectedToolFailure(ex))
+                    {
+                        return BuildFailure("get_check_run", "check_run_request_invalid", ex.Message,
+                            "Provide a checkRunId with the chk_ prefix.");
+                    }
+
                     CheckRun? run = await database.CheckRuns.ReadAsync(request.CheckRunId).ConfigureAwait(false);
-                    if (run == null) return (object)new { Error = "Check run not found" };
+                    if (run == null)
+                    {
+                        return BuildFailure("get_check_run", "check_run_not_found", "Check run not found.",
+                            "Verify the checkRunId with armada_enumerate entityType=checks or run_check to create a new check.",
+                            checkRunId: request.CheckRunId);
+                    }
+
                     return (object)run;
                 });
 
@@ -69,10 +84,24 @@ namespace Armada.Server.Mcp.Tools
                 },
                 async (args) =>
                 {
-                    CheckRunRequest request = JsonSerializer.Deserialize<CheckRunRequest>(args!.Value, _JsonOptions)
-                        ?? throw new InvalidOperationException("Could not deserialize CheckRunRequest.");
-                    AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
-                    return (object)await checkRunService.RunAsync(auth, request).ConfigureAwait(false);
+                    try
+                    {
+                        CheckRunRequest request = DeserializeArgs<CheckRunRequest>(args, "run_check");
+                        AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
+                        return (object)await checkRunService.RunAsync(auth, request).ConfigureAwait(false);
+                    }
+                    catch (JsonException ex)
+                    {
+                        return BuildFailure("run_check", "check_run_request_invalid", ex.Message,
+                            "Use a valid check type and include vesselId. Valid type values are returned with this response.",
+                            validTypeValues: Enum.GetNames<CheckRunTypeEnum>());
+                    }
+                    catch (Exception ex) when (IsExpectedToolFailure(ex))
+                    {
+                        return BuildFailure("run_check", "check_run_failed", ex.Message,
+                            "Verify vesselId, workflowProfileId, environmentName, and commandOverride; use armada_resolve_check when the command was executed externally.",
+                            validTypeValues: Enum.GetNames<CheckRunTypeEnum>());
+                    }
                 });
 
             register(
@@ -89,10 +118,17 @@ namespace Armada.Server.Mcp.Tools
                 },
                 async (args) =>
                 {
-                    CheckRunIdArgs request = JsonSerializer.Deserialize<CheckRunIdArgs>(args!.Value, _JsonOptions)
-                        ?? throw new InvalidOperationException("Could not deserialize CheckRunIdArgs.");
-                    AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
-                    return (object)await checkRunService.RetryAsync(auth, request.CheckRunId).ConfigureAwait(false);
+                    try
+                    {
+                        CheckRunIdArgs request = DeserializeArgs<CheckRunIdArgs>(args, "retry_check_run");
+                        AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
+                        return (object)await checkRunService.RetryAsync(auth, request.CheckRunId).ConfigureAwait(false);
+                    }
+                    catch (Exception ex) when (IsExpectedToolFailure(ex))
+                    {
+                        return BuildFailure("retry_check_run", "check_run_retry_failed", ex.Message,
+                            "Verify checkRunId with get_check_run or armada_enumerate entityType=checks; use run_check when no prior check exists.");
+                    }
                 });
 
             register(
@@ -113,13 +149,33 @@ namespace Armada.Server.Mcp.Tools
                 },
                 async (args) =>
                 {
-                    CheckResolveArgs request = JsonSerializer.Deserialize<CheckResolveArgs>(args!.Value, _JsonOptions)
-                        ?? throw new InvalidOperationException("Could not deserialize CheckResolveArgs.");
+                    CheckResolveArgs request;
+                    try
+                    {
+                        request = DeserializeArgs<CheckResolveArgs>(args, "armada_resolve_check");
+                    }
+                    catch (Exception ex) when (IsExpectedToolFailure(ex))
+                    {
+                        return BuildFailure("armada_resolve_check", "check_resolve_request_invalid", ex.Message,
+                            "Provide checkRunId and a valid status.",
+                            validStatusValues: Enum.GetNames<CheckRunStatusEnum>());
+                    }
+
                     if (!Enum.TryParse(request.Status, true, out CheckRunStatusEnum status))
-                        return (object)new { Error = "Invalid status: " + request.Status, ValidValues = Enum.GetNames<CheckRunStatusEnum>() };
+                    {
+                        return BuildFailure("armada_resolve_check", "check_status_invalid", "Invalid status: " + request.Status,
+                            "Use one of the ValidStatusValues returned with this response.",
+                            checkRunId: request.CheckRunId,
+                            validStatusValues: Enum.GetNames<CheckRunStatusEnum>());
+                    }
 
                     CheckRun? run = await database.CheckRuns.ReadAsync(request.CheckRunId).ConfigureAwait(false);
-                    if (run == null) return (object)new { Error = "Check run not found" };
+                    if (run == null)
+                    {
+                        return BuildFailure("armada_resolve_check", "check_run_not_found", "Check run not found.",
+                            "Verify the checkRunId with armada_enumerate entityType=checks or run_check to create a new check.",
+                            checkRunId: request.CheckRunId);
+                    }
 
                     run.Status = status;
                     if (request.Output != null) run.Output = request.Output;
@@ -137,6 +193,41 @@ namespace Armada.Server.Mcp.Tools
                 });
         }
 
+        private static T DeserializeArgs<T>(JsonElement? args, string toolName)
+        {
+            if (!args.HasValue || args.Value.ValueKind == JsonValueKind.Null)
+                throw new InvalidOperationException(toolName + " requires arguments.");
+
+            return JsonSerializer.Deserialize<T>(args.Value, _JsonOptions)
+                ?? throw new InvalidOperationException("Could not deserialize arguments for " + toolName + ".");
+        }
+
+        private static bool IsExpectedToolFailure(Exception ex)
+        {
+            return ex is JsonException || ex is InvalidOperationException || ex is ArgumentException;
+        }
+
+        private static object BuildFailure(
+            string tool,
+            string code,
+            string message,
+            string action,
+            string? checkRunId = null,
+            string[]? validStatusValues = null,
+            string[]? validTypeValues = null)
+        {
+            return new CheckRunToolFailure
+            {
+                Tool = tool,
+                Code = code,
+                Message = message,
+                Action = action,
+                CheckRunId = checkRunId,
+                ValidStatusValues = validStatusValues,
+                ValidTypeValues = validTypeValues
+            };
+        }
+
         private sealed class CheckResolveArgs
         {
             public string CheckRunId { get; set; } = "";
@@ -148,6 +239,25 @@ namespace Armada.Server.Mcp.Tools
             public string? Summary { get; set; } = null;
 
             public int? ExitCode { get; set; } = null;
+        }
+
+        private sealed class CheckRunToolFailure
+        {
+            public string Status { get; set; } = "failed";
+
+            public string Tool { get; set; } = "";
+
+            public string Code { get; set; } = "";
+
+            public string Message { get; set; } = "";
+
+            public string Action { get; set; } = "";
+
+            public string? CheckRunId { get; set; } = null;
+
+            public string[]? ValidStatusValues { get; set; } = null;
+
+            public string[]? ValidTypeValues { get; set; } = null;
         }
     }
 }

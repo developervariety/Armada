@@ -74,6 +74,9 @@ namespace Armada.Helm.Commands
             LandingService landingService = new LandingService(logging, database, armadaSettings, git);
             ObjectiveService objectiveService = new ObjectiveService(database);
             IncidentService incidentService = new IncidentService(database);
+            WorkflowProfileService workflowProfileService = new WorkflowProfileService(database, logging);
+            VesselReadinessService readinessService = new VesselReadinessService(database, workflowProfileService, logging);
+            CheckRunService checkRunService = new CheckRunService(database, workflowProfileService, readinessService, logging);
             HttpClient codeIndexHttpClient = new HttpClient();
             IEmbeddingClient embeddingClient = new DeepSeekEmbeddingClient(armadaSettings.CodeIndex, logging, codeIndexHttpClient);
             OpenCodeServerLauncher openCodeServerLauncher = new OpenCodeServerLauncher(armadaSettings, logging, codeIndexHttpClient);
@@ -98,6 +101,7 @@ namespace Armada.Helm.Commands
                     templateService: promptTemplateService,
                     logging: logging,
                     codeIndexService: codeIndexService,
+                    checkRunService: checkRunService,
                     objectiveService: objectiveService,
                     incidentService: incidentService);
 
