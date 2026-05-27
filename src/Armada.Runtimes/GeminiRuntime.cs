@@ -7,6 +7,18 @@ namespace Armada.Runtimes
     /// <summary>
     /// Agent runtime adapter for Google Gemini CLI.
     /// </summary>
+    /// <remarks>
+    /// This runtime invokes the standalone <c>gemini</c> CLI directly and is distinct from
+    /// cursor-gemini: when Cursor IDE routes a captain to Google's Gemini model it uses
+    /// <see cref="CursorRuntime"/>, not this class. Use GeminiRuntime only when the captain
+    /// is explicitly configured with <c>AgentRuntimeEnum.Gemini</c>.
+    ///
+    /// Reasoning effort: <c>CaptainRuntimeOptions.ReasoningEffort</c> is silently ignored for
+    /// this runtime. The Gemini CLI exposes no equivalent per-invocation reasoning-effort flag
+    /// as of the current supported version. The value is validated and stored in
+    /// <c>RuntimeOptionsJson</c> but not forwarded to the process. Model routing and thinking
+    /// depth are controlled by the Gemini CLI's own configuration and the <c>--model</c> flag.
+    /// </remarks>
     public class GeminiRuntime : BaseAgentRuntime
     {
         #region Public-Members

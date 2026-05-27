@@ -7,6 +7,20 @@ namespace Armada.Runtimes
     /// <summary>
     /// Agent runtime adapter for the Mux CLI.
     /// </summary>
+    /// <remarks>
+    /// Mux is a passthrough runtime: argument construction is fully delegated to
+    /// <see cref="Armada.Core.Services.MuxCommandBuilder"/>, which reads model, output path,
+    /// and per-captain <c>MuxCaptainOptions</c> from the captain record. Armada itself does
+    /// not interpret Mux's model-routing or provider configuration.
+    ///
+    /// Reasoning effort: <c>CaptainRuntimeOptions.ReasoningEffort</c> is silently ignored for
+    /// this runtime. Mux manages provider-level model routing internally and exposes no
+    /// per-invocation reasoning-effort CLI flag that Armada can inject. The value is validated
+    /// and stored in <c>RuntimeOptionsJson</c> but not forwarded to the Mux process.
+    ///
+    /// This runtime is kept in-tree but is not actively used in Armada's default captain pool;
+    /// it is wired for operators who run a local Mux proxy in front of multiple LLM providers.
+    /// </remarks>
     public class MuxRuntime : BaseAgentRuntime
     {
         #region Public-Members

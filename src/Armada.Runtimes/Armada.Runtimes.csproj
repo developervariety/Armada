@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <Description>Agent runtime adapters for Armada multi-agent orchestration</Description>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
 
   <ItemGroup>
