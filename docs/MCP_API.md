@@ -820,6 +820,8 @@ Dispatch a new voyage with missions to a vessel. This is the primary way to assi
 | `objectiveId` | string | No | Objective/backlog item ID (prefix `obj_`) to link to the dispatched voyage and its missions. |
 | `selectedPlaybooks` | array | No | Ordered playbook selections for all missions. Merge hierarchy: vessel defaults < voyage `selectedPlaybooks` < per-mission `selectedPlaybooks`. Duplicate `playbookId` entries are not rendered twice -- the most-specific `deliveryMode` wins. |
 
+For targeted repository discovery, use `armada_context_pack` (or `armada_fleet_context_pack`) to generate a focused snippet with ranked file excerpts and pass the returned `prestagedFiles` entry into your dispatch. Context packs supplement playbook guidance for mission-specific file context; they are not a substitute for the global instruction quality that playbooks provide.
+
 Before resolving pipelines or generating automatic context packs, `armada_dispatch` checks the target vessel's code-index status. If `updateInProgress` is true, dispatch is blocked and the response has this shape:
 
 ```json

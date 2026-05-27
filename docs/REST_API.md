@@ -1155,6 +1155,8 @@ Create a new voyage with optional missions. Missions are automatically dispatche
 | `PipelineId` | string | no | Pipeline ID to use for this voyage (overrides vessel/fleet default) |
 | `Pipeline` | string | no | Pipeline name to use for this voyage (alternative to `PipelineId`) |
 
+For targeted repository discovery, use the `POST /api/v1/vessels/{id}/code-index/context-pack` endpoint to generate a focused snippet and include the returned `prestagedFiles` entry in your dispatch. Context packs supplement playbook guidance for mission-specific file context; they are not a substitute for the global instruction quality that playbooks provide.
+
 **Response:** `201 Created` - [Voyage](#voyage)
 
 ```bash
