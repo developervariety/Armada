@@ -135,6 +135,11 @@ description: |
    Armada randomly selects the concrete model within the tier from available captains. You pick
    the tier only -- never name a specific model. This removes vendor bias and enables parallelism.
 
+   **Current captain pool (for tier calibration only -- do NOT hard-code a model name):**
+   - `low`: kimi-k2.5
+   - `mid`: composer-2-fast, claude-sonnet-4-6, gemini-3.5-pro
+   - `high`: claude-opus-4-7, gpt-5.5
+
    **Anti-bias rule:** Do NOT use `high` for "safety" on mid-tier work. If a mission's acceptance
    is 3 clear bullets and a sibling pattern exists, it is `mid`, not `high`.
 
