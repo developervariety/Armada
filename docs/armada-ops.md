@@ -97,6 +97,39 @@ Only skip a structured record when the work is genuinely ephemeral and has no ex
 
 Code indexing is incremental where possible. Post-land refreshes reuse unchanged chunk embeddings and graph sidecars, batch embedding-provider calls, and keep lexical search as the reliable fallback even when semantic search is disabled. Dispatch blocks only while a refresh is currently in progress and returns `code_index_update_in_progress` without creating a voyage. Poll `armada_index_status` and retry once `updateInProgress` is false.
 
+### Diagnosing Long-Running or Stalled Captains
+
+When a mission appears stuck -- no new commits, no visible progress, or a watchdog heartbeat gap -- use `armada_captain_diagnostics` before considering a restart:
+
+```
+armada_captain_diagnostics captainId: <cpt_...>
+```
+
+The tool returns:
+
+| Field | What it tells you |
+|-------|-------------------|
+| `state` | Captain state: `Working`, `Idle`, `Planning`, `Refining`, `Stalled`, `Stopping` |
+| `activeMissionId` / `activeMissionTitle` | Currently assigned mission |
+| `elapsedMinutes` | Minutes since mission start (uses `startedUtc`, falls back to `createdUtc`) |
+| `dockPath` | Worktree path on disk |
+| `dockGitStatus` | Compact `git status --short` output -- lists modified, staged, and untracked files |
+| `hasUncommittedDockChanges` | True when the dock has dirty or untracked files (even if no commits yet) |
+| `dockGitStatusError` | Set if git is unavailable or the dock path does not exist |
+| `codeIndex.freshness` | `Fresh`, `Stale`, `Missing`, `Error`, or `Updating` |
+| `codeIndex.isStale` | True when the index commit differs from the current HEAD -- new missions may search stale context |
+| `codeIndex.indexedCommitSha` / `currentCommitSha` | Pinpoints exactly how far behind the index is |
+
+**Common patterns:**
+
+- **`hasUncommittedDockChanges: true` with no recent mission events** -- the agent has written files but not committed yet. This is normal for long tasks; the agent is likely still running. Check `elapsedMinutes` and compare to expected task duration.
+- **`dockGitStatus` shows only untracked generated files (e.g. `?? protocol-classes/`)** -- the agent may be waiting on a shell sub-process or watching a stale output file. This is the pattern seen when an agent watches an older Claude temp output file for a completion marker while a newer file already contains it. No Armada action is needed; nudge the captain via `armada_signal` if it has been many hours.
+- **`codeIndex.isStale: true`** -- the vessel index is behind HEAD. Future missions dispatched to this vessel will search against stale code. Kick off `armada_index_update` for the vessel after the current mission lands; do not interrupt the current captain.
+- **`state: Idle` with a non-null `activeMissionId`** -- the captain process exited without updating its state. Check `armada_get_captain_log` for the last output lines. If the mission is still `InProgress`, use `armada_mark_mission_failed` or let autonomous recovery handle the rescue.
+- **`dockGitStatusError: "dock path does not exist"`** -- the worktree was reclaimed or never fully provisioned. Check `armada_voyage_status` for the mission status.
+
+This tool is read-only and safe to call at any time. It does not interrupt, cancel, or modify any running captain or dock.
+
 ## Pipeline Selection
 
 Choose the default pipeline per vessel based on the repository's dominant risk profile, then override per voyage when the work calls for a different review path.
