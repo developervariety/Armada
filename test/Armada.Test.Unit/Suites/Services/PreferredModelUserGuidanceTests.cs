@@ -60,7 +60,7 @@ namespace Armada.Test.Unit.Suites.Services
                     McpPipelineTools.Register(
                         (name, description, schema, _) =>
                         {
-                            if (name == "armada_create_pipeline" || name == "armada_update_pipeline")
+                            if (name == "create_pipeline" || name == "update_pipeline")
                                 schemas[name] = SerializeSchema(description, schema);
                         },
                         testDb.Driver);
@@ -76,8 +76,8 @@ namespace Armada.Test.Unit.Suites.Services
                     string[] toolNames =
                     {
                         "armada_dispatch",
-                        "armada_create_pipeline",
-                        "armada_update_pipeline",
+                        "create_pipeline",
+                        "update_pipeline",
                         "armada_decompose_plan"
                     };
 
