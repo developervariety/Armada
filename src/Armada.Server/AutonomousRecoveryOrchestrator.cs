@@ -64,7 +64,7 @@ namespace Armada.Server
             if (!_Settings.AutonomousRecovery.Enabled) return;
             if (!IsRecoverableTerminalStatus(mission.Status)) return;
 
-            await ApplyFailurePolicyAsync(mission, token).ConfigureAwait(false);
+            await ApplyFailurePolicyAsync(mission.TenantId, mission.Id, token).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -112,28 +112,62 @@ namespace Armada.Server
         private async Task ProcessRecentFailedMissionsAsync(CancellationToken token)
         {
             DateTime cutoff = DateTime.UtcNow.AddHours(-_Settings.AutonomousRecovery.FailedMissionLookbackHours);
-            List<Mission> candidates = new List<Mission>();
-            candidates.AddRange(await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Failed, token).ConfigureAwait(false));
-            candidates.AddRange(await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.LandingFailed, token).ConfigureAwait(false));
 
-            foreach (Mission mission in candidates
+            // Enumerate lightweight summaries (id/status/tenant/last-update only) rather than
+            // fully-hydrated Mission rows. This sweep runs every health-check tick (~5s); the
+            // database can hold thousands of terminal Failed missions whose description /
+            // agent_output / diff_snapshot columns are each tens-of-KB-to-MB strings. Loading
+            // the full rows allocated hundreds of MB on the LOH every tick (observed via
+            // dotMemory as 0.34-1.89 GB/s "Fast LOH growth" bursts). The candidate only needs
+            // id + tenant to re-read the single mission it actually acts on, so summaries are
+            // sufficient and ~450x smaller. ApplyFailurePolicyAsync re-reads the full mission
+            // fresh before doing anything with it.
+            List<MissionSummary> candidates = new List<MissionSummary>();
+            candidates.AddRange(await EnumerateAllSummariesByStatusAsync(MissionStatusEnum.Failed, token).ConfigureAwait(false));
+            candidates.AddRange(await EnumerateAllSummariesByStatusAsync(MissionStatusEnum.LandingFailed, token).ConfigureAwait(false));
+
+            foreach (MissionSummary candidate in candidates
                 .Where(item => item.LastUpdateUtc >= cutoff)
                 .OrderBy(item => item.LastUpdateUtc)
                 .Take(10))
             {
                 token.ThrowIfCancellationRequested();
-                await ApplyFailurePolicyAsync(mission, token).ConfigureAwait(false);
+                await ApplyFailurePolicyAsync(candidate.TenantId, candidate.Id, token).ConfigureAwait(false);
             }
         }
 
-        private async Task ApplyFailurePolicyAsync(Mission mission, CancellationToken token)
+        private async Task<List<MissionSummary>> EnumerateAllSummariesByStatusAsync(MissionStatusEnum status, CancellationToken token)
         {
-            SemaphoreSlim missionLock = _MissionLocks.GetOrAdd(mission.Id, _ => new SemaphoreSlim(1, 1));
+            List<MissionSummary> all = new List<MissionSummary>();
+            int pageNumber = 1;
+            const int pageSize = 1000;
+            while (true)
+            {
+                EnumerationResult<MissionSummary> page = await _Database.Missions.EnumerateMissionSummariesAsync(
+                    new EnumerationQuery
+                    {
+                        Status = status.ToString(),
+                        PageNumber = pageNumber,
+                        PageSize = pageSize,
+                        Order = EnumerationOrderEnum.CreatedDescending
+                    }, token).ConfigureAwait(false);
+
+                all.AddRange(page.Objects);
+                if (page.Objects.Count < pageSize) break;
+                pageNumber++;
+            }
+
+            return all;
+        }
+
+        private async Task ApplyFailurePolicyAsync(string? tenantId, string missionId, CancellationToken token)
+        {
+            SemaphoreSlim missionLock = _MissionLocks.GetOrAdd(missionId, _ => new SemaphoreSlim(1, 1));
             await missionLock.WaitAsync(token).ConfigureAwait(false);
 
             try
             {
-                Mission? latest = await ReadMissionAsync(mission, token).ConfigureAwait(false);
+                Mission? latest = await ReadMissionAsync(tenantId, missionId, token).ConfigureAwait(false);
                 if (latest == null || !IsRecoverableTerminalStatus(latest.Status))
                     return;
 
@@ -176,7 +210,7 @@ namespace Armada.Server
             }
             catch (Exception ex)
             {
-                _Logging.Warn(_Header + "failed to apply recovery policy for mission " + mission.Id + ": " + ex.Message);
+                _Logging.Warn(_Header + "failed to apply recovery policy for mission " + missionId + ": " + ex.Message);
             }
             finally
             {
@@ -184,15 +218,15 @@ namespace Armada.Server
             }
         }
 
-        private async Task<Mission?> ReadMissionAsync(Mission mission, CancellationToken token)
+        private async Task<Mission?> ReadMissionAsync(string? tenantId, string missionId, CancellationToken token)
         {
-            if (!String.IsNullOrWhiteSpace(mission.TenantId))
+            if (!String.IsNullOrWhiteSpace(tenantId))
             {
-                Mission? tenantScoped = await _Database.Missions.ReadAsync(mission.TenantId, mission.Id, token).ConfigureAwait(false);
+                Mission? tenantScoped = await _Database.Missions.ReadAsync(tenantId, missionId, token).ConfigureAwait(false);
                 if (tenantScoped != null) return tenantScoped;
             }
 
-            return await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);
+            return await _Database.Missions.ReadAsync(missionId, token).ConfigureAwait(false);
         }
 
         private RecoveryDecision Classify(Mission mission)
