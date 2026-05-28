@@ -626,6 +626,156 @@ namespace Armada.Test.Unit.Suites.Services
                     expectDebugAssignLine: false).ConfigureAwait(false);
             });
 
+            await RunTest("DispatchPending_OtherUnexpectedNonWaitStates_WarnAndSetRetryFlag", async () =>
+            {
+                foreach (MissionAssignmentStateEnum unexpected in new[]
+                {
+                    MissionAssignmentStateEnum.Provisioning,
+                    MissionAssignmentStateEnum.Assigned
+                })
+                {
+                    await RunDispatchPendingFalseReturnScenarioAsync(
+                        unexpected,
+                        expectRetryFlag: true,
+                        expectWarnAssignLine: true,
+                        expectDebugAssignLine: false).ConfigureAwait(false);
+                }
+            });
+
+            await RunTest("DispatchPending_RealFailureWarn_IncludesAssignmentStateSuffix", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    string logDir = Path.Combine(Path.GetTempPath(), "armada_dispatch_log_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(logDir);
+                    string logPath = Path.Combine(logDir, "admiral.log");
+
+                    try
+                    {
+                        LoggingModule logging = CreateFileLogging(logPath);
+                        ArmadaSettings settings = CreateSettings();
+                        StubGitService git = new StubGitService();
+                        IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                        ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                        IVoyageService voyageService = new VoyageService(logging, testDb.Driver);
+
+                        Vessel vessel = new Vessel("warn-format-vessel", "https://github.com/test/repo.git");
+                        vessel.DefaultBranch = "main";
+                        vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        Captain captain = new Captain("warn-format-captain");
+                        captain.State = CaptainStateEnum.Idle;
+                        await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                        Mission failed = new Mission("Real failure", "Sets Failed assignment state.");
+                        failed.VesselId = vessel.Id;
+                        failed.Status = MissionStatusEnum.Pending;
+                        failed = await testDb.Driver.Missions.CreateAsync(failed).ConfigureAwait(false);
+
+                        Dictionary<string, MissionAssignmentStateEnum> falseStates = new Dictionary<string, MissionAssignmentStateEnum>
+                        {
+                            { failed.Id, MissionAssignmentStateEnum.Failed }
+                        };
+                        AssignStateStubMissionService missionService = new AssignStateStubMissionService(falseStates);
+                        AdmiralService admiral = new AdmiralService(logging, testDb.Driver, settings, captainService, missionService, voyageService, dockService);
+
+                        SetRetryDispatchNeeded(admiral, false);
+
+                        await admiral.HealthCheckAsync().ConfigureAwait(false);
+
+                        string logText = await File.ReadAllTextAsync(logPath).ConfigureAwait(false);
+                        string expectedWarnFragment = "could not assign pending mission " + failed.Id + " (AssignmentState=Failed)";
+                        AssertTrue(logText.Contains(expectedWarnFragment, StringComparison.Ordinal),
+                            "WARN line must include (AssignmentState=Failed) suffix for diagnosability; got: " + logText);
+                    }
+                    finally
+                    {
+                        if (Directory.Exists(logDir))
+                        {
+                            Directory.Delete(logDir, true);
+                        }
+                    }
+                }
+            });
+
+            await RunTest("DispatchPending_MixedBatch_AllThreeExpectedWaitsPlusOneFailure_OnlyFailureSetsRetryFlag", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    string logDir = Path.Combine(Path.GetTempPath(), "armada_dispatch_log_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(logDir);
+                    string logPath = Path.Combine(logDir, "admiral.log");
+
+                    try
+                    {
+                        LoggingModule logging = CreateFileLogging(logPath);
+                        ArmadaSettings settings = CreateSettings();
+                        StubGitService git = new StubGitService();
+                        IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                        ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                        IVoyageService voyageService = new VoyageService(logging, testDb.Driver);
+
+                        Vessel vessel = new Vessel("triple-wait-vessel", "https://github.com/test/repo.git");
+                        vessel.DefaultBranch = "main";
+                        vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        Captain captain = new Captain("triple-wait-captain");
+                        captain.State = CaptainStateEnum.Idle;
+                        await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                        Mission dep = new Mission("Wait dependency", "Blocked on dependency.");
+                        dep.VesselId = vessel.Id;
+                        dep.Status = MissionStatusEnum.Pending;
+                        dep = await testDb.Driver.Missions.CreateAsync(dep).ConfigureAwait(false);
+
+                        Mission mutex = new Mission("Wait mutex", "Blocked on vessel mutex.");
+                        mutex.VesselId = vessel.Id;
+                        mutex.Status = MissionStatusEnum.Pending;
+                        mutex = await testDb.Driver.Missions.CreateAsync(mutex).ConfigureAwait(false);
+
+                        Mission idle = new Mission("Wait captain", "Blocked on idle captain.");
+                        idle.VesselId = vessel.Id;
+                        idle.Status = MissionStatusEnum.Pending;
+                        idle = await testDb.Driver.Missions.CreateAsync(idle).ConfigureAwait(false);
+
+                        Mission failed = new Mission("Real failure", "Assignment failed.");
+                        failed.VesselId = vessel.Id;
+                        failed.Status = MissionStatusEnum.Pending;
+                        failed = await testDb.Driver.Missions.CreateAsync(failed).ConfigureAwait(false);
+
+                        Dictionary<string, MissionAssignmentStateEnum> falseStates = new Dictionary<string, MissionAssignmentStateEnum>
+                        {
+                            { dep.Id, MissionAssignmentStateEnum.WaitingForDependency },
+                            { mutex.Id, MissionAssignmentStateEnum.WaitingForVesselMutex },
+                            { idle.Id, MissionAssignmentStateEnum.WaitingForIdleCaptain },
+                            { failed.Id, MissionAssignmentStateEnum.Failed }
+                        };
+                        AssignStateStubMissionService missionService = new AssignStateStubMissionService(falseStates);
+                        AdmiralService admiral = new AdmiralService(logging, testDb.Driver, settings, captainService, missionService, voyageService, dockService);
+
+                        SetRetryDispatchNeeded(admiral, false);
+
+                        await admiral.HealthCheckAsync().ConfigureAwait(false);
+
+                        AssertTrue(GetRetryDispatchNeeded(admiral),
+                            "Batch with any real failure must set retry dispatch flag regardless of how many expected waits accompany it");
+
+                        string logText = await File.ReadAllTextAsync(logPath).ConfigureAwait(false);
+                        AssertFalse(ContainsAssignWarnLine(logText, dep.Id), "WaitingForDependency must not WARN");
+                        AssertFalse(ContainsAssignWarnLine(logText, mutex.Id), "WaitingForVesselMutex must not WARN");
+                        AssertFalse(ContainsAssignWarnLine(logText, idle.Id), "WaitingForIdleCaptain must not WARN");
+                        AssertTrue(ContainsAssignWarnLine(logText, failed.Id), "Failed mission must WARN");
+                    }
+                    finally
+                    {
+                        if (Directory.Exists(logDir))
+                        {
+                            Directory.Delete(logDir, true);
+                        }
+                    }
+                }
+            });
+
             await RunTest("DispatchPending_MixedBatch_OnlyRealFailureSetsRetryFlag", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
