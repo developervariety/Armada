@@ -101,11 +101,13 @@ namespace Armada.Runtimes
 
             args.Add("exec");
 
-            // Output events as JSONL to stdout (analogous to Claude Code's --print flag).
-            // This routes the session summary and conversation events to stdout, keeping
-            // stderr clean for genuine errors only.
-            args.Add("--json");
-
+            // NOTE: deliberately NOT passing --json. With --json, Codex emits its session as a
+            // JSONL event stream ({"type":"thread.started"}, {"type":"item.completed"}, ...) to
+            // stdout, and BaseAgentRuntime writes those raw lines straight into the mission log --
+            // producing unreadable JSON-wrapped logs. Upstream streams plain human-readable text,
+            // which is what we want in the mission log. The final answer is still captured cleanly
+            // via --output-last-message (below); progress/result markers are still detected via
+            // plain-text Contains; and stdin piping is suppressed independently via RedirectStdin.
             if (String.Equals(ApprovalMode, "dangerous", StringComparison.OrdinalIgnoreCase))
             {
                 args.Add("--dangerously-bypass-approvals-and-sandbox");

@@ -53,11 +53,11 @@ namespace Armada.Test.Runtimes.Suites
                 AssertFalse(runtime.StdinRedirected, "Codex prompt is a CLI arg; stdin pipe must not be opened");
             });
 
-            await RunTest("BuildArguments Includes Json Flag", () =>
+            await RunTest("BuildArguments Omits Json Flag For Readable Mission Logs", () =>
             {
                 InspectableCodexRuntime runtime = CreateRuntime();
                 List<string> args = runtime.Args("test prompt");
-                AssertTrue(args.Contains("--json"), "Codex must use --json to route session output to stdout");
+                AssertFalse(args.Contains("--json"), "Codex must NOT use --json: it emits a JSONL event stream that BaseAgentRuntime writes raw into the mission log, making logs unreadable. Plain streamed text matches upstream; the final answer is captured via --output-last-message.");
             });
 
             await RunTest("ExecutablePath Default Is Codex", () =>
