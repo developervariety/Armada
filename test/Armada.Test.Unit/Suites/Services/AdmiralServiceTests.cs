@@ -752,7 +752,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("HealthCheckAsync StageWatchdogFailsStaleMissionWithoutCaptainHeartbeat", async () =>
+            await RunTest("HealthCheckAsync StageWatchdogFailsStaleAssignedMissionWithoutCaptainHeartbeat", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
@@ -763,7 +763,7 @@ namespace Armada.Test.Unit.Suites.Services
                     AdmiralService service = CreateAdmiralService(CreateLogging(), db, settings, git);
 
                     Mission mission = new Mission("Stale stage mission");
-                    mission.Status = MissionStatusEnum.WorkProduced;
+                    mission.Status = MissionStatusEnum.Assigned;
                     mission.CaptainId = null;
                     mission.ProcessId = null;
                     mission = await db.Missions.CreateAsync(mission);
@@ -780,6 +780,35 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(1, signals.Objects.Count, "Stage watchdog should emit an operator-visible error signal");
                     AssertEqual(SignalTypeEnum.Error, signals.Objects[0].Type);
                     AssertContains("stage_watchdog_no_captain_heartbeat", signals.Objects[0].Payload);
+                }
+            });
+
+            await RunTest("HealthCheckAsync StageWatchdogDoesNotFailStaleWorkProducedMission", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    StubGitService git = new StubGitService();
+                    ArmadaSettings settings = CreateSettings();
+                    settings.StageWatchdogTimeoutMinutes = 5;
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), db, settings, git);
+
+                    Mission mission = new Mission("Completed handoff mission");
+                    mission.Status = MissionStatusEnum.WorkProduced;
+                    mission.CaptainId = null;
+                    mission.ProcessId = null;
+                    mission = await db.Missions.CreateAsync(mission);
+                    await SetMissionLastUpdateUtcAsync(testDb, mission.Id, DateTime.UtcNow.AddMinutes(-60));
+
+                    await service.HealthCheckAsync();
+
+                    Mission? updatedMission = await db.Missions.ReadAsync(mission.Id);
+                    AssertNotNull(updatedMission, "Mission should still exist");
+                    AssertEqual(MissionStatusEnum.WorkProduced, updatedMission!.Status, "Stage watchdog must not fail post-work missions after captain release");
+                    AssertNull(updatedMission.FailureReason, "Post-work mission should not receive a watchdog failure reason");
+
+                    EnumerationResult<Signal> signals = await db.Signals.EnumerateAsync(new EnumerationQuery { PageNumber = 1, PageSize = 10 }).ConfigureAwait(false);
+                    AssertEqual(0, signals.Objects.Count, "Stage watchdog should not emit error signals for stale WorkProduced missions");
                 }
             });
 

@@ -1749,8 +1749,7 @@ namespace Armada.Core.Services
         {
             DateTime cutoff = DateTime.UtcNow.AddMinutes(-_Settings.StageWatchdogTimeoutMinutes);
             List<Mission> assigned = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Assigned, token).ConfigureAwait(false);
-            List<Mission> workProduced = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.WorkProduced, token).ConfigureAwait(false);
-            foreach (Mission mission in assigned.Concat(workProduced))
+            foreach (Mission mission in assigned)
             {
                 if (mission.LastUpdateUtc > cutoff) continue;
                 if (!String.IsNullOrWhiteSpace(mission.CaptainId) && mission.ProcessId.HasValue) continue;
