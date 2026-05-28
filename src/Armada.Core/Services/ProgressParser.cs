@@ -47,7 +47,7 @@ namespace Armada.Core.Services
         #region Private-Members
 
         private static readonly Regex _SignalPattern = new Regex(
-            @"^\s*\[ARMADA:(\w+)\]\s+(.+?)\s*$",
+            @"^\s*\[(?:(ARMADA):)?(\w+)\]\s+(.+?)\s*$",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         #endregion
@@ -67,8 +67,11 @@ namespace Armada.Core.Services
             Match match = _SignalPattern.Match(line);
             if (!match.Success) return null;
 
-            string type = match.Groups[1].Value.ToLowerInvariant();
-            string value = match.Groups[2].Value.Trim();
+            bool hasArmadaPrefix = !String.IsNullOrEmpty(match.Groups[1].Value);
+            string type = match.Groups[2].Value.ToLowerInvariant();
+            string value = match.Groups[3].Value.Trim();
+            if (!hasArmadaPrefix && !IsUnprefixedAlias(type))
+                return null;
 
             ProgressSignal signal = new ProgressSignal
             {
@@ -94,6 +97,19 @@ namespace Armada.Core.Services
             }
 
             return signal;
+        }
+
+        #endregion
+
+        #region Private-Methods
+
+        private static bool IsUnprefixedAlias(string type)
+        {
+            return type == "progress" ||
+                type == "status" ||
+                type == "message" ||
+                type == "result" ||
+                type == "verdict";
         }
 
         #endregion

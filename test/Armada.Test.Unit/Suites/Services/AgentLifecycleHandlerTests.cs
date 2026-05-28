@@ -411,6 +411,61 @@ namespace Armada.Test.Unit.Suites.Services
                     }
                 }
             });
+
+            await RunTest("Codex stderr excludes non markers from handoff output but preserves markers", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out ArmadaSettings settings);
+                    ShellCodexRuntime runtime = new ShellCodexRuntime(CreateLogging());
+                    string captainId = "cpt_codex_stderr_filter";
+                    string missionId = "msn_codex_stderr_filter";
+                    string logFilePath = Path.Combine(settings.LogDirectory, "missions", missionId + ".log");
+                    Captain captain = new Captain("codex stderr filter", AgentRuntimeEnum.Codex)
+                    {
+                        Id = captainId
+                    };
+                    await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    runtime.OnProcessStarted += processId => RegisterTrackedProcess(handler, processId, captainId, missionId);
+                    runtime.OnOutputReceived += handler.HandleAgentOutput;
+
+                    await runtime.StartAsync(Path.GetTempPath(), "test prompt", logFilePath: logFilePath).ConfigureAwait(false);
+
+                    await WaitForConditionAsync(async () =>
+                    {
+                        EnumerationResult<Signal> signals = await testDb.Driver.Signals.EnumerateAsync(new EnumerationQuery
+                        {
+                            PageNumber = 1,
+                            PageSize = 10
+                        }).ConfigureAwait(false);
+
+                        bool progressSeen = false;
+                        bool resultSeen = false;
+                        foreach (Signal signal in signals.Objects)
+                        {
+                            if (signal.FromCaptainId != captainId || signal.Payload == null) continue;
+                            if (signal.Payload.Contains("[progress] 45", StringComparison.OrdinalIgnoreCase))
+                                progressSeen = true;
+                            if (signal.Payload.Contains("[result] COMPLETE", StringComparison.OrdinalIgnoreCase))
+                                resultSeen = true;
+                        }
+
+                        return progressSeen && resultSeen;
+                    }, TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+
+                    string logText = await WaitForFileContainsAsync(logFilePath, "codex stderr transcript noise").ConfigureAwait(false);
+                    await WaitForFileContainsAsync(logFilePath, "stdout handoff line").ConfigureAwait(false);
+                    string? output = handler.GetAndClearMissionOutput(missionId);
+
+                    AssertNotNull(output, "Codex marker and stdout output should be retained for handoff");
+                    AssertContains("stdout handoff line", output!, "Codex stdout should remain in handoff output");
+                    AssertContains("[progress] 45", output!, "Codex stderr progress marker should remain in handoff output");
+                    AssertContains("[result] COMPLETE", output!, "Codex stderr result marker alias should remain in handoff output");
+                    AssertFalse(output!.Contains("codex stderr transcript noise", StringComparison.Ordinal), "Codex stderr transcript noise should not enter AgentOutput");
+                    AssertContains("[stderr] codex stderr transcript noise", logText, "Raw Codex stderr should remain in the mission log");
+                }
+            });
         }
 
         private AgentLifecycleHandler CreateHandler(DatabaseDriver database, out ArmadaSettings settings)
@@ -588,6 +643,48 @@ namespace Armada.Test.Unit.Suites.Services
             }
 
             throw new TimeoutException("Timed out waiting for asynchronous condition");
+        }
+
+        private sealed class ShellCodexRuntime : CodexRuntime
+        {
+            public ShellCodexRuntime(LoggingModule logging) : base(logging)
+            {
+            }
+
+            protected override string GetCommand()
+            {
+                return OperatingSystem.IsWindows() ? "powershell.exe" : "/bin/sh";
+            }
+
+            protected override List<string> BuildArguments(
+                string workingDirectory,
+                string prompt,
+                string? model,
+                string? finalMessageFilePath,
+                Captain? captain)
+            {
+                if (OperatingSystem.IsWindows())
+                {
+                    return new List<string>
+                    {
+                        "-NoProfile",
+                        "-Command",
+                        "[Console]::Error.WriteLine('codex stderr transcript noise'); " +
+                            "[Console]::Error.WriteLine('[progress] 45'); " +
+                            "[Console]::Error.WriteLine('[result] COMPLETE'); " +
+                            "[Console]::Out.WriteLine('stdout handoff line')"
+                    };
+                }
+
+                return new List<string>
+                {
+                    "-c",
+                    "printf 'codex stderr transcript noise\n' 1>&2; " +
+                        "printf '[progress] 45\n' 1>&2; " +
+                        "printf '[result] COMPLETE\n' 1>&2; " +
+                        "printf 'stdout handoff line\n'"
+                };
+            }
         }
 
         private sealed class StubAdmiralService : IAdmiralService

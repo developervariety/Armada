@@ -3,6 +3,7 @@ namespace Armada.Runtimes
     using System.Diagnostics;
     using System.Text;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using SyslogLogging;
     using Armada.Runtimes.Interfaces;
 
@@ -203,10 +204,12 @@ namespace Armada.Runtimes
                     try { logWriter?.WriteLine("[stderr] " + e.Data); }
                     catch (ObjectDisposedException) { }
 
-                    // Treat stderr as runtime output for heartbeat/progress/output capture.
-                    // Some agent CLIs emit useful diagnostics or status lines on stderr.
-                    try { OnOutputReceived?.Invoke(process.Id, e.Data); }
-                    catch { }
+                    if (ShouldForwardStderrToOutput(e.Data))
+                    {
+                        // Some agent CLIs emit useful diagnostics or status lines on stderr.
+                        try { OnOutputReceived?.Invoke(process.Id, e.Data); }
+                        catch { }
+                    }
                 }
             };
 
@@ -380,6 +383,26 @@ namespace Armada.Runtimes
         /// </summary>
         protected virtual void ApplyEnvironment(ProcessStartInfo startInfo, Captain? captain)
         {
+        }
+
+        /// <summary>
+        /// Whether a stderr line should be forwarded to subscribers as runtime output.
+        /// </summary>
+        /// <param name="line">Stderr line.</param>
+        /// <returns>True when the line should be forwarded.</returns>
+        protected virtual bool ShouldForwardStderrToOutput(string line)
+        {
+            return true;
+        }
+
+        /// <summary>
+        /// Whether a line contains an Armada control marker.
+        /// </summary>
+        /// <param name="line">Runtime output line.</param>
+        /// <returns>True when the line should remain visible to progress parsing.</returns>
+        protected static bool IsArmadaControlMarker(string line)
+        {
+            return ProgressParser.TryParse(line) != null;
         }
 
         /// <summary>

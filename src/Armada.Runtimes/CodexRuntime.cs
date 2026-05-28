@@ -80,6 +80,15 @@ namespace Armada.Runtimes
         protected override bool RedirectStdin => false;
 
         /// <summary>
+        /// Codex uses stderr for its live transcript. Only control markers should be
+        /// forwarded into Armada's mission-output buffer; raw stderr remains in the log.
+        /// </summary>
+        protected override bool ShouldForwardStderrToOutput(string line)
+        {
+            return IsArmadaControlMarker(line);
+        }
+
+        /// <summary>
         /// Get the codex CLI command.
         /// </summary>
         protected override string GetCommand()
