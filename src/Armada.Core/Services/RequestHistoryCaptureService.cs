@@ -6,6 +6,7 @@ namespace Armada.Core.Services
     using System.Text;
     using System.Text.Json;
     using System.Text.Json.Nodes;
+    using Armada.Core.Json;
     using Armada.Core.Models;
     using Armada.Core.Settings;
 
@@ -44,10 +45,7 @@ namespace Armada.Core.Services
         };
 
         private readonly ArmadaSettings _Settings;
-        private readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions
-        {
-            WriteIndented = true
-        };
+        private readonly JsonSerializerOptions _JsonOptions = JsonDefaults.Indented;
 
         #endregion
 

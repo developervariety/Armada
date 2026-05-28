@@ -2,6 +2,7 @@ namespace Armada.Core.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.IO;
     using System.Net.Http;
     using System.Net.Http.Headers;
     using System.Text;
@@ -93,8 +94,12 @@ namespace Armada.Core.Services
                         return Array.Empty<float[]>();
                     }
 
-                    string responseBody = await response.Content.ReadAsStringAsync(token).ConfigureAwait(false);
-                    EmbeddingResponse? parsed = JsonSerializer.Deserialize<EmbeddingResponse>(responseBody, _JsonOptions);
+                    // Stream the response body straight into the deserializer to avoid
+                    // a Large Object Heap string allocation for the full JSON payload
+                    // (each voyage-code-3 batch response is ~190 KB and would otherwise
+                    // round-trip through a >85 KB string on every batch).
+                    using Stream responseStream = await response.Content.ReadAsStreamAsync(token).ConfigureAwait(false);
+                    EmbeddingResponse? parsed = await JsonSerializer.DeserializeAsync<EmbeddingResponse>(responseStream, _JsonOptions, token).ConfigureAwait(false);
                     if (parsed?.Data != null && parsed.Data.Count > 0)
                     {
                         float[][] vectors = new float[texts.Count][];

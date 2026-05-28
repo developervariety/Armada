@@ -13,6 +13,7 @@ namespace Armada.Core.Services
     using System.Text.Json.Serialization;
     using Armada.Core.Database;
     using Armada.Core.Enums;
+    using Armada.Core.Json;
     using Armada.Core.Models;
     using Armada.Core.Settings;
     using SyslogLogging;
@@ -32,10 +33,7 @@ namespace Armada.Core.Services
         private readonly ArmadaSettings _Settings;
         private readonly LoggingModule _Logging;
         private readonly HttpClient _Client;
-        private readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions
-        {
-            PropertyNameCaseInsensitive = true
-        };
+        private readonly JsonSerializerOptions _JsonOptions = JsonDefaults.Insensitive;
 
         /// <summary>
         /// Instantiate.

@@ -2,6 +2,7 @@ namespace Armada.Core.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.IO;
     using System.Net.Http;
     using System.Net.Http.Headers;
     using System.Text;
@@ -90,8 +91,12 @@ namespace Armada.Core.Services
                         return string.Empty;
                     }
 
-                    string responseBody = await response.Content.ReadAsStringAsync(token).ConfigureAwait(false);
-                    ChatCompletionResponse? parsed = JsonSerializer.Deserialize<ChatCompletionResponse>(responseBody, _JsonOptions);
+                    // Stream the response body straight into the deserializer to avoid
+                    // a Large Object Heap string allocation. LLM completion responses
+                    // can be tens of KB to multi-MB; the prior shape allocated the
+                    // entire body as a string on the LOH per call.
+                    using Stream responseStream = await response.Content.ReadAsStreamAsync(token).ConfigureAwait(false);
+                    ChatCompletionResponse? parsed = await JsonSerializer.DeserializeAsync<ChatCompletionResponse>(responseStream, _JsonOptions, token).ConfigureAwait(false);
                     ChatMessage? message = parsed?.Choices != null && parsed.Choices.Count > 0
                         ? parsed.Choices[0].Message
                         : null;

@@ -2,6 +2,7 @@ namespace Armada.Core.Services
 {
     using System.Diagnostics;
     using System.Text.Json;
+    using Armada.Core.Json;
     using Armada.Core.Models;
     using SyslogLogging;
 
@@ -14,10 +15,7 @@ namespace Armada.Core.Services
 
         private readonly string _Header = "[MuxCliService] ";
         private readonly LoggingModule _Logging;
-        private readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions
-        {
-            PropertyNameCaseInsensitive = true
-        };
+        private readonly JsonSerializerOptions _JsonOptions = JsonDefaults.Insensitive;
         private readonly TimeSpan _DefaultTimeout = TimeSpan.FromSeconds(20);
 
         #endregion

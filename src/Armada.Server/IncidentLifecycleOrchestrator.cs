@@ -9,6 +9,7 @@ namespace Armada.Server
     using Armada.Core;
     using Armada.Core.Database;
     using Armada.Core.Enums;
+    using Armada.Core.Json;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Core.Settings;
@@ -25,7 +26,7 @@ namespace Armada.Server
         private readonly ArmadaSettings _Settings;
         private readonly LoggingModule _Logging;
         private readonly SemaphoreSlim _SweepGate = new SemaphoreSlim(1, 1);
-        private readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        private readonly JsonSerializerOptions _JsonOptions = JsonDefaults.Web;
 
         /// <summary>
         /// Instantiate.

@@ -8,6 +8,7 @@ namespace Armada.Server
     using System.Text.RegularExpressions;
     using Armada.Core.Database;
     using Armada.Core.Enums;
+    using Armada.Core.Json;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using SyslogLogging;
@@ -19,10 +20,7 @@ namespace Armada.Server
     {
         private readonly LoggingModule _Logging;
         private readonly HttpClient _HttpClient = new HttpClient();
-        private readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions
-        {
-            PropertyNameCaseInsensitive = true
-        };
+        private readonly JsonSerializerOptions _JsonOptions = JsonDefaults.Insensitive;
 
         public CaptainRuntimeToolCatalogService(LoggingModule logging)
         {

@@ -2,6 +2,7 @@ namespace Armada.Core.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.IO;
     using System.Net.Http;
     using System.Net.Http.Headers;
     using System.Text;
@@ -95,8 +96,10 @@ namespace Armada.Core.Services
                 return string.Empty;
             }
 
-            string responseBody = await response.Content.ReadAsStringAsync(token).ConfigureAwait(false);
-            CreateSessionResponse? parsed = JsonSerializer.Deserialize<CreateSessionResponse>(responseBody, _JsonOptions);
+            // Stream the response body straight into the deserializer to avoid a Large
+            // Object Heap string allocation when the response payload is large.
+            using Stream responseStream = await response.Content.ReadAsStreamAsync(token).ConfigureAwait(false);
+            CreateSessionResponse? parsed = await JsonSerializer.DeserializeAsync<CreateSessionResponse>(responseStream, _JsonOptions, token).ConfigureAwait(false);
             if (parsed == null || string.IsNullOrWhiteSpace(parsed.Id))
             {
                 _Logging.Warn(_Header + "session response missing id");
@@ -136,8 +139,11 @@ namespace Armada.Core.Services
                 return string.Empty;
             }
 
-            string responseBody = await response.Content.ReadAsStringAsync(token).ConfigureAwait(false);
-            SendMessageResponse? parsed = JsonSerializer.Deserialize<SendMessageResponse>(responseBody, _JsonOptions);
+            // Stream the response body straight into the deserializer to avoid a Large
+            // Object Heap string allocation. LLM completion responses can be tens of KB
+            // to multi-MB; the prior shape allocated the entire body as a string on the LOH.
+            using Stream responseStream = await response.Content.ReadAsStreamAsync(token).ConfigureAwait(false);
+            SendMessageResponse? parsed = await JsonSerializer.DeserializeAsync<SendMessageResponse>(responseStream, _JsonOptions, token).ConfigureAwait(false);
             if (parsed?.Parts == null || parsed.Parts.Count < 1)
             {
                 _Logging.Warn(_Header + "message response missing parts");
