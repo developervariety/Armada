@@ -2100,11 +2100,31 @@ namespace Armada.Core.Services
                 bool isReferenceOnly = IsReferenceOnlyPath(relativePath);
                 string[] lines = NormalizeLineEndings(content).Split('\n');
 
+                // Reused per-file to avoid an intermediate string[] from LINQ Skip/Take +
+                // String.Join + a second Trim allocation per chunk. The previous shape
+                // allocated 3-4 transient strings per chunk under a hot loop.
+                StringBuilder chunkBuilder = new StringBuilder();
+
                 for (int start = 0; start < lines.Length; start += _Settings.CodeIndex.MaxChunkLines)
                 {
                     int endExclusive = Math.Min(lines.Length, start + _Settings.CodeIndex.MaxChunkLines);
-                    string chunk = String.Join("\n", lines.Skip(start).Take(endExclusive - start)).Trim();
-                    if (String.IsNullOrWhiteSpace(chunk)) continue;
+
+                    chunkBuilder.Clear();
+                    for (int i = start; i < endExclusive; i++)
+                    {
+                        if (i > start) chunkBuilder.Append('\n');
+                        chunkBuilder.Append(lines[i]);
+                    }
+
+                    // In-place trim via index scan -- avoids the second string allocation
+                    // that a trailing .Trim() would produce when whitespace is present.
+                    int trimStart = 0;
+                    int trimEnd = chunkBuilder.Length;
+                    while (trimStart < trimEnd && Char.IsWhiteSpace(chunkBuilder[trimStart])) trimStart++;
+                    while (trimEnd > trimStart && Char.IsWhiteSpace(chunkBuilder[trimEnd - 1])) trimEnd--;
+                    if (trimStart >= trimEnd) continue;
+
+                    string chunk = chunkBuilder.ToString(trimStart, trimEnd - trimStart);
 
                     records.Add(new CodeIndexRecord
                     {
@@ -2277,7 +2297,10 @@ namespace Armada.Core.Services
                 IndexedAtUtc = indexedAtUtc,
                 IsReferenceOnly = source.IsReferenceOnly,
                 Content = source.Content,
-                EmbeddingVector = source.EmbeddingVector == null ? null : source.EmbeddingVector.ToArray()
+                // EmbeddingVector is treated as immutable post-assignment (callers only
+                // overwrite the reference, never mutate in place). Share the reference
+                // instead of allocating a fresh 1024-float copy per cloned record.
+                EmbeddingVector = source.EmbeddingVector
             };
         }
 
