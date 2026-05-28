@@ -136,7 +136,7 @@ namespace Armada.Server
             }
         }
 
-        private async Task<List<MissionSummary>> EnumerateAllSummariesByStatusAsync(MissionStatusEnum status, CancellationToken token)
+        private async Task<List<MissionSummary>> EnumerateAllSummariesByStatusAsync(MissionStatusEnum? status, CancellationToken token)
         {
             List<MissionSummary> all = new List<MissionSummary>();
             int pageNumber = 1;
@@ -146,7 +146,7 @@ namespace Armada.Server
                 EnumerationResult<MissionSummary> page = await _Database.Missions.EnumerateMissionSummariesAsync(
                     new EnumerationQuery
                     {
-                        Status = status.ToString(),
+                        Status = status?.ToString(),
                         PageNumber = pageNumber,
                         PageSize = pageSize,
                         Order = EnumerationOrderEnum.CreatedDescending
@@ -158,6 +158,23 @@ namespace Armada.Server
             }
 
             return all;
+        }
+
+        // Lightweight rescue lookup for the hot read-only path (IsAlreadyHandledAsync runs for
+        // every recovery candidate every ~5s). ParentMissionId is set exclusively by rescue
+        // dispatch (see DispatchRescueMissionAsync), so a ParentMissionId match uniquely
+        // identifies auto-rescue missions of this failure. Uses summaries (no description /
+        // agent_output / diff_snapshot hydration) to avoid loading every vessel mission's heavy
+        // text columns on each tick.
+        private async Task<List<MissionSummary>> EnumerateRescueMissionSummariesAsync(Mission failedMission, CancellationToken token)
+        {
+            List<MissionSummary> vesselMissions = !String.IsNullOrWhiteSpace(failedMission.VesselId)
+                ? await _Database.Missions.EnumerateMissionSummariesByVesselAsync(failedMission.VesselId, token).ConfigureAwait(false)
+                : await EnumerateAllSummariesByStatusAsync(null, token).ConfigureAwait(false);
+
+            return vesselMissions
+                .Where(item => String.Equals(item.ParentMissionId, failedMission.Id, StringComparison.Ordinal))
+                .ToList();
         }
 
         private async Task ApplyFailurePolicyAsync(string? tenantId, string missionId, CancellationToken token)
@@ -477,7 +494,7 @@ namespace Armada.Server
             if (failedMission.LastRecoveryActionUtc.HasValue && failedMission.RecoveryAttempts >= maxAttempts)
                 return true;
 
-            List<Mission> rescues = await EnumerateRescueMissionsAsync(failedMission, token).ConfigureAwait(false);
+            List<MissionSummary> rescues = await EnumerateRescueMissionSummariesAsync(failedMission, token).ConfigureAwait(false);
             if (rescues.Any(rescue => !IsRetryableRescueTerminalFailure(rescue.Status)))
                 return true;
 
