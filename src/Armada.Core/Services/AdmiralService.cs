@@ -1779,6 +1779,13 @@ namespace Armada.Core.Services
             }
         }
 
+        private static bool IsExpectedAssignmentWait(MissionAssignmentStateEnum assignmentState)
+        {
+            return assignmentState == MissionAssignmentStateEnum.WaitingForDependency
+                || assignmentState == MissionAssignmentStateEnum.WaitingForVesselMutex
+                || assignmentState == MissionAssignmentStateEnum.WaitingForIdleCaptain;
+        }
+
         private async Task DispatchPendingMissionsAsync(CancellationToken token)
         {
             List<Mission> pendingMissions = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Pending, token).ConfigureAwait(false);
@@ -1834,8 +1841,16 @@ namespace Armada.Core.Services
             {
                 if (!results[i])
                 {
-                    _Logging.Warn(_Header + "could not assign pending mission " + assignable[i].mission.Id + " - will retry on next health check cycle");
-                    anyFailed = true;
+                    Mission mission = assignable[i].mission;
+                    if (IsExpectedAssignmentWait(mission.AssignmentState))
+                    {
+                        _Logging.Debug(_Header + "pending mission " + mission.Id + " not assigned yet (AssignmentState=" + mission.AssignmentState + ")");
+                    }
+                    else
+                    {
+                        _Logging.Warn(_Header + "could not assign pending mission " + mission.Id + " (AssignmentState=" + mission.AssignmentState + ") - will retry on next health check cycle");
+                        anyFailed = true;
+                    }
                 }
             }
 
