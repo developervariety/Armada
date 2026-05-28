@@ -617,6 +617,15 @@ namespace Armada.Test.Unit.Suites.Services
                     expectDebugAssignLine: false).ConfigureAwait(false);
             });
 
+            await RunTest("DispatchPending_UnexpectedPendingFalseReturn_WarnsAndSetsRetryFlag", async () =>
+            {
+                await RunDispatchPendingFalseReturnScenarioAsync(
+                    MissionAssignmentStateEnum.Pending,
+                    expectRetryFlag: true,
+                    expectWarnAssignLine: true,
+                    expectDebugAssignLine: false).ConfigureAwait(false);
+            });
+
             await RunTest("DispatchPending_MixedBatch_OnlyRealFailureSetsRetryFlag", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
