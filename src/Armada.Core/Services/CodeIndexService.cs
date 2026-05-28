@@ -192,7 +192,9 @@ namespace Armada.Core.Services
                     if (_Settings.CodeIndex.UseSemanticSearch && _EmbeddingClient != null)
                     {
                         SetActiveUpdateProgress(vessel.Id, "embedding chunks", 0, records.Count);
-                        await PopulateEmbeddingsAsync(vessel.Id, records, canReuseEmbeddings ? previousRecords : new List<CodeIndexRecord>(), token).ConfigureAwait(false);
+                        Dictionary<string, float[]> reusableVectors = BuildReusableVectors(canReuseEmbeddings ? previousRecords : null);
+                        previousRecords = null!;
+                        await PopulateEmbeddingsAsync(vessel.Id, records, reusableVectors, token).ConfigureAwait(false);
                     }
 
                     List<FileSignatureRecord> signatures = new List<FileSignatureRecord>();
@@ -2127,21 +2129,10 @@ namespace Armada.Core.Services
         private async Task PopulateEmbeddingsAsync(
             string vesselId,
             List<CodeIndexRecord> records,
-            List<CodeIndexRecord> previousRecords,
+            Dictionary<string, float[]> reusableVectors,
             CancellationToken token)
         {
             if (_EmbeddingClient == null) return;
-
-            Dictionary<string, float[]> reusableVectors = new Dictionary<string, float[]>(StringComparer.Ordinal);
-            foreach (CodeIndexRecord previous in previousRecords)
-            {
-                if (previous.EmbeddingVector == null || previous.EmbeddingVector.Length == 0) continue;
-                string chunkHash = ComputeSha256(previous.Content ?? "");
-                if (!reusableVectors.ContainsKey(chunkHash))
-                {
-                    reusableVectors[chunkHash] = previous.EmbeddingVector.ToArray();
-                }
-            }
 
             List<CodeIndexRecord> missing = new List<CodeIndexRecord>();
             foreach (CodeIndexRecord record in records)
@@ -2445,6 +2436,23 @@ namespace Armada.Core.Services
             }
 
             return builder.ToString();
+        }
+
+        private static Dictionary<string, float[]> BuildReusableVectors(List<CodeIndexRecord>? previousRecords)
+        {
+            Dictionary<string, float[]> reusableVectors = new Dictionary<string, float[]>(StringComparer.Ordinal);
+            if (previousRecords == null) return reusableVectors;
+            foreach (CodeIndexRecord previous in previousRecords)
+            {
+                if (previous.EmbeddingVector == null || previous.EmbeddingVector.Length == 0) continue;
+                string chunkHash = ComputeSha256(previous.Content ?? "");
+                if (!reusableVectors.ContainsKey(chunkHash))
+                {
+                    reusableVectors[chunkHash] = previous.EmbeddingVector;
+                }
+            }
+
+            return reusableVectors;
         }
 
         private string BuildIndexSettingsFingerprint()
