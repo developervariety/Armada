@@ -255,7 +255,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "update_objective",
-                "Update one objective/backlog entry, including prioritization, category, linked entities, and refinement metadata.",
+                "Update one objective/backlog entry, including prioritization, category, linked entities, and refinement metadata. Requires one of objectiveId, backlogItemId, or id.",
                 new
                 {
                     type = "object",
@@ -295,12 +295,6 @@ namespace Armada.Server.Mcp.Tools
                         releaseIds = new { type = "array", items = new { type = "string" }, description = "Linked release IDs" },
                         deploymentIds = new { type = "array", items = new { type = "string" }, description = "Linked deployment IDs" },
                         incidentIds = new { type = "array", items = new { type = "string" }, description = "Linked incident IDs" }
-                    },
-                    anyOf = new object[]
-                    {
-                        new { required = new[] { "objectiveId" } },
-                        new { required = new[] { "backlogItemId" } },
-                        new { required = new[] { "id" } }
                     }
                 },
                 async (args) =>
@@ -322,7 +316,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "update_backlog_item",
-                "Update one backlog item, including prioritization, category, linked entities, and refinement metadata.",
+                "Update one backlog item, including prioritization, category, linked entities, and refinement metadata. Requires one of objectiveId, backlogItemId, or id.",
                 new
                 {
                     type = "object",
@@ -362,12 +356,6 @@ namespace Armada.Server.Mcp.Tools
                         releaseIds = new { type = "array", items = new { type = "string" }, description = "Linked release IDs" },
                         deploymentIds = new { type = "array", items = new { type = "string" }, description = "Linked deployment IDs" },
                         incidentIds = new { type = "array", items = new { type = "string" }, description = "Linked incident IDs" }
-                    },
-                    anyOf = new object[]
-                    {
-                        new { required = new[] { "objectiveId" } },
-                        new { required = new[] { "backlogItemId" } },
-                        new { required = new[] { "id" } }
                     }
                 },
                 async (args) =>
