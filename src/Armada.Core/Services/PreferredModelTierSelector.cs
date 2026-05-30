@@ -2,6 +2,7 @@ namespace Armada.Core.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.Text.RegularExpressions;
     using Armada.Core.Models;
 
     /// <summary>
@@ -49,6 +50,21 @@ namespace Armada.Core.Services
             "claude-4.6-opus-high",
             "claude-4.6-opus-high-thinking",
         };
+
+        // Canonical model-family patterns. These let routine version bumps within a known
+        // family (e.g. claude-opus-4-7 -> claude-opus-4-8 -> claude-opus-5) classify into
+        // the correct tier WITHOUT editing the curated arrays above, which is the whole point
+        // of tier selectors. Patterns are deliberately anchored to the canonical vendor naming
+        // so alias/preview variants (claude-4.6-opus-high-thinking-preview, gemini-3.1-pro-preview)
+        // do NOT leak in -- those must be listed explicitly in the curated arrays to count.
+        private static readonly Regex _CanonicalOpusPattern =
+            new Regex(@"^claude-opus-\d+(?:-\d+)*$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        private static readonly Regex _CanonicalSonnetPattern =
+            new Regex(@"^claude-sonnet-\d+(?:-\d+)*$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        private static readonly Regex _GeminiProPattern =
+            new Regex(@"^gemini-[\d.]+-pro$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         private static readonly Dictionary<string, string> _Aliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -183,6 +199,50 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Classifies a concrete model name into its complexity tier (low, mid, or high),
+        /// or null when the model is not recognized as belonging to any tier. A model counts
+        /// when it is in the curated tier arrays OR matches a canonical model-family pattern,
+        /// so version bumps within a known family register automatically.
+        /// </summary>
+        /// <param name="model">Concrete model name (not a tier selector).</param>
+        /// <returns>"low", "mid", "high", or null when unrecognized.</returns>
+        public static string? ClassifyModel(string? model)
+        {
+            if (String.IsNullOrWhiteSpace(model)) return null;
+            string normalized = model.Trim();
+
+            // Curated registry wins first -- it is the authority for alias-style names
+            // (e.g. claude-4.6-opus-high-thinking) that intentionally do not match a pattern.
+            if (ContainsModel(_HighModels, normalized)) return HighTier;
+            if (ContainsModel(_MidModels, normalized)) return MidTier;
+            if (ContainsModel(_LowModels, normalized)) return LowTier;
+
+            // Canonical family patterns -- forward-compatible with version bumps.
+            if (_CanonicalOpusPattern.IsMatch(normalized)) return HighTier;
+            if (_CanonicalSonnetPattern.IsMatch(normalized)) return MidTier;
+            if (_GeminiProPattern.IsMatch(normalized)) return MidTier;
+            if (normalized.StartsWith("composer-", StringComparison.OrdinalIgnoreCase)) return MidTier;
+            if (normalized.StartsWith("kimi-", StringComparison.OrdinalIgnoreCase)) return LowTier;
+
+            return null;
+        }
+
+        /// <summary>
+        /// Returns true when the given concrete model belongs to the requested tier or any
+        /// tier above it (low &lt; mid &lt; high). Used to validate a captain's model against a
+        /// tier pin while honoring the upward-only fallback chain. Returns false for models
+        /// that classify into no tier.
+        /// </summary>
+        /// <param name="model">Concrete model name (not a tier selector).</param>
+        /// <param name="requestedTier">Tier selector value (low, mid, high, or alias).</param>
+        public static bool ModelMatchesTierOrAbove(string? model, string requestedTier)
+        {
+            string? modelTier = ClassifyModel(model);
+            if (modelTier == null) return false;
+            return TierRank(modelTier) >= TierRank(NormalizeTier(requestedTier));
+        }
+
+        /// <summary>
         /// Selects a concrete model name from the requested tier (or the next available
         /// tier upward) based on which idle captains are eligible for the given persona.
         /// </summary>
@@ -219,13 +279,31 @@ namespace Armada.Core.Services
 
             foreach (string tier in tierOrder)
             {
-                IReadOnlyList<string> tierModels = GetTierModels(tier);
+                // Collect the distinct models of idle, persona-eligible captains that classify
+                // into this tier. Working from the captains' actual models (rather than a fixed
+                // list of known model strings) is what lets a freshly-upgraded model register
+                // automatically, as long as ClassifyModel recognizes its family.
                 List<string> eligibleModels = new List<string>();
-
-                foreach (string model in tierModels)
+                foreach (Captain captain in idleCaptains)
                 {
-                    if (HasEligibleCaptain(model, idleCaptains, persona))
-                        eligibleModels.Add(model);
+                    if (captain == null || String.IsNullOrEmpty(captain.Model))
+                        continue;
+                    if (!String.Equals(ClassifyModel(captain.Model), tier, StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    if (!IsPersonaEligible(captain, persona))
+                        continue;
+
+                    bool alreadyListed = false;
+                    foreach (string existing in eligibleModels)
+                    {
+                        if (String.Equals(existing, captain.Model, StringComparison.OrdinalIgnoreCase))
+                        {
+                            alreadyListed = true;
+                            break;
+                        }
+                    }
+                    if (!alreadyListed)
+                        eligibleModels.Add(captain.Model);
                 }
 
                 if (eligibleModels.Count > 0)
@@ -242,18 +320,21 @@ namespace Armada.Core.Services
 
         #region Private-Methods
 
-        private static bool HasEligibleCaptain(string model, IReadOnlyList<Captain> idleCaptains, string? persona)
+        private static bool ContainsModel(string[] models, string model)
         {
-            foreach (Captain captain in idleCaptains)
+            foreach (string m in models)
             {
-                if (String.IsNullOrEmpty(captain.Model))
-                    continue;
-                if (!String.Equals(captain.Model, model, StringComparison.OrdinalIgnoreCase))
-                    continue;
-                if (IsPersonaEligible(captain, persona))
+                if (String.Equals(m, model, StringComparison.OrdinalIgnoreCase))
                     return true;
             }
             return false;
+        }
+
+        private static int TierRank(string tier)
+        {
+            if (String.Equals(tier, LowTier, StringComparison.OrdinalIgnoreCase)) return 0;
+            if (String.Equals(tier, MidTier, StringComparison.OrdinalIgnoreCase)) return 1;
+            return 2;
         }
 
         private static bool IsPersonaEligible(Captain captain, string? persona)

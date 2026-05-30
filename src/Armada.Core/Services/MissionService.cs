@@ -3188,17 +3188,8 @@ namespace Armada.Core.Services
             {
                 if (PreferredModelTierSelector.IsTierSelector(preferredModel))
                 {
-                    IReadOnlyList<string> acceptable = PreferredModelTierSelector.GetTierAndAboveModels(preferredModel);
-                    bool modelAcceptable = false;
-                    foreach (string m in acceptable)
-                    {
-                        if (String.Equals(captain.Model, m, StringComparison.OrdinalIgnoreCase))
-                        {
-                            modelAcceptable = true;
-                            break;
-                        }
-                    }
-                    if (!modelAcceptable) return false;
+                    if (!PreferredModelTierSelector.ModelMatchesTierOrAbove(captain.Model, preferredModel))
+                        return false;
                 }
                 else if (!String.Equals(captain.Model, preferredModel, StringComparison.OrdinalIgnoreCase))
                 {

@@ -354,6 +354,63 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertNotNull(selected, "Captain with null AllowedPersonas should serve any persona including Judge");
                 return Task.CompletedTask;
             });
+
+            await RunTest("ClassifyModel_CuratedAndCanonicalFamilies_MapToExpectedTier", () =>
+            {
+                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-opus-4-7"), "curated opus is high");
+                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("gpt-5.5"), "curated gpt-5.5 is high");
+                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-4.6-opus-high-thinking"), "curated cursor opus alias is high");
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("claude-sonnet-4-6"), "curated sonnet is mid");
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("gpt-5.3-codex"), "curated gpt codex is mid");
+                AssertEqual("low", PreferredModelTierSelector.ClassifyModel("kimi-k2.5"), "curated kimi is low");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("ClassifyModel_FutureVersionBumps_AutoRegisterByFamily", () =>
+            {
+                // The bug this guards: an Opus version bump (4-7 -> 4-8) must classify high
+                // WITHOUT being added to the curated array.
+                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-opus-4-8"), "opus 4-8 auto-registers high");
+                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-opus-5"), "opus 5 auto-registers high");
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("claude-sonnet-4-7"), "sonnet 4-7 auto-registers mid");
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("gemini-4.0-pro"), "gemini pro bump auto-registers mid");
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("composer-3"), "composer bump auto-registers mid");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("ClassifyModel_AliasPreviewVariants_AreNotRecognized", () =>
+            {
+                // Anchored family patterns must not absorb preview/experimental suffixes.
+                AssertNull(PreferredModelTierSelector.ClassifyModel("claude-4.6-opus-high-thinking-preview"), "opus preview alias is not classified");
+                AssertNull(PreferredModelTierSelector.ClassifyModel("claude-4.6-sonnet-medium-preview"), "sonnet preview alias is not classified");
+                AssertNull(PreferredModelTierSelector.ClassifyModel("gemini-3.1-pro-preview"), "gemini pro preview is not classified");
+                AssertNull(PreferredModelTierSelector.ClassifyModel("some-custom-model"), "unknown model is not classified");
+                AssertNull(PreferredModelTierSelector.ClassifyModel(null), "null is not classified");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("SelectModel_High_AutoRegistersUpgradedOpusCaptain", () =>
+            {
+                // Regression: claude-opus-4-8 captains were invisible to a "high" tier request
+                // because the curated high list only knew claude-opus-4-7.
+                List<Captain> captains = new List<Captain>
+                {
+                    MakeCaptain("claude-opus-4-8", "[\"MemoryConsolidator\"]")
+                };
+
+                string? selected = PreferredModelTierSelector.SelectModel("high", captains, "MemoryConsolidator", _ => 0);
+                AssertEqual("claude-opus-4-8", selected, "Upgraded Opus captain should be selectable for a high-tier MemoryConsolidator mission");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("ModelMatchesTierOrAbove_RespectsUpwardChain", () =>
+            {
+                AssertTrue(PreferredModelTierSelector.ModelMatchesTierOrAbove("claude-opus-4-8", "high"), "opus 4-8 satisfies high");
+                AssertTrue(PreferredModelTierSelector.ModelMatchesTierOrAbove("claude-opus-4-8", "mid"), "high model satisfies a mid pin (upward chain)");
+                AssertFalse(PreferredModelTierSelector.ModelMatchesTierOrAbove("claude-sonnet-4-6", "high"), "mid model does not satisfy a high pin");
+                AssertFalse(PreferredModelTierSelector.ModelMatchesTierOrAbove("some-custom-model", "low"), "unclassified model satisfies no tier pin");
+                return Task.CompletedTask;
+            });
         }
     }
 }
