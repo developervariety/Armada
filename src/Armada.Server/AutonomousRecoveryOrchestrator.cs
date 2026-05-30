@@ -501,15 +501,25 @@ namespace Armada.Server
             return false;
         }
 
+        // Mutating voyage-cancel path. This runs inside SuppressCancelledVoyageRecoveryAsync,
+        // which fires on every ~5s sweep tick for every cancelled-voyage failed candidate -- it is
+        // NOT a cold path. Identify rescue missions via lightweight summaries (no description /
+        // agent_output / diff_snapshot hydration) and then hydrate only the handful that actually
+        // match. Enumerating every fully-hydrated vessel/global mission here reintroduced the
+        // MissionFromReader allocation leak (dotMemory: 2.37 GB of strings per sweep window).
         private async Task<List<Mission>> EnumerateRescueMissionsAsync(Mission failedMission, CancellationToken token)
         {
-            List<Mission> vesselMissions = !String.IsNullOrWhiteSpace(failedMission.VesselId)
-                ? await _Database.Missions.EnumerateByVesselAsync(failedMission.VesselId, token).ConfigureAwait(false)
-                : await _Database.Missions.EnumerateAsync(token).ConfigureAwait(false);
+            List<MissionSummary> rescueSummaries = await EnumerateRescueMissionSummariesAsync(failedMission, token).ConfigureAwait(false);
 
-            return vesselMissions.Where(item =>
-                String.Equals(item.ParentMissionId, failedMission.Id, StringComparison.Ordinal)
-                && IsAutoRescueMission(item)).ToList();
+            List<Mission> rescues = new List<Mission>();
+            foreach (MissionSummary summary in rescueSummaries)
+            {
+                Mission? rescue = await ReadMissionAsync(summary.TenantId, summary.Id, token).ConfigureAwait(false);
+                if (rescue != null && IsAutoRescueMission(rescue))
+                    rescues.Add(rescue);
+            }
+
+            return rescues;
         }
 
         private async Task MarkPolicyBlockedAsync(Mission mission, CancellationToken token)
