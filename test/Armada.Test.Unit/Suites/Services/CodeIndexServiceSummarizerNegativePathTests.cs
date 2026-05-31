@@ -121,6 +121,152 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("BuildContextPackAsync_InferenceThrows_RecordsSummarizerFailedWarningAndTimingMetrics", async () =>
+            {
+                TestRepository repository = await CreateRepositoryAsync().ConfigureAwait(false);
+                string dataRoot = NewTempDirectory("armada-summarizer-failed-warning-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Vessel vessel = await CreateVesselAsync(testDb, repository.Path).ConfigureAwait(false);
+                        ThrowingInferenceClient inference = new ThrowingInferenceClient(new InvalidOperationException("synthetic summarizer failure"));
+                        CodeIndexService service = CreateService(
+                            testDb,
+                            dataRoot,
+                            inferenceClient: inference,
+                            configureCodeIndex: ci =>
+                            {
+                                ci.UseSemanticSearch = false;
+                                ci.UseSummarizer = true;
+                            });
+
+                        await service.UpdateAsync(vessel.Id).ConfigureAwait(false);
+
+                        ContextPackResponse response = await service.BuildContextPackAsync(new ContextPackRequest
+                        {
+                            VesselId = vessel.Id,
+                            Goal = "alpha",
+                            TokenBudget = 1000
+                        }).ConfigureAwait(false);
+
+                        AssertFalse(response.IsSummarized, "IsSummarized must be false when inference throws");
+                        AssertTrue(response.Warnings.Exists(w => w.Contains("summarizer_failed")), "A non-blocking summarizer_failed warning must be recorded when inference throws");
+                        AssertTrue(response.Warnings.Exists(w => w.Contains("InvalidOperationException")), "The failure warning must name the raised exception type for diagnostics");
+                        AssertTrue(response.Metrics.SummarizerElapsedMs >= 0, "Summarizer elapsed metric must be recorded via the finally block even when the summarizer throws");
+                        AssertTrue(response.Metrics.TotalElapsedMs >= 0, "Total elapsed metric must be populated on the failure path");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(repository.Root);
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("BuildContextPackAsync_InferenceFaultsAsynchronously_FallsBackToRawMarkdownWithWarning", async () =>
+            {
+                TestRepository repository = await CreateRepositoryAsync().ConfigureAwait(false);
+                string dataRoot = NewTempDirectory("armada-summarizer-async-fault-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Vessel vessel = await CreateVesselAsync(testDb, repository.Path).ConfigureAwait(false);
+                        FaultingInferenceClient inference = new FaultingInferenceClient(new TimeoutException("downstream summarizer fault"));
+                        CodeIndexService service = CreateService(
+                            testDb,
+                            dataRoot,
+                            inferenceClient: inference,
+                            configureCodeIndex: ci =>
+                            {
+                                ci.UseSemanticSearch = false;
+                                ci.UseSummarizer = true;
+                            });
+
+                        await service.UpdateAsync(vessel.Id).ConfigureAwait(false);
+
+                        ContextPackResponse response = await service.BuildContextPackAsync(new ContextPackRequest
+                        {
+                            VesselId = vessel.Id,
+                            Goal = "alpha",
+                            TokenBudget = 1000
+                        }).ConfigureAwait(false);
+
+                        AssertFalse(response.IsSummarized, "IsSummarized must be false when the completion task faults");
+                        AssertTrue(response.SummarizedMarkdown == null, "SummarizedMarkdown must be null when the completion task faults");
+                        AssertEqual(1, inference.CallCount, "Inference client must have been invoked exactly once");
+                        AssertTrue(response.Warnings.Exists(w => w.Contains("summarizer_failed")), "A faulted completion task must record a non-blocking summarizer_failed warning");
+                        AssertTrue(response.Warnings.Exists(w => w.Contains("TimeoutException")), "The failure warning must name the faulting exception type");
+
+                        string materialized = await File.ReadAllTextAsync(response.MaterializedPath).ConfigureAwait(false);
+                        AssertEqual(response.Markdown, materialized, "Materialized file must fall back to raw markdown when the completion task faults");
+                        AssertTrue(response.PrestagedFiles.Count >= 1, "Raw-pack fallback must still produce a prestaged file");
+                        AssertEqual("_briefing/context-pack.md", response.PrestagedFiles[0].DestPath, "Prestaged dest path must remain _briefing/context-pack.md on fallback");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(repository.Root);
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("BuildContextPackAsync_CallerCancelsDuringSummarization_PropagatesOperationCanceled", async () =>
+            {
+                TestRepository repository = await CreateRepositoryAsync().ConfigureAwait(false);
+                string dataRoot = NewTempDirectory("armada-summarizer-cancel-rethrow-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Vessel vessel = await CreateVesselAsync(testDb, repository.Path).ConfigureAwait(false);
+
+                        using (CancellationTokenSource cts = new CancellationTokenSource())
+                        {
+                            CancelingInferenceClient inference = new CancelingInferenceClient(cts);
+                            CodeIndexService service = CreateService(
+                                testDb,
+                                dataRoot,
+                                inferenceClient: inference,
+                                configureCodeIndex: ci =>
+                                {
+                                    ci.UseSemanticSearch = false;
+                                    ci.UseSummarizer = true;
+                                });
+
+                            await service.UpdateAsync(vessel.Id).ConfigureAwait(false);
+
+                            bool threw = false;
+                            try
+                            {
+                                await service.BuildContextPackAsync(new ContextPackRequest
+                                {
+                                    VesselId = vessel.Id,
+                                    Goal = "alpha",
+                                    TokenBudget = 1000
+                                }, cts.Token).ConfigureAwait(false);
+                            }
+                            catch (OperationCanceledException)
+                            {
+                                threw = true;
+                            }
+
+                            AssertTrue(threw, "Caller cancellation observed during summarization must propagate as OperationCanceledException, not be swallowed into a raw-pack fallback");
+                            AssertEqual(1, inference.CallCount, "Inference client must have been invoked once before cancellation propagated");
+                        }
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(repository.Root);
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
             await RunTest("BuildContextPackAsync_NoSearchResults_DoesNotCallInference", async () =>
             {
                 TestRepository repository = await CreateRepositoryAsync().ConfigureAwait(false);
@@ -593,6 +739,45 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 CallCount++;
                 throw _ToThrow;
+            }
+        }
+
+        private sealed class FaultingInferenceClient : IInferenceClient
+        {
+            private readonly Exception _ToThrow;
+
+            public int CallCount { get; private set; }
+
+            public FaultingInferenceClient(Exception toThrow)
+            {
+                _ToThrow = toThrow ?? throw new ArgumentNullException(nameof(toThrow));
+            }
+
+            public async Task<string> CompleteAsync(string systemPrompt, string userMessage, CancellationToken token = default)
+            {
+                CallCount++;
+                await Task.Yield();
+                throw _ToThrow;
+            }
+        }
+
+        private sealed class CancelingInferenceClient : IInferenceClient
+        {
+            private readonly CancellationTokenSource _Cts;
+
+            public int CallCount { get; private set; }
+
+            public CancelingInferenceClient(CancellationTokenSource cts)
+            {
+                _Cts = cts ?? throw new ArgumentNullException(nameof(cts));
+            }
+
+            public Task<string> CompleteAsync(string systemPrompt, string userMessage, CancellationToken token = default)
+            {
+                CallCount++;
+                _Cts.Cancel();
+                token.ThrowIfCancellationRequested();
+                return Task.FromResult(String.Empty);
             }
         }
 
