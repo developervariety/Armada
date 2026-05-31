@@ -3,7 +3,13 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <Description>Admiral server for Armada multi-agent orchestration</Description>
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
   </PropertyGroup>
+
+  <ItemGroup>
+    <RuntimeHostConfigurationOption Include="System.GC.ConserveMemory" Value="6" Trim="false" />
+  </ItemGroup>
 
   <ItemGroup>
     <EmbeddedResource Include="wwwroot\**\*" />
