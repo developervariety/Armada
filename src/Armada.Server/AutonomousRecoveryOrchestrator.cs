@@ -209,6 +209,7 @@ namespace Armada.Server
                 }
 
                 Mission rescue = await DispatchRescueMissionAsync(latest, incident, token).ConfigureAwait(false);
+                await ApplyClaudeThinkingDisableAsync(latest, rescue, token).ConfigureAwait(false);
                 latest.RecoveryAttempts++;
                 latest.LastRecoveryActionUtc = DateTime.UtcNow;
                 latest.LastUpdateUtc = DateTime.UtcNow;
@@ -718,6 +719,56 @@ namespace Armada.Server
         {
             return (mission.Description ?? String.Empty).Contains(_RescueMarker, StringComparison.Ordinal)
                 || (mission.Title ?? String.Empty).StartsWith("Rescue:", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Determine whether a failure reason matches the Anthropic ClaudeCode thinking-block
+        /// replay error. The signature is an HTTP 400 response stating that a "thinking" or
+        /// "redacted_thinking" block in the latest assistant message "cannot be modified".
+        /// Returns false for null/empty input and for unrelated failures (including ordinary
+        /// process failures and 400 responses without the thinking-block signature).
+        /// </summary>
+        /// <param name="failureReason">Recorded mission failure reason.</param>
+        public static bool IsClaudeThinkingBlockFailure(string? failureReason)
+        {
+            if (String.IsNullOrWhiteSpace(failureReason)) return false;
+
+            string normalized = failureReason.ToLowerInvariant();
+            if (!normalized.Contains("400", StringComparison.Ordinal)) return false;
+            if (!normalized.Contains("cannot be modified", StringComparison.Ordinal)) return false;
+
+            return normalized.Contains("thinking", StringComparison.Ordinal)
+                || normalized.Contains("redacted_thinking", StringComparison.Ordinal);
+        }
+
+        // When a ClaudeCode captain fails on the Anthropic thinking-block replay error, the retry
+        // must run without extended thinking. We cannot carry a per-mission runtime override without
+        // a new persisted Mission column (out of scope), so instead we set the disable-extended-thinking
+        // flag on the captain that picked up the rescue. Captain.RuntimeOptionsJson is already a
+        // persisted column, so no schema migration is required.
+        private async Task ApplyClaudeThinkingDisableAsync(Mission failedMission, Mission rescue, CancellationToken token)
+        {
+            if (!IsClaudeThinkingBlockFailure(failedMission.FailureReason)) return;
+            if (!await WasRunByClaudeCodeCaptainAsync(failedMission, token).ConfigureAwait(false)) return;
+            if (String.IsNullOrWhiteSpace(rescue.CaptainId)) return;
+
+            Captain? rescueCaptain = await _Database.Captains.ReadAsync(rescue.CaptainId, token).ConfigureAwait(false);
+            if (rescueCaptain == null || rescueCaptain.Runtime != AgentRuntimeEnum.ClaudeCode) return;
+
+            rescueCaptain.RuntimeOptionsJson = CaptainRuntimeOptions.WithDisableExtendedThinking(rescueCaptain, true);
+            await _Database.Captains.UpdateAsync(rescueCaptain, token).ConfigureAwait(false);
+
+            await EmitEventAsync("autonomous_recovery.claude_thinking_disabled",
+                "Autonomous recovery disabled extended thinking for ClaudeCode rescue captain " + rescueCaptain.Id +
+                " on rescue mission " + rescue.Id + " of failed mission " + failedMission.Id,
+                rescue, null, token).ConfigureAwait(false);
+        }
+
+        private async Task<bool> WasRunByClaudeCodeCaptainAsync(Mission failedMission, CancellationToken token)
+        {
+            if (String.IsNullOrWhiteSpace(failedMission.CaptainId)) return false;
+            Captain? captain = await _Database.Captains.ReadAsync(failedMission.CaptainId, token).ConfigureAwait(false);
+            return captain != null && captain.Runtime == AgentRuntimeEnum.ClaudeCode;
         }
 
         private static bool HasSeriousFailureReason(string reason)

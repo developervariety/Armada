@@ -22,9 +22,12 @@ namespace Armada.Test.Runtimes.Suites
             public List<string> Args(string prompt, string? model = null, string? finalMessageFilePath = null, Captain? captain = null) =>
                 BuildArguments(Path.GetTempPath(), prompt, model, finalMessageFilePath, captain);
 
-            public ProcessStartInfo StartInfoWithEnvironment(Captain? captain)
+            public ProcessStartInfo StartInfoWithEnvironment(Captain? captain, string? existingThinkingBudget = null)
             {
                 ProcessStartInfo startInfo = new ProcessStartInfo();
+                if (!String.IsNullOrEmpty(existingThinkingBudget))
+                    startInfo.Environment["MAX_THINKING_TOKENS"] = existingThinkingBudget;
+
                 ApplyEnvironment(startInfo, captain);
                 return startInfo;
             }
@@ -142,6 +145,21 @@ namespace Armada.Test.Runtimes.Suites
                 ProcessStartInfo startInfo = runtime.StartInfoWithEnvironment(captain);
 
                 AssertEqual("128000", startInfo.Environment["MAX_THINKING_TOKENS"], "high should map to Armada's maximum thinking budget");
+            });
+
+            await RunTest("ApplyEnvironment_DisableExtendedThinking_RemovesThinkingBudget", () =>
+            {
+                InspectableClaudeCodeRuntime runtime = CreateRuntime();
+                Captain captain = new Captain("claude", AgentRuntimeEnum.ClaudeCode);
+                captain.RuntimeOptionsJson = CaptainRuntimeOptions.Serialize(new CaptainOptions
+                {
+                    ReasoningEffort = "high",
+                    DisableExtendedThinking = true
+                });
+
+                ProcessStartInfo startInfo = runtime.StartInfoWithEnvironment(captain, "128000");
+
+                AssertFalse(startInfo.Environment.ContainsKey("MAX_THINKING_TOKENS"), "disable flag should suppress inherited and computed thinking budgets");
             });
 
             await RunTest("IsRunningAsync Invalid ProcessId Returns False", async () =>

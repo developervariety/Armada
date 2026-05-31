@@ -105,6 +105,33 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Determine whether extended thinking is disabled for a captain via its runtime
+        /// options payload. Returns false when the captain is null, has no runtime options,
+        /// or has not set the flag.
+        /// </summary>
+        /// <param name="captain">Captain whose runtime options are inspected.</param>
+        public static bool GetDisableExtendedThinking(Captain? captain)
+        {
+            CaptainOptions? options = GetCaptainOptions(captain);
+            return options?.DisableExtendedThinking ?? false;
+        }
+
+        /// <summary>
+        /// Produce a runtime-options JSON payload for a captain with the disable-extended-thinking
+        /// flag set to the supplied value, preserving any existing options (reasoningEffort, Mux
+        /// configuration, and so on). The result is suitable for assignment to
+        /// <see cref="Captain.RuntimeOptionsJson"/>.
+        /// </summary>
+        /// <param name="captain">Captain whose existing options are merged forward.</param>
+        /// <param name="disable">Desired disable-extended-thinking value.</param>
+        public static string? WithDisableExtendedThinking(Captain? captain, bool disable)
+        {
+            CaptainOptions options = GetCaptainOptions(captain) ?? new CaptainOptions();
+            options.DisableExtendedThinking = disable;
+            return Serialize(options);
+        }
+
+        /// <summary>
         /// Validate a reasoning-effort value against the captain's runtime.
         /// Returns null when the value is acceptable (including when it's null/empty).
         /// Returns a human-readable error message when the value is rejected.

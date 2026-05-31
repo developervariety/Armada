@@ -135,6 +135,16 @@ namespace Armada.Runtimes
             startInfo.Environment.Remove("CLAUDECODE");
             startInfo.Environment.Remove("CLAUDE_CODE_ENTRYPOINT");
 
+            // Autonomous recovery sets DisableExtendedThinking when retrying a mission that failed
+            // on an Anthropic thinking-block replay error. In that case suppress MAX_THINKING_TOKENS
+            // entirely (including any value inherited from the parent process) so the retry runs
+            // without extended thinking. The default path keeps honoring reasoningEffort.
+            if (CaptainRuntimeOptions.GetDisableExtendedThinking(captain))
+            {
+                startInfo.Environment.Remove("MAX_THINKING_TOKENS");
+                return;
+            }
+
             string? reasoningEffort = CaptainRuntimeOptions.GetReasoningEffort(captain);
             int? thinkingBudget = MapReasoningEffortToThinkingBudget(reasoningEffort);
             if (thinkingBudget.HasValue)

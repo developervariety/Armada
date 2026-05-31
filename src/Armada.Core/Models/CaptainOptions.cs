@@ -28,6 +28,15 @@ namespace Armada.Core.Models
         }
 
         /// <summary>
+        /// When true, the ClaudeCode runtime suppresses the MAX_THINKING_TOKENS environment
+        /// variable so the launched Claude Code process runs without extended thinking.
+        /// Autonomous recovery sets this when retrying a mission that failed on an Anthropic
+        /// thinking-block replay error. Default false preserves the normal reasoning-effort
+        /// thinking budget and leaves other runtimes unaffected.
+        /// </summary>
+        public bool DisableExtendedThinking { get; set; } = false;
+
+        /// <summary>
         /// Optional Mux config directory override.
         /// </summary>
         public string? ConfigDirectory
