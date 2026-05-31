@@ -80,6 +80,14 @@ namespace Armada.Runtimes
         protected override bool RedirectStdin => false;
 
         /// <summary>
+        /// Codex exec streams its full working transcript on stderr. Suppressing only the
+        /// mission-log file write keeps logs bounded; the final answer is captured via
+        /// --output-last-message and echoed to the log on exit, while heartbeat/progress
+        /// still receive stderr through OnOutputReceived.
+        /// </summary>
+        protected override bool WriteStderrToLogFile => false;
+
+        /// <summary>
         /// Get the codex CLI command.
         /// </summary>
         protected override string GetCommand()
@@ -102,12 +110,11 @@ namespace Armada.Runtimes
             args.Add("exec");
 
             // NOTE: deliberately NOT passing --json. With --json, Codex emits its session as a
-            // JSONL event stream ({"type":"thread.started"}, {"type":"item.completed"}, ...) to
-            // stdout, and BaseAgentRuntime writes those raw lines straight into the mission log --
-            // producing unreadable JSON-wrapped logs. Upstream streams plain human-readable text,
-            // which is what we want in the mission log. The final answer is still captured cleanly
-            // via --output-last-message (below); progress/result markers are still detected via
-            // plain-text Contains; and stdin piping is suppressed independently via RedirectStdin.
+            // JSONL event stream, which makes final-answer capture and progress parsing harder to
+            // keep human-readable. Keep upstream plain text so --output-last-message captures the
+            // final answer cleanly and progress/result markers remain plain-text-detectable. The
+            // verbose stderr transcript is kept out of the mission-log file by
+            // WriteStderrToLogFile=false, not by a Codex CLI output flag.
             if (String.Equals(ApprovalMode, "dangerous", StringComparison.OrdinalIgnoreCase))
             {
                 args.Add("--dangerously-bypass-approvals-and-sandbox");

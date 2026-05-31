@@ -17,6 +17,7 @@ namespace Armada.Test.Runtimes.Suites
         public string CommandOverride { get; set; } = "dotnet";
         public List<string> ArgsOverride { get; set; } = new List<string> { "--version" };
         public bool RedirectStdinOverride { get; set; } = true;
+        public bool WriteStderrToLogFileOverride { get; set; } = true;
 
         public TestAgentRuntime(LoggingModule logging) : base(logging)
         {
@@ -25,6 +26,8 @@ namespace Armada.Test.Runtimes.Suites
         protected override string GetCommand() => CommandOverride;
 
         protected override bool RedirectStdin => RedirectStdinOverride;
+
+        protected override bool WriteStderrToLogFile => WriteStderrToLogFileOverride;
 
         protected override List<string> BuildArguments(
             string workingDirectory,
