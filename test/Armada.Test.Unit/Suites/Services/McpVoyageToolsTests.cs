@@ -999,6 +999,125 @@ namespace Armada.Test.Unit.Suites.Services
                 }
                 return Task.CompletedTask;
             });
+
+            await RunTest("Dispatch_CachedPackWithEmptyPrestagedFiles_FallsBackToGeneration", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("cache-empty-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
+
+                    // Cache returns a non-null response, but with NO prestaged files. The dispatch
+                    // guard (PrestagedFiles.Count > 0) must treat this as a miss and generate.
+                    ContextPackResponse emptyCachedPack = new ContextPackResponse
+                    {
+                        Goal = "empty cached pack",
+                        MaterializedPath = Path.Combine(Path.GetTempPath(), "empty-cache.md"),
+                        Metrics = new ContextPackMetrics { CacheHit = true, CacheKey = "empty" }
+                    };
+
+                    string generatedPackPath = Path.Combine(Path.GetTempPath(), "fallback-after-empty.md");
+                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService
+                    {
+                        CachedResponse = emptyCachedPack
+                    };
+                    codeIndex.ContextPackResponse.PrestagedFiles.Add(new PrestagedFile(
+                        generatedPackPath, "_briefing/context-pack.md"));
+
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null,
+                        null,
+                        null,
+                        codeIndex);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "empty cache voyage",
+                        vesselId = vessel.Id,
+                        missions = new object[]
+                        {
+                            new { title = "Task C", description = "empty cached pack must not short-circuit" }
+                        }
+                    });
+
+                    object result = await dispatchHandler!(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+
+                    AssertFalse(resultJson.Contains("\"Error\""), "Should not return error: " + resultJson);
+                    AssertEqual(1, codeIndex.CacheRequests.Count, "Cache lookup must have been attempted");
+                    AssertEqual(1, codeIndex.ContextPackRequests.Count,
+                        "Empty cached prestaged files must NOT short-circuit; generation must run");
+                    AssertTrue(admiralDouble.DispatchVoyageCalled, "Dispatch must proceed");
+                    AssertNotNull(admiralDouble.LastMissionDescriptions[0].PrestagedFiles, "Generated pack must be staged");
+                    AssertEqual(generatedPackPath, admiralDouble.LastMissionDescriptions[0].PrestagedFiles![0].SourcePath);
+                }
+            });
+
+            await RunTest("Dispatch_CachedPackWithNullPrestagedFiles_FallsBackToGeneration", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("cache-null-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
+
+                    // Cache returns a non-null response whose PrestagedFiles is explicitly null.
+                    // The dispatch guard's null check must treat this as a miss and generate.
+                    ContextPackResponse nullCachedPack = new ContextPackResponse
+                    {
+                        Goal = "null cached pack",
+                        MaterializedPath = Path.Combine(Path.GetTempPath(), "null-cache.md"),
+                        Metrics = new ContextPackMetrics { CacheHit = true, CacheKey = "null" },
+                        PrestagedFiles = null!
+                    };
+
+                    string generatedPackPath = Path.Combine(Path.GetTempPath(), "fallback-after-null.md");
+                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService
+                    {
+                        CachedResponse = nullCachedPack
+                    };
+                    codeIndex.ContextPackResponse.PrestagedFiles.Add(new PrestagedFile(
+                        generatedPackPath, "_briefing/context-pack.md"));
+
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null,
+                        null,
+                        null,
+                        codeIndex);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "null cache voyage",
+                        vesselId = vessel.Id,
+                        missions = new object[]
+                        {
+                            new { title = "Task D", description = "null cached prestaged files must not short-circuit" }
+                        }
+                    });
+
+                    object result = await dispatchHandler!(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+
+                    AssertFalse(resultJson.Contains("\"Error\""), "Should not return error: " + resultJson);
+                    AssertEqual(1, codeIndex.CacheRequests.Count, "Cache lookup must have been attempted");
+                    AssertEqual(1, codeIndex.ContextPackRequests.Count,
+                        "Null cached prestaged files must NOT short-circuit; generation must run");
+                    AssertTrue(admiralDouble.DispatchVoyageCalled, "Dispatch must proceed");
+                    AssertNotNull(admiralDouble.LastMissionDescriptions[0].PrestagedFiles, "Generated pack must be staged");
+                    AssertEqual(generatedPackPath, admiralDouble.LastMissionDescriptions[0].PrestagedFiles![0].SourcePath);
+                }
+            });
         }
 
         /// <summary>

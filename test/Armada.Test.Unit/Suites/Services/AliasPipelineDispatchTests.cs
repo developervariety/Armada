@@ -755,6 +755,85 @@ namespace Armada.Test.Unit.Suites.Services
                     }
                 }
             });
+
+            await RunTest("AliasDispatch_DownstreamArchitectStage_ReceivesContextPack", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("downstream-architect-context-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    // Worker -> Architect. Architect is an implementing persona, so the downstream
+                    // stage must also receive the context-pack entry (proves the set is not Worker-only).
+                    Pipeline workerArchitect = new Pipeline("WorkerThenArchitect");
+                    workerArchitect.Stages = new List<PipelineStage>
+                    {
+                        new PipelineStage(1, "Worker"),
+                        new PipelineStage(2, "Architect")
+                    };
+                    workerArchitect = await testDb.Driver.Pipelines.CreateAsync(workerArchitect).ConfigureAwait(false);
+
+                    PersistingAdmiralDouble admiralDouble = new PersistingAdmiralDouble(testDb.Driver, workerArchitect);
+
+                    string packPath = Path.Combine(Path.GetTempPath(), "downstream-architect-pack.md");
+                    ContextPackResponse cachedPack = new ContextPackResponse
+                    {
+                        Goal = "worker architect context",
+                        MaterializedPath = packPath,
+                        Metrics = new ContextPackMetrics { CacheHit = true, CacheKey = "sha_architect" }
+                    };
+                    cachedPack.PrestagedFiles.Add(new PrestagedFile(packPath, "_briefing/context-pack.md"));
+
+                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService
+                    {
+                        CachedResponse = cachedPack
+                    };
+
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null,
+                        null,
+                        null,
+                        codeIndex);
+                    AssertNotNull(dispatchHandler);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "worker architect voyage",
+                        vesselId = vessel.Id,
+                        pipeline = "WorkerThenArchitect",
+                        missions = new object[]
+                        {
+                            new { title = "architect downstream feature", description = "worker then architect", alias = "WA" }
+                        }
+                    });
+
+                    object result = await dispatchHandler!(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+                    AssertFalse(resultJson.Contains("\"Error\""), "Should not return error: " + resultJson);
+
+                    Voyage voyage = (Voyage)result;
+                    List<Mission> all = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+                    AssertEqual(2, all.Count, "One MD * two pipeline stages = 2 missions");
+
+                    Mission architectMission = all.First(m => m.Persona == "Architect");
+                    AssertNotNull(architectMission.PrestagedFiles,
+                        "Architect (implementing persona) must receive context-pack prestaged file");
+                    bool architectHasPack = false;
+                    foreach (PrestagedFile f in architectMission.PrestagedFiles!)
+                    {
+                        if (String.Equals(f.DestPath, "_briefing/context-pack.md", StringComparison.OrdinalIgnoreCase))
+                        {
+                            architectHasPack = true;
+                            break;
+                        }
+                    }
+                    AssertTrue(architectHasPack, "Architect must have _briefing/context-pack.md in its prestaged files");
+                }
+            });
         }
 
         /// <summary>
