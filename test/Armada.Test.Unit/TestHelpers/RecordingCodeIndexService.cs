@@ -1,5 +1,6 @@
 namespace Armada.Test.Unit.TestHelpers
 {
+    using System;
     using System.Collections.Generic;
     using System.Threading;
     using System.Threading.Tasks;
@@ -8,7 +9,7 @@ namespace Armada.Test.Unit.TestHelpers
 
     /// <summary>
     /// Hand-rolled <see cref="ICodeIndexService"/> double that records
-    /// <see cref="UpdateAsync"/> calls for merge-queue landing tests.
+    /// <see cref="UpdateAsync"/> and <see cref="WarmBaselineCacheAsync"/> calls for tests.
     /// </summary>
     public sealed class RecordingCodeIndexService : ICodeIndexService
     {
@@ -18,6 +19,26 @@ namespace Armada.Test.Unit.TestHelpers
         /// Vessel ids passed to <see cref="UpdateAsync"/>, in call order.
         /// </summary>
         public List<string> UpdateAsyncVesselIds { get; } = new List<string>();
+
+        /// <summary>
+        /// Vessel ids passed to <see cref="WarmBaselineCacheAsync"/>, in call order.
+        /// </summary>
+        public List<string> WarmBaselineCacheVesselIds { get; } = new List<string>();
+
+        /// <summary>
+        /// Returns true when at least one recorded warm-up used the given vessel id.
+        /// </summary>
+        public bool HasWarmForVessel(string vesselId)
+        {
+            lock (_Gate)
+            {
+                foreach (string id in WarmBaselineCacheVesselIds)
+                {
+                    if (id == vesselId) return true;
+                }
+                return false;
+            }
+        }
 
         /// <summary>
         /// Returns true when at least one recorded update used the given vessel id.
@@ -102,6 +123,22 @@ namespace Armada.Test.Unit.TestHelpers
         public Task<CodeGraphAffectedTestsResponse> SuggestAffectedTestsAsync(CodeGraphAffectedTestsRequest request, CancellationToken token = default)
         {
             return Task.FromResult(new CodeGraphAffectedTestsResponse());
+        }
+
+        /// <inheritdoc />
+        public Task WarmBaselineCacheAsync(string vesselId, CancellationToken token = default)
+        {
+            lock (_Gate)
+            {
+                WarmBaselineCacheVesselIds.Add(vesselId ?? "");
+            }
+            return Task.CompletedTask;
+        }
+
+        /// <inheritdoc />
+        public Task<ContextPackResponse?> TryGetCachedContextPackAsync(ContextPackRequest request, CancellationToken token = default)
+        {
+            return Task.FromResult<ContextPackResponse?>(null);
         }
     }
 }

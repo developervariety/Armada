@@ -1157,6 +1157,146 @@ namespace Armada.Core.Services
             };
         }
 
+        /// <inheritdoc />
+        public async Task WarmBaselineCacheAsync(string vesselId, CancellationToken token = default)
+        {
+            if (String.IsNullOrWhiteSpace(vesselId)) throw new ArgumentNullException(nameof(vesselId));
+
+            CodeIndexStatus status = await GetStatusAsync(vesselId, token).ConfigureAwait(false);
+            if (String.IsNullOrWhiteSpace(status.IndexedCommitSha))
+            {
+                _Logging.Warn(_Header + "skipping baseline cache warm-up for vessel " + vesselId + ": no indexed commit SHA available");
+                return;
+            }
+
+            string cacheKey = status.IndexedCommitSha!;
+            string cacheDir = GetBaselineCacheDirectory(vesselId);
+            string metadataPath = Path.Combine(cacheDir, "baseline-metadata.json");
+
+            bool cacheExists = false;
+            if (File.Exists(metadataPath))
+            {
+                try
+                {
+                    string existingJson = await File.ReadAllTextAsync(metadataPath, token).ConfigureAwait(false);
+                    BaselineCacheMetadata? existing = JsonSerializer.Deserialize<BaselineCacheMetadata>(existingJson, _JsonOptions);
+                    if (existing != null
+                        && String.Equals(existing.IndexedCommitSha, cacheKey, StringComparison.OrdinalIgnoreCase)
+                        && !String.IsNullOrWhiteSpace(existing.MaterializedPath)
+                        && File.Exists(existing.MaterializedPath))
+                    {
+                        cacheExists = true;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "could not read baseline cache metadata for vessel " + vesselId + ": " + ex.Message);
+                }
+            }
+
+            if (cacheExists) return;
+
+            _Logging.Info(_Header + "warming baseline context-pack cache for vessel " + vesselId + " at commit " + cacheKey);
+
+            ContextPackRequest baselineRequest = new ContextPackRequest
+            {
+                VesselId = vesselId,
+                Goal = "codebase architecture key types and responsibilities",
+                TokenBudget = 6000
+            };
+
+            ContextPackResponse pack = await BuildContextPackAsync(baselineRequest, token).ConfigureAwait(false);
+
+            Directory.CreateDirectory(cacheDir);
+            string packPath = Path.Combine(cacheDir, "baseline-pack.md");
+            await File.WriteAllTextAsync(packPath, pack.Markdown, new UTF8Encoding(false), token).ConfigureAwait(false);
+
+            BaselineCacheMetadata metadata = new BaselineCacheMetadata
+            {
+                IndexedCommitSha = cacheKey,
+                MaterializedPath = packPath,
+                CachedAtUtc = DateTime.UtcNow,
+                EstimatedTokens = pack.EstimatedTokens,
+                IsSummarized = pack.IsSummarized
+            };
+            string metadataJson = JsonSerializer.Serialize(metadata, _JsonOptions);
+            await File.WriteAllTextAsync(metadataPath, metadataJson, new UTF8Encoding(false), token).ConfigureAwait(false);
+
+            _Logging.Info(_Header + "baseline context-pack cache warmed for vessel " + vesselId + " (" + pack.EstimatedTokens + " estimated tokens)");
+        }
+
+        /// <inheritdoc />
+        public async Task<ContextPackResponse?> TryGetCachedContextPackAsync(ContextPackRequest request, CancellationToken token = default)
+        {
+            if (request == null) throw new ArgumentNullException(nameof(request));
+            if (String.IsNullOrWhiteSpace(request.VesselId)) throw new ArgumentNullException(nameof(request.VesselId));
+
+            CodeIndexStatus status = await GetStatusAsync(request.VesselId, token).ConfigureAwait(false);
+            if (String.IsNullOrWhiteSpace(status.IndexedCommitSha)) return null;
+
+            string cacheKey = status.IndexedCommitSha!;
+            string cacheDir = GetBaselineCacheDirectory(request.VesselId);
+            string metadataPath = Path.Combine(cacheDir, "baseline-metadata.json");
+
+            if (!File.Exists(metadataPath)) return null;
+
+            BaselineCacheMetadata? metadata = null;
+            try
+            {
+                string metadataJson = await File.ReadAllTextAsync(metadataPath, token).ConfigureAwait(false);
+                metadata = JsonSerializer.Deserialize<BaselineCacheMetadata>(metadataJson, _JsonOptions);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not read baseline cache metadata for vessel " + request.VesselId + ": " + ex.Message);
+                return null;
+            }
+
+            if (metadata == null
+                || !String.Equals(metadata.IndexedCommitSha, cacheKey, StringComparison.OrdinalIgnoreCase)
+                || String.IsNullOrWhiteSpace(metadata.MaterializedPath)
+                || !File.Exists(metadata.MaterializedPath))
+            {
+                return null;
+            }
+
+            string markdown = "";
+            try
+            {
+                markdown = await File.ReadAllTextAsync(metadata.MaterializedPath, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not read cached baseline pack for vessel " + request.VesselId + ": " + ex.Message);
+                return null;
+            }
+
+            ContextPackResponse response = new ContextPackResponse
+            {
+                Status = status,
+                Goal = request.Goal,
+                Markdown = markdown,
+                EstimatedTokens = metadata.EstimatedTokens > 0 ? metadata.EstimatedTokens : EstimateTokens(markdown),
+                MaterializedPath = metadata.MaterializedPath,
+                IsSummarized = metadata.IsSummarized
+            };
+            response.PrestagedFiles.Add(new PrestagedFile(metadata.MaterializedPath, "_briefing/context-pack.md"));
+            response.Metrics = new ContextPackMetrics
+            {
+                ResultCount = 0,
+                IncludedFileCount = 0,
+                GraphExpansionUsed = false,
+                WarningCount = 0,
+                IsSummarized = metadata.IsSummarized,
+                PrestagedFileCount = 1,
+                EstimatedTokens = response.EstimatedTokens,
+                VesselCount = 1,
+                CacheHit = true,
+                CacheKey = cacheKey
+            };
+            return response;
+        }
+
         private static bool TryMatchGoalPattern(string? pattern, string goal)
         {
             if (String.IsNullOrEmpty(pattern)) return false;
@@ -3301,6 +3441,11 @@ namespace Armada.Core.Services
             return Path.Combine(_Settings.CodeIndex.IndexDirectory, vesselId);
         }
 
+        private string GetBaselineCacheDirectory(string vesselId)
+        {
+            return Path.Combine(GetVesselIndexDirectory(vesselId), "baseline-cache");
+        }
+
         private string GetStatusPath(string vesselId)
         {
             return Path.Combine(GetVesselIndexDirectory(vesselId), "metadata.json");
@@ -3375,5 +3520,14 @@ namespace Armada.Core.Services
         }
 
         #endregion
+
+        private sealed class BaselineCacheMetadata
+        {
+            public string IndexedCommitSha { get; set; } = "";
+            public string MaterializedPath { get; set; } = "";
+            public DateTime CachedAtUtc { get; set; } = DateTime.UtcNow;
+            public int EstimatedTokens { get; set; }
+            public bool IsSummarized { get; set; }
+        }
     }
 }

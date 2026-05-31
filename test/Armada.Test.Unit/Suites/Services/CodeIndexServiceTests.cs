@@ -914,6 +914,156 @@ namespace Armada.Test.Unit.Suites.Services
                     TryDeleteDirectory(dataRoot);
                 }
             });
+
+            await RunTest("WarmBaselineCacheAsync_ThenTryGetCachedContextPackAsync_ReturnsCacheHit", async () =>
+            {
+                TestRepository repository = await CreateRepositoryAsync().ConfigureAwait(false);
+                string dataRoot = NewTempDirectory("armada-code-index-cache-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Vessel vessel = await CreateVesselAsync(testDb, repository.Path).ConfigureAwait(false);
+                        CodeIndexService service = CreateService(testDb, dataRoot);
+
+                        await service.UpdateAsync(vessel.Id).ConfigureAwait(false);
+                        await service.WarmBaselineCacheAsync(vessel.Id).ConfigureAwait(false);
+
+                        ContextPackRequest request = new ContextPackRequest
+                        {
+                            VesselId = vessel.Id,
+                            Goal = "any mission goal"
+                        };
+
+                        ContextPackResponse? cached = await service.TryGetCachedContextPackAsync(request).ConfigureAwait(false);
+
+                        AssertTrue(cached != null, "Cache hit should return a non-null response");
+                        AssertTrue(cached!.Metrics.CacheHit, "Metrics.CacheHit should be true for a cache hit");
+                        AssertFalse(String.IsNullOrWhiteSpace(cached.Metrics.CacheKey), "Metrics.CacheKey should be the indexed commit SHA");
+                        AssertEqual(repository.CommitSha, cached.Metrics.CacheKey);
+                        AssertFalse(String.IsNullOrWhiteSpace(cached.Markdown), "Cached markdown should not be empty");
+                        AssertTrue(File.Exists(cached.MaterializedPath), "Cached materialized path should exist on disk");
+                        AssertEqual(1, cached.PrestagedFiles.Count, "Cached response should include one prestaged file");
+                        AssertEqual("_briefing/context-pack.md", cached.PrestagedFiles[0].DestPath);
+                        AssertEqual(cached.MaterializedPath, cached.PrestagedFiles[0].SourcePath);
+                        AssertTrue(cached.EstimatedTokens > 0, "Cached response should have positive estimated token count");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(repository.Root);
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("TryGetCachedContextPackAsync_BeforeWarm_ReturnsCacheMiss", async () =>
+            {
+                TestRepository repository = await CreateRepositoryAsync().ConfigureAwait(false);
+                string dataRoot = NewTempDirectory("armada-code-index-cache-miss-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Vessel vessel = await CreateVesselAsync(testDb, repository.Path).ConfigureAwait(false);
+                        CodeIndexService service = CreateService(testDb, dataRoot);
+
+                        await service.UpdateAsync(vessel.Id).ConfigureAwait(false);
+
+                        ContextPackResponse? cached = await service.TryGetCachedContextPackAsync(new ContextPackRequest
+                        {
+                            VesselId = vessel.Id,
+                            Goal = "any goal"
+                        }).ConfigureAwait(false);
+
+                        AssertTrue(cached == null, "Cache should miss before WarmBaselineCacheAsync is called");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(repository.Root);
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("TryGetCachedContextPackAsync_AfterCommitShaChange_ReturnsCacheMiss", async () =>
+            {
+                TestRepository repository = await CreateRepositoryAsync().ConfigureAwait(false);
+                string dataRoot = NewTempDirectory("armada-code-index-sha-change-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Vessel vessel = await CreateVesselAsync(testDb, repository.Path).ConfigureAwait(false);
+                        CodeIndexService service = CreateService(testDb, dataRoot);
+
+                        await service.UpdateAsync(vessel.Id).ConfigureAwait(false);
+                        await service.WarmBaselineCacheAsync(vessel.Id).ConfigureAwait(false);
+
+                        // Advance the commit so the index is stale relative to the cached SHA.
+                        await File.WriteAllTextAsync(
+                            Path.Combine(repository.Path, "docs", "usage.md"),
+                            "# Usage\n\nUpdated content to bump the commit sha.\n").ConfigureAwait(false);
+                        await RunGitAsync(repository.Path, "add", ".").ConfigureAwait(false);
+                        await RunGitAsync(repository.Path, "commit", "-m", "Bump commit for cache-invalidation test").ConfigureAwait(false);
+
+                        // Re-index so IndexedCommitSha changes.
+                        await service.UpdateAsync(vessel.Id).ConfigureAwait(false);
+
+                        // Cache metadata still references the old SHA; new indexed SHA differs -> cache miss.
+                        ContextPackResponse? cached = await service.TryGetCachedContextPackAsync(new ContextPackRequest
+                        {
+                            VesselId = vessel.Id,
+                            Goal = "any goal"
+                        }).ConfigureAwait(false);
+
+                        AssertTrue(cached == null, "Cache should miss after indexed commit SHA changes");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(repository.Root);
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("WarmBaselineCacheAsync_CalledTwice_SecondCallIsNoOp", async () =>
+            {
+                TestRepository repository = await CreateRepositoryAsync().ConfigureAwait(false);
+                string dataRoot = NewTempDirectory("armada-code-index-warm-noop-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Vessel vessel = await CreateVesselAsync(testDb, repository.Path).ConfigureAwait(false);
+                        CodeIndexService service = CreateService(testDb, dataRoot);
+
+                        await service.UpdateAsync(vessel.Id).ConfigureAwait(false);
+                        await service.WarmBaselineCacheAsync(vessel.Id).ConfigureAwait(false);
+
+                        string cacheDir = Path.Combine(
+                            dataRoot, "code-index", vessel.Id, "baseline-cache");
+                        string packPath = Path.Combine(cacheDir, "baseline-pack.md");
+
+                        DateTime firstWriteTime = File.GetLastWriteTimeUtc(packPath);
+
+                        // Second warm-up should detect the existing valid cache and skip regeneration.
+                        await service.WarmBaselineCacheAsync(vessel.Id).ConfigureAwait(false);
+
+                        DateTime secondWriteTime = File.GetLastWriteTimeUtc(packPath);
+
+                        AssertEqual(firstWriteTime, secondWriteTime, "Second warm-up should not overwrite the cached pack file");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(repository.Root);
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
         }
 
         private static List<CodeIndexRecord> BuildSemanticBlendCorpus(string vesselId)

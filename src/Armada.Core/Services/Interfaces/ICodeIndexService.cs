@@ -34,6 +34,18 @@ namespace Armada.Core.Services.Interfaces
         Task<ContextPackResponse> BuildContextPackAsync(ContextPackRequest request, CancellationToken token = default);
 
         /// <summary>
+        /// Generate and persist a baseline context pack for the vessel, keyed by the current indexed commit SHA.
+        /// Called in the background after each successful code-index refresh. Failures are non-fatal.
+        /// </summary>
+        Task WarmBaselineCacheAsync(string vesselId, CancellationToken token = default);
+
+        /// <summary>
+        /// Return the cached baseline context pack for the vessel if the cached entry matches the current
+        /// indexed commit SHA; otherwise returns null (cache miss).
+        /// </summary>
+        Task<ContextPackResponse?> TryGetCachedContextPackAsync(ContextPackRequest request, CancellationToken token = default);
+
+        /// <summary>
         /// Build a dispatch-ready context pack across all vessels in a fleet.
         /// </summary>
         Task<FleetContextPackResponse> BuildFleetContextPackAsync(FleetContextPackRequest request, CancellationToken token = default);
