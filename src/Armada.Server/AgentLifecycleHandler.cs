@@ -454,14 +454,15 @@ namespace Armada.Server
             }
 
             TimeSpan interval = TimeSpan.FromSeconds(Math.Max(5, _Settings.HeartbeatIntervalSeconds));
+            CancellationToken token = cts.Token;
             _ = Task.Run(async () =>
             {
                 try
                 {
-                    while (!cts.Token.IsCancellationRequested)
+                    while (!token.IsCancellationRequested)
                     {
-                        await Task.Delay(interval, cts.Token).ConfigureAwait(false);
-                        if (cts.Token.IsCancellationRequested) break;
+                        await Task.Delay(interval, token).ConfigureAwait(false);
+                        if (token.IsCancellationRequested) break;
                         if (!IsTrackedProcessAlive(processId)) break;
 
                         string? mappedCaptainId = null;
@@ -486,6 +487,9 @@ namespace Armada.Server
                     }
                 }
                 catch (OperationCanceledException)
+                {
+                }
+                catch (ObjectDisposedException)
                 {
                 }
                 finally

@@ -304,6 +304,67 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("StartProcessLivenessHeartbeat_WhenCtsDisposedDuringDelay_DoesNotFaultTask", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out ArmadaSettings settings);
+                    settings.HeartbeatIntervalSeconds = 5;
+
+                    Captain captain = new Captain("dispose-heartbeat-captain", AgentRuntimeEnum.Cursor);
+                    await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    Mission mission = new Mission("Dispose heartbeat mission");
+                    await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    Exception? unobservedException = null;
+                    EventHandler<UnobservedTaskExceptionEventArgs> unobservedHandler = (_, args) =>
+                    {
+                        if (unobservedException == null)
+                        {
+                            unobservedException = args.Exception;
+                        }
+
+                        args.SetObserved();
+                    };
+
+                    TaskScheduler.UnobservedTaskException += unobservedHandler;
+                    using Process process = StartSilentProcess();
+                    try
+                    {
+                        RegisterTrackedProcess(handler, process.Id, captain.Id, mission.Id);
+                        StartTrackedProcessHeartbeat(handler, process.Id, captain.Id, mission.Id);
+
+                        StopTrackedProcessHeartbeat(handler, process.Id);
+
+                        await WaitForConditionAsync(async () =>
+                        {
+                            await Task.CompletedTask.ConfigureAwait(false);
+                            return !HasProcessHeartbeatLoop(handler, process.Id);
+                        }, TimeSpan.FromSeconds(3)).ConfigureAwait(false);
+
+                        await Task.Delay(200).ConfigureAwait(false);
+                        GC.Collect();
+                        GC.WaitForPendingFinalizers();
+
+                        AssertNull(unobservedException, "Disposing heartbeat CTS during delay should not surface an unobserved exception");
+                    }
+                    finally
+                    {
+                        TaskScheduler.UnobservedTaskException -= unobservedHandler;
+                        try
+                        {
+                            if (!process.HasExited)
+                            {
+                                process.Kill(entireProcessTree: true);
+                                process.WaitForExit(5000);
+                            }
+                        }
+                        catch { }
+                    }
+                }
+            });
+
             await RunTest("HandleAgentOutput bounds streamed output and retains tail with truncation marker", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -545,6 +606,25 @@ namespace Armada.Test.Unit.Suites.Services
             MethodInfo method = typeof(AgentLifecycleHandler).GetMethod("StartProcessLivenessHeartbeat", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?? throw new InvalidOperationException("Could not find StartProcessLivenessHeartbeat method");
             method.Invoke(handler, new object[] { processId, captainId, missionId });
+        }
+
+        private static void StopTrackedProcessHeartbeat(AgentLifecycleHandler handler, int processId)
+        {
+            MethodInfo method = typeof(AgentLifecycleHandler).GetMethod("StopProcessLivenessHeartbeat", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException("Could not find StopProcessLivenessHeartbeat method");
+            method.Invoke(handler, new object[] { processId });
+        }
+
+        private static bool HasProcessHeartbeatLoop(AgentLifecycleHandler handler, int processId)
+        {
+            FieldInfo loopsField = typeof(AgentLifecycleHandler).GetField("_ProcessHeartbeatLoops", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException("Could not find _ProcessHeartbeatLoops field");
+
+            System.Collections.Concurrent.ConcurrentDictionary<int, System.Threading.CancellationTokenSource> loops =
+                (System.Collections.Concurrent.ConcurrentDictionary<int, System.Threading.CancellationTokenSource>)(loopsField.GetValue(handler)
+                ?? throw new InvalidOperationException("Process heartbeat loop map was null"));
+
+            return loops.ContainsKey(processId);
         }
 
         private static Process StartSilentProcess()
