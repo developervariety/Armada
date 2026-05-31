@@ -1,7 +1,10 @@
 namespace Armada.Test.Unit.Suites.Services
 {
+    using System;
     using System.Collections.Generic;
     using System.Text.Json;
+    using System.Threading;
+    using System.Threading.Tasks;
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
     using Armada.Server.Mcp.Tools;
@@ -731,6 +734,89 @@ namespace Armada.Test.Unit.Suites.Services
                 string missingFleetGoalJson = JsonSerializer.Serialize(missingFleetGoalResult);
                 AssertContains("goal is required", missingFleetGoalJson);
                 AssertEqual(null, service.LastFleetContextPackRequest, "Invalid fleet context-pack request should not delegate to service");
+            });
+
+            await RunTest("ContextPack_TimeoutResolution_UsesSharedEnvVar", async () =>
+            {
+                string? priorTimeout = Environment.GetEnvironmentVariable(CodeContextTimeouts.TimeoutEnvVar);
+                Environment.SetEnvironmentVariable(CodeContextTimeouts.TimeoutEnvVar, "5000");
+                try
+                {
+                    RecordingCodeIndexService service = new RecordingCodeIndexService();
+                    service.ContextPackResponse = new ContextPackResponse
+                    {
+                        Status = NewStatus("vsl_timeout_env"),
+                        Goal = "resolve via env var",
+                        MaterializedPath = "C:/tmp/timeout-env.md"
+                    };
+
+                    Dictionary<string, Func<JsonElement?, Task<object>>> handlers = RegisterHandlers(service);
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        vesselId = "vsl_timeout_env",
+                        goal = "resolve via env var",
+                        tokenBudget = 500
+                    });
+
+                    object result = await handlers["armada_context_pack"](args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+                    AssertFalse(resultJson.Contains("\"Error\""), "5 second env-var timeout should be sufficient for fast service: " + resultJson);
+                }
+                finally
+                {
+                    Environment.SetEnvironmentVariable(CodeContextTimeouts.TimeoutEnvVar, priorTimeout);
+                }
+            });
+
+            await RunTest("ContextPack_TimeoutResolution_DefaultExplicitTimeout_Is120Seconds", () =>
+            {
+                string? priorTimeout = Environment.GetEnvironmentVariable(CodeContextTimeouts.TimeoutEnvVar);
+                Environment.SetEnvironmentVariable(CodeContextTimeouts.TimeoutEnvVar, null);
+                try
+                {
+                    TimeSpan defaultTimeout = CodeContextTimeouts.Resolve(CodeContextTimeouts.DefaultExplicitTimeoutMs);
+                    AssertEqual(120_000, (int)defaultTimeout.TotalMilliseconds,
+                        "Default explicit context-pack timeout must be 120 seconds");
+                }
+                finally
+                {
+                    Environment.SetEnvironmentVariable(CodeContextTimeouts.TimeoutEnvVar, priorTimeout);
+                }
+                return Task.CompletedTask;
+            });
+
+            await RunTest("ContextPack_TimeoutResolution_PerRequestTimeoutMs_OverridesEnvVar", async () =>
+            {
+                string? priorTimeout = Environment.GetEnvironmentVariable(CodeContextTimeouts.TimeoutEnvVar);
+                Environment.SetEnvironmentVariable(CodeContextTimeouts.TimeoutEnvVar, "999999");
+                try
+                {
+                    RecordingCodeIndexService service = new RecordingCodeIndexService();
+                    service.ContextPackResponse = new ContextPackResponse
+                    {
+                        Status = NewStatus("vsl_req_timeout"),
+                        Goal = "per-request override",
+                        MaterializedPath = "C:/tmp/req-timeout.md"
+                    };
+                    service.ContextPackResponse.PrestagedFiles.Add(new PrestagedFile("C:/tmp/req-timeout.md", "_briefing/context-pack.md"));
+
+                    Dictionary<string, Func<JsonElement?, Task<object>>> handlers = RegisterHandlers(service);
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        vesselId = "vsl_req_timeout",
+                        goal = "per-request override",
+                        tokenBudget = 500,
+                        timeoutMs = 10000
+                    });
+
+                    object result = await handlers["armada_context_pack"](args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+                    AssertFalse(resultJson.Contains("\"Error\""), "Per-request 10s timeout should not fail fast service: " + resultJson);
+                }
+                finally
+                {
+                    Environment.SetEnvironmentVariable(CodeContextTimeouts.TimeoutEnvVar, priorTimeout);
+                }
             });
         }
 
