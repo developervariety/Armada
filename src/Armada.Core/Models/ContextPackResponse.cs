@@ -122,6 +122,12 @@ namespace Armada.Core.Models
         /// <summary>Fleet context packs: number of vessels considered.</summary>
         public int VesselCount { get; set; }
 
+        /// <summary>True when the response was served from the baseline cache rather than generated synchronously.</summary>
+        public bool CacheHit { get; set; }
+
+        /// <summary>Cache key used to locate the cached pack (indexed commit SHA), or null when not a cache hit.</summary>
+        public string? CacheKey { get; set; } = null;
+
         #endregion
     }
 }

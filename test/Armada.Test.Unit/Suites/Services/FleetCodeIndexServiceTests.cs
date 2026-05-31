@@ -384,6 +384,12 @@ namespace Armada.Test.Unit.Suites.Services
 
             public Task<CodeGraphAffectedTestsResponse> SuggestAffectedTestsAsync(CodeGraphAffectedTestsRequest request, CancellationToken token = default)
                 => throw new NotImplementedException();
+
+            public Task WarmBaselineCacheAsync(string vesselId, CancellationToken token = default)
+                => Task.CompletedTask;
+
+            public Task<ContextPackResponse?> TryGetCachedContextPackAsync(ContextPackRequest request, CancellationToken token = default)
+                => Task.FromResult<ContextPackResponse?>(null);
         }
 
         private sealed class StubAdmiralService : IAdmiralService
