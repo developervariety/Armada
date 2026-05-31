@@ -581,6 +581,180 @@ namespace Armada.Test.Unit.Suites.Services
                     }
                 }
             });
+
+            await RunTest("AliasDispatch_WorkerJudgePipeline_OnlyWorkerReceivesContextPack", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("context-persona-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    Pipeline reviewed = new Pipeline("ContextPersonaReviewed");
+                    reviewed.Stages = new List<PipelineStage>
+                    {
+                        new PipelineStage(1, "Worker"),
+                        new PipelineStage(2, "Judge")
+                    };
+                    reviewed = await testDb.Driver.Pipelines.CreateAsync(reviewed).ConfigureAwait(false);
+
+                    PersistingAdmiralDouble admiralDouble = new PersistingAdmiralDouble(testDb.Driver, reviewed);
+
+                    string packPath = Path.Combine(Path.GetTempPath(), "context-persona-pack.md");
+                    ContextPackResponse cachedPack = new ContextPackResponse
+                    {
+                        Goal = "worker-judge context",
+                        MaterializedPath = packPath,
+                        Metrics = new ContextPackMetrics { CacheHit = true, CacheKey = "sha_persona" }
+                    };
+                    cachedPack.PrestagedFiles.Add(new PrestagedFile(packPath, "_briefing/context-pack.md"));
+
+                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService
+                    {
+                        CachedResponse = cachedPack
+                    };
+
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null,
+                        null,
+                        null,
+                        codeIndex);
+                    AssertNotNull(dispatchHandler);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "context persona voyage",
+                        vesselId = vessel.Id,
+                        pipeline = "ContextPersonaReviewed",
+                        missions = new object[]
+                        {
+                            new { title = "feature X", description = "implementing work", alias = "FX" }
+                        }
+                    });
+
+                    object result = await dispatchHandler!(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+                    AssertFalse(resultJson.Contains("\"Error\""), "Should not return error: " + resultJson);
+
+                    Voyage voyage = (Voyage)result;
+                    List<Mission> all = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+                    AssertEqual(2, all.Count, "One MD * two pipeline stages = 2 missions");
+
+                    Mission workerMission = all.First(m => m.Persona == "Worker");
+                    Mission judgeMission = all.First(m => m.Persona == "Judge");
+
+                    AssertNotNull(workerMission.PrestagedFiles,
+                        "Worker (implementing persona) must receive context-pack prestaged file");
+                    bool workerHasPack = false;
+                    foreach (PrestagedFile f in workerMission.PrestagedFiles!)
+                    {
+                        if (String.Equals(f.DestPath, "_briefing/context-pack.md", StringComparison.OrdinalIgnoreCase))
+                        {
+                            workerHasPack = true;
+                            break;
+                        }
+                    }
+                    AssertTrue(workerHasPack, "Worker must have _briefing/context-pack.md in its prestaged files");
+
+                    bool judgeHasPack = false;
+                    if (judgeMission.PrestagedFiles != null)
+                    {
+                        foreach (PrestagedFile f in judgeMission.PrestagedFiles)
+                        {
+                            if (String.Equals(f.DestPath, "_briefing/context-pack.md", StringComparison.OrdinalIgnoreCase))
+                            {
+                                judgeHasPack = true;
+                                break;
+                            }
+                        }
+                    }
+                    AssertFalse(judgeHasPack, "Judge (review-only persona) must NOT receive context-pack prestaged file");
+                }
+            });
+
+            await RunTest("AliasDispatch_DownstreamWorkerStage_ReceivesContextPack", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("downstream-worker-context-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    // Two Worker stages in order 1 and 2 (no Judge).
+                    Pipeline twoWorkers = new Pipeline("TwoWorkers");
+                    twoWorkers.Stages = new List<PipelineStage>
+                    {
+                        new PipelineStage(1, "Worker"),
+                        new PipelineStage(2, "Worker")
+                    };
+                    twoWorkers = await testDb.Driver.Pipelines.CreateAsync(twoWorkers).ConfigureAwait(false);
+
+                    PersistingAdmiralDouble admiralDouble = new PersistingAdmiralDouble(testDb.Driver, twoWorkers);
+
+                    string packPath = Path.Combine(Path.GetTempPath(), "downstream-worker-pack.md");
+                    ContextPackResponse cachedPack = new ContextPackResponse
+                    {
+                        Goal = "two workers context",
+                        MaterializedPath = packPath,
+                        Metrics = new ContextPackMetrics { CacheHit = true, CacheKey = "sha_workers" }
+                    };
+                    cachedPack.PrestagedFiles.Add(new PrestagedFile(packPath, "_briefing/context-pack.md"));
+
+                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService
+                    {
+                        CachedResponse = cachedPack
+                    };
+
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null,
+                        null,
+                        null,
+                        codeIndex);
+                    AssertNotNull(dispatchHandler);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "two workers voyage",
+                        vesselId = vessel.Id,
+                        pipeline = "TwoWorkers",
+                        missions = new object[]
+                        {
+                            new { title = "multi worker feature", description = "two workers", alias = "MW" }
+                        }
+                    });
+
+                    object result = await dispatchHandler!(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+                    AssertFalse(resultJson.Contains("\"Error\""), "Should not return error: " + resultJson);
+
+                    Voyage voyage = (Voyage)result;
+                    List<Mission> all = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+                    AssertEqual(2, all.Count, "One MD * two Worker stages = 2 missions");
+
+                    foreach (Mission m in all)
+                    {
+                        bool hasPack = false;
+                        if (m.PrestagedFiles != null)
+                        {
+                            foreach (PrestagedFile f in m.PrestagedFiles)
+                            {
+                                if (String.Equals(f.DestPath, "_briefing/context-pack.md", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    hasPack = true;
+                                    break;
+                                }
+                            }
+                        }
+                        AssertTrue(hasPack, "Worker stage '" + m.Title + "' must receive _briefing/context-pack.md");
+                    }
+                }
+            });
         }
 
         /// <summary>
@@ -657,6 +831,8 @@ namespace Armada.Test.Unit.Suites.Services
 
             public ContextPackResponse ContextPackResponse { get; } = new ContextPackResponse();
 
+            public ContextPackResponse? CachedResponse { get; set; }
+
             public CodeIndexStatus Status { get; } = new CodeIndexStatus();
 
             public Task<CodeIndexStatus> GetStatusAsync(string vesselId, CancellationToken token = default)
@@ -704,7 +880,7 @@ namespace Armada.Test.Unit.Suites.Services
                 => Task.CompletedTask;
 
             public Task<ContextPackResponse?> TryGetCachedContextPackAsync(ContextPackRequest request, CancellationToken token = default)
-                => Task.FromResult<ContextPackResponse?>(null);
+                => Task.FromResult<ContextPackResponse?>(CachedResponse);
         }
     }
 }
