@@ -27,6 +27,26 @@ namespace Armada.Test.Unit.Suites.Services
         /// <inheritdoc />
         protected override async Task RunTestsAsync()
         {
+            await RunTest("IsClaudeThinkingBlockFailure ThinkingBlocks Returns True", () =>
+            {
+                AssertTrue(
+                    AutonomousRecoveryOrchestrator.IsClaudeThinkingBlockFailure(ThinkingBlockFailure("thinking")),
+                    "thinking block mutation failures should be detected.");
+                AssertTrue(
+                    AutonomousRecoveryOrchestrator.IsClaudeThinkingBlockFailure(ThinkingBlockFailure("redacted_thinking")),
+                    "redacted_thinking block mutation failures should be detected.");
+            }).ConfigureAwait(false);
+
+            await RunTest("IsClaudeThinkingBlockFailure UnrelatedFailures Returns False", () =>
+            {
+                AssertFalse(
+                    AutonomousRecoveryOrchestrator.IsClaudeThinkingBlockFailure("API Error: 400 invalid_request_error: model does not exist"),
+                    "Unrelated API 400 failures should not match.");
+                AssertFalse(
+                    AutonomousRecoveryOrchestrator.IsClaudeThinkingBlockFailure("Agent process exited with code 1"),
+                    "Ordinary process failures should not match.");
+            }).ConfigureAwait(false);
+
             await RunTest("Recoverable failed mission creates incident, runbook execution, and rescue mission", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -73,6 +93,70 @@ namespace Armada.Test.Unit.Suites.Services
                 }).ConfigureAwait(false);
                 AssertEqual(1, executionPage.Objects.Count);
                 AssertEqual(RunbookExecutionStatusEnum.Completed, executionPage.Objects[0].Status);
+            }).ConfigureAwait(false);
+
+            await RunTest("Claude thinking block failure disables extended thinking on rescue captain", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_auto_claude_thinking", "usr_auto_claude_thinking").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_auto_claude_thinking", "usr_auto_claude_thinking").ConfigureAwait(false);
+                Captain failedCaptain = await CreateCaptainAsync(testDb, vessel, "failed-claude", AgentRuntimeEnum.ClaudeCode).ConfigureAwait(false);
+                Captain rescueCaptain = await CreateCaptainAsync(testDb, vessel, "rescue-claude", AgentRuntimeEnum.ClaudeCode).ConfigureAwait(false);
+                rescueCaptain.RuntimeOptionsJson = CaptainRuntimeOptions.Serialize(new CaptainOptions
+                {
+                    ReasoningEffort = "high"
+                });
+                await testDb.Driver.Captains.UpdateAsync(rescueCaptain).ConfigureAwait(false);
+
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, ThinkingBlockFailure("thinking")).ConfigureAwait(false);
+                failed.CaptainId = failedCaptain.Id;
+                await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver)
+                {
+                    AssignedRescueCaptainId = rescueCaptain.Id
+                };
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+                AssertEqual(1, admiral.DispatchedMissions.Count);
+                Captain? updatedRescueCaptain = await testDb.Driver.Captains.ReadAsync(rescueCaptain.Id).ConfigureAwait(false);
+                AssertTrue(updatedRescueCaptain != null, "Expected rescue captain to remain readable.");
+                AssertTrue(CaptainRuntimeOptions.GetDisableExtendedThinking(updatedRescueCaptain), "Expected disable-extended-thinking flag on rescue captain.");
+                AssertEqual("high", CaptainRuntimeOptions.GetReasoningEffort(updatedRescueCaptain), "Existing reasoning effort should be preserved.");
+            }).ConfigureAwait(false);
+
+            await RunTest("Claude thinking block failure on non Claude captain leaves rescue option unchanged", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_auto_codex_thinking", "usr_auto_codex_thinking").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_auto_codex_thinking", "usr_auto_codex_thinking").ConfigureAwait(false);
+                Captain failedCaptain = await CreateCaptainAsync(testDb, vessel, "failed-codex", AgentRuntimeEnum.Codex).ConfigureAwait(false);
+                Captain rescueCaptain = await CreateCaptainAsync(testDb, vessel, "rescue-claude-negative", AgentRuntimeEnum.ClaudeCode).ConfigureAwait(false);
+
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, ThinkingBlockFailure("redacted_thinking")).ConfigureAwait(false);
+                failed.CaptainId = failedCaptain.Id;
+                await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver)
+                {
+                    AssignedRescueCaptainId = rescueCaptain.Id
+                };
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+                AssertEqual(1, admiral.DispatchedMissions.Count);
+                Captain? updatedRescueCaptain = await testDb.Driver.Captains.ReadAsync(rescueCaptain.Id).ConfigureAwait(false);
+                AssertTrue(updatedRescueCaptain != null, "Expected rescue captain to remain readable.");
+                AssertFalse(CaptainRuntimeOptions.GetDisableExtendedThinking(updatedRescueCaptain), "Non-Claude failed captains should not mutate the rescue captain option.");
             }).ConfigureAwait(false);
 
             await RunTest("Serious failure opens incident without dispatching rescue", async () =>
@@ -369,6 +453,24 @@ namespace Armada.Test.Unit.Suites.Services
             return await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
         }
 
+        private static async Task<Captain> CreateCaptainAsync(TestDatabase testDb, Vessel vessel, string name, AgentRuntimeEnum runtime)
+        {
+            Captain captain = new Captain(name, runtime)
+            {
+                TenantId = vessel.TenantId,
+                UserId = vessel.UserId
+            };
+
+            return await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+        }
+
+        private static string ThinkingBlockFailure(string blockName)
+        {
+            return "API Error: 400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"messages.2.content.1: `" +
+                blockName +
+                "` blocks cannot be modified\"}}";
+        }
+
         private static async Task EnsureTenantAndUserAsync(TestDatabase testDb, string tenantId, string userId)
         {
             TenantMetadata? existingTenant = await testDb.Driver.Tenants.ReadAsync(tenantId).ConfigureAwait(false);
@@ -406,6 +508,8 @@ namespace Armada.Test.Unit.Suites.Services
 
             public List<Mission> DispatchedMissions { get; } = new List<Mission>();
 
+            public string? AssignedRescueCaptainId { get; set; }
+
             public Func<Captain, Mission, Dock, Task<int>>? OnLaunchAgent { get; set; }
             public Func<Captain, Task>? OnStopAgent { get; set; }
             public Func<Mission, Dock, Task>? OnCaptureDiff { get; set; }
@@ -429,6 +533,9 @@ namespace Armada.Test.Unit.Suites.Services
 
             public async Task<Mission> DispatchMissionAsync(Mission mission, CancellationToken token = default)
             {
+                if (!String.IsNullOrWhiteSpace(AssignedRescueCaptainId))
+                    mission.CaptainId = AssignedRescueCaptainId;
+
                 Mission created = await _Database.Missions.CreateAsync(mission, token).ConfigureAwait(false);
                 DispatchedMissions.Add(created);
                 return created;
