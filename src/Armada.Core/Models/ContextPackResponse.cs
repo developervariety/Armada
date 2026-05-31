@@ -122,6 +122,15 @@ namespace Armada.Core.Models
         /// <summary>Fleet context packs: number of vessels considered.</summary>
         public int VesselCount { get; set; }
 
+        /// <summary>Elapsed milliseconds spent in the code-search phase that produced the evidence.</summary>
+        public long SearchElapsedMs { get; set; }
+
+        /// <summary>Elapsed milliseconds spent in the summarizer completion phase. Zero when summarization was skipped.</summary>
+        public long SummarizerElapsedMs { get; set; }
+
+        /// <summary>Total elapsed milliseconds for the full context-pack build operation.</summary>
+        public long TotalElapsedMs { get; set; }
+
         #endregion
     }
 }

@@ -196,6 +196,22 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Independent time budget, in seconds, for a single summarizer completion call.
+        /// When a summarization exceeds this budget the context pack falls back to the raw
+        /// markdown evidence rather than blocking. Clamped to 1-600 seconds.
+        /// </summary>
+        public int SummarizerTimeoutSeconds
+        {
+            get => _SummarizerTimeoutSeconds;
+            set
+            {
+                if (value < 1) value = 1;
+                if (value > 600) value = 600;
+                _SummarizerTimeoutSeconds = value;
+            }
+        }
+
+        /// <summary>
         /// Maximum tokens for summarizer output.
         /// </summary>
         public int MaxSummaryOutputTokens
@@ -475,6 +491,7 @@ namespace Armada.Core.Settings
         private string _SummarizerModel = "deepseek-chat";
         private string _SummarizerApiBaseUrl = string.Empty;
         private string _SummarizerApiKey = string.Empty;
+        private int _SummarizerTimeoutSeconds = 10;
         private int _MaxSummaryOutputTokens = 2048;
         private int _EmbeddingBatchSize = 32;
         private int _EmbeddingProgressLogInterval = 200;
