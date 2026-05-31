@@ -1,8 +1,12 @@
 namespace Armada.Test.Unit.Suites.Services
 {
+    using System;
     using System.IO;
     using System.Net.Http;
     using System.Reflection;
+    using System.Threading;
+    using System.Threading.Tasks;
+    using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
@@ -235,6 +239,90 @@ namespace Armada.Test.Unit.Suites.Services
                     TryDeleteDirectory(dataRoot);
                 }
             }).ConfigureAwait(false);
+
+            await RunTest("CodeIndexRefreshScheduler invokes WarmBaselineCacheAsync after UpdateAsync", async () =>
+            {
+                WarmTrackingCodeIndexDouble codeIndex = new WarmTrackingCodeIndexDouble();
+                LoggingModule logging = SilentLogging();
+                CodeIndexSettings settings = new CodeIndexSettings
+                {
+                    PostLandRefreshDebounceSeconds = 0
+                };
+
+                CodeIndexRefreshScheduler.Schedule(
+                    codeIndex,
+                    settings,
+                    logging,
+                    "[test] ",
+                    "vsl_test",
+                    "test reason");
+
+                // Allow the background worker time to complete.
+                int waited = 0;
+                while (!codeIndex.WarmWasCalled && waited < 5000)
+                {
+                    await Task.Delay(50).ConfigureAwait(false);
+                    waited += 50;
+                }
+
+                AssertTrue(codeIndex.UpdateWasCalled, "UpdateAsync should be called by the refresh scheduler");
+                AssertTrue(codeIndex.WarmWasCalled, "WarmBaselineCacheAsync should be called after UpdateAsync");
+            }).ConfigureAwait(false);
+        }
+
+        private sealed class WarmTrackingCodeIndexDouble : ICodeIndexService
+        {
+            private readonly object _Gate = new object();
+            private bool _UpdateCalled;
+            private bool _WarmCalled;
+
+            public bool UpdateWasCalled { get { lock (_Gate) { return _UpdateCalled; } } }
+            public bool WarmWasCalled { get { lock (_Gate) { return _WarmCalled; } } }
+
+            public Task<CodeIndexStatus> GetStatusAsync(string vesselId, CancellationToken token = default)
+                => Task.FromResult(new CodeIndexStatus { VesselId = vesselId ?? "" });
+
+            public Task<CodeIndexStatus> UpdateAsync(string vesselId, CancellationToken token = default)
+            {
+                lock (_Gate) { _UpdateCalled = true; }
+                return Task.FromResult(new CodeIndexStatus { VesselId = vesselId ?? "" });
+            }
+
+            public Task WarmBaselineCacheAsync(string vesselId, CancellationToken token = default)
+            {
+                lock (_Gate) { _WarmCalled = true; }
+                return Task.CompletedTask;
+            }
+
+            public Task<ContextPackResponse?> TryGetCachedContextPackAsync(ContextPackRequest request, CancellationToken token = default)
+                => Task.FromResult<ContextPackResponse?>(null);
+
+            public Task<CodeSearchResponse> SearchAsync(CodeSearchRequest request, CancellationToken token = default)
+                => Task.FromResult(new CodeSearchResponse());
+
+            public Task<FleetCodeSearchResponse> SearchFleetAsync(FleetCodeSearchRequest request, CancellationToken token = default)
+                => Task.FromResult(new FleetCodeSearchResponse());
+
+            public Task<ContextPackResponse> BuildContextPackAsync(ContextPackRequest request, CancellationToken token = default)
+                => Task.FromResult(new ContextPackResponse());
+
+            public Task<FleetContextPackResponse> BuildFleetContextPackAsync(FleetContextPackRequest request, CancellationToken token = default)
+                => Task.FromResult(new FleetContextPackResponse());
+
+            public Task<CodeGraphSymbolSearchResponse> SearchSymbolsAsync(CodeGraphSymbolSearchRequest request, CancellationToken token = default)
+                => Task.FromResult(new CodeGraphSymbolSearchResponse());
+
+            public Task<CodeGraphNeighborsResponse> GetCallersAsync(CodeGraphNeighborsRequest request, CancellationToken token = default)
+                => Task.FromResult(new CodeGraphNeighborsResponse());
+
+            public Task<CodeGraphNeighborsResponse> GetCalleesAsync(CodeGraphNeighborsRequest request, CancellationToken token = default)
+                => Task.FromResult(new CodeGraphNeighborsResponse());
+
+            public Task<CodeGraphImpactResponse> GetImpactAsync(CodeGraphImpactRequest request, CancellationToken token = default)
+                => Task.FromResult(new CodeGraphImpactResponse());
+
+            public Task<CodeGraphAffectedTestsResponse> SuggestAffectedTestsAsync(CodeGraphAffectedTestsRequest request, CancellationToken token = default)
+                => Task.FromResult(new CodeGraphAffectedTestsResponse());
         }
 
         private static ArmadaSettings BuildMinimalSettings(string dataRoot)

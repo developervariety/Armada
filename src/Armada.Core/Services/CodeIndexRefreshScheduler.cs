@@ -103,6 +103,15 @@ namespace Armada.Core.Services
                     logging.Warn(logHeader + "code index refresh failed for vessel " + vesselId + ": " + ex.Message);
                 }
 
+                try
+                {
+                    await service.WarmBaselineCacheAsync(vesselId).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    logging.Warn(logHeader + "baseline cache warm-up failed for vessel " + vesselId + ": " + ex.Message);
+                }
+
                 lock (state.Gate)
                 {
                     if (generation == state.Generation)

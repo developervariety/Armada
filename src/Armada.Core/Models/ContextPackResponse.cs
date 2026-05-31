@@ -131,6 +131,12 @@ namespace Armada.Core.Models
         /// <summary>Total elapsed milliseconds for the full context-pack build operation.</summary>
         public long TotalElapsedMs { get; set; }
 
+        /// <summary>True when the response was served from the baseline cache rather than generated synchronously.</summary>
+        public bool CacheHit { get; set; }
+
+        /// <summary>Cache key used to locate the cached pack (indexed commit SHA), or null when not a cache hit.</summary>
+        public string? CacheKey { get; set; } = null;
+
         #endregion
     }
 }
