@@ -34,6 +34,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(string.Empty, settings.SummarizerApiBaseUrl);
                 AssertEqual(string.Empty, settings.SummarizerApiKey);
                 AssertEqual(2048, settings.MaxSummaryOutputTokens);
+                AssertEqual(10, settings.SummarizerTimeoutSeconds);
                 AssertNotNull(settings.OpenCodeServer);
                 AssertTrue(settings.OpenCodeServer.AutoLaunch, "OpenCodeServer.AutoLaunch default must be true");
                 AssertEqual("http://127.0.0.1:4096", settings.OpenCodeServer.BaseUrl);
@@ -107,6 +108,27 @@ namespace Armada.Test.Unit.Suites.Services
                 CodeIndexSettings settings = new CodeIndexSettings();
                 settings.MaxSummaryOutputTokens = 1024;
                 AssertEqual(1024, settings.MaxSummaryOutputTokens);
+            });
+
+            await RunTest("SummarizerTimeoutSeconds_BelowMinimum_ClampsToOne", () =>
+            {
+                CodeIndexSettings settings = new CodeIndexSettings();
+                settings.SummarizerTimeoutSeconds = 0;
+                AssertEqual(1, settings.SummarizerTimeoutSeconds);
+            });
+
+            await RunTest("SummarizerTimeoutSeconds_AboveMaximum_ClampsTo600", () =>
+            {
+                CodeIndexSettings settings = new CodeIndexSettings();
+                settings.SummarizerTimeoutSeconds = 10_000;
+                AssertEqual(600, settings.SummarizerTimeoutSeconds);
+            });
+
+            await RunTest("SummarizerTimeoutSeconds_WithinRange_AssignedExactly", () =>
+            {
+                CodeIndexSettings settings = new CodeIndexSettings();
+                settings.SummarizerTimeoutSeconds = 30;
+                AssertEqual(30, settings.SummarizerTimeoutSeconds);
             });
 
             await RunTest("EmbeddingBatchSize_BelowMinimum_ClampsToOne", () =>
@@ -317,6 +339,11 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(0, settings.PostLandRefreshDebounceSeconds);
                 settings.PostLandRefreshDebounceSeconds = 3600;
                 AssertEqual(3600, settings.PostLandRefreshDebounceSeconds);
+
+                settings.SummarizerTimeoutSeconds = 1;
+                AssertEqual(1, settings.SummarizerTimeoutSeconds);
+                settings.SummarizerTimeoutSeconds = 600;
+                AssertEqual(600, settings.SummarizerTimeoutSeconds);
             });
         }
     }

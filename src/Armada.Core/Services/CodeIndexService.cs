@@ -497,6 +497,8 @@ namespace Armada.Core.Services
             if (String.IsNullOrWhiteSpace(request.VesselId)) throw new ArgumentNullException(nameof(request.VesselId));
             if (String.IsNullOrWhiteSpace(request.Goal)) throw new ArgumentNullException(nameof(request.Goal));
 
+            Stopwatch totalStopwatch = Stopwatch.StartNew();
+
             int tokenBudget = request.TokenBudget;
             if (tokenBudget < 500) tokenBudget = 500;
             if (tokenBudget > 20000) tokenBudget = 20000;
@@ -538,7 +540,10 @@ namespace Armada.Core.Services
                 IncludeReferenceOnly = false
             };
 
+            Stopwatch searchStopwatch = Stopwatch.StartNew();
             CodeSearchResponse search = await SearchAsync(searchRequest, token).ConfigureAwait(false);
+            searchStopwatch.Stop();
+            long searchElapsedMs = searchStopwatch.ElapsedMilliseconds;
             if (hardExcludePatterns.Count > 0)
             {
                 Matcher excludeMatcher = new Matcher();
@@ -573,23 +578,51 @@ namespace Armada.Core.Services
 
             string? summarizedMarkdown = null;
             bool isSummarized = false;
+            long summarizerElapsedMs = 0;
 
             if (_Settings.CodeIndex.UseSummarizer && _InferenceClient != null && search.Results.Count > 0)
             {
                 string systemPrompt = "You are a codebase analyst. Given code chunks from a repository, produce a compact markdown summary for a software engineer who needs to understand the relevant patterns before making a change. Output: first a 3-5 sentence synthesis naming the key types, their responsibilities, and any important call chains. Then a bulleted file-by-file list of key types and their roles. Be concise. No introductory text. Output only the summary markdown.";
                 string userMessage = "Goal: " + request.Goal + "\n\n" + markdown;
+                int timeoutSeconds = _Settings.CodeIndex.SummarizerTimeoutSeconds;
+                Stopwatch summarizerStopwatch = Stopwatch.StartNew();
                 try
                 {
-                    string summary = (await _InferenceClient.CompleteAsync(systemPrompt, userMessage, token).ConfigureAwait(false) ?? "").Trim();
-                    if (!String.IsNullOrEmpty(summary))
+                    // Time-box only the summarizer completion. A slow or hung summarizer must not
+                    // consume the whole context-pack operation; on timeout we abandon the call and
+                    // fall back to the raw markdown evidence. The caller token is passed through
+                    // unchanged so cancellation still flows to the inference client.
+                    Task<string> completeTask = _InferenceClient.CompleteAsync(systemPrompt, userMessage, token);
+                    Task delayTask = Task.Delay(TimeSpan.FromSeconds(timeoutSeconds), token);
+                    Task winner = await Task.WhenAny(completeTask, delayTask).ConfigureAwait(false);
+                    if (ReferenceEquals(winner, completeTask))
                     {
-                        summarizedMarkdown = summary;
-                        isSummarized = true;
+                        string summary = (await completeTask.ConfigureAwait(false) ?? "").Trim();
+                        if (!String.IsNullOrEmpty(summary))
+                        {
+                            summarizedMarkdown = summary;
+                            isSummarized = true;
+                        }
                     }
+                    else
+                    {
+                        _Logging.Warn(_Header + "summarizer exceeded " + timeoutSeconds + "s budget; falling back to raw context pack");
+                        warnings.Add("summarizer_timeout: summarization exceeded " + timeoutSeconds + "s budget; using raw context pack");
+                    }
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    throw;
                 }
                 catch (Exception ex)
                 {
                     _Logging.Warn(_Header + "summarizer failed: " + ex.Message);
+                    warnings.Add("summarizer_failed: summarization raised " + ex.GetType().Name + "; using raw context pack");
+                }
+                finally
+                {
+                    summarizerStopwatch.Stop();
+                    summarizerElapsedMs = summarizerStopwatch.ElapsedMilliseconds;
                 }
             }
 
@@ -612,7 +645,14 @@ namespace Armada.Core.Services
                 response.MatchedHintIds.Add(h.Id);
             foreach (string w in warnings)
                 response.Warnings.Add(w);
-            response.Metrics = BuildContextPackMetrics(response, graphExpansionUsed: graphExpansion.Used, vesselCount: 1);
+            totalStopwatch.Stop();
+            response.Metrics = BuildContextPackMetrics(
+                response,
+                graphExpansionUsed: graphExpansion.Used,
+                vesselCount: 1,
+                searchElapsedMs: searchElapsedMs,
+                summarizerElapsedMs: summarizerElapsedMs,
+                totalElapsedMs: totalStopwatch.ElapsedMilliseconds);
             return response;
         }
 
@@ -3066,7 +3106,7 @@ namespace Armada.Core.Services
             return builder.ToString().TrimEnd() + "\n";
         }
 
-        private static ContextPackMetrics BuildContextPackMetrics(ContextPackResponse response, bool graphExpansionUsed, int vesselCount)
+        private static ContextPackMetrics BuildContextPackMetrics(ContextPackResponse response, bool graphExpansionUsed, int vesselCount, long searchElapsedMs = 0, long summarizerElapsedMs = 0, long totalElapsedMs = 0)
         {
             List<string> includedFiles = response.Results
                 .Select(r => r.Record?.Path ?? "")
@@ -3091,7 +3131,10 @@ namespace Armada.Core.Services
                 IsSummarized = response.IsSummarized,
                 PrestagedFileCount = response.PrestagedFiles.Count,
                 EstimatedTokens = response.EstimatedTokens,
-                VesselCount = vesselCount
+                VesselCount = vesselCount,
+                SearchElapsedMs = searchElapsedMs,
+                SummarizerElapsedMs = summarizerElapsedMs,
+                TotalElapsedMs = totalElapsedMs
             };
         }
 

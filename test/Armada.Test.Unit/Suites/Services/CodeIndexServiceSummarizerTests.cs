@@ -179,6 +179,104 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("BuildContextPackAsync_SlowSummarizer_TimesOutAndFallsBackToRawMarkdown", async () =>
+            {
+                TestRepository repository = await CreateRepositoryAsync("alpha alpha", "alpha").ConfigureAwait(false);
+                string dataRoot = NewTempDirectory("armada-code-index-summarizer-slow-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Vessel vessel = await CreateVesselAsync(testDb, repository.Path).ConfigureAwait(false);
+                        DelayingInferenceClient inference = new DelayingInferenceClient(8000, "slow summary that arrives too late");
+                        CodeIndexService service = CreateService(
+                            testDb,
+                            dataRoot,
+                            inferenceClient: inference,
+                            configureCodeIndex: ci =>
+                            {
+                                ci.UseSemanticSearch = false;
+                                ci.UseSummarizer = true;
+                                ci.SummarizerTimeoutSeconds = 1;
+                            });
+
+                        await service.UpdateAsync(vessel.Id).ConfigureAwait(false);
+
+                        Stopwatch elapsed = Stopwatch.StartNew();
+                        ContextPackResponse response = await service.BuildContextPackAsync(new ContextPackRequest
+                        {
+                            VesselId = vessel.Id,
+                            Goal = "alpha",
+                            TokenBudget = 1000
+                        }).ConfigureAwait(false);
+                        elapsed.Stop();
+
+                        AssertFalse(response.IsSummarized, "IsSummarized must be false when the summarizer times out");
+                        AssertTrue(response.SummarizedMarkdown == null, "SummarizedMarkdown must be null on timeout");
+                        AssertTrue(elapsed.Elapsed.TotalSeconds < 5, "Build must not block for the full slow-summarizer duration");
+                        AssertEqual(1, inference.CallCount, "Inference client must have been invoked once");
+                        AssertTrue(response.Warnings.Exists(w => w.Contains("summarizer_timeout")), "A non-blocking summarizer_timeout warning must be recorded");
+
+                        string materialized = await File.ReadAllTextAsync(response.MaterializedPath).ConfigureAwait(false);
+                        AssertEqual(response.Markdown, materialized, "Materialized file must fall back to raw markdown on timeout");
+
+                        AssertTrue(response.Metrics.TotalElapsedMs >= 0, "Total elapsed metric must be populated");
+                        AssertTrue(response.Metrics.SummarizerElapsedMs >= 0, "Summarizer elapsed metric must be populated");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(repository.Root);
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("BuildContextPackAsync_SummarizerSucceeds_MetricsExposeSearchAndSummarizerDurations", async () =>
+            {
+                TestRepository repository = await CreateRepositoryAsync("alpha alpha", "alpha").ConfigureAwait(false);
+                string dataRoot = NewTempDirectory("armada-code-index-summarizer-metrics-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Vessel vessel = await CreateVesselAsync(testDb, repository.Path).ConfigureAwait(false);
+                        string mockOutput = "summarized mock output";
+                        RecordingInferenceClient inference = new RecordingInferenceClient(_ => mockOutput);
+                        CodeIndexService service = CreateService(
+                            testDb,
+                            dataRoot,
+                            inferenceClient: inference,
+                            configureCodeIndex: ci =>
+                            {
+                                ci.UseSemanticSearch = false;
+                                ci.UseSummarizer = true;
+                            });
+
+                        await service.UpdateAsync(vessel.Id).ConfigureAwait(false);
+
+                        ContextPackResponse response = await service.BuildContextPackAsync(new ContextPackRequest
+                        {
+                            VesselId = vessel.Id,
+                            Goal = "alpha",
+                            TokenBudget = 1000
+                        }).ConfigureAwait(false);
+
+                        AssertTrue(response.IsSummarized, "IsSummarized should be true on a successful summarization");
+                        AssertEqual(mockOutput, response.SummarizedMarkdown, "SummarizedMarkdown should contain mock output");
+                        AssertTrue(response.Metrics.SearchElapsedMs >= 0, "Search elapsed metric must be populated");
+                        AssertTrue(response.Metrics.SummarizerElapsedMs >= 0, "Summarizer elapsed metric must be populated");
+                        AssertTrue(response.Metrics.TotalElapsedMs >= 0, "Total elapsed metric must be populated");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(repository.Root);
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
             await RunTest("SourceGuard_ArmadaServerCompositionPath_WithUseSummarizerTrue_ReturnsSummarizedMarkdown", async () =>
             {
                 string armadaServerPath = Path.Combine(FindRepositoryRoot(), "src", "Armada.Server", "ArmadaServer.cs");
@@ -411,6 +509,27 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 CallCount++;
                 return Task.FromResult(_Handler(userMessage ?? String.Empty));
+            }
+        }
+
+        private sealed class DelayingInferenceClient : IInferenceClient
+        {
+            private readonly int _DelayMs;
+            private readonly string _Result;
+
+            public int CallCount { get; private set; }
+
+            public DelayingInferenceClient(int delayMs, string result)
+            {
+                _DelayMs = delayMs;
+                _Result = result ?? String.Empty;
+            }
+
+            public async Task<string> CompleteAsync(string systemPrompt, string userMessage, CancellationToken token = default)
+            {
+                CallCount++;
+                await Task.Delay(_DelayMs, token).ConfigureAwait(false);
+                return _Result;
             }
         }
 
