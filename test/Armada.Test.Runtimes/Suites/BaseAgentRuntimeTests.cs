@@ -15,6 +15,36 @@ namespace Armada.Test.Runtimes.Suites
             return logging;
         }
 
+        // Emits `sentinel` on stderr WITHOUT the full sentinel string appearing in the
+        // command arguments. StartAsync echoes the joined args into the log-file header,
+        // so a literal sentinel in the args would show up regardless of stderr gating.
+        // Splitting it and concatenating in the shell keeps the joined string off the args.
+        private void ConfigureStderrEmitter(TestAgentRuntime runtime, string sentinel)
+        {
+            int mid = sentinel.Length / 2;
+            string left = sentinel.Substring(0, mid);
+            string right = sentinel.Substring(mid);
+
+            if (OperatingSystem.IsWindows())
+            {
+                runtime.CommandOverride = "powershell";
+                runtime.ArgsOverride = new List<string>
+                {
+                    "-Command",
+                    "[Console]::Error.WriteLine('" + left + "' + '" + right + "')"
+                };
+            }
+            else
+            {
+                runtime.CommandOverride = "bash";
+                runtime.ArgsOverride = new List<string>
+                {
+                    "-lc",
+                    "printf '%s%s\\n' '" + left + "' '" + right + "' 1>&2"
+                };
+            }
+        }
+
         protected override async Task RunTestsAsync()
         {
             await RunTest("Constructor Null Logging Throws", () =>
@@ -175,6 +205,89 @@ namespace Armada.Test.Runtimes.Suites
                 await Task.Delay(2000);
 
                 AssertTrue(outputLines.Contains(expected), "Expected UTF-8 stderr content to be preserved");
+            });
+
+            await RunTest("WriteStderrToLogFile False Suppresses Log File But Preserves OnOutputReceived", async () =>
+            {
+                TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());
+                runtime.WriteStderrToLogFileOverride = false;
+                string tempDir = Path.GetTempPath();
+                string sentinel = "STDERR_SENTINEL_" + Guid.NewGuid().ToString("N");
+                ConfigureStderrEmitter(runtime, sentinel);
+
+                string logFilePath = Path.Combine(Path.GetTempPath(), "armada_stderr_gate_" + Guid.NewGuid().ToString("N") + ".log");
+
+                List<string> outputLines = new List<string>();
+                runtime.OnOutputReceived += (pid, line) =>
+                {
+                    lock (outputLines) { outputLines.Add(line); }
+                };
+
+                try
+                {
+                    await runtime.StartAsync(tempDir, "test prompt", logFilePath: logFilePath);
+                    await Task.Delay(2500);
+
+                    AssertTrue(outputLines.Contains(sentinel), "OnOutputReceived should still receive the stderr sentinel when WriteStderrToLogFile is false");
+
+                    string logContent = File.Exists(logFilePath) ? File.ReadAllText(logFilePath) : "";
+                    AssertFalse(logContent.Contains(sentinel), "Log file must NOT contain the stderr sentinel when WriteStderrToLogFile is false");
+                    AssertFalse(logContent.Contains("[stderr]"), "Log file must NOT contain any [stderr] line when WriteStderrToLogFile is false");
+                }
+                finally
+                {
+                    try { if (File.Exists(logFilePath)) File.Delete(logFilePath); } catch { }
+                }
+            });
+
+            await RunTest("WriteStderrToLogFile False Echoes Final Message On Exit", async () =>
+            {
+                TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());
+                runtime.WriteStderrToLogFileOverride = false;
+                string tempDir = Path.GetTempPath();
+
+                string logFilePath = Path.Combine(Path.GetTempPath(), "armada_stderr_gate_" + Guid.NewGuid().ToString("N") + ".log");
+                string finalMessageFilePath = Path.Combine(Path.GetTempPath(), "armada_final_msg_" + Guid.NewGuid().ToString("N") + ".txt");
+                string finalMessage = "FINAL_ANSWER_" + Guid.NewGuid().ToString("N");
+                File.WriteAllText(finalMessageFilePath, finalMessage);
+
+                try
+                {
+                    await runtime.StartAsync(tempDir, "test prompt", logFilePath: logFilePath, finalMessageFilePath: finalMessageFilePath);
+                    await Task.Delay(2500);
+
+                    string logContent = File.Exists(logFilePath) ? File.ReadAllText(logFilePath) : "";
+                    AssertTrue(logContent.Contains(finalMessage), "Log file should contain the echoed final message after exit");
+                    AssertTrue(logContent.Contains("=== Final message ==="), "Log file should contain the final-message header");
+                }
+                finally
+                {
+                    try { if (File.Exists(logFilePath)) File.Delete(logFilePath); } catch { }
+                    try { if (File.Exists(finalMessageFilePath)) File.Delete(finalMessageFilePath); } catch { }
+                }
+            });
+
+            await RunTest("WriteStderrToLogFile Default True Writes Stderr To Log File", async () =>
+            {
+                TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());
+                string tempDir = Path.GetTempPath();
+                string sentinel = "STDERR_SENTINEL_" + Guid.NewGuid().ToString("N");
+                ConfigureStderrEmitter(runtime, sentinel);
+
+                string logFilePath = Path.Combine(Path.GetTempPath(), "armada_stderr_gate_" + Guid.NewGuid().ToString("N") + ".log");
+
+                try
+                {
+                    await runtime.StartAsync(tempDir, "test prompt", logFilePath: logFilePath);
+                    await Task.Delay(2500);
+
+                    string logContent = File.Exists(logFilePath) ? File.ReadAllText(logFilePath) : "";
+                    AssertTrue(logContent.Contains(sentinel), "Log file should contain the stderr sentinel when WriteStderrToLogFile defaults to true");
+                }
+                finally
+                {
+                    try { if (File.Exists(logFilePath)) File.Delete(logFilePath); } catch { }
+                }
             });
 
             await RunTest("OnProcessStarted Fires WithPid", async () =>

@@ -180,6 +180,10 @@ namespace Armada.Runtimes
                 await logWriter.WriteLineAsync("").ConfigureAwait(false);
             }
 
+            // Captured for the Exited closure so the final-message parity echo can run
+            // even when stderr is suppressed from the log file.
+            string? capturedFinalMessageFilePath = finalMessageFilePath;
+
             Process process = new Process { StartInfo = startInfo };
 
             process.OutputDataReceived += (sender, e) =>
@@ -200,8 +204,16 @@ namespace Armada.Runtimes
                 if (!String.IsNullOrEmpty(e.Data))
                 {
                     _Logging.Debug(_Header + "[stderr] " + e.Data);
-                    try { logWriter?.WriteLine("[stderr] " + e.Data); }
-                    catch (ObjectDisposedException) { }
+
+                    // Gate ONLY the log-file write. Runtimes that stream their full
+                    // working transcript on stderr (Codex exec) would otherwise bloat
+                    // the mission log 75-220x; WriteStderrToLogFile=false keeps the file
+                    // bounded while syslog and OnOutputReceived still see every line.
+                    if (WriteStderrToLogFile)
+                    {
+                        try { logWriter?.WriteLine("[stderr] " + e.Data); }
+                        catch (ObjectDisposedException) { }
+                    }
 
                     // Treat stderr as runtime output for heartbeat/progress/output capture.
                     // Some agent CLIs emit useful diagnostics or status lines on stderr.
@@ -216,6 +228,29 @@ namespace Armada.Runtimes
                 int processId = 0;
                 try { processId = process.Id; } catch { }
                 try { code = ((Process?)sender)?.ExitCode; } catch { }
+
+                // Parity echo: when stderr is suppressed from the log file, the agent's
+                // final answer (captured via the runtime's final-message file) would
+                // otherwise never appear in the mission log. Echo it here while the
+                // writer is still open. Never let this throw out of the handler.
+                if (!WriteStderrToLogFile && !String.IsNullOrEmpty(capturedFinalMessageFilePath))
+                {
+                    try
+                    {
+                        if (File.Exists(capturedFinalMessageFilePath))
+                        {
+                            string finalMsg = File.ReadAllText(capturedFinalMessageFilePath);
+                            if (!String.IsNullOrWhiteSpace(finalMsg))
+                            {
+                                logWriter?.WriteLine();
+                                logWriter?.WriteLine("=== Final message ===");
+                                logWriter?.WriteLine(finalMsg);
+                            }
+                        }
+                    }
+                    catch (Exception) { }
+                }
+
                 try { logWriter?.WriteLine("[" + DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss") + "] Agent exited with code " + (code?.ToString() ?? "unknown")); }
                 catch (ObjectDisposedException) { }
                 logWriter?.Dispose();
@@ -372,6 +407,11 @@ namespace Armada.Runtimes
         /// input from printing spurious startup diagnostics.
         /// </summary>
         protected virtual bool RedirectStdin => true;
+
+        /// <summary>
+        /// Whether stderr lines are written to the mission/captain log FILE. Default true. Override false for runtimes that stream their full transcript on stderr (Codex exec). When false, _Logging.Debug and OnOutputReceived STILL receive stderr (syslog, heartbeat, progress, handoff unaffected) -- only the log-file write is suppressed.
+        /// </summary>
+        protected virtual bool WriteStderrToLogFile => true;
 
         /// <summary>
         /// Apply runtime-specific environment variables to the process start info.
