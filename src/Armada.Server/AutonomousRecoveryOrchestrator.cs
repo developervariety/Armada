@@ -126,14 +126,43 @@ namespace Armada.Server
             candidates.AddRange(await EnumerateAllSummariesByStatusAsync(MissionStatusEnum.Failed, token).ConfigureAwait(false));
             candidates.AddRange(await EnumerateAllSummariesByStatusAsync(MissionStatusEnum.LandingFailed, token).ConfigureAwait(false));
 
+            // Terminal parent voyages (Cancelled / Complete) never need autonomous recovery; selecting
+            // them every ~5s tick re-ran the cancelled-voyage suppression path and spammed events. Filter
+            // them out before consuming a selection slot. The per-sweep cache keyed by voyage id keeps the
+            // filter bounded -- each distinct voyage is read at most once per sweep, never re-hydrating
+            // full mission rows.
+            Dictionary<string, bool> terminalVoyageCache = new Dictionary<string, bool>(StringComparer.Ordinal);
+            int processed = 0;
+
             foreach (MissionSummary candidate in candidates
                 .Where(item => item.LastUpdateUtc >= cutoff)
-                .OrderBy(item => item.LastUpdateUtc)
-                .Take(10))
+                .OrderBy(item => item.LastUpdateUtc))
             {
+                if (processed >= 10) break;
                 token.ThrowIfCancellationRequested();
+
+                if (await IsTerminalVoyageAsync(candidate.VoyageId, terminalVoyageCache, token).ConfigureAwait(false))
+                    continue;
+
                 await ApplyFailurePolicyAsync(candidate.TenantId, candidate.Id, token).ConfigureAwait(false);
+                processed++;
             }
+        }
+
+        private async Task<bool> IsTerminalVoyageAsync(string? voyageId, Dictionary<string, bool> cache, CancellationToken token)
+        {
+            if (String.IsNullOrWhiteSpace(voyageId))
+                return false;
+
+            bool terminal;
+            if (cache.TryGetValue(voyageId, out terminal))
+                return terminal;
+
+            Voyage? voyage = await _Database.Voyages.ReadAsync(voyageId, token).ConfigureAwait(false);
+            terminal = voyage != null
+                && (voyage.Status == VoyageStatusEnum.Cancelled || voyage.Status == VoyageStatusEnum.Complete);
+            cache[voyageId] = terminal;
+            return terminal;
         }
 
         private async Task<List<MissionSummary>> EnumerateAllSummariesByStatusAsync(MissionStatusEnum? status, CancellationToken token)
@@ -276,16 +305,28 @@ namespace Armada.Server
             if (voyage?.Status != VoyageStatusEnum.Cancelled)
                 return false;
 
+            // The first suppression pass marks recovery-handled fields, cancels active rescues, and
+            // closes incidents. On subsequent passes the mission is still suppressed (rescue dispatch
+            // stays blocked) but the cancellation / incident-closing / logging work must not repeat,
+            // otherwise the sweep re-runs it on every tick. Skip the work once the mission is marked.
+            if (IsRecoveryHandled(mission))
+                return true;
+
             string note = "Autonomous recovery suppressed because parent voyage " + voyage.Id + " is Cancelled.";
             AuthContext auth = BuildAuth(mission);
             List<Mission> cancelledRescues = await CancelActiveRescueMissionsAsync(mission, note, token).ConfigureAwait(false);
             await CloseActiveMissionIncidentsAsync(auth, mission, AppendRescueCancellationNote(note, cancelledRescues), token).ConfigureAwait(false);
             await MarkPolicyBlockedAsync(mission, token).ConfigureAwait(false);
 
-            await EmitEventAsync("autonomous_recovery.suppressed_cancelled_voyage",
-                note + (cancelledRescues.Count > 0 ? " Cancelled rescue mission(s): " + String.Join(", ", cancelledRescues.Select(item => item.Id)) + "." : String.Empty),
-                mission, null, token).ConfigureAwait(false);
+            _Logging.Debug(_Header + note +
+                (cancelledRescues.Count > 0 ? " Cancelled rescue mission(s): " + String.Join(", ", cancelledRescues.Select(item => item.Id)) + "." : String.Empty));
             return true;
+        }
+
+        private bool IsRecoveryHandled(Mission mission)
+        {
+            return mission.LastRecoveryActionUtc.HasValue
+                && mission.RecoveryAttempts >= _Settings.AutonomousRecovery.MaxMissionRecoveryAttempts;
         }
 
         private async Task<List<Mission>> CancelActiveRescueMissionsAsync(Mission failedMission, string reason, CancellationToken token)
