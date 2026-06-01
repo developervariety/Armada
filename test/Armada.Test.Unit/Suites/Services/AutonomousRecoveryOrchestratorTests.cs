@@ -473,6 +473,118 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(liveAfter!.LastRecoveryActionUtc.HasValue, "Non-terminal failure should be processed by the sweep.");
             }).ConfigureAwait(false);
 
+            await RunTest("Sweep excludes a Complete-voyage failed candidate while processing a non-terminal failure", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_auto_sweep_complete", "usr_auto_sweep_complete").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_auto_sweep_complete", "usr_auto_sweep_complete").ConfigureAwait(false);
+
+                Voyage completeVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Complete voyage")
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    Status = VoyageStatusEnum.Complete,
+                    CompletedUtc = DateTime.UtcNow.AddMinutes(-1),
+                    LastUpdateUtc = DateTime.UtcNow.AddMinutes(-1)
+                }).ConfigureAwait(false);
+                Mission completedVoyageFailed = await CreateFailedMissionAsync(testDb, vessel, "Agent process exited with code 1").ConfigureAwait(false);
+                completedVoyageFailed.VoyageId = completeVoyage.Id;
+                await testDb.Driver.Missions.UpdateAsync(completedVoyageFailed).ConfigureAwait(false);
+
+                Voyage activeVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Active voyage")
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    Status = VoyageStatusEnum.InProgress,
+                    LastUpdateUtc = DateTime.UtcNow.AddMinutes(-1)
+                }).ConfigureAwait(false);
+                Mission liveFailed = await CreateFailedMissionAsync(testDb, vessel, "Agent process exited with code 1").ConfigureAwait(false);
+                liveFailed.VoyageId = activeVoyage.Id;
+                await testDb.Driver.Missions.UpdateAsync(liveFailed).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(1, admiral.DispatchedMissions.Count, "Complete-voyage failures must be excluded; only the non-terminal failure should dispatch.");
+                AssertEqual(liveFailed.Id, admiral.DispatchedMissions[0].ParentMissionId, "Rescue should belong to the non-terminal failure.");
+
+                Mission? completedAfter = await testDb.Driver.Missions.ReadAsync(completedVoyageFailed.Id).ConfigureAwait(false);
+                AssertFalse(completedAfter!.LastRecoveryActionUtc.HasValue, "Complete-voyage candidate must be excluded from sweep selection.");
+
+                Mission? liveAfter = await testDb.Driver.Missions.ReadAsync(liveFailed.Id).ConfigureAwait(false);
+                AssertTrue(liveAfter!.LastRecoveryActionUtc.HasValue, "Non-terminal failure should be processed by the sweep.");
+            }).ConfigureAwait(false);
+
+            await RunTest("Sweep excludes a terminal-voyage LandingFailed candidate before policy application", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_auto_sweep_landing", "usr_auto_sweep_landing").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_auto_sweep_landing", "usr_auto_sweep_landing").ConfigureAwait(false);
+
+                Voyage cancelledVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Cancelled voyage")
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    Status = VoyageStatusEnum.Cancelled,
+                    CompletedUtc = DateTime.UtcNow.AddMinutes(-1),
+                    LastUpdateUtc = DateTime.UtcNow.AddMinutes(-1)
+                }).ConfigureAwait(false);
+                Mission terminalLandingFailed = await CreateFailedMissionAsync(testDb, vessel, "Local merge failed with conflicts").ConfigureAwait(false);
+                terminalLandingFailed.Status = MissionStatusEnum.LandingFailed;
+                terminalLandingFailed.VoyageId = cancelledVoyage.Id;
+                await testDb.Driver.Missions.UpdateAsync(terminalLandingFailed).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(0, admiral.DispatchedMissions.Count, "Terminal-voyage LandingFailed missions must not dispatch.");
+
+                Mission? after = await testDb.Driver.Missions.ReadAsync(terminalLandingFailed.Id).ConfigureAwait(false);
+                AssertFalse(after!.LastRecoveryActionUtc.HasValue, "Terminal-voyage LandingFailed candidate must be excluded before policy application.");
+
+                AuthContext auth = AuthContext.Authenticated("ten_auto_sweep_landing", "usr_auto_sweep_landing", false, true, "UnitTest");
+                EnumerationResult<Incident> incidentPage = await incidents.EnumerateAsync(auth, new IncidentQuery
+                {
+                    MissionId = terminalLandingFailed.Id,
+                    PageNumber = 1,
+                    PageSize = 10
+                }).ConfigureAwait(false);
+                AssertEqual(0, incidentPage.Objects.Count, "Excluded terminal-voyage candidate must not open an incident.");
+            }).ConfigureAwait(false);
+
+            await RunTest("Sweep processes a failed mission with no parent voyage", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_auto_sweep_novoyage", "usr_auto_sweep_novoyage").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_auto_sweep_novoyage", "usr_auto_sweep_novoyage").ConfigureAwait(false);
+                // No VoyageId assigned -- the terminal-voyage filter must not exclude voyage-less candidates.
+                Mission orphanFailed = await CreateFailedMissionAsync(testDb, vessel, "Agent process exited with code 1").ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(1, admiral.DispatchedMissions.Count, "A voyage-less failure must still be processed by the sweep.");
+                AssertEqual(orphanFailed.Id, admiral.DispatchedMissions[0].ParentMissionId, "Rescue should belong to the voyage-less failure.");
+
+                Mission? after = await testDb.Driver.Missions.ReadAsync(orphanFailed.Id).ConfigureAwait(false);
+                AssertTrue(after!.LastRecoveryActionUtc.HasValue, "Voyage-less failure should be marked processed.");
+            }).ConfigureAwait(false);
+
             await RunTest("Sweep sends one bounded Mail nudge to quiet live captain", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
