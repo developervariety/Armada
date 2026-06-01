@@ -80,6 +80,15 @@ namespace Armada.Runtimes
         protected override bool RedirectStdin => false;
 
         /// <summary>
+        /// Codex exec streams its ENTIRE human-readable working transcript (session header,
+        /// reasoning, every exec command and its full stdout) to stderr, bloating mission logs
+        /// 75-220x versus Claude/Cursor. Suppressing the stderr log-FILE write keeps logs bounded;
+        /// the final answer is still captured via --output-last-message and echoed on exit, and
+        /// heartbeat/progress detection is preserved because OnOutputReceived still fires for stderr.
+        /// </summary>
+        protected override bool WriteStderrToLogFile => false;
+
+        /// <summary>
         /// Get the codex CLI command.
         /// </summary>
         protected override string GetCommand()
@@ -103,11 +112,13 @@ namespace Armada.Runtimes
 
             // NOTE: deliberately NOT passing --json. With --json, Codex emits its session as a
             // JSONL event stream ({"type":"thread.started"}, {"type":"item.completed"}, ...) to
-            // stdout, and BaseAgentRuntime writes those raw lines straight into the mission log --
-            // producing unreadable JSON-wrapped logs. Upstream streams plain human-readable text,
-            // which is what we want in the mission log. The final answer is still captured cleanly
-            // via --output-last-message (below); progress/result markers are still detected via
-            // plain-text Contains; and stdin piping is suppressed independently via RedirectStdin.
+            // stdout, and BaseAgentRuntime would write those raw lines straight into the mission
+            // log -- producing unreadable JSON-wrapped logs. Keeping --json OFF means the final
+            // answer is captured cleanly via --output-last-message (below) and progress/result
+            // markers stay plain-text-detectable via Contains. Log bloat is NOT controlled here:
+            // Codex's verbose stderr working transcript is kept OUT of the mission-log FILE by
+            // WriteStderrToLogFile=false (above), not by output-format flags. DO NOT re-add --json.
+            // Stdin piping is suppressed independently via RedirectStdin.
             if (String.Equals(ApprovalMode, "dangerous", StringComparison.OrdinalIgnoreCase))
             {
                 args.Add("--dangerously-bypass-approvals-and-sandbox");

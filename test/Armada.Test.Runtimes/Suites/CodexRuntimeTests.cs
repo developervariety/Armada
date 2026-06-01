@@ -24,6 +24,8 @@ namespace Armada.Test.Runtimes.Suites
                 BuildArguments(Path.GetTempPath(), prompt, model, finalMessageFilePath, captain);
 
             public bool StdinRedirected => RedirectStdin;
+
+            public bool StderrWrittenToLogFile => WriteStderrToLogFile;
         }
 
         private InspectableCodexRuntime CreateRuntime()
@@ -57,7 +59,13 @@ namespace Armada.Test.Runtimes.Suites
             {
                 InspectableCodexRuntime runtime = CreateRuntime();
                 List<string> args = runtime.Args("test prompt");
-                AssertFalse(args.Contains("--json"), "Codex must NOT use --json: it emits a JSONL event stream that BaseAgentRuntime writes raw into the mission log, making logs unreadable. Plain streamed text matches upstream; the final answer is captured via --output-last-message.");
+                AssertFalse(args.Contains("--json"), "Codex must NOT use --json: it emits a JSONL event stream that BaseAgentRuntime would write raw into the mission log, making logs unreadable. Log bloat is kept down by WriteStderrToLogFile=false (the stderr transcript stays out of the log file), not by output-format flags; the final answer is captured via --output-last-message.");
+            });
+
+            await RunTest("WriteStderrToLogFile Returns False", () =>
+            {
+                InspectableCodexRuntime runtime = CreateRuntime();
+                AssertFalse(runtime.StderrWrittenToLogFile, "Codex streams its full transcript on stderr; the log-file write must be suppressed to keep mission logs bounded");
             });
 
             await RunTest("ExecutablePath Default Is Codex", () =>
