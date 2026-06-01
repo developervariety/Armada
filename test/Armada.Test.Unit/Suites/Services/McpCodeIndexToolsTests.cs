@@ -947,6 +947,12 @@ namespace Armada.Test.Unit.Suites.Services
                 LastExploreRequest = request;
                 return Task.FromResult(ExploreResponse);
             }
+
+            public Task WarmBaselineCacheAsync(string vesselId, CancellationToken token = default)
+                => Task.CompletedTask;
+
+            public Task<ContextPackResponse?> TryGetCachedContextPackAsync(ContextPackRequest request, CancellationToken token = default)
+                => Task.FromResult<ContextPackResponse?>(null);
         }
     }
 }

@@ -395,6 +395,12 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 throw new NotSupportedException();
             }
+
+            public Task WarmBaselineCacheAsync(string vesselId, CancellationToken token = default)
+                => Task.CompletedTask;
+
+            public Task<ContextPackResponse?> TryGetCachedContextPackAsync(ContextPackRequest request, CancellationToken token = default)
+                => Task.FromResult<ContextPackResponse?>(null);
         }
     }
 }
