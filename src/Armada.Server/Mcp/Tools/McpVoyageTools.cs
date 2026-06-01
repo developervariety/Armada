@@ -2,6 +2,7 @@ namespace Armada.Server.Mcp.Tools
 {
     using System;
     using System.Collections.Generic;
+    using System.Diagnostics;
     using System.IO;
     using System.Linq;
     using System.Text.Json;
@@ -32,8 +33,12 @@ namespace Armada.Server.Mcp.Tools
         private const string CodeContextModeOff = "off";
         private const string CodeContextModeForce = "force";
         private const int DefaultCodeContextTokenBudget = 3000;
-        private const int DefaultCodeContextTimeoutSeconds = 15;
-        private const string CodeContextTimeoutEnvVar = "ARMADA_CODE_CONTEXT_TIMEOUT_MS";
+        private static readonly HashSet<string> _ImplementingPersonas = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "Worker",
+            "Architect",
+            "PortingReferenceAnalyst"
+        };
 
         /// <summary>
         /// Registers voyage MCP tools with the server.
@@ -596,8 +601,30 @@ namespace Armada.Server.Mcp.Tools
 
                 try
                 {
+                    Stopwatch totalWatch = Stopwatch.StartNew();
+                    ContextPackResponse? cached = await codeIndexService.TryGetCachedContextPackAsync(contextRequest).ConfigureAwait(false);
+
+                    if (cached != null && cached.PrestagedFiles != null && cached.PrestagedFiles.Count > 0)
+                    {
+                        totalWatch.Stop();
+                        LogCodeContextInfo(logging,
+                            "code context for mission '" + mission.Title + "': cache_hit"
+                            + " totalMs=" + totalWatch.ElapsedMilliseconds
+                            + " cacheKey=" + (cached.Metrics?.CacheKey ?? "unknown"));
+                        MergeGeneratedPrestagedFiles(mission, cached.PrestagedFiles, logging);
+                        continue;
+                    }
+
                     ContextPackResponse contextPack = await BuildContextPackWithTimeoutAsync(codeIndexService, contextRequest)
                         .ConfigureAwait(false);
+                    totalWatch.Stop();
+                    TimeSpan usedTimeout = GetCodeContextTimeout();
+                    LogCodeContextInfo(logging,
+                        "code context for mission '" + mission.Title + "': cache_miss"
+                        + " totalMs=" + totalWatch.ElapsedMilliseconds
+                        + " searchMs=" + contextPack.Metrics?.SearchElapsedMs
+                        + " summarizerMs=" + contextPack.Metrics?.SummarizerElapsedMs
+                        + " timeoutMs=" + (int)usedTimeout.TotalMilliseconds);
 
                     if (contextPack.PrestagedFiles == null || contextPack.PrestagedFiles.Count == 0)
                     {
@@ -672,11 +699,7 @@ namespace Armada.Server.Mcp.Tools
 
         private static TimeSpan GetCodeContextTimeout()
         {
-            string? configured = Environment.GetEnvironmentVariable(CodeContextTimeoutEnvVar);
-            if (Int32.TryParse(configured, out int milliseconds) && milliseconds > 0)
-                return TimeSpan.FromMilliseconds(Math.Clamp(milliseconds, 100, 300_000));
-
-            return TimeSpan.FromSeconds(DefaultCodeContextTimeoutSeconds);
+            return CodeContextTimeouts.Resolve(CodeContextTimeouts.DefaultDispatchTimeoutMs);
         }
 
         private static bool TryNormalizeCodeContextMode(string? value, string fallback, out string normalized)
@@ -751,6 +774,12 @@ namespace Armada.Server.Mcp.Tools
         {
             if (logging == null) return;
             logging.Warn("[McpVoyageTools] " + message);
+        }
+
+        private static void LogCodeContextInfo(LoggingModule? logging, string message)
+        {
+            if (logging == null) return;
+            logging.Info("[McpVoyageTools] " + message);
         }
 
         private static string? NormalizeEmpty(string? value)
@@ -915,10 +944,19 @@ namespace Armada.Server.Mcp.Tools
                             stage.PersonaName);
                         stageMission.SelectedPlaybooks = ClonePlaybookSelectionsLocal(mergedForMission);
 
-                        // The very first mission of the chain gets the prestaged files.
+                        // The very first mission of the chain gets the full prestaged files.
+                        // Downstream implementing personas also receive the context-pack entry.
                         bool isFirstChainMission = previousOrderLastMissionId == null && lastMissionInGroup == null;
                         if (isFirstChainMission)
+                        {
                             stageMission.PrestagedFiles = ClonePrestagedFilesLocal(md.PrestagedFiles);
+                        }
+                        else if (_ImplementingPersonas.Contains(stage.PersonaName ?? ""))
+                        {
+                            PrestagedFile? contextPackEntry = FindContextPackEntry(md.PrestagedFiles);
+                            if (contextPackEntry != null)
+                                stageMission.PrestagedFiles = new List<PrestagedFile> { new PrestagedFile(contextPackEntry.SourcePath ?? "", contextPackEntry.DestPath ?? CodeContextDestPath) };
+                        }
 
                         if (isFirstChainMission)
                         {
@@ -988,6 +1026,22 @@ namespace Armada.Server.Mcp.Tools
                 copy.Add(new SelectedPlaybook { PlaybookId = s.PlaybookId, DeliveryMode = s.DeliveryMode });
             }
             return copy;
+        }
+
+        /// <summary>
+        /// Returns the first prestaged file entry whose destPath is the code-context destination,
+        /// or null when none is found.
+        /// </summary>
+        private static PrestagedFile? FindContextPackEntry(List<PrestagedFile>? entries)
+        {
+            if (entries == null) return null;
+            foreach (PrestagedFile entry in entries)
+            {
+                if (entry == null) continue;
+                if (String.Equals(entry.DestPath, CodeContextDestPath, StringComparison.OrdinalIgnoreCase))
+                    return entry;
+            }
+            return null;
         }
 
         /// <summary>

@@ -877,6 +877,247 @@ namespace Armada.Test.Unit.Suites.Services
                         "M2's alias dep on M1 must resolve to M1's assigned ID");
                 }
             });
+
+            await RunTest("Dispatch_UsesCachedContextPack_SkipsGeneration", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("cache-hit-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
+
+                    string cachedPackPath = Path.Combine(Path.GetTempPath(), "cache-hit-context-pack.md");
+                    ContextPackResponse cachedPack = new ContextPackResponse
+                    {
+                        Goal = "cached goal",
+                        MaterializedPath = cachedPackPath,
+                        Metrics = new ContextPackMetrics { CacheHit = true, CacheKey = "abc123" }
+                    };
+                    cachedPack.PrestagedFiles.Add(new PrestagedFile(cachedPackPath, "_briefing/context-pack.md"));
+
+                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService
+                    {
+                        CachedResponse = cachedPack
+                    };
+                    codeIndex.ContextPackResponse.PrestagedFiles.Add(new PrestagedFile(
+                        Path.Combine(Path.GetTempPath(), "generated.md"), "_briefing/context-pack.md"));
+
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null,
+                        null,
+                        null,
+                        codeIndex);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "cache hit voyage",
+                        vesselId = vessel.Id,
+                        missions = new object[]
+                        {
+                            new { title = "Task A", description = "should use cached pack" }
+                        }
+                    });
+
+                    object result = await dispatchHandler!(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+
+                    AssertFalse(resultJson.Contains("\"Error\""), "Should not return error: " + resultJson);
+                    AssertEqual(1, codeIndex.CacheRequests.Count, "Cache lookup must have been attempted");
+                    AssertEqual(0, codeIndex.ContextPackRequests.Count, "Synchronous generation must NOT be called on cache hit");
+                    AssertTrue(admiralDouble.DispatchVoyageCalled, "Dispatch must proceed");
+                    AssertNotNull(admiralDouble.LastMissionDescriptions[0].PrestagedFiles, "Cached pack must be staged");
+                    AssertEqual(cachedPackPath, admiralDouble.LastMissionDescriptions[0].PrestagedFiles![0].SourcePath);
+                }
+            });
+
+            await RunTest("Dispatch_CachedContextPackMiss_FallsBackToGeneration", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("cache-miss-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
+
+                    string generatedPackPath = Path.Combine(Path.GetTempPath(), "generated-context-pack.md");
+                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService();
+                    codeIndex.ContextPackResponse.PrestagedFiles.Add(new PrestagedFile(
+                        generatedPackPath, "_briefing/context-pack.md"));
+
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null,
+                        null,
+                        null,
+                        codeIndex);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "cache miss voyage",
+                        vesselId = vessel.Id,
+                        missions = new object[]
+                        {
+                            new { title = "Task B", description = "should fall back to generation" }
+                        }
+                    });
+
+                    object result = await dispatchHandler!(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+
+                    AssertFalse(resultJson.Contains("\"Error\""), "Should not return error: " + resultJson);
+                    AssertEqual(1, codeIndex.CacheRequests.Count, "Cache lookup must have been attempted");
+                    AssertEqual(1, codeIndex.ContextPackRequests.Count, "Synchronous generation must be called on cache miss");
+                    AssertTrue(admiralDouble.DispatchVoyageCalled, "Dispatch must proceed");
+                    AssertNotNull(admiralDouble.LastMissionDescriptions[0].PrestagedFiles, "Generated pack must be staged");
+                    AssertEqual(generatedPackPath, admiralDouble.LastMissionDescriptions[0].PrestagedFiles![0].SourcePath);
+                }
+            });
+
+            await RunTest("Dispatch_DefaultDispatchTimeout_IsAtLeast60Seconds", () =>
+            {
+                string? priorTimeout = Environment.GetEnvironmentVariable("ARMADA_CODE_CONTEXT_TIMEOUT_MS");
+                Environment.SetEnvironmentVariable("ARMADA_CODE_CONTEXT_TIMEOUT_MS", null);
+                try
+                {
+                    TimeSpan defaultTimeout = CodeContextTimeouts.Resolve(CodeContextTimeouts.DefaultDispatchTimeoutMs);
+                    AssertTrue(defaultTimeout.TotalSeconds >= 60,
+                        "Default dispatch timeout must be at least 60 seconds; got " + defaultTimeout.TotalSeconds + " seconds");
+                    AssertTrue(defaultTimeout.TotalSeconds <= 90,
+                        "Default dispatch timeout must be at most 90 seconds; got " + defaultTimeout.TotalSeconds + " seconds");
+                }
+                finally
+                {
+                    Environment.SetEnvironmentVariable("ARMADA_CODE_CONTEXT_TIMEOUT_MS", priorTimeout);
+                }
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Dispatch_CachedPackWithEmptyPrestagedFiles_FallsBackToGeneration", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("cache-empty-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
+
+                    // Cache returns a non-null response, but with NO prestaged files. The dispatch
+                    // guard (PrestagedFiles.Count > 0) must treat this as a miss and generate.
+                    ContextPackResponse emptyCachedPack = new ContextPackResponse
+                    {
+                        Goal = "empty cached pack",
+                        MaterializedPath = Path.Combine(Path.GetTempPath(), "empty-cache.md"),
+                        Metrics = new ContextPackMetrics { CacheHit = true, CacheKey = "empty" }
+                    };
+
+                    string generatedPackPath = Path.Combine(Path.GetTempPath(), "fallback-after-empty.md");
+                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService
+                    {
+                        CachedResponse = emptyCachedPack
+                    };
+                    codeIndex.ContextPackResponse.PrestagedFiles.Add(new PrestagedFile(
+                        generatedPackPath, "_briefing/context-pack.md"));
+
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null,
+                        null,
+                        null,
+                        codeIndex);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "empty cache voyage",
+                        vesselId = vessel.Id,
+                        missions = new object[]
+                        {
+                            new { title = "Task C", description = "empty cached pack must not short-circuit" }
+                        }
+                    });
+
+                    object result = await dispatchHandler!(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+
+                    AssertFalse(resultJson.Contains("\"Error\""), "Should not return error: " + resultJson);
+                    AssertEqual(1, codeIndex.CacheRequests.Count, "Cache lookup must have been attempted");
+                    AssertEqual(1, codeIndex.ContextPackRequests.Count,
+                        "Empty cached prestaged files must NOT short-circuit; generation must run");
+                    AssertTrue(admiralDouble.DispatchVoyageCalled, "Dispatch must proceed");
+                    AssertNotNull(admiralDouble.LastMissionDescriptions[0].PrestagedFiles, "Generated pack must be staged");
+                    AssertEqual(generatedPackPath, admiralDouble.LastMissionDescriptions[0].PrestagedFiles![0].SourcePath);
+                }
+            });
+
+            await RunTest("Dispatch_CachedPackWithNullPrestagedFiles_FallsBackToGeneration", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("cache-null-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
+
+                    // Cache returns a non-null response whose PrestagedFiles is explicitly null.
+                    // The dispatch guard's null check must treat this as a miss and generate.
+                    ContextPackResponse nullCachedPack = new ContextPackResponse
+                    {
+                        Goal = "null cached pack",
+                        MaterializedPath = Path.Combine(Path.GetTempPath(), "null-cache.md"),
+                        Metrics = new ContextPackMetrics { CacheHit = true, CacheKey = "null" },
+                        PrestagedFiles = null!
+                    };
+
+                    string generatedPackPath = Path.Combine(Path.GetTempPath(), "fallback-after-null.md");
+                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService
+                    {
+                        CachedResponse = nullCachedPack
+                    };
+                    codeIndex.ContextPackResponse.PrestagedFiles.Add(new PrestagedFile(
+                        generatedPackPath, "_briefing/context-pack.md"));
+
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null,
+                        null,
+                        null,
+                        codeIndex);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "null cache voyage",
+                        vesselId = vessel.Id,
+                        missions = new object[]
+                        {
+                            new { title = "Task D", description = "null cached prestaged files must not short-circuit" }
+                        }
+                    });
+
+                    object result = await dispatchHandler!(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+
+                    AssertFalse(resultJson.Contains("\"Error\""), "Should not return error: " + resultJson);
+                    AssertEqual(1, codeIndex.CacheRequests.Count, "Cache lookup must have been attempted");
+                    AssertEqual(1, codeIndex.ContextPackRequests.Count,
+                        "Null cached prestaged files must NOT short-circuit; generation must run");
+                    AssertTrue(admiralDouble.DispatchVoyageCalled, "Dispatch must proceed");
+                    AssertNotNull(admiralDouble.LastMissionDescriptions[0].PrestagedFiles, "Generated pack must be staged");
+                    AssertEqual(generatedPackPath, admiralDouble.LastMissionDescriptions[0].PrestagedFiles![0].SourcePath);
+                }
+            });
         }
 
         /// <summary>
@@ -1123,7 +1364,11 @@ namespace Armada.Test.Unit.Suites.Services
         {
             public List<ContextPackRequest> ContextPackRequests { get; } = new List<ContextPackRequest>();
 
+            public List<ContextPackRequest> CacheRequests { get; } = new List<ContextPackRequest>();
+
             public ContextPackResponse ContextPackResponse { get; } = new ContextPackResponse();
+
+            public ContextPackResponse? CachedResponse { get; set; }
 
             public CodeIndexStatus Status { get; } = new CodeIndexStatus();
 
@@ -1180,7 +1425,10 @@ namespace Armada.Test.Unit.Suites.Services
                 => Task.CompletedTask;
 
             public Task<ContextPackResponse?> TryGetCachedContextPackAsync(ContextPackRequest request, CancellationToken token = default)
-                => Task.FromResult<ContextPackResponse?>(null);
+            {
+                CacheRequests.Add(request);
+                return Task.FromResult<ContextPackResponse?>(CachedResponse);
+            }
         }
     }
 }

@@ -17,8 +17,6 @@ namespace Armada.Server.Mcp.Tools
             PropertyNameCaseInsensitive = true,
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase
         };
-        private const int DefaultContextPackTimeoutMs = 120_000;
-        private const string ContextPackTimeoutEnvVar = "ARMADA_CODE_CONTEXT_TIMEOUT_MS";
 
         /// <summary>
         /// Register code index MCP tools.
@@ -424,19 +422,7 @@ namespace Armada.Server.Mcp.Tools
 
         private static TimeSpan ResolveContextPackTimeout(JsonElement args)
         {
-            if (args.TryGetProperty("timeoutMs", out JsonElement timeoutElement)
-                && timeoutElement.ValueKind == JsonValueKind.Number
-                && timeoutElement.TryGetInt32(out int requestedTimeout)
-                && requestedTimeout > 0)
-            {
-                return TimeSpan.FromMilliseconds(Math.Clamp(requestedTimeout, 100, 300_000));
-            }
-
-            string? configured = Environment.GetEnvironmentVariable(ContextPackTimeoutEnvVar);
-            if (Int32.TryParse(configured, out int configuredTimeout) && configuredTimeout > 0)
-                return TimeSpan.FromMilliseconds(Math.Clamp(configuredTimeout, 100, 300_000));
-
-            return TimeSpan.FromMilliseconds(DefaultContextPackTimeoutMs);
+            return CodeContextTimeouts.ResolveForExplicitTool(args);
         }
 
         private static async Task<T> RunWithTimeoutAsync<T>(
