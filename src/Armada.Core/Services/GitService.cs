@@ -4,6 +4,7 @@ namespace Armada.Core.Services
     using System.Diagnostics;
     using System.Linq;
     using SyslogLogging;
+    using Armada.Core.Enums;
     using Armada.Core.Services.Interfaces;
 
     /// <summary>
@@ -601,6 +602,49 @@ namespace Armada.Core.Services
             catch
             {
                 return false;
+            }
+        }
+
+        /// <summary>
+        /// Rebase a branch onto another branch, aborting and reporting on conflict.
+        /// </summary>
+        public async Task<RebaseOutcomeEnum> RebaseOntoAsync(string repoPath, string branch, string ontoBranch, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(repoPath)) throw new ArgumentNullException(nameof(repoPath));
+            if (String.IsNullOrEmpty(branch)) throw new ArgumentNullException(nameof(branch));
+            if (String.IsNullOrEmpty(ontoBranch)) throw new ArgumentNullException(nameof(ontoBranch));
+
+            _Logging.Info(_Header + "rebasing branch " + branch + " onto " + ontoBranch + " in " + repoPath);
+
+            try
+            {
+                // git rebase <onto> <branch> checks out branch first, then replays its commits.
+                await RunGitAsync(repoPath, token, "rebase", ontoBranch, branch).ConfigureAwait(false);
+                _Logging.Info(_Header + "rebase clean: " + branch + " onto " + ontoBranch);
+                return RebaseOutcomeEnum.Clean;
+            }
+            catch (Exception ex)
+            {
+                // A rebase that hits content conflicts exits non-zero and leaves an in-progress
+                // rebase. Abort it so the repository is restored, then classify conflict vs. error.
+                bool isConflict =
+                    ex.Message.Contains("conflict", StringComparison.OrdinalIgnoreCase) ||
+                    ex.Message.Contains("could not apply", StringComparison.OrdinalIgnoreCase);
+
+                try
+                {
+                    await RunGitAsync(repoPath, token, "rebase", "--abort").ConfigureAwait(false);
+                }
+                catch { }
+
+                if (isConflict)
+                {
+                    _Logging.Warn(_Header + "rebase conflict aborted: " + branch + " onto " + ontoBranch);
+                    return RebaseOutcomeEnum.Conflict;
+                }
+
+                _Logging.Warn(_Header + "rebase failed: " + branch + " onto " + ontoBranch + ": " + ex.Message);
+                return RebaseOutcomeEnum.Error;
             }
         }
 

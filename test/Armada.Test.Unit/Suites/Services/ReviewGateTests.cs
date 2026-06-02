@@ -344,6 +344,7 @@ namespace Armada.Test.Unit.Suites.Services
             public Task<bool> EnsureLocalBranchAsync(string repoPath, string branchName, CancellationToken token = default)
                 => BranchExistsAsync(repoPath, branchName, token);
             public Task<bool> IsWorktreeRegisteredAsync(string repoPath, string worktreePath, CancellationToken token = default) => Task.FromResult(false);
+            public Task<Armada.Core.Enums.RebaseOutcomeEnum> RebaseOntoAsync(string repoPath, string branch, string ontoBranch, CancellationToken token = default) => Task.FromResult(Armada.Core.Enums.RebaseOutcomeEnum.Clean);
         }
     }
 }

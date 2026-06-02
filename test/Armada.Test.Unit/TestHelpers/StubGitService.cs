@@ -1,5 +1,6 @@
 namespace Armada.Test.Unit.TestHelpers
 {
+    using Armada.Core.Enums;
     using Armada.Core.Services.Interfaces;
 
     /// <summary>
@@ -138,5 +139,15 @@ namespace Armada.Test.Unit.TestHelpers
         public Task<bool> EnsureLocalBranchAsync(string repoPath, string branchName, CancellationToken token = default)
             => BranchExistsAsync(repoPath, branchName, token);
         public Task<bool> IsWorktreeRegisteredAsync(string repoPath, string worktreePath, CancellationToken token = default) => Task.FromResult(false);
+
+        public RebaseOutcomeEnum RebaseOutcomeResult { get; set; } = RebaseOutcomeEnum.Clean;
+        public List<string> RebaseCalls { get; } = new List<string>();
+
+        public Task<RebaseOutcomeEnum> RebaseOntoAsync(string repoPath, string branch, string ontoBranch, CancellationToken token = default)
+        {
+            RebaseCalls.Add(branch + " onto " + ontoBranch);
+            OperationCalls.Add("rebase:" + branch + ":" + ontoBranch);
+            return Task.FromResult(RebaseOutcomeResult);
+        }
     }
 }
