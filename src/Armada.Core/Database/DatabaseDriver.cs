@@ -1,5 +1,8 @@
 namespace Armada.Core.Database
 {
+    using System;
+    using System.Threading;
+    using System.Threading.Tasks;
     using Armada.Core.Database.Interfaces;
 
     /// <summary>
@@ -168,6 +171,31 @@ namespace Armada.Core.Database
         /// Initialize the database schema and seed data.
         /// </summary>
         public abstract Task InitializeAsync(CancellationToken token = default);
+
+        /// <summary>
+        /// Execute an action inside a database transaction.
+        /// </summary>
+        /// <typeparam name="T">Return type.</typeparam>
+        /// <param name="action">Action to execute.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Result from the action.</returns>
+        public abstract Task<T> ExecuteInTransactionAsync<T>(Func<Task<T>> action, CancellationToken token = default);
+
+        /// <summary>
+        /// Execute an action inside a database transaction.
+        /// </summary>
+        /// <param name="action">Action to execute.</param>
+        /// <param name="token">Cancellation token.</param>
+        public async Task ExecuteInTransactionAsync(Func<Task> action, CancellationToken token = default)
+        {
+            if (action == null) throw new ArgumentNullException(nameof(action));
+
+            await ExecuteInTransactionAsync(async () =>
+            {
+                await action().ConfigureAwait(false);
+                return true;
+            }, token).ConfigureAwait(false);
+        }
 
         /// <summary>
         /// Dispose.

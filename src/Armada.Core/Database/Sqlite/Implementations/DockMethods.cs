@@ -52,11 +52,27 @@ namespace Armada.Core.Database.Sqlite.Implementations
             if (dock == null) throw new ArgumentNullException(nameof(dock));
             dock.LastUpdateUtc = DateTime.UtcNow;
 
-            using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
+            SqliteTransaction? transaction = _Driver.CurrentTransaction;
+            if (transaction != null)
             {
-                await conn.OpenAsync(token).ConfigureAwait(false);
+                await CreateAsync(transaction.Connection!, transaction).ConfigureAwait(false);
+            }
+            else
+            {
+                using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
+                {
+                    await conn.OpenAsync(token).ConfigureAwait(false);
+                    await CreateAsync(conn, null).ConfigureAwait(false);
+                }
+            }
+
+            return dock;
+
+            async Task CreateAsync(SqliteConnection conn, SqliteTransaction? tx)
+            {
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
+                    cmd.Transaction = tx;
                     cmd.CommandText = @"INSERT INTO docks (id, tenant_id, user_id, vessel_id, captain_id, worktree_path, branch_name, active, created_utc, last_update_utc)
                             VALUES (@id, @tenant_id, @user_id, @vessel_id, @captain_id, @worktree_path, @branch_name, @active, @created_utc, @last_update_utc);";
                     cmd.Parameters.AddWithValue("@id", dock.Id);
@@ -72,8 +88,6 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
-
-            return dock;
         }
 
         /// <inheritdoc />
@@ -141,11 +155,25 @@ namespace Armada.Core.Database.Sqlite.Implementations
         {
             if (string.IsNullOrEmpty(id)) throw new ArgumentNullException(nameof(id));
 
-            using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
+            SqliteTransaction? transaction = _Driver.CurrentTransaction;
+            if (transaction != null)
             {
-                await conn.OpenAsync(token).ConfigureAwait(false);
+                await DeleteAsync(transaction.Connection!, transaction).ConfigureAwait(false);
+            }
+            else
+            {
+                using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
+                {
+                    await conn.OpenAsync(token).ConfigureAwait(false);
+                    await DeleteAsync(conn, null).ConfigureAwait(false);
+                }
+            }
+
+            async Task DeleteAsync(SqliteConnection conn, SqliteTransaction? tx)
+            {
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
+                    cmd.Transaction = tx;
                     cmd.CommandText = "DELETE FROM docks WHERE id = @id;";
                     cmd.Parameters.AddWithValue("@id", id);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
@@ -594,4 +622,3 @@ namespace Armada.Core.Database.Sqlite.Implementations
         #endregion
     }
 }
-

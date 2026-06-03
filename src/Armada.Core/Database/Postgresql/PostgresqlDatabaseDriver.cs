@@ -198,6 +198,31 @@ namespace Armada.Core.Database.Postgresql
             }
         }
 
+        /// <inheritdoc />
+        public override async Task<T> ExecuteInTransactionAsync<T>(Func<Task<T>> action, CancellationToken token = default)
+        {
+            if (action == null) throw new ArgumentNullException(nameof(action));
+
+            using (NpgsqlConnection conn = new NpgsqlConnection(_ConnectionString))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (NpgsqlTransaction tx = await conn.BeginTransactionAsync(token).ConfigureAwait(false))
+                {
+                    try
+                    {
+                        T result = await action().ConfigureAwait(false);
+                        await tx.CommitAsync(token).ConfigureAwait(false);
+                        return result;
+                    }
+                    catch
+                    {
+                        await tx.RollbackAsync(token).ConfigureAwait(false);
+                        throw;
+                    }
+                }
+            }
+        }
+
         /// <summary>
         /// Dispose of the database driver.
         /// </summary>

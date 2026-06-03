@@ -139,11 +139,27 @@ namespace Armada.Core.Database.Sqlite.Implementations
             if (captain == null) throw new ArgumentNullException(nameof(captain));
             captain.LastUpdateUtc = DateTime.UtcNow;
 
-            using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
+            SqliteTransaction? transaction = _Driver.CurrentTransaction;
+            if (transaction != null)
             {
-                await conn.OpenAsync(token).ConfigureAwait(false);
+                await UpdateAsync(transaction.Connection!, transaction).ConfigureAwait(false);
+            }
+            else
+            {
+                using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
+                {
+                    await conn.OpenAsync(token).ConfigureAwait(false);
+                    await UpdateAsync(conn, null).ConfigureAwait(false);
+                }
+            }
+
+            return captain;
+
+            async Task UpdateAsync(SqliteConnection conn, SqliteTransaction? tx)
+            {
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
+                    cmd.Transaction = tx;
                     cmd.CommandText = @"UPDATE captains SET
                             tenant_id = @tenant_id,
                             user_id = @user_id,
@@ -188,8 +204,6 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
-
-            return captain;
         }
 
         /// <inheritdoc />
@@ -380,11 +394,23 @@ namespace Armada.Core.Database.Sqlite.Implementations
 
             DateTime now = DateTime.UtcNow;
 
+            SqliteTransaction? transaction = _Driver.CurrentTransaction;
+            if (transaction != null)
+            {
+                return await TryClaimAsync(transaction.Connection!, transaction).ConfigureAwait(false);
+            }
+
             using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
             {
                 await conn.OpenAsync(token).ConfigureAwait(false);
+                return await TryClaimAsync(conn, null).ConfigureAwait(false);
+            }
+
+            async Task<bool> TryClaimAsync(SqliteConnection conn, SqliteTransaction? tx)
+            {
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
+                    cmd.Transaction = tx;
                     cmd.CommandText = @"UPDATE captains SET
                             state = @state,
                             current_mission_id = @current_mission_id,
@@ -625,11 +651,24 @@ namespace Armada.Core.Database.Sqlite.Implementations
             if (string.IsNullOrEmpty(missionId)) throw new ArgumentNullException(nameof(missionId));
             if (string.IsNullOrEmpty(dockId)) throw new ArgumentNullException(nameof(dockId));
             DateTime now = DateTime.UtcNow;
+
+            SqliteTransaction? transaction = _Driver.CurrentTransaction;
+            if (transaction != null)
+            {
+                return await TryClaimAsync(transaction.Connection!, transaction).ConfigureAwait(false);
+            }
+
             using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
             {
                 await conn.OpenAsync(token).ConfigureAwait(false);
+                return await TryClaimAsync(conn, null).ConfigureAwait(false);
+            }
+
+            async Task<bool> TryClaimAsync(SqliteConnection conn, SqliteTransaction? tx)
+            {
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
+                    cmd.Transaction = tx;
                     cmd.CommandText = @"UPDATE captains SET
                             state = @state,
                             current_mission_id = @current_mission_id,
@@ -767,4 +806,3 @@ namespace Armada.Core.Database.Sqlite.Implementations
         #endregion
     }
 }
-

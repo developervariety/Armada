@@ -39,6 +39,7 @@ namespace Armada.Core.Database.Sqlite
         private LoggingModule _Logging;
         private SemaphoreSlim _Semaphore = new SemaphoreSlim(1, 1);
         private bool _Disposed = false;
+        private AsyncLocal<SqliteTransaction?> _CurrentTransaction = new AsyncLocal<SqliteTransaction?>();
 
         private static readonly string _Iso8601Format = "yyyy-MM-ddTHH:mm:ss.fffffffZ";
 
@@ -272,6 +273,53 @@ namespace Armada.Core.Database.Sqlite
 
                 _Logging.Info(_Header + "default data seeded successfully");
             }
+        }
+
+        /// <inheritdoc />
+        public override async Task<T> ExecuteInTransactionAsync<T>(Func<Task<T>> action, CancellationToken token = default)
+        {
+            if (action == null) throw new ArgumentNullException(nameof(action));
+            if (_CurrentTransaction.Value != null) return await action().ConfigureAwait(false);
+
+            await _Semaphore.WaitAsync(token).ConfigureAwait(false);
+            try
+            {
+                using (SqliteConnection conn = new SqliteConnection(_ConnectionString))
+                {
+                    await conn.OpenAsync(token).ConfigureAwait(false);
+                    using (SqliteTransaction tx = conn.BeginTransaction())
+                    {
+                        _CurrentTransaction.Value = tx;
+                        try
+                        {
+                            T result = await action().ConfigureAwait(false);
+                            await tx.CommitAsync(token).ConfigureAwait(false);
+                            return result;
+                        }
+                        catch
+                        {
+                            await tx.RollbackAsync(token).ConfigureAwait(false);
+                            throw;
+                        }
+                        finally
+                        {
+                            _CurrentTransaction.Value = null;
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                _Semaphore.Release();
+            }
+        }
+
+        /// <summary>
+        /// Current ambient SQLite transaction for this async flow.
+        /// </summary>
+        internal SqliteTransaction? CurrentTransaction
+        {
+            get { return _CurrentTransaction.Value; }
         }
 
         /// <summary>

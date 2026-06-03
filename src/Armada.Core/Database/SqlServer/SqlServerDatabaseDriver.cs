@@ -206,6 +206,31 @@ namespace Armada.Core.Database.SqlServer
             }
         }
 
+        /// <inheritdoc />
+        public override async Task<T> ExecuteInTransactionAsync<T>(Func<Task<T>> action, CancellationToken token = default)
+        {
+            if (action == null) throw new ArgumentNullException(nameof(action));
+
+            using (SqlConnection conn = new SqlConnection(_ConnectionString))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (SqlTransaction tx = (SqlTransaction)await conn.BeginTransactionAsync(token).ConfigureAwait(false))
+                {
+                    try
+                    {
+                        T result = await action().ConfigureAwait(false);
+                        await tx.CommitAsync(token).ConfigureAwait(false);
+                        return result;
+                    }
+                    catch
+                    {
+                        await tx.RollbackAsync(token).ConfigureAwait(false);
+                        throw;
+                    }
+                }
+            }
+        }
+
         /// <summary>
         /// Get the current schema version.
         /// </summary>

@@ -164,11 +164,27 @@ namespace Armada.Core.Database.Sqlite.Implementations
             if (mission == null) throw new ArgumentNullException(nameof(mission));
             mission.LastUpdateUtc = DateTime.UtcNow;
 
-            using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
+            SqliteTransaction? transaction = _Driver.CurrentTransaction;
+            if (transaction != null)
             {
-                await conn.OpenAsync(token).ConfigureAwait(false);
+                await UpdateAsync(transaction.Connection!, transaction).ConfigureAwait(false);
+            }
+            else
+            {
+                using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
+                {
+                    await conn.OpenAsync(token).ConfigureAwait(false);
+                    await UpdateAsync(conn, null).ConfigureAwait(false);
+                }
+            }
+
+            return mission;
+
+            async Task UpdateAsync(SqliteConnection conn, SqliteTransaction? tx)
+            {
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
+                    cmd.Transaction = tx;
                     cmd.CommandText = @"UPDATE missions SET
                             tenant_id = @tenant_id,
                             user_id = @user_id,
@@ -245,10 +261,8 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
 
-                await TouchVoyageAsync(conn, mission.VoyageId, mission.LastUpdateUtc, token).ConfigureAwait(false);
+                await TouchVoyageAsync(conn, mission.VoyageId, mission.LastUpdateUtc, token, tx).ConfigureAwait(false);
             }
-
-            return mission;
         }
 
         /// <inheritdoc />
@@ -371,12 +385,13 @@ namespace Armada.Core.Database.Sqlite.Implementations
             return results;
         }
 
-        private static async Task TouchVoyageAsync(SqliteConnection conn, string? voyageId, DateTime lastUpdateUtc, CancellationToken token)
+        private static async Task TouchVoyageAsync(SqliteConnection conn, string? voyageId, DateTime lastUpdateUtc, CancellationToken token, SqliteTransaction? transaction = null)
         {
             if (String.IsNullOrEmpty(voyageId)) return;
 
             using (SqliteCommand cmd = conn.CreateCommand())
             {
+                cmd.Transaction = transaction;
                 cmd.CommandText = "UPDATE voyages SET last_update_utc = @last_update_utc WHERE id = @voyage_id;";
                 cmd.Parameters.AddWithValue("@voyage_id", voyageId);
                 cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(lastUpdateUtc));
