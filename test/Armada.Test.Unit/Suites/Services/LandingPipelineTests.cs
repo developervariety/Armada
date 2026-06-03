@@ -336,6 +336,7 @@ namespace Armada.Test.Unit.Suites.Services
                     LoggingModule logging = CreateLogging();
                     ArmadaSettings settings = CreateSettings();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ILandingService landingService = new LandingService(logging, testDb.Driver, settings, git);
                     IMessageTemplateService templateService = new MessageTemplateService(logging);
                     MissionLandingHandler handler = new MissionLandingHandler(
                         logging,
@@ -343,6 +344,7 @@ namespace Armada.Test.Unit.Suites.Services
                         settings,
                         git,
                         new StubMergeQueueService(),
+                        landingService,
                         new AutoLandEvaluator(),
                         new ConventionChecker(),
                         new CriticalTriggerEvaluator(),
@@ -386,6 +388,7 @@ namespace Armada.Test.Unit.Suites.Services
                     LoggingModule logging = CreateLogging();
                     ArmadaSettings settings = CreateSettings();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ILandingService landingService = new LandingService(logging, testDb.Driver, settings, git);
                     IMessageTemplateService templateService = new MessageTemplateService(logging);
                     MissionLandingHandler handler = new MissionLandingHandler(
                         logging,
@@ -393,6 +396,7 @@ namespace Armada.Test.Unit.Suites.Services
                         settings,
                         git,
                         new StubMergeQueueService(),
+                        landingService,
                         new AutoLandEvaluator(),
                         new ConventionChecker(),
                         new CriticalTriggerEvaluator(),

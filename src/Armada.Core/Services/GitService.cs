@@ -373,6 +373,33 @@ namespace Armada.Core.Services
             await RunGitAsync(workingDirectory, "pull").ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
+        public async Task PullFastForwardOnlyAsync(string workingDirectory, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(workingDirectory)) throw new ArgumentNullException(nameof(workingDirectory));
+
+            _Logging.Info(_Header + "pulling latest with fast-forward only in " + workingDirectory);
+            await RunGitAsync(workingDirectory, token, "pull", "--ff-only").ConfigureAwait(false);
+        }
+
+        /// <inheritdoc />
+        public async Task<string?> GetCurrentBranchAsync(string workingDirectory, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(workingDirectory)) throw new ArgumentNullException(nameof(workingDirectory));
+
+            string branch = (await RunGitAsync(workingDirectory, token, "rev-parse", "--abbrev-ref", "HEAD").ConfigureAwait(false)).Trim();
+            return String.IsNullOrEmpty(branch) ? null : branch;
+        }
+
+        /// <inheritdoc />
+        public async Task<bool> IsWorkingDirectoryCleanAsync(string workingDirectory, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(workingDirectory)) throw new ArgumentNullException(nameof(workingDirectory));
+
+            string status = (await RunGitAsync(workingDirectory, token, "status", "--porcelain").ConfigureAwait(false)).Trim();
+            return String.IsNullOrWhiteSpace(status);
+        }
+
         /// <summary>
         /// Check if a pull request has been merged, routing to gh or glab based on the PR URL host.
         /// </summary>

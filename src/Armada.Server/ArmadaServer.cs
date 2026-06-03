@@ -283,7 +283,7 @@ namespace Armada.Server
 
             // Initialize handler classes (WebSocketHub is created later, so pass null initially)
             _MissionLanding = new MissionLandingHandler(
-                _Logging, _Database, _Settings, _Git, _MergeQueue, _AutoLandEvaluator, _ConventionChecker, _CriticalTriggerEvaluator, _TemplateService, _PromptTemplateService, _Docks, _RemoteTriggerService, null, _CodeIndex);
+                _Logging, _Database, _Settings, _Git, _MergeQueue, _LandingService, _AutoLandEvaluator, _ConventionChecker, _CriticalTriggerEvaluator, _TemplateService, _PromptTemplateService, _Docks, _RemoteTriggerService, null, _CodeIndex);
 
             _AgentLifecycle = new AgentLifecycleHandler(
                 _Logging, _Database, _Settings, _RuntimeFactory, _Admiral, _TemplateService, _PromptTemplateService, null, EmitEventAsync);

@@ -143,6 +143,7 @@ namespace Armada.Test.Unit.Suites.Services
             mission = await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
 
             IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+            ILandingService landingService = new LandingService(logging, testDb.Driver, settings, git);
             IMessageTemplateService templateService = new MessageTemplateService(logging);
 
             MissionLandingHandler handler = new MissionLandingHandler(
@@ -151,6 +152,7 @@ namespace Armada.Test.Unit.Suites.Services
                 settings,
                 git,
                 new StubMergeQueueService(),
+                landingService,
                 new AutoLandEvaluator(),
                 new BenignConventionChecker(),
                 new BenignCriticalTriggerEvaluator(),
