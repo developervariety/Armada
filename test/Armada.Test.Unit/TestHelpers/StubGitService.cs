@@ -115,9 +115,9 @@ namespace Armada.Test.Unit.TestHelpers
 
         public Task MergeBranchLocalAsync(string targetWorkDir, string sourceRepoPath, string branchName, string? targetBranch = null, string? commitMessage = null, CancellationToken token = default)
         {
-            if (ShouldThrowOnMergeLocal) throw new InvalidOperationException("Simulated merge failure");
             MergeBranchCalls.Add(branchName + " -> " + targetWorkDir);
             OperationCalls.Add("merge-local:" + branchName);
+            if (ShouldThrowOnMergeLocal) throw new InvalidOperationException("Simulated merge failure");
             return Task.CompletedTask;
         }
 
