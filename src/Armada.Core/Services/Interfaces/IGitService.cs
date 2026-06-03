@@ -1,6 +1,7 @@
 namespace Armada.Core.Services.Interfaces
 {
     using System.Collections.Generic;
+    using Armada.Core.Enums;
 
     /// <summary>
     /// Git operations for repository and worktree management.
@@ -189,6 +190,16 @@ namespace Armada.Core.Services.Interfaces
         /// <param name="token">Cancellation token.</param>
         /// <returns>True if the branch exists or was created; false if the repo has no commits/branches.</returns>
         Task<bool> EnsureLocalBranchAsync(string repoPath, string branchName, CancellationToken token = default);
+
+        /// <summary>
+        /// Rebase a branch onto another branch and abort any in-progress rebase on conflict.
+        /// </summary>
+        /// <param name="repoPath">Path to the repository.</param>
+        /// <param name="branch">Branch to rebase.</param>
+        /// <param name="ontoBranch">Target branch to rebase onto.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Clean, Conflict, or Error.</returns>
+        Task<RebaseOutcomeEnum> RebaseOntoAsync(string repoPath, string branch, string ontoBranch, CancellationToken token = default);
 
         /// <summary>
         /// Check if a path is registered as a git worktree.

@@ -4,6 +4,7 @@ namespace Armada.Core.Services
     using System.Diagnostics;
     using System.Linq;
     using SyslogLogging;
+    using Armada.Core.Enums;
     using Armada.Core.Services.Interfaces;
 
     /// <summary>
@@ -604,6 +605,70 @@ namespace Armada.Core.Services
             }
         }
 
+        /// <inheritdoc />
+        public async Task<RebaseOutcomeEnum> RebaseOntoAsync(string repoPath, string branch, string ontoBranch, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(repoPath)) throw new ArgumentNullException(nameof(repoPath));
+            if (String.IsNullOrEmpty(branch)) throw new ArgumentNullException(nameof(branch));
+            if (String.IsNullOrEmpty(ontoBranch)) throw new ArgumentNullException(nameof(ontoBranch));
+
+            string? rebaseWorktree = null;
+            bool removeWorktree = false;
+
+            try
+            {
+                rebaseWorktree = await ResolveWorktreeForBranchAsync(repoPath, branch, token).ConfigureAwait(false);
+                if (String.IsNullOrEmpty(rebaseWorktree))
+                {
+                    rebaseWorktree = Path.Combine(Path.GetTempPath(), "armada_rebase_" + Guid.NewGuid().ToString("N"));
+                    await RunGitAsync(repoPath, token, "worktree", "add", rebaseWorktree, branch).ConfigureAwait(false);
+                    removeWorktree = true;
+                }
+
+                string ontoRef = await ResolveRebaseOntoRefAsync(repoPath, ontoBranch, token).ConfigureAwait(false);
+                _Logging.Info(_Header + "rebasing branch " + branch + " onto " + ontoRef + " in " + rebaseWorktree);
+                await RunGitAsync(rebaseWorktree, token, "rebase", ontoRef).ConfigureAwait(false);
+                _Logging.Info(_Header + "rebase clean: " + branch + " onto " + ontoRef);
+                return RebaseOutcomeEnum.Clean;
+            }
+            catch (Exception ex)
+            {
+                RebaseOutcomeEnum outcome = IsRebaseConflict(ex.Message)
+                    ? RebaseOutcomeEnum.Conflict
+                    : RebaseOutcomeEnum.Error;
+
+                if (!String.IsNullOrEmpty(rebaseWorktree))
+                {
+                    try
+                    {
+                        await RunGitAsync(rebaseWorktree, token, "rebase", "--abort").ConfigureAwait(false);
+                        _Logging.Warn(_Header + "aborted failed rebase for branch " + branch + " in " + rebaseWorktree);
+                    }
+                    catch (Exception abortEx)
+                    {
+                        _Logging.Warn(_Header + "unable to abort failed rebase for branch " + branch + ": " + abortEx.Message);
+                    }
+                }
+
+                _Logging.Warn(_Header + "rebase " + outcome + " for branch " + branch + " onto " + ontoBranch + ": " + ex.Message);
+                return outcome;
+            }
+            finally
+            {
+                if (removeWorktree && !String.IsNullOrEmpty(rebaseWorktree))
+                {
+                    try
+                    {
+                        await RunGitAsync(repoPath, token, "worktree", "remove", "--force", rebaseWorktree).ConfigureAwait(false);
+                    }
+                    catch (Exception rmEx)
+                    {
+                        _Logging.Warn(_Header + "unable to remove temporary rebase worktree " + rebaseWorktree + ": " + rmEx.Message);
+                    }
+                }
+            }
+        }
+
         #endregion
 
         #region Private-Methods
@@ -722,6 +787,51 @@ namespace Armada.Core.Services
             }
 
             return await GetFirstBranchRefAsync(repoPath, "refs/heads").ConfigureAwait(false);
+        }
+
+        private async Task<string?> ResolveWorktreeForBranchAsync(string repoPath, string branchName, CancellationToken token)
+        {
+            string worktrees = await RunGitAsync(repoPath, token, "worktree", "list", "--porcelain").ConfigureAwait(false);
+            string? path = null;
+            string targetRef = "refs/heads/" + branchName;
+
+            foreach (string rawLine in worktrees.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+            {
+                string line = rawLine.Trim();
+                if (line.StartsWith("worktree ", StringComparison.Ordinal))
+                {
+                    path = line.Substring("worktree ".Length);
+                }
+                else if (String.Equals(line, "branch " + targetRef, StringComparison.Ordinal))
+                {
+                    return path;
+                }
+            }
+
+            return null;
+        }
+
+        private async Task<string> ResolveRebaseOntoRefAsync(string repoPath, string ontoBranch, CancellationToken token)
+        {
+            string remoteRef = "refs/remotes/origin/" + ontoBranch;
+            try
+            {
+                await RunGitAsync(repoPath, token, "rev-parse", "--verify", remoteRef).ConfigureAwait(false);
+                return remoteRef;
+            }
+            catch
+            {
+                return ontoBranch;
+            }
+        }
+
+        private static bool IsRebaseConflict(string message)
+        {
+            return message.Contains("CONFLICT", StringComparison.OrdinalIgnoreCase)
+                || message.Contains("could not apply", StringComparison.OrdinalIgnoreCase)
+                || message.Contains("resolve all conflicts", StringComparison.OrdinalIgnoreCase)
+                || message.Contains("after resolving the conflicts", StringComparison.OrdinalIgnoreCase)
+                || message.Contains("fix conflicts", StringComparison.OrdinalIgnoreCase);
         }
 
         private async Task<string?> TryResolveRemoteHeadRefAsync(string repoPath)

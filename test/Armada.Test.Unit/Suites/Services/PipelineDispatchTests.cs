@@ -2712,6 +2712,7 @@ namespace Armada.Test.Unit.Suites.Services
 
             /// <inheritdoc />
             public Task<bool> IsWorktreeRegisteredAsync(string repoPath, string worktreePath, CancellationToken token = default) => Task.FromResult(false);
+            public Task<Armada.Core.Enums.RebaseOutcomeEnum> RebaseOntoAsync(string repoPath, string branch, string ontoBranch, CancellationToken token = default) => Task.FromResult(Armada.Core.Enums.RebaseOutcomeEnum.Clean);
         }
 
         #endregion

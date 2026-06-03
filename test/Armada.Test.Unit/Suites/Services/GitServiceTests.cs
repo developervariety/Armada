@@ -1,6 +1,7 @@
 namespace Armada.Test.Unit.Suites.Services
 {
     using System.Diagnostics;
+    using Armada.Core.Enums;
     using Armada.Core.Services;
     using Armada.Test.Common;
     using SyslogLogging;
@@ -95,6 +96,104 @@ namespace Armada.Test.Unit.Suites.Services
 
                     bool after = await service.IsWorktreeRegisteredAsync(bareDir, worktreeDir).ConfigureAwait(false);
                     AssertFalse(after, "Worktree should no longer be registered after removal");
+                }
+                finally
+                {
+                    if (Directory.Exists(rootDir))
+                    {
+                        try { Directory.Delete(rootDir, true); }
+                        catch { }
+                    }
+                }
+            });
+
+            await RunTest("RebaseOntoAsync_BareRepoCleanDrift_RebasesBranch", async () =>
+            {
+                GitService service = CreateService();
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada-gitservice-" + Guid.NewGuid().ToString("N"));
+                string sourceDir = Path.Combine(rootDir, "source");
+                string bareDir = Path.Combine(rootDir, "bare.git");
+
+                try
+                {
+                    Directory.CreateDirectory(sourceDir);
+                    await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "base\n").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+
+                    await RunGitAsync(sourceDir, "checkout", "-b", "armada/rebase-clean").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "worker.txt"), "worker\n").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "add", "worker.txt").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "commit", "-m", "Worker change").ConfigureAwait(false);
+
+                    await RunGitAsync(sourceDir, "checkout", "main").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "target.txt"), "target\n").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "add", "target.txt").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "commit", "-m", "Target drift").ConfigureAwait(false);
+                    string targetCommit = (await RunGitAsync(sourceDir, "rev-parse", "main").ConfigureAwait(false)).Trim();
+
+                    await RunGitAsync(rootDir, "clone", "--bare", sourceDir, bareDir).ConfigureAwait(false);
+                    await RunGitAsync(bareDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await RunGitAsync(bareDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+
+                    RebaseOutcomeEnum outcome = await service.RebaseOntoAsync(bareDir, "armada/rebase-clean", "main").ConfigureAwait(false);
+
+                    string mergeBase = (await RunGitAsync(bareDir, "merge-base", "refs/heads/main", "refs/heads/armada/rebase-clean").ConfigureAwait(false)).Trim();
+                    string worktrees = await RunGitAsync(bareDir, "worktree", "list", "--porcelain").ConfigureAwait(false);
+                    AssertEqual(RebaseOutcomeEnum.Clean, outcome, "Clean drift should rebase successfully");
+                    AssertEqual(targetCommit, mergeBase, "Mission branch should be rebased on top of current target branch");
+                    AssertFalse(worktrees.Contains("armada_rebase_", StringComparison.Ordinal), "Temporary rebase worktree should be removed");
+                }
+                finally
+                {
+                    if (Directory.Exists(rootDir))
+                    {
+                        try { Directory.Delete(rootDir, true); }
+                        catch { }
+                    }
+                }
+            });
+
+            await RunTest("RebaseOntoAsync_BareRepoConflict_ReturnsConflictAndPreservesBranch", async () =>
+            {
+                GitService service = CreateService();
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada-gitservice-" + Guid.NewGuid().ToString("N"));
+                string sourceDir = Path.Combine(rootDir, "source");
+                string bareDir = Path.Combine(rootDir, "bare.git");
+
+                try
+                {
+                    Directory.CreateDirectory(sourceDir);
+                    await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "base\n").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+
+                    await RunGitAsync(sourceDir, "checkout", "-b", "armada/rebase-conflict").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "worker\n").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "commit", "-am", "Worker change").ConfigureAwait(false);
+
+                    await RunGitAsync(sourceDir, "checkout", "main").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "target\n").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "commit", "-am", "Target drift").ConfigureAwait(false);
+
+                    await RunGitAsync(rootDir, "clone", "--bare", sourceDir, bareDir).ConfigureAwait(false);
+                    await RunGitAsync(bareDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await RunGitAsync(bareDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                    string branchBefore = (await RunGitAsync(bareDir, "rev-parse", "refs/heads/armada/rebase-conflict").ConfigureAwait(false)).Trim();
+
+                    RebaseOutcomeEnum outcome = await service.RebaseOntoAsync(bareDir, "armada/rebase-conflict", "main").ConfigureAwait(false);
+
+                    string branchAfter = (await RunGitAsync(bareDir, "rev-parse", "refs/heads/armada/rebase-conflict").ConfigureAwait(false)).Trim();
+                    string worktrees = await RunGitAsync(bareDir, "worktree", "list", "--porcelain").ConfigureAwait(false);
+                    AssertEqual(RebaseOutcomeEnum.Conflict, outcome, "Content conflict should be classified as Conflict");
+                    AssertEqual(branchBefore, branchAfter, "Conflict should preserve the mission branch ref");
+                    AssertFalse(worktrees.Contains("armada_rebase_", StringComparison.Ordinal), "Temporary rebase worktree should be removed after conflict");
                 }
                 finally
                 {

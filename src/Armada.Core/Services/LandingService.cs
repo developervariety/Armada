@@ -1,5 +1,7 @@
 namespace Armada.Core.Services
 {
+    using System.Collections.Concurrent;
+    using System.Text.Json;
     using SyslogLogging;
     using Armada.Core.Database;
     using Armada.Core.Enums;
@@ -29,6 +31,7 @@ namespace Armada.Core.Services
         private DatabaseDriver _Database;
         private ArmadaSettings _Settings;
         private IGitService _Git;
+        private ConcurrentDictionary<string, int> _AutoRetryCounts = new ConcurrentDictionary<string, int>();
 
         #endregion
 
@@ -62,150 +65,284 @@ namespace Armada.Core.Services
         {
             if (String.IsNullOrEmpty(missionId)) throw new ArgumentNullException(nameof(missionId));
 
+            LandingRetryContext? ctx = await ResolveRetryContextAsync(missionId, tenantId, token).ConfigureAwait(false);
+            if (ctx == null) return false;
+
+            await EmitEventAsync("mission.landing_retry", "Retrying landing: " + ctx.Mission.Title, ctx.Mission, null, token).ConfigureAwait(false);
+
+            RebaseOutcomeEnum rebase = await PrepareBranchForRetryAsync(ctx, false, token).ConfigureAwait(false);
+            if (rebase != RebaseOutcomeEnum.Clean)
+            {
+                await MarkLandingFailedAsync(ctx.Mission.Id, ctx.LookupTenantId, token).ConfigureAwait(false);
+                return false;
+            }
+
+            await EmitEventAsync(
+                "mission.landing_rebase_clean",
+                "Landing rebase clean: " + ctx.Mission.Title,
+                ctx.Mission,
+                JsonSerializer.Serialize(new { branch = ctx.MissionBranch, targetBranch = ctx.TargetBranch }),
+                token).ConfigureAwait(false);
+
+            bool success = await PerformLandingRetryAsync(ctx, token).ConfigureAwait(false);
+            if (success) _AutoRetryCounts.TryRemove(missionId, out _);
+            return success;
+        }
+
+        /// <inheritdoc />
+        public async Task<bool> AutoRetryLandingAsync(string missionId, string? tenantId = null, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(missionId)) throw new ArgumentNullException(nameof(missionId));
+
+            if (_Settings.MaxLandingRetries <= 0)
+            {
+                _Logging.Info(_Header + "auto-retry disabled (MaxLandingRetries=0) for mission " + missionId);
+                return false;
+            }
+
+            LandingRetryContext? ctx = await ResolveRetryContextAsync(missionId, tenantId, token).ConfigureAwait(false);
+            if (ctx == null) return false;
+
+            int attempts = _AutoRetryCounts.GetOrAdd(missionId, 0);
+            if (attempts >= _Settings.MaxLandingRetries)
+            {
+                _Logging.Warn(_Header + "mission " + missionId + " exhausted " + attempts + " landing retries (max " + _Settings.MaxLandingRetries + ") -- leaving LandingFailed");
+                await EmitEventAsync(
+                    "mission.landing_retry_exhausted",
+                    "Landing auto-retry exhausted after " + attempts + " attempts: " + ctx.Mission.Title,
+                    ctx.Mission,
+                    JsonSerializer.Serialize(new { attempts = attempts, max = _Settings.MaxLandingRetries }),
+                    token).ConfigureAwait(false);
+                _AutoRetryCounts.TryRemove(missionId, out _);
+                return false;
+            }
+
+            RebaseOutcomeEnum rebase = await PrepareBranchForRetryAsync(ctx, true, token).ConfigureAwait(false);
+            if (rebase != RebaseOutcomeEnum.Clean)
+            {
+                return false;
+            }
+
+            int attempt = _AutoRetryCounts.AddOrUpdate(missionId, 1, (key, current) => current + 1);
+            _Logging.Info(_Header + "auto-retrying landing for mission " + missionId + " (attempt " + attempt + " of " + _Settings.MaxLandingRetries + ") branch " + ctx.MissionBranch);
+
+            await EmitEventAsync(
+                "mission.landing_auto_retry",
+                "Landing auto-retry attempt " + attempt + ": " + ctx.Mission.Title,
+                ctx.Mission,
+                JsonSerializer.Serialize(new { attempt = attempt, max = _Settings.MaxLandingRetries }),
+                token).ConfigureAwait(false);
+
+            await EmitEventAsync(
+                "mission.landing_rebase_clean",
+                "Landing rebase clean: " + ctx.Mission.Title,
+                ctx.Mission,
+                JsonSerializer.Serialize(new { attempt = attempt, max = _Settings.MaxLandingRetries, branch = ctx.MissionBranch, targetBranch = ctx.TargetBranch }),
+                token).ConfigureAwait(false);
+
+            bool success = await PerformLandingRetryAsync(ctx, token).ConfigureAwait(false);
+            if (success) _AutoRetryCounts.TryRemove(missionId, out _);
+            return success;
+        }
+
+        #endregion
+
+        #region Private-Methods
+
+        private async Task<RebaseOutcomeEnum> PrepareBranchForRetryAsync(LandingRetryContext ctx, bool automatic, CancellationToken token)
+        {
+            try
+            {
+                await _Git.FetchAsync(ctx.RepoPath, token).ConfigureAwait(false);
+
+                bool branchExists = await _Git.BranchExistsAsync(ctx.RepoPath, ctx.MissionBranch, token).ConfigureAwait(false);
+                if (!branchExists)
+                {
+                    _Logging.Warn(_Header + "branch " + ctx.MissionBranch + " no longer exists -- cannot retry landing for mission " + ctx.Mission.Id);
+                    return RebaseOutcomeEnum.Error;
+                }
+
+                RebaseOutcomeEnum rebase = await _Git.RebaseOntoAsync(ctx.RepoPath, ctx.MissionBranch, ctx.TargetBranch, token).ConfigureAwait(false);
+                if (rebase == RebaseOutcomeEnum.Conflict)
+                {
+                    string prefix = automatic ? "auto-retry " : "";
+                    _Logging.Warn(_Header + prefix + "rebase conflict for mission " + ctx.Mission.Id + " branch " + ctx.MissionBranch + " onto " + ctx.TargetBranch + " -- genuine conflict, not consuming an auto-retry");
+                    await EmitEventAsync(
+                        "mission.landing_rebase_conflict",
+                        "Landing rebase conflict: " + ctx.Mission.Title,
+                        ctx.Mission,
+                        JsonSerializer.Serialize(new { branch = ctx.MissionBranch, targetBranch = ctx.TargetBranch }),
+                        token).ConfigureAwait(false);
+                }
+                else if (rebase == RebaseOutcomeEnum.Error)
+                {
+                    string prefix = automatic ? "auto-retry " : "";
+                    _Logging.Warn(_Header + prefix + "rebase error for mission " + ctx.Mission.Id + " branch " + ctx.MissionBranch + " onto " + ctx.TargetBranch + " -- cannot retry landing");
+                }
+
+                return rebase;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "landing retry preparation failed for mission " + ctx.Mission.Id + ": " + ex.Message);
+                return RebaseOutcomeEnum.Error;
+            }
+        }
+
+        private async Task<LandingRetryContext?> ResolveRetryContextAsync(string missionId, string? tenantId, CancellationToken token)
+        {
             Mission? mission = !String.IsNullOrEmpty(tenantId)
                 ? await _Database.Missions.ReadAsync(tenantId, missionId, token).ConfigureAwait(false)
                 : await _Database.Missions.ReadAsync(missionId, token).ConfigureAwait(false);
             if (mission == null)
             {
                 _Logging.Warn(_Header + "mission " + missionId + " not found");
-                return false;
+                return null;
             }
 
             if (mission.Status != MissionStatusEnum.LandingFailed && mission.Status != MissionStatusEnum.WorkProduced)
             {
                 _Logging.Warn(_Header + "mission " + missionId + " is in status " + mission.Status + ", not LandingFailed or WorkProduced -- cannot retry");
-                return false;
+                return null;
             }
 
             if (String.IsNullOrEmpty(mission.VesselId))
             {
                 _Logging.Warn(_Header + "mission " + missionId + " has no vessel -- cannot retry landing");
-                return false;
+                return null;
             }
 
-            // Use the mission's own TenantId for vessel lookup (more reliable than caller's tenantId)
             string? lookupTenantId = !String.IsNullOrEmpty(mission.TenantId) ? mission.TenantId : tenantId;
             Vessel? vessel = !String.IsNullOrEmpty(lookupTenantId)
                 ? await _Database.Vessels.ReadAsync(lookupTenantId, mission.VesselId, token).ConfigureAwait(false)
                 : await _Database.Vessels.ReadAsync(mission.VesselId, token).ConfigureAwait(false);
-            // Fall back to unscoped read if tenant-scoped read fails
             if (vessel == null)
                 vessel = await _Database.Vessels.ReadAsync(mission.VesselId, token).ConfigureAwait(false);
             if (vessel == null)
             {
                 _Logging.Warn(_Header + "vessel " + mission.VesselId + " not found -- cannot retry landing for mission " + missionId);
-                return false;
+                return null;
             }
 
             if (String.IsNullOrEmpty(vessel.LocalPath))
             {
                 _Logging.Warn(_Header + "vessel " + vessel.Id + " has no LocalPath -- cannot retry landing for mission " + missionId);
-                return false;
+                return null;
             }
 
             if (String.IsNullOrEmpty(mission.BranchName))
             {
                 _Logging.Warn(_Header + "mission " + missionId + " has no branch name -- cannot retry landing");
-                return false;
+                return null;
             }
 
-            // Emit retry event
+            return new LandingRetryContext(mission, vessel, vessel.LocalPath, vessel.DefaultBranch, mission.BranchName, lookupTenantId);
+        }
+
+        private async Task<bool> PerformLandingRetryAsync(LandingRetryContext ctx, CancellationToken token)
+        {
             try
             {
-                ArmadaEvent retryEvent = new ArmadaEvent("mission.landing_retry", "Retrying landing: " + mission.Title);
-                retryEvent.EntityType = "mission";
-                retryEvent.EntityId = mission.Id;
-                retryEvent.MissionId = mission.Id;
-                retryEvent.VesselId = mission.VesselId;
-                retryEvent.VoyageId = mission.VoyageId;
-                await _Database.Events.CreateAsync(retryEvent, token).ConfigureAwait(false);
-            }
-            catch { }
+                _Logging.Info(_Header + "retrying landing for mission " + ctx.Mission.Id + " branch " + ctx.MissionBranch);
 
-            // Attempt rebase of mission branch onto current target branch
-            string repoPath = vessel.LocalPath;
-            string targetBranch = vessel.DefaultBranch;
-            string missionBranch = mission.BranchName;
+                ctx.Mission.Status = MissionStatusEnum.WorkProduced;
+                ctx.Mission.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.Missions.UpdateAsync(ctx.Mission, token).ConfigureAwait(false);
 
-            try
-            {
-                // Fetch latest from remote
-                await _Git.FetchAsync(repoPath, token).ConfigureAwait(false);
-
-                // Check if branch still exists
-                bool branchExists = await _Git.BranchExistsAsync(repoPath, missionBranch, token).ConfigureAwait(false);
-                if (!branchExists)
-                {
-                    _Logging.Warn(_Header + "branch " + missionBranch + " no longer exists -- cannot retry landing for mission " + missionId);
-                    return false;
-                }
-
-                _Logging.Info(_Header + "retrying landing for mission " + missionId + " branch " + missionBranch);
-
-                // Transition back to WorkProduced for landing attempt
-                mission.Status = MissionStatusEnum.WorkProduced;
-                mission.LastUpdateUtc = DateTime.UtcNow;
-                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
-
-                // Try to find the dock or create a temporary context for landing
                 Dock? dock = null;
-                if (!String.IsNullOrEmpty(mission.DockId))
+                if (!String.IsNullOrEmpty(ctx.Mission.DockId))
                 {
-                    dock = !String.IsNullOrEmpty(tenantId)
-                        ? await _Database.Docks.ReadAsync(tenantId, mission.DockId, token).ConfigureAwait(false)
-                        : await _Database.Docks.ReadAsync(mission.DockId, token).ConfigureAwait(false);
+                    dock = !String.IsNullOrEmpty(ctx.LookupTenantId)
+                        ? await _Database.Docks.ReadAsync(ctx.LookupTenantId, ctx.Mission.DockId, token).ConfigureAwait(false)
+                        : await _Database.Docks.ReadAsync(ctx.Mission.DockId, token).ConfigureAwait(false);
                 }
 
-                // If no dock, create a minimal one for the landing handler
                 if (dock == null)
                 {
-                    dock = new Dock(vessel.Id);
-                    dock.BranchName = missionBranch;
-                    dock.WorktreePath = vessel.WorkingDirectory ?? vessel.LocalPath;
-                    dock.Active = false; // Not a real provisioned dock
+                    dock = new Dock(ctx.Vessel.Id);
+                    dock.BranchName = ctx.MissionBranch;
+                    dock.WorktreePath = ctx.Vessel.WorkingDirectory ?? ctx.Vessel.LocalPath;
+                    dock.Active = false;
                 }
 
-                // Invoke the landing handler if available
-                if (OnPerformLanding != null)
+                if (OnPerformLanding == null)
                 {
-                    await OnPerformLanding.Invoke(mission, dock).ConfigureAwait(false);
-                    _Logging.Info(_Header + "landing retry completed for mission " + missionId);
-
-                    // Re-read mission to get updated status from landing handler
-                    mission = !String.IsNullOrEmpty(tenantId)
-                        ? await _Database.Missions.ReadAsync(tenantId, missionId, token).ConfigureAwait(false)
-                        : await _Database.Missions.ReadAsync(missionId, token).ConfigureAwait(false);
-                    return mission != null && mission.Status == MissionStatusEnum.Complete;
-                }
-                else
-                {
-                    _Logging.Warn(_Header + "no landing handler configured -- cannot retry landing for mission " + missionId);
-                    mission.Status = MissionStatusEnum.LandingFailed;
-                    mission.LastUpdateUtc = DateTime.UtcNow;
-                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                    _Logging.Warn(_Header + "no landing handler configured -- cannot retry landing for mission " + ctx.Mission.Id);
+                    await MarkLandingFailedAsync(ctx.Mission.Id, ctx.LookupTenantId, token).ConfigureAwait(false);
                     return false;
                 }
+
+                await OnPerformLanding.Invoke(ctx.Mission, dock).ConfigureAwait(false);
+                _Logging.Info(_Header + "landing retry completed for mission " + ctx.Mission.Id);
+
+                Mission? updated = !String.IsNullOrEmpty(ctx.LookupTenantId)
+                    ? await _Database.Missions.ReadAsync(ctx.LookupTenantId, ctx.Mission.Id, token).ConfigureAwait(false)
+                    : await _Database.Missions.ReadAsync(ctx.Mission.Id, token).ConfigureAwait(false);
+                return updated != null && updated.Status == MissionStatusEnum.Complete;
             }
             catch (Exception ex)
             {
-                _Logging.Warn(_Header + "landing retry failed for mission " + missionId + ": " + ex.Message);
-
-                // Ensure mission goes back to LandingFailed
-                try
-                {
-                    mission = !String.IsNullOrEmpty(tenantId)
-                        ? await _Database.Missions.ReadAsync(tenantId, missionId, token).ConfigureAwait(false)
-                        : await _Database.Missions.ReadAsync(missionId, token).ConfigureAwait(false);
-                    if (mission != null && mission.Status != MissionStatusEnum.LandingFailed)
-                    {
-                        mission.Status = MissionStatusEnum.LandingFailed;
-                        mission.LastUpdateUtc = DateTime.UtcNow;
-                        await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
-                    }
-                }
-                catch { }
-
+                _Logging.Warn(_Header + "landing retry failed for mission " + ctx.Mission.Id + ": " + ex.Message);
+                await MarkLandingFailedAsync(ctx.Mission.Id, ctx.LookupTenantId, token).ConfigureAwait(false);
                 return false;
+            }
+        }
+
+        private async Task MarkLandingFailedAsync(string missionId, string? tenantId, CancellationToken token)
+        {
+            try
+            {
+                Mission? mission = !String.IsNullOrEmpty(tenantId)
+                    ? await _Database.Missions.ReadAsync(tenantId, missionId, token).ConfigureAwait(false)
+                    : await _Database.Missions.ReadAsync(missionId, token).ConfigureAwait(false);
+                if (mission != null && mission.Status != MissionStatusEnum.LandingFailed)
+                {
+                    mission.Status = MissionStatusEnum.LandingFailed;
+                    mission.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                }
+            }
+            catch { }
+        }
+
+        private async Task EmitEventAsync(string eventType, string message, Mission mission, string? payload, CancellationToken token)
+        {
+            try
+            {
+                ArmadaEvent evt = new ArmadaEvent(eventType, message);
+                evt.EntityType = "mission";
+                evt.EntityId = mission.Id;
+                evt.MissionId = mission.Id;
+                evt.VesselId = mission.VesselId;
+                evt.VoyageId = mission.VoyageId;
+                evt.CaptainId = mission.CaptainId;
+                evt.Payload = payload;
+                await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+            }
+            catch { }
+        }
+
+        #endregion
+
+        #region Private-Classes
+
+        private sealed class LandingRetryContext
+        {
+            internal Mission Mission { get; }
+            internal Vessel Vessel { get; }
+            internal string RepoPath { get; }
+            internal string TargetBranch { get; }
+            internal string MissionBranch { get; }
+            internal string? LookupTenantId { get; }
+
+            internal LandingRetryContext(Mission mission, Vessel vessel, string repoPath, string targetBranch, string missionBranch, string? lookupTenantId)
+            {
+                Mission = mission;
+                Vessel = vessel;
+                RepoPath = repoPath;
+                TargetBranch = targetBranch;
+                MissionBranch = missionBranch;
+                LookupTenantId = lookupTenantId;
             }
         }
 

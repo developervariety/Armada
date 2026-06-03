@@ -1,5 +1,6 @@
 namespace Armada.Test.Unit.TestHelpers
 {
+    using Armada.Core.Enums;
     using Armada.Core.Services.Interfaces;
 
     /// <summary>
@@ -17,6 +18,7 @@ namespace Armada.Test.Unit.TestHelpers
         public List<string> PrCalls { get; } = new List<string>();
         public List<string> PullCalls { get; } = new List<string>();
         public List<string> DiffCalls { get; } = new List<string>();
+        public List<string> RebaseCalls { get; } = new List<string>();
         public List<string> OperationCalls { get; } = new List<string>();
 
         // Result controls
@@ -26,6 +28,7 @@ namespace Armada.Test.Unit.TestHelpers
         public string DiffResult { get; set; } = "";
         public IReadOnlyList<string> ChangedFilesSinceResult { get; set; } = Array.Empty<string>();
         public bool DefaultBranchExistsResult { get; set; } = true;
+        public RebaseOutcomeEnum RebaseOutcomeResult { get; set; } = RebaseOutcomeEnum.Clean;
         public HashSet<string> ExistingBranches { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "main" };
 
         // Failure injection
@@ -137,6 +140,12 @@ namespace Armada.Test.Unit.TestHelpers
         }
         public Task<bool> EnsureLocalBranchAsync(string repoPath, string branchName, CancellationToken token = default)
             => BranchExistsAsync(repoPath, branchName, token);
+        public Task<RebaseOutcomeEnum> RebaseOntoAsync(string repoPath, string branch, string ontoBranch, CancellationToken token = default)
+        {
+            RebaseCalls.Add(branch + " onto " + ontoBranch);
+            OperationCalls.Add("rebase:" + branch + ":" + ontoBranch);
+            return Task.FromResult(RebaseOutcomeResult);
+        }
         public Task<bool> IsWorktreeRegisteredAsync(string repoPath, string worktreePath, CancellationToken token = default) => Task.FromResult(false);
     }
 }

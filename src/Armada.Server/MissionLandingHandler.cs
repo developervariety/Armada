@@ -19,6 +19,15 @@ namespace Armada.Server
     /// </summary>
     public class MissionLandingHandler
     {
+        #region Public-Members
+
+        /// <summary>
+        /// Optional callback invoked after a landing failure is persisted so target-branch drift can be retried.
+        /// </summary>
+        public Func<string, string?, CancellationToken, Task<bool>>? OnAutoRetryLanding { get; set; }
+
+        #endregion
+
         #region Private-Members
 
         private string _Header = "[MissionLanding] ";
@@ -738,6 +747,28 @@ namespace Armada.Server
                     catch (Exception evtEx)
                     {
                         _Logging.Warn(_Header + "error emitting mission.landing_failed event for " + mission.Id + ": " + evtEx.Message);
+                    }
+
+                    if (OnAutoRetryLanding != null)
+                    {
+                        try
+                        {
+                            bool autoRetrySucceeded = await OnAutoRetryLanding.Invoke(mission.Id, mission.TenantId, default).ConfigureAwait(false);
+                            if (autoRetrySucceeded)
+                            {
+                                Mission? refreshedMission = await _Database.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                                if (refreshedMission != null)
+                                {
+                                    mission = refreshedMission;
+                                }
+
+                                _Logging.Info(_Header + "mission " + mission.Id + " completed after automatic landing retry");
+                            }
+                        }
+                        catch (Exception retryEx)
+                        {
+                            _Logging.Warn(_Header + "automatic landing retry failed for mission " + mission.Id + ": " + retryEx.Message);
+                        }
                     }
                 }
             }
