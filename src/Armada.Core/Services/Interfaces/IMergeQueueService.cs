@@ -56,6 +56,14 @@ namespace Armada.Core.Services.Interfaces
         Task ProcessEntryByIdAsync(string entryId, CancellationToken token = default);
 
         /// <summary>
+        /// Advance persisted landing state-machine entries by one durable side-effect.
+        /// Safe to call from the admiral health-check loop after process restart.
+        /// </summary>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Number of entries advanced in this pass.</returns>
+        Task<int> ReconcileLandingStateMachineAsync(CancellationToken token = default);
+
+        /// <summary>
         /// Get a specific merge entry.
         /// </summary>
         /// <param name="entryId">Merge entry identifier.</param>

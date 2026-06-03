@@ -179,7 +179,7 @@ namespace Armada.Core.Services
                 ? await _Database.MergeEntries.ReadAsync(tenantId, entryId, token).ConfigureAwait(false)
                 : await _Database.MergeEntries.ReadAsync(entryId, token).ConfigureAwait(false);
             if (entry == null) return null;
-            if (entry.Status != MergeStatusEnum.Queued) return null;
+            if (!IsLandingState(entry.Status)) return null;
 
             _Logging.Info(_Header + "processing single entry " + entryId);
             await ProcessEntryAsync(entry, token).ConfigureAwait(false);
@@ -429,9 +429,9 @@ namespace Armada.Core.Services
                 return;
             }
 
-            if (entry.Status != MergeStatusEnum.Queued)
+            if (!IsLandingState(entry.Status))
             {
-                _Logging.Warn(_Header + "ProcessEntryByIdAsync: entry " + entryId + " is in status " + entry.Status + ", not Queued -- skipping");
+                _Logging.Warn(_Header + "ProcessEntryByIdAsync: entry " + entryId + " is in status " + entry.Status + " -- skipping");
                 return;
             }
 
@@ -445,44 +445,220 @@ namespace Armada.Core.Services
             await ProcessEntryAsync(entry, repoPath, token).ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
+        public async Task<int> ReconcileLandingStateMachineAsync(CancellationToken token = default)
+        {
+            List<MergeStatusEnum> statuses = new List<MergeStatusEnum>
+            {
+                MergeStatusEnum.Rebasing,
+                MergeStatusEnum.Merging,
+                MergeStatusEnum.Testing,
+                MergeStatusEnum.Passed,
+                MergeStatusEnum.Pushing,
+                MergeStatusEnum.CreatingPR,
+                MergeStatusEnum.Queued
+            };
+
+            List<MergeEntry> candidates = new List<MergeEntry>();
+            foreach (MergeStatusEnum status in statuses)
+            {
+                List<MergeEntry> entries = await _Database.MergeEntries.EnumerateByStatusAsync(status, token).ConfigureAwait(false);
+                candidates.AddRange(entries);
+            }
+
+            if (candidates.Count == 0) return 0;
+
+            List<MergeEntry> ordered = candidates
+                .OrderBy(e => LandingStateRank(e.Status))
+                .ThenBy(e => e.Priority)
+                .ThenBy(e => e.CreatedUtc)
+                .ToList();
+
+            HashSet<string> activeKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            int advanced = 0;
+
+            foreach (MergeEntry entry in ordered)
+            {
+                if (advanced >= 10) break;
+
+                string key = (entry.VesselId ?? "default") + ":" + entry.TargetBranch;
+                if (activeKeys.Contains(key)) continue;
+                activeKeys.Add(key);
+
+                string? repoPath = await GetRepoPathAsync(entry, token).ConfigureAwait(false);
+                if (repoPath == null)
+                {
+                    await TransitionEntryToFailureAsync(entry, "Unable to resolve repository path for vessel " + entry.VesselId, token).ConfigureAwait(false);
+                    advanced++;
+                    continue;
+                }
+
+                try
+                {
+                    bool didAdvance = await AdvanceLandingStateMachineOneStepAsync(entry, repoPath, token).ConfigureAwait(false);
+                    if (didAdvance) advanced++;
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "landing state-machine error for " + entry.Id + ": " + ex.Message);
+                    await TransitionEntryToFailureAsync(entry, "Landing state-machine error: " + ex.Message, token).ConfigureAwait(false);
+                    advanced++;
+                }
+            }
+
+            if (advanced > 0)
+            {
+                _Logging.Info(_Header + "advanced " + advanced + " landing state-machine entr" + (advanced == 1 ? "y" : "ies"));
+            }
+
+            return advanced;
+        }
+
         /// <summary>
         /// Core single-entry processing with a known repo path.
         /// </summary>
         private async Task ProcessEntryAsync(MergeEntry entry, string repoPath, CancellationToken token)
         {
-            string entryTag = entry.Id + " branch " + entry.BranchName;
-            _Logging.Info(_Header + "processing " + entryTag);
+            _Logging.Info(_Header + "processing " + entry.Id + " branch " + entry.BranchName);
 
-            // Mark as testing
-            entry.Status = MergeStatusEnum.Testing;
-            entry.TestStartedUtc = DateTime.UtcNow;
-            entry.LastUpdateUtc = DateTime.UtcNow;
-            await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
-
-            // Each entry gets its own temporary worktree so the merge is always
-            // attempted against the current state of the target branch.
-            string worktreeId = "mq_" + entry.Id + "_" + DateTime.UtcNow.ToString("yyyyMMddHHmmss");
-            string integrationBranch = "armada/merge-queue/" + worktreeId;
-            string integrationPath = Path.Combine(_Settings.DocksDirectory, "_merge-queue", worktreeId);
-
-            try
+            for (int i = 0; i < 10; i++)
             {
-                // Fetch latest so the target branch ref is up to date
-                await _Git.FetchAsync(repoPath, token).ConfigureAwait(false);
+                if (!IsLandingState(entry.Status)) return;
 
-                // Create a temporary worktree from the current target branch
-                await _Git.CreateWorktreeAsync(repoPath, integrationPath, integrationBranch, entry.TargetBranch, token).ConfigureAwait(false);
-                string targetHeadBeforeMerge = await ResolveCommitAsync(integrationPath, "HEAD", token).ConfigureAwait(false);
+                bool advanced = await AdvanceLandingStateMachineOneStepAsync(entry, repoPath, token).ConfigureAwait(false);
+                if (!advanced) return;
 
-                // Merge the entry's branch
+                MergeEntry? refreshed = await _Database.MergeEntries.ReadAsync(entry.Id, token).ConfigureAwait(false);
+                if (refreshed == null) return;
+                entry = refreshed;
+            }
+        }
+
+        private async Task<bool> AdvanceLandingStateMachineOneStepAsync(MergeEntry entry, string repoPath, CancellationToken token)
+        {
+            if (entry.Status == MergeStatusEnum.Queued || entry.Status == MergeStatusEnum.Rebasing)
+            {
+                await PersistStatusAsync(entry, MergeStatusEnum.Rebasing, token).ConfigureAwait(false);
+                await PrepareIntegrationWorktreeAsync(entry, repoPath, token).ConfigureAwait(false);
+                await PersistStatusAsync(entry, MergeStatusEnum.Merging, token).ConfigureAwait(false);
+                return true;
+            }
+
+            if (entry.Status == MergeStatusEnum.Merging)
+            {
+                if (!Directory.Exists(GetIntegrationPath(entry)))
+                {
+                    await PersistStatusAsync(entry, MergeStatusEnum.Rebasing, token).ConfigureAwait(false);
+                    return true;
+                }
+
+                await MergeIntegrationWorktreeAsync(entry, token).ConfigureAwait(false);
+                if (entry.Status == MergeStatusEnum.Failed) return false;
+                await PersistStatusAsync(entry, MergeStatusEnum.Testing, token, startedTests: true).ConfigureAwait(false);
+                return true;
+            }
+
+            if (entry.Status == MergeStatusEnum.Testing)
+            {
+                if (!Directory.Exists(GetIntegrationPath(entry)))
+                {
+                    await PersistStatusAsync(entry, MergeStatusEnum.Rebasing, token).ConfigureAwait(false);
+                    return true;
+                }
+
+                await TestIntegrationWorktreeAsync(entry, token).ConfigureAwait(false);
+                if (entry.Status == MergeStatusEnum.Failed) return false;
+                await PersistStatusAsync(entry, MergeStatusEnum.Passed, token).ConfigureAwait(false);
+                return true;
+            }
+
+            if (entry.Status == MergeStatusEnum.Passed)
+            {
+                MergeStatusEnum nextStatus = _PullRequestServiceFactory != null && !String.IsNullOrEmpty(entry.AuditCriticalTrigger)
+                    ? MergeStatusEnum.CreatingPR
+                    : MergeStatusEnum.Pushing;
+                await PersistStatusAsync(entry, nextStatus, token).ConfigureAwait(false);
+                return true;
+            }
+
+            if (entry.Status == MergeStatusEnum.Pushing)
+            {
+                if (!Directory.Exists(GetIntegrationPath(entry)))
+                {
+                    await PersistStatusAsync(entry, MergeStatusEnum.Rebasing, token).ConfigureAwait(false);
+                    return true;
+                }
+
+                await LandEntryAsync(entry, repoPath, GetIntegrationBranch(entry), token).ConfigureAwait(false);
+                await CleanupWorktreeAsync(GetIntegrationPath(entry), token).ConfigureAwait(false);
+
+                if (entry.Status == MergeStatusEnum.Landed)
+                {
+                    await CleanupLandedBranchesAsync(entry, repoPath, GetIntegrationBranch(entry), token).ConfigureAwait(false);
+                }
+
+                return true;
+            }
+
+            if (entry.Status == MergeStatusEnum.CreatingPR)
+            {
+                if (!String.IsNullOrEmpty(entry.PrUrl))
+                {
+                    await MarkExistingPullRequestOpenAsync(entry, token).ConfigureAwait(false);
+                    await CleanupWorktreeAsync(GetIntegrationPath(entry), token).ConfigureAwait(false);
+                    return true;
+                }
+
+                bool routedToPr = await TryOpenPullRequestAsync(entry, repoPath, forceChainedBase: false, token).ConfigureAwait(false);
+                if (!routedToPr && entry.Status != MergeStatusEnum.Failed)
+                {
+                    await PersistStatusAsync(entry, MergeStatusEnum.Pushing, token).ConfigureAwait(false);
+                }
+                else if (routedToPr)
+                {
+                    await CleanupWorktreeAsync(GetIntegrationPath(entry), token).ConfigureAwait(false);
+                }
+
+                return true;
+            }
+
+            return false;
+        }
+
+        private async Task PrepareIntegrationWorktreeAsync(MergeEntry entry, string repoPath, CancellationToken token)
+        {
+            string integrationPath = GetIntegrationPath(entry);
+            string integrationBranch = GetIntegrationBranch(entry);
+            string? parent = Path.GetDirectoryName(integrationPath);
+            if (!String.IsNullOrEmpty(parent))
+            {
+                Directory.CreateDirectory(parent);
+            }
+
+            try { await CleanupWorktreeAsync(integrationPath, token).ConfigureAwait(false); }
+            catch { }
+
+            try { await _Git.DeleteLocalBranchAsync(repoPath, integrationBranch, token).ConfigureAwait(false); }
+            catch (Exception ex) { _Logging.Debug(_Header + "integration branch cleanup skipped for " + integrationBranch + ": " + ex.Message); }
+
+            await _Git.FetchAsync(repoPath, token).ConfigureAwait(false);
+            await _Git.CreateWorktreeAsync(repoPath, integrationPath, integrationBranch, entry.TargetBranch, token).ConfigureAwait(false);
+        }
+
+        private async Task MergeIntegrationWorktreeAsync(MergeEntry entry, CancellationToken token)
+        {
+            string integrationPath = GetIntegrationPath(entry);
+            string entryTag = entry.Id + " branch " + entry.BranchName;
+            string headBeforeMerge = await ResolveCommitAsync(integrationPath, "HEAD", token).ConfigureAwait(false);
+            bool alreadyMerged = await IsAncestorAsync(integrationPath, entry.BranchName, "HEAD", token).ConfigureAwait(false);
+
+            if (!alreadyMerged)
+            {
                 MergeAttemptResult mergeAttempt = await MergeBranchAsync(integrationPath, entry.BranchName, token).ConfigureAwait(false);
                 if (!mergeAttempt.Ok)
                 {
                     _Logging.Warn(_Header + "merge conflict for " + entryTag);
 
-                    // Build classification context BEFORE setting Failed so the recovery
-                    // handler can read populated classification fields when the status
-                    // event fires.
                     List<string> conflictedFiles = await CollectConflictedFilesAsync(integrationPath, token).ConfigureAwait(false);
                     int diffLineCount = await ComputeDiffLineCountAsync(integrationPath, entry.TargetBranch, entry.BranchName, token).ConfigureAwait(false);
                     MergeFailureContext mergeContext = new MergeFailureContext
@@ -504,109 +680,107 @@ namespace Armada.Core.Services
                     FireRecoveryHandlerForEntry(entry.Id);
                     return;
                 }
-
-                string integrationHeadAfterMerge = await ResolveCommitAsync(integrationPath, "HEAD", token).ConfigureAwait(false);
-                if (String.Equals(targetHeadBeforeMerge, integrationHeadAfterMerge, StringComparison.OrdinalIgnoreCase))
-                {
-                    string failureReason = "No-op merge queue entry: branch " + entry.BranchName +
-                        " does not advance target branch " + entry.TargetBranch +
-                        " (HEAD remains " + integrationHeadAfterMerge + ")";
-                    _Logging.Warn(_Header + failureReason + " for " + entryTag);
-                    await TransitionEntryToFailureAsync(entry, failureReason, token, fireRecovery: false).ConfigureAwait(false);
-                    await CleanupWorktreeAsync(integrationPath, token).ConfigureAwait(false);
-                    return;
-                }
-
-                string? protectedPathViolation = await FindProtectedPathViolationAsync(entry, integrationPath, token).ConfigureAwait(false);
-                if (!String.IsNullOrEmpty(protectedPathViolation))
-                {
-                    Vessel? violationVessel = await ReadEntryVesselAsync(entry, token).ConfigureAwait(false);
-                    string failureReason = ProtectedPathsValidator.FormatFailureReason(
-                        protectedPathViolation,
-                        violationVessel?.Name ?? entry.VesselId ?? "unknown");
-                    _Logging.Warn(_Header + "protected path violation for " + entryTag + ": " + failureReason);
-                    await TransitionEntryToFailureAsync(entry, failureReason, token, fireRecovery: false).ConfigureAwait(false);
-                    await CleanupWorktreeAsync(integrationPath, token).ConfigureAwait(false);
-                    return;
-                }
-
-                // Run tests if configured
-                string testCommand = entry.TestCommand ?? _Settings.MergeQueueTestCommand ?? "";
-                if (!String.IsNullOrEmpty(testCommand))
-                {
-                    TestResult testResult = await RunTestsAsync(integrationPath, testCommand, token).ConfigureAwait(false);
-                    if (testResult.ExitCode != 0)
-                    {
-                        _Logging.Warn(_Header + "tests FAILED for " + entryTag + " (exit " + testResult.ExitCode + ")");
-
-                        int diffLineCount = await ComputeDiffLineCountAsync(integrationPath, entry.TargetBranch, entry.BranchName, token).ConfigureAwait(false);
-                        MergeFailureContext testContext = new MergeFailureContext
-                        {
-                            GitExitCode = mergeAttempt.GitExitCode,
-                            GitStandardOutput = mergeAttempt.StandardOutput,
-                            GitStandardError = mergeAttempt.StandardError,
-                            TestExitCode = testResult.ExitCode,
-                            TestOutput = testResult.Output,
-                            ConflictedFiles = new List<string>(),
-                            DiffLineCount = diffLineCount
-                        };
-                        ApplyClassification(entry, testContext);
-
-                        entry.Status = MergeStatusEnum.Failed;
-                        entry.TestExitCode = testResult.ExitCode;
-                        entry.TestOutput = TruncateOutput(testResult.Output);
-                        entry.CompletedUtc = DateTime.UtcNow;
-                        entry.LastUpdateUtc = DateTime.UtcNow;
-                        await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
-                        await CleanupWorktreeAsync(integrationPath, token).ConfigureAwait(false);
-                        FireRecoveryHandlerForEntry(entry.Id);
-                        return;
-                    }
-
-                    _Logging.Info(_Header + "tests PASSED for " + entryTag);
-                }
-
-                // PR-fallback gate: if the auto-land safety net flagged a critical trigger
-                // (UDS 0x34 guard, RSA primitive, schema migration, etc.), route to a real
-                // platform PR instead of auto-landing. Same for entries whose upstream chain
-                // is still in PR review (forceChainedBase=true). Falls back to standard land
-                // when no factory is wired (tests/legacy) or no critical signal fired.
-                bool routedToPr = false;
-                if (_PullRequestServiceFactory != null && !String.IsNullOrEmpty(entry.AuditCriticalTrigger))
-                {
-                    routedToPr = await TryOpenPullRequestAsync(entry, repoPath, forceChainedBase: false, token).ConfigureAwait(false);
-                }
-
-                if (!routedToPr)
-                {
-                    // Land immediately -- push the integration branch to update the target.
-                    await LandEntryAsync(entry, repoPath, integrationBranch, token).ConfigureAwait(false);
-                }
-
-                // Cleanup worktree first; integration branch cannot be deleted while checked out.
-                await CleanupWorktreeAsync(integrationPath, token).ConfigureAwait(false);
-
-                // Branch cleanup runs after worktree removal so the integration branch ref is free to delete.
-                // PR-fallback path keeps the captain branch alive for the open PR; cleanup defers to the
-                // PR-merge reconciliation pass.
-                if (entry.Status == MergeStatusEnum.Landed)
-                {
-                    await CleanupLandedBranchesAsync(entry, repoPath, integrationBranch, token).ConfigureAwait(false);
-                }
             }
-            catch (Exception ex)
+
+            string integrationHeadAfterMerge = await ResolveCommitAsync(integrationPath, "HEAD", token).ConfigureAwait(false);
+            string targetHead = await ResolveCommitAsync(integrationPath, entry.TargetBranch, token).ConfigureAwait(false);
+            if (String.Equals(targetHead, integrationHeadAfterMerge, StringComparison.OrdinalIgnoreCase) ||
+                (!alreadyMerged && String.Equals(headBeforeMerge, integrationHeadAfterMerge, StringComparison.OrdinalIgnoreCase)))
             {
-                _Logging.Warn(_Header + "error processing " + entryTag + ": " + ex.Message);
+                string failureReason = "No-op merge queue entry: branch " + entry.BranchName +
+                    " does not advance target branch " + entry.TargetBranch +
+                    " (HEAD remains " + integrationHeadAfterMerge + ")";
+                _Logging.Warn(_Header + failureReason + " for " + entryTag);
+                await TransitionEntryToFailureAsync(entry, failureReason, token, fireRecovery: false).ConfigureAwait(false);
+                await CleanupWorktreeAsync(integrationPath, token).ConfigureAwait(false);
+            }
+        }
+
+        private async Task TestIntegrationWorktreeAsync(MergeEntry entry, CancellationToken token)
+        {
+            string integrationPath = GetIntegrationPath(entry);
+            string entryTag = entry.Id + " branch " + entry.BranchName;
+            string? protectedPathViolation = await FindProtectedPathViolationAsync(entry, integrationPath, token).ConfigureAwait(false);
+            if (!String.IsNullOrEmpty(protectedPathViolation))
+            {
+                Vessel? violationVessel = await ReadEntryVesselAsync(entry, token).ConfigureAwait(false);
+                string failureReason = ProtectedPathsValidator.FormatFailureReason(
+                    protectedPathViolation,
+                    violationVessel?.Name ?? entry.VesselId ?? "unknown");
+                _Logging.Warn(_Header + "protected path violation for " + entryTag + ": " + failureReason);
+                await TransitionEntryToFailureAsync(entry, failureReason, token, fireRecovery: false).ConfigureAwait(false);
+                await CleanupWorktreeAsync(integrationPath, token).ConfigureAwait(false);
+                return;
+            }
+
+            string testCommand = entry.TestCommand ?? _Settings.MergeQueueTestCommand ?? "";
+            if (String.IsNullOrEmpty(testCommand)) return;
+
+            TestResult testResult = await RunTestsAsync(integrationPath, testCommand, token).ConfigureAwait(false);
+            if (testResult.ExitCode != 0)
+            {
+                _Logging.Warn(_Header + "tests FAILED for " + entryTag + " (exit " + testResult.ExitCode + ")");
+
+                int diffLineCount = await ComputeDiffLineCountAsync(integrationPath, entry.TargetBranch, entry.BranchName, token).ConfigureAwait(false);
+                MergeFailureContext testContext = new MergeFailureContext
+                {
+                    TestExitCode = testResult.ExitCode,
+                    TestOutput = testResult.Output,
+                    ConflictedFiles = new List<string>(),
+                    DiffLineCount = diffLineCount
+                };
+                ApplyClassification(entry, testContext);
+
                 entry.Status = MergeStatusEnum.Failed;
-                entry.TestOutput = "Queue processing error: " + ex.Message;
+                entry.TestExitCode = testResult.ExitCode;
+                entry.TestOutput = TruncateOutput(testResult.Output);
                 entry.CompletedUtc = DateTime.UtcNow;
                 entry.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
-
-                // Best-effort cleanup
                 await CleanupWorktreeAsync(integrationPath, token).ConfigureAwait(false);
                 FireRecoveryHandlerForEntry(entry.Id);
+                return;
             }
+
+            _Logging.Info(_Header + "tests PASSED for " + entryTag);
+        }
+
+        private async Task PersistStatusAsync(MergeEntry entry, MergeStatusEnum status, CancellationToken token, bool startedTests = false)
+        {
+            entry.Status = status;
+            entry.LastUpdateUtc = DateTime.UtcNow;
+            if (startedTests && !entry.TestStartedUtc.HasValue)
+            {
+                entry.TestStartedUtc = entry.LastUpdateUtc;
+            }
+            await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
+        }
+
+        private static bool IsLandingState(MergeStatusEnum status)
+        {
+            return status == MergeStatusEnum.Queued
+                || status == MergeStatusEnum.Rebasing
+                || status == MergeStatusEnum.Merging
+                || status == MergeStatusEnum.Testing
+                || status == MergeStatusEnum.Passed
+                || status == MergeStatusEnum.Pushing
+                || status == MergeStatusEnum.CreatingPR;
+        }
+
+        private static int LandingStateRank(MergeStatusEnum status)
+        {
+            if (status == MergeStatusEnum.Queued) return 1;
+            return 0;
+        }
+
+        private string GetIntegrationBranch(MergeEntry entry)
+        {
+            return "armada/merge-queue/" + entry.Id;
+        }
+
+        private string GetIntegrationPath(MergeEntry entry)
+        {
+            return Path.Combine(_Settings.DocksDirectory, "_merge-queue", entry.Id);
         }
 
         /// <inheritdoc />
@@ -661,6 +835,12 @@ namespace Armada.Core.Services
         private async Task<bool> TryOpenPullRequestAsync(MergeEntry entry, string repoPath, bool forceChainedBase, CancellationToken token)
         {
             if (_PullRequestServiceFactory == null) return false;
+
+            if (!String.IsNullOrEmpty(entry.PrUrl))
+            {
+                await MarkExistingPullRequestOpenAsync(entry, token).ConfigureAwait(false);
+                return true;
+            }
 
             Vessel? vessel = !String.IsNullOrEmpty(entry.VesselId)
                 ? await _Database.Vessels.ReadAsync(entry.VesselId, token).ConfigureAwait(false)
@@ -964,7 +1144,16 @@ namespace Armada.Core.Services
         {
             try
             {
-                await _Git.PushRefSpecAsync(repoPath, integrationBranch, entry.TargetBranch, token).ConfigureAwait(false);
+                bool alreadyPushed = await IsRemoteTargetAtIntegrationHeadAsync(repoPath, entry.TargetBranch, integrationBranch, token).ConfigureAwait(false);
+                if (!alreadyPushed)
+                {
+                    await _Git.PushRefSpecAsync(repoPath, integrationBranch, entry.TargetBranch, token).ConfigureAwait(false);
+                }
+                else
+                {
+                    _Logging.Info(_Header + "push already reflected on origin/" + entry.TargetBranch + " for " + entry.Id);
+                }
+
                 await SynchronizeTargetBranchAfterPushAsync(repoPath, entry.TargetBranch, token).ConfigureAwait(false);
 
                 entry.Status = MergeStatusEnum.Landed;
@@ -1051,6 +1240,42 @@ namespace Armada.Core.Services
             }
 
             return commit;
+        }
+
+        private async Task<bool> IsAncestorAsync(string workingDir, string ancestorRef, string descendantRef, CancellationToken token)
+        {
+            GitProcessResult result = await RunGitCapturingAsync(workingDir, token, "merge-base", "--is-ancestor", ancestorRef, descendantRef).ConfigureAwait(false);
+            return result.ExitCode == 0;
+        }
+
+        private async Task<bool> IsRemoteTargetAtIntegrationHeadAsync(string repoPath, string targetBranch, string integrationBranch, CancellationToken token)
+        {
+            await _Git.FetchAsync(repoPath, token).ConfigureAwait(false);
+
+            string integrationHead = await ResolveCommitAsync(repoPath, integrationBranch, token).ConfigureAwait(false);
+            GitProcessResult remoteResult = await RunGitCapturingAsync(repoPath, token, "rev-parse", "--verify", "refs/remotes/origin/" + targetBranch).ConfigureAwait(false);
+            string remoteHead = remoteResult.StandardOutput.Trim();
+            return !String.IsNullOrWhiteSpace(remoteHead)
+                && String.Equals(remoteHead, integrationHead, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private async Task MarkExistingPullRequestOpenAsync(MergeEntry entry, CancellationToken token)
+        {
+            entry.Status = MergeStatusEnum.PullRequestOpen;
+            entry.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
+
+            if (String.IsNullOrEmpty(entry.MissionId)) return;
+
+            Mission? mission = !String.IsNullOrEmpty(entry.TenantId)
+                ? await _Database.Missions.ReadAsync(entry.TenantId, entry.MissionId, token).ConfigureAwait(false)
+                : await _Database.Missions.ReadAsync(entry.MissionId, token).ConfigureAwait(false);
+            if (mission == null) return;
+
+            mission.Status = MissionStatusEnum.PullRequestOpen;
+            mission.PrUrl = entry.PrUrl;
+            mission.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
         }
 
         /// <summary>
