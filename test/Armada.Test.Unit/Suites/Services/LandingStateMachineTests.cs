@@ -155,6 +155,201 @@ namespace Armada.Test.Unit.Suites.Services
                     TryDelete(rootDir);
                 }
             });
+
+            await RunTest("Landing_WhenPushingResumeAndRemoteNotUpdated_PushesOnceAndLands", async () =>
+            {
+                string rootDir = NewTempDirectory("armada_landing_sm_push_real_");
+                try
+                {
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir, conflict: false).ConfigureAwait(false);
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings(rootDir);
+                        GitService realGit = new GitService(logging);
+                        MergeEntry entry = await CreateEntryAsync(testDb.Driver, repos, "state-push-real").ConfigureAwait(false);
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, realGit, new MergeFailureClassifier());
+
+                        for (int i = 0; i < 4; i++)
+                        {
+                            await service.ReconcileLandingStateMachineAsync().ConfigureAwait(false);
+                        }
+                        await AssertStatusAsync(testDb.Driver, entry.Id, MergeStatusEnum.Pushing).ConfigureAwait(false);
+
+                        CountingGitService countingGit = new CountingGitService(realGit);
+                        MergeQueueService resumed = new MergeQueueService(logging, testDb.Driver, settings, countingGit, new MergeFailureClassifier());
+                        await resumed.ReconcileLandingStateMachineAsync().ConfigureAwait(false);
+
+                        await AssertStatusAsync(testDb.Driver, entry.Id, MergeStatusEnum.Landed).ConfigureAwait(false);
+                        AssertEqual(1, countingGit.PushRefSpecCalls, "Pushing resume must push exactly once when remote is not yet at the integration head");
+                    }
+                }
+                finally
+                {
+                    TryDelete(rootDir);
+                }
+            });
+
+            await RunTest("Landing_WhenIntegrationWorktreeMissingDuringMerging_RebuildsAndLands", async () =>
+            {
+                string rootDir = NewTempDirectory("armada_landing_sm_wtloss_");
+                try
+                {
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir, conflict: false).ConfigureAwait(false);
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings(rootDir);
+                        GitService git = new GitService(logging);
+                        MergeEntry entry = await CreateEntryAsync(testDb.Driver, repos, "state-wtloss").ConfigureAwait(false);
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+
+                        await service.ReconcileLandingStateMachineAsync().ConfigureAwait(false);
+                        await AssertStatusAsync(testDb.Driver, entry.Id, MergeStatusEnum.Merging).ConfigureAwait(false);
+
+                        // Simulate a crash that lost the on-disk integration worktree while the
+                        // persisted state still says Merging. The reconciler must rebuild it.
+                        string integrationPath = Path.Combine(settings.DocksDirectory, "_merge-queue", entry.Id);
+                        TryDelete(integrationPath);
+                        AssertFalse(Directory.Exists(integrationPath), "Integration worktree should be deleted before resume");
+
+                        MergeStatusEnum sawRebasing = MergeStatusEnum.Merging;
+                        bool landed = false;
+                        for (int i = 0; i < 8; i++)
+                        {
+                            await service.ReconcileLandingStateMachineAsync().ConfigureAwait(false);
+                            MergeEntry? cur = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
+                            if (cur != null && cur.Status == MergeStatusEnum.Rebasing) sawRebasing = MergeStatusEnum.Rebasing;
+                            if (cur != null && cur.Status == MergeStatusEnum.Landed) { landed = true; break; }
+                        }
+
+                        AssertEqual(MergeStatusEnum.Rebasing, sawRebasing, "Missing worktree should drive the entry back through Rebasing");
+                        AssertTrue(landed, "Entry should rebuild the worktree and reach Landed after a lost worktree");
+                    }
+                }
+                finally
+                {
+                    TryDelete(rootDir);
+                }
+            });
+
+            await RunTest("Reconcile_WhenVesselUnresolvable_MarksEntryFailed", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings(NewTempDirectory("armada_landing_sm_norepo_"));
+                    GitService git = new GitService(logging);
+                    MergeEntry entry = await CreateQueuedEntryAsync(testDb.Driver, "vsl_does_not_exist", "armada/captain-1/missing", "main").ConfigureAwait(false);
+                    MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+
+                    int advanced = await service.ReconcileLandingStateMachineAsync().ConfigureAwait(false);
+
+                    AssertEqual(1, advanced, "Unresolvable repo path should still count as one advanced (terminal) entry");
+                    MergeEntry? updated = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
+                    AssertNotNull(updated, "Entry should exist after failure");
+                    AssertEqual(MergeStatusEnum.Failed, updated!.Status, "Unresolvable vessel should mark entry Failed");
+                    AssertContains("resolve repository path", updated.TestOutput ?? "", "Failure reason should mention repo path resolution");
+                }
+            });
+
+            await RunTest("Reconcile_WhenMoreThanTenCandidates_AdvancesAtMostTenPerCycle", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings(NewTempDirectory("armada_landing_sm_ratelimit_"));
+                    GitService git = new GitService(logging);
+
+                    // 11 distinct (unresolvable) vessels => 11 distinct serialization keys, none deduped.
+                    for (int i = 0; i < 11; i++)
+                    {
+                        await CreateQueuedEntryAsync(testDb.Driver, "vsl_fake_" + i, "armada/captain-1/branch-" + i, "main").ConfigureAwait(false);
+                    }
+
+                    MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+
+                    int advanced = await service.ReconcileLandingStateMachineAsync().ConfigureAwait(false);
+                    AssertEqual(10, advanced, "Reconciler must advance at most ten entries per cycle");
+
+                    List<MergeEntry> failed = await testDb.Driver.MergeEntries.EnumerateByStatusAsync(MergeStatusEnum.Failed).ConfigureAwait(false);
+                    List<MergeEntry> queued = await testDb.Driver.MergeEntries.EnumerateByStatusAsync(MergeStatusEnum.Queued).ConfigureAwait(false);
+                    AssertEqual(10, failed.Count, "Exactly ten entries should be processed in the first cycle");
+                    AssertEqual(1, queued.Count, "The eleventh entry must remain Queued for the next cycle");
+                }
+            });
+
+            await RunTest("Reconcile_WhenQueueEmpty_ReturnsZero", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings(NewTempDirectory("armada_landing_sm_empty_"));
+                    GitService git = new GitService(logging);
+                    MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+
+                    int advanced = await service.ReconcileLandingStateMachineAsync().ConfigureAwait(false);
+                    AssertEqual(0, advanced, "An empty landing queue should advance nothing");
+                }
+            });
+
+            await RunTest("Reconcile_WhenTwoEntriesShareVesselAndTarget_AdvancesOnlyOnePerCycle", async () =>
+            {
+                string rootDir = NewTempDirectory("armada_landing_sm_serialize_");
+                try
+                {
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir, conflict: false).ConfigureAwait(false);
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings(rootDir);
+                        GitService git = new GitService(logging);
+                        Vessel vessel = await CreateVesselAsync(testDb.Driver, repos, "state-serialize").ConfigureAwait(false);
+                        MergeEntry first = await CreateQueuedEntryAsync(testDb.Driver, vessel.Id, repos.CaptainBranch, "main").ConfigureAwait(false);
+                        MergeEntry second = await CreateQueuedEntryAsync(testDb.Driver, vessel.Id, repos.CaptainBranch, "main").ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+
+                        int advanced = await service.ReconcileLandingStateMachineAsync().ConfigureAwait(false);
+                        AssertEqual(1, advanced, "Entries sharing a vessel+target must be serialized to one advance per cycle");
+
+                        MergeEntry? firstUpdated = await testDb.Driver.MergeEntries.ReadAsync(first.Id).ConfigureAwait(false);
+                        MergeEntry? secondUpdated = await testDb.Driver.MergeEntries.ReadAsync(second.Id).ConfigureAwait(false);
+                        AssertNotNull(firstUpdated, "First entry should exist");
+                        AssertNotNull(secondUpdated, "Second entry should exist");
+                        AssertEqual(MergeStatusEnum.Merging, firstUpdated!.Status, "First entry advances out of Queued");
+                        AssertEqual(MergeStatusEnum.Queued, secondUpdated!.Status, "Second entry on the same key stays Queued this cycle");
+                    }
+                }
+                finally
+                {
+                    TryDelete(rootDir);
+                }
+            });
+        }
+
+        private static async Task<Vessel> CreateVesselAsync(SqliteDatabaseDriver db, GitRepoSetup repos, string vesselName)
+        {
+            Vessel vessel = new Vessel(vesselName, repos.RemoteDir);
+            vessel.LocalPath = repos.BareDir;
+            vessel.WorkingDirectory = repos.WorkingDir;
+            vessel.DefaultBranch = "main";
+            vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.LocalOnly;
+            await db.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+            return vessel;
+        }
+
+        private static async Task<MergeEntry> CreateQueuedEntryAsync(SqliteDatabaseDriver db, string vesselId, string branchName, string targetBranch)
+        {
+            MergeEntry entry = new MergeEntry();
+            entry.VesselId = vesselId;
+            entry.BranchName = branchName;
+            entry.TargetBranch = targetBranch;
+            entry.Status = MergeStatusEnum.Queued;
+            entry.CreatedUtc = DateTime.UtcNow;
+            entry.LastUpdateUtc = DateTime.UtcNow;
+            await db.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+            return entry;
         }
 
         private static LoggingModule CreateLogging()
