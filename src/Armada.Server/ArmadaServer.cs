@@ -184,6 +184,7 @@ namespace Armada.Server
                 ? new OpenCodeServerInferenceClient(_Settings, _Logging, codeIndexHttpClient)
                 : new DeepSeekInferenceClient(_Settings.CodeIndex, _Logging, codeIndexHttpClient);
             _CodeIndex = new CodeIndexService(_Logging, _Database, _Settings, _Git, embeddingClient, inferenceClient);
+            ScheduleStartupBaselineCacheWarmup(_CodeIndex);
             await _OpenCodeServerLauncher.StartAsync(_TokenSource.Token).ConfigureAwait(false);
 
             MissionService missionService = new MissionService(_Logging, _Database, _Settings, dockService, captainService, _PromptTemplateService, _Git);
@@ -499,6 +500,51 @@ namespace Armada.Server
 
             // Start health check loop
             _HealthCheckTask = HealthCheckLoopAsync(_TokenSource.Token);
+        }
+
+        /// <summary>
+        /// Schedule best-effort baseline context-pack cache warming for indexed vessels at startup.
+        /// Does not block server initialization.
+        /// </summary>
+        private void ScheduleStartupBaselineCacheWarmup(ICodeIndexService codeIndexService)
+        {
+            if (codeIndexService == null) return;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    List<Vessel> vessels = await _Database.Vessels.EnumerateAsync(_TokenSource.Token).ConfigureAwait(false);
+                    int warmed = 0;
+                    foreach (Vessel vessel in vessels)
+                    {
+                        if (_TokenSource.Token.IsCancellationRequested) break;
+                        if (vessel == null || String.IsNullOrWhiteSpace(vessel.Id)) continue;
+
+                        try
+                        {
+                            CodeIndexStatus status = await codeIndexService.GetStatusAsync(vessel.Id, _TokenSource.Token).ConfigureAwait(false);
+                            if (String.IsNullOrWhiteSpace(status.IndexedCommitSha)) continue;
+
+                            await codeIndexService.WarmBaselineCacheAsync(vessel.Id, _TokenSource.Token).ConfigureAwait(false);
+                            warmed++;
+                        }
+                        catch (Exception ex)
+                        {
+                            _Logging.Warn(_Header + "startup baseline cache warm-up failed for vessel " + vessel.Id + ": " + ex.Message);
+                        }
+                    }
+
+                    if (warmed > 0)
+                    {
+                        _Logging.Info(_Header + "startup baseline cache warm-up scheduled for " + warmed + " indexed vessel(s)");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "startup baseline cache warm-up enumeration failed: " + ex.Message);
+                }
+            });
         }
 
         /// <summary>
