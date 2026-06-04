@@ -806,7 +806,7 @@ namespace Armada.Core.Memory
             if (reflectionMission == null)
                 throw new InvalidOperationException("Reflection dispatch created no mission");
 
-            await EmitDispatchedEventAsync(reflectionMission, vessel, mode, dualJudge, tokenBudget, token).ConfigureAwait(false);
+            await EmitDispatchedEventAsync(reflectionMission, vessel, mode, dualJudge, tokenBudget, null, token).ConfigureAwait(false);
 
             return new DispatchResult
             {
@@ -834,9 +834,11 @@ namespace Armada.Core.Memory
             if (evidenceMissions.Count < effectiveThreshold)
                 return null;
 
-            Mission? inFlight = await IsReflectionInFlightAsync(vessel.Id, token).ConfigureAwait(false);
-            if (inFlight != null)
+            if (await IsReflectionInFlightForWindowAsync(vessel.Id, null, ReflectionMode.Consolidate, token).ConfigureAwait(false))
+            {
+                await EmitDispatchSkippedEventAsync(vessel.Id, null, ReflectionMode.Consolidate, token).ConfigureAwait(false);
                 return null;
+            }
 
             EvidenceBundleResult bundle = await BuildEvidenceBundleAsync(
                     vessel,
@@ -1457,6 +1459,7 @@ namespace Armada.Core.Memory
             ReflectionMode mode,
             bool dualJudge,
             int tokenBudget,
+            string? sinceMissionId,
             CancellationToken token)
         {
             try
@@ -1474,7 +1477,8 @@ namespace Armada.Core.Memory
                     dualJudge = dualJudge,
                     tokenBudget = tokenBudget,
                     missionId = reflectionMission.Id,
-                    vesselId = vessel.Id
+                    vesselId = vessel.Id,
+                    sinceMissionId = sinceMissionId ?? ""
                 });
                 await _Database.Events.CreateAsync(dispatched, token).ConfigureAwait(false);
             }
@@ -1895,6 +1899,120 @@ namespace Armada.Core.Memory
             return status == MissionStatusEnum.Complete
                 || status == MissionStatusEnum.Failed
                 || status == MissionStatusEnum.Cancelled;
+        }
+
+        /// <summary>
+        /// Returns true if the evidence window for the given vessel and mode already has an
+        /// unconsumed reflection mission: either a non-terminal MemoryConsolidator on the vessel,
+        /// or a successfully-completed one dispatched for the same sinceMissionId window with no
+        /// accepted or rejected proposal event. Failed and Cancelled missions are not counted as
+        /// unconsumed because there is no proposal to review; a new dispatch should be allowed.
+        /// </summary>
+        private async Task<bool> IsReflectionInFlightForWindowAsync(
+            string vesselId,
+            string? sinceMissionId,
+            ReflectionMode mode,
+            CancellationToken token)
+        {
+            Mission? nonTerminal = await IsReflectionInFlightAsync(vesselId, token).ConfigureAwait(false);
+            if (nonTerminal != null) return true;
+
+            string modeWire = ReflectionMemoryService.ModeToWireString(mode);
+            string windowKey = sinceMissionId ?? "";
+
+            EnumerationQuery query = new EnumerationQuery
+            {
+                VesselId = vesselId,
+                EventType = _ReflectionDispatchedEvent,
+                PageNumber = 1,
+                PageSize = 50
+            };
+            EnumerationResult<ArmadaEvent> page = await _Database.Events.EnumerateAsync(query, token).ConfigureAwait(false);
+
+            foreach (ArmadaEvent evt in page.Objects.OrderByDescending(e => e.CreatedUtc))
+            {
+                if (String.IsNullOrEmpty(evt.Payload) || String.IsNullOrEmpty(evt.MissionId)) continue;
+                try
+                {
+                    using JsonDocument doc = JsonDocument.Parse(evt.Payload);
+                    JsonElement root = doc.RootElement;
+
+                    if (!root.TryGetProperty("mode", out JsonElement modeEl)
+                        || modeEl.ValueKind != JsonValueKind.String
+                        || !String.Equals(modeEl.GetString(), modeWire, StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    string evtWindow = "";
+                    if (root.TryGetProperty("sinceMissionId", out JsonElement smEl) && smEl.ValueKind == JsonValueKind.String)
+                        evtWindow = smEl.GetString() ?? "";
+
+                    if (!String.Equals(evtWindow, windowKey, StringComparison.Ordinal))
+                        continue;
+
+                    Mission? mission = await _Database.Missions.ReadAsync(evt.MissionId!, token).ConfigureAwait(false);
+                    if (mission == null) continue;
+                    if (!String.Equals(mission.Persona, "MemoryConsolidator", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (mission.Status != MissionStatusEnum.Complete) continue;
+
+                    bool reviewed = await HasReviewEventAsync(evt.MissionId!, token).ConfigureAwait(false);
+                    if (!reviewed) return true;
+                }
+                catch (JsonException) { continue; }
+            }
+
+            return false;
+        }
+
+        /// <summary>Returns true if the mission has at least one accepted or rejected reflection proposal event.</summary>
+        private async Task<bool> HasReviewEventAsync(string missionId, CancellationToken token)
+        {
+            EnumerationQuery accepted = new EnumerationQuery
+            {
+                MissionId = missionId,
+                EventType = "reflection.accepted",
+                PageNumber = 1,
+                PageSize = 1
+            };
+            EnumerationResult<ArmadaEvent> acceptedResult = await _Database.Events.EnumerateAsync(accepted, token).ConfigureAwait(false);
+            if (acceptedResult.Objects.Count > 0) return true;
+
+            EnumerationQuery rejected = new EnumerationQuery
+            {
+                MissionId = missionId,
+                EventType = "reflection.rejected",
+                PageNumber = 1,
+                PageSize = 1
+            };
+            EnumerationResult<ArmadaEvent> rejectedResult = await _Database.Events.EnumerateAsync(rejected, token).ConfigureAwait(false);
+            return rejectedResult.Objects.Count > 0;
+        }
+
+        /// <summary>Emits a best-effort reflection.dispatch_skipped event.</summary>
+        private async Task EmitDispatchSkippedEventAsync(
+            string vesselId,
+            string? sinceMissionId,
+            ReflectionMode mode,
+            CancellationToken token)
+        {
+            try
+            {
+                ArmadaEvent skipped = new ArmadaEvent("reflection.dispatch_skipped", "Duplicate reflection dispatch suppressed.");
+                skipped.TenantId = Constants.DefaultTenantId;
+                skipped.EntityType = "vessel";
+                skipped.EntityId = vesselId;
+                skipped.VesselId = vesselId;
+                skipped.Payload = JsonSerializer.Serialize(new
+                {
+                    mode = ReflectionMemoryService.ModeToWireString(mode),
+                    sinceMissionId = sinceMissionId ?? "",
+                    vesselId = vesselId
+                });
+                await _Database.Events.CreateAsync(skipped, token).ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+                // Best-effort observability.
+            }
         }
 
         private static DateTime GetEvidenceTime(Mission mission)
