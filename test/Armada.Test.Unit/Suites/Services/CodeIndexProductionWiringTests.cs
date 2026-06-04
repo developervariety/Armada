@@ -61,6 +61,14 @@ namespace Armada.Test.Unit.Suites.Services
                     "new MergeQueueService(_Logging, _Database, _Settings, _Git, mergeFailureClassifier, prServiceFactory, _CodeIndex)",
                     contents,
                     "ArmadaServer should pass CodeIndexService into MergeQueueService for post-land refreshes");
+                AssertContains(
+                    "ScheduleStartupBaselineCacheWarmup(_CodeIndex)",
+                    contents,
+                    "ArmadaServer should schedule best-effort baseline cache warm-up after CodeIndexService construction");
+                AssertContains(
+                    "WarmBaselineCacheAsync(vessel.Id",
+                    contents,
+                    "Startup warm-up should call WarmBaselineCacheAsync for indexed vessels");
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
 

@@ -615,6 +615,22 @@ namespace Armada.Server.Mcp.Tools
                         continue;
                     }
 
+                    LogCodeContextInfo(logging,
+                        "code context for mission '" + mission.Title + "': cache_miss; warming baseline cache for vessel " + vesselId);
+                    await codeIndexService.WarmBaselineCacheAsync(vesselId).ConfigureAwait(false);
+
+                    cached = await codeIndexService.TryGetCachedContextPackAsync(contextRequest).ConfigureAwait(false);
+                    if (cached != null && cached.PrestagedFiles != null && cached.PrestagedFiles.Count > 0)
+                    {
+                        totalWatch.Stop();
+                        LogCodeContextInfo(logging,
+                            "code context for mission '" + mission.Title + "': cache_hit_after_warm"
+                            + " totalMs=" + totalWatch.ElapsedMilliseconds
+                            + " cacheKey=" + (cached.Metrics?.CacheKey ?? "unknown"));
+                        MergeGeneratedPrestagedFiles(mission, cached.PrestagedFiles, logging);
+                        continue;
+                    }
+
                     ContextPackResponse contextPack = await BuildContextPackWithTimeoutAsync(codeIndexService, contextRequest)
                         .ConfigureAwait(false);
                     totalWatch.Stop();
