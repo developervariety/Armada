@@ -39,18 +39,23 @@ namespace Armada.Test.Unit.Suites.Services
 
                         await service.ReconcileLandingStateMachineAsync().ConfigureAwait(false);
                         await AssertStatusAsync(testDb.Driver, entry.Id, MergeStatusEnum.Merging).ConfigureAwait(false);
+                        await AssertLandingJobStateAsync(testDb.Driver, entry.Id, LandingJobStateEnum.Merging).ConfigureAwait(false);
 
                         await service.ReconcileLandingStateMachineAsync().ConfigureAwait(false);
                         await AssertStatusAsync(testDb.Driver, entry.Id, MergeStatusEnum.Testing).ConfigureAwait(false);
+                        await AssertLandingJobStateAsync(testDb.Driver, entry.Id, LandingJobStateEnum.Testing).ConfigureAwait(false);
 
                         await service.ReconcileLandingStateMachineAsync().ConfigureAwait(false);
                         await AssertStatusAsync(testDb.Driver, entry.Id, MergeStatusEnum.Passed).ConfigureAwait(false);
+                        await AssertLandingJobStateAsync(testDb.Driver, entry.Id, LandingJobStateEnum.Passed).ConfigureAwait(false);
 
                         await service.ReconcileLandingStateMachineAsync().ConfigureAwait(false);
                         await AssertStatusAsync(testDb.Driver, entry.Id, MergeStatusEnum.Pushing).ConfigureAwait(false);
+                        await AssertLandingJobStateAsync(testDb.Driver, entry.Id, LandingJobStateEnum.Pushing).ConfigureAwait(false);
 
                         await service.ReconcileLandingStateMachineAsync().ConfigureAwait(false);
                         await AssertStatusAsync(testDb.Driver, entry.Id, MergeStatusEnum.Landed).ConfigureAwait(false);
+                        await AssertLandingJobStateAsync(testDb.Driver, entry.Id, LandingJobStateEnum.Landed).ConfigureAwait(false);
                     }
                 }
                 finally
@@ -75,6 +80,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                         await serviceBeforeRestart.ReconcileLandingStateMachineAsync().ConfigureAwait(false);
                         await AssertStatusAsync(testDb.Driver, entry.Id, MergeStatusEnum.Merging).ConfigureAwait(false);
+                        await AssertLandingJobStateAsync(testDb.Driver, entry.Id, LandingJobStateEnum.Merging).ConfigureAwait(false);
 
                         MergeQueueService serviceAfterRestart = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
                         for (int i = 0; i < 4; i++)
@@ -83,6 +89,39 @@ namespace Armada.Test.Unit.Suites.Services
                         }
 
                         await AssertStatusAsync(testDb.Driver, entry.Id, MergeStatusEnum.Landed).ConfigureAwait(false);
+                        await AssertLandingJobStateAsync(testDb.Driver, entry.Id, LandingJobStateEnum.Landed).ConfigureAwait(false);
+                    }
+                }
+                finally
+                {
+                    TryDelete(rootDir);
+                }
+            });
+
+            await RunTest("Landing_WhenStartupRecoveryRunsFromPersistedMerging_RecoversJobToLanded", async () =>
+            {
+                string rootDir = NewTempDirectory("armada_landing_sm_recover_");
+                try
+                {
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir, conflict: false).ConfigureAwait(false);
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings(rootDir);
+                        GitService git = new GitService(logging);
+                        MergeEntry entry = await CreateEntryAsync(testDb.Driver, repos, "state-recover").ConfigureAwait(false);
+                        MergeQueueService beforeRestart = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+
+                        await beforeRestart.ReconcileLandingStateMachineAsync().ConfigureAwait(false);
+                        await AssertStatusAsync(testDb.Driver, entry.Id, MergeStatusEnum.Merging).ConfigureAwait(false);
+                        await AssertLandingJobStateAsync(testDb.Driver, entry.Id, LandingJobStateEnum.Merging).ConfigureAwait(false);
+
+                        MergeQueueService afterRestart = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+                        int recovered = await afterRestart.RecoverInFlightLandingsAsync().ConfigureAwait(false);
+
+                        AssertEqual(1, recovered, "Startup recovery should recover one in-flight landing job");
+                        await AssertStatusAsync(testDb.Driver, entry.Id, MergeStatusEnum.Landed).ConfigureAwait(false);
+                        await AssertLandingJobStateAsync(testDb.Driver, entry.Id, LandingJobStateEnum.Landed).ConfigureAwait(false);
                     }
                 }
                 finally
@@ -118,6 +157,7 @@ namespace Armada.Test.Unit.Suites.Services
                         await resumed.ReconcileLandingStateMachineAsync().ConfigureAwait(false);
 
                         await AssertStatusAsync(testDb.Driver, entry.Id, MergeStatusEnum.Landed).ConfigureAwait(false);
+                        await AssertLandingJobStateAsync(testDb.Driver, entry.Id, LandingJobStateEnum.Landed).ConfigureAwait(false);
                         AssertEqual(0, countingGit.PushRefSpecCalls, "Pushing resume should verify remote state instead of pushing again");
                     }
                 }
@@ -148,6 +188,7 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertNotNull(updated, "Entry should exist after conflict");
                         AssertEqual(MergeStatusEnum.Failed, updated!.Status, "Conflict should mark entry Failed");
                         AssertContains("Merge conflict", updated.TestOutput ?? "", "Failure output should identify merge conflict");
+                        await AssertLandingJobStateAsync(testDb.Driver, entry.Id, LandingJobStateEnum.Failed).ConfigureAwait(false);
                     }
                 }
                 finally
@@ -198,6 +239,13 @@ namespace Armada.Test.Unit.Suites.Services
             MergeEntry? updated = await db.MergeEntries.ReadAsync(entryId).ConfigureAwait(false);
             AssertNotNull(updated, "Entry should exist");
             AssertEqual(expected, updated!.Status, "Entry status should match");
+        }
+
+        private async Task AssertLandingJobStateAsync(SqliteDatabaseDriver db, string entryId, LandingJobStateEnum expected)
+        {
+            LandingJob? job = await db.LandingJobs.ReadByMergeEntryAsync(entryId).ConfigureAwait(false);
+            AssertNotNull(job, "Landing job should exist");
+            AssertEqual(expected, job!.State, "Landing job state should match");
         }
 
         private static async Task<GitRepoSetup> CreateGitSetupAsync(string rootDir, bool conflict)

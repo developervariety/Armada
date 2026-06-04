@@ -73,6 +73,7 @@ namespace Armada.Core.Database.Sqlite
             Events = new EventMethods(this, _Settings, _Logging);
             RequestHistory = new RequestHistoryMethods(this, _Settings, _Logging);
             MergeEntries = new MergeEntryMethods(this, _Settings, _Logging);
+            LandingJobs = new LandingJobMethods(this, _Settings, _Logging);
             Tenants = new TenantMethods(this, _Settings, _Logging);
             Users = new UserMethods(this, _Settings, _Logging);
             Credentials = new CredentialMethods(this, _Settings, _Logging);
@@ -114,6 +115,7 @@ namespace Armada.Core.Database.Sqlite
             Events = new EventMethods(this, _Settings, _Logging);
             RequestHistory = new RequestHistoryMethods(this, _Settings, _Logging);
             MergeEntries = new MergeEntryMethods(this, _Settings, _Logging);
+            LandingJobs = new LandingJobMethods(this, _Settings, _Logging);
             Tenants = new TenantMethods(this, _Settings, _Logging);
             Users = new UserMethods(this, _Settings, _Logging);
             Credentials = new CredentialMethods(this, _Settings, _Logging);

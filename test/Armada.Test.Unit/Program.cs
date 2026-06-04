@@ -102,6 +102,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new MissionStatusTransitionTests());
             runner.AddSuite(new LandingPipelineTests());
             runner.AddSuite(new LandingServiceTests());
+            runner.AddSuite(new LandingStateMachineTests());
             runner.AddSuite(new SessionTokenServiceTests());
             runner.AddSuite(new AuthenticationServiceTests());
             runner.AddSuite(new AuthorizationConfigTests());

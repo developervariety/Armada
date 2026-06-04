@@ -584,6 +584,39 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"
                     IF COL_LENGTH('missions', 'landing_retry_count') IS NULL
                         ALTER TABLE missions ADD landing_retry_count INT NOT NULL CONSTRAINT DF_missions_landing_retry_count DEFAULT 0;"
+                ),
+                new SchemaMigration(
+                    51,
+                    "Add durable landing jobs",
+                    @"
+                    IF OBJECT_ID('landing_jobs', 'U') IS NULL
+                    CREATE TABLE landing_jobs (
+                        id NVARCHAR(450) NOT NULL PRIMARY KEY,
+                        tenant_id NVARCHAR(450),
+                        user_id NVARCHAR(450),
+                        merge_entry_id NVARCHAR(450) NOT NULL UNIQUE,
+                        mission_id NVARCHAR(450),
+                        vessel_id NVARCHAR(450),
+                        branch_name NVARCHAR(450) NOT NULL,
+                        target_branch NVARCHAR(450) NOT NULL CONSTRAINT DF_landing_jobs_target_branch DEFAULT 'main',
+                        state NVARCHAR(64) NOT NULL CONSTRAINT DF_landing_jobs_state DEFAULT 'Queued',
+                        retry_count INT NOT NULL CONSTRAINT DF_landing_jobs_retry_count DEFAULT 0,
+                        created_utc NVARCHAR(450) NOT NULL,
+                        last_update_utc NVARCHAR(450) NOT NULL,
+                        started_utc NVARCHAR(450),
+                        completed_utc NVARCHAR(450),
+                        last_error NVARCHAR(MAX),
+                        CONSTRAINT FK_landing_jobs_merge_entry FOREIGN KEY (merge_entry_id) REFERENCES merge_entries(id) ON DELETE CASCADE
+                    );",
+                    @"
+                    IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID('landing_jobs') AND name = 'idx_landing_jobs_state_created')
+                        CREATE INDEX idx_landing_jobs_state_created ON landing_jobs(state, created_utc);",
+                    @"
+                    IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID('landing_jobs') AND name = 'idx_landing_jobs_merge_entry')
+                        CREATE INDEX idx_landing_jobs_merge_entry ON landing_jobs(merge_entry_id);",
+                    @"
+                    IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID('landing_jobs') AND name = 'idx_landing_jobs_vessel_target')
+                        CREATE INDEX idx_landing_jobs_vessel_target ON landing_jobs(vessel_id, target_branch);"
                 )
             };
         }

@@ -95,6 +95,7 @@ namespace Armada.Core.Services
             entry.CreatedUtc = DateTime.UtcNow;
             entry.LastUpdateUtc = DateTime.UtcNow;
             await _Database.MergeEntries.CreateAsync(entry, token).ConfigureAwait(false);
+            await EnsureLandingJobAsync(entry, token).ConfigureAwait(false);
 
             _Logging.Info(_Header + "enqueued " + entry.Id + " branch " + entry.BranchName + " -> " + entry.TargetBranch);
             return entry;
@@ -157,6 +158,7 @@ namespace Armada.Core.Services
                 entry.LastUpdateUtc = DateTime.UtcNow;
                 entry.CompletedUtc = DateTime.UtcNow;
                 await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
+                await UpdateLandingJobFromEntryAsync(entry, "Cancelled by operator", token).ConfigureAwait(false);
                 _Logging.Info(_Header + "cancelled " + entryId);
             }
         }
@@ -249,9 +251,15 @@ namespace Armada.Core.Services
             }
 
             if (!String.IsNullOrEmpty(tenantId))
+            {
+                await _Database.LandingJobs.DeleteByMergeEntryAsync(entryId, token).ConfigureAwait(false);
                 await _Database.MergeEntries.DeleteAsync(tenantId, entryId, token).ConfigureAwait(false);
+            }
             else
+            {
+                await _Database.LandingJobs.DeleteByMergeEntryAsync(entryId, token).ConfigureAwait(false);
                 await _Database.MergeEntries.DeleteAsync(entryId, token).ConfigureAwait(false);
+            }
 
             _Logging.Info(_Header + "deleted " + entryId);
             return true;
@@ -384,6 +392,7 @@ namespace Armada.Core.Services
                     entry.CompletedUtc = DateTime.UtcNow;
                     entry.LastUpdateUtc = DateTime.UtcNow;
                     await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
+                    await UpdateLandingJobFromEntryAsync(entry, entry.TestOutput, token).ConfigureAwait(false);
                 }
                 return;
             }
@@ -411,6 +420,7 @@ namespace Armada.Core.Services
                 entry.CompletedUtc = DateTime.UtcNow;
                 entry.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
+                await UpdateLandingJobFromEntryAsync(entry, entry.TestOutput, token).ConfigureAwait(false);
                 return;
             }
 
@@ -448,42 +458,50 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         public async Task<int> ReconcileLandingStateMachineAsync(CancellationToken token = default)
         {
-            List<MergeStatusEnum> statuses = new List<MergeStatusEnum>
+            List<LandingJobStateEnum> states = new List<LandingJobStateEnum>
             {
-                MergeStatusEnum.Rebasing,
-                MergeStatusEnum.Merging,
-                MergeStatusEnum.Testing,
-                MergeStatusEnum.Passed,
-                MergeStatusEnum.Pushing,
-                MergeStatusEnum.CreatingPR,
-                MergeStatusEnum.Queued
+                LandingJobStateEnum.Rebasing,
+                LandingJobStateEnum.Merging,
+                LandingJobStateEnum.Testing,
+                LandingJobStateEnum.Passed,
+                LandingJobStateEnum.Pushing,
+                LandingJobStateEnum.CreatingPR,
+                LandingJobStateEnum.Queued
             };
 
-            List<MergeEntry> candidates = new List<MergeEntry>();
-            foreach (MergeStatusEnum status in statuses)
+            await EnsureLandingJobsForStatesAsync(states, token).ConfigureAwait(false);
+
+            List<LandingJob> candidates = new List<LandingJob>();
+            foreach (LandingJobStateEnum state in states)
             {
-                List<MergeEntry> entries = await _Database.MergeEntries.EnumerateByStatusAsync(status, token).ConfigureAwait(false);
-                candidates.AddRange(entries);
+                List<LandingJob> jobs = await _Database.LandingJobs.EnumerateByStateAsync(state, token).ConfigureAwait(false);
+                candidates.AddRange(jobs);
             }
 
             if (candidates.Count == 0) return 0;
 
-            List<MergeEntry> ordered = candidates
-                .OrderBy(e => LandingStateRank(e.Status))
-                .ThenBy(e => e.Priority)
-                .ThenBy(e => e.CreatedUtc)
+            List<LandingJob> ordered = candidates
+                .OrderBy(j => LandingStateRank(j.State))
+                .ThenBy(j => j.CreatedUtc)
                 .ToList();
 
             HashSet<string> activeKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             int advanced = 0;
 
-            foreach (MergeEntry entry in ordered)
+            foreach (LandingJob job in ordered)
             {
                 if (advanced >= 10) break;
 
-                string key = (entry.VesselId ?? "default") + ":" + entry.TargetBranch;
+                string key = (job.VesselId ?? "default") + ":" + job.TargetBranch;
                 if (activeKeys.Contains(key)) continue;
                 activeKeys.Add(key);
+
+                MergeEntry? entry = await LoadEntryFromLandingJobAsync(job, token).ConfigureAwait(false);
+                if (entry == null)
+                {
+                    advanced++;
+                    continue;
+                }
 
                 string? repoPath = await GetRepoPathAsync(entry, token).ConfigureAwait(false);
                 if (repoPath == null)
@@ -514,11 +532,91 @@ namespace Armada.Core.Services
             return advanced;
         }
 
+        /// <inheritdoc />
+        public async Task<int> RecoverInFlightLandingsAsync(CancellationToken token = default)
+        {
+            List<LandingJobStateEnum> states = new List<LandingJobStateEnum>
+            {
+                LandingJobStateEnum.Rebasing,
+                LandingJobStateEnum.Merging,
+                LandingJobStateEnum.Testing,
+                LandingJobStateEnum.Passed,
+                LandingJobStateEnum.Pushing,
+                LandingJobStateEnum.CreatingPR
+            };
+
+            await EnsureLandingJobsForStatesAsync(states, token).ConfigureAwait(false);
+
+            List<LandingJob> candidates = new List<LandingJob>();
+            foreach (LandingJobStateEnum state in states)
+            {
+                List<LandingJob> jobs = await _Database.LandingJobs.EnumerateByStateAsync(state, token).ConfigureAwait(false);
+                candidates.AddRange(jobs);
+            }
+
+            if (candidates.Count == 0) return 0;
+
+            List<LandingJob> ordered = candidates
+                .OrderBy(j => LandingStateRank(j.State))
+                .ThenBy(j => j.CreatedUtc)
+                .ToList();
+
+            HashSet<string> activeKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            int recovered = 0;
+
+            foreach (LandingJob job in ordered)
+            {
+                if (token.IsCancellationRequested) break;
+
+                string key = (job.VesselId ?? "default") + ":" + job.TargetBranch;
+                if (!activeKeys.Add(key)) continue;
+
+                _Logging.Info(_Header + "recovering landing job " + job.Id + " for entry " + job.MergeEntryId + " from state " + job.State);
+
+                MergeEntry? entry = await LoadEntryFromLandingJobAsync(job, token).ConfigureAwait(false);
+                if (entry == null)
+                {
+                    recovered++;
+                    continue;
+                }
+
+                string? repoPath = await GetRepoPathAsync(entry, token).ConfigureAwait(false);
+                if (repoPath == null)
+                {
+                    await TransitionEntryToFailureAsync(entry, "Unable to resolve repository path for vessel " + entry.VesselId + " during startup landing recovery", token).ConfigureAwait(false);
+                    recovered++;
+                    continue;
+                }
+
+                try
+                {
+                    await ProcessEntryAsync(entry, repoPath, token).ConfigureAwait(false);
+                    recovered++;
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "startup landing recovery error for " + entry.Id + ": " + ex.Message);
+                    await TransitionEntryToFailureAsync(entry, "Startup landing recovery error: " + ex.Message, token).ConfigureAwait(false);
+                    recovered++;
+                }
+            }
+
+            if (recovered > 0)
+            {
+                _Logging.Info(_Header + "recovered " + recovered + " in-flight landing entr" + (recovered == 1 ? "y" : "ies") + " on startup");
+            }
+
+            return recovered;
+        }
+
         /// <summary>
         /// Core single-entry processing with a known repo path.
         /// </summary>
         private async Task ProcessEntryAsync(MergeEntry entry, string repoPath, CancellationToken token)
         {
+            LandingJob job = await EnsureLandingJobAsync(entry, token).ConfigureAwait(false);
+            entry = await SyncEntryToLandingJobAsync(entry, job, token).ConfigureAwait(false);
+
             _Logging.Info(_Header + "processing " + entry.Id + " branch " + entry.BranchName);
 
             for (int i = 0; i < 10; i++)
@@ -676,6 +774,7 @@ namespace Armada.Core.Services
                     entry.CompletedUtc = DateTime.UtcNow;
                     entry.LastUpdateUtc = DateTime.UtcNow;
                     await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
+                    await UpdateLandingJobFromEntryAsync(entry, entry.TestOutput, token).ConfigureAwait(false);
                     await CleanupWorktreeAsync(integrationPath, token).ConfigureAwait(false);
                     FireRecoveryHandlerForEntry(entry.Id);
                     return;
@@ -737,6 +836,7 @@ namespace Armada.Core.Services
                 entry.CompletedUtc = DateTime.UtcNow;
                 entry.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
+                await UpdateLandingJobFromEntryAsync(entry, entry.TestOutput, token).ConfigureAwait(false);
                 await CleanupWorktreeAsync(integrationPath, token).ConfigureAwait(false);
                 FireRecoveryHandlerForEntry(entry.Id);
                 return;
@@ -754,6 +854,102 @@ namespace Armada.Core.Services
                 entry.TestStartedUtc = entry.LastUpdateUtc;
             }
             await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
+            await UpdateLandingJobFromEntryAsync(entry, null, token).ConfigureAwait(false);
+        }
+
+        private async Task<LandingJob> EnsureLandingJobAsync(MergeEntry entry, CancellationToken token)
+        {
+            LandingJob? job = await _Database.LandingJobs.ReadByMergeEntryAsync(entry.Id, token).ConfigureAwait(false);
+            if (job != null) return job;
+
+            job = new LandingJob();
+            job.TenantId = entry.TenantId;
+            job.UserId = entry.UserId;
+            job.MergeEntryId = entry.Id;
+            job.MissionId = entry.MissionId;
+            job.VesselId = entry.VesselId;
+            job.BranchName = entry.BranchName;
+            job.TargetBranch = entry.TargetBranch;
+            job.State = ToLandingJobState(entry.Status);
+            job.CreatedUtc = entry.CreatedUtc;
+            job.LastUpdateUtc = entry.LastUpdateUtc;
+            job.StartedUtc = IsStartedLandingState(job.State) ? entry.LastUpdateUtc : null;
+            job.CompletedUtc = IsTerminalLandingState(job.State) ? entry.CompletedUtc ?? entry.LastUpdateUtc : null;
+            job.LastError = entry.Status == MergeStatusEnum.Failed ? entry.TestOutput : null;
+            return await _Database.LandingJobs.CreateAsync(job, token).ConfigureAwait(false);
+        }
+
+        private async Task EnsureLandingJobsForStatesAsync(List<LandingJobStateEnum> states, CancellationToken token)
+        {
+            foreach (LandingJobStateEnum state in states)
+            {
+                MergeStatusEnum status = ToMergeStatus(state);
+                List<MergeEntry> entries = await _Database.MergeEntries.EnumerateByStatusAsync(status, token).ConfigureAwait(false);
+                foreach (MergeEntry entry in entries)
+                {
+                    await EnsureLandingJobAsync(entry, token).ConfigureAwait(false);
+                }
+            }
+        }
+
+        private async Task<MergeEntry?> LoadEntryFromLandingJobAsync(LandingJob job, CancellationToken token)
+        {
+            MergeEntry? entry = await _Database.MergeEntries.ReadAsync(job.MergeEntryId, token).ConfigureAwait(false);
+            if (entry == null)
+            {
+                job.State = LandingJobStateEnum.Failed;
+                job.CompletedUtc = DateTime.UtcNow;
+                job.LastError = "Merge entry " + job.MergeEntryId + " is missing during landing recovery";
+                await _Database.LandingJobs.UpdateAsync(job, token).ConfigureAwait(false);
+                return null;
+            }
+
+            return await SyncEntryToLandingJobAsync(entry, job, token).ConfigureAwait(false);
+        }
+
+        private async Task<MergeEntry> SyncEntryToLandingJobAsync(MergeEntry entry, LandingJob job, CancellationToken token)
+        {
+            MergeStatusEnum jobStatus = ToMergeStatus(job.State);
+            if (entry.Status != jobStatus)
+            {
+                entry.Status = jobStatus;
+                entry.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
+            }
+
+            return entry;
+        }
+
+        private async Task UpdateLandingJobFromEntryAsync(MergeEntry entry, string? lastError, CancellationToken token)
+        {
+            LandingJob job = await EnsureLandingJobAsync(entry, token).ConfigureAwait(false);
+            LandingJobStateEnum state = ToLandingJobState(entry.Status);
+
+            job.TenantId = entry.TenantId;
+            job.UserId = entry.UserId;
+            job.MissionId = entry.MissionId;
+            job.VesselId = entry.VesselId;
+            job.BranchName = entry.BranchName;
+            job.TargetBranch = entry.TargetBranch;
+            job.State = state;
+            if (IsStartedLandingState(state) && !job.StartedUtc.HasValue)
+            {
+                job.StartedUtc = entry.LastUpdateUtc;
+            }
+            if (IsTerminalLandingState(state))
+            {
+                job.CompletedUtc = entry.CompletedUtc ?? entry.LastUpdateUtc;
+            }
+            if (!String.IsNullOrEmpty(lastError))
+            {
+                job.LastError = lastError;
+            }
+            else if (state != LandingJobStateEnum.Failed)
+            {
+                job.LastError = null;
+            }
+
+            await _Database.LandingJobs.UpdateAsync(job, token).ConfigureAwait(false);
         }
 
         private static bool IsLandingState(MergeStatusEnum status)
@@ -771,6 +967,63 @@ namespace Armada.Core.Services
         {
             if (status == MergeStatusEnum.Queued) return 1;
             return 0;
+        }
+
+        private static int LandingStateRank(LandingJobStateEnum state)
+        {
+            if (state == LandingJobStateEnum.Queued) return 1;
+            return 0;
+        }
+
+        private static LandingJobStateEnum ToLandingJobState(MergeStatusEnum status)
+        {
+            return status switch
+            {
+                MergeStatusEnum.Queued => LandingJobStateEnum.Queued,
+                MergeStatusEnum.Rebasing => LandingJobStateEnum.Rebasing,
+                MergeStatusEnum.Merging => LandingJobStateEnum.Merging,
+                MergeStatusEnum.Testing => LandingJobStateEnum.Testing,
+                MergeStatusEnum.Passed => LandingJobStateEnum.Passed,
+                MergeStatusEnum.Pushing => LandingJobStateEnum.Pushing,
+                MergeStatusEnum.CreatingPR => LandingJobStateEnum.CreatingPR,
+                MergeStatusEnum.Landed => LandingJobStateEnum.Landed,
+                MergeStatusEnum.Failed => LandingJobStateEnum.Failed,
+                MergeStatusEnum.PullRequestOpen => LandingJobStateEnum.PullRequestOpen,
+                MergeStatusEnum.Cancelled => LandingJobStateEnum.Cancelled,
+                _ => LandingJobStateEnum.Failed
+            };
+        }
+
+        private static MergeStatusEnum ToMergeStatus(LandingJobStateEnum state)
+        {
+            return state switch
+            {
+                LandingJobStateEnum.Queued => MergeStatusEnum.Queued,
+                LandingJobStateEnum.Rebasing => MergeStatusEnum.Rebasing,
+                LandingJobStateEnum.Merging => MergeStatusEnum.Merging,
+                LandingJobStateEnum.Testing => MergeStatusEnum.Testing,
+                LandingJobStateEnum.Passed => MergeStatusEnum.Passed,
+                LandingJobStateEnum.Pushing => MergeStatusEnum.Pushing,
+                LandingJobStateEnum.CreatingPR => MergeStatusEnum.CreatingPR,
+                LandingJobStateEnum.Landed => MergeStatusEnum.Landed,
+                LandingJobStateEnum.Failed => MergeStatusEnum.Failed,
+                LandingJobStateEnum.PullRequestOpen => MergeStatusEnum.PullRequestOpen,
+                LandingJobStateEnum.Cancelled => MergeStatusEnum.Cancelled,
+                _ => MergeStatusEnum.Failed
+            };
+        }
+
+        private static bool IsStartedLandingState(LandingJobStateEnum state)
+        {
+            return state != LandingJobStateEnum.Queued;
+        }
+
+        private static bool IsTerminalLandingState(LandingJobStateEnum state)
+        {
+            return state == LandingJobStateEnum.Landed
+                || state == LandingJobStateEnum.Failed
+                || state == LandingJobStateEnum.PullRequestOpen
+                || state == LandingJobStateEnum.Cancelled;
         }
 
         private string GetIntegrationBranch(MergeEntry entry)
@@ -922,6 +1175,7 @@ namespace Armada.Core.Services
             entry.PrBaseBranch = baseBranch;
             entry.LastUpdateUtc = DateTime.UtcNow;
             await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
+            await UpdateLandingJobFromEntryAsync(entry, null, token).ConfigureAwait(false);
             _Logging.Info(_Header + "opened PR for " + entry.Id + " (" + platform + ", base=" + baseBranch + "): " + prUrl);
 
             // Also stamp the URL on the mission record so the existing
@@ -981,6 +1235,7 @@ namespace Armada.Core.Services
                 try
                 {
                     await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
+                    await UpdateLandingJobFromEntryAsync(entry, null, token).ConfigureAwait(false);
                     reconciledCount++;
                     _Logging.Info(_Header + "PR reconciler: entry " + entry.Id + " landed (linked mission " + mission.Id + " merged)");
                     FireIndexRefreshForVessel(entry.VesselId);
@@ -1090,6 +1345,7 @@ namespace Armada.Core.Services
             entry.CompletedUtc = DateTime.UtcNow;
             entry.LastUpdateUtc = DateTime.UtcNow;
             await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
+            await UpdateLandingJobFromEntryAsync(entry, reason, token).ConfigureAwait(false);
             await ReconcileMissionStatusAsync(entry.MissionId, MissionStatusEnum.LandingFailed, reason, token, entry.TenantId).ConfigureAwait(false);
             if (fireRecovery)
             {
@@ -1160,6 +1416,7 @@ namespace Armada.Core.Services
                 entry.CompletedUtc = DateTime.UtcNow;
                 entry.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
+                await UpdateLandingJobFromEntryAsync(entry, null, token).ConfigureAwait(false);
                 _Logging.Info(_Header + "landed " + entry.Id + " branch " + entry.BranchName);
                 FireIndexRefreshForVessel(entry.VesselId);
 
@@ -1188,6 +1445,7 @@ namespace Armada.Core.Services
                 entry.CompletedUtc = DateTime.UtcNow;
                 entry.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
+                await UpdateLandingJobFromEntryAsync(entry, entry.TestOutput, token).ConfigureAwait(false);
 
                 // Reconcile linked mission to LandingFailed
                 await ReconcileMissionStatusAsync(entry.MissionId, MissionStatusEnum.LandingFailed,
@@ -1264,6 +1522,7 @@ namespace Armada.Core.Services
             entry.Status = MergeStatusEnum.PullRequestOpen;
             entry.LastUpdateUtc = DateTime.UtcNow;
             await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
+            await UpdateLandingJobFromEntryAsync(entry, null, token).ConfigureAwait(false);
 
             if (String.IsNullOrEmpty(entry.MissionId)) return;
 
