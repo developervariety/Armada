@@ -1,6 +1,7 @@
 namespace Armada.Core.Memory
 {
     using System;
+    using System.Collections.Concurrent;
     using System.Collections.Generic;
     using System.IO;
     using System.Linq;
@@ -35,6 +36,8 @@ namespace Armada.Core.Memory
         private const int _MaxEventMessageChars = 4000;
         private const int _RecentCommitWindow = 20;
         private const string _ReflectionDispatchedEvent = "reflection.dispatched";
+        private const string _ReflectionPurgeRedispatchEvent = "reflection.purge_redispatch_fired";
+        private static readonly ConcurrentDictionary<string, byte> _ReflectionDispatchSlots = new ConcurrentDictionary<string, byte>();
 
         #endregion
 
@@ -119,11 +122,58 @@ namespace Armada.Core.Memory
             if (String.IsNullOrEmpty(vesselId)) throw new ArgumentNullException(nameof(vesselId));
 
             List<Mission> missions = await _Database.Missions.EnumerateByVesselAsync(vesselId, token).ConfigureAwait(false);
-            return missions
+            foreach (Mission mission in missions
                 .Where(m => String.Equals(m.Persona, "MemoryConsolidator", StringComparison.OrdinalIgnoreCase))
-                .Where(m => !IsTerminal(m.Status))
-                .OrderByDescending(m => m.CreatedUtc)
-                .FirstOrDefault();
+                .OrderByDescending(m => m.CreatedUtc))
+            {
+                if (!IsTerminal(mission.Status))
+                    return mission;
+
+                if (mission.Status == MissionStatusEnum.Complete
+                    && !await MissionHasReflectionDispositionAsync(mission.Id, token).ConfigureAwait(false))
+                    return mission;
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Persist a single redispatch marker for a purged source voyage.
+        /// </summary>
+        /// <param name="purgedSourceVoyageId">Purged voyage that caused redispatch.</param>
+        /// <param name="vessel">Target vessel.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True when the caller may dispatch; false when this source already fired.</returns>
+        public async Task<bool> TryMarkPurgeRedispatchAsync(string purgedSourceVoyageId, Vessel vessel, CancellationToken token = default)
+        {
+            if (String.IsNullOrWhiteSpace(purgedSourceVoyageId)) throw new ArgumentNullException(nameof(purgedSourceVoyageId));
+            if (vessel == null) throw new ArgumentNullException(nameof(vessel));
+
+            EnumerationQuery query = new EnumerationQuery
+            {
+                EventType = _ReflectionPurgeRedispatchEvent,
+                PageNumber = 1,
+                PageSize = 100
+            };
+            EnumerationResult<ArmadaEvent> page = await _Database.Events.EnumerateAsync(query, token).ConfigureAwait(false);
+            foreach (ArmadaEvent evt in page.Objects)
+            {
+                if (String.Equals(evt.EntityId, purgedSourceVoyageId, StringComparison.Ordinal))
+                    return false;
+            }
+
+            ArmadaEvent marker = new ArmadaEvent(_ReflectionPurgeRedispatchEvent, "Reflection purge redispatch fired.");
+            marker.TenantId = vessel.TenantId ?? Constants.DefaultTenantId;
+            marker.EntityType = "voyage";
+            marker.EntityId = purgedSourceVoyageId;
+            marker.VesselId = vessel.Id;
+            marker.Payload = JsonSerializer.Serialize(new
+            {
+                purgedSourceVoyageId = purgedSourceVoyageId,
+                vesselId = vessel.Id
+            });
+            await _Database.Events.CreateAsync(marker, token).ConfigureAwait(false);
+            return true;
         }
 
         /// <summary>
@@ -836,9 +886,21 @@ namespace Armada.Core.Memory
 
             Mission? inFlight = await IsReflectionInFlightAsync(vessel.Id, token).ConfigureAwait(false);
             if (inFlight != null)
+            {
+                await EmitDispatchSkippedEventAsync(vessel, ReflectionMode.Consolidate, "reflection_unconsumed", inFlight.Id, token).ConfigureAwait(false);
                 return null;
+            }
 
-            EvidenceBundleResult bundle = await BuildEvidenceBundleAsync(
+            string dispatchSlot = BuildReflectionDispatchSlot(vessel, ReflectionMode.Consolidate);
+            if (!_ReflectionDispatchSlots.TryAdd(dispatchSlot, 0))
+            {
+                await EmitDispatchSkippedEventAsync(vessel, ReflectionMode.Consolidate, "single_flight", null, token).ConfigureAwait(false);
+                return null;
+            }
+
+            try
+            {
+                EvidenceBundleResult bundle = await BuildEvidenceBundleAsync(
                     vessel,
                     null,
                     _Settings.DefaultReflectionTokenBudget,
@@ -846,17 +908,22 @@ namespace Armada.Core.Memory
                     token)
                 .ConfigureAwait(false);
 
-            if (bundle.EvidenceMissionCount == 0 && bundle.RejectedProposalCount == 0)
-                return null;
+                if (bundle.EvidenceMissionCount == 0 && bundle.RejectedProposalCount == 0)
+                    return null;
 
-            DispatchResult dispatched = await DispatchReflectionAsync(
-                vessel,
-                bundle.Brief,
-                ReflectionMode.Consolidate,
-                false,
-                _Settings.DefaultReflectionTokenBudget,
-                token).ConfigureAwait(false);
-            return dispatched;
+                DispatchResult dispatched = await DispatchReflectionAsync(
+                    vessel,
+                    bundle.Brief,
+                    ReflectionMode.Consolidate,
+                    false,
+                    _Settings.DefaultReflectionTokenBudget,
+                    token).ConfigureAwait(false);
+                return dispatched;
+            }
+            finally
+            {
+                _ReflectionDispatchSlots.TryRemove(dispatchSlot, out _);
+            }
         }
 
         /// <summary>
@@ -889,21 +956,39 @@ namespace Armada.Core.Memory
             if (countSince < threshold) return null;
 
             Mission? inFlight = await IsReflectionInFlightAsync(vessel.Id, token).ConfigureAwait(false);
-            if (inFlight != null) return null;
-
-            if (!await PackCurateAntiThrashHasNewEvidenceAsync(vessel, sinceUtc, token).ConfigureAwait(false))
+            if (inFlight != null)
+            {
+                await EmitDispatchSkippedEventAsync(vessel, ReflectionMode.PackCurate, "reflection_unconsumed", inFlight.Id, token).ConfigureAwait(false);
                 return null;
+            }
 
-            EvidenceBundleResult bundle = await BuildPackCurateBriefAsync(
-                vessel, _Settings.DefaultPackCurateTokenBudget, token).ConfigureAwait(false);
-            DispatchResult dispatched = await DispatchReflectionAsync(
-                vessel,
-                bundle.Brief,
-                ReflectionMode.PackCurate,
-                false,
-                _Settings.DefaultPackCurateTokenBudget,
-                token).ConfigureAwait(false);
-            return dispatched;
+            string dispatchSlot = BuildReflectionDispatchSlot(vessel, ReflectionMode.PackCurate);
+            if (!_ReflectionDispatchSlots.TryAdd(dispatchSlot, 0))
+            {
+                await EmitDispatchSkippedEventAsync(vessel, ReflectionMode.PackCurate, "single_flight", null, token).ConfigureAwait(false);
+                return null;
+            }
+
+            try
+            {
+                if (!await PackCurateAntiThrashHasNewEvidenceAsync(vessel, sinceUtc, token).ConfigureAwait(false))
+                    return null;
+
+                EvidenceBundleResult bundle = await BuildPackCurateBriefAsync(
+                    vessel, _Settings.DefaultPackCurateTokenBudget, token).ConfigureAwait(false);
+                DispatchResult dispatched = await DispatchReflectionAsync(
+                    vessel,
+                    bundle.Brief,
+                    ReflectionMode.PackCurate,
+                    false,
+                    _Settings.DefaultPackCurateTokenBudget,
+                    token).ConfigureAwait(false);
+                return dispatched;
+            }
+            finally
+            {
+                _ReflectionDispatchSlots.TryRemove(dispatchSlot, out _);
+            }
         }
 
         /// <summary>
@@ -1141,20 +1226,37 @@ namespace Armada.Core.Memory
 
             Mission? inFlight = await IsReflectionInFlightAsync(vessel.Id, token).ConfigureAwait(false);
             if (inFlight != null)
+            {
+                await EmitDispatchSkippedEventAsync(vessel, ReflectionMode.Reorganize, "reflection_unconsumed", inFlight.Id, token).ConfigureAwait(false);
                 return null;
+            }
 
-            if (!await PassesAntiThrashAsync(vessel, playbookChars, token).ConfigureAwait(false))
+            string dispatchSlot = BuildReflectionDispatchSlot(vessel, ReflectionMode.Reorganize);
+            if (!_ReflectionDispatchSlots.TryAdd(dispatchSlot, 0))
+            {
+                await EmitDispatchSkippedEventAsync(vessel, ReflectionMode.Reorganize, "single_flight", null, token).ConfigureAwait(false);
                 return null;
+            }
 
-            EvidenceBundleResult bundle = await BuildReorganizeBriefAsync(vessel, _Settings.DefaultReorganizeTokenBudget, token).ConfigureAwait(false);
-            DispatchResult dispatched = await DispatchReflectionAsync(
-                vessel,
-                bundle.Brief,
-                ReflectionMode.Reorganize,
-                false,
-                _Settings.DefaultReorganizeTokenBudget,
-                token).ConfigureAwait(false);
-            return dispatched;
+            try
+            {
+                if (!await PassesAntiThrashAsync(vessel, playbookChars, token).ConfigureAwait(false))
+                    return null;
+
+                EvidenceBundleResult bundle = await BuildReorganizeBriefAsync(vessel, _Settings.DefaultReorganizeTokenBudget, token).ConfigureAwait(false);
+                DispatchResult dispatched = await DispatchReflectionAsync(
+                    vessel,
+                    bundle.Brief,
+                    ReflectionMode.Reorganize,
+                    false,
+                    _Settings.DefaultReorganizeTokenBudget,
+                    token).ConfigureAwait(false);
+                return dispatched;
+            }
+            finally
+            {
+                _ReflectionDispatchSlots.TryRemove(dispatchSlot, out _);
+            }
         }
 
         #endregion
@@ -1482,6 +1584,68 @@ namespace Armada.Core.Memory
             {
                 // Best-effort observability; never block dispatch on event persistence.
             }
+        }
+
+        private static string BuildReflectionDispatchSlot(Vessel vessel, ReflectionMode mode)
+        {
+            string anchor = String.IsNullOrEmpty(vessel.LastReflectionMissionId)
+                ? "baseline"
+                : vessel.LastReflectionMissionId!;
+            return vessel.Id + ":" + ReflectionMemoryService.ModeToWireString(mode) + ":" + anchor;
+        }
+
+        private async Task EmitDispatchSkippedEventAsync(
+            Vessel vessel,
+            ReflectionMode mode,
+            string reason,
+            string? existingMissionId,
+            CancellationToken token)
+        {
+            try
+            {
+                ArmadaEvent skipped = new ArmadaEvent("reflection.dispatch_skipped", "Reflection dispatch skipped.");
+                skipped.TenantId = vessel.TenantId ?? Constants.DefaultTenantId;
+                skipped.EntityType = "vessel";
+                skipped.EntityId = vessel.Id;
+                skipped.VesselId = vessel.Id;
+                skipped.MissionId = existingMissionId;
+                skipped.Payload = JsonSerializer.Serialize(new
+                {
+                    mode = ReflectionMemoryService.ModeToWireString(mode),
+                    reason = reason,
+                    existingMissionId = existingMissionId,
+                    vesselId = vessel.Id
+                });
+                await _Database.Events.CreateAsync(skipped, token).ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+                // Best-effort observability; never block dispatch scheduling.
+            }
+        }
+
+        private async Task<bool> MissionHasReflectionDispositionAsync(string missionId, CancellationToken token)
+        {
+            EnumerationQuery acceptedQuery = new EnumerationQuery
+            {
+                MissionId = missionId,
+                EventType = "reflection.accepted",
+                PageNumber = 1,
+                PageSize = 1
+            };
+            EnumerationResult<ArmadaEvent> acceptedPage = await _Database.Events.EnumerateAsync(acceptedQuery, token).ConfigureAwait(false);
+            if (acceptedPage.Objects.Count > 0)
+                return true;
+
+            EnumerationQuery rejectedQuery = new EnumerationQuery
+            {
+                MissionId = missionId,
+                EventType = "reflection.rejected",
+                PageNumber = 1,
+                PageSize = 1
+            };
+            EnumerationResult<ArmadaEvent> rejectedPage = await _Database.Events.EnumerateAsync(rejectedQuery, token).ConfigureAwait(false);
+            return rejectedPage.Objects.Count > 0;
         }
 
         private async Task<bool> PassesAntiThrashAsync(Vessel vessel, int currentPlaybookChars, CancellationToken token)

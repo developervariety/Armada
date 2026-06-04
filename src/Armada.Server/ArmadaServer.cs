@@ -185,6 +185,7 @@ namespace Armada.Server
                 : new DeepSeekInferenceClient(_Settings.CodeIndex, _Logging, codeIndexHttpClient);
             _CodeIndex = new CodeIndexService(_Logging, _Database, _Settings, _Git, embeddingClient, inferenceClient);
             await _OpenCodeServerLauncher.StartAsync(_TokenSource.Token).ConfigureAwait(false);
+            _ = Task.Run(() => WarmBaselineCachesOnStartupAsync(_TokenSource.Token));
 
             MissionService missionService = new MissionService(_Logging, _Database, _Settings, dockService, captainService, _PromptTemplateService, _Git);
             _MissionService = missionService;
@@ -1117,6 +1118,31 @@ namespace Armada.Server
                 deploymentService: _DeploymentService,
                 runbookService: _RunbookService,
                 incidentService: _IncidentService);
+        }
+
+        private async Task WarmBaselineCachesOnStartupAsync(CancellationToken token)
+        {
+            try
+            {
+                List<Vessel> vessels = await _Database.Vessels.EnumerateAsync(token).ConfigureAwait(false);
+                foreach (Vessel vessel in vessels)
+                {
+                    if (token.IsCancellationRequested) return;
+                    if (!vessel.Active) continue;
+                    try
+                    {
+                        await _CodeIndex.WarmBaselineCacheAsync(vessel.Id, token).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        _Logging.Warn(_Header + "startup baseline context cache warm failed for vessel " + vessel.Id + ": " + ex.Message);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "startup baseline context cache warm failed: " + ex.Message);
+            }
         }
 
         private async Task EmitEventAsync(string eventType, string message,

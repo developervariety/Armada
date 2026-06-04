@@ -3262,8 +3262,35 @@ namespace Armada.Core.Services
                             filtered.Add(captain);
                         }
                     }
-                    if (filtered.Count == 0) return null;
-                    idleCaptains = filtered;
+                    if (filtered.Count > 0)
+                    {
+                        idleCaptains = filtered;
+                    }
+                    else
+                    {
+                        string? fallbackTier = PreferredModelTierSelector.ClassifyModel(preferredModel);
+                        if (!String.IsNullOrEmpty(fallbackTier))
+                        {
+                            string? selectedModel = PreferredModelTierSelector.SelectModel(
+                                fallbackTier, idleCaptains, persona, n => Random.Shared.Next(n));
+                            if (!String.IsNullOrEmpty(selectedModel))
+                            {
+                                List<Captain> tierFiltered = new List<Captain>();
+                                foreach (Captain captain in idleCaptains)
+                                {
+                                    if (!String.IsNullOrEmpty(captain.Model) &&
+                                        String.Equals(captain.Model, selectedModel, StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        tierFiltered.Add(captain);
+                                    }
+                                }
+                                if (tierFiltered.Count > 0)
+                                {
+                                    idleCaptains = tierFiltered;
+                                }
+                            }
+                        }
+                    }
                 }
             }
 

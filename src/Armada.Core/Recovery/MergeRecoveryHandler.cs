@@ -9,6 +9,7 @@ namespace Armada.Core.Recovery
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
 
@@ -194,7 +195,7 @@ namespace Armada.Core.Recovery
                 BranchName = spec.LandingTargetBranch,
                 Status = MissionStatusEnum.Pending,
                 Priority = mission.Priority,
-                PreferredModel = spec.PreferredModel,
+                PreferredModel = ResolveRebasePreferredModel(mission.PreferredModel),
                 DependsOnMissionId = spec.DependsOnMissionId,
                 SelectedPlaybooks = new List<SelectedPlaybook>(spec.SelectedPlaybooks),
                 PrestagedFiles = new List<PrestagedFile>(spec.PrestagedFiles),
@@ -236,6 +237,14 @@ namespace Armada.Core.Recovery
             }
 
             _Logging.Info(_Header + "rebase mission " + rebase.Id + " created for failed mission " + mission.Id);
+        }
+
+        private static string ResolveRebasePreferredModel(string? failedMissionPreferredModel)
+        {
+            if (String.IsNullOrWhiteSpace(failedMissionPreferredModel))
+                return PreferredModelTierSelector.HighTier;
+
+            return failedMissionPreferredModel.Trim();
         }
 
         private async Task HandleRedispatchAsync(MergeEntry entry, Mission mission, CancellationToken token)

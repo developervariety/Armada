@@ -167,22 +167,41 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("TryAssign_LiteralPreferredModelNoMatch_StaysPending", async () =>
+            await RunTest("TryAssign_LiteralPreferredModelNoExactMatch_FallsBackToCompatibleTierCaptain", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     ArmadaSettings settings = CreateSettings();
                     MissionService missions = CreateMissionService(testDb.Driver, settings);
                     Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
-                    await CreateCaptainAsync(testDb.Driver, "only-captain", "composer-2.5").ConfigureAwait(false);
+                    Captain upgradedOpus = await CreateCaptainAsync(testDb.Driver, "upgraded-opus", "claude-opus-4-8").ConfigureAwait(false);
                     Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "literal no match", "claude-opus-4-7").ConfigureAwait(false);
 
                     bool assigned = await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false);
 
                     Mission? readBack = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
-                    AssertFalse(assigned, "Literal preferredModel with no matching idle captain should not assign");
-                    AssertEqual(MissionStatusEnum.Pending, readBack!.Status, "Mission should remain pending cleanly");
-                    AssertNull(readBack.CaptainId, "No captain should be assigned");
+                    AssertTrue(assigned, "Absent concrete PreferredModel should fall back by canonical tier family");
+                    AssertEqual(MissionStatusEnum.InProgress, readBack!.Status, "Mission should be launched");
+                    AssertEqual(upgradedOpus.Id, readBack.CaptainId, "Upgraded Opus captain should satisfy the absent Opus pin");
+                }
+            });
+
+            await RunTest("TryAssign_UnclassifiedLiteralPreferredModelNoExactMatch_FallsBackToCompatibleCaptain", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+                    Captain compatible = await CreateCaptainAsync(testDb.Driver, "compatible-worker", "composer-2.5", "[\"Worker\"]").ConfigureAwait(false);
+                    await CreateCaptainAsync(testDb.Driver, "incompatible-judge", "gpt-5.5", "[\"Judge\"]").ConfigureAwait(false);
+                    Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "unknown literal fallback", "vendor-model-that-is-gone", "Worker").ConfigureAwait(false);
+
+                    bool assigned = await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false);
+
+                    Mission? readBack = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertTrue(assigned, "Unclassified absent concrete PreferredModel should fall back to a compatible captain");
+                    AssertEqual(compatible.Id, readBack!.CaptainId, "Persona-compatible captain should be selected");
                 }
             });
         }

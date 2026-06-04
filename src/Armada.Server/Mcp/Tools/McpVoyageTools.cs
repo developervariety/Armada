@@ -603,6 +603,18 @@ namespace Armada.Server.Mcp.Tools
                 {
                     Stopwatch totalWatch = Stopwatch.StartNew();
                     ContextPackResponse? cached = await codeIndexService.TryGetCachedContextPackAsync(contextRequest).ConfigureAwait(false);
+                    if (cached == null)
+                    {
+                        try
+                        {
+                            await codeIndexService.WarmBaselineCacheAsync(vesselId).ConfigureAwait(false);
+                            cached = await codeIndexService.TryGetCachedContextPackAsync(contextRequest).ConfigureAwait(false);
+                        }
+                        catch (Exception ex)
+                        {
+                            LogCodeContextWarning(logging, "baseline context cache warm failed for vessel " + vesselId + ": " + ex.Message);
+                        }
+                    }
 
                     if (cached != null && cached.PrestagedFiles != null && cached.PrestagedFiles.Count > 0)
                     {

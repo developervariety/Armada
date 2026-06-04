@@ -337,7 +337,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("IsReflectionInFlight_CompleteReflection_IgnoresTerminalMission", async () =>
+            await RunTest("IsReflectionInFlight_CompleteReflectionWithDisposition_IgnoresTerminalMission", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
@@ -347,7 +347,11 @@ namespace Armada.Test.Unit.Suites.Services
                     terminal.Persona = "MemoryConsolidator";
                     terminal.Status = MissionStatusEnum.Complete;
                     terminal.CompletedUtc = DateTime.UtcNow;
-                    await testDb.Driver.Missions.CreateAsync(terminal).ConfigureAwait(false);
+                    terminal = await testDb.Driver.Missions.CreateAsync(terminal).ConfigureAwait(false);
+                    ArmadaEvent accepted = new ArmadaEvent("reflection.accepted", "accepted");
+                    accepted.MissionId = terminal.Id;
+                    accepted.VesselId = vessel.Id;
+                    await testDb.Driver.Events.CreateAsync(accepted).ConfigureAwait(false);
 
                     ReflectionDispatcher dispatcher = CreateDispatcher(
                         testDb.Driver,
@@ -355,7 +359,41 @@ namespace Armada.Test.Unit.Suites.Services
                         new ArmadaSettings());
 
                     Mission? inFlight = await dispatcher.IsReflectionInFlightAsync(vessel.Id).ConfigureAwait(false);
-                    AssertNull(inFlight, "Terminal MemoryConsolidator mission should not block a new reflection");
+                    AssertNull(inFlight, "Reviewed terminal MemoryConsolidator mission should not block a new reflection");
+                }
+            });
+
+            await RunTest("ConsolidateMemory_PurgedSourceVoyageId_FiresAtMostOnce", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, "rc-purge-single-fire").ConfigureAwait(false);
+                    await CreateTerminalMissionAsync(testDb.Driver, vessel.Id, "evidence", DateTime.UtcNow.AddMinutes(-5)).ConfigureAwait(false);
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                    ReflectionDispatcher dispatcher = CreateDispatcher(testDb.Driver, admiral, settings);
+                    Func<JsonElement?, Task<object>>? handler = CaptureHandler(testDb.Driver, dispatcher, settings);
+
+                    JsonElement firstArgs = JsonSerializer.SerializeToElement(new
+                    {
+                        vesselId = vessel.Id,
+                        purgedSourceVoyageId = "vyg_purged_source"
+                    });
+                    object first = await handler!(firstArgs).ConfigureAwait(false);
+                    string firstJson = JsonSerializer.Serialize(first);
+
+                    JsonElement secondArgs = JsonSerializer.SerializeToElement(new
+                    {
+                        vesselId = vessel.Id,
+                        purgedSourceVoyageId = "vyg_purged_source"
+                    });
+                    object second = await handler!(secondArgs).ConfigureAwait(false);
+                    string secondJson = JsonSerializer.Serialize(second);
+
+                    AssertFalse(firstJson.Contains("\"Error\""), "First purge redispatch should proceed: " + firstJson);
+                    AssertContains("reflection_purge_redispatch_already_fired", secondJson, "Second purge redispatch should be skipped by source voyage marker");
+                    AssertEqual(1, admiral.DispatchCount, "Purged source voyage should dispatch at most once");
                 }
             });
         }

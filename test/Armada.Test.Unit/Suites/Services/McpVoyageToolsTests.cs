@@ -973,11 +973,69 @@ namespace Armada.Test.Unit.Suites.Services
                     string resultJson = JsonSerializer.Serialize(result);
 
                     AssertFalse(resultJson.Contains("\"Error\""), "Should not return error: " + resultJson);
-                    AssertEqual(1, codeIndex.CacheRequests.Count, "Cache lookup must have been attempted");
+                    AssertEqual(2, codeIndex.CacheRequests.Count, "Cache miss should retry after warming the baseline cache");
+                    AssertEqual(1, codeIndex.WarmBaselineCalls.Count, "Cache miss should warm the baseline cache");
                     AssertEqual(1, codeIndex.ContextPackRequests.Count, "Synchronous generation must be called on cache miss");
                     AssertTrue(admiralDouble.DispatchVoyageCalled, "Dispatch must proceed");
                     AssertNotNull(admiralDouble.LastMissionDescriptions[0].PrestagedFiles, "Generated pack must be staged");
                     AssertEqual(generatedPackPath, admiralDouble.LastMissionDescriptions[0].PrestagedFiles![0].SourcePath);
+                }
+            });
+
+            await RunTest("Dispatch_ColdCacheWarm_MakesBaselinePackAvailable", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("cold-cache-warm-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
+
+                    string warmedPackPath = Path.Combine(Path.GetTempPath(), "warmed-context-pack.md");
+                    ContextPackResponse warmedPack = new ContextPackResponse
+                    {
+                        Goal = "warmed goal",
+                        MaterializedPath = warmedPackPath,
+                        Metrics = new ContextPackMetrics { CacheHit = true, CacheKey = "warmed" }
+                    };
+                    warmedPack.PrestagedFiles.Add(new PrestagedFile(warmedPackPath, "_briefing/context-pack.md"));
+
+                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService
+                    {
+                        CachedResponseAfterWarm = warmedPack
+                    };
+                    codeIndex.ContextPackResponse.PrestagedFiles.Add(new PrestagedFile(
+                        Path.Combine(Path.GetTempPath(), "generated-after-cold.md"), "_briefing/context-pack.md"));
+
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null,
+                        null,
+                        null,
+                        codeIndex);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "cold cache warm voyage",
+                        vesselId = vessel.Id,
+                        missions = new object[]
+                        {
+                            new { title = "Task Warm", description = "should warm baseline cache" }
+                        }
+                    });
+
+                    object result = await dispatchHandler!(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+
+                    AssertFalse(resultJson.Contains("\"Error\""), "Should not return error: " + resultJson);
+                    AssertEqual(2, codeIndex.CacheRequests.Count, "Dispatch should retry cache lookup after warm");
+                    AssertEqual(1, codeIndex.WarmBaselineCalls.Count, "Dispatch should warm the baseline cache on cold miss");
+                    AssertEqual(vessel.Id, codeIndex.WarmBaselineCalls[0], "Warm should target the dispatch vessel");
+                    AssertEqual(0, codeIndex.ContextPackRequests.Count, "Warmed cache hit should skip synchronous generation");
+                    AssertEqual(warmedPackPath, admiralDouble.LastMissionDescriptions[0].PrestagedFiles![0].SourcePath);
                 }
             });
 
@@ -1366,9 +1424,13 @@ namespace Armada.Test.Unit.Suites.Services
 
             public List<ContextPackRequest> CacheRequests { get; } = new List<ContextPackRequest>();
 
+            public List<string> WarmBaselineCalls { get; } = new List<string>();
+
             public ContextPackResponse ContextPackResponse { get; } = new ContextPackResponse();
 
             public ContextPackResponse? CachedResponse { get; set; }
+
+            public ContextPackResponse? CachedResponseAfterWarm { get; set; }
 
             public CodeIndexStatus Status { get; } = new CodeIndexStatus();
 
@@ -1422,7 +1484,12 @@ namespace Armada.Test.Unit.Suites.Services
                 => throw new NotImplementedException();
 
             public Task WarmBaselineCacheAsync(string vesselId, CancellationToken token = default)
-                => Task.CompletedTask;
+            {
+                WarmBaselineCalls.Add(vesselId);
+                if (CachedResponseAfterWarm != null)
+                    CachedResponse = CachedResponseAfterWarm;
+                return Task.CompletedTask;
+            }
 
             public Task<ContextPackResponse?> TryGetCachedContextPackAsync(ContextPackRequest request, CancellationToken token = default)
             {

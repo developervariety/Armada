@@ -50,6 +50,7 @@ namespace Armada.Server.Mcp.Tools
                         mode = new { type = "string", description = "consolidate (default) | reorganize | consolidate-and-reorganize | pack-curate | playbook-curate | persona-curate | captain-curate | fleet-curate" },
                         dualJudge = new { type = "boolean", description = "When true, dispatches the ReflectionsDualJudge pipeline; default false" },
                         sinceMissionId = new { type = "string", description = "Optional mission ID whose completion time starts the evidence window. Ignored in reorganize, pack-curate, playbook-curate, persona-curate, captain-curate, and fleet-curate modes." },
+                        purgedSourceVoyageId = new { type = "string", description = "Optional purged source voyage ID. When set, reflection redispatch is single-fired for that source voyage." },
                         instructions = new { type = "string", description = "Optional extra guidance for the consolidator" },
                         tokenBudget = new { type = "integer", description = "Optional token budget. Defaults: 400000 (consolidate/combined/pack-curate/playbook-curate/persona-curate/captain-curate/fleet-curate); 30000 (reorganize)." }
                     }
@@ -114,6 +115,19 @@ namespace Armada.Server.Mcp.Tools
 
                     Vessel? vessel = await database.Vessels.ReadAsync(request.VesselId).ConfigureAwait(false);
                     if (vessel == null) return (object)new { Error = "vessel_not_found" };
+
+                    if (!String.IsNullOrWhiteSpace(request.PurgedSourceVoyageId))
+                    {
+                        bool mayDispatch = await dispatcher.TryMarkPurgeRedispatchAsync(request.PurgedSourceVoyageId!, vessel).ConfigureAwait(false);
+                        if (!mayDispatch)
+                        {
+                            return (object)new
+                            {
+                                Error = "reflection_purge_redispatch_already_fired",
+                                purgedSourceVoyageId = request.PurgedSourceVoyageId
+                            };
+                        }
+                    }
 
                     Mission? inFlight = await dispatcher.IsReflectionInFlightAsync(vessel.Id).ConfigureAwait(false);
                     if (inFlight != null)
@@ -906,6 +920,9 @@ namespace Armada.Server.Mcp.Tools
 
             /// <summary>The starting mission ID for evidence.</summary>
             public string? SinceMissionId { get; set; }
+
+            /// <summary>Purged source voyage ID that caused this redispatch.</summary>
+            public string? PurgedSourceVoyageId { get; set; }
 
             /// <summary>Caller instructions.</summary>
             public string? Instructions { get; set; }
