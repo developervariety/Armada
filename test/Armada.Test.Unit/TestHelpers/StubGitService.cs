@@ -35,6 +35,7 @@ namespace Armada.Test.Unit.TestHelpers
         // Failure injection
         public bool ShouldThrowOnWorktree { get; set; } = false;
         public bool ShouldThrowOnPush { get; set; } = false;
+        public int DriftPushFailuresRemaining { get; set; } = 0;
         public bool ShouldThrowOnCreatePr { get; set; } = false;
         public bool ShouldThrowOnMergeLocal { get; set; } = false;
         public bool ShouldThrowOnDeleteBranch { get; set; } = false;
@@ -65,6 +66,12 @@ namespace Armada.Test.Unit.TestHelpers
 
         public Task PushBranchAsync(string worktreePath, string remoteName = "origin", CancellationToken token = default)
         {
+            if (DriftPushFailuresRemaining > 0)
+            {
+                DriftPushFailuresRemaining--;
+                OperationCalls.Add("push-drift:" + worktreePath);
+                throw new InvalidOperationException("target branch drift: non-fast-forward update rejected");
+            }
             if (ShouldThrowOnPush) throw new InvalidOperationException("Simulated push failure");
             PushCalls.Add(worktreePath);
             OperationCalls.Add("push:" + worktreePath);

@@ -650,6 +650,9 @@ namespace Armada.Core.Database.Postgresql.Queries
                 ),
                 new SchemaMigration(49, "Add sibling_repos JSON column to vessels",
                     @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS sibling_repos TEXT;"
+                ),
+                new SchemaMigration(50, "Add landing retry counter to missions",
+                    @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS landing_retry_count INTEGER NOT NULL DEFAULT 0;"
                 )
             };
         }

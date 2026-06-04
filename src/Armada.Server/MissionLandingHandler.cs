@@ -454,7 +454,9 @@ namespace Armada.Server
 
                         if (!landingSucceeded)
                         {
-                            landingFailureReason = "Integration worktree merge failed";
+                            landingFailureReason = !String.IsNullOrEmpty(mission.FailureReason)
+                                ? mission.FailureReason
+                                : "Integration worktree merge failed";
                         }
 
                         // Only clean up the mission branch after confirmed success (merge + push).
