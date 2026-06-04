@@ -1179,6 +1179,25 @@ namespace Armada.Server
                 _Logging.Warn(_Header + "startup stale captain cleanup error: " + ex.Message);
             }
 
+            // Recover landing jobs left mid-flight by a previous admiral process. Driving
+            // each in-flight entry to a stable state can run the merge-queue test command,
+            // so do it off the boot path to avoid blocking the web server bind.
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    int recovered = await _MergeQueue.RecoverInFlightLandingsAsync(token).ConfigureAwait(false);
+                    if (recovered > 0)
+                    {
+                        _Logging.Info(_Header + "startup landing recovery resumed " + recovered + " in-flight entr" + (recovered == 1 ? "y" : "ies"));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "startup landing recovery error: " + ex.Message);
+                }
+            });
+
             // Run an immediate health check on startup to dispatch any pending missions
             try
             {

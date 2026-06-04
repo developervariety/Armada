@@ -64,6 +64,21 @@ namespace Armada.Core.Services.Interfaces
         Task<int> ReconcileLandingStateMachineAsync(CancellationToken token = default);
 
         /// <summary>
+        /// Startup recovery pass for landing jobs left mid-flight by a previous admiral
+        /// process. Walks every merge entry persisted in a non-terminal in-flight landing
+        /// state (Rebasing, Merging, Testing, Passed, Pushing, CreatingPR) and drives each
+        /// deterministically toward a stable or terminal state (Landed, Failed,
+        /// PullRequestOpen) rather than leaving it stranded. Entries in terminal states are
+        /// untouched, so the pass is idempotent and safe to re-run. Unlike
+        /// <see cref="ReconcileLandingStateMachineAsync"/>, which advances one durable step
+        /// per call for the steady-state heartbeat, this resolves each recovered entry in a
+        /// single pass at boot.
+        /// </summary>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Number of in-flight entries recovered in this pass.</returns>
+        Task<int> RecoverInFlightLandingsAsync(CancellationToken token = default);
+
+        /// <summary>
         /// Get a specific merge entry.
         /// </summary>
         /// <param name="entryId">Merge entry identifier.</param>

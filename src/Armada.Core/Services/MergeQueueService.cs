@@ -514,6 +514,77 @@ namespace Armada.Core.Services
             return advanced;
         }
 
+        /// <inheritdoc />
+        public async Task<int> RecoverInFlightLandingsAsync(CancellationToken token = default)
+        {
+            List<MergeStatusEnum> inFlight = new List<MergeStatusEnum>
+            {
+                MergeStatusEnum.Rebasing,
+                MergeStatusEnum.Merging,
+                MergeStatusEnum.Testing,
+                MergeStatusEnum.Passed,
+                MergeStatusEnum.Pushing,
+                MergeStatusEnum.CreatingPR
+            };
+
+            List<MergeEntry> candidates = new List<MergeEntry>();
+            foreach (MergeStatusEnum status in inFlight)
+            {
+                List<MergeEntry> entries = await _Database.MergeEntries.EnumerateByStatusAsync(status, token).ConfigureAwait(false);
+                candidates.AddRange(entries);
+            }
+
+            if (candidates.Count == 0) return 0;
+
+            List<MergeEntry> ordered = candidates
+                .OrderBy(e => LandingStateRank(e.Status))
+                .ThenBy(e => e.Priority)
+                .ThenBy(e => e.CreatedUtc)
+                .ToList();
+
+            HashSet<string> activeKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            int recovered = 0;
+
+            foreach (MergeEntry entry in ordered)
+            {
+                if (token.IsCancellationRequested) break;
+
+                // One in-flight land per vessel+target group; the rest stay queued behind it
+                // and are picked up by the steady-state reconciler once the leader resolves.
+                string key = (entry.VesselId ?? "default") + ":" + entry.TargetBranch;
+                if (!activeKeys.Add(key)) continue;
+
+                _Logging.Info(_Header + "recovering in-flight landing entry " + entry.Id + " from persisted state " + entry.Status + " on startup");
+
+                string? repoPath = await GetRepoPathAsync(entry, token).ConfigureAwait(false);
+                if (repoPath == null)
+                {
+                    await TransitionEntryToFailureAsync(entry, "Unable to resolve repository path for vessel " + entry.VesselId + " during startup landing recovery", token).ConfigureAwait(false);
+                    recovered++;
+                    continue;
+                }
+
+                try
+                {
+                    await ProcessEntryAsync(entry, repoPath, token).ConfigureAwait(false);
+                    recovered++;
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "startup landing recovery error for " + entry.Id + ": " + ex.Message);
+                    await TransitionEntryToFailureAsync(entry, "Startup landing recovery error: " + ex.Message, token).ConfigureAwait(false);
+                    recovered++;
+                }
+            }
+
+            if (recovered > 0)
+            {
+                _Logging.Info(_Header + "recovered " + recovered + " in-flight landing entr" + (recovered == 1 ? "y" : "ies") + " on startup");
+            }
+
+            return recovered;
+        }
+
         /// <summary>
         /// Core single-entry processing with a known repo path.
         /// </summary>
