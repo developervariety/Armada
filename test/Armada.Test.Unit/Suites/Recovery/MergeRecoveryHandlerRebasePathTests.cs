@@ -58,7 +58,7 @@ namespace Armada.Test.Unit.Suites.Recovery
                     AssertNotNull(rebaseMission, "new rebase mission should be created with ParentMissionId pointing at the failed mission");
                     AssertEqual(0, rebaseMission!.RecoveryAttempts, "rebase mission starts at 0 recovery attempts (own budget)");
                     AssertEqual(setupResult.CaptainBranch, rebaseMission.BranchName, "rebase mission should land on the captain branch");
-                    AssertEqual("claude-opus-4-7", rebaseMission.PreferredModel ?? "", "rebase mission should be pinned to the high-tier model");
+                    AssertEqual(PreferredModelTierSelector.HighTier, rebaseMission.PreferredModel ?? "", "rebase mission with no original preferred model should default to the high tier selector, never a concrete model name");
                     // The dock-setup stub is the single source of truth for the inline
                     // playbook delivery; SelectedPlaybooks is request-time metadata that
                     // does not round-trip through the missions table.
@@ -86,6 +86,51 @@ namespace Armada.Test.Unit.Suites.Recovery
 
                     Mission? readMission = await db.Driver.Missions.ReadAsync(setupResult.Mission.Id).ConfigureAwait(false);
                     AssertEqual(1, readMission!.RecoveryAttempts, "counter is incremented even when build throws -- prevents burning another recovery slot");
+                }
+            });
+
+            await RunTest("OnMergeFailed_OriginalPreferredModelHighTier_CarriesTierForward", async () =>
+            {
+                using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = NewQuietLogging();
+                    ArmadaSettings settings = new ArmadaSettings { MaxRecoveryAttempts = 3 };
+
+                    SetupResult setupResult = await SetupFailedMissionEntryAsync(db, classification: MergeFailureClassEnum.TestFailureAfterMerge, preferredModel: PreferredModelTierSelector.HighTier).ConfigureAwait(false);
+                    StubRebaseCaptainDockSetup dockSetup = new StubRebaseCaptainDockSetup();
+                    StubMergeQueueServiceForRecovery mergeQueue = new StubMergeQueueServiceForRecovery();
+                    IRecoveryRouter router = new RecoveryRouter(3);
+
+                    MergeRecoveryHandler handler = new MergeRecoveryHandler(logging, db.Driver, settings, router, dockSetup, mergeQueue, new PlaybookService(db.Driver, logging));
+                    await handler.OnMergeFailedAsync(setupResult.Entry.Id).ConfigureAwait(false);
+
+                    List<Mission> all = await db.Driver.Missions.EnumerateAsync().ConfigureAwait(false);
+                    Mission? rebaseMission = all.FirstOrDefault(m => m.ParentMissionId == setupResult.Mission.Id);
+                    AssertNotNull(rebaseMission, "rebase mission should be created");
+                    AssertEqual(PreferredModelTierSelector.HighTier, rebaseMission!.PreferredModel ?? "", "rebase mission should carry the original mission's tier selector forward");
+                }
+            });
+
+            await RunTest("OnMergeFailed_OriginalPreferredModelWhitespace_DefaultsToHighTierNotConcreteModel", async () =>
+            {
+                using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = NewQuietLogging();
+                    ArmadaSettings settings = new ArmadaSettings { MaxRecoveryAttempts = 3 };
+
+                    SetupResult setupResult = await SetupFailedMissionEntryAsync(db, classification: MergeFailureClassEnum.TestFailureAfterMerge, preferredModel: "   ").ConfigureAwait(false);
+                    StubRebaseCaptainDockSetup dockSetup = new StubRebaseCaptainDockSetup();
+                    StubMergeQueueServiceForRecovery mergeQueue = new StubMergeQueueServiceForRecovery();
+                    IRecoveryRouter router = new RecoveryRouter(3);
+
+                    MergeRecoveryHandler handler = new MergeRecoveryHandler(logging, db.Driver, settings, router, dockSetup, mergeQueue, new PlaybookService(db.Driver, logging));
+                    await handler.OnMergeFailedAsync(setupResult.Entry.Id).ConfigureAwait(false);
+
+                    List<Mission> all = await db.Driver.Missions.EnumerateAsync().ConfigureAwait(false);
+                    Mission? rebaseMission = all.FirstOrDefault(m => m.ParentMissionId == setupResult.Mission.Id);
+                    AssertNotNull(rebaseMission, "rebase mission should be created");
+                    AssertEqual(PreferredModelTierSelector.HighTier, rebaseMission!.PreferredModel ?? "", "whitespace original preferred model should default to the high tier selector");
+                    AssertNotEqual("claude-opus-4-7", rebaseMission.PreferredModel ?? "", "rebase mission must never be frozen to a concrete model name");
                 }
             });
 
@@ -122,13 +167,14 @@ namespace Armada.Test.Unit.Suites.Recovery
             public string CaptainBranch { get; set; } = "";
         }
 
-        private static async Task<SetupResult> SetupFailedMissionEntryAsync(TestDatabase db, MergeFailureClassEnum classification, int priorAttempts = 0)
+        private static async Task<SetupResult> SetupFailedMissionEntryAsync(TestDatabase db, MergeFailureClassEnum classification, int priorAttempts = 0, string? preferredModel = null)
         {
             string captainBranch = "captain/rebase-test";
             Mission mission = new Mission("test mission", "DESC")
             {
                 BranchName = captainBranch,
-                RecoveryAttempts = priorAttempts
+                RecoveryAttempts = priorAttempts,
+                PreferredModel = preferredModel
             };
             await db.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
 
