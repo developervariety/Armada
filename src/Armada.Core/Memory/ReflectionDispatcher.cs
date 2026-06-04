@@ -35,6 +35,7 @@ namespace Armada.Core.Memory
         private const int _MaxEventMessageChars = 4000;
         private const int _RecentCommitWindow = 20;
         private const string _ReflectionDispatchedEvent = "reflection.dispatched";
+        private const string _ReflectionPurgeRedispatchFiredEvent = "reflection.purge_redispatch_fired";
 
         #endregion
 
@@ -837,6 +838,79 @@ namespace Armada.Core.Memory
             Mission? inFlight = await IsReflectionInFlightAsync(vessel.Id, token).ConfigureAwait(false);
             if (inFlight != null)
                 return null;
+
+            EvidenceBundleResult bundle = await BuildEvidenceBundleAsync(
+                    vessel,
+                    null,
+                    _Settings.DefaultReflectionTokenBudget,
+                    ReflectionMode.Consolidate,
+                    token)
+                .ConfigureAwait(false);
+
+            if (bundle.EvidenceMissionCount == 0 && bundle.RejectedProposalCount == 0)
+                return null;
+
+            DispatchResult dispatched = await DispatchReflectionAsync(
+                vessel,
+                bundle.Brief,
+                ReflectionMode.Consolidate,
+                false,
+                _Settings.DefaultReflectionTokenBudget,
+                token).ConfigureAwait(false);
+            return dispatched;
+        }
+
+        /// <summary>
+        /// After a voyage is purged, attempts to dispatch a consolidate reflection for the
+        /// vessel that owned the purged voyage. Enforces a persisted single-flight guard keyed on
+        /// <paramref name="sourceVoyageId"/>: if a <c>reflection.purge_redispatch_fired</c> event
+        /// already exists for this voyage, the call is a no-op and returns null. When the dispatch
+        /// fires the marker event is written first so the guard survives process restart.
+        /// </summary>
+        /// <param name="sourceVoyageId">ID of the voyage that was purged.</param>
+        /// <param name="vesselId">Vessel that owned the purged voyage. Null or empty skips dispatch.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Dispatch result when a reflection mission was created; otherwise null.</returns>
+        public async Task<DispatchResult?> TryAutoDispatchAfterPurgeAsync(
+            string sourceVoyageId,
+            string? vesselId,
+            CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(sourceVoyageId)) return null;
+            if (String.IsNullOrEmpty(vesselId)) return null;
+
+            EnumerationQuery markerQuery = new EnumerationQuery
+            {
+                EventType = _ReflectionPurgeRedispatchFiredEvent,
+                VoyageId = sourceVoyageId,
+                PageNumber = 1,
+                PageSize = 1
+            };
+            EnumerationResult<ArmadaEvent> existing = await _Database.Events.EnumerateAsync(markerQuery, token).ConfigureAwait(false);
+            if (existing.Objects.Count > 0)
+                return null;
+
+            ArmadaEvent marker = new ArmadaEvent(_ReflectionPurgeRedispatchFiredEvent, "Purge-triggered reflection redispatch marker for voyage " + sourceVoyageId + ".");
+            marker.VoyageId = sourceVoyageId;
+            marker.VesselId = vesselId;
+            marker.Payload = JsonSerializer.Serialize(new { sourceVoyageId = sourceVoyageId, vesselId = vesselId });
+            try
+            {
+                await _Database.Events.CreateAsync(marker, token).ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+                // Marker creation failure is non-fatal; proceed with dispatch attempt.
+            }
+
+            Vessel? vessel = await _Database.Vessels.ReadAsync(vesselId, token).ConfigureAwait(false);
+            if (vessel == null) return null;
+
+            Mission? inFlight = await IsReflectionInFlightAsync(vessel.Id, token).ConfigureAwait(false);
+            if (inFlight != null) return null;
+
+            List<Mission> evidenceMissions = await SelectEvidenceMissionsAsync(vessel, null, token).ConfigureAwait(false);
+            if (evidenceMissions.Count == 0) return null;
 
             EvidenceBundleResult bundle = await BuildEvidenceBundleAsync(
                     vessel,

@@ -358,6 +358,77 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertNull(inFlight, "Terminal MemoryConsolidator mission should not block a new reflection");
                 }
             });
+
+            await RunTest("PurgeRedispatch_SameSourceVoyageTwice_SecondCallIsNoOp", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, "rc-purge-singleflight").ConfigureAwait(false);
+                    await CreateTerminalMissionAsync(testDb.Driver, vessel.Id, "ev1", DateTime.UtcNow.AddMinutes(-20)).ConfigureAwait(false);
+                    await CreateTerminalMissionAsync(testDb.Driver, vessel.Id, "ev2", DateTime.UtcNow.AddMinutes(-10)).ConfigureAwait(false);
+
+                    RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                    ReflectionDispatcher dispatcher = CreateDispatcher(testDb.Driver, admiral, new ArmadaSettings { InitialReflectionWindow = 10 });
+
+                    string sourceVoyageId = "vyg_purge_singleflight_test";
+
+                    ReflectionDispatcher.DispatchResult? first = await dispatcher.TryAutoDispatchAfterPurgeAsync(sourceVoyageId, vessel.Id).ConfigureAwait(false);
+                    AssertNotNull(first, "First call should dispatch");
+                    AssertEqual(1, admiral.DispatchCount, "First call should dispatch exactly once");
+
+                    ReflectionDispatcher.DispatchResult? second = await dispatcher.TryAutoDispatchAfterPurgeAsync(sourceVoyageId, vessel.Id).ConfigureAwait(false);
+                    AssertNull(second, "Second call with same source voyage should be a no-op");
+                    AssertEqual(1, admiral.DispatchCount, "Second call must not create a second dispatch");
+                }
+            });
+
+            await RunTest("PurgeRedispatch_TwoDifferentSourceVoyages_EachDispatchesOnce", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, "rc-purge-twokeys").ConfigureAwait(false);
+                    await CreateTerminalMissionAsync(testDb.Driver, vessel.Id, "ev1", DateTime.UtcNow.AddMinutes(-20)).ConfigureAwait(false);
+                    await CreateTerminalMissionAsync(testDb.Driver, vessel.Id, "ev2", DateTime.UtcNow.AddMinutes(-10)).ConfigureAwait(false);
+
+                    RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                    ReflectionDispatcher dispatcher = CreateDispatcher(testDb.Driver, admiral, new ArmadaSettings { InitialReflectionWindow = 10 });
+
+                    string sourceVoyageIdA = "vyg_purge_twokeys_a";
+                    string sourceVoyageIdB = "vyg_purge_twokeys_b";
+
+                    ReflectionDispatcher.DispatchResult? resultA = await dispatcher.TryAutoDispatchAfterPurgeAsync(sourceVoyageIdA, vessel.Id).ConfigureAwait(false);
+                    AssertNotNull(resultA, "First voyage purge should dispatch");
+                    AssertEqual(1, admiral.DispatchCount, "First call should produce one dispatch");
+
+                    // Complete the first dispatched consolidator mission so it is no longer in-flight,
+                    // allowing the second source voyage to also dispatch.
+                    Mission? firstConsolidator = await testDb.Driver.Missions.ReadAsync(resultA!.MissionId).ConfigureAwait(false);
+                    AssertNotNull(firstConsolidator, "First consolidator mission must exist");
+                    firstConsolidator!.Status = MissionStatusEnum.Complete;
+                    firstConsolidator.CompletedUtc = DateTime.UtcNow;
+                    await testDb.Driver.Missions.UpdateAsync(firstConsolidator).ConfigureAwait(false);
+
+                    ReflectionDispatcher.DispatchResult? resultB = await dispatcher.TryAutoDispatchAfterPurgeAsync(sourceVoyageIdB, vessel.Id).ConfigureAwait(false);
+                    AssertNotNull(resultB, "Second different voyage purge should also dispatch after first completes");
+
+                    AssertEqual(2, admiral.DispatchCount, "Each distinct source voyage should produce one dispatch");
+                }
+            });
+
+            await RunTest("PurgeRedispatch_NoEvidence_ReturnsNull", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, "rc-purge-noevidence").ConfigureAwait(false);
+
+                    RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                    ReflectionDispatcher dispatcher = CreateDispatcher(testDb.Driver, admiral, new ArmadaSettings());
+
+                    ReflectionDispatcher.DispatchResult? result = await dispatcher.TryAutoDispatchAfterPurgeAsync("vyg_purge_noev_test", vessel.Id).ConfigureAwait(false);
+                    AssertNull(result, "No evidence should produce no dispatch");
+                    AssertEqual(0, admiral.DispatchCount, "No evidence must not dispatch");
+                }
+            });
         }
 
         private static Func<JsonElement?, Task<object>>? CaptureHandler(

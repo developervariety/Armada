@@ -9,6 +9,7 @@ namespace Armada.Server.Routes
     using Armada.Core;
     using Armada.Core.Database;
     using Armada.Core.Enums;
+    using Armada.Core.Memory;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
@@ -353,6 +354,8 @@ namespace Armada.Server.Routes
                     return (object)new { Error = "Conflict", Message = "Cannot delete voyage with " + activeMissions.Count + " active mission(s) in Assigned or InProgress status. Cancel or complete them first." };
                 }
 
+                string? purgeVesselId = missions.Select(m => m.VesselId).FirstOrDefault(v => !String.IsNullOrEmpty(v));
+
                 // Cascade delete all missions in this voyage
                 foreach (Mission m in missions)
                 {
@@ -364,6 +367,18 @@ namespace Armada.Server.Routes
 
                 await _emitEvent("voyage.deleted", "Voyage " + id + " permanently deleted with " + missions.Count + " missions",
                     "voyage", id, null, null, null, null).ConfigureAwait(false);
+
+                if (!String.IsNullOrEmpty(purgeVesselId))
+                {
+                    Armada.Core.Settings.ArmadaSettings purgeSettings = new Armada.Core.Settings.ArmadaSettings();
+                    ReflectionDispatcher purgeDispatcher = new ReflectionDispatcher(
+                        _database, _admiral, purgeSettings, new ReflectionMemoryService(_database));
+                    try
+                    {
+                        await purgeDispatcher.TryAutoDispatchAfterPurgeAsync(id, purgeVesselId).ConfigureAwait(false);
+                    }
+                    catch { }
+                }
 
                 return (object)new { Status = "deleted", VoyageId = id, MissionsDeleted = missions.Count };
             },

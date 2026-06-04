@@ -12,6 +12,7 @@ namespace Armada.Server.Mcp.Tools
     using ArmadaConstants = Armada.Core.Constants;
     using Armada.Core.Database;
     using Armada.Core.Enums;
+    using Armada.Core.Memory;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
@@ -427,6 +428,8 @@ namespace Armada.Server.Mcp.Tools
                     if (activeMissionCount > 0)
                         return (object)new { Error = "Cannot delete voyage with " + activeMissionCount + " active mission(s) in Assigned or InProgress status. Cancel or complete them first." };
 
+                    string? purgeVesselId = missions.Select(m => m.VesselId).FirstOrDefault(v => !String.IsNullOrEmpty(v));
+
                     foreach (Mission m in missions)
                     {
                         await CleanupMissionResourcesAsync(m, database, settings).ConfigureAwait(false);
@@ -434,6 +437,18 @@ namespace Armada.Server.Mcp.Tools
                     }
 
                     await database.Voyages.DeleteAsync(voyageId).ConfigureAwait(false);
+
+                    if (!String.IsNullOrEmpty(purgeVesselId))
+                    {
+                        ReflectionDispatcher purgeDispatcher = new ReflectionDispatcher(
+                            database, admiral, settings ?? new ArmadaSettings(), new ReflectionMemoryService(database));
+                        try
+                        {
+                            await purgeDispatcher.TryAutoDispatchAfterPurgeAsync(voyageId, purgeVesselId).ConfigureAwait(false);
+                        }
+                        catch { }
+                    }
+
                     return (object)new { Status = "deleted", VoyageId = voyageId, MissionsDeleted = missions.Count };
                 });
 

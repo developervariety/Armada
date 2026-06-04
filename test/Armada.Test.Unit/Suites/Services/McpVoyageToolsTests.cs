@@ -11,6 +11,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
+    using Armada.Core.Memory;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
     using Armada.Server.Mcp;
@@ -1116,6 +1117,140 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertTrue(admiralDouble.DispatchVoyageCalled, "Dispatch must proceed");
                     AssertNotNull(admiralDouble.LastMissionDescriptions[0].PrestagedFiles, "Generated pack must be staged");
                     AssertEqual(generatedPackPath, admiralDouble.LastMissionDescriptions[0].PrestagedFiles![0].SourcePath);
+                }
+            });
+
+            await RunTest("PurgeVoyage_WithEvidence_TriggersReflectionDispatch", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("mcp-purge-evidence", "https://github.com/test/mcp-purge-evidence.git"))
+                        .ConfigureAwait(false);
+
+                    Mission ev1 = new Mission("Evidence 1", "desc ev1");
+                    ev1.VesselId = vessel.Id;
+                    ev1.Persona = "Worker";
+                    ev1.Status = MissionStatusEnum.Complete;
+                    ev1.CompletedUtc = DateTime.UtcNow.AddMinutes(-20);
+                    ev1.DiffSnapshot = "diff ev1";
+                    ev1.AgentOutput = "output ev1";
+                    await testDb.Driver.Missions.CreateAsync(ev1).ConfigureAwait(false);
+
+                    Mission ev2 = new Mission("Evidence 2", "desc ev2");
+                    ev2.VesselId = vessel.Id;
+                    ev2.Persona = "Worker";
+                    ev2.Status = MissionStatusEnum.Complete;
+                    ev2.CompletedUtc = DateTime.UtcNow.AddMinutes(-10);
+                    ev2.DiffSnapshot = "diff ev2";
+                    ev2.AgentOutput = "output ev2";
+                    await testDb.Driver.Missions.CreateAsync(ev2).ConfigureAwait(false);
+
+                    Voyage sourceVoyage = new Voyage("source voyage", "source voyage desc");
+                    sourceVoyage.TenantId = Constants.DefaultTenantId;
+                    sourceVoyage.UserId = Constants.DefaultUserId;
+                    sourceVoyage.Status = VoyageStatusEnum.Cancelled;
+                    sourceVoyage = await testDb.Driver.Voyages.CreateAsync(sourceVoyage).ConfigureAwait(false);
+
+                    Mission sourceMission = new Mission("source mission", "desc source mission");
+                    sourceMission.VoyageId = sourceVoyage.Id;
+                    sourceMission.VesselId = vessel.Id;
+                    sourceMission.Status = MissionStatusEnum.Cancelled;
+                    sourceMission.TenantId = Constants.DefaultTenantId;
+                    sourceMission.UserId = Constants.DefaultUserId;
+                    await testDb.Driver.Missions.CreateAsync(sourceMission).ConfigureAwait(false);
+
+                    ReflectionDrainRecordingAdmiral admiral = new ReflectionDrainRecordingAdmiral(testDb.Driver);
+
+                    Func<JsonElement?, Task<object>>? purgeHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_purge_voyage") purgeHandler = handler; },
+                        testDb.Driver,
+                        admiral,
+                        null);
+
+                    AssertNotNull(purgeHandler, "armada_purge_voyage handler must be registered");
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new { voyageId = sourceVoyage.Id });
+                    object result = await purgeHandler!(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+
+                    AssertFalse(resultJson.Contains("\"Error\""), "Purge should succeed: " + resultJson);
+                    AssertEqual(1, admiral.DispatchCount, "Purge with evidence should dispatch one reflection");
+
+                    EnumerationQuery markerQuery = new EnumerationQuery
+                    {
+                        EventType = "reflection.purge_redispatch_fired",
+                        VoyageId = sourceVoyage.Id,
+                        PageNumber = 1,
+                        PageSize = 10
+                    };
+                    EnumerationResult<ArmadaEvent> markerResult =
+                        await testDb.Driver.Events.EnumerateAsync(markerQuery).ConfigureAwait(false);
+                    AssertEqual(1, markerResult.Objects.Count,
+                        "Exactly one purge redispatch marker event should be persisted");
+                }
+            });
+
+            await RunTest("PurgeVoyage_MarkerPersists_DirectSecondCallIsNoOp", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("mcp-purge-singleflight", "https://github.com/test/mcp-purge-singleflight.git"))
+                        .ConfigureAwait(false);
+
+                    Mission ev1 = new Mission("Evidence 1", "desc ev1");
+                    ev1.VesselId = vessel.Id;
+                    ev1.Persona = "Worker";
+                    ev1.Status = MissionStatusEnum.Complete;
+                    ev1.CompletedUtc = DateTime.UtcNow.AddMinutes(-20);
+                    ev1.DiffSnapshot = "diff ev1";
+                    ev1.AgentOutput = "output ev1";
+                    await testDb.Driver.Missions.CreateAsync(ev1).ConfigureAwait(false);
+
+                    Voyage sourceVoyage = new Voyage("source voyage sf", "source voyage sf desc");
+                    sourceVoyage.TenantId = Constants.DefaultTenantId;
+                    sourceVoyage.UserId = Constants.DefaultUserId;
+                    sourceVoyage.Status = VoyageStatusEnum.Cancelled;
+                    sourceVoyage = await testDb.Driver.Voyages.CreateAsync(sourceVoyage).ConfigureAwait(false);
+
+                    Mission sourceMission = new Mission("source mission sf", "desc source mission sf");
+                    sourceMission.VoyageId = sourceVoyage.Id;
+                    sourceMission.VesselId = vessel.Id;
+                    sourceMission.Status = MissionStatusEnum.Cancelled;
+                    sourceMission.TenantId = Constants.DefaultTenantId;
+                    sourceMission.UserId = Constants.DefaultUserId;
+                    await testDb.Driver.Missions.CreateAsync(sourceMission).ConfigureAwait(false);
+
+                    ReflectionDrainRecordingAdmiral admiral = new ReflectionDrainRecordingAdmiral(testDb.Driver);
+
+                    Func<JsonElement?, Task<object>>? purgeHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_purge_voyage") purgeHandler = handler; },
+                        testDb.Driver,
+                        admiral,
+                        null);
+
+                    // First purge via MCP handler — should trigger dispatch and persist the marker
+                    JsonElement args = JsonSerializer.SerializeToElement(new { voyageId = sourceVoyage.Id });
+                    object result = await purgeHandler!(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+                    AssertFalse(resultJson.Contains("\"Error\""), "First purge should succeed: " + resultJson);
+                    AssertEqual(1, admiral.DispatchCount, "First purge should dispatch exactly once");
+
+                    // Direct call to dispatcher with the same source voyage id — persisted marker should block it
+                    ReflectionDispatcher dispatcher = new ReflectionDispatcher(
+                        testDb.Driver, admiral, new ArmadaSettings { InitialReflectionWindow = 10 },
+                        new ReflectionMemoryService(testDb.Driver));
+                    ReflectionDispatcher.DispatchResult? secondResult =
+                        await dispatcher.TryAutoDispatchAfterPurgeAsync(sourceVoyage.Id, vessel.Id)
+                            .ConfigureAwait(false);
+
+                    AssertNull(secondResult,
+                        "Second call with same source voyage should be blocked by the persisted marker");
+                    AssertEqual(1, admiral.DispatchCount,
+                        "Second call must not add a dispatch — single-flight holds across dispatcher instances");
                 }
             });
         }

@@ -8,7 +8,9 @@ namespace Armada.Server.WebSocket
     using System.Threading.Tasks;
     using Armada.Core.Database;
     using Armada.Core.Enums;
+    using Armada.Core.Memory;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
 
@@ -387,6 +389,7 @@ namespace Armada.Server.WebSocket
                             return new { type = "command.error", action = "purge_voyage", error = "Cannot delete voyage with " + pvActiveCount + " active mission(s) in Assigned or InProgress status. Cancel or complete them first." };
                         else
                         {
+                            string? pvVesselId = pvMissions.Select(m => m.VesselId).FirstOrDefault(v => !String.IsNullOrEmpty(v));
                             foreach (Mission m in pvMissions)
                             {
                                 // Clean up associated dock/worktree
@@ -428,6 +431,18 @@ namespace Armada.Server.WebSocket
                                 await _Database.Missions.DeleteAsync(m.Id).ConfigureAwait(false);
                             }
                             await _Database.Voyages.DeleteAsync(pvId).ConfigureAwait(false);
+
+                            if (!String.IsNullOrEmpty(pvVesselId))
+                            {
+                                ReflectionDispatcher pvDispatcher = new ReflectionDispatcher(
+                                    _Database, _Admiral, _Settings ?? new ArmadaSettings(), new ReflectionMemoryService(_Database));
+                                try
+                                {
+                                    await pvDispatcher.TryAutoDispatchAfterPurgeAsync(pvId, pvVesselId).ConfigureAwait(false);
+                                }
+                                catch { }
+                            }
+
                             return new { type = "command.result", action = "purge_voyage", data = (object)new { status = "deleted", voyageId = pvId, missionsDeleted = pvMissions.Count } };
                         }
                     }
