@@ -531,6 +531,11 @@ namespace Armada.Core.Database.Mysql
                     48,
                     "Add mission assignment state column to missions",
                     TableQueries.MigrationV48Statements
+                ),
+                new SchemaMigration(
+                    49,
+                    "Add sibling_repos JSON column to vessels",
+                    TableQueries.MigrationV49Statements
                 )
             };
         }

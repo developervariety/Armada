@@ -845,6 +845,14 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
+        /// Migration v49 statements for adding sibling_repos JSON column to vessels.
+        /// </summary>
+        public static readonly string[] MigrationV49Statements = new string[]
+        {
+            @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS sibling_repos LONGTEXT;"
+        };
+
+        /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
         public static readonly string[] Indexes = new string[]

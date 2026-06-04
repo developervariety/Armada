@@ -54,8 +54,8 @@ namespace Armada.Core.Database.Mysql.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = @"INSERT INTO vessels (id, tenant_id, user_id, fleet_id, name, repo_url, local_path, working_directory, project_context, style_guide, enable_model_context, model_context, landing_mode, branch_cleanup_policy, allow_concurrent_missions, default_pipeline_id, protected_paths, auto_land_predicate, auto_land_calibration_landed_count, default_playbooks, last_reflection_mission_id, reflection_threshold, reorganize_threshold, pack_curate_threshold, default_branch, active, created_utc, last_update_utc)
-                        VALUES (@id, @tenant_id, @user_id, @fleet_id, @name, @repo_url, @local_path, @working_directory, @project_context, @style_guide, @enable_model_context, @model_context, @landing_mode, @branch_cleanup_policy, @allow_concurrent_missions, @default_pipeline_id, @protected_paths, @auto_land_predicate, @auto_land_calibration_landed_count, @default_playbooks, @last_reflection_mission_id, @reflection_threshold, @reorganize_threshold, @pack_curate_threshold, @default_branch, @active, @created_utc, @last_update_utc);";
+                    cmd.CommandText = @"INSERT INTO vessels (id, tenant_id, user_id, fleet_id, name, repo_url, local_path, working_directory, project_context, style_guide, enable_model_context, model_context, landing_mode, branch_cleanup_policy, allow_concurrent_missions, default_pipeline_id, protected_paths, auto_land_predicate, auto_land_calibration_landed_count, default_playbooks, sibling_repos, last_reflection_mission_id, reflection_threshold, reorganize_threshold, pack_curate_threshold, default_branch, active, created_utc, last_update_utc)
+                        VALUES (@id, @tenant_id, @user_id, @fleet_id, @name, @repo_url, @local_path, @working_directory, @project_context, @style_guide, @enable_model_context, @model_context, @landing_mode, @branch_cleanup_policy, @allow_concurrent_missions, @default_pipeline_id, @protected_paths, @auto_land_predicate, @auto_land_calibration_landed_count, @default_playbooks, @sibling_repos, @last_reflection_mission_id, @reflection_threshold, @reorganize_threshold, @pack_curate_threshold, @default_branch, @active, @created_utc, @last_update_utc);";
                     cmd.Parameters.AddWithValue("@id", vessel.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)vessel.TenantId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@user_id", (object?)vessel.UserId ?? DBNull.Value);
@@ -76,6 +76,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     cmd.Parameters.AddWithValue("@auto_land_predicate", (object?)vessel.AutoLandPredicate ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@auto_land_calibration_landed_count", vessel.AutoLandCalibrationLandedCount);
                     cmd.Parameters.AddWithValue("@default_playbooks", (object?)vessel.DefaultPlaybooks ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@sibling_repos", (object?)vessel.SiblingRepos ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@last_reflection_mission_id", (object?)vessel.LastReflectionMissionId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@reflection_threshold", (object?)vessel.ReflectionThreshold ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@reorganize_threshold", (object?)vessel.ReorganizeThreshold ?? DBNull.Value);
@@ -183,6 +184,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                         auto_land_predicate = @auto_land_predicate,
                         auto_land_calibration_landed_count = @auto_land_calibration_landed_count,
                         default_playbooks = @default_playbooks,
+                        sibling_repos = @sibling_repos,
                         last_reflection_mission_id = @last_reflection_mission_id,
                         reflection_threshold = @reflection_threshold,
                         reorganize_threshold = @reorganize_threshold,
@@ -211,6 +213,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     cmd.Parameters.AddWithValue("@auto_land_predicate", (object?)vessel.AutoLandPredicate ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@auto_land_calibration_landed_count", vessel.AutoLandCalibrationLandedCount);
                     cmd.Parameters.AddWithValue("@default_playbooks", (object?)vessel.DefaultPlaybooks ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@sibling_repos", (object?)vessel.SiblingRepos ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@last_reflection_mission_id", (object?)vessel.LastReflectionMissionId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@reflection_threshold", (object?)vessel.ReflectionThreshold ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@reorganize_threshold", (object?)vessel.ReorganizeThreshold ?? DBNull.Value);
@@ -796,6 +799,7 @@ namespace Armada.Core.Database.Mysql.Implementations
             try { vessel.AutoLandPredicate = reader["auto_land_predicate"] as string; } catch { }
             try { vessel.AutoLandCalibrationLandedCount = Convert.ToInt32(reader["auto_land_calibration_landed_count"]); } catch { vessel.AutoLandCalibrationLandedCount = 0; }
             try { vessel.DefaultPlaybooks = reader["default_playbooks"] as string; } catch { }
+            try { vessel.SiblingRepos = reader["sibling_repos"] as string; } catch { }
             try { vessel.LastReflectionMissionId = NullableString(reader["last_reflection_mission_id"]); } catch { }
             try { vessel.ReflectionThreshold = reader["reflection_threshold"] == DBNull.Value ? null : Convert.ToInt32(reader["reflection_threshold"]); } catch { }
             try { vessel.ReorganizeThreshold = reader["reorganize_threshold"] == DBNull.Value ? null : Convert.ToInt32(reader["reorganize_threshold"]); } catch { }

@@ -227,6 +227,15 @@ namespace Armada.Core.Models
         public string? DefaultPlaybooks { get; set; } = null;
 
         /// <summary>
+        /// JSON-serialized list of SiblingRepo entries describing dependency repositories that
+        /// must be provisioned alongside this vessel's primary worktree so consumer projects
+        /// resolving cross-repo sources via MSBuild parent-probe paths can build inside a dock.
+        /// Null/empty means single-repo provisioning (no extra worktrees).
+        /// Use GetSiblingRepos() to obtain a parsed list.
+        /// </summary>
+        public string? SiblingRepos { get; set; } = null;
+
+        /// <summary>
         /// Identifier of the most recently accepted reflection mission for this vessel.
         /// </summary>
         public string? LastReflectionMissionId { get; set; } = null;
@@ -270,6 +279,23 @@ namespace Armada.Core.Models
             catch
             {
                 return new List<SelectedPlaybook>();
+            }
+        }
+
+        /// <summary>Lazy-parses the SiblingRepos JSON string. Returns an empty list if unset or malformed.</summary>
+        public List<SiblingRepo> GetSiblingRepos()
+        {
+            if (string.IsNullOrWhiteSpace(SiblingRepos)) return new List<SiblingRepo>();
+            try
+            {
+                List<SiblingRepo>? list = System.Text.Json.JsonSerializer.Deserialize<List<SiblingRepo>>(
+                    SiblingRepos,
+                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                return list ?? new List<SiblingRepo>();
+            }
+            catch
+            {
+                return new List<SiblingRepo>();
             }
         }
 

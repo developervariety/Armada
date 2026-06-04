@@ -254,6 +254,46 @@ namespace Armada.Test.Unit.Suites.Models
                 AssertContains("ReorganizeThreshold", json);
                 AssertContains("62", json);
             });
+
+            await RunTest("Vessel SiblingRepos DefaultsToNull", () =>
+            {
+                Vessel vessel = new Vessel();
+                AssertNull(vessel.SiblingRepos);
+                AssertEqual(0, vessel.GetSiblingRepos().Count);
+            });
+
+            await RunTest("Vessel GetSiblingRepos ParsesDeclaredEntries", () =>
+            {
+                Vessel vessel = new Vessel("SiblingVessel", "https://github.com/test/repo");
+                vessel.SiblingRepos = "[{\"relativePath\":\"../SibA\",\"repoUrl\":\"https://github.com/test/sibA.git\",\"branchStrategy\":\"DefaultOnly\",\"defaultBranch\":\"develop\"}]";
+
+                System.Collections.Generic.List<SiblingRepo> parsed = vessel.GetSiblingRepos();
+                AssertEqual(1, parsed.Count);
+                AssertEqual("../SibA", parsed[0].RelativePath);
+                AssertEqual("https://github.com/test/sibA.git", parsed[0].RepoUrl);
+                AssertEqual(Armada.Core.Enums.SiblingBranchStrategyEnum.DefaultOnly, parsed[0].BranchStrategy);
+                AssertEqual("develop", parsed[0].DefaultBranch);
+            });
+
+            await RunTest("Vessel GetSiblingRepos ReturnsEmptyOnInvalidJson", () =>
+            {
+                Vessel vessel = new Vessel();
+                vessel.SiblingRepos = "{not valid json";
+                AssertEqual(0, vessel.GetSiblingRepos().Count);
+            });
+
+            await RunTest("Vessel SiblingRepos Serialization RoundTrip", () =>
+            {
+                Vessel vessel = new Vessel("SiblingRoundTrip", "https://github.com/test/repo");
+                vessel.SiblingRepos = "[{\"relativePath\":\"../SibB\",\"vesselRef\":\"vsl_abc\"}]";
+
+                string json = JsonSerializer.Serialize(vessel);
+                Vessel deserialized = JsonSerializer.Deserialize<Vessel>(json)!;
+
+                AssertEqual(vessel.SiblingRepos, deserialized.SiblingRepos);
+                AssertEqual(1, deserialized.GetSiblingRepos().Count);
+                AssertEqual("../SibB", deserialized.GetSiblingRepos()[0].RelativePath);
+            });
         }
     }
 }

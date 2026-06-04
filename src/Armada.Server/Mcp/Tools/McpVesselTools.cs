@@ -105,6 +105,24 @@ namespace Armada.Server.Mcp.Tools
                                 },
                                 required = new[] { "playbookId", "deliveryMode" }
                             }
+                        },
+                        siblingRepos = new
+                        {
+                            type = "array",
+                            description = "Optional dependency repositories provisioned alongside this vessel's worktree so cross-repo source probes resolve in a dock. Each entry: { vesselRef?: string, repoUrl?: string, relativePath: string, branchStrategy?: \"MatchBranchElseDefault\"|\"DefaultOnly\", defaultBranch?: string }. relativePath is resolved against the dock worktree (use \"../Name\" to place a sibling next to the dock). Omit to set none.",
+                            items = new
+                            {
+                                type = "object",
+                                properties = new
+                                {
+                                    vesselRef = new { type = "string", description = "Optional known Armada vessel ID or name supplying the sibling source" },
+                                    repoUrl = new { type = "string", description = "Optional git URL for the sibling source (used when vesselRef is unset/unresolvable)" },
+                                    relativePath = new { type = "string", description = "Relative checkout path resolved against the dock worktree (e.g. ../JproDeobfuscator)" },
+                                    branchStrategy = new { type = "string", description = "MatchBranchElseDefault (default) or DefaultOnly" },
+                                    defaultBranch = new { type = "string", description = "Fallback base branch for the sibling; defaults to main" }
+                                },
+                                required = new[] { "relativePath" }
+                            }
                         }
                     },
                     required = new[] { "name", "repoUrl", "fleetId" }
@@ -146,6 +164,23 @@ namespace Armada.Server.Mcp.Tools
                             return (object)new { Error = "invalid defaultPlaybooks JSON: " + ex.Message };
                         }
                     }
+                    string? siblingReposJson = null;
+                    if (args.HasValue && args.Value.TryGetProperty("siblingRepos", out JsonElement addSrElem)
+                        && addSrElem.ValueKind != JsonValueKind.Null)
+                    {
+                        string addSrRaw = addSrElem.GetRawText();
+                        try
+                        {
+                            List<Armada.Core.Models.SiblingRepo>? parsed = JsonSerializer.Deserialize<List<Armada.Core.Models.SiblingRepo>>(
+                                addSrRaw,
+                                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                            siblingReposJson = (parsed == null || parsed.Count == 0) ? null : addSrRaw;
+                        }
+                        catch (JsonException ex)
+                        {
+                            return (object)new { Error = "invalid siblingRepos JSON: " + ex.Message };
+                        }
+                    }
                     Vessel vessel = new Vessel();
                     vessel.TenantId = ArmadaConstants.DefaultTenantId;
                     vessel.Name = request.Name;
@@ -179,6 +214,7 @@ namespace Armada.Server.Mcp.Tools
                     }
                     vessel.AutoLandPredicate = autoLandPredicateJson;
                     vessel.DefaultPlaybooks = defaultPlaybooksJson;
+                    vessel.SiblingRepos = siblingReposJson;
                     vessel = await database.Vessels.CreateAsync(vessel).ConfigureAwait(false);
                     return (object)vessel;
                 });
@@ -237,6 +273,24 @@ namespace Armada.Server.Mcp.Tools
                                     deliveryMode = new { type = "string", description = "InlineFullContent, InstructionWithReference, or AttachIntoWorktree" }
                                 },
                                 required = new[] { "playbookId", "deliveryMode" }
+                            }
+                        },
+                        siblingRepos = new
+                        {
+                            type = "array",
+                            description = "Dependency repositories provisioned alongside this vessel's worktree so cross-repo source probes resolve in a dock. Each entry: { vesselRef?: string, repoUrl?: string, relativePath: string, branchStrategy?: \"MatchBranchElseDefault\"|\"DefaultOnly\", defaultBranch?: string }. relativePath is resolved against the dock worktree (use \"../Name\" to place a sibling next to the dock). Omit to leave unchanged; pass an empty array or null to clear all.",
+                            items = new
+                            {
+                                type = "object",
+                                properties = new
+                                {
+                                    vesselRef = new { type = "string", description = "Optional known Armada vessel ID or name supplying the sibling source" },
+                                    repoUrl = new { type = "string", description = "Optional git URL for the sibling source (used when vesselRef is unset/unresolvable)" },
+                                    relativePath = new { type = "string", description = "Relative checkout path resolved against the dock worktree (e.g. ../JproDeobfuscator)" },
+                                    branchStrategy = new { type = "string", description = "MatchBranchElseDefault (default) or DefaultOnly" },
+                                    defaultBranch = new { type = "string", description = "Fallback base branch for the sibling; defaults to main" }
+                                },
+                                required = new[] { "relativePath" }
                             }
                         }
                     },
@@ -311,6 +365,28 @@ namespace Armada.Server.Mcp.Tools
                             catch (JsonException ex)
                             {
                                 return (object)new { Error = "invalid defaultPlaybooks JSON: " + ex.Message };
+                            }
+                        }
+                    }
+                    if (args.HasValue && args.Value.TryGetProperty("siblingRepos", out JsonElement updSrElem))
+                    {
+                        if (updSrElem.ValueKind == JsonValueKind.Null)
+                        {
+                            vessel.SiblingRepos = null;
+                        }
+                        else if (updSrElem.ValueKind == JsonValueKind.Array)
+                        {
+                            string updSrRaw = updSrElem.GetRawText();
+                            try
+                            {
+                                List<Armada.Core.Models.SiblingRepo>? parsed = JsonSerializer.Deserialize<List<Armada.Core.Models.SiblingRepo>>(
+                                    updSrRaw,
+                                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                                vessel.SiblingRepos = (parsed == null || parsed.Count == 0) ? null : updSrRaw;
+                            }
+                            catch (JsonException ex)
+                            {
+                                return (object)new { Error = "invalid siblingRepos JSON: " + ex.Message };
                             }
                         }
                     }

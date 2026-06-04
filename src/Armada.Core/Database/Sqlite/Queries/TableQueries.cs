@@ -1239,6 +1239,9 @@ namespace Armada.Core.Database.Sqlite.Queries
                 ),
                 new SchemaMigration(48, "Add mission assignment state column to missions",
                     @"ALTER TABLE missions ADD COLUMN mission_assignment_state TEXT NOT NULL DEFAULT 'Pending';"
+                ),
+                new SchemaMigration(49, "Add sibling_repos JSON column to vessels",
+                    @"ALTER TABLE vessels ADD COLUMN sibling_repos TEXT;"
                 )
             };
         }

@@ -213,6 +213,11 @@ namespace Armada.Core.Services
                 await _Git.CreateWorktreeAsync(repoPath, worktreePath, branchName, vessel.DefaultBranch, token).ConfigureAwait(false);
                 await SeedDockMcpConfigAsync(worktreePath, token).ConfigureAwait(false);
 
+                // Provision declared sibling repositories alongside this dock so consumer repos
+                // that resolve cross-repo sources via parent-probe paths can build inside the dock.
+                // No-op for vessels that declare no siblings (single-repo vessels are unaffected).
+                await ProvisionSiblingReposAsync(vessel, worktreePath, branchName, token).ConfigureAwait(false);
+
                 string? headCommit = await _Git.GetHeadCommitHashAsync(worktreePath, token).ConfigureAwait(false);
                 if (String.IsNullOrEmpty(headCommit))
                 {
@@ -315,6 +320,8 @@ namespace Armada.Core.Services
                     await ForceRemoveDirectoryAsync(dock.WorktreePath, token).ConfigureAwait(false);
                 }
             }
+
+            await RemoveSiblingReposForDockAsync(dock, token).ConfigureAwait(false);
 
             TryDeleteDockStartCommitFile(dock.Id);
 
@@ -419,6 +426,8 @@ namespace Armada.Core.Services
                 await ForceRemoveDirectoryAsync(dock.WorktreePath, token).ConfigureAwait(false);
             }
 
+            await RemoveSiblingReposForDockAsync(dock, token).ConfigureAwait(false);
+
             TryDeleteDockStartCommitFile(dock.Id);
         }
 
@@ -522,6 +531,193 @@ namespace Armada.Core.Services
         private static string NormalizePath(string path)
         {
             return Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        }
+
+        /// <summary>
+        /// Provision each sibling repository declared by the vessel into the dock at its declared
+        /// relative checkout path. Returns immediately when the vessel declares no siblings, leaving
+        /// single-repo dock behavior unchanged. Each sibling source is resolved from a known Armada
+        /// vessel (by ID then name) or a raw git URL, cloned bare once into the repos directory, and
+        /// checked out as a worktree at the path the consumer's parent-probe arithmetic expects.
+        /// </summary>
+        private async Task ProvisionSiblingReposAsync(Vessel vessel, string worktreePath, string dockBranchName, CancellationToken token)
+        {
+            List<SiblingRepo> siblings = vessel.GetSiblingRepos();
+            if (siblings.Count == 0) return;
+
+            foreach (SiblingRepo sibling in siblings)
+            {
+                if (sibling == null || String.IsNullOrWhiteSpace(sibling.RelativePath))
+                {
+                    _Logging.Warn(_Header + "skipping sibling repo with empty relative path for vessel " + vessel.Id);
+                    continue;
+                }
+
+                string? siblingRepoPath = await ResolveSiblingRepoPathAsync(sibling, token).ConfigureAwait(false);
+                if (String.IsNullOrEmpty(siblingRepoPath))
+                {
+                    _Logging.Warn(_Header + "could not resolve source for sibling repo (relativePath=" + sibling.RelativePath + ") on vessel " + vessel.Id);
+                    continue;
+                }
+
+                string siblingWorktreePath = Path.GetFullPath(Path.Combine(worktreePath, sibling.RelativePath));
+
+                if (Directory.Exists(siblingWorktreePath))
+                {
+                    bool isRegistered = await _Git.IsWorktreeRegisteredAsync(siblingRepoPath, siblingWorktreePath, token).ConfigureAwait(false);
+                    if (isRegistered)
+                    {
+                        try { await _Git.RemoveWorktreeAsync(siblingWorktreePath, token).ConfigureAwait(false); }
+                        catch (Exception rmEx) { _Logging.Warn(_Header + "git worktree remove failed for sibling " + siblingWorktreePath + ": " + rmEx.Message); }
+                    }
+                    await ForceRemoveDirectoryAsync(siblingWorktreePath, token).ConfigureAwait(false);
+                }
+
+                // Branch-compat rule: when the strategy is MatchBranchElseDefault and the dock branch
+                // already exists in the sibling repo, check out that same-named branch so the sibling
+                // tracks the dock's work. Otherwise fall back to the sibling's declared default branch
+                // (or "main"). DefaultOnly always uses the fallback.
+                string fallbackBranch = !String.IsNullOrWhiteSpace(sibling.DefaultBranch) ? sibling.DefaultBranch! : "main";
+                string siblingBranch = fallbackBranch;
+                if (sibling.BranchStrategy == SiblingBranchStrategyEnum.MatchBranchElseDefault
+                    && await _Git.BranchExistsAsync(siblingRepoPath, dockBranchName, token).ConfigureAwait(false))
+                {
+                    siblingBranch = dockBranchName;
+                }
+
+                await _Git.CreateWorktreeAsync(siblingRepoPath, siblingWorktreePath, siblingBranch, fallbackBranch, token).ConfigureAwait(false);
+                _Logging.Info(_Header + "provisioned sibling repo at " + siblingWorktreePath + " (branch " + siblingBranch + ") for vessel " + vessel.Id);
+            }
+        }
+
+        /// <summary>
+        /// Resolve and ensure the bare repository backing a sibling declaration exists locally,
+        /// returning its path. Prefers a known Armada vessel referenced by ID or name; otherwise
+        /// uses the declared git URL. Returns null when no source can be resolved.
+        /// </summary>
+        private async Task<string?> ResolveSiblingRepoPathAsync(SiblingRepo sibling, CancellationToken token)
+        {
+            Vessel? siblingVessel = null;
+            if (!String.IsNullOrWhiteSpace(sibling.VesselRef))
+            {
+                try { siblingVessel = await _Database.Vessels.ReadAsync(sibling.VesselRef, token).ConfigureAwait(false); }
+                catch { }
+                if (siblingVessel == null)
+                {
+                    try { siblingVessel = await _Database.Vessels.ReadByNameAsync(sibling.VesselRef, token).ConfigureAwait(false); }
+                    catch { }
+                }
+            }
+
+            string? repoUrl = sibling.RepoUrl;
+            string repoPath;
+            if (siblingVessel != null)
+            {
+                repoPath = siblingVessel.LocalPath ?? Path.Combine(_Settings.ReposDirectory, siblingVessel.Name + ".git");
+                if (String.IsNullOrWhiteSpace(repoUrl)) repoUrl = siblingVessel.RepoUrl;
+            }
+            else if (!String.IsNullOrWhiteSpace(repoUrl))
+            {
+                repoPath = Path.Combine(_Settings.ReposDirectory, DeriveRepoName(repoUrl) + ".git");
+            }
+            else
+            {
+                return null;
+            }
+
+            string normalizedRepoPath = Path.GetFullPath(repoPath);
+            SemaphoreSlim repoLock = _RepoProvisionLocks.GetOrAdd(normalizedRepoPath, _ => new SemaphoreSlim(1, 1));
+            await repoLock.WaitAsync(token).ConfigureAwait(false);
+            try
+            {
+                if (Directory.Exists(repoPath) && !await _Git.IsRepositoryAsync(repoPath, token).ConfigureAwait(false))
+                {
+                    _Logging.Warn(_Header + "removing corrupt sibling repo directory: " + repoPath);
+                    await ForceRemoveDirectoryAsync(repoPath, token).ConfigureAwait(false);
+                }
+
+                if (!await _Git.IsRepositoryAsync(repoPath, token).ConfigureAwait(false))
+                {
+                    if (String.IsNullOrWhiteSpace(repoUrl)) return null;
+                    await _Git.CloneBareAsync(repoUrl, repoPath, token).ConfigureAwait(false);
+                    if (siblingVessel != null && String.IsNullOrEmpty(siblingVessel.LocalPath))
+                    {
+                        siblingVessel.LocalPath = repoPath;
+                        try { await _Database.Vessels.UpdateAsync(siblingVessel, token).ConfigureAwait(false); }
+                        catch (Exception ex) { _Logging.Warn(_Header + "could not persist LocalPath for sibling vessel " + siblingVessel.Id + ": " + ex.Message); }
+                    }
+                }
+                else if (!String.IsNullOrWhiteSpace(repoUrl))
+                {
+                    try { await _Git.FetchAsync(repoPath, token).ConfigureAwait(false); }
+                    catch (Exception fetchEx) { _Logging.Warn(_Header + "fetch failed for sibling repo " + repoPath + ", continuing with local state: " + fetchEx.Message); }
+                }
+
+                return repoPath;
+            }
+            finally
+            {
+                repoLock.Release();
+            }
+        }
+
+        /// <summary>
+        /// Tear down any sibling worktrees provisioned for a dock. Reads the parent vessel's declared
+        /// siblings and removes each one at its relative path. No-op for vessels without siblings.
+        /// </summary>
+        private async Task RemoveSiblingReposForDockAsync(Dock dock, CancellationToken token)
+        {
+            if (dock == null || String.IsNullOrEmpty(dock.WorktreePath)) return;
+
+            Vessel? vessel = null;
+            try
+            {
+                vessel = !String.IsNullOrEmpty(dock.TenantId)
+                    ? await _Database.Vessels.ReadAsync(dock.TenantId, dock.VesselId, token).ConfigureAwait(false)
+                    : await _Database.Vessels.ReadAsync(dock.VesselId, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not read vessel " + dock.VesselId + " for sibling cleanup: " + ex.Message);
+            }
+            if (vessel == null) return;
+
+            List<SiblingRepo> siblings = vessel.GetSiblingRepos();
+            if (siblings.Count == 0) return;
+
+            foreach (SiblingRepo sibling in siblings)
+            {
+                if (sibling == null || String.IsNullOrWhiteSpace(sibling.RelativePath)) continue;
+
+                string siblingWorktreePath = Path.GetFullPath(Path.Combine(dock.WorktreePath, sibling.RelativePath));
+                if (!Directory.Exists(siblingWorktreePath)) continue;
+
+                try
+                {
+                    await _Git.RemoveWorktreeAsync(siblingWorktreePath, token).ConfigureAwait(false);
+                    _Logging.Info(_Header + "removed sibling worktree for dock " + dock.Id + " at " + siblingWorktreePath);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "error removing sibling worktree for dock " + dock.Id + ": " + ex.Message);
+                }
+
+                await ForceRemoveDirectoryAsync(siblingWorktreePath, token).ConfigureAwait(false);
+            }
+        }
+
+        /// <summary>
+        /// Derive a stable repository directory name from a git URL by taking its last path segment
+        /// and stripping a trailing ".git" suffix.
+        /// </summary>
+        private static string DeriveRepoName(string repoUrl)
+        {
+            string trimmed = repoUrl.Trim().TrimEnd('/');
+            int lastSlash = trimmed.LastIndexOfAny(new[] { '/', ':' });
+            string name = lastSlash >= 0 ? trimmed.Substring(lastSlash + 1) : trimmed;
+            if (name.EndsWith(".git", StringComparison.OrdinalIgnoreCase))
+                name = name.Substring(0, name.Length - 4);
+            return String.IsNullOrWhiteSpace(name) ? "sibling" : name;
         }
 
         /// <summary>
