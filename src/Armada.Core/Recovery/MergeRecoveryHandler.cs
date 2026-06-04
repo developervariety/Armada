@@ -9,6 +9,7 @@ namespace Armada.Core.Recovery
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
 
@@ -194,7 +195,7 @@ namespace Armada.Core.Recovery
                 BranchName = spec.LandingTargetBranch,
                 Status = MissionStatusEnum.Pending,
                 Priority = mission.Priority,
-                PreferredModel = spec.PreferredModel,
+                PreferredModel = ResolveRebasePreferredModel(mission),
                 DependsOnMissionId = spec.DependsOnMissionId,
                 SelectedPlaybooks = new List<SelectedPlaybook>(spec.SelectedPlaybooks),
                 PrestagedFiles = new List<PrestagedFile>(spec.PrestagedFiles),
@@ -350,6 +351,18 @@ namespace Armada.Core.Recovery
                 });
             }
             return snapshots;
+        }
+
+        private static string ResolveRebasePreferredModel(Mission failedMission)
+        {
+            // Carry the failed mission's routing tier forward so the rebase captain is
+            // matched the same way the original was, rather than freezing a concrete
+            // model name from the dock-setup spec. When the original has no usable
+            // preferred model, fall back to the high tier selector (not a literal model)
+            // so tier-based routing still applies.
+            if (failedMission != null && !String.IsNullOrWhiteSpace(failedMission.PreferredModel))
+                return failedMission.PreferredModel!;
+            return PreferredModelTierSelector.HighTier;
         }
 
         private static MergeFailureClassification ReconstructClassification(MergeEntry entry)
