@@ -143,6 +143,94 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertFalse(offTargetGit.MergeBranchCalls.Any(c => c.EndsWith(" -> " + offTargetVessel.WorkingDirectory, StringComparison.Ordinal)), "Off-target user working directory must not be merge target");
                 }
             });
+
+            await RunTest("MergeInDedicatedWorktreeAsync_TargetDrift_RetriesAndPersistsCount", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    settings.MaxLandingRetries = 2;
+                    StubGitService git = new StubGitService();
+                    git.DriftPushFailuresRemaining = 1;
+                    LandingService service = CreateService(testDb.Driver, settings, git);
+                    Vessel vessel = CreateVessel();
+                    Mission mission = CreateMission("msn_drift_retry");
+                    await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+                    string integrationWorktree = IntegrationWorktreePath(settings, mission);
+
+                    bool result = await service.MergeInDedicatedWorktreeAsync(
+                        vessel,
+                        mission,
+                        "main",
+                        "armada/captain/msn_drift_retry",
+                        "Merge armada mission").ConfigureAwait(false);
+
+                    Mission? read = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertTrue(result, "Drift retry should succeed within the bound");
+                    AssertEqual(2, git.WorktreeCalls.Count, "Initial attempt plus one retry should create two worktrees");
+                    AssertEqual(2, git.RemoveWorktreeCalls.Count, "Each attempt should clean up its integration worktree");
+                    AssertTrue(git.PushCalls.Contains(integrationWorktree), "Retry should push after rebuilding the integration worktree");
+                    AssertEqual(1, read!.LandingRetryCount, "Retry count should persist on the mission");
+                }
+            });
+
+            await RunTest("MergeInDedicatedWorktreeAsync_PersistentTargetDrift_StopsAtMaxRetriesAndFailsCleanly", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    settings.MaxLandingRetries = 2;
+                    StubGitService git = new StubGitService();
+                    git.DriftPushFailuresRemaining = 5;
+                    LandingService service = CreateService(testDb.Driver, settings, git);
+                    Vessel vessel = CreateVessel();
+                    Mission mission = CreateMission("msn_drift_exhausted");
+                    await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    bool result = await service.MergeInDedicatedWorktreeAsync(
+                        vessel,
+                        mission,
+                        "main",
+                        "armada/captain/msn_drift_exhausted",
+                        "Merge armada mission").ConfigureAwait(false);
+
+                    Mission? read = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertFalse(result, "Persistent drift should fail after exhausting the retry bound");
+                    AssertEqual(3, git.WorktreeCalls.Count, "Initial attempt plus two retries should be attempted");
+                    AssertEqual(2, read!.LandingRetryCount, "Retry count should stop at the configured maximum");
+                    AssertContains("target_branch_drift_retry_exhausted", read.FailureReason ?? String.Empty);
+                }
+            });
+
+            await RunTest("MergeInDedicatedWorktreeAsync_TargetDriftWithPersistedRetryBudget_ExhaustsWithoutExtraRetry", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    settings.MaxLandingRetries = 2;
+                    StubGitService git = new StubGitService();
+                    git.DriftPushFailuresRemaining = 5;
+                    LandingService service = CreateService(testDb.Driver, settings, git);
+                    Vessel vessel = CreateVessel();
+                    Mission mission = CreateMission("msn_drift_budget_persisted");
+                    mission.LandingRetryCount = 2;
+                    await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    bool result = await service.MergeInDedicatedWorktreeAsync(
+                        vessel,
+                        mission,
+                        "main",
+                        "armada/captain/msn_drift_budget_persisted",
+                        "Merge armada mission").ConfigureAwait(false);
+
+                    Mission? read = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertFalse(result, "Persisted exhausted retry budget should fail on the next drift");
+                    AssertEqual(1, git.WorktreeCalls.Count, "Exhausted persisted budget should allow only the current attempt");
+                    AssertEqual(1, git.RemoveWorktreeCalls.Count, "Failed exhausted attempt should still clean up its integration worktree");
+                    AssertEqual(2, read!.LandingRetryCount, "Persisted retry count must not increment beyond the configured maximum");
+                    AssertContains("target_branch_drift_retry_exhausted", read.FailureReason ?? String.Empty);
+                }
+            });
         }
 
         private static LoggingModule CreateLogging()

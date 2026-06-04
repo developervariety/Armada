@@ -1242,6 +1242,9 @@ namespace Armada.Core.Database.Sqlite.Queries
                 ),
                 new SchemaMigration(49, "Add sibling_repos JSON column to vessels",
                     @"ALTER TABLE vessels ADD COLUMN sibling_repos TEXT;"
+                ),
+                new SchemaMigration(50, "Add landing retry counter to missions",
+                    @"ALTER TABLE missions ADD COLUMN landing_retry_count INTEGER NOT NULL DEFAULT 0;"
                 )
             };
         }

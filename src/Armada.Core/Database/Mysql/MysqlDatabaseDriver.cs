@@ -560,6 +560,11 @@ namespace Armada.Core.Database.Mysql
                     49,
                     "Add sibling_repos JSON column to vessels",
                     TableQueries.MigrationV49Statements
+                ),
+                new SchemaMigration(
+                    50,
+                    "Add landing retry counter to missions",
+                    TableQueries.MigrationV50Statements
                 )
             };
         }

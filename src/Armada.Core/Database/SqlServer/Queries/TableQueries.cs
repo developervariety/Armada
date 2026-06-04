@@ -577,6 +577,13 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"
                     IF COL_LENGTH('vessels', 'sibling_repos') IS NULL
                         ALTER TABLE vessels ADD sibling_repos NVARCHAR(MAX);"
+                ),
+                new SchemaMigration(
+                    50,
+                    "Add landing retry counter to missions",
+                    @"
+                    IF COL_LENGTH('missions', 'landing_retry_count') IS NULL
+                        ALTER TABLE missions ADD landing_retry_count INT NOT NULL CONSTRAINT DF_missions_landing_retry_count DEFAULT 0;"
                 )
             };
         }

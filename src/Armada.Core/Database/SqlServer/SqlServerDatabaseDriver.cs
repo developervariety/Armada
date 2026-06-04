@@ -511,6 +511,7 @@ namespace Armada.Core.Database.SqlServer
             try { mission.ReviewRequestedUtc = FromIso8601Nullable(reader["review_requested_utc"]); } catch { }
             try { mission.ReviewedUtc = FromIso8601Nullable(reader["reviewed_utc"]); } catch { }
             try { object rv = reader["recovery_attempts"]; mission.RecoveryAttempts = (rv == null || rv == DBNull.Value) ? 0 : Convert.ToInt32(rv); } catch { }
+            try { object lr = reader["landing_retry_count"]; mission.LandingRetryCount = (lr == null || lr == DBNull.Value) ? 0 : Convert.ToInt32(lr); } catch { }
             try { mission.LastRecoveryActionUtc = FromIso8601Nullable(reader["last_recovery_action_utc"]); } catch { }
             return mission;
         }

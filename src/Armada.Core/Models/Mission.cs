@@ -254,6 +254,12 @@ namespace Armada.Core.Models
         public int RecoveryAttempts { get; set; } = 0;
 
         /// <summary>
+        /// Number of automatic landing retries already consumed for target-branch
+        /// drift. This budget is separate from mission recovery attempts.
+        /// </summary>
+        public int LandingRetryCount { get; set; } = 0;
+
+        /// <summary>
         /// Timestamp of the most recent auto-recovery action (redispatch, rebase-captain,
         /// or surface) recorded for this mission. Null when no recovery has run.
         /// </summary>

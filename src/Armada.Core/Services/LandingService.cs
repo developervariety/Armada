@@ -93,53 +93,80 @@ namespace Armada.Core.Services
             string worktreePath = Path.Combine(integrationRoot, mission.Id);
             Directory.CreateDirectory(integrationRoot);
 
-            bool succeeded = false;
-            try
+            while (true)
             {
-                _Logging.Info(_Header + "creating integration worktree " + worktreePath + " for mission " + mission.Id + " target " + targetBranch);
-                await _Git.CreateWorktreeAsync(vessel.LocalPath, worktreePath, targetBranch, targetBranch, token).ConfigureAwait(false);
-
-                await _Git.MergeBranchLocalAsync(worktreePath, vessel.LocalPath, missionBranch, targetBranch, commitMessage, token).ConfigureAwait(false);
-                _Logging.Info(_Header + "merged branch " + missionBranch + " into integration worktree " + worktreePath);
-
-                await _Git.PushBranchAsync(worktreePath, "origin", token).ConfigureAwait(false);
-                _Logging.Info(_Header + "pushed merged changes from integration worktree " + worktreePath);
-
-                succeeded = true;
-            }
-            catch (Exception ex)
-            {
-                _Logging.Warn(_Header + "integration merge failed for mission " + mission.Id + " branch " + missionBranch + ": " + ex.Message);
-                succeeded = false;
-            }
-            finally
-            {
-                try
-                {
-                    await _Git.RemoveWorktreeAsync(worktreePath, token).ConfigureAwait(false);
-                    _Logging.Info(_Header + "removed integration worktree " + worktreePath);
-                }
-                catch (Exception removeEx)
-                {
-                    _Logging.Warn(_Header + "failed to remove integration worktree " + worktreePath + ": " + removeEx.Message);
-                }
+                bool succeeded = false;
+                Exception? failure = null;
 
                 try
                 {
-                    await _Git.PruneWorktreesAsync(vessel.LocalPath, token).ConfigureAwait(false);
+                    await _Git.FetchAsync(vessel.LocalPath, token).ConfigureAwait(false);
+
+                    _Logging.Info(_Header + "creating integration worktree " + worktreePath + " for mission " + mission.Id + " target " + targetBranch + " attempt " + (mission.LandingRetryCount + 1));
+                    await _Git.CreateWorktreeAsync(vessel.LocalPath, worktreePath, targetBranch, targetBranch, token).ConfigureAwait(false);
+
+                    await _Git.MergeBranchLocalAsync(worktreePath, vessel.LocalPath, missionBranch, targetBranch, commitMessage, token).ConfigureAwait(false);
+                    _Logging.Info(_Header + "merged branch " + missionBranch + " into integration worktree " + worktreePath);
+
+                    await _Git.PushBranchAsync(worktreePath, "origin", token).ConfigureAwait(false);
+                    _Logging.Info(_Header + "pushed merged changes from integration worktree " + worktreePath);
+
+                    succeeded = true;
                 }
-                catch (Exception pruneEx)
+                catch (Exception ex)
                 {
-                    _Logging.Warn(_Header + "failed to prune integration worktrees for " + vessel.LocalPath + ": " + pruneEx.Message);
+                    _Logging.Warn(_Header + "integration merge failed for mission " + mission.Id + " branch " + missionBranch + ": " + ex.Message);
+                    failure = ex;
+                    succeeded = false;
                 }
-            }
+                finally
+                {
+                    try
+                    {
+                        await _Git.RemoveWorktreeAsync(worktreePath, token).ConfigureAwait(false);
+                        _Logging.Info(_Header + "removed integration worktree " + worktreePath);
+                    }
+                    catch (Exception removeEx)
+                    {
+                        _Logging.Warn(_Header + "failed to remove integration worktree " + worktreePath + ": " + removeEx.Message);
+                    }
 
-            if (succeeded)
-            {
-                await SyncUserWorkingDirectoryAfterLandingAsync(vessel, targetBranch, token).ConfigureAwait(false);
-            }
+                    try
+                    {
+                        await _Git.PruneWorktreesAsync(vessel.LocalPath, token).ConfigureAwait(false);
+                    }
+                    catch (Exception pruneEx)
+                    {
+                        _Logging.Warn(_Header + "failed to prune integration worktrees for " + vessel.LocalPath + ": " + pruneEx.Message);
+                    }
+                }
 
-            return succeeded;
+                if (succeeded)
+                {
+                    await SyncUserWorkingDirectoryAfterLandingAsync(vessel, targetBranch, token).ConfigureAwait(false);
+                    return true;
+                }
+
+                if (failure == null || !IsTargetBranchDrift(failure))
+                {
+                    return false;
+                }
+
+                int maxRetries = _Settings.MaxLandingRetries;
+                if (mission.LandingRetryCount >= maxRetries)
+                {
+                    mission.FailureReason = "target_branch_drift_retry_exhausted: maxLandingRetries=" + maxRetries;
+                    mission.LastUpdateUtc = DateTime.UtcNow;
+                    await PersistMissionRetryStateAsync(mission, token).ConfigureAwait(false);
+                    _Logging.Error(_Header + "target branch drift retry exhausted for mission " + mission.Id + " after " + mission.LandingRetryCount + " retries");
+                    return false;
+                }
+
+                mission.LandingRetryCount++;
+                mission.LastUpdateUtc = DateTime.UtcNow;
+                await PersistMissionRetryStateAsync(mission, token).ConfigureAwait(false);
+                _Logging.Warn(_Header + "target branch drift detected for mission " + mission.Id + "; auto-rebasing and retrying landing attempt " + mission.LandingRetryCount + " of " + maxRetries);
+            }
         }
 
         /// <inheritdoc />
@@ -324,6 +351,30 @@ namespace Armada.Core.Services
             {
                 _Logging.Info(_Header + "leaving user working directory " + vessel.WorkingDirectory + " unchanged after sync check failed: " + ex.Message + "; run git pull on " + targetBranch + " to sync when ready");
             }
+        }
+
+        private async Task PersistMissionRetryStateAsync(Mission mission, CancellationToken token)
+        {
+            try
+            {
+                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "failed to persist landing retry state for mission " + mission.Id + ": " + ex.Message);
+            }
+        }
+
+        private static bool IsTargetBranchDrift(Exception ex)
+        {
+            string message = ex.Message ?? String.Empty;
+            return message.Contains("target branch drift", StringComparison.OrdinalIgnoreCase)
+                || message.Contains("non-fast-forward", StringComparison.OrdinalIgnoreCase)
+                || message.Contains("fetch first", StringComparison.OrdinalIgnoreCase)
+                || message.Contains("stale info", StringComparison.OrdinalIgnoreCase)
+                || message.Contains("failed to push some refs", StringComparison.OrdinalIgnoreCase)
+                || message.Contains("remote contains work", StringComparison.OrdinalIgnoreCase)
+                || message.Contains("tip of your current branch is behind", StringComparison.OrdinalIgnoreCase);
         }
 
         #endregion

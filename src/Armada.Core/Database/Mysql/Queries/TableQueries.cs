@@ -853,6 +853,14 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
+        /// Migration v50 statements for adding the landing retry counter to missions.
+        /// </summary>
+        public static readonly string[] MigrationV50Statements = new string[]
+        {
+            @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS landing_retry_count INT NOT NULL DEFAULT 0;"
+        };
+
+        /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
         public static readonly string[] Indexes = new string[]
