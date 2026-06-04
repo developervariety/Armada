@@ -1904,8 +1904,9 @@ namespace Armada.Core.Memory
         /// <summary>
         /// Returns true if the evidence window for the given vessel and mode already has an
         /// unconsumed reflection mission: either a non-terminal MemoryConsolidator on the vessel,
-        /// or a terminal one dispatched for the same sinceMissionId window with no accepted or
-        /// rejected proposal event.
+        /// or a successfully-completed one dispatched for the same sinceMissionId window with no
+        /// accepted or rejected proposal event. Failed and Cancelled missions are not counted as
+        /// unconsumed because there is no proposal to review; a new dispatch should be allowed.
         /// </summary>
         private async Task<bool> IsReflectionInFlightForWindowAsync(
             string vesselId,
@@ -1951,7 +1952,7 @@ namespace Armada.Core.Memory
                     Mission? mission = await _Database.Missions.ReadAsync(evt.MissionId!, token).ConfigureAwait(false);
                     if (mission == null) continue;
                     if (!String.Equals(mission.Persona, "MemoryConsolidator", StringComparison.OrdinalIgnoreCase)) continue;
-                    if (!IsTerminal(mission.Status)) continue;
+                    if (mission.Status != MissionStatusEnum.Complete) continue;
 
                     bool reviewed = await HasReviewEventAsync(evt.MissionId!, token).ConfigureAwait(false);
                     if (!reviewed) return true;
