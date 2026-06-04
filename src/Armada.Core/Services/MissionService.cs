@@ -3253,6 +3253,7 @@ namespace Armada.Core.Services
                 }
                 else
                 {
+                    // Literal/concrete model pin: try exact match first.
                     List<Captain> filtered = new List<Captain>();
                     foreach (Captain captain in idleCaptains)
                     {
@@ -3262,8 +3263,34 @@ namespace Armada.Core.Services
                             filtered.Add(captain);
                         }
                     }
-                    if (filtered.Count == 0) return null;
-                    idleCaptains = filtered;
+                    if (filtered.Count > 0)
+                    {
+                        idleCaptains = filtered;
+                    }
+                    else
+                    {
+                        // No exact match: classify the pinned model into a tier and re-resolve.
+                        string? classifiedTier = PreferredModelTierSelector.ClassifyModel(preferredModel);
+                        if (classifiedTier != null)
+                        {
+                            string? fallbackModel = PreferredModelTierSelector.SelectModel(
+                                classifiedTier, idleCaptains, persona, n => Random.Shared.Next(n));
+                            if (fallbackModel == null) return null;
+                            List<Captain> tierFiltered = new List<Captain>();
+                            foreach (Captain captain in idleCaptains)
+                            {
+                                if (!String.IsNullOrEmpty(captain.Model) &&
+                                    String.Equals(captain.Model, fallbackModel, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    tierFiltered.Add(captain);
+                                }
+                            }
+                            if (tierFiltered.Count == 0) return null;
+                            idleCaptains = tierFiltered;
+                        }
+                        // Else: unclassified concrete model -- leave idleCaptains unrestricted;
+                        // persona filtering below narrows to compatible candidates.
+                    }
                 }
             }
 
