@@ -134,6 +134,29 @@ namespace Armada.Core.Services.Interfaces
         Task PullAsync(string workingDirectory, CancellationToken token = default);
 
         /// <summary>
+        /// Pull latest changes from remote into a working directory, failing unless the update is fast-forward only.
+        /// </summary>
+        /// <param name="workingDirectory">Path to the working directory.</param>
+        /// <param name="token">Cancellation token.</param>
+        Task PullFastForwardOnlyAsync(string workingDirectory, CancellationToken token = default);
+
+        /// <summary>
+        /// Get the current branch name for a working directory.
+        /// </summary>
+        /// <param name="workingDirectory">Path to the working directory.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The current branch name, or null if it cannot be determined.</returns>
+        Task<string?> GetCurrentBranchAsync(string workingDirectory, CancellationToken token = default);
+
+        /// <summary>
+        /// Check whether a working directory has no tracked or untracked changes.
+        /// </summary>
+        /// <param name="workingDirectory">Path to the working directory.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True if the working directory is clean.</returns>
+        Task<bool> IsWorkingDirectoryCleanAsync(string workingDirectory, CancellationToken token = default);
+
+        /// <summary>
         /// Get the diff of all changes in a worktree against the base branch.
         /// </summary>
         /// <param name="worktreePath">Path to the worktree.</param>

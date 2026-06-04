@@ -1,5 +1,6 @@
 namespace Armada.Core.Services
 {
+    using System.IO;
     using SyslogLogging;
     using Armada.Core.Database;
     using Armada.Core.Enums;
@@ -56,6 +57,90 @@ namespace Armada.Core.Services
         #endregion
 
         #region Public-Methods
+
+        /// <inheritdoc />
+        public async Task<bool> MergeInDedicatedWorktreeAsync(
+            Vessel vessel,
+            Mission mission,
+            string targetBranch,
+            string? sourceBranch = null,
+            string? commitMessage = null,
+            CancellationToken token = default)
+        {
+            if (vessel == null) throw new ArgumentNullException(nameof(vessel));
+            if (mission == null) throw new ArgumentNullException(nameof(mission));
+
+            if (String.IsNullOrEmpty(vessel.LocalPath))
+            {
+                _Logging.Warn(_Header + "vessel " + vessel.Id + " has no LocalPath -- cannot merge mission " + mission.Id);
+                return false;
+            }
+
+            if (String.IsNullOrEmpty(targetBranch))
+            {
+                _Logging.Warn(_Header + "mission " + mission.Id + " has no target branch -- cannot merge");
+                return false;
+            }
+
+            string? missionBranch = !String.IsNullOrEmpty(sourceBranch) ? sourceBranch : mission.BranchName;
+            if (String.IsNullOrEmpty(missionBranch))
+            {
+                _Logging.Warn(_Header + "mission " + mission.Id + " has no branch name -- cannot merge");
+                return false;
+            }
+
+            string integrationRoot = Path.Combine(_Settings.DocksDirectory, "_integration");
+            string worktreePath = Path.Combine(integrationRoot, mission.Id);
+            Directory.CreateDirectory(integrationRoot);
+
+            bool succeeded = false;
+            try
+            {
+                _Logging.Info(_Header + "creating integration worktree " + worktreePath + " for mission " + mission.Id + " target " + targetBranch);
+                await _Git.CreateWorktreeAsync(vessel.LocalPath, worktreePath, targetBranch, targetBranch, token).ConfigureAwait(false);
+
+                await _Git.MergeBranchLocalAsync(worktreePath, vessel.LocalPath, missionBranch, targetBranch, commitMessage, token).ConfigureAwait(false);
+                _Logging.Info(_Header + "merged branch " + missionBranch + " into integration worktree " + worktreePath);
+
+                await _Git.PushBranchAsync(worktreePath, "origin", token).ConfigureAwait(false);
+                _Logging.Info(_Header + "pushed merged changes from integration worktree " + worktreePath);
+
+                succeeded = true;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "integration merge failed for mission " + mission.Id + " branch " + missionBranch + ": " + ex.Message);
+                succeeded = false;
+            }
+            finally
+            {
+                try
+                {
+                    await _Git.RemoveWorktreeAsync(worktreePath, token).ConfigureAwait(false);
+                    _Logging.Info(_Header + "removed integration worktree " + worktreePath);
+                }
+                catch (Exception removeEx)
+                {
+                    _Logging.Warn(_Header + "failed to remove integration worktree " + worktreePath + ": " + removeEx.Message);
+                }
+
+                try
+                {
+                    await _Git.PruneWorktreesAsync(vessel.LocalPath, token).ConfigureAwait(false);
+                }
+                catch (Exception pruneEx)
+                {
+                    _Logging.Warn(_Header + "failed to prune integration worktrees for " + vessel.LocalPath + ": " + pruneEx.Message);
+                }
+            }
+
+            if (succeeded)
+            {
+                await SyncUserWorkingDirectoryAfterLandingAsync(vessel, targetBranch, token).ConfigureAwait(false);
+            }
+
+            return succeeded;
+        }
 
         /// <inheritdoc />
         public async Task<bool> RetryLandingAsync(string missionId, string? tenantId = null, CancellationToken token = default)
@@ -206,6 +291,38 @@ namespace Armada.Core.Services
                 catch { }
 
                 return false;
+            }
+        }
+
+        #endregion
+
+        #region Private-Methods
+
+        private async Task SyncUserWorkingDirectoryAfterLandingAsync(Vessel vessel, string targetBranch, CancellationToken token)
+        {
+            if (String.IsNullOrEmpty(vessel.WorkingDirectory))
+            {
+                return;
+            }
+
+            try
+            {
+                bool isClean = await _Git.IsWorkingDirectoryCleanAsync(vessel.WorkingDirectory, token).ConfigureAwait(false);
+                string? currentBranch = await _Git.GetCurrentBranchAsync(vessel.WorkingDirectory, token).ConfigureAwait(false);
+
+                if (isClean && String.Equals(currentBranch, targetBranch, StringComparison.Ordinal))
+                {
+                    await _Git.PullFastForwardOnlyAsync(vessel.WorkingDirectory, token).ConfigureAwait(false);
+                    _Logging.Info(_Header + "synced user working directory " + vessel.WorkingDirectory + " with fast-forward pull");
+                }
+                else
+                {
+                    _Logging.Info(_Header + "leaving user working directory " + vessel.WorkingDirectory + " unchanged; run git pull on " + targetBranch + " to sync when ready");
+                }
+            }
+            catch (Exception ex)
+            {
+                _Logging.Info(_Header + "leaving user working directory " + vessel.WorkingDirectory + " unchanged after sync check failed: " + ex.Message + "; run git pull on " + targetBranch + " to sync when ready");
             }
         }
 

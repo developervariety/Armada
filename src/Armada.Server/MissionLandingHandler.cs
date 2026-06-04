@@ -27,6 +27,7 @@ namespace Armada.Server
         private ArmadaSettings _Settings;
         private IGitService _Git;
         private IMergeQueueService _MergeQueue;
+        private ILandingService _LandingService;
         private IAutoLandEvaluator _AutoLandEvaluator;
         private IConventionChecker _ConventionChecker;
         private ICriticalTriggerEvaluator _CriticalTriggerEvaluator;
@@ -54,6 +55,7 @@ namespace Armada.Server
         /// <param name="settings">Application settings.</param>
         /// <param name="git">Git service.</param>
         /// <param name="mergeQueue">Merge queue service.</param>
+        /// <param name="landingService">Landing service.</param>
         /// <param name="autoLandEvaluator">Auto-land predicate evaluator.</param>
         /// <param name="conventionChecker">Convention checker for safety-net evaluation.</param>
         /// <param name="criticalTriggerEvaluator">Critical trigger evaluator for safety-net evaluation.</param>
@@ -69,6 +71,7 @@ namespace Armada.Server
             ArmadaSettings settings,
             IGitService git,
             IMergeQueueService mergeQueue,
+            ILandingService landingService,
             IAutoLandEvaluator autoLandEvaluator,
             IConventionChecker conventionChecker,
             ICriticalTriggerEvaluator criticalTriggerEvaluator,
@@ -84,6 +87,7 @@ namespace Armada.Server
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _Git = git ?? throw new ArgumentNullException(nameof(git));
             _MergeQueue = mergeQueue ?? throw new ArgumentNullException(nameof(mergeQueue));
+            _LandingService = landingService ?? throw new ArgumentNullException(nameof(landingService));
             _AutoLandEvaluator = autoLandEvaluator ?? throw new ArgumentNullException(nameof(autoLandEvaluator));
             _ConventionChecker = conventionChecker ?? throw new ArgumentNullException(nameof(conventionChecker));
             _CriticalTriggerEvaluator = criticalTriggerEvaluator ?? throw new ArgumentNullException(nameof(criticalTriggerEvaluator));
@@ -432,7 +436,7 @@ namespace Armada.Server
                     }
                     else
                     {
-                    // Local merge flow: fetch captain's branch from bare repo and merge into user's working directory
+                    // Local merge flow: merge in a dedicated integration worktree, then optionally fast-forward the user's checkout.
                     landingAttempted = true;
                     try
                     {
@@ -441,26 +445,16 @@ namespace Armada.Server
                         Dictionary<string, string> mergeContext = _TemplateService.BuildContext(mission, null, vessel, voyage, dock);
                         mergeMessage = _TemplateService.RenderMergeCommitMessage(_Settings.MessageTemplates, mergeContext);
 
-                        await _Git.MergeBranchLocalAsync(vessel.WorkingDirectory, vessel.LocalPath, dock.BranchName, vessel.DefaultBranch, mergeMessage).ConfigureAwait(false);
-                        _Logging.Info(_Header + "merged branch " + dock.BranchName + " into " + vessel.WorkingDirectory);
+                        landingSucceeded = await _LandingService.MergeInDedicatedWorktreeAsync(
+                            vessel,
+                            mission,
+                            vessel.DefaultBranch,
+                            dock.BranchName,
+                            mergeMessage).ConfigureAwait(false);
 
-                        landingSucceeded = true;
-
-                        // Push the merged changes to the remote BEFORE branch cleanup,
-                        // so the branch is preserved for retry if push fails.
-                        if (effectivePush)
+                        if (!landingSucceeded)
                         {
-                            try
-                            {
-                                await _Git.PushBranchAsync(vessel.WorkingDirectory).ConfigureAwait(false);
-                                _Logging.Info(_Header + "pushed merged changes from " + vessel.WorkingDirectory);
-                            }
-                            catch (Exception pushEx)
-                            {
-                                _Logging.Warn(_Header + "local merge succeeded but push failed for mission " + mission.Id + ": " + pushEx.Message);
-                                landingSucceeded = false;
-                                landingFailureReason = "Local merge succeeded but push failed: " + pushEx.Message;
-                            }
+                            landingFailureReason = "Integration worktree merge failed";
                         }
 
                         // Only clean up the mission branch after confirmed success (merge + push).

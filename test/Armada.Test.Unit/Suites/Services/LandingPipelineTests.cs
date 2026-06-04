@@ -1,6 +1,7 @@
 namespace Armada.Test.Unit.Suites.Services
 {
     using System.IO;
+    using System.Linq;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -150,18 +151,54 @@ namespace Armada.Test.Unit.Suites.Services
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
                     IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    ILandingService landingService = new LandingService(logging, testDb.Driver, settings, git);
+                    IMessageTemplateService templateService = new MessageTemplateService(logging);
+                    MissionLandingHandler handler = new MissionLandingHandler(
+                        logging,
+                        testDb.Driver,
+                        settings,
+                        git,
+                        new StubMergeQueueService(),
+                        landingService,
+                        new AutoLandEvaluator(),
+                        new ConventionChecker(),
+                        new CriticalTriggerEvaluator(),
+                        templateService,
+                        null,
+                        dockService,
+                        new NoOpRemoteTriggerService(),
+                        null);
 
-                    LandingTestEntitiesResult entities = await CreateTestEntitiesAsync(testDb.Driver, LandingModeEnum.LocalMerge);
+                    LandingTestEntitiesResult entities = await CreateTestEntitiesAsync(
+                        testDb.Driver,
+                        LandingModeEnum.LocalMerge,
+                        BranchCleanupPolicyEnum.LocalAndRemote);
                     Captain captain = entities.Captain;
                     Mission mission = entities.Mission;
-                    Dock dock = entities.Dock;
                     Vessel vessel = entities.Vessel;
+                    string integrationWorktree = Path.Combine(settings.DocksDirectory, "_integration", mission.Id);
 
                     // WorkProduced is set by HandleCompletionAsync
                     await missionService.HandleCompletionAsync(captain);
+                    git.ExistingBranches.Add(entities.Dock.BranchName!);
+                    mission.Status = MissionStatusEnum.WorkProduced;
+                    mission.DiffSnapshot = "diff --git a/app/routes_ops.py b/app/routes_ops.py";
+                    await testDb.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
+
+                    await handler.HandleMissionCompleteAsync(mission, entities.Dock).ConfigureAwait(false);
 
                     Mission? wp = await testDb.Driver.Missions.ReadAsync(mission.Id);
-                    AssertEqual(MissionStatusEnum.WorkProduced, wp!.Status, "Should be WorkProduced before landing attempt");
+                    AssertNotNull(wp, "Mission should still exist after failed landing");
+                    AssertEqual(MissionStatusEnum.LandingFailed, wp!.Status, "Failed integration merge should set LandingFailed");
+                    AssertContains("Integration worktree merge failed", wp.FailureReason ?? "", "Failure reason should explain integration merge failure");
+                    AssertTrue(git.MergeBranchCalls.Contains(entities.Dock.BranchName + " -> " + integrationWorktree), "Merge should be attempted in the integration worktree");
+                    AssertTrue(git.RemoveWorktreeCalls.Contains(integrationWorktree), "Integration worktree should be removed after failed landing");
+                    AssertTrue(git.PruneWorktreeCalls.Contains(vessel.LocalPath!), "Bare repo worktrees should be pruned after failed landing");
+                    AssertFalse(git.MergeBranchCalls.Any(c => c.EndsWith(" -> " + vessel.WorkingDirectory, StringComparison.Ordinal)), "User working directory must not be merge target");
+                    AssertFalse(git.PushCalls.Contains(vessel.WorkingDirectory!), "User working directory must not be pushed");
+                    AssertFalse(git.PullFastForwardOnlyCalls.Contains(vessel.WorkingDirectory!), "Failed landing must not sync the user working directory");
+                    AssertFalse(git.OperationCalls.Contains("delete-local-branch:" + entities.Dock.BranchName), "Failed landing should preserve local mission branch for retry");
+                    AssertFalse(git.OperationCalls.Contains("delete-remote-branch:" + entities.Dock.BranchName), "Failed landing should preserve remote mission branch for retry");
                 }
             });
 
@@ -336,6 +373,7 @@ namespace Armada.Test.Unit.Suites.Services
                     LoggingModule logging = CreateLogging();
                     ArmadaSettings settings = CreateSettings();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ILandingService landingService = new LandingService(logging, testDb.Driver, settings, git);
                     IMessageTemplateService templateService = new MessageTemplateService(logging);
                     MissionLandingHandler handler = new MissionLandingHandler(
                         logging,
@@ -343,6 +381,7 @@ namespace Armada.Test.Unit.Suites.Services
                         settings,
                         git,
                         new StubMergeQueueService(),
+                        landingService,
                         new AutoLandEvaluator(),
                         new ConventionChecker(),
                         new CriticalTriggerEvaluator(),
@@ -386,6 +425,7 @@ namespace Armada.Test.Unit.Suites.Services
                     LoggingModule logging = CreateLogging();
                     ArmadaSettings settings = CreateSettings();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ILandingService landingService = new LandingService(logging, testDb.Driver, settings, git);
                     IMessageTemplateService templateService = new MessageTemplateService(logging);
                     MissionLandingHandler handler = new MissionLandingHandler(
                         logging,
@@ -393,6 +433,7 @@ namespace Armada.Test.Unit.Suites.Services
                         settings,
                         git,
                         new StubMergeQueueService(),
+                        landingService,
                         new AutoLandEvaluator(),
                         new ConventionChecker(),
                         new CriticalTriggerEvaluator(),
@@ -528,6 +569,7 @@ namespace Armada.Test.Unit.Suites.Services
             public Task<int> PurgeTerminalAsync(string? vesselId = null, MergeStatusEnum? status = null, string? tenantId = null, CancellationToken token = default)
                 => Task.FromResult(0);
             public Task<int> ReconcilePullRequestEntriesAsync(CancellationToken token = default) => Task.FromResult(0);
+            public Task<int> ReconcileLandingStateMachineAsync(CancellationToken token = default) => Task.FromResult(0);
             public Task<bool> TryOpenPullRequestForRecoveryAsync(string mergeEntryId, CancellationToken token = default) => Task.FromResult(false);
         }
 

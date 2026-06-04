@@ -16,6 +16,8 @@ namespace Armada.Test.Unit.TestHelpers
         public List<string> PushCalls { get; } = new List<string>();
         public List<string> PrCalls { get; } = new List<string>();
         public List<string> PullCalls { get; } = new List<string>();
+        public List<string> PullFastForwardOnlyCalls { get; } = new List<string>();
+        public List<string> PruneWorktreeCalls { get; } = new List<string>();
         public List<string> DiffCalls { get; } = new List<string>();
         public List<string> OperationCalls { get; } = new List<string>();
 
@@ -24,6 +26,8 @@ namespace Armada.Test.Unit.TestHelpers
         public bool IsPrMergedResult { get; set; } = true;
         public string CreatePrResult { get; set; } = "https://github.com/test/repo/pull/1";
         public string DiffResult { get; set; } = "";
+        public string? CurrentBranchResult { get; set; } = "main";
+        public bool IsWorkingDirectoryCleanResult { get; set; } = true;
         public IReadOnlyList<string> ChangedFilesSinceResult { get; set; } = Array.Empty<string>();
         public bool DefaultBranchExistsResult { get; set; } = true;
         public HashSet<string> ExistingBranches { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "main" };
@@ -101,14 +105,19 @@ namespace Armada.Test.Unit.TestHelpers
             return Task.CompletedTask;
         }
 
-        public Task PruneWorktreesAsync(string repoPath, CancellationToken token = default) => Task.CompletedTask;
+        public Task PruneWorktreesAsync(string repoPath, CancellationToken token = default)
+        {
+            PruneWorktreeCalls.Add(repoPath);
+            OperationCalls.Add("prune-worktrees:" + repoPath);
+            return Task.CompletedTask;
+        }
         public Task EnableAutoMergeAsync(string worktreePath, string prUrl, CancellationToken token = default) => Task.CompletedTask;
 
         public Task MergeBranchLocalAsync(string targetWorkDir, string sourceRepoPath, string branchName, string? targetBranch = null, string? commitMessage = null, CancellationToken token = default)
         {
-            if (ShouldThrowOnMergeLocal) throw new InvalidOperationException("Simulated merge failure");
             MergeBranchCalls.Add(branchName + " -> " + targetWorkDir);
             OperationCalls.Add("merge-local:" + branchName);
+            if (ShouldThrowOnMergeLocal) throw new InvalidOperationException("Simulated merge failure");
             return Task.CompletedTask;
         }
 
@@ -117,6 +126,19 @@ namespace Armada.Test.Unit.TestHelpers
             PullCalls.Add(workingDirectory);
             return Task.CompletedTask;
         }
+
+        public Task PullFastForwardOnlyAsync(string workingDirectory, CancellationToken token = default)
+        {
+            PullFastForwardOnlyCalls.Add(workingDirectory);
+            OperationCalls.Add("pull-ff-only:" + workingDirectory);
+            return Task.CompletedTask;
+        }
+
+        public Task<string?> GetCurrentBranchAsync(string workingDirectory, CancellationToken token = default)
+            => Task.FromResult(CurrentBranchResult);
+
+        public Task<bool> IsWorkingDirectoryCleanAsync(string workingDirectory, CancellationToken token = default)
+            => Task.FromResult(IsWorkingDirectoryCleanResult);
 
         public Task<string> DiffAsync(string worktreePath, string baseBranch = "main", CancellationToken token = default)
         {

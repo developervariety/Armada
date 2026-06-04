@@ -19,9 +19,29 @@ namespace Armada.Core.Enums
         Testing,
 
         /// <summary>
+        /// Preparing the entry against the current target branch before merge.
+        /// </summary>
+        Rebasing,
+
+        /// <summary>
+        /// Merging the captain branch into the durable integration worktree.
+        /// </summary>
+        Merging,
+
+        /// <summary>
         /// Tests passed, ready to land.
         /// </summary>
         Passed,
+
+        /// <summary>
+        /// Pushing the integration branch to the target branch.
+        /// </summary>
+        Pushing,
+
+        /// <summary>
+        /// Creating a platform pull request instead of pushing directly.
+        /// </summary>
+        CreatingPR,
 
         /// <summary>
         /// Tests failed.

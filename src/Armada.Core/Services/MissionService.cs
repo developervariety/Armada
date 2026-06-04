@@ -356,8 +356,6 @@ namespace Armada.Core.Services
             mission.Status = MissionStatusEnum.Assigned;
             mission.AssignmentState = MissionAssignmentStateEnum.Provisioning;
             mission.LastUpdateUtc = DateTime.UtcNow;
-            await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
-            _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState);
 
             // Provision dock (worktree) and launch agent
             Dock? dock;
@@ -390,7 +388,7 @@ namespace Armada.Core.Services
 
             if (dock == null)
             {
-                // Provisioning failed — revert mission assignment; mark as Failed for operator visibility
+                // Provisioning failed - revert mission assignment; mark as Failed for operator visibility
                 _Logging.Warn(_Header + "dock provisioning failed for captain " + captain.Id + " vessel " + vessel.Id + " mission " + mission.Id + " -- reverting to Pending");
                 mission.AssignmentState = MissionAssignmentStateEnum.Failed;
                 mission.Status = MissionStatusEnum.Pending;
@@ -404,9 +402,45 @@ namespace Armada.Core.Services
                 return false;
             }
 
-            // Track dock on the mission for per-mission dock tracking
-            mission.DockId = dock.Id;
-            await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+            try
+            {
+                mission.DockId = dock.Id;
+                await _Database.ExecuteInTransactionAsync(async () =>
+                {
+                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+
+                    bool claimed = await _Database.Captains.TryClaimAsync(captain.Id, mission.Id, dock.Id, token).ConfigureAwait(false);
+                    if (!claimed)
+                    {
+                        throw new InvalidOperationException("Captain " + captain.Id + " was claimed by another mission.");
+                    }
+                }, token).ConfigureAwait(false);
+                _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "failed to commit assignment for mission " + mission.Id + ": " + ex.Message);
+
+                mission.Status = MissionStatusEnum.Pending;
+                mission.CaptainId = null;
+                if (!preserveInheritedBranch)
+                    mission.BranchName = null;
+                mission.DockId = null;
+                mission.LastUpdateUtc = DateTime.UtcNow;
+
+                try
+                {
+                    await _Docks.ReclaimAsync(dock.Id, token: token).ConfigureAwait(false);
+                    await _Database.Docks.DeleteAsync(dock.Id, token).ConfigureAwait(false);
+                }
+                catch (Exception reclaimEx)
+                {
+                    _Logging.Warn(_Header + "failed to reclaim dock " + dock.Id +
+                        " after assignment commit failure for mission " + mission.Id + ": " + reclaimEx.Message);
+                }
+
+                return false;
+            }
 
             // Stage any prestaged files into the worktree before the captain is launched.
             // The validator already ran at dispatch time; this is the host-side copy step.
@@ -437,28 +471,6 @@ namespace Armada.Core.Services
 
                     return false;
                 }
-            }
-
-            // Atomically claim the captain — only succeeds if captain is still Idle.
-            // This prevents a race where two concurrent TryAssignAsync calls both find
-            // the same idle captain and overwrite each other's mission assignment.
-            bool claimed = await _Database.Captains.TryClaimAsync(captain.Id, mission.Id, dock.Id, token).ConfigureAwait(false);
-            if (!claimed)
-            {
-                _Logging.Warn(_Header + "captain " + captain.Id + " was claimed by another mission before we could assign " + mission.Id + " — reverting to Pending");
-
-                mission.Status = MissionStatusEnum.Pending;
-                mission.CaptainId = null;
-                if (!preserveInheritedBranch)
-                    mission.BranchName = null;
-                mission.DockId = null;
-                mission.LastUpdateUtc = DateTime.UtcNow;
-                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
-
-                // Reclaim the dock we provisioned since we can't use it
-                await _Docks.ReclaimAsync(dock.Id, token: token).ConfigureAwait(false);
-
-                return false;
             }
 
             // Refresh in-memory captain state to match the atomic update
@@ -502,10 +514,10 @@ namespace Armada.Core.Services
                 {
                     _Logging.Warn(_Header + "failed to launch agent for captain " + captain.Id + ": " + ex.Message);
 
-                    // Rollback captain state — release back to idle so it can accept future work
+                    // Rollback captain state - release back to idle so it can accept future work
                     await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
 
-                    // Rollback mission state — revert to Pending for re-dispatch; mark Failed for operator visibility
+                    // Rollback mission state - revert to Pending for re-dispatch; mark Failed for operator visibility
                     mission.AssignmentState = MissionAssignmentStateEnum.Failed;
                     mission.Status = MissionStatusEnum.Pending;
                     mission.CaptainId = null;
@@ -538,8 +550,8 @@ namespace Armada.Core.Services
             }
             else
             {
-                // No launch handler configured — rollback assignment
-                _Logging.Warn(_Header + "no OnLaunchAgent handler configured — cannot launch agent for captain " + captain.Id);
+                // No launch handler configured - rollback assignment
+                _Logging.Warn(_Header + "no OnLaunchAgent handler configured - cannot launch agent for captain " + captain.Id);
 
                 await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
 

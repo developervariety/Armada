@@ -2689,6 +2689,15 @@ namespace Armada.Test.Unit.Suites.Services
             public Task PullAsync(string workingDirectory, CancellationToken token = default) => Task.CompletedTask;
 
             /// <inheritdoc />
+            public Task PullFastForwardOnlyAsync(string workingDirectory, CancellationToken token = default) => Task.CompletedTask;
+
+            /// <inheritdoc />
+            public Task<string?> GetCurrentBranchAsync(string workingDirectory, CancellationToken token = default) => Task.FromResult<string?>("main");
+
+            /// <inheritdoc />
+            public Task<bool> IsWorkingDirectoryCleanAsync(string workingDirectory, CancellationToken token = default) => Task.FromResult(true);
+
+            /// <inheritdoc />
             public Task<string> DiffAsync(string worktreePath, string baseBranch = "main", CancellationToken token = default)
                 => Task.FromResult("");
 

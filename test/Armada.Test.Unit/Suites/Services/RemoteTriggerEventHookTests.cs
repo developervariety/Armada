@@ -67,6 +67,7 @@ namespace Armada.Test.Unit.Suites.Services
             public Task<int> PurgeTerminalAsync(string? vesselId = null, MergeStatusEnum? status = null, string? tenantId = null, CancellationToken token = default)
                 => Task.FromResult(0);
             public Task<int> ReconcilePullRequestEntriesAsync(CancellationToken token = default) => Task.FromResult(0);
+            public Task<int> ReconcileLandingStateMachineAsync(CancellationToken token = default) => Task.FromResult(0);
             public Task<bool> TryOpenPullRequestForRecoveryAsync(string mergeEntryId, CancellationToken token = default) => Task.FromResult(false);
         }
 
@@ -142,6 +143,7 @@ namespace Armada.Test.Unit.Suites.Services
             mission = await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
 
             IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+            ILandingService landingService = new LandingService(logging, testDb.Driver, settings, git);
             IMessageTemplateService templateService = new MessageTemplateService(logging);
 
             MissionLandingHandler handler = new MissionLandingHandler(
@@ -150,6 +152,7 @@ namespace Armada.Test.Unit.Suites.Services
                 settings,
                 git,
                 new StubMergeQueueService(),
+                landingService,
                 new AutoLandEvaluator(),
                 new BenignConventionChecker(),
                 new BenignCriticalTriggerEvaluator(),
