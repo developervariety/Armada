@@ -64,6 +64,13 @@ namespace Armada.Core.Services.Interfaces
         Task<int> ReconcileLandingStateMachineAsync(CancellationToken token = default);
 
         /// <summary>
+        /// Recover landing jobs left in-flight by a previous admiral process.
+        /// </summary>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Number of in-flight landing jobs recovered.</returns>
+        Task<int> RecoverInFlightLandingsAsync(CancellationToken token = default);
+
+        /// <summary>
         /// Get a specific merge entry.
         /// </summary>
         /// <param name="entryId">Merge entry identifier.</param>

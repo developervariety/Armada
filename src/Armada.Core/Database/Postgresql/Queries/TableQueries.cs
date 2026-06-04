@@ -653,6 +653,28 @@ namespace Armada.Core.Database.Postgresql.Queries
                 ),
                 new SchemaMigration(50, "Add landing retry counter to missions",
                     @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS landing_retry_count INTEGER NOT NULL DEFAULT 0;"
+                ),
+                new SchemaMigration(51, "Add durable landing jobs",
+                    @"CREATE TABLE IF NOT EXISTS landing_jobs (
+                        id TEXT PRIMARY KEY,
+                        tenant_id TEXT,
+                        user_id TEXT,
+                        merge_entry_id TEXT NOT NULL UNIQUE REFERENCES merge_entries(id) ON DELETE CASCADE,
+                        mission_id TEXT,
+                        vessel_id TEXT,
+                        branch_name TEXT NOT NULL,
+                        target_branch TEXT NOT NULL DEFAULT 'main',
+                        state TEXT NOT NULL DEFAULT 'Queued',
+                        retry_count INTEGER NOT NULL DEFAULT 0,
+                        created_utc TEXT NOT NULL,
+                        last_update_utc TEXT NOT NULL,
+                        started_utc TEXT,
+                        completed_utc TEXT,
+                        last_error TEXT
+                    );",
+                    @"CREATE INDEX IF NOT EXISTS idx_landing_jobs_state_created ON landing_jobs(state, created_utc);",
+                    @"CREATE INDEX IF NOT EXISTS idx_landing_jobs_merge_entry ON landing_jobs(merge_entry_id);",
+                    @"CREATE INDEX IF NOT EXISTS idx_landing_jobs_vessel_target ON landing_jobs(vessel_id, target_branch);"
                 )
             };
         }

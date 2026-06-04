@@ -65,6 +65,7 @@ namespace Armada.Core.Database.Mysql
             Events = new EventMethods(_ConnectionString);
             RequestHistory = new RequestHistoryMethods(_ConnectionString);
             MergeEntries = new MergeEntryMethods(_ConnectionString);
+            LandingJobs = new LandingJobMethods(_ConnectionString);
             Tenants = new TenantMethods(_ConnectionString);
             Users = new UserMethods(_ConnectionString);
             Credentials = new CredentialMethods(_ConnectionString);
@@ -565,6 +566,11 @@ namespace Armada.Core.Database.Mysql
                     50,
                     "Add landing retry counter to missions",
                     TableQueries.MigrationV50Statements
+                ),
+                new SchemaMigration(
+                    51,
+                    "Add durable landing jobs",
+                    TableQueries.MigrationV51Statements
                 )
             };
         }

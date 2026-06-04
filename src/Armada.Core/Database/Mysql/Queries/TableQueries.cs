@@ -861,6 +861,34 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
+        /// Migration v51 statements for adding durable landing jobs.
+        /// </summary>
+        public static readonly string[] MigrationV51Statements = new string[]
+        {
+            @"CREATE TABLE IF NOT EXISTS landing_jobs (
+                id VARCHAR(255) PRIMARY KEY,
+                tenant_id VARCHAR(255),
+                user_id VARCHAR(255),
+                merge_entry_id VARCHAR(255) NOT NULL UNIQUE,
+                mission_id VARCHAR(255),
+                vessel_id VARCHAR(255),
+                branch_name VARCHAR(512) NOT NULL,
+                target_branch VARCHAR(255) NOT NULL DEFAULT 'main',
+                state VARCHAR(64) NOT NULL DEFAULT 'Queued',
+                retry_count INT NOT NULL DEFAULT 0,
+                created_utc VARCHAR(64) NOT NULL,
+                last_update_utc VARCHAR(64) NOT NULL,
+                started_utc VARCHAR(64),
+                completed_utc VARCHAR(64),
+                last_error LONGTEXT,
+                CONSTRAINT fk_landing_jobs_merge_entry FOREIGN KEY (merge_entry_id) REFERENCES merge_entries(id) ON DELETE CASCADE
+            );",
+            @"CREATE INDEX idx_landing_jobs_state_created ON landing_jobs(state, created_utc);",
+            @"CREATE INDEX idx_landing_jobs_merge_entry ON landing_jobs(merge_entry_id);",
+            @"CREATE INDEX idx_landing_jobs_vessel_target ON landing_jobs(vessel_id, target_branch);"
+        };
+
+        /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
         public static readonly string[] Indexes = new string[]

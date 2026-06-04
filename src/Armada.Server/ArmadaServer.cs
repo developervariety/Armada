@@ -1179,6 +1179,21 @@ namespace Armada.Server
                 _Logging.Warn(_Header + "startup stale captain cleanup error: " + ex.Message);
             }
 
+            // Recover landing jobs before the first health check so the steady-state
+            // merge reconciler cannot process the same in-flight entry concurrently.
+            try
+            {
+                int recovered = await _MergeQueue.RecoverInFlightLandingsAsync(token).ConfigureAwait(false);
+                if (recovered > 0)
+                {
+                    _Logging.Info(_Header + "startup landing recovery resumed " + recovered + " in-flight entr" + (recovered == 1 ? "y" : "ies"));
+                }
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "startup landing recovery error: " + ex.Message);
+            }
+
             // Run an immediate health check on startup to dispatch any pending missions
             try
             {

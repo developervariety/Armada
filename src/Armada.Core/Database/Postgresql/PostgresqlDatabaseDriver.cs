@@ -263,6 +263,7 @@ namespace Armada.Core.Database.Postgresql
             Events = new EventMethods(_DataSource);
             RequestHistory = new RequestHistoryMethods(_DataSource);
             MergeEntries = new MergeEntryMethods(_DataSource);
+            LandingJobs = new LandingJobMethods(_DataSource);
             Tenants = new TenantMethods(this, _Settings, _Logging);
             Users = new UserMethods(this, _Settings, _Logging);
             Credentials = new CredentialMethods(this, _Settings, _Logging);

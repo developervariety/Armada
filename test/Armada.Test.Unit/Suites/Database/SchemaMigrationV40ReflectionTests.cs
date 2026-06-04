@@ -105,7 +105,8 @@ namespace Armada.Test.Unit.Suites.Database
                     int version = await driver2.GetSchemaVersionAsync().ConfigureAwait(false);
                     driver2.Dispose();
 
-                    AssertEqual(45, version, "schema version should return to head (v45) after idempotent rerun of reflection columns");
+                    int expectedVersion = Armada.Core.Database.Sqlite.Queries.TableQueries.GetMigrations().Max(m => m.Version);
+                    AssertEqual(expectedVersion, version, "schema version should return to current head after idempotent rerun of reflection columns");
 
                     using (SqliteConnection conn = new SqliteConnection(connectionString))
                     {

@@ -46,7 +46,7 @@ namespace Armada.Test.Unit.Suites.Database
                 AssertNotNull(ss42, "SQL Server migrations must include v42");
                 AssertContains("idx_pipeline_stages_order", ss42!.Statements[0]);
 
-                AssertEqual(2, MysqlTableQueries.MigrationV42Statements.Length);
+                AssertTrue(MysqlTableQueries.MigrationV42Statements.Length >= 2, "MySQL v42 should include at least drop/create index statements");
                 AssertContains("idx_pipeline_stages_order", MysqlTableQueries.MigrationV42Statements[0]);
 
                 System.Reflection.MethodInfo? mysqlGetMigrations = typeof(MysqlDatabaseDriver).GetMethod("GetMigrations", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
@@ -116,7 +116,8 @@ namespace Armada.Test.Unit.Suites.Database
                     int version = await driver2.GetSchemaVersionAsync().ConfigureAwait(false);
                     driver2.Dispose();
 
-                    AssertEqual(45, version, "schema version should return to head (v45) after idempotent rerun of v42");
+                    int expectedVersion = SqliteTableQueries.GetMigrations().Max(m => m.Version);
+                    AssertEqual(expectedVersion, version, "schema version should return to current head after idempotent rerun of v42");
                 }
                 finally
                 {

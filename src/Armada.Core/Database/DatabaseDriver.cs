@@ -88,6 +88,11 @@ namespace Armada.Core.Database
         public IMergeEntryMethods MergeEntries { get; protected set; } = null!;
 
         /// <summary>
+        /// Durable landing job operations.
+        /// </summary>
+        public ILandingJobMethods LandingJobs { get; protected set; } = null!;
+
+        /// <summary>
         /// Tenant operations.
         /// </summary>
         public ITenantMethods Tenants { get; protected set; } = null!;
