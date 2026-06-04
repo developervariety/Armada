@@ -647,6 +647,9 @@ namespace Armada.Core.Database.Postgresql.Queries
                 ),
                 new SchemaMigration(48, "Add mission assignment state column to missions",
                     @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS mission_assignment_state TEXT NOT NULL DEFAULT 'Pending';"
+                ),
+                new SchemaMigration(49, "Add sibling_repos JSON column to vessels",
+                    @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS sibling_repos TEXT;"
                 )
             };
         }

@@ -570,6 +570,13 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"
                     IF COL_LENGTH('missions','mission_assignment_state') IS NULL
                         ALTER TABLE missions ADD mission_assignment_state NVARCHAR(64) NOT NULL CONSTRAINT DF_missions_mission_assignment_state DEFAULT 'Pending';"
+                ),
+                new SchemaMigration(
+                    49,
+                    "Add sibling_repos JSON column to vessels",
+                    @"
+                    IF COL_LENGTH('vessels', 'sibling_repos') IS NULL
+                        ALTER TABLE vessels ADD sibling_repos NVARCHAR(MAX);"
                 )
             };
         }

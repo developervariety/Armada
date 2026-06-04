@@ -1,7 +1,10 @@
 namespace Armada.Test.Unit.Suites.Services
 {
     using System.Diagnostics;
+    using System.Linq;
+    using System.Text.Json;
     using Armada.Core.Database.Sqlite;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
@@ -232,6 +235,171 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertTrue(File.Exists(Path.Combine(sharedWorktree, "sentinel.txt")), "Reclaiming the old dock must not delete a path owned by the newer active dock");
                 }
             });
+
+            await RunTest("ProvisionAsync provisions declared sibling repos at expected relative paths with branch-compatible refs", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+
+                    string dockBranch = "armada/captain-1/msn_one";
+                    RecordingGitService git = new RecordingGitService();
+                    git.ExistingBranches.Add(dockBranch);
+                    DockService service = new DockService(logging, testDb.Driver, settings, git);
+
+                    List<SiblingRepo> siblings = new List<SiblingRepo>
+                    {
+                        new SiblingRepo
+                        {
+                            RepoUrl = "https://github.com/test/sibA.git",
+                            RelativePath = "../SibA",
+                            BranchStrategy = SiblingBranchStrategyEnum.MatchBranchElseDefault,
+                            DefaultBranch = "main"
+                        },
+                        new SiblingRepo
+                        {
+                            RepoUrl = "https://github.com/test/sibB.git",
+                            RelativePath = "../nested/SibB",
+                            BranchStrategy = SiblingBranchStrategyEnum.DefaultOnly,
+                            DefaultBranch = "develop"
+                        }
+                    };
+
+                    Vessel vessel = new Vessel("sib-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(settings.ReposDirectory, vessel.Name + ".git");
+                    vessel.SiblingRepos = JsonSerializer.Serialize(siblings);
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain captain = new Captain("captain-1");
+                    captain = await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    Dock? dock = await service.ProvisionAsync(vessel, captain, dockBranch, "msn_one").ConfigureAwait(false);
+                    AssertNotNull(dock, "Dock should be provisioned");
+
+                    string expectedSibA = Path.GetFullPath(Path.Combine(dock!.WorktreePath!, "../SibA"));
+                    string expectedSibB = Path.GetFullPath(Path.Combine(dock.WorktreePath!, "../nested/SibB"));
+
+                    WorktreeCreation? sibA = git.CreatedWorktrees.FirstOrDefault(w => PathEquals(w.WorktreePath, expectedSibA));
+                    WorktreeCreation? sibB = git.CreatedWorktrees.FirstOrDefault(w => PathEquals(w.WorktreePath, expectedSibB));
+
+                    AssertNotNull(sibA, "Sibling A worktree should be provisioned at its declared relative path");
+                    AssertNotNull(sibB, "Sibling B worktree should be provisioned at its declared relative path");
+                    AssertEqual(dockBranch, sibA!.BranchName, "Sibling A (MatchBranchElseDefault) should track the matching dock branch");
+                    AssertEqual("develop", sibB!.BranchName, "Sibling B (DefaultOnly) should use its declared default branch");
+                    AssertEqual(3, git.CreatedWorktrees.Count, "Primary plus two sibling worktrees should be created");
+                    AssertTrue(Directory.Exists(expectedSibA), "Sibling A directory should exist after provisioning");
+
+                    await service.ReclaimAsync(dock.Id).ConfigureAwait(false);
+                    AssertFalse(Directory.Exists(expectedSibA), "Reclaim should tear down provisioned sibling worktrees");
+                    AssertFalse(Directory.Exists(expectedSibB), "Reclaim should tear down nested sibling worktrees");
+                }
+            });
+
+            await RunTest("ProvisionAsync with no declared siblings creates exactly one worktree (single-repo vessels unaffected)", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+
+                    RecordingGitService git = new RecordingGitService();
+                    DockService service = new DockService(logging, testDb.Driver, settings, git);
+
+                    Vessel vessel = new Vessel("plain-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(settings.ReposDirectory, vessel.Name + ".git");
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain captain = new Captain("captain-1");
+                    captain = await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    Dock? dock = await service.ProvisionAsync(vessel, captain, "armada/captain-1/msn_one", "msn_one").ConfigureAwait(false);
+                    AssertNotNull(dock, "Dock should be provisioned");
+
+                    AssertEqual(1, git.CreatedWorktrees.Count, "Single-repo vessel should provision exactly one worktree");
+                    AssertEqual(1, git.CloneBareCalls, "Single-repo vessel should clone only its own bare repo");
+                    AssertEqual(0, git.BranchExistsCalls, "Single-repo vessel should not perform sibling branch-compat probes");
+                }
+            });
+
+            await RunTest("ProvisionAsync sibling branch selection falls back to default when no matching branch exists", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+
+                    string dockBranch = "armada/captain-1/msn_fallback";
+
+                    // No matching branch in the sibling repo -> MatchBranchElseDefault falls back to default.
+                    RecordingGitService gitAbsent = new RecordingGitService();
+                    DockService serviceAbsent = new DockService(logging, testDb.Driver, settings, gitAbsent);
+
+                    List<SiblingRepo> siblings = new List<SiblingRepo>
+                    {
+                        new SiblingRepo
+                        {
+                            RepoUrl = "https://github.com/test/sibC.git",
+                            RelativePath = "../SibC",
+                            BranchStrategy = SiblingBranchStrategyEnum.MatchBranchElseDefault,
+                            DefaultBranch = "release/x"
+                        }
+                    };
+
+                    Vessel vessel = new Vessel("fallback-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(settings.ReposDirectory, vessel.Name + ".git");
+                    vessel.SiblingRepos = JsonSerializer.Serialize(siblings);
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain captain = new Captain("captain-1");
+                    captain = await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    Dock? dockAbsent = await serviceAbsent.ProvisionAsync(vessel, captain, dockBranch, "msn_fallback").ConfigureAwait(false);
+                    AssertNotNull(dockAbsent, "Dock should be provisioned when no matching sibling branch exists");
+                    string expectedSibC = Path.GetFullPath(Path.Combine(dockAbsent!.WorktreePath!, "../SibC"));
+                    WorktreeCreation? absentCreation = gitAbsent.CreatedWorktrees.FirstOrDefault(w => PathEquals(w.WorktreePath, expectedSibC));
+                    AssertNotNull(absentCreation, "Sibling C worktree should be provisioned");
+                    AssertEqual("release/x", absentCreation!.BranchName, "Absent matching branch should fall back to the sibling default");
+
+                    // Matching branch present -> MatchBranchElseDefault tracks the dock branch.
+                    RecordingGitService gitPresent = new RecordingGitService();
+                    gitPresent.ExistingBranches.Add(dockBranch);
+                    DockService servicePresent = new DockService(logging, testDb.Driver, settings, gitPresent);
+
+                    Captain captain2 = new Captain("captain-2");
+                    captain2 = await testDb.Driver.Captains.CreateAsync(captain2).ConfigureAwait(false);
+
+                    Dock? dockPresent = await servicePresent.ProvisionAsync(vessel, captain2, dockBranch, "msn_fallback2").ConfigureAwait(false);
+                    AssertNotNull(dockPresent, "Dock should be provisioned when a matching sibling branch exists");
+                    string expectedSibC2 = Path.GetFullPath(Path.Combine(dockPresent!.WorktreePath!, "../SibC"));
+                    WorktreeCreation? presentCreation = gitPresent.CreatedWorktrees.FirstOrDefault(w => PathEquals(w.WorktreePath, expectedSibC2));
+                    AssertNotNull(presentCreation, "Sibling C worktree should be provisioned");
+                    AssertEqual(dockBranch, presentCreation!.BranchName, "Present matching branch should be tracked by the sibling");
+                }
+            });
+        }
+
+        private static bool PathEquals(string a, string b)
+        {
+            return String.Equals(
+                Path.GetFullPath(a).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                Path.GetFullPath(b).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                StringComparison.OrdinalIgnoreCase);
         }
 
         private static async Task<string> RunGitAsync(string workingDirectory, params string[] args)
@@ -314,6 +482,69 @@ namespace Armada.Test.Unit.Suites.Services
             public Task<bool> BranchExistsAsync(string repoPath, string branchName, CancellationToken token = default) => Task.FromResult(true);
             public Task<bool> EnsureLocalBranchAsync(string repoPath, string branchName, CancellationToken token = default) => Task.FromResult(true);
             public Task<bool> IsWorktreeRegisteredAsync(string repoPath, string worktreePath, CancellationToken token = default) => Task.FromResult(false);
+        }
+
+        private class WorktreeCreation
+        {
+            public string RepoPath { get; set; } = String.Empty;
+            public string WorktreePath { get; set; } = String.Empty;
+            public string BranchName { get; set; } = String.Empty;
+            public string BaseBranch { get; set; } = String.Empty;
+        }
+
+        private class RecordingGitService : IGitService
+        {
+            public List<WorktreeCreation> CreatedWorktrees { get; } = new List<WorktreeCreation>();
+            public HashSet<string> ExistingBranches { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            public int CloneBareCalls { get; private set; }
+            public int BranchExistsCalls { get; private set; }
+
+            public Task CloneBareAsync(string repoUrl, string localPath, CancellationToken token = default)
+            {
+                CloneBareCalls++;
+                Directory.CreateDirectory(localPath);
+                return Task.CompletedTask;
+            }
+
+            public Task CreateWorktreeAsync(string repoPath, string worktreePath, string branchName, string baseBranch = "main", CancellationToken token = default)
+            {
+                CreatedWorktrees.Add(new WorktreeCreation
+                {
+                    RepoPath = repoPath,
+                    WorktreePath = Path.GetFullPath(worktreePath),
+                    BranchName = branchName,
+                    BaseBranch = baseBranch
+                });
+                Directory.CreateDirectory(worktreePath);
+                return Task.CompletedTask;
+            }
+
+            public Task RemoveWorktreeAsync(string worktreePath, CancellationToken token = default) => Task.CompletedTask;
+            public Task FetchAsync(string repoPath, CancellationToken token = default) => Task.CompletedTask;
+            public Task PushBranchAsync(string worktreePath, string remoteName = "origin", CancellationToken token = default) => Task.CompletedTask;
+            public Task<string> CreatePullRequestAsync(string worktreePath, string title, string body, CancellationToken token = default) => Task.FromResult(String.Empty);
+            public Task RepairWorktreeAsync(string worktreePath, CancellationToken token = default) => Task.CompletedTask;
+            public Task<bool> IsRepositoryAsync(string path, CancellationToken token = default) => Task.FromResult(Directory.Exists(path));
+            public Task DeleteLocalBranchAsync(string repoPath, string branchName, CancellationToken token = default) => Task.CompletedTask;
+            public Task DeleteRemoteBranchAsync(string repoPath, string branchName, CancellationToken token = default) => Task.CompletedTask;
+            public Task PushRefSpecAsync(string repoPath, string srcRef, string destRef, CancellationToken token = default) => Task.CompletedTask;
+            public Task PruneWorktreesAsync(string repoPath, CancellationToken token = default) => Task.CompletedTask;
+            public Task EnableAutoMergeAsync(string worktreePath, string prUrl, CancellationToken token = default) => Task.CompletedTask;
+            public Task MergeBranchLocalAsync(string targetWorkDir, string sourceRepoPath, string branchName, string? targetBranch = null, string? commitMessage = null, CancellationToken token = default) => Task.CompletedTask;
+            public Task PullAsync(string workingDirectory, CancellationToken token = default) => Task.CompletedTask;
+            public Task<string> DiffAsync(string worktreePath, string baseBranch = "main", CancellationToken token = default) => Task.FromResult(String.Empty);
+            public Task<string?> GetHeadCommitHashAsync(string worktreePath, CancellationToken token = default) => Task.FromResult<string?>("abc123");
+            public Task<IReadOnlyList<string>> GetChangedFilesSinceAsync(string worktreePath, string startCommit, CancellationToken token = default) => Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
+            public Task<bool> IsPrMergedAsync(string workingDirectory, string prUrl, CancellationToken token = default) => Task.FromResult(false);
+
+            public Task<bool> BranchExistsAsync(string repoPath, string branchName, CancellationToken token = default)
+            {
+                BranchExistsCalls++;
+                return Task.FromResult(ExistingBranches.Contains(branchName));
+            }
+
+            public Task<bool> EnsureLocalBranchAsync(string repoPath, string branchName, CancellationToken token = default) => Task.FromResult(true);
+            public Task<bool> IsWorktreeRegisteredAsync(string repoPath, string worktreePath, CancellationToken token = default) => Task.FromResult(Directory.Exists(worktreePath));
         }
     }
 }
