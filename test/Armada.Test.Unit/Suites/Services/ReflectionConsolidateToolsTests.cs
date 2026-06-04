@@ -414,6 +414,34 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(0, admiral.DispatchCount, "Pending mission must not trigger another dispatch");
                 }
             });
+
+            await RunTest("IsReflectionInFlight_AssignedReflection_BlocksNewDispatch", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, "rc-assigned").ConfigureAwait(false);
+                    Mission assigned = new Mission("assigned reflection", "desc");
+                    assigned.VesselId = vessel.Id;
+                    assigned.Persona = "MemoryConsolidator";
+                    assigned.Status = MissionStatusEnum.Assigned;
+                    assigned = await testDb.Driver.Missions.CreateAsync(assigned).ConfigureAwait(false);
+
+                    await CreateTerminalMissionAsync(testDb.Driver, vessel.Id, "evidence", DateTime.UtcNow.AddMinutes(-5)).ConfigureAwait(false);
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                    ReflectionDispatcher dispatcher = CreateDispatcher(testDb.Driver, admiral, settings);
+                    Func<JsonElement?, Task<object>>? handler = CaptureHandler(testDb.Driver, dispatcher, settings);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new { vesselId = vessel.Id });
+                    object result = await handler!(args).ConfigureAwait(false);
+                    string json = JsonSerializer.Serialize(result);
+
+                    AssertContains("reflection_already_in_flight", json, "Assigned MemoryConsolidator should block new dispatch");
+                    AssertContains(assigned.Id, json, "In-flight mission id should be returned");
+                    AssertEqual(0, admiral.DispatchCount, "Assigned mission must not trigger another dispatch");
+                }
+            });
         }
 
         private static Func<JsonElement?, Task<object>>? CaptureHandler(

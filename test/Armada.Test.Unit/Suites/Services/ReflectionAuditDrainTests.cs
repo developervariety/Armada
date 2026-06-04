@@ -611,6 +611,92 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(1, admiral.DispatchCount);
                 }
             });
+
+            await RunTest("Drain_PendingConsolidator_SameWindow_EmitsDispatchSkippedEvent", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = new ArmadaSettings { DefaultReflectionThreshold = 2 };
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, "window-skip-event").ConfigureAwait(false);
+                    vessel.ReflectionThreshold = 2;
+                    vessel = await testDb.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
+
+                    for (int i = 0; i < 2; i++)
+                    {
+                        await CreateTerminalMissionAsync(testDb.Driver, vessel.Id, "m" + i, DateTime.UtcNow.AddMinutes(-10 + i)).ConfigureAwait(false);
+                    }
+
+                    Mission consolidator = new Mission("pending consolidator", "d");
+                    consolidator.VesselId = vessel.Id;
+                    consolidator.Persona = "MemoryConsolidator";
+                    consolidator.Status = MissionStatusEnum.Pending;
+                    consolidator = await testDb.Driver.Missions.CreateAsync(consolidator).ConfigureAwait(false);
+
+                    RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                    ReflectionDispatcher dispatcher = new ReflectionDispatcher(testDb.Driver, admiral, settings, new ReflectionMemoryService(testDb.Driver));
+                    Func<JsonElement?, Task<object>>? drainHandler = null;
+                    McpAuditTools.Register((name, _, _, h) => { if (name == "armada_drain_audit_queue") drainHandler = h; }, testDb.Driver, null, dispatcher);
+                    AssertNotNull(drainHandler);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new { vesselId = vessel.Id, limit = 10 });
+                    await drainHandler!(args).ConfigureAwait(false);
+
+                    EnumerationQuery skippedQuery = new EnumerationQuery
+                    {
+                        VesselId = vessel.Id,
+                        EventType = "reflection.dispatch_skipped",
+                        PageNumber = 1,
+                        PageSize = 10
+                    };
+                    EnumerationResult<ArmadaEvent> skipped = await testDb.Driver.Events.EnumerateAsync(skippedQuery).ConfigureAwait(false);
+
+                    AssertEqual(1, skipped.Objects.Count, "Suppression must emit a reflection.dispatch_skipped event");
+                    AssertEqual(0, admiral.DispatchCount);
+                    AssertContains("consolidate", skipped.Objects[0].Payload ?? "", "Skipped payload should carry the mode marker");
+                }
+            });
+
+            await RunTest("Drain_AtThreshold_DispatchedEventCarriesSinceMissionIdMarker", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = new ArmadaSettings { DefaultReflectionThreshold = 2 };
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, "window-dispatched-marker").ConfigureAwait(false);
+                    vessel.ReflectionThreshold = 2;
+                    vessel = await testDb.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
+
+                    for (int i = 0; i < 2; i++)
+                    {
+                        await CreateTerminalMissionAsync(testDb.Driver, vessel.Id, "m" + i, DateTime.UtcNow.AddMinutes(-10 + i)).ConfigureAwait(false);
+                    }
+
+                    RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                    ReflectionDispatcher dispatcher = new ReflectionDispatcher(testDb.Driver, admiral, settings, new ReflectionMemoryService(testDb.Driver));
+                    Func<JsonElement?, Task<object>>? drainHandler = null;
+                    McpAuditTools.Register((name, _, _, h) => { if (name == "armada_drain_audit_queue") drainHandler = h; }, testDb.Driver, null, dispatcher);
+                    AssertNotNull(drainHandler);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new { vesselId = vessel.Id, limit = 10 });
+                    object result = await drainHandler!(args).ConfigureAwait(false);
+                    JsonNode? root = JsonNode.Parse(JsonSerializer.Serialize(result));
+                    AssertEqual(1, root?["reflectionsDispatched"]?.AsArray()?.Count);
+                    AssertEqual(1, admiral.DispatchCount);
+
+                    EnumerationQuery dispatchedQuery = new EnumerationQuery
+                    {
+                        VesselId = vessel.Id,
+                        EventType = "reflection.dispatched",
+                        PageNumber = 1,
+                        PageSize = 10
+                    };
+                    EnumerationResult<ArmadaEvent> dispatched = await testDb.Driver.Events.EnumerateAsync(dispatchedQuery).ConfigureAwait(false);
+
+                    AssertEqual(1, dispatched.Objects.Count, "Successful drain dispatch should emit one reflection.dispatched event");
+                    JsonNode? payload = JsonNode.Parse(dispatched.Objects[0].Payload ?? "{}");
+                    AssertNotNull(payload?["sinceMissionId"]);
+                    AssertEqual("", payload!["sinceMissionId"]!.GetValue<string>(), "Drain dispatch uses the baseline null window marker");
+                }
+            });
         }
 
         private static async Task<Vessel> CreateVesselAsync(DatabaseDriver database, string name)
