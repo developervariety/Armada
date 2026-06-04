@@ -167,21 +167,138 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("TryAssign_LiteralPreferredModelNoMatch_StaysPending", async () =>
+            await RunTest("TryAssign_LiteralPreferredModel_CanonicalFamilyFallback_Assigns", async () =>
             {
+                // claude-opus-4-8 is not in the curated high list but matches the canonical
+                // opus pattern, so it classifies to high tier. When no exact captain is available,
+                // the dispatch should fall back to any idle high-tier captain.
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     ArmadaSettings settings = CreateSettings();
                     MissionService missions = CreateMissionService(testDb.Driver, settings);
                     Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
-                    await CreateCaptainAsync(testDb.Driver, "only-captain", "composer-2.5").ConfigureAwait(false);
-                    Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "literal no match", "claude-opus-4-7").ConfigureAwait(false);
+                    await CreateCaptainAsync(testDb.Driver, "mid-captain", "composer-2.5").ConfigureAwait(false);
+                    Captain highCaptain = await CreateCaptainAsync(testDb.Driver, "high-captain", "claude-opus-4-7").ConfigureAwait(false);
+                    Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "canonical family fallback", "claude-opus-4-8").ConfigureAwait(false);
 
                     bool assigned = await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false);
 
                     Mission? readBack = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
-                    AssertFalse(assigned, "Literal preferredModel with no matching idle captain should not assign");
-                    AssertEqual(MissionStatusEnum.Pending, readBack!.Status, "Mission should remain pending cleanly");
+                    AssertTrue(assigned, "Unavailable concrete model should fall back to a classified-tier captain");
+                    AssertEqual(MissionStatusEnum.InProgress, readBack!.Status, "Mission should be launched via tier fallback");
+                    AssertEqual(highCaptain.Id, readBack.CaptainId, "High-tier fallback should route to the available high-tier captain");
+                }
+            });
+
+            await RunTest("TryAssign_LiteralPreferredModel_UnclassifiedFallsBackToPersonaEligible_Assigns", async () =>
+            {
+                // When a pinned model name does not classify into any tier, fall back to any
+                // idle captain compatible with the mission persona rather than blocking forever.
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+                    Captain anyCaptain = await CreateCaptainAsync(testDb.Driver, "generic-captain", "claude-opus-4-7", "[\"Worker\"]").ConfigureAwait(false);
+                    Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "unclassified fallback", "my-totally-unknown-model-v7", "Worker").ConfigureAwait(false);
+
+                    bool assigned = await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false);
+
+                    Mission? readBack = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertTrue(assigned, "Unclassified concrete model should fall back to any persona-eligible captain");
+                    AssertEqual(MissionStatusEnum.InProgress, readBack!.Status, "Mission should be launched via persona fallback");
+                    AssertEqual(anyCaptain.Id, readBack.CaptainId, "Unclassified fallback should route to the persona-eligible captain");
+                }
+            });
+
+            await RunTest("TryAssign_LiteralPreferredModel_NoCompatibleTierCaptain_StaysPending", async () =>
+            {
+                // When the pinned model classifies to high tier but only mid-tier captains are
+                // available, and the unclassified fallback path is not triggered, the mission
+                // should remain pending rather than routing to an incompatible captain.
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+                    await CreateCaptainAsync(testDb.Driver, "mid-only", "composer-2.5").ConfigureAwait(false);
+                    // claude-opus-4-8 classifies to high; only a mid-tier captain is available.
+                    Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "no high tier available", "claude-opus-4-8").ConfigureAwait(false);
+
+                    bool assigned = await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false);
+
+                    Mission? readBack = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertFalse(assigned, "Classified high-tier pin with only mid-tier captains should not assign");
+                    AssertEqual(MissionStatusEnum.Pending, readBack!.Status, "Mission should remain pending when tier fallback finds no eligible captain");
+                    AssertNull(readBack.CaptainId, "No captain should be assigned");
+                }
+            });
+
+            await RunTest("TryAssign_LiteralPreferredModel_ClassifiedTierUpgradesUpwardChain_Assigns", async () =>
+            {
+                // claude-sonnet-4-8 classifies to mid via the canonical sonnet pattern. With no
+                // exact captain and no idle mid-tier captain, the classified-tier fallback delegates
+                // to SelectModel, which follows the upward-only chain (mid -> high) and lands on the
+                // available high-tier captain rather than leaving the mission pending.
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+                    Captain highCaptain = await CreateCaptainAsync(testDb.Driver, "high-only", "claude-opus-4-7").ConfigureAwait(false);
+                    Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "mid pin upward chain", "claude-sonnet-4-8").ConfigureAwait(false);
+
+                    bool assigned = await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false);
+
+                    Mission? readBack = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertTrue(assigned, "Mid-classified concrete pin should follow the upward chain to a high-tier captain");
+                    AssertEqual(MissionStatusEnum.InProgress, readBack!.Status, "Mission should be launched via upward-chain fallback");
+                    AssertEqual(highCaptain.Id, readBack.CaptainId, "Upward-chain fallback should route to the available high-tier captain");
+                }
+            });
+
+            await RunTest("TryAssign_LiteralPreferredModel_ClassifiedTierPersonaIneligible_StaysPending", async () =>
+            {
+                // claude-opus-4-8 classifies to high. The only idle high-tier captain does not allow
+                // the mission's Judge persona, so the classified-tier fallback (which filters by
+                // persona inside SelectModel) must find no eligible model and leave the mission pending
+                // rather than routing to a persona-incompatible captain.
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+                    await CreateCaptainAsync(testDb.Driver, "worker-only-high", "claude-opus-4-7", "[\"Worker\"]").ConfigureAwait(false);
+                    Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "classified persona ineligible", "claude-opus-4-8", "Judge").ConfigureAwait(false);
+
+                    bool assigned = await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false);
+
+                    Mission? readBack = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertFalse(assigned, "Classified-tier fallback must not route to a persona-incompatible captain");
+                    AssertEqual(MissionStatusEnum.Pending, readBack!.Status, "Mission should remain pending when no persona-eligible tier captain exists");
+                    AssertNull(readBack.CaptainId, "No captain should be assigned");
+                }
+            });
+
+            await RunTest("TryAssign_LiteralPreferredModel_UnclassifiedPersonaIneligible_StaysPending", async () =>
+            {
+                // An unclassified concrete pin drops the model filter and relies on the persona
+                // filter below to narrow candidates. When the only idle captain cannot fill the
+                // mission persona, the mission must stay pending instead of blindly assigning the
+                // incompatible captain.
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+                    await CreateCaptainAsync(testDb.Driver, "worker-only", "claude-opus-4-7", "[\"Worker\"]").ConfigureAwait(false);
+                    Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "unclassified persona ineligible", "my-totally-unknown-model-v9", "Judge").ConfigureAwait(false);
+
+                    bool assigned = await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false);
+
+                    Mission? readBack = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertFalse(assigned, "Unclassified fallback must still honor persona eligibility");
+                    AssertEqual(MissionStatusEnum.Pending, readBack!.Status, "Mission should remain pending when the only captain cannot fill the persona");
                     AssertNull(readBack.CaptainId, "No captain should be assigned");
                 }
             });
