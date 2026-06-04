@@ -1042,6 +1042,164 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Dispatch_WarmThrows_AutoMode_SwallowsAndContinues", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("warm-throw-auto-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
+
+                    // First cache lookup misses, then the baseline warm throws. In auto mode the
+                    // exception must be swallowed so dispatch still proceeds, and generation must
+                    // NOT run (the warm threw before the retry/generation could be reached).
+                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService
+                    {
+                        WarmBaselineCacheException = new InvalidOperationException("warm boom")
+                    };
+                    codeIndex.ContextPackResponse.PrestagedFiles.Add(new PrestagedFile(
+                        Path.Combine(Path.GetTempPath(), "should-not-generate-after-warm-throw.md"),
+                        "_briefing/context-pack.md"));
+
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null,
+                        null,
+                        null,
+                        codeIndex);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "warm throw auto voyage",
+                        vesselId = vessel.Id,
+                        missions = new object[]
+                        {
+                            new { title = "Task E", description = "warm throws but auto must not fail" }
+                        }
+                    });
+
+                    object result = await dispatchHandler!(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+
+                    AssertFalse(resultJson.Contains("\"Error\""), "Auto mode must swallow warm failure: " + resultJson);
+                    AssertEqual(1, codeIndex.CacheRequests.Count, "Only the first cache lookup runs; warm threw before the retry");
+                    AssertEqual(1, codeIndex.WarmBaselineCacheVesselIds.Count, "Baseline warm must have been attempted");
+                    AssertEqual(0, codeIndex.ContextPackRequests.Count, "Generation must NOT run after warm throws");
+                    AssertTrue(admiralDouble.DispatchVoyageCalled, "Dispatch must proceed despite warm failure");
+                    AssertNull(admiralDouble.LastMissionDescriptions[0].PrestagedFiles,
+                        "No pack should be staged when warm fails in auto mode");
+                }
+            });
+
+            await RunTest("Dispatch_WarmThrows_ForceMode_ReturnsError", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("warm-throw-force-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
+
+                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService
+                    {
+                        WarmBaselineCacheException = new InvalidOperationException("warm boom")
+                    };
+
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null,
+                        null,
+                        null,
+                        codeIndex);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "warm throw force voyage",
+                        vesselId = vessel.Id,
+                        codeContextMode = "force",
+                        missions = new object[]
+                        {
+                            new { title = "Task F", description = "warm throws and force must surface error" }
+                        }
+                    });
+
+                    object result = await dispatchHandler!(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+
+                    AssertTrue(resultJson.Contains("\"Error\""), "Force mode must surface warm failure as an error: " + resultJson);
+                    AssertTrue(resultJson.Contains("warm boom"), "Error must carry the underlying failure message: " + resultJson);
+                    AssertEqual(1, codeIndex.WarmBaselineCacheVesselIds.Count, "Baseline warm must have been attempted");
+                    AssertEqual(0, codeIndex.ContextPackRequests.Count, "Generation must NOT run after warm throws");
+                    AssertFalse(admiralDouble.DispatchVoyageCalled, "Dispatch must NOT proceed when force code context fails");
+                }
+            });
+
+            await RunTest("Dispatch_ForceMode_LazyWarmHitsCache_Succeeds", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("force-warm-hit-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
+
+                    string warmedPackPath = Path.Combine(Path.GetTempPath(), "force-warm-context-pack.md");
+                    ContextPackResponse warmedPack = new ContextPackResponse
+                    {
+                        Goal = "force warmed goal",
+                        MaterializedPath = warmedPackPath,
+                        Metrics = new ContextPackMetrics { CacheHit = true, CacheKey = "forcewarm" }
+                    };
+                    warmedPack.PrestagedFiles.Add(new PrestagedFile(warmedPackPath, "_briefing/context-pack.md"));
+
+                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService
+                    {
+                        SecondCacheLookupResponse = warmedPack
+                    };
+                    codeIndex.ContextPackResponse.PrestagedFiles.Add(new PrestagedFile(
+                        Path.Combine(Path.GetTempPath(), "force-should-not-generate.md"), "_briefing/context-pack.md"));
+
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null,
+                        null,
+                        null,
+                        codeIndex);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "force warm voyage",
+                        vesselId = vessel.Id,
+                        codeContextMode = "force",
+                        missions = new object[]
+                        {
+                            new { title = "Task G", description = "force mode warms then uses cached pack" }
+                        }
+                    });
+
+                    object result = await dispatchHandler!(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+
+                    AssertFalse(resultJson.Contains("\"Error\""), "Force mode must succeed when warm produces a cache hit: " + resultJson);
+                    AssertEqual(2, codeIndex.CacheRequests.Count, "Cache must be checked before and after warm");
+                    AssertEqual(1, codeIndex.WarmBaselineCacheVesselIds.Count, "Baseline warm must run on cold force dispatch");
+                    AssertEqual(0, codeIndex.ContextPackRequests.Count, "Generation must be skipped when warm satisfies force mode");
+                    AssertTrue(admiralDouble.DispatchVoyageCalled, "Dispatch must proceed");
+                    AssertNotNull(admiralDouble.LastMissionDescriptions[0].PrestagedFiles, "Warmed pack must be staged");
+                    AssertEqual(warmedPackPath, admiralDouble.LastMissionDescriptions[0].PrestagedFiles![0].SourcePath);
+                }
+            });
+
             await RunTest("Dispatch_DefaultDispatchTimeout_IsAtLeast60Seconds", () =>
             {
                 string? priorTimeout = Environment.GetEnvironmentVariable("ARMADA_CODE_CONTEXT_TIMEOUT_MS");
@@ -1443,6 +1601,8 @@ namespace Armada.Test.Unit.Suites.Services
 
             public Exception? BuildException { get; set; }
 
+            public Exception? WarmBaselineCacheException { get; set; }
+
             public bool NeverCompleteBuild { get; set; }
 
             public Task<CodeIndexStatus> GetStatusAsync(string vesselId, CancellationToken token = default)
@@ -1493,6 +1653,7 @@ namespace Armada.Test.Unit.Suites.Services
             public Task WarmBaselineCacheAsync(string vesselId, CancellationToken token = default)
             {
                 WarmBaselineCacheVesselIds.Add(vesselId ?? "");
+                if (WarmBaselineCacheException != null) throw WarmBaselineCacheException;
                 return Task.CompletedTask;
             }
 
