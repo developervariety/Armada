@@ -134,6 +134,56 @@ namespace Armada.Test.Unit.Suites.Recovery
                 }
             });
 
+            await RunTest("OnMergeFailed_OriginalPreferredModelMidTier_CopiesForwardNotDefaultHigh", async () =>
+            {
+                using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = NewQuietLogging();
+                    ArmadaSettings settings = new ArmadaSettings { MaxRecoveryAttempts = 3 };
+
+                    // A non-high tier proves the value is COPIED from the original, not
+                    // just always defaulted to HighTier (which would pass the "high" case spuriously).
+                    SetupResult setupResult = await SetupFailedMissionEntryAsync(db, classification: MergeFailureClassEnum.TestFailureAfterMerge, preferredModel: PreferredModelTierSelector.MidTier).ConfigureAwait(false);
+                    StubRebaseCaptainDockSetup dockSetup = new StubRebaseCaptainDockSetup();
+                    StubMergeQueueServiceForRecovery mergeQueue = new StubMergeQueueServiceForRecovery();
+                    IRecoveryRouter router = new RecoveryRouter(3);
+
+                    MergeRecoveryHandler handler = new MergeRecoveryHandler(logging, db.Driver, settings, router, dockSetup, mergeQueue, new PlaybookService(db.Driver, logging));
+                    await handler.OnMergeFailedAsync(setupResult.Entry.Id).ConfigureAwait(false);
+
+                    List<Mission> all = await db.Driver.Missions.EnumerateAsync().ConfigureAwait(false);
+                    Mission? rebaseMission = all.FirstOrDefault(m => m.ParentMissionId == setupResult.Mission.Id);
+                    AssertNotNull(rebaseMission, "rebase mission should be created");
+                    AssertEqual(PreferredModelTierSelector.MidTier, rebaseMission!.PreferredModel ?? "", "rebase mission must copy the original mid tier verbatim, not collapse to high");
+                    AssertNotEqual(PreferredModelTierSelector.HighTier, rebaseMission.PreferredModel ?? "", "copy path must not be masked by the HighTier fallback");
+                }
+            });
+
+            await RunTest("OnMergeFailed_OriginalPreferredModelEmptyString_DefaultsToHighTier", async () =>
+            {
+                using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = NewQuietLogging();
+                    ArmadaSettings settings = new ArmadaSettings { MaxRecoveryAttempts = 3 };
+
+                    // Empty string is a distinct boundary from null/whitespace; IsNullOrWhiteSpace
+                    // must treat it as "no usable model" and fall back to the tier selector.
+                    SetupResult setupResult = await SetupFailedMissionEntryAsync(db, classification: MergeFailureClassEnum.TestFailureAfterMerge, preferredModel: "").ConfigureAwait(false);
+                    StubRebaseCaptainDockSetup dockSetup = new StubRebaseCaptainDockSetup();
+                    StubMergeQueueServiceForRecovery mergeQueue = new StubMergeQueueServiceForRecovery();
+                    IRecoveryRouter router = new RecoveryRouter(3);
+
+                    MergeRecoveryHandler handler = new MergeRecoveryHandler(logging, db.Driver, settings, router, dockSetup, mergeQueue, new PlaybookService(db.Driver, logging));
+                    await handler.OnMergeFailedAsync(setupResult.Entry.Id).ConfigureAwait(false);
+
+                    List<Mission> all = await db.Driver.Missions.EnumerateAsync().ConfigureAwait(false);
+                    Mission? rebaseMission = all.FirstOrDefault(m => m.ParentMissionId == setupResult.Mission.Id);
+                    AssertNotNull(rebaseMission, "rebase mission should be created");
+                    AssertEqual(PreferredModelTierSelector.HighTier, rebaseMission!.PreferredModel ?? "", "empty-string original preferred model should default to the high tier selector");
+                    AssertNotEqual("claude-opus-4-7", rebaseMission.PreferredModel ?? "", "rebase mission must never be frozen to a concrete model name");
+                }
+            });
+
             await RunTest("OnMergeFailed_RebaseMission_HasRecoveryAttemptsZero", async () =>
             {
                 using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
