@@ -375,6 +375,242 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(1, admiral.DispatchCount);
                 }
             });
+
+            await RunTest("Drain_PendingConsolidator_SameWindow_PreventsDuplicate", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = new ArmadaSettings { DefaultReflectionThreshold = 2 };
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, "window-pending").ConfigureAwait(false);
+                    vessel.ReflectionThreshold = 2;
+                    vessel = await testDb.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
+
+                    for (int i = 0; i < 2; i++)
+                    {
+                        await CreateTerminalMissionAsync(testDb.Driver, vessel.Id, "m" + i, DateTime.UtcNow.AddMinutes(-10 + i)).ConfigureAwait(false);
+                    }
+
+                    Mission consolidator = new Mission("pending consolidator", "d");
+                    consolidator.VesselId = vessel.Id;
+                    consolidator.Persona = "MemoryConsolidator";
+                    consolidator.Status = MissionStatusEnum.Pending;
+                    consolidator = await testDb.Driver.Missions.CreateAsync(consolidator).ConfigureAwait(false);
+
+                    RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                    ReflectionDispatcher dispatcher = new ReflectionDispatcher(testDb.Driver, admiral, settings, new ReflectionMemoryService(testDb.Driver));
+                    Func<JsonElement?, Task<object>>? drainHandler = null;
+                    McpAuditTools.Register((name, _, _, h) => { if (name == "armada_drain_audit_queue") drainHandler = h; }, testDb.Driver, null, dispatcher);
+                    AssertNotNull(drainHandler);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new { vesselId = vessel.Id, limit = 10 });
+                    object result = await drainHandler!(args).ConfigureAwait(false);
+                    JsonNode? root = JsonNode.Parse(JsonSerializer.Serialize(result));
+                    JsonArray? reflections = root?["reflectionsDispatched"]?.AsArray();
+
+                    AssertNotNull(reflections);
+                    AssertEqual(0, reflections!.Count);
+                    AssertEqual(0, admiral.DispatchCount);
+                }
+            });
+
+            await RunTest("Drain_WorkProducedConsolidator_SameWindow_PreventsDuplicate", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = new ArmadaSettings { DefaultReflectionThreshold = 2 };
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, "window-workproduced").ConfigureAwait(false);
+                    vessel.ReflectionThreshold = 2;
+                    vessel = await testDb.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
+
+                    for (int i = 0; i < 2; i++)
+                    {
+                        await CreateTerminalMissionAsync(testDb.Driver, vessel.Id, "m" + i, DateTime.UtcNow.AddMinutes(-10 + i)).ConfigureAwait(false);
+                    }
+
+                    Mission consolidator = new Mission("workproduced consolidator", "d");
+                    consolidator.VesselId = vessel.Id;
+                    consolidator.Persona = "MemoryConsolidator";
+                    consolidator.Status = MissionStatusEnum.WorkProduced;
+                    consolidator = await testDb.Driver.Missions.CreateAsync(consolidator).ConfigureAwait(false);
+
+                    RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                    ReflectionDispatcher dispatcher = new ReflectionDispatcher(testDb.Driver, admiral, settings, new ReflectionMemoryService(testDb.Driver));
+                    Func<JsonElement?, Task<object>>? drainHandler = null;
+                    McpAuditTools.Register((name, _, _, h) => { if (name == "armada_drain_audit_queue") drainHandler = h; }, testDb.Driver, null, dispatcher);
+                    AssertNotNull(drainHandler);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new { vesselId = vessel.Id, limit = 10 });
+                    object result = await drainHandler!(args).ConfigureAwait(false);
+                    JsonNode? root = JsonNode.Parse(JsonSerializer.Serialize(result));
+                    JsonArray? reflections = root?["reflectionsDispatched"]?.AsArray();
+
+                    AssertNotNull(reflections);
+                    AssertEqual(0, reflections!.Count);
+                    AssertEqual(0, admiral.DispatchCount);
+                }
+            });
+
+            await RunTest("Drain_CompletedUnreviewedConsolidator_SameWindow_PreventsDuplicate", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = new ArmadaSettings { DefaultReflectionThreshold = 2 };
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, "window-unreviewed").ConfigureAwait(false);
+                    vessel.ReflectionThreshold = 2;
+                    vessel = await testDb.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
+
+                    for (int i = 0; i < 2; i++)
+                    {
+                        await CreateTerminalMissionAsync(testDb.Driver, vessel.Id, "m" + i, DateTime.UtcNow.AddMinutes(-10 + i)).ConfigureAwait(false);
+                    }
+
+                    Mission consolidator = new Mission("completed unreviewed consolidator", "d");
+                    consolidator.VesselId = vessel.Id;
+                    consolidator.Persona = "MemoryConsolidator";
+                    consolidator.Status = MissionStatusEnum.Complete;
+                    consolidator.CompletedUtc = DateTime.UtcNow.AddMinutes(-5);
+                    consolidator = await testDb.Driver.Missions.CreateAsync(consolidator).ConfigureAwait(false);
+
+                    await CreateDispatchedEventAsync(testDb.Driver, vessel.Id, consolidator.Id, "consolidate", "").ConfigureAwait(false);
+
+                    RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                    ReflectionDispatcher dispatcher = new ReflectionDispatcher(testDb.Driver, admiral, settings, new ReflectionMemoryService(testDb.Driver));
+                    Func<JsonElement?, Task<object>>? drainHandler = null;
+                    McpAuditTools.Register((name, _, _, h) => { if (name == "armada_drain_audit_queue") drainHandler = h; }, testDb.Driver, null, dispatcher);
+                    AssertNotNull(drainHandler);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new { vesselId = vessel.Id, limit = 10 });
+                    object result = await drainHandler!(args).ConfigureAwait(false);
+                    JsonNode? root = JsonNode.Parse(JsonSerializer.Serialize(result));
+                    JsonArray? reflections = root?["reflectionsDispatched"]?.AsArray();
+
+                    AssertNotNull(reflections);
+                    AssertEqual(0, reflections!.Count);
+                    AssertEqual(0, admiral.DispatchCount);
+                }
+            });
+
+            await RunTest("Drain_AcceptedCompletedConsolidator_SameWindow_AllowsRedispatch", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = new ArmadaSettings { DefaultReflectionThreshold = 2 };
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, "window-accepted").ConfigureAwait(false);
+                    vessel.ReflectionThreshold = 2;
+                    vessel = await testDb.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
+
+                    for (int i = 0; i < 2; i++)
+                    {
+                        await CreateTerminalMissionAsync(testDb.Driver, vessel.Id, "m" + i, DateTime.UtcNow.AddMinutes(-10 + i)).ConfigureAwait(false);
+                    }
+
+                    Mission consolidator = new Mission("accepted consolidator", "d");
+                    consolidator.VesselId = vessel.Id;
+                    consolidator.Persona = "MemoryConsolidator";
+                    consolidator.Status = MissionStatusEnum.Complete;
+                    consolidator.CompletedUtc = DateTime.UtcNow.AddMinutes(-5);
+                    consolidator = await testDb.Driver.Missions.CreateAsync(consolidator).ConfigureAwait(false);
+
+                    await CreateDispatchedEventAsync(testDb.Driver, vessel.Id, consolidator.Id, "consolidate", "").ConfigureAwait(false);
+                    await CreateReviewEventAsync(testDb.Driver, vessel.Id, consolidator.Id, "reflection.accepted").ConfigureAwait(false);
+
+                    RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                    ReflectionDispatcher dispatcher = new ReflectionDispatcher(testDb.Driver, admiral, settings, new ReflectionMemoryService(testDb.Driver));
+                    Func<JsonElement?, Task<object>>? drainHandler = null;
+                    McpAuditTools.Register((name, _, _, h) => { if (name == "armada_drain_audit_queue") drainHandler = h; }, testDb.Driver, null, dispatcher);
+                    AssertNotNull(drainHandler);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new { vesselId = vessel.Id, limit = 10 });
+                    object result = await drainHandler!(args).ConfigureAwait(false);
+                    JsonNode? root = JsonNode.Parse(JsonSerializer.Serialize(result));
+                    JsonArray? reflections = root?["reflectionsDispatched"]?.AsArray();
+
+                    AssertNotNull(reflections);
+                    AssertEqual(1, reflections!.Count);
+                    AssertEqual(1, admiral.DispatchCount);
+                }
+            });
+
+            await RunTest("Drain_RejectedCompletedConsolidator_SameWindow_AllowsRedispatch", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = new ArmadaSettings { DefaultReflectionThreshold = 2 };
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, "window-rejected").ConfigureAwait(false);
+                    vessel.ReflectionThreshold = 2;
+                    vessel = await testDb.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
+
+                    for (int i = 0; i < 2; i++)
+                    {
+                        await CreateTerminalMissionAsync(testDb.Driver, vessel.Id, "m" + i, DateTime.UtcNow.AddMinutes(-10 + i)).ConfigureAwait(false);
+                    }
+
+                    Mission consolidator = new Mission("rejected consolidator", "d");
+                    consolidator.VesselId = vessel.Id;
+                    consolidator.Persona = "MemoryConsolidator";
+                    consolidator.Status = MissionStatusEnum.Complete;
+                    consolidator.CompletedUtc = DateTime.UtcNow.AddMinutes(-5);
+                    consolidator = await testDb.Driver.Missions.CreateAsync(consolidator).ConfigureAwait(false);
+
+                    await CreateDispatchedEventAsync(testDb.Driver, vessel.Id, consolidator.Id, "consolidate", "").ConfigureAwait(false);
+                    await CreateReviewEventAsync(testDb.Driver, vessel.Id, consolidator.Id, "reflection.rejected").ConfigureAwait(false);
+
+                    RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                    ReflectionDispatcher dispatcher = new ReflectionDispatcher(testDb.Driver, admiral, settings, new ReflectionMemoryService(testDb.Driver));
+                    Func<JsonElement?, Task<object>>? drainHandler = null;
+                    McpAuditTools.Register((name, _, _, h) => { if (name == "armada_drain_audit_queue") drainHandler = h; }, testDb.Driver, null, dispatcher);
+                    AssertNotNull(drainHandler);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new { vesselId = vessel.Id, limit = 10 });
+                    object result = await drainHandler!(args).ConfigureAwait(false);
+                    JsonNode? root = JsonNode.Parse(JsonSerializer.Serialize(result));
+                    JsonArray? reflections = root?["reflectionsDispatched"]?.AsArray();
+
+                    AssertNotNull(reflections);
+                    AssertEqual(1, reflections!.Count);
+                    AssertEqual(1, admiral.DispatchCount);
+                }
+            });
+
+            await RunTest("Drain_CompletedUnreviewed_DifferentWindow_AllowsDispatch", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = new ArmadaSettings { DefaultReflectionThreshold = 2 };
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, "window-diffwindow").ConfigureAwait(false);
+                    vessel.ReflectionThreshold = 2;
+                    vessel = await testDb.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
+
+                    for (int i = 0; i < 2; i++)
+                    {
+                        await CreateTerminalMissionAsync(testDb.Driver, vessel.Id, "m" + i, DateTime.UtcNow.AddMinutes(-10 + i)).ConfigureAwait(false);
+                    }
+
+                    Mission consolidator = new Mission("other-window consolidator", "d");
+                    consolidator.VesselId = vessel.Id;
+                    consolidator.Persona = "MemoryConsolidator";
+                    consolidator.Status = MissionStatusEnum.Complete;
+                    consolidator.CompletedUtc = DateTime.UtcNow.AddMinutes(-5);
+                    consolidator = await testDb.Driver.Missions.CreateAsync(consolidator).ConfigureAwait(false);
+
+                    await CreateDispatchedEventAsync(testDb.Driver, vessel.Id, consolidator.Id, "consolidate", "msn_different_anchor").ConfigureAwait(false);
+
+                    RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                    ReflectionDispatcher dispatcher = new ReflectionDispatcher(testDb.Driver, admiral, settings, new ReflectionMemoryService(testDb.Driver));
+                    Func<JsonElement?, Task<object>>? drainHandler = null;
+                    McpAuditTools.Register((name, _, _, h) => { if (name == "armada_drain_audit_queue") drainHandler = h; }, testDb.Driver, null, dispatcher);
+                    AssertNotNull(drainHandler);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new { vesselId = vessel.Id, limit = 10 });
+                    object result = await drainHandler!(args).ConfigureAwait(false);
+                    JsonNode? root = JsonNode.Parse(JsonSerializer.Serialize(result));
+                    JsonArray? reflections = root?["reflectionsDispatched"]?.AsArray();
+
+                    AssertNotNull(reflections);
+                    AssertEqual(1, reflections!.Count);
+                    AssertEqual(1, admiral.DispatchCount);
+                }
+            });
         }
 
         private static async Task<Vessel> CreateVesselAsync(DatabaseDriver database, string name)
@@ -398,6 +634,45 @@ namespace Armada.Test.Unit.Suites.Services
             mission.DiffSnapshot = "diff " + title;
             mission.AgentOutput = "output " + title;
             return await database.Missions.CreateAsync(mission).ConfigureAwait(false);
+        }
+
+        private static async Task CreateDispatchedEventAsync(
+            DatabaseDriver database,
+            string vesselId,
+            string missionId,
+            string mode,
+            string sinceMissionId)
+        {
+            ArmadaEvent evt = new ArmadaEvent("reflection.dispatched", "dispatched");
+            evt.VesselId = vesselId;
+            evt.MissionId = missionId;
+            evt.EntityType = "mission";
+            evt.EntityId = missionId;
+            evt.Payload = JsonSerializer.Serialize(new
+            {
+                mode = mode,
+                sinceMissionId = sinceMissionId,
+                missionId = missionId,
+                vesselId = vesselId,
+                dualJudge = false,
+                tokenBudget = 4000
+            });
+            await database.Events.CreateAsync(evt).ConfigureAwait(false);
+        }
+
+        private static async Task CreateReviewEventAsync(
+            DatabaseDriver database,
+            string vesselId,
+            string missionId,
+            string eventType)
+        {
+            ArmadaEvent evt = new ArmadaEvent(eventType, "review event");
+            evt.VesselId = vesselId;
+            evt.MissionId = missionId;
+            evt.EntityType = "mission";
+            evt.EntityId = missionId;
+            evt.Payload = JsonSerializer.Serialize(new { missionId = missionId, vesselId = vesselId });
+            await database.Events.CreateAsync(evt).ConfigureAwait(false);
         }
 
         private sealed class RecordingAdmiralService : IAdmiralService

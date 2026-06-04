@@ -358,6 +358,62 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertNull(inFlight, "Terminal MemoryConsolidator mission should not block a new reflection");
                 }
             });
+
+            await RunTest("IsReflectionInFlight_WorkProducedReflection_BlocksNewDispatch", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, "rc-workproduced").ConfigureAwait(false);
+                    Mission workProduced = new Mission("workproduced reflection", "desc");
+                    workProduced.VesselId = vessel.Id;
+                    workProduced.Persona = "MemoryConsolidator";
+                    workProduced.Status = MissionStatusEnum.WorkProduced;
+                    workProduced = await testDb.Driver.Missions.CreateAsync(workProduced).ConfigureAwait(false);
+
+                    await CreateTerminalMissionAsync(testDb.Driver, vessel.Id, "evidence", DateTime.UtcNow.AddMinutes(-5)).ConfigureAwait(false);
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                    ReflectionDispatcher dispatcher = CreateDispatcher(testDb.Driver, admiral, settings);
+                    Func<JsonElement?, Task<object>>? handler = CaptureHandler(testDb.Driver, dispatcher, settings);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new { vesselId = vessel.Id });
+                    object result = await handler!(args).ConfigureAwait(false);
+                    string json = JsonSerializer.Serialize(result);
+
+                    AssertContains("reflection_already_in_flight", json, "WorkProduced MemoryConsolidator should block new dispatch");
+                    AssertContains(workProduced.Id, json, "In-flight mission id should be returned");
+                    AssertEqual(0, admiral.DispatchCount, "WorkProduced mission must not trigger another dispatch");
+                }
+            });
+
+            await RunTest("IsReflectionInFlight_PendingReflection_BlocksNewDispatch", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, "rc-pending").ConfigureAwait(false);
+                    Mission pending = new Mission("pending reflection", "desc");
+                    pending.VesselId = vessel.Id;
+                    pending.Persona = "MemoryConsolidator";
+                    pending.Status = MissionStatusEnum.Pending;
+                    pending = await testDb.Driver.Missions.CreateAsync(pending).ConfigureAwait(false);
+
+                    await CreateTerminalMissionAsync(testDb.Driver, vessel.Id, "evidence", DateTime.UtcNow.AddMinutes(-5)).ConfigureAwait(false);
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                    ReflectionDispatcher dispatcher = CreateDispatcher(testDb.Driver, admiral, settings);
+                    Func<JsonElement?, Task<object>>? handler = CaptureHandler(testDb.Driver, dispatcher, settings);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new { vesselId = vessel.Id });
+                    object result = await handler!(args).ConfigureAwait(false);
+                    string json = JsonSerializer.Serialize(result);
+
+                    AssertContains("reflection_already_in_flight", json, "Pending MemoryConsolidator should block new dispatch");
+                    AssertContains(pending.Id, json, "In-flight mission id should be returned");
+                    AssertEqual(0, admiral.DispatchCount, "Pending mission must not trigger another dispatch");
+                }
+            });
         }
 
         private static Func<JsonElement?, Task<object>>? CaptureHandler(
