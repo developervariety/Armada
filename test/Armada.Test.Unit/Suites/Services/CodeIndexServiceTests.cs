@@ -292,6 +292,82 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("SearchAsync_ResultRecords_DoNotCarryEmbeddingVectors", async () =>
+            {
+                string dataRoot = NewTempDirectory("armada-code-index-data-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Directory.CreateDirectory(Path.Combine(dataRoot, "repo"));
+                        Vessel vessel = await CreateVesselAsync(testDb, Path.Combine(dataRoot, "repo")).ConfigureAwait(false);
+
+                        List<CodeIndexRecord> records = new List<CodeIndexRecord>
+                        {
+                            new CodeIndexRecord
+                            {
+                                VesselId = vessel.Id,
+                                Path = "alpha.cs",
+                                CommitSha = "abc",
+                                ContentHash = "a1",
+                                Language = "csharp",
+                                StartLine = 1,
+                                EndLine = 5,
+                                IsReferenceOnly = false,
+                                Content = "SearchKeyword alpha body",
+                                EmbeddingVector = new float[] { 1F, 0F, 0F }
+                            },
+                            new CodeIndexRecord
+                            {
+                                VesselId = vessel.Id,
+                                Path = "beta.cs",
+                                CommitSha = "abc",
+                                ContentHash = "b1",
+                                Language = "csharp",
+                                StartLine = 1,
+                                EndLine = 5,
+                                IsReferenceOnly = false,
+                                Content = "SearchKeyword beta body",
+                                EmbeddingVector = new float[] { 0F, 1F, 0F }
+                            }
+                        };
+
+                        ArmadaSettings settings = BuildSettings(dataRoot, ci => { ci.UseSemanticSearch = true; });
+                        await WritePersistedIndexAsync(settings, vessel, records).ConfigureAwait(false);
+
+                        CodeIndexService service = CreateService(
+                            testDb,
+                            dataRoot,
+                            new ConstantVectorEmbeddingClient(new float[] { 1F, 0F, 0F }),
+                            ci => { ci.UseSemanticSearch = true; });
+
+                        CodeSearchResponse response = await service.SearchAsync(new CodeSearchRequest
+                        {
+                            VesselId = vessel.Id,
+                            Query = "SearchKeyword",
+                            Limit = 10,
+                            IncludeContent = true
+                        }).ConfigureAwait(false);
+
+                        AssertTrue(response.Results.Count >= 2, "Expected both chunks to rank so semantic scoring is exercised");
+                        foreach (CodeSearchResult result in response.Results)
+                        {
+                            AssertTrue(
+                                result.Record.EmbeddingVector == null,
+                                "Search result record must not carry an EmbeddingVector; vectors must not escape into retained responses");
+                            AssertTrue(
+                                !String.IsNullOrEmpty(result.Record.Content),
+                                "IncludeContent=true should still return content alongside the dropped vector");
+                        }
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
             await RunTest("CodeIndexRecord_EmbeddingVector_RoundTripsJson", () =>
             {
                 CodeIndexRecord withVector = new CodeIndexRecord

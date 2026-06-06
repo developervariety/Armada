@@ -197,6 +197,12 @@ namespace Armada.Core.Services
                         await PopulateEmbeddingsAsync(vessel.Id, records, reusableVectors, token).ConfigureAwait(false);
                     }
 
+                    // Release the previous index generation on ALL paths. The semantic block above
+                    // already drops it after building reusable vectors, but on the non-semantic path
+                    // it would otherwise stay rooted through the signature/write back-half of this
+                    // method, doubling the live record set (chunk Content strings) per refresh.
+                    previousRecords = null!;
+
                     List<FileSignatureRecord> signatures = new List<FileSignatureRecord>();
                     if (_Settings.CodeIndex.UseFileSignatures && _InferenceClient != null && _EmbeddingClient != null)
                     {
@@ -2876,7 +2882,13 @@ namespace Armada.Core.Services
                 IndexedAtUtc = record.IndexedAtUtc,
                 IsReferenceOnly = record.IsReferenceOnly,
                 Content = record.Content,
-                EmbeddingVector = record.EmbeddingVector
+                // EmbeddingVector is deliberately not carried onto records that escape a
+                // search / context-pack response. The vector is only needed in-method for
+                // cosine scoring (done against the source record before this copy) and is
+                // never serialized to callers. Sharing the reference here lets a retained
+                // response root one float[] per result, which compounds across the search
+                // hot path; dropping it bounds the escaping payload to lightweight metadata.
+                EmbeddingVector = null
             };
         }
 
