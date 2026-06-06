@@ -368,6 +368,243 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("BuildContextPackAsync_ResultRecords_DoNotCarryEmbeddingVectors", async () =>
+            {
+                string dataRoot = NewTempDirectory("armada-code-index-data-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Directory.CreateDirectory(Path.Combine(dataRoot, "repo"));
+                        Vessel vessel = await CreateVesselAsync(testDb, Path.Combine(dataRoot, "repo")).ConfigureAwait(false);
+
+                        List<CodeIndexRecord> records = new List<CodeIndexRecord>
+                        {
+                            new CodeIndexRecord
+                            {
+                                VesselId = vessel.Id,
+                                Path = "alpha.cs",
+                                CommitSha = "abc",
+                                ContentHash = "a1",
+                                Language = "csharp",
+                                StartLine = 1,
+                                EndLine = 5,
+                                IsReferenceOnly = false,
+                                Content = "SearchKeyword alpha body",
+                                EmbeddingVector = new float[] { 1F, 0F, 0F }
+                            },
+                            new CodeIndexRecord
+                            {
+                                VesselId = vessel.Id,
+                                Path = "beta.cs",
+                                CommitSha = "abc",
+                                ContentHash = "b1",
+                                Language = "csharp",
+                                StartLine = 1,
+                                EndLine = 5,
+                                IsReferenceOnly = false,
+                                Content = "SearchKeyword beta body",
+                                EmbeddingVector = new float[] { 0F, 1F, 0F }
+                            }
+                        };
+
+                        ArmadaSettings settings = BuildSettings(dataRoot, ci => { ci.UseSemanticSearch = true; });
+                        await WritePersistedIndexAsync(settings, vessel, records).ConfigureAwait(false);
+
+                        CodeIndexService service = CreateService(
+                            testDb,
+                            dataRoot,
+                            new ConstantVectorEmbeddingClient(new float[] { 1F, 0F, 0F }),
+                            ci => { ci.UseSemanticSearch = true; });
+
+                        // The context-pack response is held on a dispatched mission for the life
+                        // of that mission. Before the bounding fix, every result record it carried
+                        // shared the source float[] EmbeddingVector reference, so a single retained
+                        // pack rooted one large array per result. Guard that escape path here.
+                        ContextPackResponse pack = await service.BuildContextPackAsync(new ContextPackRequest
+                        {
+                            VesselId = vessel.Id,
+                            Goal = "SearchKeyword",
+                            TokenBudget = 4000
+                        }).ConfigureAwait(false);
+
+                        AssertTrue(pack.Results.Count >= 2, "Expected both chunks to rank so the pack carries result records");
+                        foreach (CodeSearchResult result in pack.Results)
+                        {
+                            AssertTrue(
+                                result.Record.EmbeddingVector == null,
+                                "Context-pack result record must not carry an EmbeddingVector; a retained pack must not root the index's vectors");
+                            AssertTrue(
+                                !String.IsNullOrEmpty(result.Record.Content),
+                                "Context-pack records should still carry content alongside the dropped vector");
+                        }
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("SearchFleetAsync_ResultRecords_DoNotCarryEmbeddingVectors", async () =>
+            {
+                string dataRoot = NewTempDirectory("armada-code-index-data-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Fleet fleet = new Fleet("fleet-" + Guid.NewGuid().ToString("N"));
+                        fleet = await testDb.Driver.Fleets.CreateAsync(fleet).ConfigureAwait(false);
+                        string fleetId = fleet.Id;
+
+                        Directory.CreateDirectory(Path.Combine(dataRoot, "repoA"));
+                        Directory.CreateDirectory(Path.Combine(dataRoot, "repoB"));
+
+                        Vessel vesselA = new Vessel
+                        {
+                            Name = "fleet-vessel-a-" + Guid.NewGuid().ToString("N"),
+                            RepoUrl = Path.Combine(dataRoot, "repoA"),
+                            WorkingDirectory = Path.Combine(dataRoot, "repoA"),
+                            DefaultBranch = "main",
+                            FleetId = fleetId
+                        };
+                        vesselA = await testDb.Driver.Vessels.CreateAsync(vesselA).ConfigureAwait(false);
+
+                        Vessel vesselB = new Vessel
+                        {
+                            Name = "fleet-vessel-b-" + Guid.NewGuid().ToString("N"),
+                            RepoUrl = Path.Combine(dataRoot, "repoB"),
+                            WorkingDirectory = Path.Combine(dataRoot, "repoB"),
+                            DefaultBranch = "main",
+                            FleetId = fleetId
+                        };
+                        vesselB = await testDb.Driver.Vessels.CreateAsync(vesselB).ConfigureAwait(false);
+
+                        ArmadaSettings settings = BuildSettings(dataRoot, ci => { ci.UseSemanticSearch = true; });
+                        foreach (Vessel vessel in new[] { vesselA, vesselB })
+                        {
+                            List<CodeIndexRecord> records = new List<CodeIndexRecord>
+                            {
+                                new CodeIndexRecord
+                                {
+                                    VesselId = vessel.Id,
+                                    Path = "alpha.cs",
+                                    CommitSha = "abc",
+                                    ContentHash = "a1",
+                                    Language = "csharp",
+                                    StartLine = 1,
+                                    EndLine = 5,
+                                    IsReferenceOnly = false,
+                                    Content = "SearchKeyword alpha body",
+                                    EmbeddingVector = new float[] { 1F, 0F, 0F }
+                                }
+                            };
+                            await WritePersistedIndexAsync(settings, vessel, records).ConfigureAwait(false);
+                        }
+
+                        CodeIndexService service = CreateService(
+                            testDb,
+                            dataRoot,
+                            new ConstantVectorEmbeddingClient(new float[] { 1F, 0F, 0F }),
+                            ci => { ci.UseSemanticSearch = true; });
+
+                        // Fleet search aggregates per-vessel result records into one merged
+                        // response; before the fix it rooted one vector per result across every
+                        // vessel in the fleet. Guard the aggregation escape path.
+                        FleetCodeSearchResponse response = await service.SearchFleetAsync(new FleetCodeSearchRequest
+                        {
+                            FleetId = fleetId,
+                            Query = "SearchKeyword",
+                            Limit = 10,
+                            IncludeContent = true
+                        }).ConfigureAwait(false);
+
+                        AssertTrue(response.Results.Count >= 2, "Expected both fleet vessels to contribute a result");
+                        foreach (FleetCodeSearchResult result in response.Results)
+                        {
+                            AssertTrue(
+                                result.Record.EmbeddingVector == null,
+                                "Fleet search result record must not carry an EmbeddingVector; the merged response must not root the fleet's vectors");
+                        }
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("SearchAsync_RepeatedCycles_DoNotAccumulateEscapedVectors", async () =>
+            {
+                string dataRoot = NewTempDirectory("armada-code-index-data-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Directory.CreateDirectory(Path.Combine(dataRoot, "repo"));
+                        Vessel vessel = await CreateVesselAsync(testDb, Path.Combine(dataRoot, "repo")).ConfigureAwait(false);
+
+                        List<CodeIndexRecord> records = new List<CodeIndexRecord>
+                        {
+                            new CodeIndexRecord
+                            {
+                                VesselId = vessel.Id,
+                                Path = "alpha.cs",
+                                CommitSha = "abc",
+                                ContentHash = "a1",
+                                Language = "csharp",
+                                StartLine = 1,
+                                EndLine = 5,
+                                IsReferenceOnly = false,
+                                Content = "SearchKeyword alpha body",
+                                EmbeddingVector = new float[] { 1F, 0F, 0F }
+                            }
+                        };
+
+                        ArmadaSettings settings = BuildSettings(dataRoot, ci => { ci.UseSemanticSearch = true; });
+                        await WritePersistedIndexAsync(settings, vessel, records).ConfigureAwait(false);
+
+                        CodeIndexService service = CreateService(
+                            testDb,
+                            dataRoot,
+                            new ConstantVectorEmbeddingClient(new float[] { 1F, 0F, 0F }),
+                            ci => { ci.UseSemanticSearch = true; });
+
+                        // Drive the search hot path repeatedly: the escaping payload must stay
+                        // bounded across cycles (zero vectors escape every time), while the
+                        // persisted index keeps scoring correctly (source vectors are untouched,
+                        // so each cycle still ranks the chunk). This is the "after N cycles the
+                        // retained vector count does not grow" regression guard.
+                        int escapedVectorCount = 0;
+                        for (int cycle = 0; cycle < 5; cycle++)
+                        {
+                            CodeSearchResponse response = await service.SearchAsync(new CodeSearchRequest
+                            {
+                                VesselId = vessel.Id,
+                                Query = "SearchKeyword",
+                                Limit = 10,
+                                IncludeContent = true
+                            }).ConfigureAwait(false);
+
+                            AssertTrue(response.Results.Count >= 1, "Each cycle must still rank the chunk; scoring must survive the vector drop");
+                            foreach (CodeSearchResult result in response.Results)
+                            {
+                                if (result.Record.EmbeddingVector != null) escapedVectorCount++;
+                            }
+                        }
+
+                        AssertEqual(0, escapedVectorCount);
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
             await RunTest("CodeIndexRecord_EmbeddingVector_RoundTripsJson", () =>
             {
                 CodeIndexRecord withVector = new CodeIndexRecord
