@@ -587,6 +587,76 @@ namespace Armada.Core.Services
 
                 await _Git.CreateWorktreeAsync(siblingRepoPath, siblingWorktreePath, siblingBranch, fallbackBranch, token).ConfigureAwait(false);
                 _Logging.Info(_Header + "provisioned sibling repo at " + siblingWorktreePath + " (branch " + siblingBranch + ") for vessel " + vessel.Id);
+
+                await ProvisionSiblingArtifactsAsync(sibling, siblingWorktreePath, token).ConfigureAwait(false);
+            }
+        }
+
+        /// <summary>
+        /// Copies git-ignored extraction artifact directories from the sibling vessel's host
+        /// WorkingDirectory into the dock sibling worktree so consumer build probes resolve them.
+        /// No-op when ExtractionArtifactPaths is empty or the sibling has no VesselRef.
+        /// Skips cleanly with a warning when the source directory is absent on the host.
+        /// </summary>
+        private async Task ProvisionSiblingArtifactsAsync(SiblingRepo sibling, string siblingWorktreePath, CancellationToken token)
+        {
+            if (sibling.ExtractionArtifactPaths == null || sibling.ExtractionArtifactPaths.Count == 0) return;
+            if (String.IsNullOrWhiteSpace(sibling.VesselRef)) return;
+
+            Vessel? siblingVessel = null;
+            try { siblingVessel = await _Database.Vessels.ReadAsync(sibling.VesselRef, token).ConfigureAwait(false); } catch { }
+            if (siblingVessel == null)
+            {
+                try { siblingVessel = await _Database.Vessels.ReadByNameAsync(sibling.VesselRef, token).ConfigureAwait(false); } catch { }
+            }
+
+            if (siblingVessel == null || String.IsNullOrWhiteSpace(siblingVessel.WorkingDirectory))
+            {
+                _Logging.Warn(_Header + "skipping extraction artifact provisioning: vessel not found or WorkingDirectory not configured (vesselRef=" + sibling.VesselRef + ")");
+                return;
+            }
+
+            foreach (string artifactPath in sibling.ExtractionArtifactPaths)
+            {
+                if (String.IsNullOrWhiteSpace(artifactPath)) continue;
+
+                string sourceDir = Path.Combine(siblingVessel.WorkingDirectory, artifactPath);
+                string destDir = Path.Combine(siblingWorktreePath, artifactPath);
+
+                if (!Directory.Exists(sourceDir))
+                {
+                    _Logging.Warn(_Header + "extraction artifact source absent -- data-tests will be skipped until artifacts are generated (vesselRef=" + sibling.VesselRef + ", path=" + artifactPath + ")");
+                    continue;
+                }
+
+                try
+                {
+                    CopyDirectoryRecursive(sourceDir, destDir);
+                    _Logging.Info(_Header + "provisioned extraction artifacts from " + sourceDir + " to " + destDir);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "failed to copy extraction artifacts (vesselRef=" + sibling.VesselRef + ", path=" + artifactPath + "): " + ex.Message);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Recursively copies all files from sourceDir into destDir, creating subdirectories as needed.
+        /// </summary>
+        private static void CopyDirectoryRecursive(string sourceDir, string destDir)
+        {
+            Directory.CreateDirectory(destDir);
+            foreach (string sourceFile in Directory.GetFiles(sourceDir, "*", SearchOption.AllDirectories))
+            {
+                string relative = Path.GetRelativePath(sourceDir, sourceFile);
+                string destFile = Path.Combine(destDir, relative);
+                string? destFileDir = Path.GetDirectoryName(destFile);
+                if (!String.IsNullOrEmpty(destFileDir) && !Directory.Exists(destFileDir))
+                {
+                    Directory.CreateDirectory(destFileDir);
+                }
+                File.Copy(sourceFile, destFile, overwrite: true);
             }
         }
 
