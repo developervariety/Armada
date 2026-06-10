@@ -1,5 +1,6 @@
 namespace Armada.Test.Runtimes.Suites
 {
+    using System.Diagnostics;
     using Armada.Core.Models;
     using Armada.Runtimes;
     using Armada.Test.Common;
@@ -18,6 +19,8 @@ namespace Armada.Test.Runtimes.Suites
         public List<string> ArgsOverride { get; set; } = new List<string> { "--version" };
         public bool RedirectStdinOverride { get; set; } = true;
         public bool WriteStderrToLogFileOverride { get; set; } = true;
+        public bool CaptureStartInfoAndThrow { get; set; } = false;
+        public ProcessStartInfo? CapturedStartInfo { get; private set; }
 
         public TestAgentRuntime(LoggingModule logging) : base(logging)
         {
@@ -35,5 +38,16 @@ namespace Armada.Test.Runtimes.Suites
             string? model,
             string? finalMessageFilePath,
             Captain? captain) => ArgsOverride;
+
+        protected override void ApplyEnvironment(ProcessStartInfo startInfo, Captain? captain)
+        {
+            startInfo.Environment["TEST_AGENT_RUNTIME_ENVIRONMENT_APPLIED"] = "1";
+
+            if (CaptureStartInfoAndThrow)
+            {
+                CapturedStartInfo = startInfo;
+                throw new InvalidOperationException("ProcessStartInfo captured before process launch.");
+            }
+        }
     }
 }

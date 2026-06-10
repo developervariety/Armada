@@ -1,5 +1,6 @@
 namespace Armada.Test.Runtimes.Suites
 {
+    using System.Diagnostics;
     using Armada.Runtimes;
     using Armada.Test.Common;
     using SyslogLogging;
@@ -74,6 +75,29 @@ namespace Armada.Test.Runtimes.Suites
             {
                 TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());
                 await AssertThrowsAsync<ArgumentNullException>(() => runtime.StartAsync("/tmp", ""));
+            });
+
+            await RunTest("StartAsync_ProcessStartInfo_SetsMsBuildNoNodeReuseEnvironment", async () =>
+            {
+                TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());
+                runtime.CaptureStartInfoAndThrow = true;
+                Dictionary<string, string> environment = new Dictionary<string, string>
+                {
+                    ["MSBUILDDISABLENODEREUSE"] = "caller-value",
+                    ["DOTNET_CLI_USE_MSBUILD_SERVER"] = "caller-value",
+                    ["ARMADA_TEST_CALLER_ENVIRONMENT"] = "caller-preserved"
+                };
+
+                await AssertThrowsAsync<InvalidOperationException>(() =>
+                    runtime.StartAsync(Path.GetTempPath(), "test prompt", environment: environment));
+
+                AssertTrue(runtime.CapturedStartInfo != null, "Expected StartAsync to expose ProcessStartInfo before launch");
+                ProcessStartInfo startInfo = runtime.CapturedStartInfo!;
+
+                AssertEqual("1", startInfo.Environment["MSBUILDDISABLENODEREUSE"]);
+                AssertEqual("0", startInfo.Environment["DOTNET_CLI_USE_MSBUILD_SERVER"]);
+                AssertEqual("caller-preserved", startInfo.Environment["ARMADA_TEST_CALLER_ENVIRONMENT"]);
+                AssertEqual("1", startInfo.Environment["TEST_AGENT_RUNTIME_ENVIRONMENT_APPLIED"]);
             });
 
             await RunTest("IsRunningAsync Invalid ProcessId Returns False", async () =>
