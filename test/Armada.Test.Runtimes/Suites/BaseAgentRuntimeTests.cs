@@ -84,7 +84,8 @@ namespace Armada.Test.Runtimes.Suites
                 Dictionary<string, string> environment = new Dictionary<string, string>
                 {
                     ["MSBUILDDISABLENODEREUSE"] = "caller-value",
-                    ["DOTNET_CLI_USE_MSBUILD_SERVER"] = "caller-value"
+                    ["DOTNET_CLI_USE_MSBUILD_SERVER"] = "caller-value",
+                    ["ARMADA_TEST_CALLER_ENVIRONMENT"] = "caller-preserved"
                 };
 
                 await AssertThrowsAsync<InvalidOperationException>(() =>
@@ -95,6 +96,7 @@ namespace Armada.Test.Runtimes.Suites
 
                 AssertEqual("1", startInfo.Environment["MSBUILDDISABLENODEREUSE"]);
                 AssertEqual("0", startInfo.Environment["DOTNET_CLI_USE_MSBUILD_SERVER"]);
+                AssertEqual("caller-preserved", startInfo.Environment["ARMADA_TEST_CALLER_ENVIRONMENT"]);
                 AssertEqual("1", startInfo.Environment["TEST_AGENT_RUNTIME_ENVIRONMENT_APPLIED"]);
             });
 
