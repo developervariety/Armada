@@ -124,6 +124,7 @@ namespace Armada.Runtimes
                 }
             }
 
+            ApplySharedCaptainEnvironment(startInfo);
             ApplyEnvironment(startInfo, captain);
 
             // Set up optional log file writer. If a prior launch leaked a handle on the
@@ -420,6 +421,12 @@ namespace Armada.Runtimes
         /// </summary>
         protected virtual void ApplyEnvironment(ProcessStartInfo startInfo, Captain? captain)
         {
+        }
+
+        private static void ApplySharedCaptainEnvironment(ProcessStartInfo startInfo)
+        {
+            startInfo.Environment["MSBUILDDISABLENODEREUSE"] = "1";
+            startInfo.Environment["DOTNET_CLI_USE_MSBUILD_SERVER"] = "0";
         }
 
         /// <summary>
