@@ -1365,10 +1365,20 @@ namespace Armada.Core.Services
                 queue.Enqueue(new GraphTraversalStep(seed, 0));
             }
 
+            int expansions = 0;
+            int maxExpansions = Math.Max(20000, maxResults * 200);
+
             while (queue.Count > 0)
             {
                 GraphTraversalStep current = queue.Dequeue();
                 if (current.Depth >= maxDepth) continue;
+
+                // Hard backstop so a pathological graph can never run away (see obj_mq8o9r9v).
+                if (++expansions > maxExpansions)
+                {
+                    _Logging.Warn(_Header + "graph traversal expansion budget (" + maxExpansions + ") exceeded for seed symbol '" + symbol + "'; truncating impact traversal to bound memory");
+                    break;
+                }
 
                 List<GraphEdgeHop> hops = ResolveTraversalHops(context, current.Symbol, direction);
                 foreach (GraphEdgeHop hop in hops)
@@ -1377,7 +1387,12 @@ namespace Armada.Core.Services
                     if (String.IsNullOrWhiteSpace(hopKey)) continue;
 
                     int nextDepth = current.Depth + 1;
-                    if (minDepthByNode.TryGetValue(hopKey, out int existingDepth) && existingDepth < nextDepth)
+                    // Visited-set: skip when this node was already reached at an equal-or-shallower
+                    // depth. Only re-expand on a strictly shorter path (existingDepth > nextDepth),
+                    // which is bounded (a node's recorded depth only decreases). The previous '<'
+                    // let nodes re-enqueue at equal depth -> exponential PATH (not node) enumeration
+                    // on cyclic/dense graphs, the 10GB+ String blow-up. See obj_mq8o9r9v.
+                    if (minDepthByNode.TryGetValue(hopKey, out int existingDepth) && existingDepth <= nextDepth)
                     {
                         continue;
                     }
@@ -2029,10 +2044,11 @@ namespace Armada.Core.Services
 
             if (!String.IsNullOrWhiteSpace(normalizedEndpoint))
             {
+                string dottedSuffix = "." + normalizedEndpoint;
                 List<CodeGraphSymbolRecord> suffixMatches = context.Symbols
                     .Where(s =>
                         (!String.IsNullOrWhiteSpace(s.QualifiedName)
-                            && s.QualifiedName.EndsWith("." + normalizedEndpoint, StringComparison.OrdinalIgnoreCase))
+                            && s.QualifiedName.EndsWith(dottedSuffix, StringComparison.OrdinalIgnoreCase))
                         || (!String.IsNullOrWhiteSpace(s.SimpleName)
                             && String.Equals(s.SimpleName, normalizedEndpoint, StringComparison.OrdinalIgnoreCase)))
                     .OrderBy(s => !String.IsNullOrWhiteSpace(fallbackPath) && String.Equals(s.Path, fallbackPath, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
