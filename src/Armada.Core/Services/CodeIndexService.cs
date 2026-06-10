@@ -48,6 +48,7 @@ namespace Armada.Core.Services
         private const int _DefaultExploreDepth = 2;
         private const int _DefaultExploreResultLimit = 25;
         private const int _DefaultFileStructureLimit = 100;
+        private const int _MinimumImpactTraversalBudget = 10000;
         private const int _MaxGraphDepth = 8;
         private const int _MaxGraphResults = 200;
 
@@ -1356,6 +1357,8 @@ namespace Armada.Core.Services
             Dictionary<string, ImpactAccumulator> accumulators = new Dictionary<string, ImpactAccumulator>(StringComparer.OrdinalIgnoreCase);
             Queue<GraphTraversalStep> queue = new Queue<GraphTraversalStep>();
             Dictionary<string, int> minDepthByNode = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            int traversalBudget = Math.Max(_MinimumImpactTraversalBudget, maxResults * 200);
+            int traversalWorkCount = 0;
 
             foreach (CodeGraphSymbolRecord seed in seeds)
             {
@@ -1367,7 +1370,21 @@ namespace Armada.Core.Services
 
             while (queue.Count > 0)
             {
+                if (traversalWorkCount >= traversalBudget)
+                {
+                    string warning = "impact traversal truncated after " + traversalBudget + " steps for symbol " + symbol;
+                    if (!context.Warnings.Contains(warning, StringComparer.OrdinalIgnoreCase))
+                    {
+                        context.Warnings.Add(warning);
+                    }
+
+                    _Logging.Warn(_Header + "impact traversal truncated for vessel " + context.Status.VesselId + " with freshness "
+                        + context.Status.Freshness + " after " + traversalBudget + " steps while resolving " + symbol);
+                    break;
+                }
+
                 GraphTraversalStep current = queue.Dequeue();
+                traversalWorkCount++;
                 if (current.Depth >= maxDepth) continue;
 
                 List<GraphEdgeHop> hops = ResolveTraversalHops(context, current.Symbol, direction);
@@ -1377,10 +1394,13 @@ namespace Armada.Core.Services
                     if (String.IsNullOrWhiteSpace(hopKey)) continue;
 
                     int nextDepth = current.Depth + 1;
-                    if (minDepthByNode.TryGetValue(hopKey, out int existingDepth) && existingDepth < nextDepth)
+                    // Impact traversal records the shortest known depth per symbol.
+                    // Equal-depth revisits are already represented and only enumerate alternate paths.
+                    if (minDepthByNode.TryGetValue(hopKey, out int existingDepth) && existingDepth <= nextDepth)
                     {
                         continue;
                     }
+
                     minDepthByNode[hopKey] = nextDepth;
 
                     ImpactAccumulator accumulator = GetOrCreateImpactAccumulator(accumulators, hop.Symbol);
@@ -1953,9 +1973,10 @@ namespace Armada.Core.Services
         {
             if (String.IsNullOrWhiteSpace(endpoint)) return false;
             string normalizedEndpoint = NormalizeGraphEndpoint(endpoint);
+            string dottedSuffix = "." + normalizedEndpoint;
             if (!String.IsNullOrWhiteSpace(symbol.QualifiedName)
                 && (String.Equals(symbol.QualifiedName, normalizedEndpoint, StringComparison.OrdinalIgnoreCase)
-                    || symbol.QualifiedName.EndsWith("." + normalizedEndpoint, StringComparison.OrdinalIgnoreCase)))
+                    || symbol.QualifiedName.EndsWith(dottedSuffix, StringComparison.OrdinalIgnoreCase)))
             {
                 return true;
             }
@@ -1981,10 +2002,11 @@ namespace Armada.Core.Services
 
             if (!String.IsNullOrWhiteSpace(normalizedEndpoint))
             {
+                string dottedSuffix = "." + normalizedEndpoint;
                 List<CodeGraphSymbolRecord> suffixMatches = context.Symbols
                     .Where(s =>
                         (!String.IsNullOrWhiteSpace(s.QualifiedName)
-                            && s.QualifiedName.EndsWith("." + normalizedEndpoint, StringComparison.OrdinalIgnoreCase))
+                            && s.QualifiedName.EndsWith(dottedSuffix, StringComparison.OrdinalIgnoreCase))
                         || (!String.IsNullOrWhiteSpace(s.SimpleName)
                             && String.Equals(s.SimpleName, normalizedEndpoint, StringComparison.OrdinalIgnoreCase)))
                     .OrderBy(s => !String.IsNullOrWhiteSpace(fallbackPath) && String.Equals(s.Path, fallbackPath, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
