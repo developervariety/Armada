@@ -31,6 +31,12 @@ namespace Armada.Core.Enums
         /// <summary>
         /// All captains are busy (no idle captains available).
         /// </summary>
-        PoolExhausted
+        PoolExhausted,
+
+        /// <summary>
+        /// A mission has parked itself waiting for orchestrator input because a captain
+        /// emitted [ARMADA:NEEDS-INPUT block] and the block cap was not exceeded.
+        /// </summary>
+        MissionAwaitingInput
     }
 }

@@ -204,6 +204,9 @@ namespace Armada.Test.Unit
             runner.AddSuite(new ReflectionsV2F3EndToEndSmokeTests());
             runner.AddSuite(new VesselReflectionThresholdRoutesTests());
             runner.AddSuite(new VesselReorganizeThresholdRoutesTests());
+            runner.AddSuite(new CaptainNeedsInputParserTests());
+            runner.AddSuite(new MissionNeedsInputWorkflowTests());
+            runner.AddSuite(new EscalationServiceMissionAwaitingInputTests());
 
             int exitCode = await runner.RunAllAsync(suiteFilters).ConfigureAwait(false);
             return exitCode;

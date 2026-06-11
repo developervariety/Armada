@@ -45,6 +45,7 @@ namespace Armada.Core.Services
         private IDockService _Docks;
         private ICaptainService _Captains;
         private IPromptTemplateService? _PromptTemplates;
+        private IEscalationService? _Escalation;
         private PrestagedFileCopier _Prestaging;
         private const string ArchitectHandoffMarker = "<!-- ARMADA:ARCHITECT-HANDOFF -->";
         private const string ReviewFeedbackMarker = "<!-- ARMADA:REVIEW-FEEDBACK -->";
@@ -124,6 +125,7 @@ namespace Armada.Core.Services
         /// <param name="captains">Captain service.</param>
         /// <param name="promptTemplates">Prompt template service (optional for backward compatibility).</param>
         /// <param name="git">Git service used for branch cleanup on non-landed intermediate stages.</param>
+        /// <param name="escalation">Escalation service for MissionAwaitingInput notifications (optional).</param>
         public MissionService(
             LoggingModule logging,
             DatabaseDriver database,
@@ -131,7 +133,8 @@ namespace Armada.Core.Services
             IDockService docks,
             ICaptainService captains,
             IPromptTemplateService? promptTemplates = null,
-            IGitService? git = null)
+            IGitService? git = null,
+            IEscalationService? escalation = null)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Database = database ?? throw new ArgumentNullException(nameof(database));
@@ -140,6 +143,7 @@ namespace Armada.Core.Services
             _Docks = docks ?? throw new ArgumentNullException(nameof(docks));
             _Captains = captains ?? throw new ArgumentNullException(nameof(captains));
             _PromptTemplates = promptTemplates;
+            _Escalation = escalation;
             _Prestaging = new PrestagedFileCopier(_Logging);
         }
 
@@ -835,6 +839,16 @@ namespace Armada.Core.Services
                     mission.AgentOutput = agentOutput;
                     await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
                 }
+            }
+
+            // Parse [ARMADA:NEEDS-INPUT soft|block] marker from agent output.
+            // Soft: write a Wake signal then continue the normal flow best-effort.
+            // Block (under cap): park mission in WaitingForInput, reclaim dock, release captain, return.
+            // Block (over cap): downgrade to soft with a Warning log.
+            if (!failedForScopeViolation)
+            {
+                bool parkedForInput = await HandleNeedsInputAsync(captain, mission, dock, token).ConfigureAwait(false);
+                if (parkedForInput) return;
             }
 
             if (!failedForScopeViolation && String.Equals(mission.Persona, "Judge", StringComparison.OrdinalIgnoreCase))
@@ -1650,6 +1664,144 @@ namespace Armada.Core.Services
         #endregion
 
         #region Private-Methods
+
+        /// <summary>
+        /// Parse needs-input marker, emit Wake signal, and optionally park mission.
+        /// Returns true if the mission was parked in WaitingForInput (caller must return early).
+        /// </summary>
+        private async Task<bool> HandleNeedsInputAsync(Captain captain, Mission mission, Dock? dock, CancellationToken token)
+        {
+            CaptainNeedsInputRequest request = CaptainNeedsInputParser.Parse(mission.AgentOutput);
+
+            if (!request.Found || request.Malformed)
+                return false;
+
+            NeedsInputModeEnum effectiveMode = request.Mode;
+
+            if (effectiveMode == NeedsInputModeEnum.Block)
+            {
+                int priorBlocks = await CountPriorBlockSignalsAsync(mission.Id, token).ConfigureAwait(false);
+                if (priorBlocks >= _Settings.MaxMissionInputBlocks)
+                {
+                    _Logging.Warn(_Header + "mission " + mission.Id + " hard-block cap reached (" +
+                        priorBlocks + "/" + _Settings.MaxMissionInputBlocks +
+                        ") -- downgrading to soft needs-input");
+                    effectiveMode = NeedsInputModeEnum.Soft;
+                }
+            }
+
+            string safeQuestion = SanitizeNeedsInputQuestion(request.QuestionText);
+            string wakePayload = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                trigger = "needs_input_" + effectiveMode.ToString().ToLowerInvariant(),
+                voyageId = mission.VoyageId ?? "",
+                missionId = mission.Id,
+                mode = effectiveMode.ToString().ToLowerInvariant(),
+                questionText = safeQuestion
+            });
+
+            Signal wakeSignal = new Signal(SignalTypeEnum.Wake, wakePayload);
+            wakeSignal.TenantId = mission.TenantId;
+            wakeSignal.UserId = mission.UserId;
+            wakeSignal.FromCaptainId = captain.Id;
+            try
+            {
+                await _Database.Signals.CreateAsync(wakeSignal, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "failed to write needs-input Wake signal for mission " + mission.Id + ": " + ex.Message);
+            }
+
+            if (effectiveMode == NeedsInputModeEnum.Soft)
+            {
+                _Logging.Info(_Header + "mission " + mission.Id + " soft needs-input: continuing flow. Question: " + safeQuestion);
+                return false;
+            }
+
+            // Block mode: park mission in WaitingForInput
+            _Logging.Info(_Header + "mission " + mission.Id + " block needs-input: parking. Question: " + safeQuestion);
+
+            mission.Status = MissionStatusEnum.WaitingForInput;
+            mission.ProcessId = null;
+            mission.DockId = null;
+            mission.CaptainId = null;
+            mission.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+
+            string escalationMessage = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                trigger = "MissionAwaitingInput",
+                voyageId = mission.VoyageId ?? "",
+                missionId = mission.Id,
+                mode = "block",
+                questionText = safeQuestion
+            });
+
+            if (_Escalation != null)
+            {
+                try
+                {
+                    await _Escalation.FireAsync(EscalationTriggerEnum.MissionAwaitingInput, mission.Id, escalationMessage, token).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "escalation fire failed for mission " + mission.Id + ": " + ex.Message);
+                }
+            }
+
+            if (dock != null)
+            {
+                try
+                {
+                    await _Docks.ReclaimAsync(dock.Id, token: token).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "dock reclaim failed for WaitingForInput mission " + mission.Id + ": " + ex.Message);
+                }
+            }
+
+            Captain? latestCaptain = await _Database.Captains.ReadAsync(captain.Id, token).ConfigureAwait(false);
+            if (latestCaptain != null && latestCaptain.CurrentMissionId == mission.Id)
+            {
+                await _Captains.ReleaseAsync(latestCaptain, token).ConfigureAwait(false);
+            }
+
+            return true;
+        }
+
+        private async Task<int> CountPriorBlockSignalsAsync(string missionId, CancellationToken token)
+        {
+            int count = 0;
+            try
+            {
+                // Enumerate recent Wake signals and count those with block mode for this mission.
+                List<Signal> recent = await _Database.Signals.EnumerateRecentAsync(200, token).ConfigureAwait(false);
+                foreach (Signal s in recent)
+                {
+                    if (s.Type != SignalTypeEnum.Wake) continue;
+                    if (String.IsNullOrEmpty(s.Payload)) continue;
+                    if (!s.Payload.Contains("needs_input_block", StringComparison.Ordinal)) continue;
+                    if (!s.Payload.Contains(missionId, StringComparison.Ordinal)) continue;
+                    count++;
+                }
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not count prior block signals for mission " + missionId + ": " + ex.Message);
+            }
+            return count;
+        }
+
+        private static string SanitizeNeedsInputQuestion(string? raw)
+        {
+            if (String.IsNullOrWhiteSpace(raw)) return "";
+            // Limit length to prevent enormous question text in signals/webhooks
+            string trimmed = raw.Trim();
+            if (trimmed.Length > 2000) trimmed = trimmed.Substring(0, 2000);
+            return trimmed;
+        }
 
         private static string BuildMissionBranchName(Captain captain, Mission mission)
         {

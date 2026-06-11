@@ -120,11 +120,84 @@ namespace Armada.Server.Mcp.Tools
                     await database.Signals.MarkReadAsync(request.SignalId).ConfigureAwait(false);
                     return (object)new { Status = "marked", SignalId = request.SignalId };
                 });
+
+            register(
+                "armada_nudge_voyage",
+                "Send a Nudge or Mail reply to a specific mission in a voyage. If the mission is WaitingForInput the reply text is prepended under [ORCHESTRATOR NOTES] at the top of the mission description, the mission is returned to Pending, stale process/dock/captain/agent-output fields are cleared, and the created reply signal is marked read. For missions in other statuses the reply is stored as an unread Mail signal.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        voyageId = new { type = "string", description = "Voyage ID (vyg_ prefix)" },
+                        missionId = new { type = "string", description = "Mission ID (msn_ prefix) to target" },
+                        message = new { type = "string", description = "Reply text to send" }
+                    },
+                    required = new[] { "voyageId", "missionId", "message" }
+                },
+                async (args) =>
+                {
+                    NudgeVoyageArgs request = JsonSerializer.Deserialize<NudgeVoyageArgs>(args!.Value, _JsonOptions)!;
+                    if (String.IsNullOrEmpty(request.VoyageId))
+                        return (object)new { Error = "voyageId is required" };
+                    if (String.IsNullOrEmpty(request.MissionId))
+                        return (object)new { Error = "missionId is required" };
+                    if (String.IsNullOrEmpty(request.Message))
+                        return (object)new { Error = "message is required" };
+
+                    Mission? mission = await database.Missions.ReadAsync(request.MissionId).ConfigureAwait(false);
+                    if (mission == null)
+                        return (object)new { Error = "mission not found: " + request.MissionId };
+
+                    if (!String.Equals(mission.VoyageId, request.VoyageId, StringComparison.Ordinal))
+                        return (object)new { Error = "mission " + request.MissionId + " does not belong to voyage " + request.VoyageId };
+
+                    Signal replySignal = new Signal(SignalTypeEnum.Mail, request.Message);
+                    replySignal.TenantId = ArmadaConstants.DefaultTenantId;
+                    replySignal.ToCaptainId = mission.CaptainId;
+                    replySignal = await database.Signals.CreateAsync(replySignal).ConfigureAwait(false);
+
+                    if (mission.Status == MissionStatusEnum.WaitingForInput)
+                    {
+                        string notes = "[ORCHESTRATOR NOTES]\n" + request.Message.Trim() + "\n\n";
+                        mission.Description = notes + (mission.Description ?? "");
+                        mission.Status = MissionStatusEnum.Pending;
+                        mission.CaptainId = null;
+                        mission.ProcessId = null;
+                        mission.DockId = null;
+                        mission.AgentOutput = null;
+                        mission.LastUpdateUtc = DateTime.UtcNow;
+                        await database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                        await database.Signals.MarkReadAsync(replySignal.Id).ConfigureAwait(false);
+                        return (object)new
+                        {
+                            Status = "resumed",
+                            MissionId = mission.Id,
+                            MissionStatus = mission.Status.ToString(),
+                            SignalId = replySignal.Id
+                        };
+                    }
+
+                    return (object)new
+                    {
+                        Status = "queued",
+                        MissionId = mission.Id,
+                        MissionStatus = mission.Status.ToString(),
+                        SignalId = replySignal.Id
+                    };
+                });
         }
 
         private sealed class MarkSignalReadArgs
         {
             public string SignalId { get; set; } = string.Empty;
+        }
+
+        private sealed class NudgeVoyageArgs
+        {
+            public string VoyageId { get; set; } = string.Empty;
+            public string MissionId { get; set; } = string.Empty;
+            public string Message { get; set; } = string.Empty;
         }
     }
 }

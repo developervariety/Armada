@@ -51,6 +51,22 @@ namespace Armada.Core.Services
             _HttpClient.Timeout = TimeSpan.FromSeconds(10);
         }
 
+        /// <summary>
+        /// Instantiate with an injected HTTP message handler (for testing).
+        /// </summary>
+        /// <param name="logging">Logging module.</param>
+        /// <param name="database">Database driver.</param>
+        /// <param name="settings">Application settings.</param>
+        /// <param name="httpMessageHandler">HTTP message handler to use instead of the default.</param>
+        public EscalationService(LoggingModule logging, DatabaseDriver database, ArmadaSettings settings, HttpMessageHandler httpMessageHandler)
+        {
+            _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
+            _Database = database ?? throw new ArgumentNullException(nameof(database));
+            _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
+            _HttpClient = new HttpClient(httpMessageHandler ?? throw new ArgumentNullException(nameof(httpMessageHandler)));
+            _HttpClient.Timeout = TimeSpan.FromSeconds(10);
+        }
+
         #endregion
 
         #region Public-Methods
@@ -161,7 +177,7 @@ namespace Armada.Core.Services
                     break;
 
                 case EscalationActionEnum.Webhook:
-                    await SendWebhookAsync(rule, message, token).ConfigureAwait(false);
+                    await SendWebhookAsync(rule, entityId, message, token).ConfigureAwait(false);
                     break;
             }
 
@@ -170,7 +186,7 @@ namespace Armada.Core.Services
             await _Database.Signals.CreateAsync(signal, token).ConfigureAwait(false);
         }
 
-        private async Task SendWebhookAsync(EscalationRule rule, string message, CancellationToken token)
+        private async Task SendWebhookAsync(EscalationRule rule, string entityId, string message, CancellationToken token)
         {
             if (String.IsNullOrEmpty(rule.WebhookUrl))
             {
@@ -180,14 +196,7 @@ namespace Armada.Core.Services
 
             try
             {
-                object payload = new
-                {
-                    trigger = rule.Trigger.ToString(),
-                    message = message,
-                    timestamp = DateTime.UtcNow,
-                    source = "armada"
-                };
-
+                object payload = BuildWebhookPayload(rule.Trigger, entityId, message);
                 string json = JsonSerializer.Serialize(payload, _JsonOptions);
                 StringContent content = new StringContent(json, Encoding.UTF8, "application/json");
 
@@ -202,6 +211,55 @@ namespace Armada.Core.Services
             {
                 _Logging.Warn(_Header + "webhook error for " + rule.WebhookUrl + ": " + ex.Message);
             }
+        }
+
+        private static object BuildWebhookPayload(EscalationTriggerEnum trigger, string entityId, string message)
+        {
+            // For MissionAwaitingInput, parse the structured JSON from message rather than
+            // embedding it as an opaque string -- the message IS already valid JSON here
+            // because MissionService serializes it that way before calling FireAsync.
+            if (trigger == EscalationTriggerEnum.MissionAwaitingInput)
+            {
+                try
+                {
+                    MissionAwaitingInputPayload? parsed = JsonSerializer.Deserialize<MissionAwaitingInputPayload>(message, _JsonOptions);
+                    if (parsed != null)
+                    {
+                        return new
+                        {
+                            trigger = trigger.ToString(),
+                            voyageId = parsed.VoyageId ?? "",
+                            missionId = !String.IsNullOrEmpty(parsed.MissionId) ? parsed.MissionId : entityId,
+                            mode = parsed.Mode ?? "block",
+                            questionText = parsed.QuestionText ?? "",
+                            timestamp = DateTime.UtcNow,
+                            source = "armada"
+                        };
+                    }
+                }
+                catch
+                {
+                    // Fall through to generic payload on parse failure
+                }
+            }
+
+            return new
+            {
+                trigger = trigger.ToString(),
+                entityId = entityId,
+                message = message,
+                timestamp = DateTime.UtcNow,
+                source = "armada"
+            };
+        }
+
+        private sealed class MissionAwaitingInputPayload
+        {
+            public string? Trigger { get; set; }
+            public string? VoyageId { get; set; }
+            public string? MissionId { get; set; }
+            public string? Mode { get; set; }
+            public string? QuestionText { get; set; }
         }
 
         #endregion

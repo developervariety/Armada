@@ -76,6 +76,14 @@ namespace Armada.Core.Enums
         /// Mission cancelled.
         /// </summary>
         [EnumMember(Value = "Cancelled")]
-        Cancelled
+        Cancelled,
+
+        /// <summary>
+        /// Mission is parked awaiting orchestrator input.
+        /// Entered when a captain emits [ARMADA:NEEDS-INPUT block] and the hard-block cap
+        /// has not been exceeded. Returns to Pending when a Nudge or Mail reply arrives.
+        /// </summary>
+        [EnumMember(Value = "WaitingForInput")]
+        WaitingForInput
     }
 }

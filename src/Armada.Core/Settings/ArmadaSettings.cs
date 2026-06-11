@@ -817,6 +817,17 @@ namespace Armada.Core.Settings
         public List<AgentSettings> Agents { get; set; } = new List<AgentSettings>();
 
         /// <summary>
+        /// Maximum number of hard block [ARMADA:NEEDS-INPUT block] requests allowed for a
+        /// single mission before subsequent block requests are downgraded to soft notifications.
+        /// Default is 3.
+        /// </summary>
+        public int MaxMissionInputBlocks
+        {
+            get => _MaxMissionInputBlocks;
+            set => _MaxMissionInputBlocks = value < 1 ? 1 : value;
+        }
+
+        /// <summary>
         /// Escalation rules for automated notifications.
         /// </summary>
         public List<EscalationRule> EscalationRules { get; set; } = new List<EscalationRule>();
@@ -944,6 +955,7 @@ namespace Armada.Core.Settings
         private double _FleetVesselConflictThreshold = 0.7;
         private double _CrossVesselSuggestionThreshold = 0.5;
         private int _FleetCurateDualJudgeFanOutWarnThreshold = 3;
+        private int _MaxMissionInputBlocks = 3;
         private RemoteControlSettings _RemoteControl = new RemoteControlSettings();
         private DatabaseSettings _Database = new DatabaseSettings();
         private CodeIndexSettings _CodeIndex = new CodeIndexSettings();
