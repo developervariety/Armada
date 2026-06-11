@@ -10,6 +10,7 @@ namespace Armada.Core.Services
     using System.Security.Cryptography;
     using System.Text;
     using System.Text.Json;
+    using System.Threading;
     using Microsoft.Extensions.FileSystemGlobbing;
     using SyslogLogging;
     using Armada.Core.Database;
@@ -40,6 +41,8 @@ namespace Armada.Core.Services
         private IInferenceClient? _InferenceClient;
         private PolyglotSymbolExtractor _SymbolExtractor = new PolyglotSymbolExtractor();
         private static readonly ConcurrentDictionary<string, CodeIndexActiveUpdate> _ActiveUpdates = new ConcurrentDictionary<string, CodeIndexActiveUpdate>(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, GraphQueryCacheEntry> _GraphContextCache = new ConcurrentDictionary<string, GraphQueryCacheEntry>(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, SemaphoreSlim> _GraphContextLocks = new ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.OrdinalIgnoreCase);
         private const int _DefaultGraphSearchLimit = 20;
         private const int _DefaultGraphNeighborLimit = 25;
         private const int _DefaultImpactDepth = 3;
@@ -1735,6 +1738,40 @@ namespace Armada.Core.Services
         private async Task<GraphQueryContext> LoadGraphQueryContextAsync(string vesselId, CancellationToken token)
         {
             CodeIndexStatus status = await LoadReadOnlyStatusAsync(vesselId, token).ConfigureAwait(false);
+            string commitSha = status.IndexedCommitSha ?? "";
+
+            // Fast path: cache hit requires same vessel and same indexed commit SHA.
+            if (_GraphContextCache.TryGetValue(vesselId, out GraphQueryCacheEntry? cached)
+                && String.Equals(cached.CommitSha, commitSha, StringComparison.OrdinalIgnoreCase))
+            {
+                return cached.Context;
+            }
+
+            // Slow path: coalesce concurrent builds for the same vessel so callers never
+            // observe torn state and the sidecar files are read at most once per SHA.
+            SemaphoreSlim vesselLock = _GraphContextLocks.GetOrAdd(vesselId, _ => new SemaphoreSlim(1, 1));
+            await vesselLock.WaitAsync(token).ConfigureAwait(false);
+            try
+            {
+                // Double-check after acquiring the lock in case another thread already built it.
+                if (_GraphContextCache.TryGetValue(vesselId, out cached)
+                    && String.Equals(cached.CommitSha, commitSha, StringComparison.OrdinalIgnoreCase))
+                {
+                    return cached.Context;
+                }
+
+                GraphQueryContext context = await BuildGraphQueryContextAsync(status, vesselId, token).ConfigureAwait(false);
+                _GraphContextCache[vesselId] = new GraphQueryCacheEntry(commitSha, context);
+                return context;
+            }
+            finally
+            {
+                vesselLock.Release();
+            }
+        }
+
+        private async Task<GraphQueryContext> BuildGraphQueryContextAsync(CodeIndexStatus status, string vesselId, CancellationToken token)
+        {
             List<string> warnings = new List<string>();
             if (!String.Equals(status.Freshness, "Fresh", StringComparison.OrdinalIgnoreCase))
             {
@@ -3313,6 +3350,24 @@ namespace Armada.Core.Services
         private int EstimateTokens(string markdown)
         {
             return (int)Math.Ceiling((markdown ?? "").Length / 4.0);
+        }
+
+        private sealed class GraphQueryCacheEntry
+        {
+            /// <summary>Indexed commit SHA this context was built for.</summary>
+            public string CommitSha { get; }
+
+            /// <summary>Pre-loaded and pre-indexed graph query context.</summary>
+            public GraphQueryContext Context { get; }
+
+            /// <summary>
+            /// Instantiate.
+            /// </summary>
+            public GraphQueryCacheEntry(string commitSha, GraphQueryContext context)
+            {
+                CommitSha = commitSha ?? "";
+                Context = context ?? throw new ArgumentNullException(nameof(context));
+            }
         }
 
         private sealed class GraphQueryContext
