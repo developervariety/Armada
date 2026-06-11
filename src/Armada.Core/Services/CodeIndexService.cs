@@ -1787,7 +1787,15 @@ namespace Armada.Core.Services
                 AddSymbolLookup(symbolLookup, symbol.SimpleName, symbol);
             }
 
-            return new GraphQueryContext(status, symbols, edges, symbolLookup, warnings);
+            Dictionary<string, List<CodeGraphEdgeRecord>> edgesBySourceEndpoint = new Dictionary<string, List<CodeGraphEdgeRecord>>(StringComparer.OrdinalIgnoreCase);
+            Dictionary<string, List<CodeGraphEdgeRecord>> edgesByTargetEndpoint = new Dictionary<string, List<CodeGraphEdgeRecord>>(StringComparer.OrdinalIgnoreCase);
+            foreach (CodeGraphEdgeRecord edge in edges)
+            {
+                AddEdgeLookup(edgesBySourceEndpoint, edge.SourceSymbol, edge);
+                AddEdgeLookup(edgesByTargetEndpoint, edge.TargetSymbol, edge);
+            }
+
+            return new GraphQueryContext(status, symbols, edges, symbolLookup, edgesBySourceEndpoint, edgesByTargetEndpoint, warnings);
         }
 
         private async Task<List<T>> ReadJsonlRecordsAsync<T>(string path, CancellationToken token)
@@ -1820,6 +1828,18 @@ namespace Armada.Core.Services
                 lookup[key] = bucket;
             }
             bucket.Add(symbol);
+        }
+
+        private static void AddEdgeLookup(Dictionary<string, List<CodeGraphEdgeRecord>> lookup, string endpoint, CodeGraphEdgeRecord edge)
+        {
+            string key = NormalizeGraphEndpoint(endpoint);
+            if (String.IsNullOrWhiteSpace(key)) return;
+            if (!lookup.TryGetValue(key, out List<CodeGraphEdgeRecord>? bucket))
+            {
+                bucket = new List<CodeGraphEdgeRecord>();
+                lookup[key] = bucket;
+            }
+            bucket.Add(edge);
         }
 
         private static List<CodeGraphSymbolRecord> ResolveSeedSymbols(GraphQueryContext context, string symbolQuery, int maxSeeds)
@@ -1917,13 +1937,13 @@ namespace Armada.Core.Services
             CodeGraphTraversalDirectionEnum direction)
         {
             List<GraphEdgeHop> hops = new List<GraphEdgeHop>();
-            foreach (CodeGraphEdgeRecord edge in context.Edges)
+            if (direction == CodeGraphTraversalDirectionEnum.Callees || direction == CodeGraphTraversalDirectionEnum.Both)
             {
-                if (edge.Kind != CodeGraphEdgeKindEnum.Calls) continue;
-
-                if ((direction == CodeGraphTraversalDirectionEnum.Callees || direction == CodeGraphTraversalDirectionEnum.Both)
-                    && SymbolMatchesEndpoint(symbol, edge.SourceSymbol))
+                foreach (CodeGraphEdgeRecord edge in ResolveEndpointCandidateEdges(context.EdgesBySourceEndpoint, symbol))
                 {
+                    if (edge.Kind != CodeGraphEdgeKindEnum.Calls) continue;
+                    if (!SymbolMatchesEndpoint(symbol, edge.SourceSymbol)) continue;
+
                     foreach (CodeGraphSymbolRecord target in ResolveSymbolsForEndpoint(context, edge.TargetSymbol, ""))
                     {
                         hops.Add(new GraphEdgeHop(
@@ -1932,10 +1952,15 @@ namespace Armada.Core.Services
                             0));
                     }
                 }
+            }
 
-                if ((direction == CodeGraphTraversalDirectionEnum.Callers || direction == CodeGraphTraversalDirectionEnum.Both)
-                    && SymbolMatchesEndpoint(symbol, edge.TargetSymbol))
+            if (direction == CodeGraphTraversalDirectionEnum.Callers || direction == CodeGraphTraversalDirectionEnum.Both)
+            {
+                foreach (CodeGraphEdgeRecord edge in ResolveEndpointCandidateEdges(context.EdgesByTargetEndpoint, symbol))
                 {
+                    if (edge.Kind != CodeGraphEdgeKindEnum.Calls) continue;
+                    if (!SymbolMatchesEndpoint(symbol, edge.TargetSymbol)) continue;
+
                     foreach (CodeGraphSymbolRecord source in ResolveSymbolsForEndpoint(context, edge.SourceSymbol, edge.SourcePath))
                     {
                         hops.Add(new GraphEdgeHop(
@@ -1947,6 +1972,29 @@ namespace Armada.Core.Services
             }
 
             return hops;
+        }
+
+        private static List<CodeGraphEdgeRecord> ResolveEndpointCandidateEdges(
+            Dictionary<string, List<CodeGraphEdgeRecord>> lookup,
+            CodeGraphSymbolRecord symbol)
+        {
+            List<CodeGraphEdgeRecord> candidates = new List<CodeGraphEdgeRecord>();
+            HashSet<string> keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            AddEndpointCandidateEdges(lookup, NormalizeGraphEndpoint(symbol.QualifiedName), keys, candidates);
+            AddEndpointCandidateEdges(lookup, NormalizeGraphEndpoint(symbol.SimpleName), keys, candidates);
+            return candidates;
+        }
+
+        private static void AddEndpointCandidateEdges(
+            Dictionary<string, List<CodeGraphEdgeRecord>> lookup,
+            string key,
+            HashSet<string> keys,
+            List<CodeGraphEdgeRecord> candidates)
+        {
+            if (String.IsNullOrWhiteSpace(key)) return;
+            if (!keys.Add(key)) return;
+            if (!lookup.TryGetValue(key, out List<CodeGraphEdgeRecord>? bucket)) return;
+            candidates.AddRange(bucket);
         }
 
         private static bool SymbolMatchesEndpoint(CodeGraphSymbolRecord symbol, string endpoint)
@@ -3325,6 +3373,10 @@ namespace Armada.Core.Services
 
             public Dictionary<string, List<CodeGraphSymbolRecord>> SymbolLookup { get; }
 
+            public Dictionary<string, List<CodeGraphEdgeRecord>> EdgesBySourceEndpoint { get; }
+
+            public Dictionary<string, List<CodeGraphEdgeRecord>> EdgesByTargetEndpoint { get; }
+
             public List<string> Warnings { get; }
 
             public GraphQueryContext(
@@ -3332,12 +3384,16 @@ namespace Armada.Core.Services
                 List<CodeGraphSymbolRecord> symbols,
                 List<CodeGraphEdgeRecord> edges,
                 Dictionary<string, List<CodeGraphSymbolRecord>> symbolLookup,
+                Dictionary<string, List<CodeGraphEdgeRecord>> edgesBySourceEndpoint,
+                Dictionary<string, List<CodeGraphEdgeRecord>> edgesByTargetEndpoint,
                 List<string> warnings)
             {
                 Status = status;
                 Symbols = symbols;
                 Edges = edges;
                 SymbolLookup = symbolLookup;
+                EdgesBySourceEndpoint = edgesBySourceEndpoint;
+                EdgesByTargetEndpoint = edgesByTargetEndpoint;
                 Warnings = warnings;
             }
         }
