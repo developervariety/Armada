@@ -181,6 +181,38 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Endpoint-indexed traversal ignores non-call candidate edges", async () =>
+            {
+                string dataRoot = NewTempDirectory("armada-code-graph-query-indexed-edge-kind-");
+                try
+                {
+                    using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        ArmadaSettings settings = BuildSettings(dataRoot);
+                        Vessel vessel = await CreateFixtureVesselAsync(db).ConfigureAwait(false);
+                        WriteEndpointIndexedTraversalFixture(settings, vessel);
+
+                        CodeIndexService service = CreateService(db, settings);
+                        CodeGraphImpactResponse impact = await service.GetImpactAsync(new CodeGraphImpactRequest
+                        {
+                            VesselId = vessel.Id,
+                            Symbol = "Foo.Bar",
+                            Direction = CodeGraphTraversalDirectionEnum.Callees,
+                            MaxDepth = 2,
+                            MaxResults = 20
+                        }).ConfigureAwait(false);
+
+                        List<string> impactNames = impact.Results.Select(r => r.Symbol.QualifiedName).ToList();
+                        AssertTrue(impactNames.Contains("Graph.Hub.FanOut"), "call edges from the candidate bucket should still traverse");
+                        AssertFalse(impactNames.Contains("Graph.Noise.Imported"), "non-call candidate edges should not traverse");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
             await RunTest("SuggestAffectedTestsAsync ranks explicit test signals before conventions", async () =>
             {
                 string dataRoot = NewTempDirectory("armada-code-graph-query-tests-explicit-");
@@ -447,7 +479,7 @@ namespace Armada.Test.Unit.Suites.Services
                 CurrentCommitSha = "",
                 IndexedAtUtc = DateTime.UtcNow,
                 Freshness = "Fresh",
-                DocumentCount = 6,
+                DocumentCount = 7,
                 ChunkCount = 12,
                 IndexDirectory = indexDir,
                 LastError = null
@@ -465,6 +497,7 @@ namespace Armada.Test.Unit.Suites.Services
                 new CodeGraphSymbolRecord { VesselId = vessel.Id, CommitSha = "deadbeef", Path = "src/Leaf.cs", Kind = CodeGraphSymbolKindEnum.Method, SimpleName = "Two", QualifiedName = "Graph.Leaf.Two", StartLine = 6, EndLine = 12, ContentHash = "h5" },
                 new CodeGraphSymbolRecord { VesselId = vessel.Id, CommitSha = "deadbeef", Path = "src/Collision.cs", Kind = CodeGraphSymbolKindEnum.Method, SimpleName = "Unrelated", QualifiedName = "Graph.Collision.Unrelated", StartLine = 2, EndLine = 5, ContentHash = "h6" },
                 new CodeGraphSymbolRecord { VesselId = vessel.Id, CommitSha = "deadbeef", Path = "src/Collision.cs", Kind = CodeGraphSymbolKindEnum.Method, SimpleName = "OtherSource", QualifiedName = "Graph.Collision.OtherSource", StartLine = 8, EndLine = 12, ContentHash = "h6" },
+                new CodeGraphSymbolRecord { VesselId = vessel.Id, CommitSha = "deadbeef", Path = "src/Noise.cs", Kind = CodeGraphSymbolKindEnum.Namespace, SimpleName = "Imported", QualifiedName = "Graph.Noise.Imported", StartLine = 1, EndLine = 1, ContentHash = "h7" },
                 new CodeGraphSymbolRecord { VesselId = vessel.Id, CommitSha = "deadbeef", Path = "test/FooBarTests.cs", Kind = CodeGraphSymbolKindEnum.Method, SimpleName = "Covers", QualifiedName = "Graph.Tests.FooBarTests.Covers", StartLine = 5, EndLine = 15, ContentHash = "h7" }
             };
 
@@ -477,6 +510,7 @@ namespace Armada.Test.Unit.Suites.Services
                 new CodeGraphEdgeRecord { VesselId = vessel.Id, CommitSha = "deadbeef", Kind = CodeGraphEdgeKindEnum.Calls, SourceSymbol = "Graph.Leaf.Two", TargetSymbol = "Foo.Bar", SourcePath = "src/Leaf.cs", SourceLine = 8 },
                 new CodeGraphEdgeRecord { VesselId = vessel.Id, CommitSha = "deadbeef", Kind = CodeGraphEdgeKindEnum.Calls, SourceSymbol = "Baz.Bar", TargetSymbol = "Graph.Collision.Unrelated", SourcePath = "src/Baz.cs", SourceLine = 11 },
                 new CodeGraphEdgeRecord { VesselId = vessel.Id, CommitSha = "deadbeef", Kind = CodeGraphEdgeKindEnum.Calls, SourceSymbol = "Graph.Collision.OtherSource", TargetSymbol = "Baz.Bar", SourcePath = "src/Collision.cs", SourceLine = 9 },
+                new CodeGraphEdgeRecord { VesselId = vessel.Id, CommitSha = "deadbeef", Kind = CodeGraphEdgeKindEnum.Imports, SourceSymbol = "Foo.Bar", TargetSymbol = "Graph.Noise.Imported", SourcePath = "src/Foo.cs", SourceLine = 14 },
                 new CodeGraphEdgeRecord { VesselId = vessel.Id, CommitSha = "deadbeef", Kind = CodeGraphEdgeKindEnum.Calls, SourceSymbol = "Graph.Tests.FooBarTests.Covers", TargetSymbol = "Foo.Bar", SourcePath = "test/FooBarTests.cs", SourceLine = 7 }
             };
 
