@@ -210,6 +210,20 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Maximum number of times a single mission may hard-block in WaitingForInput
+        /// awaiting operator input. Set to 0 to disallow input blocks entirely. Must be >= 0.
+        /// </summary>
+        public int MaxMissionInputBlocks
+        {
+            get => _MaxMissionInputBlocks;
+            set
+            {
+                if (value < 0) throw new ArgumentOutOfRangeException(nameof(MaxMissionInputBlocks), "Must be >= 0");
+                _MaxMissionInputBlocks = value;
+            }
+        }
+
+        /// <summary>
         /// Maximum log file size in bytes before rotation. Must be >= 1024.
         /// </summary>
         public long MaxLogFileSizeBytes
@@ -911,6 +925,7 @@ namespace Armada.Core.Settings
         private int _StallThresholdMinutes = Constants.DefaultStallThresholdMinutes;
         private int _StageWatchdogTimeoutMinutes = 30;
         private int _MaxRecoveryAttempts = Constants.DefaultMaxRecoveryAttempts;
+        private int _MaxMissionInputBlocks = 3;
         private long _MaxLogFileSizeBytes = Constants.DefaultMaxLogFileSizeBytes;
         private int _MaxLogFileCount = Constants.DefaultMaxLogFileCount;
         private int _DataRetentionDays = Constants.DefaultDataRetentionDays;

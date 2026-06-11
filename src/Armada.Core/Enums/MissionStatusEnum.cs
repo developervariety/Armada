@@ -76,6 +76,14 @@ namespace Armada.Core.Enums
         /// Mission cancelled.
         /// </summary>
         [EnumMember(Value = "Cancelled")]
-        Cancelled
+        Cancelled,
+
+        /// <summary>
+        /// Captain is hard-blocked awaiting operator input. Distinct from Review:
+        /// the captain cannot make progress until input is provided, after which
+        /// the mission returns to Pending for redispatch.
+        /// </summary>
+        [EnumMember(Value = "WaitingForInput")]
+        WaitingForInput
     }
 }

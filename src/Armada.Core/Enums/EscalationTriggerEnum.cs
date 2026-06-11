@@ -31,6 +31,11 @@ namespace Armada.Core.Enums
         /// <summary>
         /// All captains are busy (no idle captains available).
         /// </summary>
-        PoolExhausted
+        PoolExhausted,
+
+        /// <summary>
+        /// A mission is hard-blocked awaiting operator input.
+        /// </summary>
+        MissionAwaitingInput
     }
 }
