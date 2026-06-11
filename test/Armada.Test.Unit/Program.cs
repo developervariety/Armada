@@ -207,6 +207,8 @@ namespace Armada.Test.Unit
             runner.AddSuite(new CaptainNeedsInputParserTests());
             runner.AddSuite(new MissionNeedsInputWorkflowTests());
             runner.AddSuite(new EscalationServiceMissionAwaitingInputTests());
+            runner.AddSuite(new MissionNeedsInputSignalAndCapTests());
+            runner.AddSuite(new McpNudgeVoyageToolTests());
 
             int exitCode = await runner.RunAllAsync(suiteFilters).ConfigureAwait(false);
             return exitCode;

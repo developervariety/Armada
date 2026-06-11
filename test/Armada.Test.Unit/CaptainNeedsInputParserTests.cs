@@ -91,6 +91,62 @@ namespace Armada.Test.Unit
                 AssertEqual("second question", result.QuestionText, "Last question text should be used");
                 return Task.CompletedTask;
             });
+
+            await RunTest("Parse_EmptyString_ReturnsNotFound", () =>
+            {
+                CaptainNeedsInputRequest result = CaptainNeedsInputParser.Parse("");
+                AssertFalse(result.Found, "Found should be false for empty input");
+                AssertFalse(result.Malformed, "Malformed should be false for empty input");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Parse_MarkerMidLine_NotFound", () =>
+            {
+                CaptainNeedsInputRequest result = CaptainNeedsInputParser.Parse(
+                    "The captain wrote [ARMADA:NEEDS-INPUT block] inline in prose.");
+                AssertFalse(result.Found, "Marker embedded mid-line should not match");
+                AssertFalse(result.Malformed, "Mid-line marker should not be treated as malformed");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Parse_LeadingWhitespaceMarker_Found", () =>
+            {
+                CaptainNeedsInputRequest result = CaptainNeedsInputParser.Parse(
+                    "preamble\n   [ARMADA:NEEDS-INPUT block] Indented question?");
+                AssertTrue(result.Found, "Marker with leading whitespace should match");
+                AssertEqual(NeedsInputModeEnum.Block, result.Mode, "Mode should be Block");
+                AssertEqual("Indented question?", result.QuestionText, "Question should be extracted after indentation");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Parse_MissingModeToken_ReturnsMalformed", () =>
+            {
+                CaptainNeedsInputRequest result = CaptainNeedsInputParser.Parse(
+                    "[ARMADA:NEEDS-INPUT] no mode given");
+                AssertTrue(result.Found, "Marker without a mode token should be detected");
+                AssertTrue(result.Malformed, "Marker without a mode token should be malformed");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Parse_QuestionStopsAtLineEnd", () =>
+            {
+                CaptainNeedsInputRequest result = CaptainNeedsInputParser.Parse(
+                    "[ARMADA:NEEDS-INPUT block] only this line\r\nThis continuation must not be captured.");
+                AssertTrue(result.Found, "Marker should be found");
+                AssertEqual("only this line", result.QuestionText, "Question should stop at the end of the marker line, with CRLF trimmed");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Parse_MalformedAfterValid_ValidStillWins", () =>
+            {
+                CaptainNeedsInputRequest result = CaptainNeedsInputParser.Parse(
+                    "[ARMADA:NEEDS-INPUT block] real question\n[ARMADA:NEEDS-INPUT bogus] junk");
+                AssertTrue(result.Found, "A valid marker should be found");
+                AssertFalse(result.Malformed, "Valid marker should win over a later malformed one");
+                AssertEqual(NeedsInputModeEnum.Block, result.Mode, "Mode should come from the valid marker");
+                AssertEqual("real question", result.QuestionText, "Question should come from the valid marker");
+                return Task.CompletedTask;
+            });
         }
     }
 }

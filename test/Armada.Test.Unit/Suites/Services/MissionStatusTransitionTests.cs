@@ -99,7 +99,8 @@ namespace Armada.Test.Unit.Suites.Services
                 string[] expected = new[]
                 {
                     "Pending", "Assigned", "InProgress", "WorkProduced", "PullRequestOpen",
-                    "Testing", "Review", "Complete", "Failed", "LandingFailed", "Cancelled"
+                    "Testing", "Review", "Complete", "Failed", "LandingFailed", "Cancelled",
+                    "WaitingForInput"
                 };
 
                 string[] actual = Enum.GetNames(typeof(MissionStatusEnum));
