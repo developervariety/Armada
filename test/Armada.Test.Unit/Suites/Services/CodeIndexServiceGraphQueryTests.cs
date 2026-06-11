@@ -396,6 +396,358 @@ namespace Armada.Test.Unit.Suites.Services
                     TryDeleteDirectory(dataRoot);
                 }
             });
+
+            await RunTest("Graph context cache entries are isolated per vessel", async () =>
+            {
+                string dataRoot = NewTempDirectory("armada-code-graph-cache-isolation-");
+                try
+                {
+                    using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        ArmadaSettings settings = BuildSettings(dataRoot);
+                        Vessel vesselA = await CreateFixtureVesselAsync(db).ConfigureAwait(false);
+                        Vessel vesselB = await CreateFixtureVesselAsync(db).ConfigureAwait(false);
+
+                        List<CodeGraphSymbolRecord> symbolsA = new List<CodeGraphSymbolRecord>
+                        {
+                            new CodeGraphSymbolRecord { VesselId = vesselA.Id, CommitSha = "sha-aaa", Path = "src/A.cs", Kind = CodeGraphSymbolKindEnum.Method, SimpleName = "AlphaUniqueProcOne", QualifiedName = "Armada.IsoA.Alpha.AlphaUniqueProcOne", StartLine = 1, EndLine = 5, ContentHash = "ha" }
+                        };
+                        List<CodeGraphSymbolRecord> symbolsB = new List<CodeGraphSymbolRecord>
+                        {
+                            new CodeGraphSymbolRecord { VesselId = vesselB.Id, CommitSha = "sha-bbb", Path = "src/B.cs", Kind = CodeGraphSymbolKindEnum.Method, SimpleName = "BetaDistinctRunner", QualifiedName = "Armada.IsoB.Beta.BetaDistinctRunner", StartLine = 1, EndLine = 5, ContentHash = "hb" }
+                        };
+                        WriteGraphFixtureCustom(settings, vesselA, "sha-aaa", "Fresh", symbolsA, new List<CodeGraphEdgeRecord>());
+                        WriteGraphFixtureCustom(settings, vesselB, "sha-bbb", "Fresh", symbolsB, new List<CodeGraphEdgeRecord>());
+
+                        CodeIndexService service = CreateService(db, settings);
+
+                        CodeGraphSymbolSearchResponse firstA = await service.SearchSymbolsAsync(new CodeGraphSymbolSearchRequest
+                        {
+                            VesselId = vesselA.Id,
+                            Query = "AlphaUniqueProcOne",
+                            Limit = 10
+                        }).ConfigureAwait(false);
+                        AssertTrue(firstA.Results.Count > 0, "vessel A query should find vessel A symbol");
+
+                        // Vessel B must build its own context, not be served vessel A's cached entry.
+                        CodeGraphSymbolSearchResponse crossB = await service.SearchSymbolsAsync(new CodeGraphSymbolSearchRequest
+                        {
+                            VesselId = vesselB.Id,
+                            Query = "AlphaUniqueProcOne",
+                            Limit = 10
+                        }).ConfigureAwait(false);
+                        AssertEqual(0, crossB.Results.Count, "vessel B context should not contain vessel A symbols");
+
+                        CodeGraphSymbolSearchResponse firstB = await service.SearchSymbolsAsync(new CodeGraphSymbolSearchRequest
+                        {
+                            VesselId = vesselB.Id,
+                            Query = "BetaDistinctRunner",
+                            Limit = 10
+                        }).ConfigureAwait(false);
+                        AssertTrue(firstB.Results.Count > 0, "vessel B query should find vessel B symbol");
+
+                        // Deleting vessel A sidecars proves both vessels are served from their own cache entries.
+                        string indexDirA = Path.Combine(settings.CodeIndex.IndexDirectory, vesselA.Id);
+                        File.Delete(Path.Combine(indexDirA, "symbols.jsonl"));
+                        File.Delete(Path.Combine(indexDirA, "edges.jsonl"));
+
+                        CodeGraphSymbolSearchResponse secondA = await service.SearchSymbolsAsync(new CodeGraphSymbolSearchRequest
+                        {
+                            VesselId = vesselA.Id,
+                            Query = "AlphaUniqueProcOne",
+                            Limit = 10
+                        }).ConfigureAwait(false);
+                        AssertTrue(secondA.Results.Count > 0, "vessel A should be served from its own cache entry after sidecar deletion");
+
+                        CodeGraphSymbolSearchResponse secondB = await service.SearchSymbolsAsync(new CodeGraphSymbolSearchRequest
+                        {
+                            VesselId = vesselB.Id,
+                            Query = "BetaDistinctRunner",
+                            Limit = 10
+                        }).ConfigureAwait(false);
+                        AssertTrue(secondB.Results.Count > 0, "vessel B cache entry should be unaffected by vessel A activity");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("Cache invalidation replaces the prior context instead of merging", async () =>
+            {
+                string dataRoot = NewTempDirectory("armada-code-graph-cache-replace-");
+                try
+                {
+                    using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        ArmadaSettings settings = BuildSettings(dataRoot);
+                        Vessel vessel = await CreateFixtureVesselAsync(db).ConfigureAwait(false);
+
+                        List<CodeGraphSymbolRecord> oldSymbols = new List<CodeGraphSymbolRecord>
+                        {
+                            new CodeGraphSymbolRecord { VesselId = vessel.Id, CommitSha = "cafe01", Path = "src/Old.cs", Kind = CodeGraphSymbolKindEnum.Method, SimpleName = "OldOnlySymbol", QualifiedName = "Armada.App.Old.OldOnlySymbol", StartLine = 1, EndLine = 5, ContentHash = "h1" }
+                        };
+                        WriteGraphFixtureCustom(settings, vessel, "cafe01", "Fresh", oldSymbols, new List<CodeGraphEdgeRecord>());
+
+                        CodeIndexService service = CreateService(db, settings);
+
+                        CodeGraphSymbolSearchResponse beforeInvalidation = await service.SearchSymbolsAsync(new CodeGraphSymbolSearchRequest
+                        {
+                            VesselId = vessel.Id,
+                            Query = "OldOnlySymbol",
+                            Limit = 10
+                        }).ConfigureAwait(false);
+                        AssertTrue(beforeInvalidation.Results.Count > 0, "old symbol should be found before invalidation");
+
+                        List<CodeGraphSymbolRecord> newSymbols = new List<CodeGraphSymbolRecord>
+                        {
+                            new CodeGraphSymbolRecord { VesselId = vessel.Id, CommitSha = "cafe02", Path = "src/New.cs", Kind = CodeGraphSymbolKindEnum.Method, SimpleName = "NewOnlySymbol", QualifiedName = "Armada.App.New.NewOnlySymbol", StartLine = 1, EndLine = 5, ContentHash = "h2" }
+                        };
+                        WriteGraphFixtureCustom(settings, vessel, "cafe02", "Fresh", newSymbols, new List<CodeGraphEdgeRecord>());
+
+                        // Rebuilt context must fully replace the old one, not merge with it.
+                        CodeGraphSymbolSearchResponse oldAfterInvalidation = await service.SearchSymbolsAsync(new CodeGraphSymbolSearchRequest
+                        {
+                            VesselId = vessel.Id,
+                            Query = "OldOnlySymbol",
+                            Limit = 10
+                        }).ConfigureAwait(false);
+                        AssertEqual(0, oldAfterInvalidation.Results.Count, "old symbol should be gone after SHA change rebuild");
+
+                        CodeGraphSymbolSearchResponse newAfterInvalidation = await service.SearchSymbolsAsync(new CodeGraphSymbolSearchRequest
+                        {
+                            VesselId = vessel.Id,
+                            Query = "NewOnlySymbol",
+                            Limit = 10
+                        }).ConfigureAwait(false);
+                        AssertTrue(newAfterInvalidation.Results.Count > 0, "new symbol should be found after SHA change rebuild");
+
+                        // The replacement entry itself must be cached.
+                        string indexDir = Path.Combine(settings.CodeIndex.IndexDirectory, vessel.Id);
+                        File.Delete(Path.Combine(indexDir, "symbols.jsonl"));
+                        File.Delete(Path.Combine(indexDir, "edges.jsonl"));
+
+                        CodeGraphSymbolSearchResponse cachedNew = await service.SearchSymbolsAsync(new CodeGraphSymbolSearchRequest
+                        {
+                            VesselId = vessel.Id,
+                            Query = "NewOnlySymbol",
+                            Limit = 10
+                        }).ConfigureAwait(false);
+                        AssertTrue(cachedNew.Results.Count > 0, "replacement entry should be served from cache after sidecar deletion");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("Cache hit compares IndexedCommitSha case-insensitively", async () =>
+            {
+                string dataRoot = NewTempDirectory("armada-code-graph-cache-shacase-");
+                try
+                {
+                    using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        ArmadaSettings settings = BuildSettings(dataRoot);
+                        Vessel vessel = await CreateFixtureVesselAsync(db).ConfigureAwait(false);
+
+                        List<CodeGraphSymbolRecord> symbols = new List<CodeGraphSymbolRecord>
+                        {
+                            new CodeGraphSymbolRecord { VesselId = vessel.Id, CommitSha = "abc123", Path = "src/Probe.cs", Kind = CodeGraphSymbolKindEnum.Method, SimpleName = "CaseProbeSymbol", QualifiedName = "Armada.App.Probe.CaseProbeSymbol", StartLine = 1, EndLine = 5, ContentHash = "h1" }
+                        };
+                        WriteGraphFixtureCustom(settings, vessel, "abc123", "Fresh", symbols, new List<CodeGraphEdgeRecord>());
+
+                        CodeIndexService service = CreateService(db, settings);
+
+                        CodeGraphSymbolSearchResponse first = await service.SearchSymbolsAsync(new CodeGraphSymbolSearchRequest
+                        {
+                            VesselId = vessel.Id,
+                            Query = "CaseProbeSymbol",
+                            Limit = 10
+                        }).ConfigureAwait(false);
+                        AssertTrue(first.Results.Count > 0, "first query should find the probe symbol");
+
+                        // Re-case the SHA in metadata and delete sidecars: a case-sensitive compare
+                        // would rebuild from the missing files and return zero results with warnings.
+                        WriteMetadataOnly(settings, vessel, "ABC123", "Fresh");
+                        string indexDir = Path.Combine(settings.CodeIndex.IndexDirectory, vessel.Id);
+                        File.Delete(Path.Combine(indexDir, "symbols.jsonl"));
+                        File.Delete(Path.Combine(indexDir, "edges.jsonl"));
+
+                        CodeGraphSymbolSearchResponse second = await service.SearchSymbolsAsync(new CodeGraphSymbolSearchRequest
+                        {
+                            VesselId = vessel.Id,
+                            Query = "CaseProbeSymbol",
+                            Limit = 10
+                        }).ConfigureAwait(false);
+                        AssertEqual(first.Results.Count, second.Results.Count, "case-differing SHA should still be a cache hit");
+                        AssertFalse(second.Warnings.Any(w => w.Contains("sidecar missing", StringComparison.OrdinalIgnoreCase)),
+                            "cache hit should not have re-read the deleted sidecars");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("Empty IndexedCommitSha is normalized and cached", async () =>
+            {
+                string dataRoot = NewTempDirectory("armada-code-graph-cache-emptysha-");
+                try
+                {
+                    using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        ArmadaSettings settings = BuildSettings(dataRoot);
+                        Vessel vessel = await CreateFixtureVesselAsync(db).ConfigureAwait(false);
+
+                        List<CodeGraphSymbolRecord> symbols = new List<CodeGraphSymbolRecord>
+                        {
+                            new CodeGraphSymbolRecord { VesselId = vessel.Id, CommitSha = "", Path = "src/Empty.cs", Kind = CodeGraphSymbolKindEnum.Method, SimpleName = "EmptyShaSymbol", QualifiedName = "Armada.App.Empty.EmptyShaSymbol", StartLine = 1, EndLine = 5, ContentHash = "h1" }
+                        };
+                        WriteGraphFixtureCustom(settings, vessel, "", "Fresh", symbols, new List<CodeGraphEdgeRecord>());
+
+                        CodeIndexService service = CreateService(db, settings);
+
+                        CodeGraphSymbolSearchResponse first = await service.SearchSymbolsAsync(new CodeGraphSymbolSearchRequest
+                        {
+                            VesselId = vessel.Id,
+                            Query = "EmptyShaSymbol",
+                            Limit = 10
+                        }).ConfigureAwait(false);
+                        AssertTrue(first.Results.Count > 0, "query with empty indexed SHA should still work");
+
+                        // The empty SHA must be a stable cache key, not a permanent cache miss.
+                        string indexDir = Path.Combine(settings.CodeIndex.IndexDirectory, vessel.Id);
+                        File.Delete(Path.Combine(indexDir, "symbols.jsonl"));
+                        File.Delete(Path.Combine(indexDir, "edges.jsonl"));
+
+                        CodeGraphSymbolSearchResponse second = await service.SearchSymbolsAsync(new CodeGraphSymbolSearchRequest
+                        {
+                            VesselId = vessel.Id,
+                            Query = "EmptyShaSymbol",
+                            Limit = 10
+                        }).ConfigureAwait(false);
+                        AssertTrue(second.Results.Count > 0, "empty-SHA entry should be served from cache after sidecar deletion");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("Pre-cancelled token aborts graph load and does not poison the cache", async () =>
+            {
+                string dataRoot = NewTempDirectory("armada-code-graph-cache-cancel-");
+                try
+                {
+                    using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        ArmadaSettings settings = BuildSettings(dataRoot);
+                        Vessel vessel = await CreateFixtureVesselAsync(db).ConfigureAwait(false);
+                        WriteGraphFixture(settings, vessel, freshness: "Fresh", includeGraphFiles: true, includeExplicitTest: false);
+
+                        CodeIndexService service = CreateService(db, settings);
+
+                        using (CancellationTokenSource cts = new CancellationTokenSource())
+                        {
+                            cts.Cancel();
+                            bool threw = false;
+                            try
+                            {
+                                await service.GetCallersAsync(new CodeGraphNeighborsRequest
+                                {
+                                    VesselId = vessel.Id,
+                                    Symbol = "Armada.App.Service.Execute",
+                                    Limit = 10
+                                }, cts.Token).ConfigureAwait(false);
+                            }
+                            catch (OperationCanceledException)
+                            {
+                                threw = true;
+                            }
+                            AssertTrue(threw, "pre-cancelled token should abort the cold-cache graph load");
+                        }
+
+                        // The aborted load must not leave the per-vessel lock held or a torn entry behind.
+                        CodeGraphNeighborsResponse recovered = await service.GetCallersAsync(new CodeGraphNeighborsRequest
+                        {
+                            VesselId = vessel.Id,
+                            Symbol = "Armada.App.Service.Execute",
+                            Limit = 10
+                        }).ConfigureAwait(false);
+                        AssertTrue(recovered.Results.Count > 0, "subsequent query should succeed after a cancelled load");
+
+                        // And the successful build must have populated the cache.
+                        string indexDir = Path.Combine(settings.CodeIndex.IndexDirectory, vessel.Id);
+                        File.Delete(Path.Combine(indexDir, "symbols.jsonl"));
+                        File.Delete(Path.Combine(indexDir, "edges.jsonl"));
+
+                        CodeGraphNeighborsResponse cached = await service.GetCallersAsync(new CodeGraphNeighborsRequest
+                        {
+                            VesselId = vessel.Id,
+                            Symbol = "Armada.App.Service.Execute",
+                            Limit = 10
+                        }).ConfigureAwait(false);
+                        AssertEqual(recovered.Results.Count, cached.Results.Count, "recovered build should be cached normally");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("Cached context preserves build warnings without re-reading sidecars", async () =>
+            {
+                string dataRoot = NewTempDirectory("armada-code-graph-cache-warnings-");
+                try
+                {
+                    using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        ArmadaSettings settings = BuildSettings(dataRoot);
+                        Vessel vessel = await CreateFixtureVesselAsync(db).ConfigureAwait(false);
+                        WriteGraphFixture(settings, vessel, freshness: "Stale", includeGraphFiles: true, includeExplicitTest: false);
+
+                        CodeIndexService service = CreateService(db, settings);
+
+                        CodeGraphSymbolSearchResponse first = await service.SearchSymbolsAsync(new CodeGraphSymbolSearchRequest
+                        {
+                            VesselId = vessel.Id,
+                            Query = "Worker",
+                            Limit = 10
+                        }).ConfigureAwait(false);
+                        AssertTrue(first.Results.Count > 0, "stale index should still be queryable");
+                        AssertTrue(first.Warnings.Any(w => w.Contains("freshness is Stale", StringComparison.OrdinalIgnoreCase)),
+                            "stale warning expected on first build");
+
+                        string indexDir = Path.Combine(settings.CodeIndex.IndexDirectory, vessel.Id);
+                        File.Delete(Path.Combine(indexDir, "symbols.jsonl"));
+                        File.Delete(Path.Combine(indexDir, "edges.jsonl"));
+
+                        // A cached context keeps its build-time warnings; a rebuild would add
+                        // missing-sidecar warnings and lose the symbols.
+                        CodeGraphSymbolSearchResponse second = await service.SearchSymbolsAsync(new CodeGraphSymbolSearchRequest
+                        {
+                            VesselId = vessel.Id,
+                            Query = "Worker",
+                            Limit = 10
+                        }).ConfigureAwait(false);
+                        AssertEqual(first.Results.Count, second.Results.Count, "cached stale context should serve same results");
+                        AssertTrue(second.Warnings.Any(w => w.Contains("freshness is Stale", StringComparison.OrdinalIgnoreCase)),
+                            "stale warning should be preserved in the cached context");
+                        AssertFalse(second.Warnings.Any(w => w.Contains("sidecar missing", StringComparison.OrdinalIgnoreCase)),
+                            "cache hit should not have re-read the deleted sidecars");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
         }
 
         private static CodeIndexService CreateService(TestDatabase db, ArmadaSettings settings)
@@ -553,6 +905,33 @@ namespace Armada.Test.Unit.Suites.Services
             File.WriteAllText(Path.Combine(indexDir, "metadata.json"), JsonSerializer.Serialize(status, _JsonOptions), Encoding.UTF8);
             WriteJsonl(Path.Combine(indexDir, "symbols.jsonl"), symbols);
             WriteJsonl(Path.Combine(indexDir, "edges.jsonl"), edges);
+        }
+
+        private static void WriteMetadataOnly(
+            ArmadaSettings settings,
+            Vessel vessel,
+            string commitSha,
+            string freshness)
+        {
+            string indexDir = Path.Combine(settings.CodeIndex.IndexDirectory, vessel.Id);
+            Directory.CreateDirectory(indexDir);
+
+            CodeIndexStatus status = new CodeIndexStatus
+            {
+                VesselId = vessel.Id,
+                VesselName = vessel.Name,
+                DefaultBranch = vessel.DefaultBranch,
+                IndexedCommitSha = commitSha,
+                CurrentCommitSha = "",
+                IndexedAtUtc = DateTime.UtcNow,
+                Freshness = freshness,
+                DocumentCount = 1,
+                ChunkCount = 2,
+                IndexDirectory = indexDir,
+                LastError = null
+            };
+
+            File.WriteAllText(Path.Combine(indexDir, "metadata.json"), JsonSerializer.Serialize(status, _JsonOptions), Encoding.UTF8);
         }
 
         private static void WriteJsonl<T>(string path, List<T> items)
