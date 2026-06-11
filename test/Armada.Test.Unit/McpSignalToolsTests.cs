@@ -225,6 +225,36 @@ namespace Armada.Test.Unit
                     AssertContains("check the tests please", readBack.Payload);
                 }
             });
+
+            await RunTest("NudgeVoyage_LowercaseType_AcceptedCaseInsensitively", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Voyage voyage = new Voyage("case-voyage");
+                    voyage = await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+
+                    Func<JsonElement?, Task<object>>? handler = null;
+                    McpSignalTools.Register(
+                        (name, _, _, h) => { if (name == "armada_nudge_voyage") handler = h; },
+                        testDb.Driver);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        voyageId = voyage.Id,
+                        type = "mail",
+                        message = "lowercase type should work"
+                    }, _JsonOpts);
+                    object result = await handler!(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+                    AssertContains("sig_", resultJson, "Lowercase type token must be accepted");
+
+                    Signal? readBack = await testDb.Driver.Signals.ReadAsync(
+                        JsonSerializer.Deserialize<Signal>(resultJson)!.Id).ConfigureAwait(false);
+                    AssertNotNull(readBack);
+                    AssertEqual("Mail", readBack!.Type.ToString(), "Lowercase 'mail' should map to the Mail signal type");
+                    AssertContains("lowercase type should work", readBack.Payload!);
+                }
+            });
         }
     }
 }
