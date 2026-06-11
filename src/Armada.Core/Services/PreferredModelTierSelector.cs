@@ -43,6 +43,8 @@ namespace Armada.Core.Services
 
         private static readonly string[] _HighModels = new string[]
         {
+            "claude-fable-5",
+            "claude-mythos-5",
             "claude-opus-4-7",
             "gpt-5.5",
             "claude-opus-4-7-high",
@@ -62,6 +64,12 @@ namespace Armada.Core.Services
 
         private static readonly Regex _CanonicalSonnetPattern =
             new Regex(@"^claude-sonnet-\d+(?:-\d+)*$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        // Anthropic's most-capable widely-released family (Fable) and its Project Glasswing
+        // sibling (Mythos) are top-tier -> high. Anchored to canonical naming so version bumps
+        // (claude-fable-5 -> claude-fable-6) register automatically, like the opus pattern.
+        private static readonly Regex _CanonicalFablePattern =
+            new Regex(@"^claude-(?:fable|mythos)-\d+(?:-\d+)*$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         private static readonly Regex _GeminiProPattern =
             new Regex(@"^gemini-[\d.]+-pro$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -219,6 +227,7 @@ namespace Armada.Core.Services
 
             // Canonical family patterns -- forward-compatible with version bumps.
             if (_CanonicalOpusPattern.IsMatch(normalized)) return HighTier;
+            if (_CanonicalFablePattern.IsMatch(normalized)) return HighTier;
             if (_CanonicalSonnetPattern.IsMatch(normalized)) return MidTier;
             if (_GeminiProPattern.IsMatch(normalized)) return MidTier;
             if (normalized.StartsWith("composer-", StringComparison.OrdinalIgnoreCase)) return MidTier;
