@@ -192,7 +192,14 @@ namespace Armada.Server.Routes
                 return target == MissionStatusEnum.WorkProduced
                     || target == MissionStatusEnum.Testing
                     || target == MissionStatusEnum.Review
+                    || target == MissionStatusEnum.WaitingForInput
                     || target == MissionStatusEnum.Complete
+                    || target == MissionStatusEnum.Failed
+                    || target == MissionStatusEnum.Cancelled;
+            }
+            if (current == MissionStatusEnum.WaitingForInput)
+            {
+                return target == MissionStatusEnum.Pending
                     || target == MissionStatusEnum.Failed
                     || target == MissionStatusEnum.Cancelled;
             }
