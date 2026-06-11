@@ -1773,6 +1773,10 @@ namespace Armada.Core.Services
 
             if (dependentMissions.Count == 0) return false;
 
+            // Load unread mailbox signals once for all downstream missions in this handoff batch
+            List<Signal> unreadMailboxSignals = await LoadUnreadMailboxSignalsAsync(token).ConfigureAwait(false);
+            HashSet<string> appliedSignalIds = new HashSet<string>(StringComparer.Ordinal);
+
             // Special handling for Architect stage: parse output into new missions
             if (String.Equals(completedMission.Persona, "Architect", StringComparison.OrdinalIgnoreCase))
             {
@@ -1789,7 +1793,14 @@ namespace Armada.Core.Services
                     // Update the first parsed mission into this existing Worker mission slot
                     ParsedArchitectMission first = parsed[0];
                     nextMission.Title = first.Title + " [Worker]";
-                    nextMission.Description = ArchitectHandoffMarker + "\n" + first.Description;
+                    string architectFirstDesc = ArchitectHandoffMarker + "\n" + first.Description;
+                    List<Signal> firstApplicable = GetApplicableMailboxSignals(unreadMailboxSignals, nextMission.Id, nextMission.VoyageId);
+                    if (firstApplicable.Count > 0)
+                    {
+                        architectFirstDesc = BuildMailboxNotesBlock(firstApplicable) + "\n\n" + architectFirstDesc;
+                        foreach (Signal s in firstApplicable) appliedSignalIds.Add(s.Id);
+                    }
+                    nextMission.Description = architectFirstDesc;
                     nextMission.BranchName = null;
                     nextMission.LastUpdateUtc = DateTime.UtcNow;
                     await _Database.Missions.UpdateAsync(nextMission, token).ConfigureAwait(false);
@@ -1799,7 +1810,15 @@ namespace Armada.Core.Services
                     // Create additional worker missions for remaining parsed items
                     for (int i = 1; i < parsed.Count; i++)
                     {
-                                Mission additionalWorker = new Mission(parsed[i].Title + " [Worker]", ArchitectHandoffMarker + "\n" + parsed[i].Description);
+                                string additionalDesc = ArchitectHandoffMarker + "\n" + parsed[i].Description;
+                                // Additional workers share the same voyageId; voyage-level signals apply to them too
+                                List<Signal> additionalApplicable = GetApplicableMailboxSignals(unreadMailboxSignals, null, completedMission.VoyageId);
+                                if (additionalApplicable.Count > 0)
+                                {
+                                    additionalDesc = BuildMailboxNotesBlock(additionalApplicable) + "\n\n" + additionalDesc;
+                                    foreach (Signal s in additionalApplicable) appliedSignalIds.Add(s.Id);
+                                }
+                                Mission additionalWorker = new Mission(parsed[i].Title + " [Worker]", additionalDesc);
                                 additionalWorker.TenantId = completedMission.TenantId;
                                 additionalWorker.UserId = completedMission.UserId;
                                 additionalWorker.VoyageId = completedMission.VoyageId;
@@ -1816,6 +1835,8 @@ namespace Armada.Core.Services
             }
 
                     await ApplyArchitectMissionDependenciesAsync(completedMission, parsed, token).ConfigureAwait(false);
+                    foreach (string signalId in appliedSignalIds)
+                        await _Database.Signals.MarkReadAsync(signalId, token).ConfigureAwait(false);
                     return true; // Architect special handling complete, skip normal handoff
                 }
 
@@ -1904,9 +1925,19 @@ namespace Armada.Core.Services
                     handoffContext += "\n*No diff available from prior stage. The work is on the branch above.*\n";
                 }
 
-                nextMission.Description = personaPreamble.Length > 0
+                string handoffDescription = personaPreamble.Length > 0
                     ? personaPreamble + (nextMission.Description ?? "") + handoffContext
                     : (nextMission.Description ?? "") + handoffContext;
+
+                // Drain unread mailbox signals and prepend at the absolute top of the brief
+                List<Signal> applicableSignals = GetApplicableMailboxSignals(unreadMailboxSignals, nextMission.Id, nextMission.VoyageId);
+                if (applicableSignals.Count > 0)
+                {
+                    handoffDescription = BuildMailboxNotesBlock(applicableSignals) + "\n\n" + handoffDescription;
+                    foreach (Signal s in applicableSignals) appliedSignalIds.Add(s.Id);
+                }
+
+                nextMission.Description = handoffDescription;
                 nextMission.BranchName = completedMission.BranchName;
                 nextMission.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.Missions.UpdateAsync(nextMission, token).ConfigureAwait(false);
@@ -1917,7 +1948,91 @@ namespace Armada.Core.Services
 
             }
 
+            // Mark drained signals as read after all downstream missions are updated
+            foreach (string signalId in appliedSignalIds)
+                await _Database.Signals.MarkReadAsync(signalId, token).ConfigureAwait(false);
+
             return true;
+        }
+
+        private static readonly System.Text.Json.JsonSerializerOptions _MailboxJsonOptions = new System.Text.Json.JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true
+        };
+
+        private async Task<List<Signal>> LoadUnreadMailboxSignalsAsync(CancellationToken token)
+        {
+            EnumerationQuery nudgeQuery = new EnumerationQuery();
+            nudgeQuery.PageSize = 200;
+            nudgeQuery.UnreadOnly = true;
+            nudgeQuery.SignalType = "Nudge";
+
+            EnumerationQuery mailQuery = new EnumerationQuery();
+            mailQuery.PageSize = 200;
+            mailQuery.UnreadOnly = true;
+            mailQuery.SignalType = "Mail";
+
+            EnumerationResult<Signal> nudgeResult = await _Database.Signals.EnumerateAsync(nudgeQuery, token).ConfigureAwait(false);
+            EnumerationResult<Signal> mailResult = await _Database.Signals.EnumerateAsync(mailQuery, token).ConfigureAwait(false);
+
+            List<Signal> all = new List<Signal>();
+            all.AddRange(nudgeResult.Objects);
+            all.AddRange(mailResult.Objects);
+            return all;
+        }
+
+        private static List<Signal> GetApplicableMailboxSignals(List<Signal> signals, string? missionId, string? voyageId)
+        {
+            List<Signal> result = new List<Signal>();
+            foreach (Signal signal in signals)
+            {
+                VoyageMailboxSignalPayload? payload = TryParseMailboxPayload(signal.Payload);
+                if (payload == null) continue;
+
+                if (!String.IsNullOrEmpty(payload.MissionId))
+                {
+                    // Mission-specific: only applies to the targeted mission
+                    if (!String.IsNullOrEmpty(missionId) &&
+                        String.Equals(payload.MissionId, missionId, StringComparison.Ordinal))
+                        result.Add(signal);
+                }
+                else
+                {
+                    // Voyage-level: applies to all missions of the target voyage
+                    if (!String.IsNullOrEmpty(voyageId) &&
+                        !String.IsNullOrEmpty(payload.VoyageId) &&
+                        String.Equals(payload.VoyageId, voyageId, StringComparison.Ordinal))
+                        result.Add(signal);
+                }
+            }
+            return result;
+        }
+
+        private static VoyageMailboxSignalPayload? TryParseMailboxPayload(string? payload)
+        {
+            if (String.IsNullOrEmpty(payload)) return null;
+            try
+            {
+                return System.Text.Json.JsonSerializer.Deserialize<VoyageMailboxSignalPayload>(payload, _MailboxJsonOptions);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static string BuildMailboxNotesBlock(List<Signal> signals)
+        {
+            System.Text.StringBuilder sb = new System.Text.StringBuilder();
+            sb.AppendLine("[ORCHESTRATOR NOTES]");
+            foreach (Signal signal in signals)
+            {
+                VoyageMailboxSignalPayload? payload = TryParseMailboxPayload(signal.Payload);
+                if (payload != null && !String.IsNullOrEmpty(payload.Message))
+                    sb.AppendLine(payload.Message);
+            }
+            sb.Append("[/ORCHESTRATOR NOTES]");
+            return sb.ToString();
         }
 
         private async Task CancelDependentPipelineStagesAsync(Mission failedMission, CancellationToken token)
