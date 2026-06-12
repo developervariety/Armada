@@ -3,6 +3,7 @@ namespace Armada.Core.Services
     using System;
     using System.Collections.Generic;
     using System.IO;
+    using System.Text;
     using SyslogLogging;
     using Armada.Core.Models;
 
@@ -40,6 +41,9 @@ namespace Armada.Core.Services
         /// on success, or a human-readable error message on first failure. The
         /// caller is responsible for failing the mission and surfacing the error.
         /// Caller should treat any non-null return as a hard failure.
+        /// Content-based entries (where <see cref="PrestagedFile.Content"/> is
+        /// non-null) are written directly as UTF-8 no-BOM text with LF line endings
+        /// rather than copied from a source path.
         /// </summary>
         /// <param name="entries">Validated prestaged file entries; may be null/empty.</param>
         /// <param name="worktreePath">Absolute path to the dock worktree root.</param>
@@ -107,18 +111,37 @@ namespace Armada.Core.Services
                     }
                 }
 
-                try
+                if (entry.Content != null)
                 {
-                    File.Copy(source, destAbsolute, overwrite: false);
-                }
-                catch (Exception ex)
-                {
-                    _Logging.Error(_Header + "failed to copy prestaged file " + source +
-                        " -> " + destAbsolute + ": " + ex.Message);
-                    return "failed to copy '" + source + "' to '" + dest + "': " + ex.Message;
-                }
+                    try
+                    {
+                        string normalized = entry.Content.Replace("\r\n", "\n").Replace("\r", "\n");
+                        File.WriteAllText(destAbsolute, normalized, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+                    }
+                    catch (Exception ex)
+                    {
+                        _Logging.Error(_Header + "failed to write content-based prestaged file -> " +
+                            destAbsolute + ": " + ex.Message);
+                        return "failed to write content to '" + dest + "': " + ex.Message;
+                    }
 
-                _Logging.Info(_Header + "prestaged file copied: " + source + " -> " + destAbsolute);
+                    _Logging.Info(_Header + "prestaged file written from content: -> " + destAbsolute);
+                }
+                else
+                {
+                    try
+                    {
+                        File.Copy(source, destAbsolute, overwrite: false);
+                    }
+                    catch (Exception ex)
+                    {
+                        _Logging.Error(_Header + "failed to copy prestaged file " + source +
+                            " -> " + destAbsolute + ": " + ex.Message);
+                        return "failed to copy '" + source + "' to '" + dest + "': " + ex.Message;
+                    }
+
+                    _Logging.Info(_Header + "prestaged file copied: " + source + " -> " + destAbsolute);
+                }
             }
 
             return null;

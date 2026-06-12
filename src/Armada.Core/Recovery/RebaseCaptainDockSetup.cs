@@ -16,8 +16,8 @@ namespace Armada.Core.Recovery
     /// Builds a <see cref="RebaseCaptainMissionSpec"/> describing a rebase-captain
     /// recovery mission. Pure with respect to the database (reads only): assembles
     /// the brief from the failed mission description plus a conflict-context
-    /// appendix, synthesizes the prestaged conflict-state marker, and pins the
-    /// landing branch to the failed mission's captain branch so resolution
+    /// appendix, materializes the conflict-state marker as inline content, and pins
+    /// the landing branch to the failed mission's captain branch so resolution
     /// commits land on the same branch the merge queue is watching.
     /// </summary>
     public sealed class RebaseCaptainDockSetup : IRebaseCaptainDockSetup
@@ -86,7 +86,7 @@ namespace Armada.Core.Recovery
 
             string captainBranch = ResolveCaptainBranch(failedEntry, failedMission);
             string brief = BuildBrief(failedEntry, failedMission, classification);
-            List<PrestagedFile> prestaged = await BuildPrestagedFilesAsync(failedMission, classification, captainBranch, token).ConfigureAwait(false);
+            List<PrestagedFile> prestaged = await BuildPrestagedFilesAsync(failedEntry, failedMission, classification, captainBranch, token).ConfigureAwait(false);
 
             List<SelectedPlaybook> selected = new List<SelectedPlaybook>
             {
@@ -149,6 +149,7 @@ namespace Armada.Core.Recovery
         }
 
         private async Task<List<PrestagedFile>> BuildPrestagedFilesAsync(
+            MergeEntry failedEntry,
             Mission failedMission,
             MergeFailureClassification classification,
             string captainBranch,
@@ -168,14 +169,42 @@ namespace Armada.Core.Recovery
                 }
             }
 
-            // Synthesize a conflict-state.md describing what's currently checked out on
-            // the captain branch (no source path -- this is conceptual prestaging that
-            // the dock provisioner materializes; tests assert the marker is present).
-            string syntheticPath = "<conflict-state-synthesized:" + failedMission.Id + ":" + captainBranch + ">";
-            prestaged.Add(new PrestagedFile(syntheticPath, ConflictStateMarkerRelativePath));
+            // Generate conflict-state.md as inline content so the dock provisioner
+            // writes it directly without needing a source file. Previously this used
+            // a synthetic path token ("<conflict-state-synthesized:...>") that caused
+            // an illegal-filename crash on Windows before any source file was read.
+            string conflictStateContent = BuildConflictStateMarkdown(failedEntry, failedMission, classification, captainBranch);
+            prestaged.Add(PrestagedFile.FromContent(ConflictStateMarkerRelativePath, conflictStateContent));
 
             await Task.CompletedTask;
             return prestaged;
+        }
+
+        private static string BuildConflictStateMarkdown(
+            MergeEntry failedEntry,
+            Mission failedMission,
+            MergeFailureClassification classification,
+            string captainBranch)
+        {
+            StringBuilder sb = new StringBuilder();
+            sb.Append("# Conflict State\n\n");
+            sb.Append("Captain branch: ").Append(captainBranch).Append('\n');
+            sb.Append("Target branch: ").Append(failedEntry.TargetBranch).Append('\n');
+            sb.Append("Failure class: ").Append(classification.FailureClass).Append('\n');
+            sb.Append("Summary: ").Append(classification.Summary ?? string.Empty).Append('\n');
+
+            sb.Append("\n## Conflicted files\n\n");
+            string conflictedJson = JsonSerializer.Serialize(classification.ConflictedFiles ?? Array.Empty<string>(), _PrettyJson);
+            sb.Append("```json\n").Append(conflictedJson).Append("\n```\n");
+
+            string testOutputTail = ExtractTail(failedEntry.TestOutput, _OutputTailLineCount);
+            if (!String.IsNullOrEmpty(testOutputTail))
+            {
+                sb.Append("\n## Last ").Append(_OutputTailLineCount).Append(" lines of git/test output\n\n");
+                sb.Append("```\n").Append(testOutputTail).Append("\n```\n");
+            }
+
+            return sb.ToString();
         }
 
         private static string ExtractTail(string? text, int lineCount)

@@ -313,6 +313,126 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertNull(read!.PrestagedFiles, "PrestagedFiles should round-trip as null when not set");
                 }
             });
+
+            await RunTest("Copier_ContentBased_WritesTextToDestination", () =>
+            {
+                string worktree = NewTempDir("armada_pf_wt_");
+                try
+                {
+                    PrestagedFileCopier copier = new PrestagedFileCopier(SilentLogging());
+                    PrestagedFile entry = PrestagedFile.FromContent("subdir/conflict-state.md", "# Conflict\r\nCaptain branch: main\r\n");
+                    List<PrestagedFile> entries = new List<PrestagedFile> { entry };
+
+                    string? failure = copier.CopyAll(entries, worktree);
+                    AssertNull(failure, "Content-based copy should succeed");
+
+                    string dest = Path.Combine(worktree, "subdir", "conflict-state.md");
+                    AssertTrue(File.Exists(dest), "Destination file should exist");
+                    string written = File.ReadAllText(dest);
+                    // Line endings must be normalized to LF; BOM must not be present.
+                    AssertFalse(written.Contains('\r'), "Written content must not contain CR");
+                    AssertTrue(written.Contains("Captain branch: main"), "Written content should match input");
+                    byte[] raw = File.ReadAllBytes(dest);
+                    AssertFalse(raw.Length >= 3 && raw[0] == 0xEF && raw[1] == 0xBB && raw[2] == 0xBF,
+                        "File must not start with UTF-8 BOM bytes");
+                }
+                finally
+                {
+                    TryDeleteDir(worktree);
+                }
+            });
+
+            await RunTest("Copier_ContentBased_FailsWhenDestAlreadyExists", () =>
+            {
+                string worktree = NewTempDir("armada_pf_wt_");
+                try
+                {
+                    string existing = Path.Combine(worktree, "present.md");
+                    File.WriteAllText(existing, "pre-existing\n");
+
+                    PrestagedFileCopier copier = new PrestagedFileCopier(SilentLogging());
+                    PrestagedFile entry = PrestagedFile.FromContent("present.md", "new content");
+                    List<PrestagedFile> entries = new List<PrestagedFile> { entry };
+
+                    string? failure = copier.CopyAll(entries, worktree);
+                    AssertNotNull(failure, "Content-based copy should fail when dest exists");
+                    AssertContains("already exists", failure!);
+                    AssertEqual("pre-existing\n", File.ReadAllText(existing).Replace("\r\n", "\n"));
+                }
+                finally
+                {
+                    TryDeleteDir(worktree);
+                }
+            });
+
+            await RunTest("Copier_ContentBased_RejectsDestOutsideWorktree", () =>
+            {
+                string worktree = NewTempDir("armada_pf_wt_");
+                try
+                {
+                    PrestagedFileCopier copier = new PrestagedFileCopier(SilentLogging());
+                    PrestagedFile entry = PrestagedFile.FromContent("..\\escape.md", "bad");
+                    List<PrestagedFile> entries = new List<PrestagedFile> { entry };
+
+                    string? failure = copier.CopyAll(entries, worktree);
+                    AssertNotNull(failure, "Content-based copy should fail when dest escapes worktree");
+                    AssertContains("outside the worktree root", failure!);
+                }
+                finally
+                {
+                    TryDeleteDir(worktree);
+                }
+            });
+
+            await RunTest("Copier_PathBased_UnchangedWhenContentIsNull", () =>
+            {
+                string source = WriteTempFile("path-based content\n");
+                string worktree = NewTempDir("armada_pf_wt_");
+                try
+                {
+                    PrestagedFileCopier copier = new PrestagedFileCopier(SilentLogging());
+                    List<PrestagedFile> entries = new List<PrestagedFile>
+                    {
+                        new PrestagedFile(source, "out.txt")
+                    };
+
+                    string? failure = copier.CopyAll(entries, worktree);
+                    AssertNull(failure, "Path-based copy should succeed");
+                    AssertTrue(File.Exists(Path.Combine(worktree, "out.txt")), "Copied file must exist");
+                }
+                finally
+                {
+                    TryDelete(source);
+                    TryDeleteDir(worktree);
+                }
+            });
+
+            await RunTest("Validator_ContentBased_AcceptsWithoutSourceFile", () =>
+            {
+                PrestagedFile entry = PrestagedFile.FromContent("_briefing/conflict-state.md", "# content");
+                List<PrestagedFile> entries = new List<PrestagedFile> { entry };
+                List<string> errors = PrestagedFileValidator.Validate(entries);
+                AssertEqual(0, errors.Count, "Content-based entry with valid destPath should pass validation");
+            });
+
+            await RunTest("Validator_ContentBased_RejectsAbsoluteDestPath", () =>
+            {
+                string absoluteDest = OperatingSystem.IsWindows() ? "C:/briefing/conflict-state.md" : "/briefing/conflict-state.md";
+                PrestagedFile entry = PrestagedFile.FromContent(absoluteDest, "# content");
+                List<PrestagedFile> entries = new List<PrestagedFile> { entry };
+                List<string> errors = PrestagedFileValidator.Validate(entries);
+                AssertEqual(1, errors.Count, "Content-based entry with absolute destPath should fail");
+                AssertContains("destPath must be relative", errors[0]);
+            });
+
+            await RunTest("Validator_ContentBased_RejectsParentTraversalDestPath", () =>
+            {
+                PrestagedFile entry = PrestagedFile.FromContent("../escape.md", "# content");
+                List<PrestagedFile> entries = new List<PrestagedFile> { entry };
+                List<string> errors = PrestagedFileValidator.Validate(entries);
+                AssertEqual(1, errors.Count, "Content-based entry with '..' in destPath should fail");
+                AssertContains("'..'", errors[0]);
+            });
         }
 
         private static string WriteTempFile(string content)

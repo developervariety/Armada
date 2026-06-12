@@ -23,6 +23,7 @@ namespace Armada.Core.Services
         /// Maximum total bytes summed over all source files for a single mission.
         /// 50 MB. Larger files should be checked into the repository or fetched
         /// at runtime by the captain rather than being copied through dispatch.
+        /// Content-based entries do not contribute to this total.
         /// </summary>
         public const long MaxTotalBytesPerMission = 50L * 1024L * 1024L;
 
@@ -35,6 +36,9 @@ namespace Armada.Core.Services
         /// messages; an empty list means the input is valid. The error messages
         /// always include the offending path so the caller can surface a clear
         /// rejection reason.
+        /// Content-based entries (where <see cref="PrestagedFile.Content"/> is
+        /// non-null) bypass source-file existence checks but still have their
+        /// DestPath validated (relative, no '..', no leading separator).
         /// </summary>
         /// <param name="entries">Entries to validate. Null is treated as empty.</param>
         /// <returns>List of error messages, empty when valid.</returns>
@@ -62,23 +66,11 @@ namespace Armada.Core.Services
                     continue;
                 }
 
-                string source = entry.SourcePath ?? "";
                 string dest = entry.DestPath ?? "";
 
-                if (String.IsNullOrWhiteSpace(source))
-                {
-                    errors.Add("prestagedFiles[" + i + "].sourcePath is empty");
-                    continue;
-                }
                 if (String.IsNullOrWhiteSpace(dest))
                 {
                     errors.Add("prestagedFiles[" + i + "].destPath is empty");
-                    continue;
-                }
-
-                if (!Path.IsPathRooted(source))
-                {
-                    errors.Add("prestagedFiles[" + i + "].sourcePath must be an absolute path: " + source);
                     continue;
                 }
 
@@ -122,6 +114,26 @@ namespace Armada.Core.Services
                 if (allEmpty)
                 {
                     errors.Add("prestagedFiles[" + i + "].destPath has no usable segments: " + dest);
+                    continue;
+                }
+
+                // Content-based entries carry inline text; no source file is required.
+                // DestPath rules above are still enforced.
+                if (entry.Content != null) continue;
+
+                // --- Path-based source validation below ---
+
+                string source = entry.SourcePath ?? "";
+
+                if (String.IsNullOrWhiteSpace(source))
+                {
+                    errors.Add("prestagedFiles[" + i + "].sourcePath is empty");
+                    continue;
+                }
+
+                if (!Path.IsPathRooted(source))
+                {
+                    errors.Add("prestagedFiles[" + i + "].sourcePath must be an absolute path: " + source);
                     continue;
                 }
 
