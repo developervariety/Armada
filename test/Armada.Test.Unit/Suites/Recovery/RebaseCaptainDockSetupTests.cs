@@ -128,6 +128,59 @@ namespace Armada.Test.Unit.Suites.Recovery
                     AssertEqual(RebaseCaptainDockSetup.PreferredModelClaudeOpus47, spec.PreferredModel, "preferred model should be claude-opus-4-7");
                 }
             });
+
+            await RunTest("Build_ConflictStateEntry_IsContentBased_NoSyntheticToken", async () =>
+            {
+                using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = NewQuietLogging();
+                    RebaseCaptainDockSetup setup = new RebaseCaptainDockSetup(new StubGitService(), db.Driver, logging);
+
+                    Mission failedMission = new Mission("title", "body");
+                    failedMission.BranchName = "captain/rescue-me";
+                    MergeEntry entry = NewFailedEntry(failedMission.Id, "captain/rescue-me");
+                    MergeFailureClassification cls = new MergeFailureClassification(
+                        MergeFailureClassEnum.TextConflict, "summary", new List<string> { "src/Foo.cs" });
+
+                    RebaseCaptainMissionSpec spec = await setup.BuildAsync(entry, failedMission, cls).ConfigureAwait(false);
+
+                    PrestagedFile? marker = spec.PrestagedFiles
+                        .FirstOrDefault(f => f.DestPath == RebaseCaptainDockSetup.ConflictStateMarkerRelativePath);
+                    AssertNotNull(marker, "conflict-state.md entry must be present");
+                    AssertNotNull(marker!.Content, "conflict-state.md entry must be content-based (Content != null)");
+                    AssertFalse(marker.Content!.Contains("<conflict-state-synthesized"),
+                        "Content must not contain the old synthetic token");
+                }
+            });
+
+            await RunTest("Build_ConflictStateEntry_ContentIncludesBranchAndConflictedFiles", async () =>
+            {
+                using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = NewQuietLogging();
+                    RebaseCaptainDockSetup setup = new RebaseCaptainDockSetup(new StubGitService(), db.Driver, logging);
+
+                    Mission failedMission = new Mission("title", "body");
+                    failedMission.BranchName = "captain/fix-conflict";
+                    MergeEntry entry = NewFailedEntry(failedMission.Id, "captain/fix-conflict");
+                    entry.TestOutput = "FATAL: merge conflict detected in Widget.cs";
+                    MergeFailureClassification cls = new MergeFailureClassification(
+                        MergeFailureClassEnum.TextConflict,
+                        "Text conflict in Widget.cs",
+                        new List<string> { "src/Widget.cs", "src/Gadget.cs" });
+
+                    RebaseCaptainMissionSpec spec = await setup.BuildAsync(entry, failedMission, cls).ConfigureAwait(false);
+
+                    PrestagedFile? marker = spec.PrestagedFiles
+                        .FirstOrDefault(f => f.DestPath == RebaseCaptainDockSetup.ConflictStateMarkerRelativePath);
+                    AssertNotNull(marker, "conflict-state.md entry must be present");
+                    string content = marker!.Content ?? "";
+                    AssertContains("captain/fix-conflict", content, "captain branch must appear in content");
+                    AssertContains("src/Widget.cs", content, "conflicted file must appear in content");
+                    AssertContains("src/Gadget.cs", content, "all conflicted files must appear in content");
+                    AssertContains("FATAL: merge conflict detected in Widget.cs", content, "test output tail must appear in content");
+                }
+            });
         }
 
         private static MergeEntry NewFailedEntry(string missionId, string branch)
