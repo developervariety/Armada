@@ -6,6 +6,7 @@ namespace Armada.Test.Unit
     using Armada.Test.Unit.Suites.Recovery;
     using Armada.Test.Unit.Suites.Routes;
     using Armada.Test.Unit.Suites.Services;
+    using Armada.Test.Unit.Suites.Settings;
 
     public class Program
     {
@@ -214,6 +215,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new MissionMailboxDrainTests());
             runner.AddSuite(new BuildDriftEvaluatorTests());
             runner.AddSuite(new BuildDriftServiceTests());
+            runner.AddSuite(new AutonomousObjectiveSchedulerSettingsTests());
 
             int exitCode = await runner.RunAllAsync(suiteFilters).ConfigureAwait(false);
             return exitCode;
