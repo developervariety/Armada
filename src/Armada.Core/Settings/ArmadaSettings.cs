@@ -880,6 +880,15 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Near-instant runtime crash-loop detection and captain benching policy.
+        /// </summary>
+        public CrashLoopDetectionSettings CrashLoopDetection
+        {
+            get => _CrashLoopDetection;
+            set => _CrashLoopDetection = value ?? new CrashLoopDetectionSettings();
+        }
+
+        /// <summary>
         /// Armada-native incident mitigation and closure policy.
         /// </summary>
         public IncidentLifecycleSettings IncidentLifecycle
@@ -972,6 +981,7 @@ namespace Armada.Core.Settings
         private DatabaseSettings _Database = new DatabaseSettings();
         private CodeIndexSettings _CodeIndex = new CodeIndexSettings();
         private AutonomousRecoverySettings _AutonomousRecovery = new AutonomousRecoverySettings();
+        private CrashLoopDetectionSettings _CrashLoopDetection = new CrashLoopDetectionSettings();
         private IncidentLifecycleSettings _IncidentLifecycle = new IncidentLifecycleSettings();
         private AutonomousObjectiveSchedulerSettings _AutonomousObjectiveScheduler = new AutonomousObjectiveSchedulerSettings();
         private bool _DatabasePathConfigured = false;

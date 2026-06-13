@@ -43,6 +43,12 @@ namespace Armada.Core.Enums
         /// Captain is in the process of stopping.
         /// </summary>
         [EnumMember(Value = "Stopping")]
-        Stopping
+        Stopping,
+
+        /// <summary>
+        /// Captain auto-disabled after a detected runtime crash-loop; ineligible for assignment until restored.
+        /// </summary>
+        [EnumMember(Value = "Benched")]
+        Benched
     }
 }
