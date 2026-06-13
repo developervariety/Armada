@@ -81,11 +81,6 @@ namespace Armada.Core.Models
         public int Rank { get; set; } = 0;
 
         /// <summary>
-        /// When true, the scheduler may auto-select this objective for dispatch. Defaults to false (opt-in).
-        /// </summary>
-        public bool AutoDispatchEnabled { get; set; } = false;
-
-        /// <summary>
         /// Backlog maturity state before full execution.
         /// </summary>
         public ObjectiveBacklogStateEnum BacklogState { get; set; } = ObjectiveBacklogStateEnum.Inbox;

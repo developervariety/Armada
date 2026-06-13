@@ -9,6 +9,7 @@ namespace Armada.Server.Mcp.Tools
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
+    using Armada.Core.Settings;
     using SyslogLogging;
 
     /// <summary>
@@ -37,13 +38,15 @@ namespace Armada.Server.Mcp.Tools
         /// <param name="admiral">Admiral service for voyage dispatch.</param>
         /// <param name="codeIndexService">Optional code index service used to auto-attach context packs.</param>
         /// <param name="logging">Optional logging module for best-effort context-pack warnings.</param>
+        /// <param name="settings">Optional application settings for Architect cap resolution.</param>
         public static void Register(
             RegisterToolDelegate register,
             DatabaseDriver database,
             IArchitectOutputParser parser,
             IAdmiralService admiral,
             ICodeIndexService? codeIndexService = null,
-            LoggingModule? logging = null)
+            LoggingModule? logging = null,
+            ArmadaSettings? settings = null)
         {
             register(
                 "armada_decompose_plan",
@@ -202,7 +205,37 @@ namespace Armada.Server.Mcp.Tools
                     if (string.IsNullOrEmpty(mission.AgentOutput))
                         return (object)new { Error = "mission has no AgentOutput" };
 
-                    ArchitectParseResult result = parser.Parse(mission.AgentOutput);
+                    Vessel? vessel = await database.Vessels.ReadAsync(mission.VesselId).ConfigureAwait(false);
+                    int effectiveCap = vessel?.ArchitectMaxMissionsPerVoyage ?? settings?.Architect?.MaxMissionsPerVoyage ?? 8;
+
+                    ArchitectParseResult result = parser.Parse(mission.AgentOutput, effectiveCap);
+
+                    if (result.Verdict == ArchitectParseVerdict.OverCap)
+                    {
+                        try
+                        {
+                            ArmadaEvent overCapEvent = new ArmadaEvent(
+                                "architect.decomposition_over_cap",
+                                "Architect decomposition exceeds mission cap for mission " + mission.Id);
+                            overCapEvent.EntityType = "mission";
+                            overCapEvent.EntityId = mission.Id;
+                            overCapEvent.MissionId = mission.Id;
+                            overCapEvent.VesselId = mission.VesselId;
+                            overCapEvent.VoyageId = mission.VoyageId;
+                            overCapEvent.Payload = JsonSerializer.Serialize(new
+                            {
+                                missionCount = result.MissionCount,
+                                maxMissions = result.MaxMissions,
+                                recommendedSubVoyages = result.RecommendedSubVoyages
+                            });
+                            await database.Events.CreateAsync(overCapEvent).ConfigureAwait(false);
+                        }
+                        catch (Exception evtEx)
+                        {
+                            LogCodeContextWarning(logging, "error emitting architect.decomposition_over_cap event for " + mission.Id + ": " + evtEx.Message);
+                        }
+                    }
+
                     return (object)result;
                 });
         }

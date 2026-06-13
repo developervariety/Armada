@@ -192,5 +192,8 @@ namespace Armada.Test.Unit.TestHelpers
             OperationCalls.Add("set-head-symbolic-ref:" + targetRef);
             return Task.CompletedTask;
         }
+
+        public Task<int> GetCommitCountBetweenAsync(string repoPath, string fromRef, string toRef, CancellationToken token = default)
+            => Task.FromResult(0);
     }
 }

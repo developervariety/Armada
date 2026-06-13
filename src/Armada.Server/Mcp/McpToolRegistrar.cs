@@ -121,7 +121,7 @@ namespace Armada.Server.Mcp
             if (settings != null) McpBackupTools.Register(register, database, settings);
             McpAgentWakeTools.Register(register, remoteTriggerService);
             McpAuditTools.Register(register, database, remoteTriggerService, effectiveReflectionDispatcher);
-            McpArchitectTools.Register(register, database, new ArchitectOutputParser(), admiral, codeIndexService, logging);
+            McpArchitectTools.Register(register, database, new ArchitectOutputParser(), admiral, codeIndexService, logging, settings);
             McpReflectionTools.Register(register, database, effectiveReflectionDispatcher, effectiveSettings);
             if (codeIndexService != null) McpCodeIndexTools.Register(register, codeIndexService);
         }
