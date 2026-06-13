@@ -383,8 +383,47 @@ namespace Armada.Test.Unit.Suites.Services
                     string resultJson = JsonSerializer.Serialize(result);
 
                     AssertFalse(resultJson.Contains("\"Error\""), "Should not return error: " + resultJson);
+                    AssertEqual(0, codeIndex.CacheRequests.Count, "Off mode should not attempt cache lookup");
                     AssertEqual(0, codeIndex.ContextPackRequests.Count, "Off mode should not request context packs");
+                    AssertEqual(0, codeIndex.WarmBaselineCacheVesselIds.Count, "Off mode should not warm baseline cache");
                     AssertNull(admiralDouble.LastMissionDescriptions[0].PrestagedFiles, "Off mode should not add prestaged files");
+                }
+            });
+
+            await RunTest("Dispatch_CodeContextAuto_ServiceUnavailable_ContinuesWithoutError", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("code-context-auto-unavailable-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
+
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "auto unavailable voyage",
+                        vesselId = vessel.Id,
+                        missions = new object[]
+                        {
+                            new { title = "Task A", description = "Auto must not fail when index service is absent" }
+                        }
+                    });
+
+                    object result = await dispatchHandler!(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+
+                    AssertFalse(resultJson.Contains("\"Error\""), "Auto mode must not error when code index is unavailable: " + resultJson);
+                    AssertTrue(admiralDouble.DispatchVoyageCalled, "Dispatch must proceed without code index in auto mode");
+                    AssertEqual(1, admiralDouble.LastMissionDescriptions.Count, "Dispatch should receive the mission");
+                    AssertNull(admiralDouble.LastMissionDescriptions[0].CodeContextQuery,
+                        "Unavailable index cannot defer; stager intent is not set");
                 }
             });
 
@@ -608,6 +647,49 @@ namespace Armada.Test.Unit.Suites.Services
                 finally
                 {
                     Environment.SetEnvironmentVariable("ARMADA_CODE_CONTEXT_TIMEOUT_MS", priorTimeout);
+                }
+            });
+
+            await RunTest("Dispatch_CodeContextForce_ReturnsErrorWhenGenerationReturnsNoPrestagedFiles", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("code-context-force-empty-pack-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
+                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService();
+
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null,
+                        null,
+                        null,
+                        codeIndex);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "force empty pack voyage",
+                        vesselId = vessel.Id,
+                        codeContextMode = "force",
+                        missions = new object[]
+                        {
+                            new { title = "Task A", description = "Force must fail when build returns no files" }
+                        }
+                    });
+
+                    object result = await dispatchHandler!(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+
+                    AssertContains("\"Error\"", resultJson);
+                    AssertContains("no prestaged files", resultJson);
+                    AssertEqual(2, codeIndex.CacheRequests.Count, "Force must check cache before and after warm");
+                    AssertEqual(1, codeIndex.WarmBaselineCacheVesselIds.Count, "Force must warm on cache miss");
+                    AssertEqual(1, codeIndex.ContextPackRequests.Count, "Force must attempt generation once");
+                    AssertFalse(admiralDouble.DispatchVoyageCalled, "Force empty pack must fail before dispatch persistence");
                 }
             });
 
@@ -927,9 +1009,12 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertFalse(resultJson.Contains("\"Error\""), "Should not return error: " + resultJson);
                     AssertEqual(1, codeIndex.CacheRequests.Count, "Cache lookup must have been attempted");
                     AssertEqual(0, codeIndex.ContextPackRequests.Count, "Synchronous generation must NOT be called on cache hit");
+                    AssertEqual(0, codeIndex.WarmBaselineCacheVesselIds.Count, "Cache hit must skip baseline warm");
                     AssertTrue(admiralDouble.DispatchVoyageCalled, "Dispatch must proceed");
                     AssertNotNull(admiralDouble.LastMissionDescriptions[0].PrestagedFiles, "Cached pack must be staged");
                     AssertEqual(cachedPackPath, admiralDouble.LastMissionDescriptions[0].PrestagedFiles![0].SourcePath);
+                    AssertNull(admiralDouble.LastMissionDescriptions[0].CodeContextQuery,
+                        "Cache hit must merge inline; deferred query must not be set");
                 }
             });
 
@@ -1088,6 +1173,63 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertTrue(admiralDouble.DispatchVoyageCalled, "Dispatch must proceed");
                     AssertEqual("auto", admiralDouble.LastMissionDescriptions[0].CodeContextMode, "Deferred intent must be set");
                     AssertNull(admiralDouble.LastMissionDescriptions[0].PrestagedFiles, "No pack should be staged for deferred auto");
+                }
+            });
+
+            await RunTest("Dispatch_CodeContextAuto_EmptyCachedPack_DeferredNoWarmOrBuild", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("auto-empty-cache-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
+
+                    ContextPackResponse emptyCachedPack = new ContextPackResponse
+                    {
+                        Goal = "empty cached pack",
+                        MaterializedPath = Path.Combine(Path.GetTempPath(), "auto-empty-cache.md"),
+                        Metrics = new ContextPackMetrics { CacheHit = true, CacheKey = "auto-empty" }
+                    };
+
+                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService
+                    {
+                        CachedResponse = emptyCachedPack,
+                        WarmBaselineCacheException = new InvalidOperationException("warm must not be called for auto")
+                    };
+
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null,
+                        null,
+                        null,
+                        codeIndex);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "auto empty cache voyage",
+                        vesselId = vessel.Id,
+                        codeContextMode = "auto",
+                        missions = new object[]
+                        {
+                            new { title = "Task H", description = "empty cache must defer without warming" }
+                        }
+                    });
+
+                    object result = await dispatchHandler!(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+
+                    AssertFalse(resultJson.Contains("\"Error\""), "Auto must defer on empty cached pack: " + resultJson);
+                    AssertEqual(1, codeIndex.CacheRequests.Count, "Only one cache lookup runs for auto");
+                    AssertEqual(0, codeIndex.WarmBaselineCacheVesselIds.Count, "Auto must NOT warm when cached pack has no files");
+                    AssertEqual(0, codeIndex.ContextPackRequests.Count, "Auto must NOT build when deferring");
+                    AssertTrue(admiralDouble.DispatchVoyageCalled, "Dispatch must proceed after auto deferral");
+                    AssertEqual("auto", admiralDouble.LastMissionDescriptions[0].CodeContextMode, "Deferred intent must be set");
+                    AssertNotNull(admiralDouble.LastMissionDescriptions[0].CodeContextQuery, "Deferred query must be set");
+                    AssertContains("Task H", admiralDouble.LastMissionDescriptions[0].CodeContextQuery!);
                 }
             });
 
