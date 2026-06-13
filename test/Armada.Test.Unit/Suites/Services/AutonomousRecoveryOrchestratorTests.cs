@@ -725,6 +725,116 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("Review feedback from failed Judge stage", rescue!.Description ?? "", "Rescue brief should carry the review feedback header.");
                 AssertContains("(no detailed review output recorded)", rescue!.Description ?? "", "Rescue brief should use the fallback wording when no agent output is recorded.");
             }).ConfigureAwait(false);
+
+            await RunTest("TestEngineer-stage failure remaps to Worker and names the stage in the feedback header", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_auto_recovery", "usr_auto_recovery").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_auto_recovery", "usr_auto_recovery").ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "TestEngineer verdict: coverage gap").ConfigureAwait(false);
+                failed.Persona = "TestEngineer";
+                failed.AgentOutput = "DISTINCTIVE_TE_MARKER_77 missing negative-path coverage for the cancellation branch.";
+                await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+                List<Mission> vesselMissions = await testDb.Driver.Missions.EnumerateByVesselAsync(vessel.Id).ConfigureAwait(false);
+                Mission? rescue = vesselMissions.FirstOrDefault(item => item.ParentMissionId == failed.Id);
+                AssertTrue(rescue != null, "Expected a linked rescue mission.");
+                AssertEqual("Worker", rescue!.Persona, "TestEngineer-stage failures should dispatch Worker rescue missions.");
+                AssertContains("Review feedback from failed TestEngineer stage", rescue!.Description ?? "", "Rescue header should name the originating reviewer stage, not hardcode Judge.");
+                AssertContains("DISTINCTIVE_TE_MARKER_77", rescue!.Description ?? "", "Rescue brief should inline the parent reviewer output.");
+            }).ConfigureAwait(false);
+
+            await RunTest("Suffix-based reviewer persona remaps to Worker and inlines feedback", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_auto_recovery", "usr_auto_recovery").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_auto_recovery", "usr_auto_recovery").ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "SecurityReviewer verdict: rejected").ConfigureAwait(false);
+
+                // "SecurityReviewer" is NOT in the explicit reviewer table; it matches only the *reviewer suffix branch.
+                failed.Persona = "SecurityReviewer";
+                failed.AgentOutput = "DISTINCTIVE_SUFFIX_MARKER_31 unsanitized tenant id reaches the query builder.";
+                await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+                List<Mission> vesselMissions = await testDb.Driver.Missions.EnumerateByVesselAsync(vessel.Id).ConfigureAwait(false);
+                Mission? rescue = vesselMissions.FirstOrDefault(item => item.ParentMissionId == failed.Id);
+                AssertTrue(rescue != null, "Expected a linked rescue mission.");
+                AssertEqual("Worker", rescue!.Persona, "Suffix-matched *reviewer personas should remap to Worker.");
+                AssertContains("Review feedback from failed SecurityReviewer stage", rescue!.Description ?? "", "Rescue header should name the suffix-matched reviewer stage.");
+                AssertContains("DISTINCTIVE_SUFFIX_MARKER_31", rescue!.Description ?? "", "Rescue brief should inline feedback for suffix-matched reviewers.");
+            }).ConfigureAwait(false);
+
+            await RunTest("Judge-stage failure with whitespace-only agent output uses fallback wording", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_auto_recovery", "usr_auto_recovery").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_auto_recovery", "usr_auto_recovery").ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: NEEDS_REVISION").ConfigureAwait(false);
+                failed.Persona = "Judge";
+
+                // Whitespace-only (not null) output must still take the IsNullOrWhiteSpace fallback branch.
+                failed.AgentOutput = "   \t  ";
+                await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+                List<Mission> vesselMissions = await testDb.Driver.Missions.EnumerateByVesselAsync(vessel.Id).ConfigureAwait(false);
+                Mission? rescue = vesselMissions.FirstOrDefault(item => item.ParentMissionId == failed.Id);
+                AssertTrue(rescue != null, "Expected a linked rescue mission even with whitespace-only agent output.");
+                AssertEqual("Worker", rescue!.Persona, "Judge-stage failures should dispatch Worker rescue missions.");
+                AssertContains("(no detailed review output recorded)", rescue!.Description ?? "", "Whitespace-only output should take the same fallback path as null.");
+            }).ConfigureAwait(false);
+
+            await RunTest("Judge-stage failure truncates oversized review output to the feedback cap", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_auto_recovery", "usr_auto_recovery").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_auto_recovery", "usr_auto_recovery").ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: NEEDS_REVISION").ConfigureAwait(false);
+                failed.Persona = "Judge";
+
+                // Head marker survives; tail marker sits well past the 6000-char cap and must be dropped.
+                failed.AgentOutput = "REVIEW_HEAD_MARKER " + new string('x', 6200) + " REVIEW_TAIL_MARKER";
+                await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+                List<Mission> vesselMissions = await testDb.Driver.Missions.EnumerateByVesselAsync(vessel.Id).ConfigureAwait(false);
+                Mission? rescue = vesselMissions.FirstOrDefault(item => item.ParentMissionId == failed.Id);
+                AssertTrue(rescue != null, "Expected a linked rescue mission.");
+                AssertContains("Review feedback from failed Judge stage", rescue!.Description ?? "", "Rescue brief should carry the review feedback header.");
+                AssertContains("REVIEW_HEAD_MARKER", rescue!.Description ?? "", "The beginning of oversized review output should survive truncation.");
+                AssertFalse((rescue!.Description ?? "").Contains("REVIEW_TAIL_MARKER", StringComparison.Ordinal), "Review output beyond the 6000-char cap should be truncated away.");
+                AssertContains("...", rescue!.Description ?? "", "Truncated review output should carry the ellipsis marker.");
+            }).ConfigureAwait(false);
         }
 
         private static AutonomousRecoveryOrchestrator CreateOrchestrator(
