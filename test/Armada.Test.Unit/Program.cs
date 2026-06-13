@@ -129,6 +129,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new JudgeHybridFollowUpsTests());
             runner.AddSuite(new DependsOnMissionIdDispatchTests());
             runner.AddSuite(new AutoLandEvaluatorTests());
+            runner.AddSuite(new CaptainHealthMonitorTests());
             runner.AddSuite(new AutonomousObjectiveSelectorTests());
             runner.AddSuite(new ConventionCheckTests());
             runner.AddSuite(new CriticalTriggerEvaluatorTests());
