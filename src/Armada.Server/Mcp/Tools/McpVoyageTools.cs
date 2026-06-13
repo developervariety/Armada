@@ -348,10 +348,24 @@ namespace Armada.Server.Mcp.Tools
                     }
 
                     List<Mission> missions = await database.Missions.EnumerateByVoyageAsync(voyageId).ConfigureAwait(false);
+                    List<object> slimMissions = new List<object>();
+                    foreach (Mission mission in missions)
+                    {
+                        ContextPackUsageSummary? packUsage = null;
+                        try
+                        {
+                            List<ArmadaEvent> missionEvents = await database.Events.EnumerateByMissionAsync(mission.Id).ConfigureAwait(false);
+                            ArmadaEvent? usageEvent = missionEvents.FirstOrDefault(e => e.EventType == ContextPackUsageSummary.EventType);
+                            if (usageEvent != null)
+                                packUsage = ContextPackUsageSummary.FromEventPayload(usageEvent);
+                        }
+                        catch (Exception) { }
+                        slimMissions.Add(BuildSlimMissionStatus(mission, request.IncludeFields, packUsage));
+                    }
                     return (object)new
                     {
                         Voyage = new { voyage.Id, voyage.Title, voyage.Status, voyage.CreatedUtc, voyage.CompletedUtc, voyage.LastUpdateUtc, DescriptionLength = voyage.Description?.Length ?? 0 },
-                        Missions = missions.Select(m => BuildSlimMissionStatus(m, request.IncludeFields)).ToList()
+                        Missions = slimMissions
                     };
                 });
 
@@ -1146,7 +1160,7 @@ namespace Armada.Server.Mcp.Tools
             return logging;
         }
 
-        private static object BuildSlimMissionStatus(Mission mission, List<string>? includeFields)
+        private static object BuildSlimMissionStatus(Mission mission, List<string>? includeFields, ContextPackUsageSummary? contextPackUsage = null)
         {
             HashSet<string> fields = new HashSet<string>(includeFields ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
             bool defaultSlim = fields.Count == 0;
@@ -1171,7 +1185,8 @@ namespace Armada.Server.Mcp.Tools
                 mission.StartedUtc,
                 mission.CompletedUtc,
                 Description = TruncateForStatus(mission.Description, 4096),
-                AgentOutput = TruncateForStatus(mission.AgentOutput, 4096)
+                AgentOutput = TruncateForStatus(mission.AgentOutput, 4096),
+                ContextPackUsage = contextPackUsage
             };
         }
 
